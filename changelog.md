@@ -1,11 +1,16 @@
 # Changelog
 
-## [1.11.1] - 2026-3-30 Survey and Series Bugs
+## [1.11.1] - 2026-4-04 Survey and Series Bugs
 Of course there are bugs...
+
+### New Features
+- Tournament advancement page for moderators to manage players between stages
 
 ### Improvements
 - Warning before regenerating or clearing Tournament groups
 - Deck editor save button is disabled and grey to show when no changes have been made
+- Added video and discord thread links to scheduled matches
+- Advancement page for Tournament organizers. Advance or Eliminate players between stages.
 
 ### Bug Fixes
 - Profile and Changelog slug create functions
@@ -16,7 +21,9 @@ Of course there are bugs...
 - Fixed game total not displaying correctly on Series overview due to old model structure
 - Fixed add deck form saving the wrong inputs if multiple forms present
 - URL for Rounds that don't use Stages will direct to the correct page
-
+- RDL bug when creating new round for new season
+- Visual bug on post approval page when on mobile
+- RDL import was using date_registered insted of date_closed for game date. Pre-registered games would display the wrong day
 
 
 ## [1.11.0] - 2026-3-27 A Series of Surveys & Scorecards

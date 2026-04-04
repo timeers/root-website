@@ -814,7 +814,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'description': 'Description (Optional)',
             'rules': 'Rules (Optional)',
-            'open_roster': 'Allow Unregistered Players',
+            'open_roster': 'Allow All Players',
             'players_can_record': 'Allow Players to Record Games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
@@ -967,7 +967,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'platform': 'Required Platform',
             'link_required': 'Require Link with Game Submission',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
-            'open_roster': 'Allow Unregistered Players',
+            'open_roster': 'Allow All Players',
             'players_can_record': 'Allow Players to Record Games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
@@ -1015,6 +1015,15 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
         if user and not user.profile.admin:
             self.fields.pop('classification', None)
             self.fields.pop('designer', None)
+
+        # For non-League, non-admin: restrict guild queryset to existing value only (allow preserve or clear, not change)
+        if self.instance and self.instance.classification != Tournament.ClassificationTypes.LEAGUE:
+            if not (user and user.profile.admin):
+                from the_gatehouse.models import DiscordGuild
+                if self.instance.guild:
+                    self.fields['guild'].queryset = DiscordGuild.objects.filter(pk=self.instance.guild.pk)
+                else:
+                    self.fields['guild'].queryset = DiscordGuild.objects.none()
 
 
 class RoundCreateForm(forms.ModelForm):
@@ -1091,12 +1100,17 @@ class StageCreateForm(forms.ModelForm):
             'start_date', 'end_date', 'is_active',
             'min_players', 'max_players',
             'game_threshold', 'leaderboard_positions',
+            'stage_format', 'winners_advance_to', 'losers_advance_to', 'advancement_count',
         ]
         labels = {
             'end_date': 'End Date',
             'is_active': 'Active Status',
             'game_threshold': 'Leaderboard Threshold',
             'leaderboard_positions': 'Leaderboard Positions',
+            'stage_format': 'Format',
+            'winners_advance_to': 'Winners advance to',
+            'losers_advance_to': 'Losers advance to',
+            'advancement_count': 'Advancement count',
         }
 
     def __init__(self, *args, tournament=None, **kwargs):
@@ -1114,6 +1128,15 @@ class StageCreateForm(forms.ModelForm):
         # Pre-populate use_rounds from the tournament's current setting
         if tournament:
             self.fields['use_rounds'].initial = tournament.use_rounds
+            # Limit FK stage choices to other stages in the same tournament
+            other_stages = tournament.stages.exclude(pk=self.instance.pk) if self.instance.pk else tournament.stages.all()
+            self.fields['winners_advance_to'].queryset = other_stages
+            self.fields['losers_advance_to'].queryset = other_stages
+            self.fields['winners_advance_to'].empty_label = '— None —'
+            self.fields['losers_advance_to'].empty_label = '— Eliminated —'
+            # Default format to tournament's format when creating a new stage
+            if not self.instance.pk and tournament.default_format and not self.initial.get('stage_format'):
+                self.fields['stage_format'].initial = tournament.default_format
         # Only show round_name on create, not update
         if self.instance.pk:
             del self.fields['round_name']
@@ -1426,7 +1449,7 @@ class TournamentPlayerSettingsForm(forms.ModelForm):
         labels = {
             'guild': 'Discord Guild',
             'enforce_player_count': 'Restrict Player Count',
-            'open_roster': 'Allow Unregistered Players',
+            'open_roster': 'Allow All Players',
             'players_can_record': 'Allow Players to Record Games',
         }
 
@@ -1441,6 +1464,10 @@ class TournamentPlayerSettingsForm(forms.ModelForm):
                 self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID'])
             else:
                 self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
+
+        instance = kwargs.get('instance')
+        if instance and instance.classification != Tournament.ClassificationTypes.LEAGUE:
+            del self.fields['guild']
 
 
 class TournamentAssetSettingsForm(forms.ModelForm):

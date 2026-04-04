@@ -36,9 +36,10 @@
         <!-- Action Buttons -->
         <div class="section-nav-action-buttons">
 
+                
                 <!-- Desktop buttons for Games-related pages -->
                 <div class="section-nav-actions-desktop">
-                    {% if user.profile.player and active_page == 'series' %}
+                    {% if active_page == 'series' %}
                         <a class="btn btn-primary btn-sm" href="{% url 'tournament-dynamic-create' %}">
                             <i class="bi bi-plus-circle"></i>
                             <span class="d-none d-sm-inline">
@@ -60,10 +61,11 @@
                     </div>
                     {% endif %}
                 </div>
+                
 
                 <!-- Mobile dropdown for Games-related pages -->
                 <div class="section-nav-actions-mobile">
-                    {% if user.profile.player and active_page == 'series' %}
+                    {% if active_page == 'series' %}
                         <a class="btn btn-primary btn-sm" href="{% url 'tournament-dynamic-create' %}"><i class="bi bi-plus-circle"></i> {% trans 'New' %}</a>
                     {% else %}
                         <div class="btn-group">
@@ -78,6 +80,7 @@
                         </div>
                     {% endif %}
                 </div>
+              
 
         </div>
         {% endif %}

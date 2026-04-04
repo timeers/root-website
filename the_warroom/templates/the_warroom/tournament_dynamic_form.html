@@ -60,12 +60,14 @@
                             </div>
                         </div>
                         {% endif %}
-                        <div class='row'>
-                            <div class="col-md-12">
-                                {{ form.guild|as_crispy_field }}
-                                <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-bs-toggle="modal" data-bs-target="#addGuildModal">
-                                    <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
-                                </button>
+                        <div id="guild-field-row" data-initial-hidden="{% if action == 'Update' and tournament.classification != 'League' %}true{% else %}false{% endif %}">
+                            <div class='row'>
+                                <div class="col-md-12">
+                                    {{ form.guild|as_crispy_field }}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-bs-toggle="modal" data-bs-target="#addGuildModal">
+                                        <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Guild' %}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div class="row">
@@ -170,6 +172,16 @@
                         <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'Player Settings' %}</h5>
                     </div>
                     <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6 mb-2">
+                                {{ form.players_can_record|as_crispy_field }}
+                                </div>
+                                <div class="col-md-6 mb-2">
+                                {{ form.open_roster|as_crispy_field }}
+                                </div>
+
+                            </div>
+
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="id_enforce_player_count" name="enforce_player_count"
                                        {% if form.instance.enforce_player_count %}checked{% endif %}
@@ -190,9 +202,8 @@
                                     </div>
                                 </div>
                             </div>
-               
-                            {{ form.open_roster|as_crispy_field }}
-            
+
+
                     </div>
                 </div>
 
@@ -420,19 +431,51 @@
                 formatField.style.display = value === 'Tournament' ? 'block' : 'none';
             }
         }
+
+        function updateGuildField(value, clearValue = false) {
+            const guildRow = document.getElementById('guild-field-row');
+            if (!guildRow) return;
+            if (value === 'League') {
+                guildRow.classList.remove('d-none');
+                guildRow.style.display = 'block';
+                const guildSelect = document.getElementById('id_guild');
+                if (guildSelect && typeof $ !== 'undefined') {
+                    $(guildSelect).trigger('change');
+                }
+            } else {
+                guildRow.style.display = 'none';
+                if (clearValue) {
+                    const guildSelect = document.getElementById('id_guild');
+                    if (guildSelect && typeof $ !== 'undefined') {
+                        $(guildSelect).val(null).trigger('change');
+                    }
+                }
+            }
+        }
+
         updateFormatField(classificationInput.value);
+        updateGuildField(classificationInput.value);
         initToggle({
             containerId: 'classification-toggle-container',
             inputId: 'classification_input',
             sliderId: 'classification-slider',
             descriptionId: 'classification-description-text',
             descriptions: {
-                'Game Group': 'Casual game group with no competitive structure.',
-                'League': 'Semi-competitive series with ongoing standings.',
-                'Tournament': 'Structured and competitive series with brackets and rules.'
+                'Game Group': 'Casual game group with no competitive structure. Record games yourself or invite players to record their own games.',
+                'League': 'Semi-competitive series with ongoing standings that can be linked to a guild so that all guild members can record games.',
+                'Tournament': 'Structured and competitive series with brackets, player advancement, and rules.'
             },
-            onChange: updateFormatField
+            onChange: function(value) {
+                updateFormatField(value);
+                updateGuildField(value, true);
+            }
         });
+    }
+
+    // Hide guild field row if it was server-side marked as initially hidden (after Select2 initializes)
+    const guildRowInit = document.getElementById('guild-field-row');
+    if (guildRowInit && guildRowInit.dataset.initialHidden === 'true') {
+        guildRowInit.style.display = 'none';
     }
 
     // Moderator helpers for HTMX search

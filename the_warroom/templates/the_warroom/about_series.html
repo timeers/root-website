@@ -88,11 +88,34 @@
             </p>
             <p>
                 {% blocktrans %}
-                Each Series can be classified as a <strong>Tournament</strong>, <strong>League</strong>, or
-                <strong>Group</strong>. While the underlying system is the same, the classification helps players
+                Each Series can be classified as a <strong>Group</strong>, <strong>League</strong>, or
+                <strong>Tournament</strong>. While the underlying system is the same, the classification helps players
                 understand what kind of experience and structure to expect.
                 {% endblocktrans %}
             </p>
+            <dl class="row mb-0">
+                <dt class="col-sm-3">{% trans 'Group' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    Casual and unstructured. Great for friends or communities who want to track games without
+                    any formal organization.
+                    {% endblocktrans %}
+                </dd>
+                <dt class="col-sm-3">{% trans 'League' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    Semi-competitive and ongoing. Leagues can be linked to a Discord Guild, allowing guild members
+                    to record games and participate without registration.
+                    {% endblocktrans %}
+                </dd>
+                <dt class="col-sm-3">{% trans 'Tournament' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    Structured and competitive. Tournaments support player grouping, scheduled matches, and
+                    stage-based advancement for a full bracket or round-robin structure.
+                    {% endblocktrans %}
+                </dd>
+            </dl>
         </div>
     </div>
 
@@ -121,12 +144,63 @@
                 <dd class="col-sm-9">
                     {% blocktrans %}
                     The level within a stage where games are actually played. 
-                    Rounds can have brackets, player groupings, and their own game settings.
+                    Rounds of a Tournament can have brackets, player groupings, and their own game settings.
                     If you need to randomize player matchups so that each player plays two games against random opponents this would take place in two different Rounds.
                     {% endblocktrans %}
                 </dd>
             </dl>
             <p>{% blocktrans %}Stages and Rounds are optional. You can keep it simple and have a Series as one group of games without a structure, or you can add some structure and create multiple stages with scheduled matchups.{% endblocktrans %}</p>
+        </div>
+    </div>
+
+    <!-- Registration -->
+    <div class="card about-section">
+        <div class="card-body">
+            <h5 class="card-title root-title">{% trans 'Registration' %}</h5>
+            <p>
+                {% url 'about-surveys' as about_surveys_url %}
+                {% blocktrans with about_surveys_url=about_surveys_url %}
+                You can create a <strong><a href="{{ about_surveys_url }}">Survey</a></strong> to collect registration responses from players who want to join your Series.
+                Surveys are flexible - you control who can respond, how many spots are available, and what information you collect.
+                {% endblocktrans %}
+            </p>
+            <dl class="row mb-0">
+                <dt class="col-sm-3">{% trans 'Access' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    Surveys can be open to everyone, restricted to members of a linked Discord Guild, or limited to
+                    users you individually invite. This lets you run a public sign-up or keep registration private to a specific community.
+                    {% endblocktrans %}
+                </dd>
+                <dt class="col-sm-3">{% trans 'Response Limit & Waitlist' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    Set a maximum number of responses to cap registration at your desired player count.
+                    You can also enable a waitlist so that players who sign up after the limit is reached are automatically queued
+                    and can be moved in if a spot opens up.
+                    {% endblocktrans %}
+                </dd>
+                <dt class="col-sm-3">{% trans 'Availability' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    For Tournaments, you can ask players availability questions to help schedule games around when players are free to play.
+                    {% endblocktrans %}
+                </dd>
+                <dt class="col-sm-3">{% trans 'Rules Agreement' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    Require players to read and agree to your tournament's rules as part of the registration process,
+                    so everyone is on the same page.
+                    {% endblocktrans %}
+                </dd>
+                <dt class="col-sm-3">{% trans 'Feedback Surveys' %}</dt>
+                <dd class="col-sm-9">
+                    {% blocktrans %}
+                    Surveys can also be restricted to existing Series participants, making them useful for collecting
+                    feedback from the players who actually took part in the event.
+                    {% endblocktrans %}
+                </dd>
+            </dl>
         </div>
     </div>
 
@@ -282,6 +356,19 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <div class="row mt-5">
+        <div class="col text-center">
+            <h4 class='root-title'>{% trans "Ready to create a Series?" %}</h4>
+            <a href="{% url 'tournament-dynamic-create' %}" class="btn btn-primary">
+                {% if user.is_authenticated %}
+                {% trans "Create a Series" %}
+                {% else %}
+                {% trans "Log in to Create a Series" %}
+                {% endif %}
+            </a>
         </div>
     </div>
 

@@ -1,0 +1,194 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-7 col-md-9">
+
+      <div class="guild-request-card">
+        <!-- Header -->
+        <div class="guild-card-header">
+          {% if guild_icon_url %}
+          <img src="{{ guild_icon_url }}" alt="Woodland Warriors" class="guild-header-icon me-2">
+          {% else %}
+          <i class="bi bi-discord me-2"></i>
+          {% endif %}
+          <h2 class="root-title guild-card-title mb-0">Woodland Warriors</h2>
+        </div>
+
+        <!-- Info body -->
+        <div class="guild-card-body">
+          <p class="ww-description">
+            Woodland Warriors is the official Discord community for Root and Leder Games.
+            It's where players organize games, discuss strategy, compete in tournaments, and share fan content.
+          </p>
+
+          <p class="ww-description">
+            The Root Database is not officially affiliated with the Woodland Warriors community,
+            but membership allows us to reach out to users when needed.
+          </p>
+
+          <h5 class="ww-how-title">Joining gives you access to:</h5>
+
+          <div class="ww-feature-list">
+            <div class="ww-feature">
+              <i class="bi bi-bar-chart text-primary me-2"></i>
+              <span>Record and track your games</span>
+            </div>
+            <div class="ww-feature">
+              <i class="bi bi-trophy text-warning me-2"></i>
+              <span>Participate in and create tournaments, leagues, and game groups</span>
+            </div>
+            <div class="ww-feature">
+              <i class="bi bi-plus-circle text-success me-2"></i>
+              <span>Submit your fan content</span>
+            </div>
+            <div class="ww-feature">
+              <i class="bi bi-clipboard2-check text-info me-2"></i>
+              <span>Create and take community surveys</span>
+            </div>
+          </div>
+
+          <hr class="my-4">
+
+          <h5 class="ww-how-title">How to get access</h5>
+          <ol class="ww-steps">
+            <li>Join the Woodland Warriors Discord server using the button below.</li>
+            <li>Log out of Root Database and log back in via Discord.</li>
+            <li>Your account will automatically be updated.</li>
+          </ol>
+
+          {% if woodland_warriors_invite %}
+          <a href="{{ woodland_warriors_invite }}"
+             target="_blank"
+             rel="noopener noreferrer"
+             class="guild-btn guild-btn-primary mt-3">
+            <i class="bi bi-discord me-2"></i>
+            Join Woodland Warriors
+          </a>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+.guild-request-card {
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e3e5e8;
+}
+
+.guild-card-header {
+  background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
+  padding: 24px 28px;
+  display: flex;
+  align-items: center;
+  color: #fff;
+}
+
+.guild-card-header i {
+  font-size: 28px;
+}
+
+.guild-header-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.guild-card-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.guild-card-body {
+  padding: 28px;
+  background: #fff;
+}
+
+.ww-description {
+  color: #4f5660;
+  font-size: 15px;
+  line-height: 1.7;
+  margin-bottom: 24px;
+}
+
+.ww-feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ww-feature {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  color: #2c2f33;
+}
+
+.ww-feature i {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.ww-how-title {
+  font-weight: 600;
+  color: #2c2f33;
+  margin-bottom: 12px;
+}
+
+.ww-steps {
+  color: #4f5660;
+  font-size: 14px;
+  line-height: 1.8;
+  padding-left: 20px;
+  margin-bottom: 0;
+}
+
+.guild-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.guild-btn-primary {
+  background: #5865F2;
+  color: #fff;
+  width: 100%;
+}
+
+.guild-btn-primary:hover {
+  background: #4752c4;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(88, 101, 242, 0.4);
+}
+
+@media (max-width: 768px) {
+  .guild-card-header {
+    padding: 20px;
+  }
+  .guild-card-body {
+    padding: 20px;
+  }
+}
+</style>
+{% endblock content %}

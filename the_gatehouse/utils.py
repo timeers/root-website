@@ -44,7 +44,7 @@ def slugify_changelog(instance, save=False, new_slug=None):
     if new_slug is not None:
         slug = new_slug
     else:
-        slug = slugify(unidecode(instance.version))
+        slug = slugify(unidecode(instance.version.replace('.', '-')))
 
     Klass = instance.__class__
     qs = Klass.objects.filter(slug=slug).exclude(id=instance.id)
@@ -52,7 +52,7 @@ def slugify_changelog(instance, save=False, new_slug=None):
         # auto generate new slug
         rand_int = random.randint(1_000, 9_999)
         slug = f"{slug}-{rand_int}"
-        return slugify_instance_discord(instance, save=save, new_slug=slug)
+        return slugify_changelog(instance, save=save, new_slug=slug)
     instance.slug = slug
     if save:
         instance.save()

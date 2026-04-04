@@ -412,7 +412,6 @@ def survey_list_view(request):
         'public_offset': SURVEY_LIST_PAGE_SIZE,
         'total_public': total_public,
 
-        'can_create_survey': profile.player if profile else False,
         'meta_title': meta_title,
         'meta_description': meta_description,
 

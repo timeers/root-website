@@ -146,6 +146,69 @@
                     </div>
                 </div>
             </div> {% endcomment %}
+            <!-- Advancement Settings (League / Tournament only) -->
+            {% if tournament.classification != "Game Group" %}
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-arrow-right-circle me-2"></i>{% trans 'Advancement' %}</h5>
+                    <small class="form-text text-muted d-block">
+                        Configure how players advance out of this stage
+                    </small>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            {{ form.stage_format|as_crispy_field }}
+                        </div>
+                        <div class="col-md-6 mb-2" id="advCountField" {% if is_bracket_format %}style="display:none;"{% endif %}>
+                            {{ form.advancement_count|as_crispy_field }}
+                            <small class="form-text text-muted">Top N players to advance (league-style stages).</small>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <!-- Winners advance to -->
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label" for="id_winners_advance_to">{% trans 'Winners advance to' %}</label>
+                            <select class="form-select" id="id_winners_advance_to" name="winners_advance_to">
+                                <option value="">— None —</option>
+                                {% for s in form.winners_advance_to.field.queryset %}
+                                <option value="{{ s.pk }}" {% if form.winners_advance_to.value|stringformat:"s" == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+                                {% endfor %}
+                                <option value="new_winners" {% if form.winners_advance_to.value == "new_winners" %}selected{% endif %}>+ {% trans 'Create new stage' %}</option>
+                            </select>
+                            <div id="newWinnersStageFields" class="mt-2" style="display:none;">
+                                <input type="text" class="form-control mb-2" id="new_winners_stage_name"
+                                       name="new_winners_stage_name" placeholder="{% trans 'Stage name' %}">
+                                {% if tournament.use_rounds %}
+                                <input type="text" class="form-control" id="new_winners_round_name"
+                                       name="new_winners_round_name" placeholder="{% trans 'First round name' %}" value="Round 1">
+                                {% endif %}
+                            </div>
+                        </div>
+                        <!-- Losers advance to -->
+                        <div class="col-md-6 mb-2" id="losersAdvanceField" {% if not is_double_elim %}style="display:none;"{% endif %}>
+                            <label class="form-label" for="id_losers_advance_to">{% trans 'Losers advance to' %}</label>
+                            <select class="form-select" id="id_losers_advance_to" name="losers_advance_to">
+                                <option value="">— Eliminated —</option>
+                                {% for s in form.losers_advance_to.field.queryset %}
+                                <option value="{{ s.pk }}" {% if form.losers_advance_to.value|stringformat:"s" == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+                                {% endfor %}
+                                <option value="new_losers" {% if form.losers_advance_to.value == "new_losers" %}selected{% endif %}>+ {% trans 'Create new stage' %}</option>
+                            </select>
+                            <div id="newLosersStageFields" class="mt-2" style="display:none;">
+                                <input type="text" class="form-control mb-2" id="new_losers_stage_name"
+                                       name="new_losers_stage_name" placeholder="{% trans 'Stage name' %}">
+                                {% if tournament.use_rounds %}
+                                <input type="text" class="form-control" id="new_losers_round_name"
+                                       name="new_losers_round_name" placeholder="{% trans 'First round name' %}" value="Round 1">
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             {% if not use_rounds_locked %}
                 <!-- Round Settings -->
                 <div class="card mb-3">
@@ -264,6 +327,42 @@
                 nameInput.focus();
             }
         });
+
+        // Show/hide new-stage inline fields for winners/losers dropdowns
+        function toggleNewStageFields(which) {
+            var sel = document.getElementById('id_' + which + '_advance_to');
+            var wrapper = document.getElementById('new' + which.charAt(0).toUpperCase() + which.slice(1) + 'StageFields');
+            if (sel && wrapper) {
+                wrapper.style.display = sel.value === 'new_' + which ? '' : 'none';
+            }
+        }
+        var winnersSelect = document.getElementById('id_winners_advance_to');
+        var losersSelect = document.getElementById('id_losers_advance_to');
+        if (winnersSelect) winnersSelect.addEventListener('change', function() { toggleNewStageFields('winners'); });
+        if (losersSelect) losersSelect.addEventListener('change', function() { toggleNewStageFields('losers'); });
+        // Init on load (e.g. after validation failure)
+        toggleNewStageFields('winners');
+        toggleNewStageFields('losers');
+
+        // Toggle advancement fields based on format select
+        var BRACKET_FORMATS = ['Single Elimination', 'Double Elimination'];
+        var formatSelect = document.getElementById('id_stage_format');
+        var advCountField = document.getElementById('advCountField');
+        var losersAdvanceField = document.getElementById('losersAdvanceField');
+
+        function updateAdvancementFields() {
+            if (!formatSelect) return;
+            var val = formatSelect.value;
+            var isBracket = BRACKET_FORMATS.indexOf(val) !== -1;
+            var isDoubleElim = val === 'Double Elimination';
+            if (advCountField) advCountField.style.display = isBracket ? 'none' : '';
+            if (losersAdvanceField) losersAdvanceField.style.display = isDoubleElim ? '' : 'none';
+        }
+
+        if (formatSelect) {
+            formatSelect.addEventListener('change', updateAdvancementFields);
+        }
+        updateAdvancementFields();
 
         // Toggle round_name field visibility based on use_rounds checkbox
         const useRoundsCheckbox = document.getElementById('id_use_rounds');

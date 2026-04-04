@@ -19,7 +19,8 @@
                 <div class="mb-3">
                     <label for="editSeriesDiscordThread" class="form-label fw-bold"><i class="bi bi-discord"></i> {% trans 'Discord Thread' %}</label>
                     <input type="url" class="form-control" id="editSeriesDiscordThread" placeholder="https://discord.com/channels/...">
-                    <small class="text-muted">{% trans 'Must be a discord.com link' %}</small>
+                    <small class="text-muted d-block">{% trans 'Must be a discord.com link' %}</small>
+                    <small class="text-muted d-block">{% trans 'Only visible to participants and moderators' %}</small>
                     <div class="invalid-feedback" id="seriesDiscordError"></div>
                 </div>
                 <div class="mb-3">
@@ -94,6 +95,18 @@
 </div>
 
 <script>
+function _initScheduledTimes() {
+    var fmt = new Intl.DateTimeFormat(undefined, {
+        month: 'numeric', day: 'numeric', year: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+        timeZoneName: 'short'
+    });
+    document.querySelectorAll('.scheduled-time[data-utc]').forEach(function(el) {
+        var d = new Date(el.dataset.utc);
+        if (!isNaN(d)) el.textContent = fmt.format(d);
+    });
+}
+
 // --- Series Edit Modal State ---
 let _seriesDeletedMatchIds = [];
 let _seriesNewMatchCount = 0;
@@ -184,9 +197,8 @@ function _seriesAddMatchRow(match) {
     li.dataset.matchId = match.id || '';
 
     const nameSpan = document.createElement('span');
-    nameSpan.className = 'fw-semibold me-2';
-    nameSpan.style.minWidth = '80px';
-    nameSpan.textContent = match.name || 'New Match';
+    nameSpan.className = 'fw-semibold me-2 match-number-label';
+    nameSpan.style.minWidth = '30px';
     li.appendChild(nameSpan);
 
     // Scheduled time input
@@ -240,11 +252,19 @@ function _seriesAddMatchRow(match) {
     }
 
     list.appendChild(li);
+    _renumberMatchRows();
 }
 
 function _seriesRemoveMatch(matchId, li) {
     if (matchId) _seriesDeletedMatchIds.push(matchId);
     li.remove();
+    _renumberMatchRows();
+}
+
+function _renumberMatchRows() {
+    document.querySelectorAll('#editSeriesMatches li .match-number-label').forEach((span, i) => {
+        span.textContent = i + 1;
+    });
 }
 
 function _seriesAddNewMatch() {
@@ -256,9 +276,8 @@ function _seriesAddNewMatch() {
     li.dataset.isNew = 'true';
 
     const nameSpan = document.createElement('span');
-    nameSpan.className = 'fw-semibold me-2';
-    nameSpan.style.minWidth = '80px';
-    nameSpan.textContent = 'New Match';
+    nameSpan.className = 'fw-semibold me-2 match-number-label';
+    nameSpan.style.minWidth = '30px';
     li.appendChild(nameSpan);
 
     const timeInput = document.createElement('input');
@@ -291,10 +310,11 @@ function _seriesAddNewMatch() {
     delBtn.className = 'btn btn-sm btn-outline-danger';
     delBtn.title = 'Remove';
     delBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
-    delBtn.onclick = function() { _seriesNewMatchCount--; li.remove(); };
+    delBtn.onclick = function() { _seriesNewMatchCount--; li.remove(); _renumberMatchRows(); };
     li.appendChild(delBtn);
 
     list.appendChild(li);
+    _renumberMatchRows();
 }
 
 function _seriesAddSeatRow(seat) {
@@ -359,7 +379,7 @@ function _seriesUpdateSeatSearch(query) {
             ? `<img src="${sp.image_url}" alt="" class="rounded-circle me-2" style="width:24px;height:24px;">`
             : '<i class="bi bi-person-circle me-2"></i>';
         const statusBadge = sp.status !== 'active'
-            ? `<span class="badge bg-${sp.status === 'eliminated' ? 'danger' : 'warning'} ms-1">${sp.status}</span>`
+            ? `<span class="badge bg-${sp.status === 'eliminated' ? 'danger' : sp.status === 'advanced' ? 'info' : 'warning'} ms-1">${sp.status}</span>`
             : '';
         li.innerHTML = `<div class="d-flex align-items-center">${imgHtml}<span>${sp.display_name}</span>${statusBadge}</div>
             <button class="btn btn-sm btn-outline-primary" onclick="_seriesAddSeatFromSearch(${sp.id})" title="Add"><i class="bi bi-plus-lg"></i></button>`;
@@ -415,11 +435,17 @@ function saveSeriesEdit() {
     if (!_seriesValidateUrls()) return;
 
     const seriesId = parseInt(document.getElementById('editSeriesId').value);
+    const cardWrapper = document.getElementById(`series-card-${seriesId}`);
+    const seriesIndex = cardWrapper
+        ? Array.from(cardWrapper.parentElement.children).indexOf(cardWrapper) + 1
+        : 1;
     const body = {
         series_id: seriesId,
         name: document.getElementById('editSeriesName').value.trim(),
         discord_thread: document.getElementById('editSeriesDiscordThread').value.trim(),
         video_link: document.getElementById('editSeriesVideoLink').value.trim(),
+        card_type: typeof _seriesCardType !== 'undefined' ? _seriesCardType : null,
+        series_index: seriesIndex,
     };
 
     // Collect match scheduled_time updates (existing matches only)
@@ -445,9 +471,20 @@ function saveSeriesEdit() {
         body.delete_match_ids = _seriesDeletedMatchIds;
     }
 
-    // New matches
-    if (_seriesNewMatchCount > 0) {
-        body.add_matches = _seriesNewMatchCount;
+    // New matches (with optional scheduled times)
+    const newMatchRows = document.querySelectorAll('#editSeriesMatches li[data-is-new="true"]');
+    if (newMatchRows.length > 0) {
+        body.add_matches = Array.from(newMatchRows).map(li => {
+            const input = li.querySelector('input[type="datetime-local"]');
+            const val = input ? input.value : '';
+            let scheduledTime = null;
+            if (val) {
+                scheduledTime = _seriesTzMode === 'utc'
+                    ? new Date(val + 'Z').toISOString()
+                    : new Date(val).toISOString();
+            }
+            return { scheduled_time: scheduledTime };
+        });
     }
 
     // Removed seats
@@ -485,8 +522,17 @@ function saveSeriesEdit() {
         const modal = bootstrap.Modal.getInstance(document.getElementById('seriesEditModal'));
         if (modal) modal.hide();
 
-        _updateSeriesCard(data.series);
-        _seriesDataMap[data.series.id] = data.series;
+        if (data.html) {
+            const wrapper = document.getElementById(`series-card-${data.series_id}`);
+            if (wrapper) {
+                wrapper.innerHTML = data.html;
+                _initScheduledTimes();
+                wrapper.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+                    if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
+                });
+            }
+            if (data.series) _seriesDataMap[data.series_id] = data.series;
+        }
     })
     .catch(error => {
         saveBtn.disabled = false;
@@ -494,189 +540,6 @@ function saveSeriesEdit() {
         console.error('Error:', error);
         alert('An error occurred while saving.');
     });
-}
-
-function _updateSeriesCard(s) {
-    const card = document.querySelector(`[data-series-id="${s.id}"]`);
-    if (!card) return;
-
-    // Update header name
-    const nameEl = card.querySelector('.card-header strong');
-    if (nameEl) nameEl.textContent = s.name || 'Match Series';
-
-    // Detect layout before headerRight block (needed for Bo badge)
-    const cardBody = card.querySelector('.card-body');
-    const isBracketLayout = !!(cardBody && cardBody.querySelector('ul.list-group'));
-
-    const headerRight = card.querySelector('.card-header .d-flex.align-items-center.gap-1');
-    if (headerRight) {
-        // Update Bo badge (bracket/match generation page only)
-        if (isBracketLayout) {
-            let boBadge = headerRight.querySelector('.badge.bg-secondary');
-            if (s.number_of_games > 1) {
-                if (!boBadge) {
-                    boBadge = document.createElement('span');
-                    boBadge.className = 'badge bg-secondary';
-                    headerRight.appendChild(boBadge);
-                }
-                boBadge.textContent = 'Bo' + s.number_of_games;
-            } else if (boBadge) {
-                boBadge.remove();
-            }
-        }
-
-        // Update status indicator (round_matches page)
-        const statusMap = {
-            'Completed': { cls: 'text-success', icon: 'bi-check-circle', label: 'Complete' },
-            'Active':    { cls: 'text-primary', icon: 'bi-circle-half', label: 'Active' },
-            'Pending':   { cls: 'text-secondary', icon: 'bi-circle', label: 'Pending' },
-        };
-        const info = statusMap[s.status];
-        if (info) {
-            const statusStrong = headerRight.querySelector('strong.text-success, strong.text-primary, strong.text-secondary');
-            const statusIcon = headerRight.querySelector('i.bi-check-circle, i.bi-circle-half, i.bi-circle');
-            if (statusStrong) {
-                statusStrong.className = `${info.cls}`;
-                statusStrong.tagName === 'STRONG' ? statusStrong.textContent = info.label : null;
-                statusStrong.textContent = info.label;
-            }
-            if (statusIcon) {
-                statusIcon.className = `bi ${info.icon} ${info.cls}`;
-            }
-        }
-    }
-
-    // Update participant list in card body
-    if (!cardBody) return;
-
-    const hr = cardBody.querySelector('hr');
-
-    // Remove existing participant elements (everything before <hr> or all participant content)
-    const toRemove = [];
-    for (const child of cardBody.children) {
-        if (child === hr) break;
-        if (child.tagName === 'UL' || child.tagName === 'P' ||
-            (child.classList && child.classList.contains('d-flex') && (child.querySelector('img') || child.querySelector('.bi-person-circle')))) {
-            toRemove.push(child);
-        }
-    }
-    toRemove.forEach(el => el.remove());
-
-    const insertBefore = hr || cardBody.firstChild;
-
-    if (isBracketLayout) {
-        // bracket_setup.html style: <ul class="list-group list-group-flush"><li>...</li></ul>
-        const newList = document.createElement('ul');
-        newList.className = 'list-group list-group-flush';
-        s.seats.forEach(seat => {
-            const li = document.createElement('li');
-            li.className = 'list-group-item d-flex align-items-center';
-            const imgHtml = seat.image_url
-                ? `<img src="${seat.image_url}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">`
-                : '<i class="bi bi-person-circle me-2"></i>';
-            li.innerHTML = `${imgHtml}<span class="flex-grow-1">${seat.display_name}</span>`;
-            newList.appendChild(li);
-        });
-        if (s.seats.length === 0) {
-            const li = document.createElement('li');
-            li.className = 'list-group-item text-muted text-center';
-            li.innerHTML = '<small>No participants</small>';
-            newList.appendChild(li);
-        }
-        cardBody.insertBefore(newList, insertBefore);
-    } else {
-        // round_matches.html style: <div class="d-flex align-items-center gap-2 mb-1">...</div>
-        const fragment = document.createDocumentFragment();
-        s.seats.forEach(seat => {
-            const div = document.createElement('div');
-            div.className = 'd-flex align-items-center gap-2 mb-1';
-            const imgHtml = seat.image_url
-                ? `<img src="${seat.image_url}" alt="" class="avatar-icon image1">`
-                : '<i class="bi bi-person-circle image1"></i>';
-            div.innerHTML = `<div class="parent">${imgHtml}</div><span>${seat.display_name}</span>`;
-            fragment.appendChild(div);
-        });
-        if (s.seats.length === 0) {
-            const p = document.createElement('p');
-            p.className = 'text-muted mb-0';
-            p.textContent = 'No participants';
-            fragment.appendChild(p);
-        }
-        cardBody.insertBefore(fragment, insertBefore);
-    }
-
-    // --- Rebuild games section (round_matches page) ---
-    if (!isBracketLayout && typeof _recordGameUrl !== 'undefined') {
-        // Remove existing hr + games section
-        const oldHr = cardBody.querySelector('hr');
-        if (oldHr) {
-            // Remove hr and everything after it within card-body
-            while (oldHr.nextSibling) oldHr.nextSibling.remove();
-            oldHr.remove();
-        }
-
-        // Rebuild if multi-game series
-        if (s.number_of_games > 1) {
-            const newHr = document.createElement('hr');
-            newHr.className = 'my-2';
-            cardBody.appendChild(newHr);
-
-            const _schedFmt = new Intl.DateTimeFormat(undefined, {
-                month: 'numeric', day: 'numeric', year: '2-digit',
-                hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
-            });
-            s.matches.forEach((m, idx) => {
-                const row = document.createElement('div');
-                row.className = 'd-flex align-items-center gap-2 mb-1';
-                let actionHtml;
-                if (m.has_game && m.game_final) {
-                    actionHtml = `<a href="${m.game_url}" class="btn btn-outline-secondary btn-sm ms-auto"><i class="bi bi-box-arrow-up-right me-1"></i>View</a>`;
-                } else if (m.has_game && !m.game_final) {
-                    actionHtml = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-outline-primary btn-sm ms-auto"><i class="bi bi-pencil-square me-1"></i></a>`;
-                } else {
-                    actionHtml = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-success btn-sm ms-auto"><i class="bi bi-plus-lg"></i></a>`;
-                }
-                let timeHtml = '';
-                if (m.scheduled_time) {
-                    const formatted = _schedFmt.format(new Date(m.scheduled_time));
-                    timeHtml = `<span class="text-muted small scheduled-time" data-utc="${m.scheduled_time}">${formatted}</span>`;
-                }
-                row.innerHTML = `<span>Game ${idx + 1}</span>${timeHtml}${actionHtml}`;
-                cardBody.appendChild(row);
-            });
-        }
-
-        // Rebuild card-footer for single-game series
-        const cardEl = card.querySelector('.card') || card.querySelector('.card.h-100') || card.closest('.card') || card.querySelector(':scope > .card');
-        const existingFooter = card.querySelector('.card-footer');
-        if (existingFooter) existingFooter.remove();
-
-        if (s.number_of_games === 1 && s.matches.length === 1) {
-            const m = s.matches[0];
-            const footer = document.createElement('div');
-            footer.className = 'card-footer d-flex align-items-center';
-            const _footerFmt = new Intl.DateTimeFormat(undefined, {
-                month: 'numeric', day: 'numeric', year: '2-digit',
-                hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
-            });
-            let timeSpan = '<span class="me-auto"></span>';
-            if (m.scheduled_time) {
-                const formatted = _footerFmt.format(new Date(m.scheduled_time));
-                timeSpan = `<span class="text-muted small scheduled-time me-auto" data-utc="${m.scheduled_time}">${formatted}</span>`;
-            }
-            let actionBtn = '';
-            if (m.has_game && m.game_final) {
-                actionBtn = `<a href="${m.game_url}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right"></i></a>`;
-            } else if (m.has_game && !m.game_final) {
-                actionBtn = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-outline-primary btn-sm"><i class="bi bi-pencil-square me-1"></i></a>`;
-            } else {
-                actionBtn = `<a href="${_recordGameUrl}?match=${m.id}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg"></i></a>`;
-            }
-            footer.innerHTML = timeSpan + actionBtn;
-            // Insert footer after card-body
-            cardBody.parentElement.appendChild(footer);
-        }
-    }
 }
 
 // --- Series Delete ---

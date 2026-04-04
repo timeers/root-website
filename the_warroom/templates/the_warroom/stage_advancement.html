@@ -1,0 +1,534 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}Advancement - {{ stage.name }} | {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Advancement" %}
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=stage.name %}
+    {% include 'the_warroom/partials/stage_nav_header.html' with active_page='advancement' %}
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0 root-title"><i class="bi bi-arrow-right-circle me-2"></i>{% trans 'Advancement' %}</h4>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#createStageModal">
+            <i class="bi bi-plus-lg me-1"></i>{% trans 'New Stage' %}
+        </button>
+    </div>
+
+    <!-- Advancement Configuration Card -->
+    {% if tournament.classification != "Game Group" %}
+    <div class="card mb-4" id="advancementConfigCard">
+        <div class="card-header">
+            <h6 class="mb-0 root-title"><i class="bi bi-gear me-2"></i>{% trans 'Advancement Configuration' %}</h6>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label for="configFormat" class="form-label fw-semibold"><i class="bi bi-diagram-3 text-info me-1"></i>{% trans 'Format' %}</label>
+                    <select class="form-select form-select-sm" id="configFormat">
+                        <option value="">{% trans 'Inherit from tournament' %}{% if tournament.default_format %} ({{ tournament.default_format }}){% endif %}</option>
+                        {% for val, label in format_choices %}
+                        <option value="{{ val }}" {% if stage.stage_format == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label for="configWinnersStage" class="form-label fw-semibold"><i class="bi bi-check-lg text-success me-1"></i>{% trans 'Winners Advance to:' %}</label>
+                    <select class="form-select form-select-sm" id="configWinnersStage">
+                        <option value="">{% trans '- Select a Stage -' %}</option>
+                        {% for s in all_stages %}
+                        <option value="{{ s.id }}" {% if stage.winners_advance_to_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4" id="configLosersWrapper" {% if not is_double_elim %}style="display:none;"{% endif %}>
+                    <label for="configLosersStage" class="form-label fw-semibold"><i class="bi bi-x-lg text-danger me-1"></i>{% trans 'Losers Advance to:' %}</label>
+                    <select class="form-select form-select-sm" id="configLosersStage">
+                        <option value="">{% trans '- Select a Stage -' %}</option>
+                        {% for s in all_stages %}
+                        <option value="{{ s.id }}" {% if stage.losers_advance_to_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4" id="configAdvCountWrapper" {% if is_bracket %}style="display:none;"{% endif %}>
+                    <label for="configAdvCount" class="form-label fw-semibold"><i class="bi bi-person-up text-success me-1"></i>{% trans 'Players to Advance' %}</label>
+                    <input type="number" class="form-control form-control-sm" id="configAdvCount"
+                           min="1" placeholder="e.g. 8"
+                           value="{{ advancement_count|default:'' }}">
+                    {% comment %} <small class="text-muted">{% trans 'Top N players to advance' %}</small> {% endcomment %}
+                </div>
+            </div>
+            <div id="configError" class="text-danger small mt-2 d-none"></div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if eligible_players %}
+    <form id="advancement-form">
+        {% csrf_token %}
+
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <h5 class="mb-0 root-title"><i class="bi bi-people me-2"></i>{% trans 'Advancement Preview' %}</h5>
+        </div>
+
+        {% if has_incomplete_warning %}
+        <div class="alert alert-warning d-flex align-items-center gap-2" id="incompleteWarning">
+            <i class="bi bi-hourglass-split"></i>
+            <span>{% blocktrans with count=incomplete_total %}Waiting for {{ count }} player{{ count|pluralize }} to finish their games.{% endblocktrans %}</span>
+        </div>
+        {% endif %}
+
+        {% for player_data in eligible_players %}
+        {% with sp=player_data.sp %}
+        <div class="card mb-3 player-card" data-sp="{{ sp.id }}" data-default-action="{{ player_data.default_action }}">
+            <div class="card-header d-flex align-items-center gap-2">
+                {% comment %} <span class="badge bg-secondary me-1">#{{ player_data.rank }}</span> {% endcomment %}
+                {% if sp.tournament_player.profile.image %}
+                <img src="{{ sp.tournament_player.profile.image.url }}" alt="" class="avatar-icon">
+                {% else %}
+                <i class="bi bi-person-circle"></i>
+                {% endif %}
+                <strong>{{ sp.tournament_player.profile.display_name }}</strong>
+                {% comment %} {% if player_data.all_bye %}
+                <span class="badge bg-info ms-1 small">{% trans 'Bye' %}</span>
+                {% else %}
+                <span class="text-muted small ms-auto">{{ player_data.win_rate|floatformat:0 }}{% if player_data.win_rate != 1.0 %}% wins{% endif %}</span>
+                {% endif %} {% endcomment %}
+            </div>
+            <div class="card-body">
+                <!-- Series played -->
+                {% for sd in player_data.series_data %}
+                <div class="mb-3">
+                    <div class="text-muted small mb-1">
+                        {{ sd.series.round.name|default:sd.series.round }} &ndash;
+                        {% if sd.series.is_bye %}
+                            <span class="text-info fw-bold">{% trans 'Bye' %}</span>
+                        {% elif sd.is_winner %}
+                            <span class="text-success fw-bold">{% trans 'Win' %}</span>
+                        {% else %}
+                            <span class="text-secondary">{% trans 'Loss' %}</span>
+                        {% endif %}
+                    </div>
+                    {% if not sd.series.is_bye %}
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for md in sd.match_data %}
+                        <div class="border rounded px-2 py-1 d-flex align-items-center gap-1 small">
+                            {% if md.effort %}
+                                {% if md.effort.faction and md.effort.faction.small_icon %}
+                                <img src="{{ md.effort.faction.small_icon.url }}" alt="{{ md.effort.faction }}" class="faction-icon">
+                                {% endif %}
+                                <span>{{ md.effort.score|default:"—" }}</span>
+                                {% if md.effort.win %}<i class="bi bi-trophy-fill text-warning" title="{% trans 'Win' %}"></i>{% endif %}
+                            {% else %}
+                                <span class="text-muted">{% trans 'No game' %}</span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+                <!-- Advance / Eliminate toggle -->
+                <div class="mt-3">
+                    <div class="btn-group" role="group" aria-label="{% trans 'Advancement decision' %}">
+                        <input type="radio" class="btn-check advancement-radio" name="action_{{ sp.id }}"
+                               id="advance_{{ sp.id }}" value="advance" data-sp="{{ sp.id }}"
+                               {% if player_data.default_action == 'advance' %}checked{% endif %}>
+                        <label class="btn btn-outline-success" for="advance_{{ sp.id }}">
+                            <i class="bi bi-arrow-right-circle me-1"></i>{% trans 'Advance' %}
+                        </label>
+
+                        <input type="radio" class="btn-check advancement-radio" name="action_{{ sp.id }}"
+                               id="skip_{{ sp.id }}" value="skip" data-sp="{{ sp.id }}"
+                               {% if player_data.default_action == 'skip' or not player_data.default_action %}checked{% endif %}>
+                        <label class="btn btn-outline-secondary" for="skip_{{ sp.id }}">
+                            <i class="bi bi-clock me-1"></i>{% trans 'Decide Later' %}
+                        </label>
+
+                        <input type="radio" class="btn-check advancement-radio" name="action_{{ sp.id }}"
+                               id="elim_{{ sp.id }}"
+                               value="{% if is_double_elim %}losers{% else %}eliminate{% endif %}"
+                               data-sp="{{ sp.id }}"
+                               {% if player_data.default_action == 'eliminate' or player_data.default_action == 'losers' %}checked{% endif %}>
+                        <label class="btn elim-morph-btn {% if is_double_elim %}btn-outline-warning{% else %}btn-outline-danger{% endif %}" for="elim_{{ sp.id }}">
+                            <i class="bi {% if is_double_elim %}bi-arrow-down-right-circle{% else %}bi-x-circle{% endif %} me-1"></i>
+                            <span class="elim-morph-text">{% if is_double_elim %}{% trans 'Advance to Losers Stage' %}{% else %}{% trans 'Eliminate' %}{% endif %}</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endwith %}
+        {% endfor %}
+
+        <div id="submitError" class="alert alert-danger d-none mb-3"></div>
+
+        <button type="submit" class="btn btn-primary mb-4" id="submitAdvancementBtn">
+            <i class="bi bi-check-lg me-1"></i>{% trans 'Save and Advance Players' %}
+        </button>
+    </form>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No players with all matches completed yet.' %}
+    </div>
+    {% endif %}
+
+    <!-- Already Advanced Players -->
+    {% if already_advanced %}
+    <div class="mt-4">
+        <h5 class="root-title"><i class="bi bi-arrow-right-circle me-2 text-info"></i>{% trans 'Already Advanced' %}</h5>
+        <p class="text-muted small">{% trans 'These players have already been advanced to another stage.' %}</p>
+        {% for sp in already_advanced %}
+        <div class="d-flex align-items-center gap-2 border rounded px-3 py-2 mb-2">
+            {% if sp.tournament_player.profile.image %}
+            <img src="{{ sp.tournament_player.profile.image.url }}" alt="" class="avatar-icon">
+            {% else %}
+            <i class="bi bi-person-circle"></i>
+            {% endif %}
+            <span>{{ sp.tournament_player.profile.display_name }}</span>
+            <span class="badge bg-info ms-auto">{% trans 'Advanced' %}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Pending Players -->
+    {% if incomplete_players %}
+    <div class="mt-4">
+        <h5 class="root-title">{% trans 'Pending Players' %}</h5>
+        <p class="text-muted small">{% trans 'These players still have incomplete matches.' %}</p>
+        {% for ip in incomplete_players %}
+        <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 mb-2">
+            <span>{{ ip.sp.tournament_player.profile.display_name }}</span>
+            <span class="text-muted small">{% blocktrans count count=ip.incomplete_count %}{{ count }} incomplete match{% plural %}{{ count }} incomplete matches{% endblocktrans %}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Create Stage Modal -->
+<div class="modal fade" id="createStageModal" tabindex="-1" aria-labelledby="createStageModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title root-title" id="createStageModalLabel">
+                    <i class="bi bi-plus-circle me-2"></i>{% trans 'New Stage' %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="newStageName" class="form-label">{% trans 'Stage Name' %}</label>
+                    <input type="text" class="form-control" id="newStageName" placeholder="e.g. Finals">
+                </div>
+                {% if tournament.use_rounds %}
+                <div class="mb-3">
+                    <label for="newRoundName" class="form-label">{% trans 'First Round Name' %}</label>
+                    <input type="text" class="form-control" id="newRoundName" placeholder="Round 1">
+                </div>
+                {% endif %}
+                <div id="createStageError" class="text-danger small d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" id="createStageSubmit">
+                    <i class="bi bi-plus-lg me-1"></i>{% trans 'Create' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Over-advancement confirmation modal -->
+<div class="modal fade" id="overAdvanceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title root-title"><i class="bi bi-exclamation-triangle me-2 text-warning"></i>{% trans 'Too Many Advancing' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="overAdvanceMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Go Back' %}</button>
+                <button type="button" class="btn btn-warning" id="overAdvanceConfirm">{% trans 'Proceed Anyway' %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var configUrl = "{% url 'stage-advancement-config' tournament_slug=tournament.slug stage_slug=stage.slug %}";
+    var submitUrl = "{% url 'stage-advancement-submit' tournament_slug=tournament.slug stage_slug=stage.slug %}";
+    var BRACKET_FORMATS = ['Single Elimination', 'Double Elimination'];
+    var advancementCount = {{ advancement_count|default:'null' }};
+
+    // ── Config dirty-state tracking ─────────────────────────────────
+    var formatEl = document.getElementById('configFormat');
+    var winnersEl = document.getElementById('configWinnersStage');
+    var losersEl = document.getElementById('configLosersStage');
+    var advCountEl = document.getElementById('configAdvCount');
+    var configInitial = {
+        format: formatEl ? formatEl.value : '',
+        winners: winnersEl ? winnersEl.value : '',
+        losers: losersEl ? losersEl.value : '',
+        advCount: advCountEl ? advCountEl.value : '',
+    };
+    var configDirty = false;
+
+    function checkConfigDirty() {
+        configDirty =
+            (formatEl && formatEl.value !== configInitial.format) ||
+            (winnersEl && winnersEl.value !== configInitial.winners) ||
+            (losersEl && losersEl.value !== configInitial.losers) ||
+            (advCountEl && advCountEl.value !== configInitial.advCount);
+
+
+    }
+
+    [formatEl, winnersEl, losersEl, advCountEl].forEach(function(el) {
+        if (el) {
+            el.addEventListener('change', checkConfigDirty);
+            el.addEventListener('input', checkConfigDirty);
+        }
+    });
+
+    // ── Config visibility (losers/advCount toggling) ─────────────────
+    function updateConfigVisibility(formatVal) {
+        var isDoubleElim = formatVal === 'Double Elimination';
+        var isBracket = BRACKET_FORMATS.indexOf(formatVal) !== -1;
+        var losersWrapper = document.getElementById('configLosersWrapper');
+        var advCountWrapper = document.getElementById('configAdvCountWrapper');
+        if (losersWrapper) losersWrapper.style.display = isDoubleElim ? '' : 'none';
+        if (advCountWrapper) advCountWrapper.style.display = isBracket ? 'none' : '';
+
+        // Morph eliminate/losers buttons on player cards
+        updateElimMorphButtons(isDoubleElim);
+    }
+
+    function updateElimMorphButtons(isDoubleElim) {
+        document.querySelectorAll('.elim-morph-btn').forEach(function(label) {
+            var radio = document.getElementById(label.htmlFor);
+            if (!radio) return;
+
+            if (isDoubleElim) {
+                radio.value = 'losers';
+                label.classList.replace('btn-outline-danger', 'btn-outline-warning');
+                label.querySelector('i').className = 'bi bi-arrow-down-right-circle me-1';
+                label.querySelector('.elim-morph-text').textContent = '{% trans "Advance to Losers Stage" %}';
+                // If currently on eliminate (was set before toggle), keep checked — value already updated
+            } else {
+                radio.value = 'eliminate';
+                label.classList.replace('btn-outline-warning', 'btn-outline-danger');
+                label.querySelector('i').className = 'bi bi-x-circle me-1';
+                label.querySelector('.elim-morph-text').textContent = '{% trans "Eliminate" %}';
+            }
+        });
+    }
+
+    if (formatEl) {
+        formatEl.addEventListener('change', function () {
+            updateConfigVisibility(this.value);
+            checkConfigDirty();
+        });
+    }
+
+    // ── Save config via fetch ────────────────────────────────────────
+    function saveConfig() {
+        var formatVal = formatEl ? formatEl.value : '';
+        var winnersVal = winnersEl ? winnersEl.value : '';
+        var losersVal = losersEl ? losersEl.value : '';
+        var advCountVal = advCountEl ? advCountEl.value : '';
+
+        var payload = {
+            stage_format: formatVal,
+            winners_advance_to_id: winnersVal ? parseInt(winnersVal) : null,
+            losers_advance_to_id: losersVal ? parseInt(losersVal) : null,
+            advancement_count: advCountVal !== '' ? parseInt(advCountVal) : null,
+        };
+
+        return fetch(configUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}',
+            },
+            body: JSON.stringify(payload),
+        }).then(function(res) { return res.json(); });
+    }
+
+    // ── Create Stage modal ──────────────────────────────────────────
+    document.getElementById('createStageSubmit')?.addEventListener('click', function () {
+        const stageName = document.getElementById('newStageName').value.trim();
+        const roundNameEl = document.getElementById('newRoundName');
+        const roundName = roundNameEl ? roundNameEl.value.trim() : '';
+        const errorEl = document.getElementById('createStageError');
+
+        if (!stageName) {
+            errorEl.textContent = 'Stage name is required.';
+            errorEl.classList.remove('d-none');
+            return;
+        }
+        errorEl.classList.add('d-none');
+
+        fetch("{% url 'stage-create-quick' tournament_slug=tournament.slug %}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            },
+            body: JSON.stringify({ stage_name: stageName, round_name: roundName }),
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (data.success) {
+                // Add to config selects
+                ['configWinnersStage', 'configLosersStage'].forEach(function (selId) {
+                    var sel = document.getElementById(selId);
+                    if (sel) sel.appendChild(new Option(data.stage_name, data.stage_id, false, false));
+                });
+                bootstrap.Modal.getInstance(document.getElementById('createStageModal')).hide();
+            } else {
+                errorEl.textContent = data.error || 'An error occurred.';
+                errorEl.classList.remove('d-none');
+            }
+        })
+        .catch(function () {
+            errorEl.textContent = 'Request failed.';
+            errorEl.classList.remove('d-none');
+        });
+    });
+
+    // ── Submit form ─────────────────────────────────────────────────
+    var pendingSubmit = false;
+
+    function doSubmit() {
+        var errorEl = document.getElementById('submitError');
+        errorEl.classList.add('d-none');
+
+        var winnersStageId = winnersEl ? (winnersEl.value ? parseInt(winnersEl.value) : null) : null;
+        var losersStageId = losersEl ? (losersEl.value ? parseInt(losersEl.value) : null) : null;
+        var currentFormat = formatEl ? formatEl.value : '{{ stage_format|default:"" }}';
+        var isDoubleElim = currentFormat === 'Double Elimination';
+
+        // Validation: stage selections required
+        var missingStages = [];
+        if (!winnersStageId) missingStages.push('{% trans "Winners advance to" %}');
+        if (isDoubleElim && !losersStageId) missingStages.push('{% trans "Losers advance to" %}');
+        if (missingStages.length > 0) {
+            errorEl.textContent = '{% trans "Please set the following in the configuration: " %}' + missingStages.join(', ') + '.';
+            errorEl.classList.remove('d-none');
+            errorEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            return;
+        }
+
+        // Count advancing players
+        var advancingCount = 0;
+        document.querySelectorAll('.advancement-radio:checked').forEach(function(radio) {
+            if (radio.value === 'advance' || radio.value === 'losers') advancingCount++;
+        });
+
+        // Use current live advancement count value (may have been changed without saving)
+        var currentAdvCount = advCountEl && advCountEl.value !== '' ? parseInt(advCountEl.value) : advancementCount;
+
+        // Warn if over advancement count (soft warning via modal)
+        if (currentAdvCount !== null && advancingCount > currentAdvCount && !pendingSubmit) {
+            var msg = document.getElementById('overAdvanceMessage');
+            msg.textContent = advancingCount + ' players are set to advance, but the advancement count is ' + currentAdvCount + '. Do you want to proceed anyway?';
+            var modal = new bootstrap.Modal(document.getElementById('overAdvanceModal'));
+            modal.show();
+            return;
+        }
+
+        pendingSubmit = false;
+
+        // Build decisions
+        var decisions = [];
+        document.querySelectorAll('.advancement-radio:checked').forEach(function(radio) {
+            var spId = parseInt(radio.dataset.sp);
+            var action = radio.value;
+            if (action === 'skip') return;
+
+            var decision = { sp_id: spId, action: 'advance' };
+            if (action === 'losers') {
+                decision.to_stage_id = losersStageId;
+            } else if (action === 'advance') {
+                decision.to_stage_id = winnersStageId;
+            } else {
+                decision.action = 'eliminate';
+            }
+            decisions.push(decision);
+        });
+
+        var btn = document.getElementById('submitAdvancementBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>{% trans "Saving..." %}';
+
+        // If config dirty, save config first then submit decisions
+        var configPromise = configDirty ? saveConfig() : Promise.resolve({ success: true });
+
+        configPromise.then(function(configResult) {
+            if (!configResult.success) {
+                errorEl.textContent = configResult.error || '{% trans "Failed to save configuration." %}';
+                errorEl.classList.remove('d-none');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>{% trans "Save and Advance Players" %}';
+                return;
+            }
+
+            return fetch(submitUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                },
+                body: JSON.stringify({ decisions: decisions }),
+            });
+        })
+        .then(function(res) {
+            if (!res) return;
+            return res.json();
+        })
+        .then(function(data) {
+            if (!data) return;
+            if (data.success) {
+                window.location.reload();
+            } else {
+                errorEl.textContent = (data.errors || [data.error]).join('\n');
+                errorEl.classList.remove('d-none');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>{% trans "Save and Advance Players" %}';
+            }
+        })
+        .catch(function(err) {
+            errorEl.textContent = '{% trans "Request failed." %}';
+            errorEl.classList.remove('d-none');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>{% trans "Save and Advance Players" %}';
+        });
+    }
+
+    document.getElementById('advancement-form')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        doSubmit();
+    });
+
+    // Over-advance modal confirm
+    document.getElementById('overAdvanceConfirm')?.addEventListener('click', function() {
+        bootstrap.Modal.getInstance(document.getElementById('overAdvanceModal')).hide();
+        pendingSubmit = true;
+        doSubmit();
+    });
+});
+</script>
+{% endblock %}

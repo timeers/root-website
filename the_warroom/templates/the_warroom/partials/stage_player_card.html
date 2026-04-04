@@ -35,9 +35,13 @@
             <button class="btn btn-outline-danger" onclick="movePlayer({{ player.id }}, 'players', 'eliminated')" title="Eliminate">
                 <i class="bi bi-x-circle"></i>
             </button>
+            <button class="btn btn-outline-info" onclick="movePlayer({{ player.id }}, 'players', 'advanced')" title="Mark as advanced">
+                <i class="bi bi-arrow-right-circle"></i>
+            </button>
             <button class="btn btn-outline-secondary" onclick="movePlayer({{ player.id }}, 'players', 'withdrawn')" title="Mark withdrawn">
                 <i class="bi bi-dash-circle"></i>
             </button>
+
         {% elif group == 'eliminated' %}
             <button class="btn btn-outline-success" onclick="movePlayer({{ player.id }}, 'eliminated', 'players')" title="Re-register">
                 <i class="bi bi-check-circle"></i>
@@ -45,6 +49,16 @@
         {% elif group == 'withdrawn' %}
             <button class="btn btn-outline-success" onclick="movePlayer({{ player.id }}, 'withdrawn', 'players')" title="Re-register">
                 <i class="bi bi-check-circle"></i>
+            </button>
+        {% elif group == 'advanced' %}
+            <button class="btn btn-outline-success" onclick="movePlayer({{ player.id }}, 'advanced', 'players')" title="Move to active">
+                <i class="bi bi-check-circle"></i>
+            </button>
+            <button class="btn btn-outline-danger" onclick="movePlayer({{ player.id }}, 'advanced', 'eliminated')" title="Eliminate">
+                <i class="bi bi-x-circle"></i>
+            </button>
+            <button class="btn btn-outline-secondary" onclick="movePlayer({{ player.id }}, 'advanced', 'withdrawn')" title="Mark withdrawn">
+                <i class="bi bi-dash-circle"></i>
             </button>
         {% endif %}
         {% if group != 'available_stage' and group != 'unregistered' %}

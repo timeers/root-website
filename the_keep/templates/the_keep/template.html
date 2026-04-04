@@ -104,7 +104,9 @@
     });
     document.body.addEventListener('htmx:afterSwap', function (evt) {
         var tooltips = [].slice.call(evt.detail.target.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        tooltips.map(function (el) { return new bootstrap.Tooltip(el); });
+        tooltips.map(function (el) {
+            if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
+        });
     });
     // Fix aria-hidden warning: blur focused element before Bootstrap hides modal
     document.addEventListener('hide.bs.modal', function () {
@@ -207,6 +209,16 @@
         lightbox.style.display = "none";                  // hide the overlay
       }
 
+    function dismissGlobalMessage(dismissUrl) {
+        fetch(dismissUrl, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        }).catch(error => console.error('Error dismissing global message:', error));
+    }
+
     function dismissNotification(notificationId, dismissUrl) {
         // Send AJAX request to dismiss the notification
         fetch(dismissUrl, {
@@ -242,6 +254,77 @@
         }
         return cookieValue;
     }
+
+    function initAlertStack(wrapper) {
+        function measureItems() {
+            wrapper.querySelectorAll('.alert-stack-item').forEach(function(el) {
+                if (!el.dataset.naturalHeight) {
+                    el.dataset.naturalHeight = el.offsetHeight;
+                }
+            });
+        }
+        function getItems() {
+            return Array.from(wrapper.querySelectorAll('.alert-stack-item'));
+        }
+        function setWrapperHeight(items) {
+            if (items.length === 0) {
+                wrapper.style.removeProperty('height');
+                return;
+            }
+            var maxHeight = 0;
+            items.forEach(function(el) {
+                var h = parseInt(el.dataset.naturalHeight, 10) || el.offsetHeight;
+                if (h > maxHeight) maxHeight = h;
+            });
+            var peekOffset = Math.min(items.length - 1, 2) * 8;
+            wrapper.style.height = (maxHeight + peekOffset) + 'px';
+        }
+        function updateBadge(items) {
+            wrapper.querySelectorAll('.alert-stack-counter').forEach(function(b) { b.remove(); });
+            if (items.length < 2) return;
+            var badge = document.createElement('span');
+            badge.className = 'alert-stack-counter';
+            badge.textContent = '1 / ' + items.length;
+            var closeBtn = items[0].querySelector('[data-stack-close]');
+            closeBtn ? items[0].insertBefore(badge, closeBtn) : items[0].appendChild(badge);
+        }
+        function reindex() {
+            var items = getItems();
+            if (items.length <= 1) {
+                wrapper.classList.remove('is-stacked');
+                wrapper.style.removeProperty('height');
+                items.forEach(function(el) { el.removeAttribute('data-stack-index'); });
+                updateBadge(items);
+                return;
+            }
+            wrapper.classList.add('is-stacked');
+            items.forEach(function(el, i) { el.setAttribute('data-stack-index', i); });
+            setWrapperHeight(items);
+            updateBadge(items);
+        }
+        function dismissItem(item) {
+            if (wrapper.classList.contains('is-stacked') && item.getAttribute('data-stack-index') !== '0') {
+                return;
+            }
+            item.classList.add('stack-dismissing');
+            setTimeout(function() {
+                item.remove();
+                reindex();
+            }, 220);
+        }
+        wrapper.addEventListener('click', function(e) {
+            var btn = e.target.closest('[data-stack-close]');
+            if (!btn) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dismissItem(btn.closest('.alert-stack-item'));
+        });
+        measureItems();
+        reindex();
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.alert-stack-wrapper').forEach(initAlertStack);
+    });
 </script>
 
   </body>
