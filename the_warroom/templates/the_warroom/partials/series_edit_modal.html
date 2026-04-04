@@ -379,7 +379,7 @@ function _seriesUpdateSeatSearch(query) {
             ? `<img src="${sp.image_url}" alt="" class="rounded-circle me-2" style="width:24px;height:24px;">`
             : '<i class="bi bi-person-circle me-2"></i>';
         const statusBadge = sp.status !== 'active'
-            ? `<span class="badge bg-${sp.status === 'eliminated' ? 'danger' : 'warning'} ms-1">${sp.status}</span>`
+            ? `<span class="badge bg-${sp.status === 'eliminated' ? 'danger' : sp.status === 'advanced' ? 'info' : 'warning'} ms-1">${sp.status}</span>`
             : '';
         li.innerHTML = `<div class="d-flex align-items-center">${imgHtml}<span>${sp.display_name}</span>${statusBadge}</div>
             <button class="btn btn-sm btn-outline-primary" onclick="_seriesAddSeatFromSearch(${sp.id})" title="Add"><i class="bi bi-plus-lg"></i></button>`;

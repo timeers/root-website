@@ -179,8 +179,8 @@ class Tournament(models.Model):
     )
 
     # Access & Roster
-    guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this Series with a Guild to allow members to record games')
-    open_roster = models.BooleanField(default=True, help_text='Registered players will be able to add unregistered players to games')
+    guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this League with a Guild to allow members to record games')
+    open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to a game. If disabled, only registered players will be available.')
     players_can_record = models.BooleanField(default=True, help_text='Allow registered players to record games. If disabled, only admins, the owner, and moderators can record games.')
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
@@ -1986,6 +1986,7 @@ class StageParticipant(models.Model):
         ACTIVE = 'active', 'Active'
         ELIMINATED = 'eliminated', 'Eliminated'
         WITHDRAWN = 'withdrawn', 'Withdrawn'
+        ADVANCED = 'advanced', 'Advanced'
     stage = models.ForeignKey(Stage, on_delete=models.CASCADE, related_name='participants')
     tournament_player = models.ForeignKey(TournamentPlayer, on_delete=models.CASCADE, related_name='stage_participations')
     seed = models.IntegerField(null=True, blank=True)

@@ -2384,6 +2384,11 @@ def tournament_dynamic_update(request, slug):
             if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
                 tournament.default_format = ''
 
+            # Guard: for non-League, only allow clearing the guild, not changing to a different one
+            if tournament.classification != Tournament.ClassificationTypes.LEAGUE:
+                if tournament.guild is not None and tournament.guild != original.guild:
+                    tournament.guild = original.guild
+
             # Enforce locking: cannot unset use_stages if 2+ stages exist
             stage_count = original.stages.count()
             if stage_count >= 2:
@@ -4805,6 +4810,9 @@ def stage_manage_players(request, tournament_slug, stage_slug):
     withdrawn_participants = StageParticipant.objects.filter(
         stage=stage, status=StageParticipant.ParticipantStatus.WITHDRAWN
     ).select_related('tournament_player__profile')
+    advanced_participants = StageParticipant.objects.filter(
+        stage=stage, status=StageParticipant.ParticipantStatus.ADVANCED
+    ).select_related('tournament_player__profile')
 
     context = {
         'tournament': tournament,
@@ -4813,6 +4821,7 @@ def stage_manage_players(request, tournament_slug, stage_slug):
         'participants': participants,
         'eliminated_participants': eliminated_participants,
         'withdrawn_participants': withdrawn_participants,
+        'advanced_participants': advanced_participants,
     }
     return render(request, 'the_warroom/stage_manage_players.html', context)
 
@@ -4903,6 +4912,7 @@ def stage_move_player(request, tournament_slug, stage_slug):
         'players': StageParticipant.ParticipantStatus.ACTIVE,
         'eliminated': StageParticipant.ParticipantStatus.ELIMINATED,
         'withdrawn': StageParticipant.ParticipantStatus.WITHDRAWN,
+        'advanced': StageParticipant.ParticipantStatus.ADVANCED,
     }
 
     if not from_group:
@@ -6246,11 +6256,16 @@ def stage_advancement_page(request, tournament_slug, stage_slug):
             'suggested_stage': suggested_stage,
         })
 
+    already_advanced = list(stage.participants.filter(
+        status=StageParticipant.ParticipantStatus.ADVANCED
+    ).select_related('tournament_player__profile'))
+
     ctx = _stage_base_context(request, tournament, stage)
     ctx.update({
         'active_page': 'advancement',
         'eligible_players': eligible_players,
         'incomplete_players': incomplete_players,
+        'already_advanced': already_advanced,
         'available_stages': available_stages,
         'advancement_stages': advancement_stages,
         'suggested_stage': suggested_stage,
@@ -6308,6 +6323,8 @@ def stage_advancement_submit(request, tournament_slug, stage_slug):
                 tournament_player=sp.tournament_player,
                 defaults={'status': StageParticipant.ParticipantStatus.ACTIVE},
             )
+            sp.status = StageParticipant.ParticipantStatus.ADVANCED
+            sp.save(update_fields=['status'])
         else:
             errors.append(f"Unknown action '{action}' for sp {sp_id}.")
 

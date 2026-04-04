@@ -30,6 +30,7 @@
         <div class="card-body">
             <form method="post">
                 {% csrf_token %}
+                {% if tournament.classification == 'League' %}
                 <div class="mb-3">
                     {{ form.guild|as_crispy_field }}
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addGuildModal">
@@ -39,6 +40,7 @@
                     <small class='text-muted'>Guild members will have the same permissions as Registered Players</small>
                     </div>
                 </div>
+                {% endif %}
                 <div class="align-items-end">
                     <div>
                         {{ form.open_roster|as_crispy_field }}
@@ -147,7 +149,7 @@
 </div>
 
 {% include 'the_keep/partials/register_player_modal.html' %}
-{% if not round and is_owner %}
+{% if not round and is_owner and tournament.classification == 'League' %}
 {% include 'the_gatehouse/partials/add_guild_modal.html' with guild_select_id='id_guild' %}
 {% endif %}
 

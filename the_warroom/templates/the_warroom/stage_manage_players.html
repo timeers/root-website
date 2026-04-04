@@ -72,6 +72,23 @@
             </div>
         </div>
 
+        <!-- Advanced Column -->
+        <div class="col-md-6 col-xl-4 mb-4">
+            <div class="card h-100">
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-arrow-right-circle me-2"></i>Advanced</span>
+                    <span class="badge bg-white text-info" id="advanced-count">{{ advanced_participants.count }}</span>
+                </div>
+                <div class="card-body" id="advanced-list" style="max-height: 500px; overflow-y: auto;">
+                    {% for sp in advanced_participants %}
+                        {% include 'the_warroom/partials/stage_player_card.html' with player=sp.tournament_player.profile group='advanced' %}
+                    {% empty %}
+                        <p class="text-muted mb-0" id="advanced-empty">No advanced players</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
         <!-- Withdrawn Column -->
         <div class="col-md-6 col-xl-4 mb-4">
             <div class="card h-100">
@@ -88,6 +105,8 @@
                 </div>
             </div>
         </div>
+
+
     </div>
 </div>
 
@@ -183,7 +202,7 @@ function refreshSearchResults() {
 }
 
 function updatePlayerCounts() {
-    const lists = ['players', 'eliminated', 'withdrawn'];
+    const lists = ['players', 'eliminated', 'withdrawn', 'advanced'];
     lists.forEach(group => {
         const list = document.getElementById(`${group}-list`);
         const badge = document.getElementById(`${group}-count`);

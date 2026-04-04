@@ -172,7 +172,7 @@
                             <select class="form-select" id="id_winners_advance_to" name="winners_advance_to">
                                 <option value="">— None —</option>
                                 {% for s in form.winners_advance_to.field.queryset %}
-                                <option value="{{ s.pk }}" {% if form.winners_advance_to.value == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+                                <option value="{{ s.pk }}" {% if form.winners_advance_to.value|stringformat:"s" == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
                                 {% endfor %}
                                 <option value="new_winners" {% if form.winners_advance_to.value == "new_winners" %}selected{% endif %}>+ {% trans 'Create new stage' %}</option>
                             </select>
@@ -191,7 +191,7 @@
                             <select class="form-select" id="id_losers_advance_to" name="losers_advance_to">
                                 <option value="">— Eliminated —</option>
                                 {% for s in form.losers_advance_to.field.queryset %}
-                                <option value="{{ s.pk }}" {% if form.losers_advance_to.value == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+                                <option value="{{ s.pk }}" {% if form.losers_advance_to.value|stringformat:"s" == s.pk|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
                                 {% endfor %}
                                 <option value="new_losers" {% if form.losers_advance_to.value == "new_losers" %}selected{% endif %}>+ {% trans 'Create new stage' %}</option>
                             </select>

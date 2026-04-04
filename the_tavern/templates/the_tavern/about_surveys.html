@@ -211,8 +211,9 @@
         <div class="card-body">
             <h5 class="card-title root-title">{% trans 'Tournament Registration' %}</h5>
             <p>
-                {% blocktrans %}
-                Surveys can be linked to a <strong>Tournament</strong> to support
+                {% url 'about-series' as about_series_url %}
+                {% blocktrans with about_series_url=about_series_url %}
+                Surveys can be linked to a <strong><a href="{{ about_series_url }}">Tournament</a></strong> to support
                 registration and scheduling games.
                 {% endblocktrans %}
             </p>
@@ -400,6 +401,19 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <div class="row mt-5">
+        <div class="col text-center">
+            <h4 class='root-title'>{% trans "Ready to create a Survey?" %}</h4>
+            <a href="{% url 'survey-create' %}" class="btn btn-primary">
+                {% if user.is_authenticated %}
+                {% trans "Create a Survey" %}
+                {% else %}
+                {% trans "Log in to Create a Survey" %}
+                {% endif %}
+            </a>
         </div>
     </div>
 

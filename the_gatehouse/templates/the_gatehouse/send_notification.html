@@ -45,9 +45,9 @@
             {% endif %}
             <span class="text-muted" style="font-size: 0.75rem;">{{ notification.created_at|date:"M j, Y, g:i a" }}</span>
             {% if notification.is_dismissed %}
-              <span class="badge bg-secondary" style="font-size: 0.7rem;">Read</span>
+              {% comment %} <span class="text-muted" style="font-size: 0.7rem;">Read</span> {% endcomment %}
             {% else %}
-              <span class="badge bg-primary" style="font-size: 0.7rem;">Unread</span>
+              <span class="text-muted" style="font-size: 0.7rem;">Unread</span>
             {% endif %}
           </div>
           <div class="alert alert-{{ notification.message_type }} mb-0 py-2 px-3" role="alert">

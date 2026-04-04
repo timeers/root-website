@@ -26,7 +26,7 @@
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-md-4">
-                    <label for="configFormat" class="form-label fw-semibold">{% trans 'Format' %}</label>
+                    <label for="configFormat" class="form-label fw-semibold"><i class="bi bi-diagram-3 text-info me-1"></i>{% trans 'Format' %}</label>
                     <select class="form-select form-select-sm" id="configFormat">
                         <option value="">{% trans 'Inherit from tournament' %}{% if tournament.default_format %} ({{ tournament.default_format }}){% endif %}</option>
                         {% for val, label in format_choices %}
@@ -35,7 +35,7 @@
                     </select>
                 </div>
                 <div class="col-md-4">
-                    <label for="configWinnersStage" class="form-label fw-semibold">{% trans 'Winners advance to' %}</label>
+                    <label for="configWinnersStage" class="form-label fw-semibold"><i class="bi bi-check-lg text-success me-1"></i>{% trans 'Winners advance to' %}</label>
                     <select class="form-select form-select-sm" id="configWinnersStage">
                         <option value="">{% trans '— None (stay in stage) —' %}</option>
                         {% for s in all_stages %}
@@ -44,7 +44,7 @@
                     </select>
                 </div>
                 <div class="col-md-4" id="configLosersWrapper" {% if stage_format != 'Double Elimination' %}style="display:none;"{% endif %}>
-                    <label for="configLosersStage" class="form-label fw-semibold">{% trans 'Losers advance to' %}</label>
+                    <label for="configLosersStage" class="form-label fw-semibold"><i class="bi bi-x-lg text-danger me-1"></i>{% trans 'Losers advance to' %}</label>
                     <select class="form-select form-select-sm" id="configLosersStage">
                         <option value="">{% trans '— Eliminated —' %}</option>
                         {% for s in all_stages %}
@@ -63,7 +63,7 @@
             <div id="configError" class="text-danger small mt-2 d-none"></div>
             <div class="text-end mt-3">
                 <button type="button" class="btn btn-secondary btn-sm" id="saveConfigBtn" disabled>
-                    <i class="bi bi-check-square me-1"></i>{% trans 'Config Saved' %}
+                    <i class="bi bi-check-square me-1"></i>{% trans 'Settings Saved' %}
                 </button>
             </div>
         </div>
@@ -164,7 +164,26 @@
     </form>
     {% else %}
     <div class="alert alert-info">
-        <i class="bi bi-info-circle me-2"></i>{% trans 'No players with all series completed yet.' %}
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No players with all matches completed yet.' %}
+    </div>
+    {% endif %}
+
+    <!-- Already Advanced Players -->
+    {% if already_advanced %}
+    <div class="mt-4">
+        <h5 class="root-title"><i class="bi bi-arrow-right-circle me-2 text-info"></i>{% trans 'Already Advanced' %}</h5>
+        <p class="text-muted small">{% trans 'These players have already been advanced to another stage.' %}</p>
+        {% for sp in already_advanced %}
+        <div class="d-flex align-items-center gap-2 border rounded px-3 py-2 mb-2">
+            {% if sp.tournament_player.profile.image %}
+            <img src="{{ sp.tournament_player.profile.image.url }}" alt="" class="avatar-icon">
+            {% else %}
+            <i class="bi bi-person-circle"></i>
+            {% endif %}
+            <span>{{ sp.tournament_player.profile.display_name }}</span>
+            <span class="badge bg-info ms-auto">{% trans 'Advanced' %}</span>
+        </div>
+        {% endfor %}
     </div>
     {% endif %}
 
@@ -172,11 +191,11 @@
     {% if incomplete_players %}
     <div class="mt-4">
         <h5 class="root-title">{% trans 'Pending Players' %}</h5>
-        <p class="text-muted small">{% trans 'These players still have incomplete series.' %}</p>
+        <p class="text-muted small">{% trans 'These players still have incomplete matches.' %}</p>
         {% for ip in incomplete_players %}
         <div class="d-flex justify-content-between align-items-center border rounded px-3 py-2 mb-2">
             <span>{{ ip.sp.tournament_player.profile.display_name }}</span>
-            <span class="text-muted small">{{ ip.incomplete_count }} {% trans 'series incomplete' %}</span>
+            <span class="text-muted small">{% blocktrans count count=ip.incomplete_count %}{{ count }} incomplete match{% plural %}{{ count }} incomplete matches{% endblocktrans %}</span>
         </div>
         {% endfor %}
     </div>
@@ -252,11 +271,11 @@ document.addEventListener('DOMContentLoaded', function () {
             if (dirty) {
                 saveBtn.disabled = false;
                 saveBtn.classList.replace('btn-secondary', 'btn-primary');
-                saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Config';
+                saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Settings';
             } else {
                 saveBtn.disabled = true;
                 saveBtn.classList.replace('btn-primary', 'btn-secondary');
-                saveBtn.innerHTML = '<i class="bi bi-check-square me-1"></i>Config Saved';
+                saveBtn.innerHTML = '<i class="bi bi-check-square me-1"></i>Settings Saved';
             }
         }
 
