@@ -20,7 +20,7 @@
     <!-- Advancement Configuration Card -->
     {% if tournament.classification != "Game Group" %}
     <div class="card mb-4" id="advancementConfigCard">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header">
             <h6 class="mb-0 root-title"><i class="bi bi-gear me-2"></i>{% trans 'Advancement Configuration' %}</h6>
         </div>
         <div class="card-body">
@@ -35,55 +35,67 @@
                     </select>
                 </div>
                 <div class="col-md-4">
-                    <label for="configWinnersStage" class="form-label fw-semibold"><i class="bi bi-check-lg text-success me-1"></i>{% trans 'Winners advance to' %}</label>
+                    <label for="configWinnersStage" class="form-label fw-semibold"><i class="bi bi-check-lg text-success me-1"></i>{% trans 'Winners Advance to:' %}</label>
                     <select class="form-select form-select-sm" id="configWinnersStage">
-                        <option value="">{% trans '— None (stay in stage) —' %}</option>
+                        <option value="">{% trans '- Select a Stage -' %}</option>
                         {% for s in all_stages %}
                         <option value="{{ s.id }}" {% if stage.winners_advance_to_id == s.id %}selected{% endif %}>{{ s.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-4" id="configLosersWrapper" {% if stage_format != 'Double Elimination' %}style="display:none;"{% endif %}>
-                    <label for="configLosersStage" class="form-label fw-semibold"><i class="bi bi-x-lg text-danger me-1"></i>{% trans 'Losers advance to' %}</label>
+                <div class="col-md-4" id="configLosersWrapper" {% if not is_double_elim %}style="display:none;"{% endif %}>
+                    <label for="configLosersStage" class="form-label fw-semibold"><i class="bi bi-x-lg text-danger me-1"></i>{% trans 'Losers Advance to:' %}</label>
                     <select class="form-select form-select-sm" id="configLosersStage">
-                        <option value="">{% trans '— Eliminated —' %}</option>
+                        <option value="">{% trans '- Select a Stage -' %}</option>
                         {% for s in all_stages %}
                         <option value="{{ s.id }}" {% if stage.losers_advance_to_id == s.id %}selected{% endif %}>{{ s.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-4" id="configAdvCountWrapper" {% if is_bracket %}style="display:none;"{% endif %}>
-                    <label for="configAdvCount" class="form-label fw-semibold">{% trans 'Advancement count' %}</label>
+                    <label for="configAdvCount" class="form-label fw-semibold"><i class="bi bi-person-up text-success me-1"></i>{% trans 'Players to Advance' %}</label>
                     <input type="number" class="form-control form-control-sm" id="configAdvCount"
                            min="1" placeholder="e.g. 8"
-                           value="{{ stage.advancement_count|default:'' }}">
-                    <small class="text-muted">{% trans 'Top N players to advance' %}</small>
+                           value="{{ advancement_count|default:'' }}">
+                    {% comment %} <small class="text-muted">{% trans 'Top N players to advance' %}</small> {% endcomment %}
                 </div>
             </div>
             <div id="configError" class="text-danger small mt-2 d-none"></div>
-            <div class="text-end mt-3">
-                <button type="button" class="btn btn-secondary btn-sm" id="saveConfigBtn" disabled>
-                    <i class="bi bi-check-square me-1"></i>{% trans 'Settings Saved' %}
-                </button>
-            </div>
         </div>
-
     </div>
     {% endif %}
 
     {% if eligible_players %}
     <form id="advancement-form">
         {% csrf_token %}
+
+        <div class="d-flex align-items-center gap-2 mb-3">
+            <h5 class="mb-0 root-title"><i class="bi bi-people me-2"></i>{% trans 'Advancement Preview' %}</h5>
+        </div>
+
+        {% if has_incomplete_warning %}
+        <div class="alert alert-warning d-flex align-items-center gap-2" id="incompleteWarning">
+            <i class="bi bi-hourglass-split"></i>
+            <span>{% blocktrans with count=incomplete_total %}Waiting for {{ count }} player{{ count|pluralize }} to finish their games.{% endblocktrans %}</span>
+        </div>
+        {% endif %}
+
         {% for player_data in eligible_players %}
         {% with sp=player_data.sp %}
-        <div class="card mb-3">
+        <div class="card mb-3 player-card" data-sp="{{ sp.id }}" data-default-action="{{ player_data.default_action }}">
             <div class="card-header d-flex align-items-center gap-2">
+                {% comment %} <span class="badge bg-secondary me-1">#{{ player_data.rank }}</span> {% endcomment %}
                 {% if sp.tournament_player.profile.image %}
                 <img src="{{ sp.tournament_player.profile.image.url }}" alt="" class="avatar-icon">
                 {% else %}
                 <i class="bi bi-person-circle"></i>
                 {% endif %}
                 <strong>{{ sp.tournament_player.profile.display_name }}</strong>
+                {% comment %} {% if player_data.all_bye %}
+                <span class="badge bg-info ms-1 small">{% trans 'Bye' %}</span>
+                {% else %}
+                <span class="text-muted small ms-auto">{{ player_data.win_rate|floatformat:0 }}{% if player_data.win_rate != 1.0 %}% wins{% endif %}</span>
+                {% endif %} {% endcomment %}
             </div>
             <div class="card-body">
                 <!-- Series played -->
@@ -91,8 +103,15 @@
                 <div class="mb-3">
                     <div class="text-muted small mb-1">
                         {{ sd.series.round.name|default:sd.series.round }} &ndash;
-                        {% if sd.is_winner %}<span class="text-success fw-bold">{% trans 'Winner' %}</span>{% else %}<span class="text-secondary">{% trans 'Eliminated' %}</span>{% endif %}
+                        {% if sd.series.is_bye %}
+                            <span class="text-info fw-bold">{% trans 'Bye' %}</span>
+                        {% elif sd.is_winner %}
+                            <span class="text-success fw-bold">{% trans 'Win' %}</span>
+                        {% else %}
+                            <span class="text-secondary">{% trans 'Loss' %}</span>
+                        {% endif %}
                     </div>
+                    {% if not sd.series.is_bye %}
                     <div class="d-flex flex-wrap gap-2">
                         {% for md in sd.match_data %}
                         <div class="border rounded px-2 py-1 d-flex align-items-center gap-1 small">
@@ -108,6 +127,7 @@
                         </div>
                         {% endfor %}
                     </div>
+                    {% endif %}
                 </div>
                 {% endfor %}
 
@@ -123,34 +143,20 @@
 
                         <input type="radio" class="btn-check advancement-radio" name="action_{{ sp.id }}"
                                id="skip_{{ sp.id }}" value="skip" data-sp="{{ sp.id }}"
-                               {% if not player_data.default_action or player_data.default_action == 'skip' %}checked{% endif %}>
+                               {% if player_data.default_action == 'skip' or not player_data.default_action %}checked{% endif %}>
                         <label class="btn btn-outline-secondary" for="skip_{{ sp.id }}">
                             <i class="bi bi-clock me-1"></i>{% trans 'Decide Later' %}
                         </label>
 
                         <input type="radio" class="btn-check advancement-radio" name="action_{{ sp.id }}"
-                               id="eliminate_{{ sp.id }}" value="eliminate" data-sp="{{ sp.id }}"
-                               {% if player_data.default_action == 'eliminate' %}checked{% endif %}>
-                        <label class="btn btn-outline-danger" for="eliminate_{{ sp.id }}">
-                            <i class="bi bi-x-circle me-1"></i>{% trans 'Eliminate' %}
+                               id="elim_{{ sp.id }}"
+                               value="{% if is_double_elim %}losers{% else %}eliminate{% endif %}"
+                               data-sp="{{ sp.id }}"
+                               {% if player_data.default_action == 'eliminate' or player_data.default_action == 'losers' %}checked{% endif %}>
+                        <label class="btn elim-morph-btn {% if is_double_elim %}btn-outline-warning{% else %}btn-outline-danger{% endif %}" for="elim_{{ sp.id }}">
+                            <i class="bi {% if is_double_elim %}bi-arrow-down-right-circle{% else %}bi-x-circle{% endif %} me-1"></i>
+                            <span class="elim-morph-text">{% if is_double_elim %}{% trans 'Advance to Losers Stage' %}{% else %}{% trans 'Eliminate' %}{% endif %}</span>
                         </label>
-                    </div>
-
-                    <!-- Stage select (visible only when Advance is selected) -->
-                    <div class="mt-2 stage-select-wrapper" id="stage-select-{{ sp.id }}"
-                         {% if player_data.default_action != 'advance' %}style="display:none;"{% endif %}>
-                        {% if player_data.advancement_stages %}
-                        <select class="form-select form-select-sm w-auto" name="stage_{{ sp.id }}" id="stage_field_{{ sp.id }}">
-                            {% for stage_opt in player_data.advancement_stages %}
-                            <option value="{{ stage_opt.id }}"
-                                {% if stage_opt == player_data.suggested_stage %}selected{% endif %}>
-                                {{ stage_opt.name }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        {% else %}
-                        <span class="text-muted small">{% trans 'No subsequent stages available. Use "New Stage" above to create one.' %}</span>
-                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -158,8 +164,10 @@
         {% endwith %}
         {% endfor %}
 
-        <button type="submit" class="btn btn-primary mb-4">
-            <i class="bi bi-check-lg me-1"></i>{% trans 'Save Decisions' %}
+        <div id="submitError" class="alert alert-danger d-none mb-3"></div>
+
+        <button type="submit" class="btn btn-primary mb-4" id="submitAdvancementBtn">
+            <i class="bi bi-check-lg me-1"></i>{% trans 'Save and Advance Players' %}
         </button>
     </form>
     {% else %}
@@ -236,67 +244,66 @@
     </div>
 </div>
 
+<!-- Over-advancement confirmation modal -->
+<div class="modal fade" id="overAdvanceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title root-title"><i class="bi bi-exclamation-triangle me-2 text-warning"></i>{% trans 'Too Many Advancing' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="overAdvanceMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Go Back' %}</button>
+                <button type="button" class="btn btn-warning" id="overAdvanceConfirm">{% trans 'Proceed Anyway' %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var configUrl = "{% url 'stage-advancement-config' tournament_slug=tournament.slug stage_slug=stage.slug %}";
+    var submitUrl = "{% url 'stage-advancement-submit' tournament_slug=tournament.slug stage_slug=stage.slug %}";
     var BRACKET_FORMATS = ['Single Elimination', 'Double Elimination'];
+    var advancementCount = {{ advancement_count|default:'null' }};
 
     // ── Config dirty-state tracking ─────────────────────────────────
-    (function() {
-        var saveBtn = document.getElementById('saveConfigBtn');
-        if (!saveBtn) return;
+    var formatEl = document.getElementById('configFormat');
+    var winnersEl = document.getElementById('configWinnersStage');
+    var losersEl = document.getElementById('configLosersStage');
+    var advCountEl = document.getElementById('configAdvCount');
+    var configInitial = {
+        format: formatEl ? formatEl.value : '',
+        winners: winnersEl ? winnersEl.value : '',
+        losers: losersEl ? losersEl.value : '',
+        advCount: advCountEl ? advCountEl.value : '',
+    };
+    var configDirty = false;
 
-        var formatEl = document.getElementById('configFormat');
-        var winnersEl = document.getElementById('configWinnersStage');
-        var losersEl = document.getElementById('configLosersStage');
-        var advCountEl = document.getElementById('configAdvCount');
+    function checkConfigDirty() {
+        configDirty =
+            (formatEl && formatEl.value !== configInitial.format) ||
+            (winnersEl && winnersEl.value !== configInitial.winners) ||
+            (losersEl && losersEl.value !== configInitial.losers) ||
+            (advCountEl && advCountEl.value !== configInitial.advCount);
 
-        var initial = {
-            format: formatEl ? formatEl.value : '',
-            winners: winnersEl ? winnersEl.value : '',
-            losers: losersEl ? losersEl.value : '',
-            advCount: advCountEl ? advCountEl.value : '',
-        };
 
-        function checkDirty() {
-            var dirty =
-                (formatEl && formatEl.value !== initial.format) ||
-                (winnersEl && winnersEl.value !== initial.winners) ||
-                (losersEl && losersEl.value !== initial.losers) ||
-                (advCountEl && advCountEl.value !== initial.advCount);
+    }
 
-            if (dirty) {
-                saveBtn.disabled = false;
-                saveBtn.classList.replace('btn-secondary', 'btn-primary');
-                saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save Settings';
-            } else {
-                saveBtn.disabled = true;
-                saveBtn.classList.replace('btn-primary', 'btn-secondary');
-                saveBtn.innerHTML = '<i class="bi bi-check-square me-1"></i>Settings Saved';
-            }
+    [formatEl, winnersEl, losersEl, advCountEl].forEach(function(el) {
+        if (el) {
+            el.addEventListener('change', checkConfigDirty);
+            el.addEventListener('input', checkConfigDirty);
         }
+    });
 
-        [formatEl, winnersEl, losersEl, advCountEl].forEach(function(el) {
-            if (el) {
-                el.addEventListener('change', checkDirty);
-                el.addEventListener('input', checkDirty);
-            }
-        });
-
-        // After a successful save, reset the initial snapshot so the button goes back to greyed
-        saveBtn.addEventListener('_saved', function() {
-            initial.format = formatEl ? formatEl.value : '';
-            initial.winners = winnersEl ? winnersEl.value : '';
-            initial.losers = losersEl ? losersEl.value : '';
-            initial.advCount = advCountEl ? advCountEl.value : '';
-            checkDirty();
-        });
-    })();
-
-    // ── Config bar ──────────────────────────────────────────────────
+    // ── Config visibility (losers/advCount toggling) ─────────────────
     function updateConfigVisibility(formatVal) {
         var isDoubleElim = formatVal === 'Double Elimination';
         var isBracket = BRACKET_FORMATS.indexOf(formatVal) !== -1;
@@ -304,23 +311,44 @@ document.addEventListener('DOMContentLoaded', function () {
         var advCountWrapper = document.getElementById('configAdvCountWrapper');
         if (losersWrapper) losersWrapper.style.display = isDoubleElim ? '' : 'none';
         if (advCountWrapper) advCountWrapper.style.display = isBracket ? 'none' : '';
+
+        // Morph eliminate/losers buttons on player cards
+        updateElimMorphButtons(isDoubleElim);
     }
 
-    var formatSelect = document.getElementById('configFormat');
-    if (formatSelect) {
-        formatSelect.addEventListener('change', function () {
-            updateConfigVisibility(this.value);
+    function updateElimMorphButtons(isDoubleElim) {
+        document.querySelectorAll('.elim-morph-btn').forEach(function(label) {
+            var radio = document.getElementById(label.htmlFor);
+            if (!radio) return;
+
+            if (isDoubleElim) {
+                radio.value = 'losers';
+                label.classList.replace('btn-outline-danger', 'btn-outline-warning');
+                label.querySelector('i').className = 'bi bi-arrow-down-right-circle me-1';
+                label.querySelector('.elim-morph-text').textContent = '{% trans "Advance to Losers Stage" %}';
+                // If currently on eliminate (was set before toggle), keep checked — value already updated
+            } else {
+                radio.value = 'eliminate';
+                label.classList.replace('btn-outline-warning', 'btn-outline-danger');
+                label.querySelector('i').className = 'bi bi-x-circle me-1';
+                label.querySelector('.elim-morph-text').textContent = '{% trans "Eliminate" %}';
+            }
         });
     }
 
-    document.getElementById('saveConfigBtn')?.addEventListener('click', function () {
-        var errorEl = document.getElementById('configError');
-        errorEl.classList.add('d-none');
+    if (formatEl) {
+        formatEl.addEventListener('change', function () {
+            updateConfigVisibility(this.value);
+            checkConfigDirty();
+        });
+    }
 
-        var formatVal = document.getElementById('configFormat')?.value || '';
-        var winnersVal = document.getElementById('configWinnersStage')?.value || '';
-        var losersVal = document.getElementById('configLosersStage')?.value || '';
-        var advCountVal = document.getElementById('configAdvCount')?.value || '';
+    // ── Save config via fetch ────────────────────────────────────────
+    function saveConfig() {
+        var formatVal = formatEl ? formatEl.value : '';
+        var winnersVal = winnersEl ? winnersEl.value : '';
+        var losersVal = losersEl ? losersEl.value : '';
+        var advCountVal = advCountEl ? advCountEl.value : '';
 
         var payload = {
             stage_format: formatVal,
@@ -329,28 +357,15 @@ document.addEventListener('DOMContentLoaded', function () {
             advancement_count: advCountVal !== '' ? parseInt(advCountVal) : null,
         };
 
-        fetch(configUrl, {
+        return fetch(configUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || '{{ csrf_token }}',
             },
             body: JSON.stringify(payload),
-        })
-        .then(function (res) { return res.json(); })
-        .then(function (data) {
-            if (data.success) {
-                document.getElementById('saveConfigBtn').dispatchEvent(new Event('_saved'));
-            } else {
-                errorEl.textContent = data.error || 'An error occurred.';
-                errorEl.classList.remove('d-none');
-            }
-        })
-        .catch(function () {
-            errorEl.textContent = 'Request failed.';
-            errorEl.classList.remove('d-none');
-        });
-    });
+        }).then(function(res) { return res.json(); });
+    }
 
     // ── Create Stage modal ──────────────────────────────────────────
     document.getElementById('createStageSubmit')?.addEventListener('click', function () {
@@ -377,28 +392,10 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(function (res) { return res.json(); })
         .then(function (data) {
             if (data.success) {
-                // Add new stage to existing selects
-                document.querySelectorAll('[id^="stage_field_"]').forEach(function (sel) {
-                    const opt = new Option(data.stage_name, data.stage_id, true, true);
-                    sel.appendChild(opt);
-                });
                 // Add to config selects
                 ['configWinnersStage', 'configLosersStage'].forEach(function (selId) {
                     var sel = document.getElementById(selId);
                     if (sel) sel.appendChild(new Option(data.stage_name, data.stage_id, false, false));
-                });
-                // For stage-select wrappers that had no select (empty state), replace the message with a select
-                document.querySelectorAll('.stage-select-wrapper').forEach(function (wrapper) {
-                    const spId = wrapper.id.replace('stage-select-', '');
-                    if (!wrapper.querySelector('select')) {
-                        const sel = document.createElement('select');
-                        sel.className = 'form-select form-select-sm w-auto';
-                        sel.name = 'stage_' + spId;
-                        sel.id = 'stage_field_' + spId;
-                        sel.appendChild(new Option(data.stage_name, data.stage_id, true, true));
-                        wrapper.innerHTML = '';
-                        wrapper.appendChild(sel);
-                    }
                 });
                 bootstrap.Modal.getInstance(document.getElementById('createStageModal')).hide();
             } else {
@@ -412,57 +409,125 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    // Toggle stage select visibility based on Advance/Eliminate radio
-    document.querySelectorAll('.advancement-radio').forEach(function (radio) {
-        radio.addEventListener('change', function () {
-            const spId = this.dataset.sp;
-            const wrapper = document.getElementById('stage-select-' + spId);
-            if (wrapper) {
-                wrapper.style.display = this.value === 'advance' ? '' : 'none';
-            }
+    // ── Submit form ─────────────────────────────────────────────────
+    var pendingSubmit = false;
+
+    function doSubmit() {
+        var errorEl = document.getElementById('submitError');
+        errorEl.classList.add('d-none');
+
+        var winnersStageId = winnersEl ? (winnersEl.value ? parseInt(winnersEl.value) : null) : null;
+        var losersStageId = losersEl ? (losersEl.value ? parseInt(losersEl.value) : null) : null;
+        var currentFormat = formatEl ? formatEl.value : '{{ stage_format|default:"" }}';
+        var isDoubleElim = currentFormat === 'Double Elimination';
+
+        // Validation: stage selections required
+        var missingStages = [];
+        if (!winnersStageId) missingStages.push('{% trans "Winners advance to" %}');
+        if (isDoubleElim && !losersStageId) missingStages.push('{% trans "Losers advance to" %}');
+        if (missingStages.length > 0) {
+            errorEl.textContent = '{% trans "Please set the following in the configuration: " %}' + missingStages.join(', ') + '.';
+            errorEl.classList.remove('d-none');
+            errorEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            return;
+        }
+
+        // Count advancing players
+        var advancingCount = 0;
+        document.querySelectorAll('.advancement-radio:checked').forEach(function(radio) {
+            if (radio.value === 'advance' || radio.value === 'losers') advancingCount++;
         });
-    });
 
-    // Submit form as JSON POST
-    document.getElementById('advancement-form')?.addEventListener('submit', function (e) {
-        e.preventDefault();
+        // Use current live advancement count value (may have been changed without saving)
+        var currentAdvCount = advCountEl && advCountEl.value !== '' ? parseInt(advCountEl.value) : advancementCount;
 
-        const decisions = [];
-        document.querySelectorAll('.advancement-radio:checked').forEach(function (radio) {
-            const spId = parseInt(radio.dataset.sp);
-            const action = radio.value;
-            if (action === 'skip') return;  // omit from submission
+        // Warn if over advancement count (soft warning via modal)
+        if (currentAdvCount !== null && advancingCount > currentAdvCount && !pendingSubmit) {
+            var msg = document.getElementById('overAdvanceMessage');
+            msg.textContent = advancingCount + ' players are set to advance, but the advancement count is ' + currentAdvCount + '. Do you want to proceed anyway?';
+            var modal = new bootstrap.Modal(document.getElementById('overAdvanceModal'));
+            modal.show();
+            return;
+        }
 
-            const decision = { sp_id: spId, action: action };
+        pendingSubmit = false;
 
-            if (action === 'advance') {
-                const stageField = document.getElementById('stage_field_' + spId);
-                if (stageField && stageField.value) {
-                    decision.to_stage_id = parseInt(stageField.value);
-                }
+        // Build decisions
+        var decisions = [];
+        document.querySelectorAll('.advancement-radio:checked').forEach(function(radio) {
+            var spId = parseInt(radio.dataset.sp);
+            var action = radio.value;
+            if (action === 'skip') return;
+
+            var decision = { sp_id: spId, action: 'advance' };
+            if (action === 'losers') {
+                decision.to_stage_id = losersStageId;
+            } else if (action === 'advance') {
+                decision.to_stage_id = winnersStageId;
+            } else {
+                decision.action = 'eliminate';
             }
             decisions.push(decision);
         });
 
-        fetch("{% url 'stage-advancement-submit' tournament_slug=tournament.slug stage_slug=stage.slug %}", {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
-            },
-            body: JSON.stringify({ decisions: decisions }),
+        var btn = document.getElementById('submitAdvancementBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>{% trans "Saving..." %}';
+
+        // If config dirty, save config first then submit decisions
+        var configPromise = configDirty ? saveConfig() : Promise.resolve({ success: true });
+
+        configPromise.then(function(configResult) {
+            if (!configResult.success) {
+                errorEl.textContent = configResult.error || '{% trans "Failed to save configuration." %}';
+                errorEl.classList.remove('d-none');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>{% trans "Save and Advance Players" %}';
+                return;
+            }
+
+            return fetch(submitUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                },
+                body: JSON.stringify({ decisions: decisions }),
+            });
         })
-        .then(function (res) { return res.json(); })
-        .then(function (data) {
+        .then(function(res) {
+            if (!res) return;
+            return res.json();
+        })
+        .then(function(data) {
+            if (!data) return;
             if (data.success) {
                 window.location.reload();
             } else {
-                alert('Errors:\n' + (data.errors || [data.error]).join('\n'));
+                errorEl.textContent = (data.errors || [data.error]).join('\n');
+                errorEl.classList.remove('d-none');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>{% trans "Save and Advance Players" %}';
             }
         })
-        .catch(function (err) {
-            alert('Request failed: ' + err);
+        .catch(function(err) {
+            errorEl.textContent = '{% trans "Request failed." %}';
+            errorEl.classList.remove('d-none');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>{% trans "Save and Advance Players" %}';
         });
+    }
+
+    document.getElementById('advancement-form')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        doSubmit();
+    });
+
+    // Over-advance modal confirm
+    document.getElementById('overAdvanceConfirm')?.addEventListener('click', function() {
+        bootstrap.Modal.getInstance(document.getElementById('overAdvanceModal')).hide();
+        pendingSubmit = true;
+        doSubmit();
     });
 });
 </script>

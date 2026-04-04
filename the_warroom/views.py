@@ -8,7 +8,7 @@ from django.views.generic import DeleteView
 from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
-from django.http import HttpResponse, HttpResponseBadRequest, Http404
+from django.http import HttpResponse, HttpResponseBadRequest, Http404, HttpResponseRedirect
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.urls import reverse, reverse_lazy
@@ -4489,7 +4489,6 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
     rounds = stage.rounds.all().order_by('round_number')
     rounds_with_matches = rounds.prefetch_related(
         'matches__series__player_group__tournament_players__profile',
-        'series__advancements__to_stage',
         'series__player_group',
     )
     has_bracket = Match.objects.filter(round__stage=stage).exists()
@@ -5239,6 +5238,26 @@ def round_grouping_status(request, tournament_slug, stage_slug, round_slug, sess
     response = HttpResponse(status=200)
     response['HX-Refresh'] = 'true'
     return response
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_grouping_reset(request, tournament_slug, stage_slug, round_slug, session_id):
+    """Reset a stuck/errored grouping status back to DRAFT."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug, classification=Tournament.ClassificationTypes.TOURNAMENT)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    profile = request.user.profile
+
+    if not tournament.has_permission(profile):
+        raise PermissionDenied
+
+    if round.grouping_status in (Round.GroupingStatusChoices.PROCESSING, Round.GroupingStatusChoices.ERROR):
+        round.grouping_status = Round.GroupingStatusChoices.DRAFT
+        round.grouping_notes = ''
+        round.save(update_fields=['grouping_status', 'grouping_notes'])
+
+    return HttpResponseRedirect(request.META.get('HTTP_REFERER', request.path))
 
 
 @login_required
@@ -6184,7 +6203,8 @@ def stage_advancement_page(request, tournament_slug, stage_slug):
         raise PermissionDenied()
 
     all_stage_series = list(MatchSeries.objects.filter(round__stage=stage).prefetch_related(
-        'winners', 'matches__game__efforts__faction', 'player_group__tournament_players'
+        'winners', 'matches__game__efforts__faction', 'player_group__tournament_players',
+        'matchseat_set__stage_participant'
     ))
 
     # All stages later in this tournament (fallback advancement targets)
@@ -6193,18 +6213,12 @@ def stage_advancement_page(request, tournament_slug, stage_slug):
         order__gt=stage.order,
     ).order_by('order'))
 
-    # Advancement stages: use stage.winners_advance_to if set, else fallback to available_stages
-    if stage.winners_advance_to:
-        advancement_stages = [stage.winners_advance_to]
-        suggested_stage = stage.winners_advance_to
-    else:
-        advancement_stages = available_stages
-        suggested_stage = advancement_stages[0] if advancement_stages else None
-
     BRACKET_FORMATS = {FormatChoices.SINGLE_ELIM, FormatChoices.DOUBLE_ELIM}
     stage_format = stage.get_format()
+    is_double_elim = stage_format == FormatChoices.DOUBLE_ELIM
 
-    eligible_players = []
+    # Build player data including ranking
+    eligible_players_raw = []
     incomplete_players = []
 
     for sp in stage.participants.filter(
@@ -6212,12 +6226,22 @@ def stage_advancement_page(request, tournament_slug, stage_slug):
     ).select_related('tournament_player__profile'):
         player_series = [
             s for s in all_stage_series
-            if s.player_group and sp.tournament_player in s.player_group.tournament_players.all()
+            if (s.player_group and sp.tournament_player in s.player_group.tournament_players.all())
+            or any(seat.stage_participant_id == sp.id for seat in s.matchseat_set.all())
         ]
 
+        # Players with no series at all are eligible to advance by default (rank top)
         if not player_series:
+            eligible_players_raw.append({
+                'sp': sp,
+                'series_data': [],
+                'all_bye': True,
+                'win_rate': 1.0,
+                'non_bye_count': 0,
+            })
             continue
 
+        all_bye = all(s.is_bye for s in player_series)
         incomplete = [s for s in player_series if not s.is_complete()]
         if incomplete:
             incomplete_players.append({'sp': sp, 'incomplete_count': len(incomplete)})
@@ -6238,11 +6262,50 @@ def stage_advancement_page(request, tournament_slug, stage_slug):
                 'is_winner': sp in series.winners.all(),
             })
 
-        # Determine default action based on format and player result
-        if stage_format in BRACKET_FORMATS:
+        # Compute win rate for ranking
+        non_bye_series = [s for s in player_series if not s.is_bye]
+        if all_bye or not non_bye_series:
+            win_rate = 1.0
+            non_bye_count = 0
+        else:
+            wins = sum(1 for sd in series_data if not sd['series'].is_bye and sd['is_winner'])
+            win_rate = wins / len(non_bye_series)
+            non_bye_count = len(non_bye_series)
+
+        eligible_players_raw.append({
+            'sp': sp,
+            'series_data': series_data,
+            'all_bye': all_bye,
+            'win_rate': win_rate,
+            'non_bye_count': non_bye_count,
+        })
+
+    # Sort: bye players first (highest rank), then by win rate descending, then by games played descending
+    eligible_players_raw.sort(key=lambda p: (p['all_bye'], p['win_rate'], p['non_bye_count']), reverse=True)
+
+    # Assign ranks and determine default actions
+    advancement_count = stage.advancement_count
+    eligible_players = []
+    for rank_idx, player_data in enumerate(eligible_players_raw):
+        sp = player_data['sp']
+        all_bye = player_data['all_bye']
+        series_data = player_data['series_data']
+
+        # Default action logic
+        if advancement_count is not None:
+            # Top-N advance, rest eliminate
+            if rank_idx < advancement_count:
+                default_action = 'advance'
+            else:
+                default_action = 'eliminate'
+        elif all_bye:
+            default_action = 'advance'
+        elif stage_format in BRACKET_FORMATS:
             lost_any = any(not sd['is_winner'] for sd in series_data)
             if stage_format == FormatChoices.SINGLE_ELIM and lost_any:
                 default_action = 'eliminate'
+            elif is_double_elim and lost_any:
+                default_action = 'losers'
             else:
                 default_action = 'advance'
         else:
@@ -6251,10 +6314,14 @@ def stage_advancement_page(request, tournament_slug, stage_slug):
         eligible_players.append({
             'sp': sp,
             'series_data': series_data,
+            'all_bye': all_bye,
             'default_action': default_action,
-            'advancement_stages': advancement_stages,
-            'suggested_stage': suggested_stage,
+            'rank': rank_idx + 1,
+            'win_rate': player_data['win_rate'],
         })
+
+    # Warning: incomplete players exist and advancement_count is set
+    has_incomplete_warning = bool(incomplete_players) and advancement_count is not None
 
     already_advanced = list(stage.participants.filter(
         status=StageParticipant.ParticipantStatus.ADVANCED
@@ -6267,10 +6334,12 @@ def stage_advancement_page(request, tournament_slug, stage_slug):
         'incomplete_players': incomplete_players,
         'already_advanced': already_advanced,
         'available_stages': available_stages,
-        'advancement_stages': advancement_stages,
-        'suggested_stage': suggested_stage,
         'is_bracket': stage_format in BRACKET_FORMATS,
+        'is_double_elim': is_double_elim,
         'stage_format': stage_format,
+        'advancement_count': advancement_count,
+        'has_incomplete_warning': has_incomplete_warning,
+        'incomplete_total': len(incomplete_players),
         'all_stages': list(Stage.objects.filter(tournament=tournament).exclude(id=stage.id).order_by('order')),
         'format_choices': FormatChoices.choices,
     })
