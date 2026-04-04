@@ -275,10 +275,10 @@
         </div>
         {% endif %}
 
-        <!-- Advancement Card (Stage only, when use_stages enabled, at least one round is complete, not a Game Group) -->
-        {% if tournament.use_stages and has_completed_round and stage and not round and tournament.classification != "Game Group" %}
+        <!-- Advancement Card (Stage only, when use_stages enabled, not a Game Group) -->
+        {% if tournament.use_stages and stage and not round and tournament.classification != "Game Group" %}
         <div class="col-md-6">
-            <div class="card h-100">
+            <div class="card h-100 {% if not has_advancement_data %}opacity-75{% endif %}">
                 <div class="card-body">
                     <h5 class="card-title root-title">
                         <i class="bi bi-arrow-right-circle me-2"></i>Advancement
@@ -286,11 +286,24 @@
                     <p class="card-text text-muted">
                         Review and approve player advancement to the next stage.
                     </p>
+                    {% if not has_advancement_data %}
+                    <div class="alert alert-info d-flex align-items-center gap-2 mb-0 mt-2 py-2 small">
+                        <i class="bi bi-info-circle-fill"></i>
+                        Record games with registered players to access advancement
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="card-footer bg-transparent">
+                    {% if has_advancement_data %}
                     <a href="{% url 'stage-advancement-page' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
                         <i class="bi bi-arrow-right-circle me-1"></i>Manage Advancement
                     </a>
+                    {% else %}
+                    <span class="btn btn-secondary w-100 disabled">
+                        <i class="bi bi-arrow-right-circle me-1"></i>
+                        Manage Advancement
+                    </span>
+                    {% endif %}
                 </div>
             </div>
         </div>
