@@ -1007,6 +1007,7 @@ class UserNotification(models.Model):
     Stores dismissible notifications that appear in the message bar.
     """
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='notifications')
+    sender = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='sent_notifications')
     message = models.TextField()
     message_type = models.CharField(
         max_length=20,
@@ -1037,7 +1038,7 @@ class UserNotification(models.Model):
         self.save()
 
     @classmethod
-    def create_notification(cls, profile, message, message_type=MessageChoices.INFO, related_post=None, related_url=None):
+    def create_notification(cls, profile, message, message_type=MessageChoices.INFO, related_post=None, related_url=None, sender=None):
         """
         Helper method to create a notification.
 
@@ -1047,9 +1048,11 @@ class UserNotification(models.Model):
             message_type: Type of message (success, warning, danger, info)
             related_post: Optional Post object to link to
             related_url: Optional URL to link to
+            sender: Optional Profile of the admin/user sending the notification
         """
         notification = cls.objects.create(
             profile=profile,
+            sender=sender,
             message=message,
             message_type=message_type,
             related_post_id=related_post.id if related_post else None,

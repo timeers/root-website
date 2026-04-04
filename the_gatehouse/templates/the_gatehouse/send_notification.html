@@ -1,0 +1,229 @@
+{% extends 'the_keep/base.html' %}
+{% block title %}
+  {% if single_user %}Notify {{ single_user.name }} | {% else %}Send Notification | {% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% if single_user %}
+
+{# ── SINGLE-USER CHAT MODE ─────────────────────────────────────────────── #}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div class="d-flex align-items-center gap-2">
+    <img class="lg-avatar-icon" src="{{ single_user.image.url }}" alt="{{ single_user.name }}">
+    <h1 class="root-title mb-0">{{ single_user.name }}</h1>
+  </div>
+  <a href="{% url 'player-detail' single_user.slug %}" class="btn btn-sm btn-secondary">
+    <i class="bi bi-arrow-left"></i> Profile
+  </a>
+</div>
+
+<div class="content-section p-0 d-flex flex-column notification-chat">
+
+  {# Message history — oldest first, auto-scrolled to bottom #}
+  <div id="chat-history" class="notification-chat-history p-3">
+    {% for notification in notifications %}
+    <div class="notification-bubble mb-3">
+      <div class="d-flex align-items-start gap-2">
+        {% if notification.sender %}
+          <img class="avatar-icon flex-shrink-0"
+               src="{{ notification.sender.image.url }}"
+               title="{{ notification.sender.name }}"
+               alt="{{ notification.sender.name }}">
+        {% else %}
+          <div class="avatar-icon flex-shrink-0 d-flex align-items-center justify-content-center bg-secondary rounded-circle">
+            <i class="bi bi-bell-fill text-white"></i>
+          </div>
+        {% endif %}
+        <div class="flex-fill">
+          <div class="d-flex align-items-center gap-2 mb-1">
+            {% if notification.sender %}
+              <span class="fw-semibold small">{{ notification.sender.name }}</span>
+            {% else %}
+              <span class="fw-semibold small text-muted">System</span>
+            {% endif %}
+            <span class="text-muted" style="font-size: 0.75rem;">{{ notification.created_at|date:"M j, Y, g:i a" }}</span>
+            {% if notification.is_dismissed %}
+              <span class="badge bg-secondary" style="font-size: 0.7rem;">Read</span>
+            {% else %}
+              <span class="badge bg-primary" style="font-size: 0.7rem;">Unread</span>
+            {% endif %}
+          </div>
+          <div class="alert alert-{{ notification.message_type }} mb-0 py-2 px-3" role="alert">
+            {{ notification.message }}
+            {% if notification.related_url %}
+              <a href="{{ notification.related_url }}" class="alert-link ms-2" target="_blank">
+                <i class="bi bi-box-arrow-up-right"></i>
+              </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <p class="text-muted small text-center py-3">No notifications sent to this user yet.</p>
+    {% endfor %}
+  </div>
+
+  {# Compose area #}
+  <div class="border-top p-3">
+    <form method="post">
+      {% csrf_token %}
+      {# Hidden recipients field pre-set to this user #}
+      {% for value in form.recipients.value %}
+        <input type="hidden" name="recipients" value="{{ value }}">
+      {% endfor %}
+      <input type="hidden" id="chat-msg-type" name="message_type" value="info">
+
+      <div id="chat-msg-preview" class="notif-msg-preview alert alert-info mb-2">
+        <textarea id="chat-textarea" name="message" class="form-control w-100"
+                  rows="2" placeholder="Write a message…"
+                  required>{% if form.message.value %}{{ form.message.value }}{% endif %}</textarea>
+        {% for error in form.message.errors %}
+          <div class="text-danger small mt-1">{{ error }}</div>
+        {% endfor %}
+      </div>
+
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+
+        {# Type icon picker #}
+        <div class="notif-type-picker" title="Select message type">
+          <button type="button" class="notif-type-btn active text-info" data-type="info"
+                  title="Info"><i class="bi bi-info-circle-fill"></i></button>
+          <button type="button" class="notif-type-btn text-success" data-type="success"
+                  title="Success"><i class="bi bi-check-circle-fill"></i></button>
+          <button type="button" class="notif-type-btn text-warning" data-type="warning"
+                  title="Warning"><i class="bi bi-exclamation-triangle-fill"></i></button>
+          <button type="button" class="notif-type-btn text-danger" data-type="danger"
+                  title="Danger"><i class="bi bi-x-octagon-fill"></i></button>
+        </div>
+
+        <input type="text" name="related_url" class="form-control form-control-sm"
+               placeholder="Optional link URL" style="flex: 1 1 200px;"
+               value="{{ form.related_url.value|default:'' }}">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-send-fill"></i> Send
+        </button>
+      </div>
+    </form>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  // Scroll chat history to bottom on load
+  const hist = document.getElementById('chat-history');
+  if (hist) hist.scrollTop = hist.scrollHeight;
+
+  // Type icon picker logic (single-user chat)
+  const chatTypeInput = document.getElementById('chat-msg-type');
+  const chatPreview   = document.getElementById('chat-msg-preview');
+  document.querySelectorAll('.notif-type-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const type = btn.dataset.type;
+      chatTypeInput.value = type;
+      // Update active state
+      document.querySelectorAll('.notif-type-btn').forEach(function (b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      // Swap preview alert colour
+      ['info','success','warning','danger'].forEach(function (t) {
+        chatPreview.classList.remove('alert-' + t);
+      });
+      chatPreview.classList.add('alert-' + type);
+    });
+  });
+})();
+</script>
+
+{% else %}
+
+{# ── MULTI-USER MODE ───────────────────────────────────────────────────── #}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="root-title mb-0">Send Notification</h1>
+  <a href="{% url 'admin-dashboard' %}" class="btn btn-sm btn-secondary">
+    <i class="bi bi-arrow-left"></i> Dashboard
+  </a>
+</div>
+
+<div class="content-section">
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" id="multi-msg-type" name="message_type" value="info">
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Recipients</label>
+      <p class="text-muted small mb-1">Hold Ctrl / Cmd to select multiple users.</p>
+      {{ form.recipients }}
+      {% for error in form.recipients.errors %}
+        <div class="text-danger small">{{ error }}</div>
+      {% endfor %}
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Message</label>
+      <div id="multi-msg-preview" class="notif-msg-preview alert alert-info mb-0">
+        {{ form.message }}
+        {% for error in form.message.errors %}
+          <div class="text-danger small mt-1">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-auto">
+        <label class="form-label fw-semibold d-block">Alert Type</label>
+        <div class="notif-type-picker multi-type-picker">
+          <button type="button" class="notif-type-btn active text-info" data-type="info"
+                  title="Info"><i class="bi bi-info-circle-fill"></i></button>
+          <button type="button" class="notif-type-btn text-success" data-type="success"
+                  title="Success"><i class="bi bi-check-circle-fill"></i></button>
+          <button type="button" class="notif-type-btn text-warning" data-type="warning"
+                  title="Warning"><i class="bi bi-exclamation-triangle-fill"></i></button>
+          <button type="button" class="notif-type-btn text-danger" data-type="danger"
+                  title="Danger"><i class="bi bi-x-octagon-fill"></i></button>
+        </div>
+      </div>
+      <div class="col">
+        <label for="{{ form.related_url.id_for_label }}" class="form-label fw-semibold">Link URL (optional)</label>
+        {{ form.related_url }}
+      </div>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-send-fill"></i> Send Notification
+      </button>
+      <a href="{% url 'admin-dashboard' %}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  const multiTypeInput = document.getElementById('multi-msg-type');
+  const multiPreview   = document.getElementById('multi-msg-preview');
+  document.querySelectorAll('.multi-type-picker .notif-type-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const type = btn.dataset.type;
+      multiTypeInput.value = type;
+      document.querySelectorAll('.multi-type-picker .notif-type-btn').forEach(function (b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      ['info','success','warning','danger'].forEach(function (t) {
+        multiPreview.classList.remove('alert-' + t);
+      });
+      multiPreview.classList.add('alert-' + type);
+    });
+  });
+})();
+</script>
+
+{% endif %}
+
+{% endblock %}

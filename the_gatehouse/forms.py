@@ -3,10 +3,10 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .models import Profile
+from .models import Profile, Website, MessageChoices
 from django_recaptcha.fields import ReCaptchaField
 from django_recaptcha.widgets import ReCaptchaV2Checkbox
-from django.utils.translation import gettext_lazy as _ 
+from django.utils.translation import gettext_lazy as _
 
 
 class UserRegisterForm(UserCreationForm):
@@ -351,3 +351,46 @@ class GuildJoinRequestForm(forms.Form):
         required=True,
         label="I agree to be respectful of others and follow the server's rules",
     )
+
+
+class GlobalMessageForm(forms.ModelForm):
+    class Meta:
+        model = Website
+        fields = ['global_message', 'message_type']
+        widgets = {
+            'global_message': forms.Textarea(attrs={'rows': 3, 'maxlength': 400, 'class': 'form-control'}),
+            'message_type': forms.Select(attrs={'class': 'form-select'}),
+        }
+        labels = {
+            'global_message': 'Message',
+            'message_type': 'Alert Type',
+        }
+
+
+class SendNotificationForm(forms.Form):
+    message = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
+        label='Message',
+    )
+    message_type = forms.ChoiceField(
+        choices=MessageChoices.choices,
+        initial=MessageChoices.INFO,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        label='Alert Type',
+    )
+    related_url = forms.CharField(
+        required=False,
+        max_length=500,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Optional link URL'}),
+        label='Link URL (optional)',
+    )
+    recipients = forms.ModelMultipleChoiceField(
+        queryset=Profile.objects.none(),
+        required=True,
+        widget=forms.SelectMultiple(attrs={'class': 'form-select', 'size': '8'}),
+        label='Recipients',
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['recipients'].queryset = Profile.objects.filter(user__isnull=False).order_by('discord')

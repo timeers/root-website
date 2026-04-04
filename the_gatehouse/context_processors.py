@@ -13,6 +13,9 @@ def active_user_data(request):
         site_title = config.site_title
         global_message = config.global_message
         global_message_type = config.message_type
+        dismissed_key = request.session.get('dismissed_global_msg')
+        if global_message and dismissed_key == config.date_modified.isoformat():
+            global_message = None
         woodland_warriors_invite = config.woodland_warriors_invite
         french_root_invite = config.french_root_invite
         if config.primary_discord_guild:

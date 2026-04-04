@@ -22,8 +22,8 @@ from django.views.generic import ListView
 from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices
 from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
@@ -1408,8 +1408,9 @@ def set_language_custom(request):
 @admin_onboard_required
 def admin_dashboard(request):
 
+    website = Website.get_singular_instance()
     new_rules = RulesFile.objects.filter(status=RulesFile.Status.NEW).count()
-    last_law_check = Website.get_singular_instance().last_law_check
+    last_law_check = website.last_law_check
     formatted_date = last_law_check.strftime("%B %d, %Y, %-I:%M%p")
     daily_user_summary = get_daily_user_summary()
     admin_users = Profile.objects.filter(group="A", user__isnull=False).count()
@@ -1431,6 +1432,8 @@ def admin_dashboard(request):
     admin_url = reverse('admin:index')
     guild_invites_url = reverse('pending-guild-invites')
     pending_posts_url = reverse('pending-posts')
+    global_message_url = reverse('set-global-message')
+    send_notification_url = reverse('send-notification')
     
 
         # Example Widget
@@ -1529,6 +1532,35 @@ def admin_dashboard(request):
             "fields": [
                 {"title": f["name"], "content": f["value"]} for f in daily_user_summary["fields"]
             ]
+        },
+        {
+            "title": "Global Message",
+            "subtitle": "Site-wide alert shown to all users",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Current Message", "content": website.global_message or "—"},
+                {"title": "Type", "content": website.message_type},
+            ],
+            "buttons": [
+                {
+                    "label": "Set Message",
+                    "link": global_message_url,
+                    "class": "primary" if website.global_message else "secondary",
+                },
+            ],
+        },
+        {
+            "title": "Send Notification",
+            "subtitle": "Send a message to one or more users",
+            "image": "/static/images/ambush.jpg",
+            "fields": [],
+            "buttons": [
+                {
+                    "label": "Send Notification",
+                    "link": send_notification_url,
+                    "class": "primary",
+                },
+            ],
         },
 
         # {
@@ -2059,6 +2091,18 @@ def reject_post(request, post_id):
 
     return redirect('pending-posts')
 
+def dismiss_global_message(request):
+    """Dismiss the global site message for this session."""
+    if request.method == 'POST':
+        config = Website.get_singular_instance()
+        request.session['dismissed_global_msg'] = config.date_modified.isoformat()
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'success': True})
+
+    return redirect(request.META.get('HTTP_REFERER', '/'))
+
+
 @login_required
 def dismiss_notification(request, notification_id):
     """Dismiss a user notification."""
@@ -2073,4 +2117,77 @@ def dismiss_notification(request, notification_id):
 
     # Redirect back for regular requests
     return redirect(request.META.get('HTTP_REFERER', '/'))
+
+
+@login_required
+@admin_required
+def set_global_message(request):
+    website = Website.get_singular_instance()
+    if request.method == 'POST':
+        form = GlobalMessageForm(request.POST, instance=website)
+        if form.is_valid():
+            instance = form.save(commit=False)
+            if not instance.global_message:
+                instance.global_message = None
+            instance.save()
+            messages.success(request, 'Global message updated.')
+            return redirect('admin-dashboard')
+    else:
+        form = GlobalMessageForm(instance=website)
+
+    context = {
+        'form': form,
+        'website': website,
+    }
+    return render(request, 'the_gatehouse/set_global_message.html', context)
+
+
+@login_required
+@admin_required
+def send_notification(request, slug=None):
+    single_user = None
+    if slug:
+        single_user = get_object_or_404(Profile, slug=slug)
+
+    if request.method == 'POST':
+        form = SendNotificationForm(request.POST)
+        if single_user:
+            # Override recipients queryset to allow this profile even if hidden
+            form.fields['recipients'].queryset = Profile.objects.filter(pk=single_user.pk)
+        if form.is_valid():
+            message = form.cleaned_data['message']
+            message_type = form.cleaned_data['message_type']
+            related_url = form.cleaned_data.get('related_url') or None
+            recipients = form.cleaned_data['recipients']
+            sender = request.user.profile
+            for profile in recipients:
+                UserNotification.create_notification(
+                    profile=profile,
+                    message=message,
+                    message_type=message_type,
+                    related_url=related_url,
+                    sender=sender,
+                )
+            count = recipients.count()
+            messages.success(request, f'Notification sent to {count} user{"s" if count != 1 else ""}.')
+            if single_user:
+                return redirect('player-detail', slug=single_user.slug)
+            return redirect('admin-dashboard')
+    else:
+        if single_user:
+            form = SendNotificationForm(initial={'recipients': [single_user]})
+            form.fields['recipients'].queryset = Profile.objects.filter(pk=single_user.pk)
+        else:
+            form = SendNotificationForm()
+
+    notifications = None
+    if single_user:
+        notifications = single_user.notifications.all().order_by('created_at')
+
+    context = {
+        'form': form,
+        'single_user': single_user,
+        'notifications': notifications,
+    }
+    return render(request, 'the_gatehouse/send_notification.html', context)
 

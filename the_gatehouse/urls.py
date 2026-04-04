@@ -9,8 +9,8 @@ from .views import (user_settings, player_page_view,
                     admin_dashboard, sync_discord_avatar, join_discord_server, changelog_select_view, latest_changelog_redirect,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
-                    approve_post, reject_post, dismiss_notification, add_guild_from_invite,
-                    woodland_warriors_info)
+                    approve_post, reject_post, dismiss_notification, dismiss_global_message, add_guild_from_invite,
+                    woodland_warriors_info, set_global_message, send_notification)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -73,6 +73,11 @@ urlpatterns = [
     path('posts/<int:post_id>/reject/', reject_post, name='reject-post'),
 
     path('notifications/<int:notification_id>/dismiss/', dismiss_notification, name='dismiss-notification'),
+    path('global-message/dismiss/', dismiss_global_message, name='dismiss-global-message'),
+
+    path('admin/global-message/', set_global_message, name='set-global-message'),
+    path('admin/send-notification/', send_notification, name='send-notification'),
+    path('admin/send-notification/<slug:slug>/', send_notification, name='send-notification-user'),
 
     # path('fake-error/', trigger_error),
     # path('test-error/', trigger_other_error),
