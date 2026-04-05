@@ -24,6 +24,7 @@ Of course there are bugs...
 - RDL bug when creating new round for new season
 - Visual bug on post approval page when on mobile
 - RDL import was using date_registered insted of date_closed for game date. Pre-registered games would display the wrong day
+- Expansion images now save correctly
 
 
 ## [1.11.0] - 2026-3-27 A Series of Surveys & Scorecards

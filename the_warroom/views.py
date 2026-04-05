@@ -4515,6 +4515,75 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
     return render(request, 'the_warroom/stage_bracket.html', context)
 
 
+def stage_matches_page(request, tournament_slug, stage_slug):
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    round = stage.rounds.first()
+    match_series = []
+    recordable_match_ids = set()
+    is_participant_series = set()
+    is_bracket_finalized = False
+
+    if round:
+        is_bracket_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
+        match_series = MatchSeries.objects.filter(round=round).select_related(
+            'player_group',
+        ).prefetch_related(
+            'winners__tournament_player__profile',
+            'matches__game',
+            'matchseat_set__stage_participant__tournament_player__profile',
+        ).order_by('id')
+
+        if request.user.is_authenticated:
+            profile = request.user.profile
+            if profile.admin or tournament.has_permission(profile):
+                recordable_match_ids = set(
+                    Match.objects.filter(round=round).values_list('id', flat=True)
+                )
+            elif tournament.players_can_record:
+                participant_series_ids = MatchSeat.objects.filter(
+                    series__round=round,
+                    stage_participant__tournament_player__profile=profile
+                ).values_list('series_id', flat=True)
+                recordable_match_ids = set(
+                    Match.objects.filter(
+                        round=round, series_id__in=participant_series_ids
+                    ).values_list('id', flat=True)
+                )
+            is_participant_series = set(MatchSeat.objects.filter(
+                series__round=round,
+                stage_participant__tournament_player__profile=profile
+            ).values_list('series_id', flat=True))
+
+    context = _stage_base_context(request, tournament, stage)
+    context.update({
+        'active_page': 'games',
+        'active_sub_page': 'matches',
+        'match_series': match_series,
+        'recordable_match_ids': recordable_match_ids,
+        'is_participant_series': is_participant_series,
+        'is_bracket_finalized': is_bracket_finalized,
+        'page_name': stage.name,
+        'nav_partial': 'the_warroom/partials/stage_nav_header.html',
+    })
+
+    if context.get('can_manage') and is_bracket_finalized and round:
+        context.update(_build_series_edit_context(tournament, stage, round))
+        context['create_series_url'] = reverse('round-create-series', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
+        context['delete_series_url'] = reverse('round-delete-series', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
+
+    return render(request, 'the_warroom/matches.html', context)
+
+
 # ── Round tab pages ──────────────────────────────────────────────────────────
 
 def round_leaderboard_page(request, tournament_slug, round_slug, stage_slug=None):
@@ -4769,7 +4838,11 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     if context.get('can_manage') and context.get('is_bracket_finalized'):
         context.update(_build_series_edit_context(tournament, stage, round))
 
-    return render(request, 'the_warroom/round_matches.html', context)
+    context.update({
+        'page_name': round.name,
+        'nav_partial': 'the_warroom/partials/round_nav_header.html',
+    })
+    return render(request, 'the_warroom/matches.html', context)
 
 
 @player_onboard_required
@@ -4793,6 +4866,26 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
     ).exists()
     has_advancement_data = has_match_series or has_game_data
 
+    grouping_step = None
+    hidden_round = None
+    if not tournament.use_rounds and tournament.classification == "Tournament":
+        hidden_round = stage.rounds.first()
+        if hidden_round:
+            has_groups = hidden_round.player_groups.exists()
+            grouping_is_finalized = hidden_round.grouping_status == Round.GroupingStatusChoices.FINALIZED
+            has_matches = hidden_round.matches.exists()
+            bracket_is_finalized = hidden_round.bracket_status == Round.BracketStatusChoices.FINALIZED
+            if bracket_is_finalized:
+                grouping_step = 'matches_finalized'
+            elif has_matches:
+                grouping_step = 'matches_draft'
+            elif grouping_is_finalized:
+                grouping_step = 'groups_finalized'
+            elif has_groups:
+                grouping_step = 'groups_draft'
+            else:
+                grouping_step = 'no_groups'
+
     context = {
         'tournament': tournament,
         'stage': stage,
@@ -4805,8 +4898,29 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
         'has_completed_round': has_completed_round,
         'has_advancement_data': has_advancement_data,
         'status_hierarchy': build_status_hierarchy('stage', tournament, stage=stage),
+        'grouping_step': grouping_step,
+        'hidden_round': hidden_round,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
+
+
+@login_required
+def stage_grouping_setup_view(request, tournament_slug, stage_slug):
+    """Grouping entry point for stages in use_rounds=False tournaments."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if tournament.use_rounds:
+        return redirect('stage-settings-hub', tournament_slug=tournament_slug, stage_slug=stage_slug)
+
+    round = stage.rounds.first()
+    if not round:
+        return redirect('stage-settings-hub', tournament_slug=tournament_slug, stage_slug=stage_slug)
+
+    return round_grouping_setup_view(request, tournament_slug, round.slug, stage_slug=stage_slug)
 
 
 @player_onboard_required
@@ -6211,6 +6325,30 @@ def round_delete_series(request, tournament_slug, stage_slug, round_slug):
 
 # ===== Stage Advancement Views =====
 
+def _effort_display(effort):
+    """Return display dict for an effort in the advancement template."""
+    if not effort:
+        return None
+    faction_icon_url = effort.faction.small_icon.url if effort.faction and effort.faction.small_icon else None
+    faction_name = str(effort.faction) if effort.faction else None
+    if effort.dominance:
+        result_icon_url = f'/static/images/dominance/{effort.dominance}_Icon.png'
+        score_display = None
+    elif effort.coalition_with and effort.coalition_with.small_icon:
+        result_icon_url = effort.coalition_with.small_icon.url
+        score_display = None
+    else:
+        result_icon_url = None
+        score_display = effort.score if effort.score is not None else '0'
+    return {
+        'faction_icon_url': faction_icon_url,
+        'faction_name': faction_name,
+        'result_icon_url': result_icon_url,
+        'score_display': score_display,
+        'win': effort.win,
+    }
+
+
 def _build_game_only_advancement_context(stage):
     """
     Build eligible_players list from raw game efforts when no MatchSeries exist.
@@ -6224,7 +6362,7 @@ def _build_game_only_advancement_context(stage):
         game__test_match=False,
         game__final=True,
     ).select_related(
-        'game__round', 'player', 'faction'
+        'game__round', 'player', 'faction', 'coalition_with'
     ).order_by('game__date_posted')
 
     efforts_by_profile = defaultdict(list)
@@ -6254,7 +6392,7 @@ def _build_game_only_advancement_context(stage):
 
         series_data = []
         for rnd, rnd_efforts in rounds_seen.items():
-            match_data = [{'match': None, 'effort': e} for e in rnd_efforts]
+            match_data = [{'match': None, 'effort': e, 'game_url': reverse('game-detail', args=[e.game.id]), 'display': _effort_display(e)} for e in rnd_efforts]
             wins = sum(1 for e in rnd_efforts if e.win)
 
             class RoundProxy:
@@ -6388,8 +6526,9 @@ def stage_advancement_page(request, tournament_slug, stage_slug):
                 for match in series.matches.all():
                     effort = None
                     if match.game:
-                        effort = match.game.efforts.filter(player=sp.tournament_player.profile).first()
-                    match_data.append({'match': match, 'effort': effort})
+                        effort = match.game.efforts.select_related('faction', 'coalition_with').filter(player=sp.tournament_player.profile).first()
+                    game_url = reverse('game-detail', args=[match.game.id]) if match.game else None
+                    match_data.append({'match': match, 'effort': effort, 'game_url': game_url, 'display': _effort_display(effort)})
                 series_data.append({
                     'series': series,
                     'match_data': match_data,

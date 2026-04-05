@@ -309,7 +309,7 @@
         </div>
         {% endif %}
 
-        <!-- Grouping Management Card (Round only) -->
+        <!-- Grouping Management Card (Round, or Stage when use_rounds=False) -->
         {% if round and tournament.classification == "Tournament" %}
         <div class="col-md-6">
             <div class="card h-100">
@@ -374,6 +374,70 @@
                         </a>
                     {% else %}
                         <a href="{% url 'round-grouping-setup' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-primary w-100">
+                            <i class="bi bi-people-fill me-1"></i>Finalize Groups
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% elif object_type == 'Stage' and not tournament.use_rounds and grouping_step is not None and tournament.classification == "Tournament" %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title root-title">
+                        <i class="bi bi-diagram-3 me-2"></i>Player Grouping
+                    </h5>
+                    <div class="mt-2 d-flex flex-wrap align-items-center gap-1" style="font-size:0.75rem;">
+                        {% if grouping_step == 'no_groups' %}
+                            <span class="text-primary fw-semibold"><i class="bi bi-record-circle-fill me-1"></i>Groups</span>
+                        {% else %}
+                            <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Groups</span>
+                        {% endif %}
+                        <span class="text-muted">›</span>
+                        {% if grouping_step == 'groups_draft' %}
+                            <span class="text-primary fw-semibold"><i class="bi bi-record-circle-fill me-1"></i>Finalize</span>
+                        {% elif grouping_step == 'no_groups' %}
+                            <span class="text-muted"><i class="bi bi-circle me-1"></i>Finalize</span>
+                        {% else %}
+                            <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Finalize</span>
+                        {% endif %}
+                        <span class="text-muted">›</span>
+                        {% if grouping_step == 'groups_finalized' %}
+                            <span class="text-primary fw-semibold"><i class="bi bi-record-circle-fill me-1"></i>Generate</span>
+                        {% elif grouping_step == 'no_groups' or grouping_step == 'groups_draft' %}
+                            <span class="text-muted"><i class="bi bi-circle me-1"></i>Generate</span>
+                        {% else %}
+                            <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Generate</span>
+                        {% endif %}
+                        <span class="text-muted">›</span>
+                        {% if grouping_step == 'matches_draft' %}
+                            <span class="text-warning fw-semibold"><i class="bi bi-record-circle-fill me-1"></i>Lock</span>
+                        {% elif grouping_step == 'matches_finalized' %}
+                            <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Lock</span>
+                        {% else %}
+                            <span class="text-muted"><i class="bi bi-circle me-1"></i>Lock</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-footer bg-transparent">
+                    {% if grouping_step == 'matches_finalized' %}
+                        <a href="{% url 'stage-matches-page' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-success w-100">
+                            <i class="bi bi-trophy me-1"></i>View Matches
+                        </a>
+                    {% elif grouping_step == 'matches_draft' %}
+                        <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-warning w-100">
+                            <i class="bi bi-lock me-1"></i>Finalize Bracket
+                        </a>
+                    {% elif grouping_step == 'groups_finalized' %}
+                        <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
+                            <i class="bi bi-diagram-3 me-1"></i>Generate Bracket
+                        </a>
+                    {% elif grouping_step == 'no_groups' %}
+                        <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
+                            <i class="bi bi-people-fill me-1"></i>Set Up Groups
+                        </a>
+                    {% else %}
+                        <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
                             <i class="bi bi-people-fill me-1"></i>Finalize Groups
                         </a>
                     {% endif %}
