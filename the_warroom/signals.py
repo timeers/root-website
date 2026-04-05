@@ -101,9 +101,20 @@ def tournament_post_save(sender, instance, created, *args, **kwargs):
     if created:
         slugify_tournament_name(instance, save=True)
 
+def _had_default_name(instance, model_class, default_prefix):
+    """Return True if the saved record's name starts with the default prefix (e.g. 'Round 1')."""
+    try:
+        old = model_class.objects.get(pk=instance.pk)
+        return old.name and old.name.strip() == f"{default_prefix} 1"
+    except model_class.DoesNotExist:
+        return False
+
+
 @receiver(pre_save, sender=Round)
 def round_pre_save(sender, instance, *args, **kwargs):
     if instance.slug is None:
+        slugify_round_name(instance, save=False)
+    elif instance.pk and _had_default_name(instance, Round, 'Round'):
         slugify_round_name(instance, save=False)
 
 @receiver(post_save, sender=Round)
@@ -115,6 +126,8 @@ def round_post_save(sender, instance, created, *args, **kwargs):
 @receiver(pre_save, sender=Stage)
 def stage_pre_save(sender, instance, *args, **kwargs):
     if instance.slug is None:
+        slugify_stage_name(instance, save=False)
+    elif instance.pk and _had_default_name(instance, Stage, 'Stage'):
         slugify_stage_name(instance, save=False)
 
 @receiver(post_save, sender=Stage)
