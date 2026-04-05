@@ -330,13 +330,21 @@ def handle_image_resize(sender, instance, **kwargs):
         else:
             return
 
+    updated_fields = []
     for field_name, max_size in config["fields"].items():
         image_field = getattr(instance, field_name, None)
         if image_field and hasattr(image_field, "path") and image_field.name:
+            old_name = image_field.name
             resize_image_in_place(image_field=image_field, max_size=max_size)
+            if image_field.name != old_name:
+                updated_fields.append(field_name)
 
     # mark as processed to prevent recursion
     instance._images_resized = True
+
+    # Save updated field names to DB (e.g. .png → .webp conversion)
+    if updated_fields:
+        instance.save(update_fields=updated_fields)
 
 
 

@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n static %}
 
 {% block title %}Advancement - {{ stage.name }} | {% endblock %}
 
@@ -70,7 +70,7 @@
         {% csrf_token %}
 
         <div class="d-flex align-items-center gap-2 mb-3">
-            <h5 class="mb-0 root-title"><i class="bi bi-people me-2"></i>{% trans 'Advancement Preview' %}</h5>
+            <h5 class="mb-0 root-title"><i class="bi bi-people me-2"></i>{% trans 'Active Players' %}</h5>
         </div>
 
         {% if has_incomplete_warning %}
@@ -114,17 +114,36 @@
                     {% if not sd.series.is_bye %}
                     <div class="d-flex flex-wrap gap-2">
                         {% for md in sd.match_data %}
-                        <div class="border rounded px-2 py-1 d-flex align-items-center gap-1 small">
-                            {% if md.effort %}
-                                {% if md.effort.faction and md.effort.faction.small_icon %}
-                                <img src="{{ md.effort.faction.small_icon.url }}" alt="{{ md.effort.faction }}" class="faction-icon">
+                        {% if md.game_url %}
+                        <a href="{{ md.game_url }}" class="border rounded d-flex align-items-center gap-1 small text-body" style="padding: 8px 10px 6px 12px;">
+                        {% else %}
+                        <div class="border rounded d-flex align-items-center gap-1 small" style="padding: 8px 8px 4px 12px;">
+                        {% endif %}
+                            {% if md.display %}
+                                {% if md.display.faction_icon_url %}
+                                <div class="parent me-1">
+                                    <img class="faction-icon image1" src="{{ md.display.faction_icon_url }}" alt="">
+                                    {% if md.display.win %}
+                                    <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="Win">
+                                    {% endif %}
+                                </div>
                                 {% endif %}
-                                <span>{{ md.effort.score|default:"—" }}</span>
-                                {% if md.effort.win %}<i class="bi bi-trophy-fill text-warning" title="{% trans 'Win' %}"></i>{% endif %}
+                                {% if md.display.faction_name %}
+                                <span class="root-title me-1 {% if md.display.win %}fw-bold{% endif %}">{{ md.display.faction_name }}</span>
+                                {% endif %}
+                                {% if md.display.result_icon_url %}
+                                <img class="faction-icon" src="{{ md.display.result_icon_url }}" alt="">
+                                {% elif md.display.score_display is not None %}
+                                <span {% if md.display.win %}class="fw-bold"{% endif %}>{{ md.display.score_display }}</span>
+                                {% endif %}
                             {% else %}
                                 <span class="text-muted">{% trans 'No game' %}</span>
                             {% endif %}
+                        {% if md.game_url %}
+                        </a>
+                        {% else %}
                         </div>
+                        {% endif %}
                         {% endfor %}
                     </div>
                     {% endif %}
@@ -172,7 +191,7 @@
     </form>
     {% else %}
     <div class="alert alert-info">
-        <i class="bi bi-info-circle me-2"></i>{% trans 'No players with all matches completed yet.' %}
+        <i class="bi bi-info-circle me-2"></i>{% trans 'No eligible players found.' %}
     </div>
     {% endif %}
 

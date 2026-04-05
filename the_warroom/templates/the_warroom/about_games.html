@@ -2,6 +2,17 @@
 {% load static i18n %}
 {% block title %}{% trans 'About Games' %} | {% endblock %}
 
+{% block meta %}
+    <!-- Open Graph tags -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.build_absolute_uri }}">
+    <meta property="og:image" content="{% static 'images/battlefield-icon.png' %}">
+    <meta property="og:site_name" content="{{ site_title }}">
+    <meta property="og:title" content="{{ meta_title }}">
+    <meta property="og:description" content="{{ meta_description }}">
+    <meta name="description" content="{{ meta_description }}">
+{% endblock meta %}
+
 {% block styles %}
 <style>
     .permissions-table {
