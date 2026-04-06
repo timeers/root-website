@@ -1,0 +1,90 @@
+{% extends "the_keep/base.html" %}
+{% load crispy_forms_tags %}
+{% block title %}{% if is_edit %}Edit {{ theme.name }}{% else %}New Theme{% endif %} | {% endblock %}
+
+{% block styles %}
+<style>
+    .color-preview-bar {
+        height: 48px;
+        border-radius: 6px;
+        border: 1px solid #dee2e6;
+        transition: background-color 0.15s;
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        font-size: 0.85rem;
+        color: rgba(255,255,255,0.85);
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="root-title mb-0">
+            {% if is_edit %}Edit: {{ theme.name }}{% else %}New Theme{% endif %}
+        </h1>
+        <a href="{% url 'manage-themes' %}" class="btn btn-sm btn-secondary">
+            <i class="bi bi-arrow-left"></i> Themes
+        </a>
+    </div>
+
+    <article class="content-section">
+        <div id="theme-color-preview" class="color-preview-bar mb-3"
+             style="background-color: {{ form.instance.theme_color|default:'#5f788a' }};">
+            Theme Colour Preview
+        </div>
+
+        <form method="post" id="theme-form">
+            {% csrf_token %}
+            {{ form | crispy }}
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <div>
+                    {% if is_edit %}
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                onclick="if(confirm('Delete this theme? This cannot be undone.')) { document.getElementById('delete-form').submit(); }">
+                            <i class="bi bi-trash"></i> Delete
+                        </button>
+                    {% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'manage-themes' %}" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy"></i> Save
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        {% if is_edit %}
+            <form id="delete-form" method="post" action="{% url 'manage-theme-edit' theme.pk %}" style="display:none;">
+                {% csrf_token %}
+                <input type="hidden" name="_delete" value="1">
+            </form>
+        {% endif %}
+    </article>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+(function() {
+    const themeColorInput = document.getElementById('id_theme_color');
+    const bgColorInput = document.getElementById('id_background_color');
+    const previewBar = document.getElementById('theme-color-preview');
+
+    if (themeColorInput && previewBar) {
+        themeColorInput.addEventListener('input', function(e) {
+            previewBar.style.backgroundColor = e.target.value;
+        });
+    }
+    if (bgColorInput) {
+        bgColorInput.addEventListener('input', function(e) {
+            document.body.style.setProperty('--background-color', e.target.value);
+        });
+    }
+})();
+</script>
+{% endblock scripts %}

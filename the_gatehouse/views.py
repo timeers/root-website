@@ -22,8 +22,8 @@ from django.views.generic import ListView
 from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices
 from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
@@ -1434,6 +1434,9 @@ def admin_dashboard(request):
     pending_posts_url = reverse('pending-posts')
     global_message_url = reverse('set-global-message')
     send_notification_url = reverse('send-notification')
+    manage_themes_url = reverse('manage-themes')
+    theme_count = Theme.objects.count()
+    active_theme_count = Theme.objects.filter(active=True).count()
     
 
         # Example Widget
@@ -1558,6 +1561,22 @@ def admin_dashboard(request):
                 {
                     "label": "Send Notification",
                     "link": send_notification_url,
+                    "class": "primary",
+                },
+            ],
+        },
+        {
+            "title": "Themes",
+            "subtitle": "Manage visual themes and images",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Total Themes", "content": theme_count},
+                {"title": "Active Themes", "content": active_theme_count},
+            ],
+            "buttons": [
+                {
+                    "label": "Manage Themes",
+                    "link": manage_themes_url,
                     "class": "primary",
                 },
             ],
@@ -2191,3 +2210,148 @@ def send_notification(request, slug=None):
     }
     return render(request, 'the_gatehouse/send_notification.html', context)
 
+
+# ── Theme Management ────────────────────────────────────────────────────────
+
+import json as _json
+
+@admin_onboard_required
+def manage_themes(request):
+    themes = Theme.objects.all().annotate(
+        bg_count=Count('backgrounds'),
+        fg_count=Count('foregrounds'),
+    )
+    return render(request, 'the_gatehouse/manage_themes.html', {'themes': themes})
+
+
+@admin_onboard_required
+def manage_theme_edit(request, pk=None):
+    theme = get_object_or_404(Theme, pk=pk) if pk else None
+    if request.method == 'POST':
+        if request.POST.get('_delete') and theme:
+            theme.delete()
+            messages.success(request, 'Theme deleted.')
+            return redirect('manage-themes')
+        form = ThemeForm(request.POST, instance=theme)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Theme saved.')
+            return redirect('manage-themes')
+    else:
+        form = ThemeForm(instance=theme)
+    return render(request, 'the_gatehouse/manage_theme_edit.html', {
+        'form': form, 'theme': theme, 'is_edit': theme is not None,
+    })
+
+
+@admin_onboard_required
+def manage_theme_images(request, pk):
+    theme = get_object_or_404(Theme, pk=pk)
+    backgrounds = BackgroundImage.objects.filter(theme=theme).order_by('page', 'name')
+    foregrounds = ForegroundImage.objects.filter(theme=theme).order_by('page', 'location', 'name')
+
+    # Build per-page JSON for JS preview
+    theme_images = {}
+    for page_val, _ in PageChoices.choices:
+        bgs_qs = backgrounds.filter(page=page_val)
+        bgs = [{'id': b.pk, 'name': b.name, 'url': b.image.url,
+                 'bg_color': b.background_color} for b in bgs_qs]
+        fgs_by_location = {}
+        for fg in foregrounds.filter(page=page_val):
+            loc = str(fg.location)
+            if loc not in fgs_by_location:
+                fgs_by_location[loc] = []
+            fgs_by_location[loc].append({
+                'id': fg.pk, 'name': fg.name, 'url': fg.image.url,
+                'slide': fg.slide, 'speed': fg.speed,
+                'depth': fg.depth, 'start_position': fg.start_position,
+                'location': fg.location,
+            })
+        theme_images[page_val] = {
+            'backgrounds': bgs,
+            'foreground_locations': fgs_by_location,
+        }
+
+    selected_page = request.GET.get('page', PageChoices.LIBRARY)
+    page_choices  = list(PageChoices.choices)
+
+    # Location groups for the grid template
+    title_location_map    = {100: 'Title', 101: 'Second', 102: 'Third'}
+    position_location_map = {1: 'Far Left', 3: 'Left', 5: 'Center', 7: 'Right', 9: 'Far Right'}
+    title_locations    = [(str(k), v) for k, v in title_location_map.items()]
+    position_locations = [(str(k), v) for k, v in position_location_map.items()]
+
+    all_profiles = Profile.objects.filter(user__isnull=False).order_by('display_name')
+
+    return render(request, 'the_gatehouse/manage_theme_images.html', {
+        'theme': theme,
+        'theme_images_json': _json.dumps(theme_images),
+        'page_choices_json': _json.dumps(page_choices),
+        'selected_page': selected_page,
+        'page_choices': page_choices,
+        'title_locations': title_locations,
+        'position_locations': position_locations,
+        'all_profiles': all_profiles,
+    })
+
+
+@admin_onboard_required
+def hx_save_foreground_image(request, theme_pk, pk=None):
+    from django.http import HttpResponse
+    theme = get_object_or_404(Theme, pk=theme_pk)
+    fg = get_object_or_404(ForegroundImage, pk=pk, theme=theme) if pk else None
+    if request.method == 'POST':
+        form = ForegroundImageForm(request.POST, request.FILES, instance=fg)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.theme = theme
+            obj.save()
+            response = HttpResponse(status=204)
+            response['HX-Trigger'] = 'imagesSaved'
+            return response
+        return JsonResponse({'errors': form.errors}, status=400)
+    return JsonResponse({'error': 'POST required'}, status=405)
+
+
+@admin_onboard_required
+def hx_delete_foreground_image(request, theme_pk, pk):
+    from django.http import HttpResponse
+    theme = get_object_or_404(Theme, pk=theme_pk)
+    fg = get_object_or_404(ForegroundImage, pk=pk, theme=theme)
+    if request.method == 'POST':
+        fg.delete()
+        response = HttpResponse(status=204)
+        response['HX-Trigger'] = 'imagesSaved'
+        return response
+    return JsonResponse({'error': 'POST required'}, status=405)
+
+
+@admin_onboard_required
+def hx_save_background_image(request, theme_pk, pk=None):
+    from django.http import HttpResponse
+    theme = get_object_or_404(Theme, pk=theme_pk)
+    bg = get_object_or_404(BackgroundImage, pk=pk, theme=theme) if pk else None
+    if request.method == 'POST':
+        form = BackgroundImageForm(request.POST, request.FILES, instance=bg)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.theme = theme
+            obj.save()
+            response = HttpResponse(status=204)
+            response['HX-Trigger'] = 'imagesSaved'
+            return response
+        return JsonResponse({'errors': form.errors}, status=400)
+    return JsonResponse({'error': 'POST required'}, status=405)
+
+
+@admin_onboard_required
+def hx_delete_background_image(request, theme_pk, pk):
+    from django.http import HttpResponse
+    theme = get_object_or_404(Theme, pk=theme_pk)
+    bg = get_object_or_404(BackgroundImage, pk=pk, theme=theme)
+    if request.method == 'POST':
+        bg.delete()
+        response = HttpResponse(status=204)
+        response['HX-Trigger'] = 'imagesSaved'
+        return response
+    return JsonResponse({'error': 'POST required'}, status=405)

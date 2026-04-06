@@ -10,7 +10,10 @@ from .views import (user_settings, player_page_view,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification, dismiss_global_message, add_guild_from_invite,
-                    woodland_warriors_info, set_global_message, send_notification)
+                    woodland_warriors_info, set_global_message, send_notification,
+                    manage_themes, manage_theme_edit, manage_theme_images,
+                    hx_save_foreground_image, hx_delete_foreground_image,
+                    hx_save_background_image, hx_delete_background_image)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -78,6 +81,18 @@ urlpatterns = [
     path('admin/global-message/', set_global_message, name='set-global-message'),
     path('admin/send-notification/', send_notification, name='send-notification'),
     path('admin/send-notification/<slug:slug>/', send_notification, name='send-notification-user'),
+
+    # Theme management
+    path('admin/themes/', manage_themes, name='manage-themes'),
+    path('admin/themes/create/', manage_theme_edit, name='manage-theme-create'),
+    path('admin/themes/<int:pk>/edit/', manage_theme_edit, name='manage-theme-edit'),
+    path('admin/themes/<int:pk>/images/', manage_theme_images, name='manage-theme-images'),
+    path('admin/themes/<int:theme_pk>/hx/foregrounds/', hx_save_foreground_image, name='hx-foreground-create'),
+    path('admin/themes/<int:theme_pk>/hx/foregrounds/<int:pk>/', hx_save_foreground_image, name='hx-foreground-edit'),
+    path('admin/themes/<int:theme_pk>/hx/foregrounds/<int:pk>/delete/', hx_delete_foreground_image, name='hx-foreground-delete'),
+    path('admin/themes/<int:theme_pk>/hx/backgrounds/', hx_save_background_image, name='hx-background-create'),
+    path('admin/themes/<int:theme_pk>/hx/backgrounds/<int:pk>/', hx_save_background_image, name='hx-background-edit'),
+    path('admin/themes/<int:theme_pk>/hx/backgrounds/<int:pk>/delete/', hx_delete_background_image, name='hx-background-delete'),
 
     # path('fake-error/', trigger_error),
     # path('test-error/', trigger_other_error),
