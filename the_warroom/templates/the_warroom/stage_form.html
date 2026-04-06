@@ -2,6 +2,8 @@
 {% load crispy_forms_tags i18n %}
 {% block title %}{% if stage.id %}Update Stage{% else %}New Stage{% endif %} | {% endblock %}
 
+{% block main_width_class %}col-md-12{% endblock %}
+
 {% block content %}
 <div class="container py-4">
     <!-- Breadcrumb -->

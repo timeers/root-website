@@ -3,8 +3,10 @@
 
 {% block title %}{% trans 'Surveys' %} - {{ stage.name|default:tournament.name }}{% endblock %}
 
+{% block main_width_class %}col-md-12{% endblock %}
+
 {% block content %}
-<div class="container-fluid py-3">
+<div class="py-3">
 
     <!-- Breadcrumb -->
     {% trans "Surveys" as bc_page %}

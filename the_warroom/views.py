@@ -4279,7 +4279,6 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
     return render(request, 'the_warroom/stage_form.html', context)
 
 
-@player_onboard_required
 def stage_overview_page(request, tournament_slug, stage_slug):
     """Stage overview — lists rounds belonging to this stage."""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)

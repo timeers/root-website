@@ -7,8 +7,10 @@
 {% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
 {% endblock meta %}
 
+{% block main_width_class %}col-md-12{% endblock %}
+
 {% block content %}
-<div class="container-fluid py-3">
+<div class="py-3">
 
     <!-- Breadcrumb -->
     {% trans "Details" as bc_page %}
