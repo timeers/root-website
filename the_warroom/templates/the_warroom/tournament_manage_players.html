@@ -91,7 +91,8 @@
                    {% endif %}
                    hx-target="#player-search-results"
                    name="q">
-            <div id="player-search-results" class="mt-3"></div>
+            <div id="search-add-feedback" class="mt-1" style="min-height: 1.5rem;"></div>
+            <div id="player-search-results" class="mt-2"></div>
         </div>
     </div>
 
@@ -247,6 +248,7 @@ function movePlayer(playerId, fromGroup, toGroup) {
         const playerCard = document.getElementById(`player-${playerId}-${sourceGroup}`)
                         || document.getElementById(`player-${playerId}-available_round`)
                         || document.getElementById(`player-${playerId}-available`);
+        const playerName = playerCard?.querySelector('.text-truncate')?.textContent.trim();
         if (playerCard) playerCard.remove();
 
         // Add to target list (if toGroup is not empty, meaning not a delete)
@@ -259,6 +261,13 @@ function movePlayer(playerId, fromGroup, toGroup) {
 
                 targetList.insertAdjacentHTML('beforeend', html);
             }
+        }
+
+        // Show feedback when adding from search results
+        if (!fromGroup && toGroup) {
+            const groupLabels = { players: ['added.', 'success'], waitlist: ['added to waitlist.', 'warning'], eliminated: ['added as eliminated.', 'danger'] };
+            const [label, colour] = groupLabels[toGroup] || ['added.', 'success'];
+            showSearchFeedback(`${playerName || 'Player'} ${label}`, colour);
         }
 
         updatePlayerCounts();
@@ -316,6 +325,37 @@ document.body.addEventListener('htmx:afterRequest', function(evt) {
         updatePlayerCounts();
     }
 });
+
+// --- Search Input UX ---
+let searchFeedbackTimer = null;
+function showSearchFeedback(message, colour = 'success') {
+    const feedback = document.getElementById('search-add-feedback');
+    if (!feedback) return;
+    clearTimeout(searchFeedbackTimer);
+    feedback.innerHTML = `<small class="text-${colour}"><i class="bi bi-check-circle me-1"></i>${message}</small>`;
+    searchFeedbackTimer = setTimeout(() => { feedback.innerHTML = ''; }, 3000);
+}
+
+const searchInput = document.querySelector('input[name="q"]');
+if (searchInput) {
+    searchInput.addEventListener('click', function() {
+        this.select();
+    });
+    searchInput.addEventListener('keydown', function(event) {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const resultsContainer = document.getElementById('player-search-results');
+        const firstCard = resultsContainer.querySelector('.player-card');
+        if (firstCard) {
+            const playerName = firstCard.querySelector('.text-truncate')?.textContent.trim();
+            const addBtn = firstCard.querySelector('.js-add-player-btn');
+            if (addBtn) addBtn.click();
+        } else {
+            const registerBtn = resultsContainer.querySelector('.js-register-btn');
+            if (registerBtn) registerBtn.click();
+        }
+    });
+}
 
 // --- Register New Player ---
 function openRegisterModal(searchTerm) {

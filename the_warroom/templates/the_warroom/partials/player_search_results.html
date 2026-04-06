@@ -41,7 +41,7 @@
 {% endif %}
 {% if request.GET.q and not round and not has_exact_match %}
 <div class="search-results border rounded p-2 mt-2 bg-light">
-    <button class="btn btn-sm btn-outline-primary" onclick="openRegisterModal('{{ request.GET.q|escapejs }}')">
+    <button class="btn btn-sm btn-outline-primary js-register-btn" onclick="openRegisterModal('{{ request.GET.q|escapejs }}')">
         <i class="bi bi-person-plus me-1"></i>Register "{{ request.GET.q }}" as new player
     </button>
 </div>

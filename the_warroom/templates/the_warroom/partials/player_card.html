@@ -17,7 +17,7 @@
     </div>
     <div class="btn-group btn-group-sm">
         {% if group == 'available' %}
-            <button class="btn btn-outline-success" onclick="movePlayer({{ player.id }}, '', 'players')" title="Add to players">
+            <button class="btn btn-outline-success js-add-player-btn" onclick="movePlayer({{ player.id }}, '', 'players')" title="Add to players">
                 <i class="bi bi-check-circle"></i>
             </button>
             <button class="btn btn-outline-warning" onclick="movePlayer({{ player.id }}, '', 'waitlist')" title="Move to waitlist">
@@ -25,15 +25,15 @@
             </button>
         {% elif group == 'available_round' %}
             {% if player.tournament_status == 'waitlist' %}
-            <button class="btn btn-outline-warning" onclick="movePlayer({{ player.id }}, '', 'waitlist')" title="Add to round">
+            <button class="btn btn-outline-warning js-add-player-btn" onclick="movePlayer({{ player.id }}, '', 'waitlist')" title="Add to round">
                 <i class="bi bi-plus-circle"></i> Add
             </button>
             {% elif player.tournament_status == 'eliminated' %}
-            <button class="btn btn-outline-danger" onclick="movePlayer({{ player.id }}, '', 'eliminated')" title="Add to round">
+            <button class="btn btn-outline-danger js-add-player-btn" onclick="movePlayer({{ player.id }}, '', 'eliminated')" title="Add to round">
                 <i class="bi bi-plus-circle"></i> Add
             </button>
             {% else %}
-            <button class="btn btn-outline-success" onclick="movePlayer({{ player.id }}, '', 'players')" title="Add to round">
+            <button class="btn btn-outline-success js-add-player-btn" onclick="movePlayer({{ player.id }}, '', 'players')" title="Add to round">
                 <i class="bi bi-plus-circle"></i> Add
             </button>
             {% endif %}
