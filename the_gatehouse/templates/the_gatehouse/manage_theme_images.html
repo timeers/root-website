@@ -443,9 +443,11 @@ function navigatePage(dir) {
 }
 
 // ── Grid ─────────────────────────────────────────────────────────────────
+function thumbId(type, loc) {
+    return type === 'bg' ? 'thumb-bg' : `thumb-fg-${loc}`;
+}
 function getThumbEl(type, loc) {
-    return type === 'bg' ? document.getElementById('thumb-bg')
-                         : document.getElementById('thumb-fg-' + loc);
+    return document.getElementById(thumbId(type, loc));
 }
 function getCounterEl(type, loc) {
     return type === 'bg' ? document.getElementById('counter-bg')
@@ -494,15 +496,19 @@ function updateCell(type, loc, images, idx) {
     }
 
     if (n === 0) {
-        thumbEl.innerHTML = '<i class="bi bi-image"></i>';
-        thumbEl.className = 'cell-thumb-placeholder';
+        if (thumbEl.tagName === 'IMG') {
+            thumbEl.outerHTML = `<div class="cell-thumb-placeholder" id="${thumbId(type, loc)}"><i class="bi bi-image"></i></div>`;
+        } else {
+            thumbEl.innerHTML = '<i class="bi bi-image"></i>';
+            thumbEl.className = 'cell-thumb-placeholder';
+        }
         if (counterEl) counterEl.textContent = '';
     } else {
         const img = images[Math.min(idx, n - 1)];
         if (!img.url) {
             // Pending image with no file yet — show placeholder
             if (thumbEl.tagName === 'IMG') {
-                thumbEl.outerHTML = `<div class="cell-thumb-placeholder" id="thumb-${type}-${loc || 'bg'}"><i class="bi bi-image"></i></div>`;
+                thumbEl.outerHTML = `<div class="cell-thumb-placeholder" id="${thumbId(type, loc)}"><i class="bi bi-image"></i></div>`;
             } else {
                 thumbEl.innerHTML = '<i class="bi bi-image"></i>';
                 thumbEl.className = 'cell-thumb-placeholder';
@@ -510,7 +516,7 @@ function updateCell(type, loc, images, idx) {
         } else if (thumbEl.tagName === 'IMG') {
             thumbEl.src = img.url;
         } else {
-            thumbEl.outerHTML = `<img class="cell-thumb" id="thumb-${type}-${loc || 'bg'}" src="${img.url}" alt="${img.name}">`;
+            thumbEl.outerHTML = `<img class="cell-thumb" id="${thumbId(type, loc)}" src="${img.url}" alt="${img.name}">`;
         }
         if (counterEl) counterEl.textContent = n > 1 ? `${(idx % n) + 1}/${n}` : '';
     }
@@ -593,7 +599,7 @@ function populateDetailPanel(type, loc, img) {
 
     // Title
     const locLabel = loc ? locLabelFor(loc) : 'Background';
-    document.getElementById('detail-title').textContent = img ? `${locLabel} — ${img.name}` : `${locLabel} — New`;
+    document.getElementById('detail-title').textContent = (img && img.name) ? `${locLabel} — ${img.name}` : `${locLabel} — New`;
 
     // Hidden state
     document.getElementById('detail-image-id').value  = img ? img.id  : '';
@@ -659,6 +665,7 @@ function closeDetailPanel() {
 
 // Flush current panel field values back into THEME_IMAGES in memory.
 // Called before switching cells so edits are not lost.
+// If a pending entry is still completely blank, remove it instead.
 function flushPanelToData() {
     const imageId = document.getElementById('detail-image-id').value;
     if (!imageId) return;
@@ -666,6 +673,34 @@ function flushPanelToData() {
     const loc  = document.getElementById('detail-location').value;
     const data = THEME_IMAGES[currentPage];
     if (!data) return;
+
+    // If pending and completely blank, remove it silently
+    if (isPending(imageId)) {
+        const hasFile   = !!(PENDING_FILES[imageId] && PENDING_FILES[imageId].image);
+        const hasName   = !!document.getElementById('d-name').value.trim();
+        const hasArtist = !!$('#d-artist').val();
+        if (!hasFile && !hasName && !hasArtist) {
+            if (type === 'bg') {
+                data.backgrounds = (data.backgrounds || []).filter(i => i.id !== imageId);
+                const state = getState(currentPage);
+                state.bgIndex = Math.max(0, Math.min(state.bgIndex, data.backgrounds.length - 1));
+            } else {
+                const imgs = (data.foreground_locations && data.foreground_locations[loc]) || [];
+                data.foreground_locations[loc] = imgs.filter(i => i.id !== imageId);
+                const state = getState(currentPage);
+                if (!state.fgIndexByLocation) state.fgIndexByLocation = {};
+                state.fgIndexByLocation[loc] = Math.max(0, Math.min(
+                    state.fgIndexByLocation[loc] || 0,
+                    data.foreground_locations[loc].length - 1
+                ));
+            }
+            delete PENDING_FILES[imageId];
+            document.getElementById('detail-image-id').value = '';
+            updateGrid();
+            renderPreview();
+            return;
+        }
+    }
 
     const images = type === 'bg' ? (data.backgrounds || [])
                                  : ((data.foreground_locations && data.foreground_locations[loc]) || []);
@@ -741,6 +776,22 @@ function discardPending() {
 function openAddPanel(event, type, loc) {
     event.stopPropagation();
     if (!validateCurrentPanel()) return;
+
+    // If current panel has a blank pending entry, handle it before creating a new one
+    const curId = document.getElementById('detail-image-id').value;
+    if (isPending(curId)) {
+        const hasFile   = !!(PENDING_FILES[curId] && PENDING_FILES[curId].image);
+        const hasName   = !!document.getElementById('d-name').value.trim();
+        const hasArtist = !!$('#d-artist').val();
+        if (!hasFile && !hasName && !hasArtist) {
+            // Same cell — just keep the existing blank panel open
+            const curType = document.getElementById('detail-type').value;
+            const curLoc  = document.getElementById('detail-location').value;
+            if (curType === type && curLoc === (loc || '')) return;
+            // Different cell — discard the abandoned blank entry first
+            discardPending();
+        }
+    }
 
     const tempId = nextTempId();
     PENDING_FILES[tempId] = { image: null, pattern: null };
@@ -955,9 +1006,46 @@ function postTask(task) {
         });
 }
 
+// Remove all blank pending entries (no file uploaded) across all pages.
+function purgeBlankPending() {
+    for (const [page, pageData] of Object.entries(THEME_IMAGES)) {
+        // Backgrounds
+        const bgs = pageData.backgrounds || [];
+        for (let i = bgs.length - 1; i >= 0; i--) {
+            if (bgs[i].pending && !(PENDING_FILES[bgs[i].id] && PENDING_FILES[bgs[i].id].image)) {
+                if (bgs[i].url) URL.revokeObjectURL(bgs[i].url);
+                delete PENDING_FILES[bgs[i].id];
+                bgs.splice(i, 1);
+            }
+        }
+        const bgState = previewState[page];
+        if (bgState) bgState.bgIndex = Math.max(0, Math.min(bgState.bgIndex, bgs.length - 1));
+
+        // Foregrounds
+        for (const [loc, imgs] of Object.entries(pageData.foreground_locations || {})) {
+            for (let i = imgs.length - 1; i >= 0; i--) {
+                if (imgs[i].pending && !(PENDING_FILES[imgs[i].id] && PENDING_FILES[imgs[i].id].image)) {
+                    if (imgs[i].url) URL.revokeObjectURL(imgs[i].url);
+                    delete PENDING_FILES[imgs[i].id];
+                    imgs.splice(i, 1);
+                }
+            }
+            if (bgState && bgState.fgIndexByLocation) {
+                bgState.fgIndexByLocation[loc] = Math.max(0, Math.min(
+                    bgState.fgIndexByLocation[loc] || 0, imgs.length - 1
+                ));
+            }
+        }
+    }
+}
+
 async function saveImage() {
     flushPanelToData();
     if (!validateCurrentPanel()) return;
+
+    // Remove any blank pending entries before collecting tasks
+    purgeBlankPending();
+    updateGrid();
 
     const errDiv = document.getElementById('detail-errors');
     errDiv.style.display = 'none';

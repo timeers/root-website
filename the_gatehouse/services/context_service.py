@@ -106,6 +106,8 @@ def get_thematic_images(theme, page=None):
 
     if background_image:
         pattern = background_image.pattern
+    else:
+        pattern = None
 
 
     return background_image, foreground_images, artists, pattern
