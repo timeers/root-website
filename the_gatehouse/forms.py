@@ -3,7 +3,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .models import Profile, Website, MessageChoices
+from .models import Profile, Website, MessageChoices, Theme, BackgroundImage, ForegroundImage, Holiday
 from django_recaptcha.fields import ReCaptchaField
 from django_recaptcha.widgets import ReCaptchaV2Checkbox
 from django.utils.translation import gettext_lazy as _
@@ -222,6 +222,80 @@ class PlayerCreateForm(forms.ModelForm):
             cleaned_data['display_name'] = raw_discord
 
         return cleaned_data
+
+
+class ThemeForm(forms.ModelForm):
+    class Meta:
+        model = Theme
+        fields = ['name', 'theme_color', 'background_color', 'holiday', 'theme_artists', 'public', 'active', 'backup_theme']
+        widgets = {
+            'theme_color': forms.TextInput(attrs={'type': 'color', 'class': 'form-control form-control-color'}),
+            'background_color': forms.TextInput(attrs={'type': 'color', 'class': 'form-control form-control-color'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['backup_theme'].queryset = Theme.objects.exclude(pk=self.instance.pk)
+        self.fields['public'].help_text = 'Not yet in use. In the future, users will be able to select public themes for their profile.'
+        self.fields['active'].help_text = 'Inactive themes are never used or selectable, regardless of other settings. Use this for themes that are not yet complete.'
+
+
+class BackgroundImageForm(forms.ModelForm):
+    class Meta:
+        model = BackgroundImage
+        fields = ['name', 'artist', 'image', 'pattern', 'page', 'background_color']
+        widgets = {
+            'background_color': forms.TextInput(attrs={'type': 'color', 'class': 'form-control form-control-color'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['background_color'].required = False
+
+
+class ForegroundImageForm(forms.ModelForm):
+    class Meta:
+        model = ForegroundImage
+        fields = ['name', 'artist', 'image', 'page', 'location', 'depth', 'start_position', 'slide', 'speed']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['start_position'].help_text = 'CSS vw value for horizontal start, e.g. 30vw'
+        self.fields['slide'].help_text = 'CSS translate offset for animation, e.g. -60vw'
+        self.fields['speed'].help_text = 'CSS vh for animation range end point, e.g. 50vh'
+        self.fields['depth'].help_text = 'Must be negative (e.g. -1). Lower values go further behind.'
+
+    def clean_depth(self):
+        depth = self.cleaned_data.get('depth')
+        if depth is not None and depth >= 0:
+            raise forms.ValidationError('Depth must be negative (foreground images must stay behind content).')
+        return depth
+
+
+class HolidayForm(forms.ModelForm):
+    start_date = forms.DateField(
+        widget=forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d'),
+        input_formats=['%Y-%m-%d'],
+        help_text="Year is ignored — only month and day matter.",
+    )
+    end_date = forms.DateField(
+        widget=forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d'),
+        input_formats=['%Y-%m-%d'],
+        help_text="Year is ignored — only month and day matter.",
+    )
+
+    class Meta:
+        model = Holiday
+        fields = ['name', 'start_date', 'end_date']
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.start_date = instance.start_date.replace(year=2000)
+        instance.end_date = instance.end_date.replace(year=2000)
+        if commit:
+            instance.save()
+        return instance
 
 
 class MessageForm(forms.Form):

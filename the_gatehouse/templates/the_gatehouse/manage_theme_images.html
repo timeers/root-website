@@ -1,0 +1,1305 @@
+{% extends "the_keep/base.html" %}
+{% block title %}{{ theme.name }} Images | {% endblock %}
+
+{% block styles %}
+<style>
+/* ── Preview ─────────────────────────────────────────────────────────────── */
+#preview-container {
+    position: relative;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 2.15;  /* default: desktop mode (~60vh at 1600px wide) */
+    overflow: hidden;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    background-color: #fafafa;
+    /* Create an isolated stacking context so negative z-index children
+       stack relative to this container, not behind it */
+    isolation: isolate;
+}
+.preview-bg-img {
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    height: 100%; width: auto; min-width: 100%;
+    object-fit: cover;
+    /* Background sits at the bottom of the stacking context */
+    z-index: -200;
+}
+/* Wrapper mirrors the real .background-image-wrapper:
+   left: calc(50% + start_position), transform: translateX(-50%)
+   so the layer is centered and the offset shifts it from center */
+.preview-fg-wrapper {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    width: 100%;
+    min-width: 100%;
+    transform: translateX(-50%);
+}
+.preview-fg-img {
+    position: absolute;
+    top: 0; left: 0;
+    height: 100%; width: 100%; min-width: 100%;
+    object-fit: cover;
+    /* animation name and duration injected per-element by renderPreview() */
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-fill-mode: none;
+}
+
+/* ── Image grid ──────────────────────────────────────────────────────────── */
+.location-grid {
+    display: grid;
+    gap: 4px;
+}
+.title-row   { grid-template-columns: repeat(3, 1fr); }
+.position-row { grid-template-columns: repeat(5, 1fr); }
+.bg-row      { grid-template-columns: 1fr; }
+
+.location-cell {
+    cursor: pointer;
+    border: 2px solid #dee2e6;
+    border-radius: 6px;
+    padding: 6px;
+    text-align: center;
+    background: #fff;
+    transition: border-color 0.15s, background 0.15s;
+    min-height: 90px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    position: relative;
+}
+.location-cell.selected { border-color: #198754; background: #f0faf4; }
+.location-cell:hover:not(.selected) { border-color: #aaa; }
+
+.cell-thumb {
+    width: 100%; height: 50px;
+    object-fit: cover;
+    border-radius: 3px;
+    display: block;
+}
+.cell-thumb-placeholder {
+    width: 100%; height: 50px;
+    background: #f0f0f0;
+    border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    color: #bbb; font-size: 1.2rem;
+}
+.cell-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; color: #666; }
+.cell-controls {
+    display: flex; align-items: center; gap: 2px; font-size: 0.7rem;
+}
+.cell-controls button {
+    background: none; border: none; padding: 1px 3px; cursor: pointer; color: #555;
+    line-height: 1;
+}
+.cell-controls button:hover { color: #000; }
+.cell-counter { color: #888; font-size: 0.65rem; }
+.cell-add-btn {
+    position: absolute; top: 3px; right: 3px;
+    background: #fff; border: 1px solid #ccc; border-radius: 50%;
+    width: 20px; height: 20px; font-size: 0.75rem;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: #555; line-height: 1;
+}
+.cell-add-btn:hover { background: #e8ffe8; border-color: #198754; color: #198754; }
+
+.bg-cell {
+    min-height: 50px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 8px 12px;
+}
+.bg-cell .cell-thumb { width: 80px; height: 40px; flex-shrink: 0; }
+.bg-cell .cell-thumb-placeholder { width: 80px; height: 40px; flex-shrink: 0; }
+
+/* ── Detail panel ────────────────────────────────────────────────────────── */
+#detail-panel {
+    display: none;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 16px;
+    background: #fff;
+    margin-top: 12px;
+}
+#detail-panel h6 {
+    font-size: 0.8rem; font-weight: 700;
+    text-transform: uppercase; color: #555;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 6px; margin-bottom: 12px;
+}
+.detail-field { margin-bottom: 10px; }
+.detail-field label { font-size: 0.8rem; font-weight: 600; display: block; margin-bottom: 3px; }
+.detail-field input[type=text],
+.detail-field input[type=number],
+.detail-field select,
+.detail-field textarea { font-size: 0.85rem; }
+.detail-field .form-text { font-size: 0.72rem; }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+
+    {# ── Header ────────────────────────────────────────────────────────── #}
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="d-flex align-items-center gap-3">
+            <h1 class="root-title mb-0">
+                <a href="{% url 'manage-theme-edit' theme.pk %}" class="text-decoration-none">{{ theme.name }}</a>
+            </h1>
+
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-secondary"
+                    onclick="safeNavigate('{% url 'manage-theme-edit' theme.pk %}')">
+                <i class="bi bi-pencil"></i> Edit Theme
+            </button>
+            <button class="btn btn-sm btn-secondary"
+                    onclick="safeNavigate('{% url 'manage-themes' %}')">
+                <i class="bi bi-arrow-left"></i> Themes
+            </button>
+        </div>
+    </div>
+
+    {# ── Page navigator ────────────────────────────────────────────────── #}
+    <div class="d-flex align-items-center justify-content-center gap-3 mb-3 rounded py-2 px-3"
+         style="background-color: {{ theme.theme_color }};">
+        <button class="btn btn-sm" id="page-prev"
+                style="color:#fff; border-color:rgba(255,255,255,0.4);">
+            <i class="bi bi-chevron-left"></i>
+        </button>
+        <span id="page-label" class="fw-semibold"
+              style="min-width:100px; text-align:center; color:#fff;"></span>
+        <button class="btn btn-sm" id="page-next"
+                style="color:#fff; border-color:rgba(255,255,255,0.4);">
+            <i class="bi bi-chevron-right"></i>
+        </button>
+    </div>
+
+    {# ── Preview ───────────────────────────────────────────────────────── #}
+    <div class="d-flex justify-content-end mb-1">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Preview aspect ratio">
+            <button type="button" class="btn btn-outline-secondary active" id="ratio-desktop"
+                    onclick="setPreviewRatio('desktop')" title="Cropped viewport — sides cropped">
+                <i class="bi bi-fullscreen"></i> Cropped
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="ratio-medium"
+                    onclick="setPreviewRatio('medium')" title="Full viewport — full width visible">
+                <i class="bi bi-arrows"></i> Wide
+            </button>
+        </div>
+    </div>
+    <div id="preview-container" class="mb-3">
+        <img class="preview-bg-img" id="preview-bg" src="" alt="" style="display:none;">
+    </div>
+
+    {# ── Image grid ────────────────────────────────────────────────────── #}
+    {# Title row: Second (101), Title (100), Third (102) #}
+    <div class="location-grid title-row mb-1" id="grid-title">
+        {% for loc_key, loc_label in title_locations %}
+        <div class="location-cell" data-loc="{{ loc_key }}" data-type="fg" id="cell-fg-{{ loc_key }}">
+            <div class="cell-thumb-placeholder" id="thumb-fg-{{ loc_key }}">
+                <i class="bi bi-image"></i>
+            </div>
+            <div class="cell-label">{{ loc_label }}</div>
+            <div class="cell-controls">
+                <button onclick="cycleImage(event,'fg','{{ loc_key }}',-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
+                <span class="cell-counter" id="counter-fg-{{ loc_key }}"></span>
+                <button onclick="cycleImage(event,'fg','{{ loc_key }}',1)" title="Next"><i class="bi bi-chevron-right"></i></button>
+            </div>
+            <button class="cell-add-btn" onclick="openAddPanel(event,'fg','{{ loc_key }}')" title="Add image">+</button>
+        </div>
+        {% endfor %}
+    </div>
+
+    {# Position row: Far Left (1), Left (3), Center (5), Right (7), Far Right (9) #}
+    <div class="location-grid position-row mb-1" id="grid-position">
+        {% for loc_key, loc_label in position_locations %}
+        <div class="location-cell" data-loc="{{ loc_key }}" data-type="fg" id="cell-fg-{{ loc_key }}"
+             style="min-height:110px;">
+            <div class="cell-thumb-placeholder" id="thumb-fg-{{ loc_key }}">
+                <i class="bi bi-image"></i>
+            </div>
+            <div class="cell-label">{{ loc_label }}</div>
+            <div class="cell-controls">
+                <button onclick="cycleImage(event,'fg','{{ loc_key }}',-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
+                <span class="cell-counter" id="counter-fg-{{ loc_key }}"></span>
+                <button onclick="cycleImage(event,'fg','{{ loc_key }}',1)" title="Next"><i class="bi bi-chevron-right"></i></button>
+            </div>
+            <button class="cell-add-btn" onclick="openAddPanel(event,'fg','{{ loc_key }}')" title="Add image">+</button>
+        </div>
+        {% endfor %}
+    </div>
+
+    {# Background row #}
+    <div class="location-grid bg-row mb-3">
+        <div class="location-cell bg-cell" data-type="bg" id="cell-bg">
+            <div class="cell-thumb-placeholder" id="thumb-bg">
+                <i class="bi bi-image"></i>
+            </div>
+            <div class="d-flex flex-column align-items-start flex-grow-1">
+                <div class="cell-label">Background</div>
+                <div class="cell-controls">
+                    <button onclick="cycleImage(event,'bg',null,-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
+                    <span class="cell-counter" id="counter-bg"></span>
+                    <button onclick="cycleImage(event,'bg',null,1)" title="Next"><i class="bi bi-chevron-right"></i></button>
+                </div>
+            </div>
+            <button class="cell-add-btn" onclick="openAddPanel(event,'bg',null)" title="Add background">+</button>
+        </div>
+    </div>
+
+    {# ── Detail panel ──────────────────────────────────────────────────── #}
+    <div id="detail-panel">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 id="detail-title" class="mb-0">—</h6>
+            <div class="d-flex gap-2 align-items-center">
+                <button type="button" id="detail-delete-btn" class="btn btn-sm btn-outline-danger"
+                        onclick="confirmDelete()" style="display:none;" title="Delete image">
+                    <i class="bi bi-trash"></i>
+                </button>
+                <button type="button" id="detail-discard-btn" class="btn btn-sm btn-outline-secondary"
+                        onclick="confirmDiscard()" style="display:none;" title="Discard new image">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        {# Hidden: tracks what we're editing #}
+        <input type="hidden" id="detail-image-id">
+        <input type="hidden" id="detail-type">
+        <input type="hidden" id="detail-location">
+
+        <div id="detail-img-preview" style="display:none; width:100%; max-height:80px; margin-bottom:6px; border-radius:4px; overflow:hidden; border:1px solid #eee;">
+            <img id="detail-img-preview-img" alt="preview" style="width:100%; max-height:80px; object-fit:contain; display:block;">
+        </div>
+
+        {# Shared fields #}
+        <div class="row g-2">
+            <div class="col-md-6 detail-field">
+                <label for="d-name">Name</label>
+                <input type="text" id="d-name" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-6 detail-field">
+                <label for="d-artist">Artist</label>
+                <select id="d-artist" class="form-select form-select-sm">
+                    <option value="">— none —</option>
+                    {% for profile in all_profiles %}
+                    <option value="{{ profile.pk }}">{{ profile.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 detail-field">
+                <label for="d-image">Image</label>
+                <input type="file" id="d-image" class="form-control form-control-sm" accept="image/*">
+            </div>
+        </div>
+
+        {# Foreground-only fields #}
+        <div id="fg-fields" class="row g-2 mt-1">
+            <div class="col-6 col-md-3 detail-field">
+                <label for="d-depth">Depth (z-index)</label>
+                <input type="number" id="d-depth" class="form-control form-control-sm" max="-1">
+                <div class="form-text">Must be negative — lower values go further behind</div>
+            </div>
+            <div class="col-6 col-md-3 detail-field">
+                <label for="d-start">Start Position</label>
+                <input type="text" id="d-start" class="form-control form-control-sm" placeholder="e.g. 30vw">
+                <div class="form-text">Horizontal start</div>
+            </div>
+            <div class="col-6 col-md-3 detail-field">
+                <label for="d-slide">Slide</label>
+                <input type="text" id="d-slide" class="form-control form-control-sm" placeholder="e.g. -60vw">
+                <div class="form-text">Animation offset</div>
+            </div>
+            <div class="col-6 col-md-3 detail-field">
+                <label for="d-speed">Speed</label>
+                <input type="text" id="d-speed" class="form-control form-control-sm" placeholder="e.g. 50vh">
+                <div class="form-text">Animation range</div>
+            </div>
+        </div>
+
+        {# Background-only fields #}
+        <div id="bg-fields" class="row g-2 mt-1" style="display:none!important;">
+            <div class="col-md-4 detail-field">
+                <label for="d-bg-color">Background Color</label>
+                <input type="color" id="d-bg-color" class="form-control form-control-color form-control-sm">
+            </div>
+            <div class="col-md-8 detail-field">
+                <label for="d-pattern">Pattern Image</label>
+                <input type="file" id="d-pattern" class="form-control form-control-sm" accept="image/*">
+            </div>
+        </div>
+
+        {# Error display #}
+        <div id="detail-errors" class="alert alert-danger mt-2 p-2" style="display:none; font-size:0.8rem;"></div>
+    </div>
+
+    {# Save button — outside the panel, saves all pending images #}
+    <div id="save-btn-wrapper" class="d-flex justify-content-end my-3" style="display:none;">
+        <button type="button" id="detail-save-btn" class="btn btn-primary" onclick="saveImage()">
+            <i class="bi bi-floppy"></i> Save All
+        </button>
+    </div>
+
+</div>
+
+{# Confirmation modal #}
+<div class="modal fade" id="confirm-modal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title mb-0" id="confirm-modal-title">Confirm</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0" id="confirm-modal-body"></p>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger btn-sm" id="confirm-modal-ok">Confirm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock content %}
+
+{% block scripts %}
+<script>
+// ── Data ─────────────────────────────────────────────────────────────────
+const THEME_IMAGES  = {{ theme_images_json|safe }};
+const THEME_BG_COLOR = "{{ theme.background_color }}";
+const THEME_PK      = {{ theme.pk }};
+const PAGE_CHOICES  = {{ page_choices_json|safe }};  // [[val, label], ...]
+
+// ── State ────────────────────────────────────────────────────────────────
+const previewState = {};   // { pageKey: { bgIndex: 0, fgIndexByLocation: {} } }
+let currentPage    = "{{ selected_page }}";
+let hasUnsaved     = false;
+let selectedCell   = null;  // { type: 'fg'|'bg', loc: str|null }
+
+// ── Pending images ────────────────────────────────────────────────────────
+// Pending images are staged in THEME_IMAGES with pending:true and a temp string id.
+// Their File objects are stored here, keyed by temp id.
+const PENDING_FILES = {};   // tempId → { image: File|null, pattern: File|null }
+let pendingCounter  = 0;
+function nextTempId() { return 'pending-' + (++pendingCounter); }
+function isPending(id) { return id && String(id).startsWith('pending-'); }
+
+// ── Init ─────────────────────────────────────────────────────────────────
+function getState(page) {
+    if (!previewState[page]) {
+        const data = THEME_IMAGES[page] || { backgrounds: [], foreground_locations: {} };
+        const fgIdx = {};
+        for (const loc of Object.keys(data.foreground_locations || {})) {
+            fgIdx[loc] = 0;
+        }
+        previewState[page] = { bgIndex: 0, fgIndexByLocation: fgIdx };
+    }
+    return previewState[page];
+}
+
+function pageIndex() {
+    return PAGE_CHOICES.findIndex(p => p[0] === currentPage);
+}
+
+function updatePageNav() {
+    const idx   = pageIndex();
+    const label = PAGE_CHOICES[idx] ? PAGE_CHOICES[idx][1] : currentPage;
+    document.getElementById('page-label').textContent = label;
+    document.getElementById('page-prev').disabled = idx === 0;
+    document.getElementById('page-next').disabled = idx === PAGE_CHOICES.length - 1;
+    // Update URL param silently
+    const url = new URL(window.location);
+    url.searchParams.set('page', currentPage);
+    window.history.replaceState({}, '', url);
+}
+
+document.getElementById('page-prev').addEventListener('click', function() { navigatePage(-1); });
+document.getElementById('page-next').addEventListener('click', function() { navigatePage(1); });
+
+function safeNavigate(url) {
+    if (hasUnsaved && !confirm('You have unsaved changes. Leave anyway?')) return;
+    window.location.href = url;
+}
+
+function navigatePage(dir) {
+    if (hasUnsaved && !confirm('You have unsaved changes. Switch page anyway?')) return;
+    const idx = pageIndex() + dir;
+    if (idx < 0 || idx >= PAGE_CHOICES.length) return;
+    currentPage = PAGE_CHOICES[idx][0];
+    hasUnsaved = false;
+    closeDetailPanel();
+    updatePageNav();
+    updateGrid();
+    renderPreview();
+}
+
+// ── Grid ─────────────────────────────────────────────────────────────────
+function thumbId(type, loc) {
+    return type === 'bg' ? 'thumb-bg' : `thumb-fg-${loc}`;
+}
+function getThumbEl(type, loc) {
+    return document.getElementById(thumbId(type, loc));
+}
+function getCounterEl(type, loc) {
+    return type === 'bg' ? document.getElementById('counter-bg')
+                         : document.getElementById('counter-fg-' + loc);
+}
+function getCellEl(type, loc) {
+    return type === 'bg' ? document.getElementById('cell-bg')
+                         : document.getElementById('cell-fg-' + loc);
+}
+
+function updateGrid() {
+    const data  = THEME_IMAGES[currentPage] || { backgrounds: [], foreground_locations: {} };
+    const state = getState(currentPage);
+
+    // Background cell
+    const bgs = data.backgrounds || [];
+    updateCell('bg', null, bgs, state.bgIndex);
+
+    // Foreground cells — iterate over ALL location cells in DOM
+    const allFgCells = document.querySelectorAll('.location-cell[data-type="fg"]');
+    allFgCells.forEach(cell => {
+        const loc = cell.dataset.loc;
+        const images = (data.foreground_locations && data.foreground_locations[loc]) || [];
+        const idx = (state.fgIndexByLocation && state.fgIndexByLocation[loc]) || 0;
+        updateCell('fg', loc, images, idx);
+    });
+}
+
+function updateCell(type, loc, images, idx) {
+    const thumbEl   = getThumbEl(type, loc);
+    const counterEl = getCounterEl(type, loc);
+    const n = images.length;
+
+    if (!thumbEl) return;
+
+    // Show + button only when there are already images in this location
+    // Show arrow buttons only when there are at least 2 images
+    const cellEl = type === 'bg' ? document.getElementById('cell-bg')
+                                 : document.getElementById('cell-fg-' + loc);
+    if (cellEl) {
+        const addBtn = cellEl.querySelector('.cell-add-btn');
+        if (addBtn) addBtn.style.display = n > 0 ? '' : 'none';
+        cellEl.querySelectorAll('.cell-controls button').forEach(btn => {
+            btn.style.display = n > 1 ? '' : 'none';
+        });
+    }
+
+    if (n === 0) {
+        if (thumbEl.tagName === 'IMG') {
+            thumbEl.outerHTML = `<div class="cell-thumb-placeholder" id="${thumbId(type, loc)}"><i class="bi bi-image"></i></div>`;
+        } else {
+            thumbEl.innerHTML = '<i class="bi bi-image"></i>';
+            thumbEl.className = 'cell-thumb-placeholder';
+        }
+        if (counterEl) counterEl.textContent = '';
+    } else {
+        const img = images[Math.min(idx, n - 1)];
+        if (!img.url) {
+            // Pending image with no file yet — show placeholder
+            if (thumbEl.tagName === 'IMG') {
+                thumbEl.outerHTML = `<div class="cell-thumb-placeholder" id="${thumbId(type, loc)}"><i class="bi bi-image"></i></div>`;
+            } else {
+                thumbEl.innerHTML = '<i class="bi bi-image"></i>';
+                thumbEl.className = 'cell-thumb-placeholder';
+            }
+        } else if (thumbEl.tagName === 'IMG') {
+            thumbEl.src = img.url;
+        } else {
+            thumbEl.outerHTML = `<img class="cell-thumb" id="${thumbId(type, loc)}" src="${img.url}" alt="${img.name}">`;
+        }
+        if (counterEl) counterEl.textContent = n > 1 ? `${(idx % n) + 1}/${n}` : '';
+    }
+}
+
+function cycleImage(event, type, loc, dir) {
+    event.stopPropagation();
+    if (!validateCurrentPanel()) return;
+    flushPanelToData();
+    const data  = THEME_IMAGES[currentPage] || { backgrounds: [], foreground_locations: {} };
+    const state = getState(currentPage);
+    const images = type === 'bg' ? (data.backgrounds || [])
+                                 : ((data.foreground_locations && data.foreground_locations[loc]) || []);
+    const n = images.length;
+    if (n < 2) return;
+
+    if (type === 'bg') {
+        state.bgIndex = ((state.bgIndex + dir) + n) % n;
+    } else {
+        if (!state.fgIndexByLocation) state.fgIndexByLocation = {};
+        const cur = state.fgIndexByLocation[loc] || 0;
+        state.fgIndexByLocation[loc] = ((cur + dir) + n) % n;
+    }
+    updateCell(type, loc, images, type === 'bg' ? state.bgIndex : state.fgIndexByLocation[loc]);
+    renderPreview();
+
+    // If this slot is currently open in the detail panel, fully repopulate it
+    // (needed for pending images which have editable fields to restore)
+    if (selectedCell && selectedCell.type === type && selectedCell.loc === loc) {
+        const idx = type === 'bg' ? state.bgIndex : state.fgIndexByLocation[loc];
+        const img = images[idx];
+        document.getElementById('d-image').value   = '';
+        document.getElementById('d-pattern').value = '';
+        populateDetailPanel(type, loc, img || null);
+    }
+}
+
+// ── Cell selection ────────────────────────────────────────────────────────
+document.querySelectorAll('.location-cell').forEach(cell => {
+    cell.addEventListener('click', function(e) {
+        if (e.target.closest('button')) return;  // don't select when clicking controls
+        if (!validateCurrentPanel()) return;
+        const type = this.dataset.type;
+        const loc  = this.dataset.loc || null;
+        // If cell has no images, treat as Add (same as clicking the + button)
+        const data   = THEME_IMAGES[currentPage] || { backgrounds: [], foreground_locations: {} };
+        const images = type === 'bg' ? (data.backgrounds || [])
+                                     : ((data.foreground_locations && data.foreground_locations[loc]) || []);
+        if (images.length === 0) {
+            openAddPanel(e, type, loc);
+            return;
+        }
+        selectCell(this, type, loc);
+    });
+});
+
+function selectCell(cellEl, type, loc) {
+    flushPanelToData();  // persist edits before switching
+
+    document.querySelectorAll('.location-cell').forEach(c => c.classList.remove('selected'));
+    cellEl.classList.add('selected');
+    selectedCell = { type, loc };
+
+    const data   = THEME_IMAGES[currentPage] || { backgrounds: [], foreground_locations: {} };
+    const state  = getState(currentPage);
+    const images = type === 'bg' ? (data.backgrounds || [])
+                                 : ((data.foreground_locations && data.foreground_locations[loc]) || []);
+    const idx    = type === 'bg' ? state.bgIndex : (state.fgIndexByLocation && state.fgIndexByLocation[loc]) || 0;
+    const img    = images.length > 0 ? images[Math.min(idx, images.length - 1)] : null;
+
+    document.getElementById('d-image').value   = '';
+    document.getElementById('d-pattern').value = '';
+    populateDetailPanel(type, loc, img);
+}
+
+// ── Detail panel ──────────────────────────────────────────────────────────
+function populateDetailPanel(type, loc, img) {
+    const panel = document.getElementById('detail-panel');
+    panel.style.display = 'block';
+
+    // Title
+    const locLabel = loc ? locLabelFor(loc) : 'Background';
+    document.getElementById('detail-title').textContent = (img && img.name) ? `${locLabel} — ${img.name}` : `${locLabel} — New`;
+
+    // Hidden state
+    document.getElementById('detail-image-id').value  = img ? img.id  : '';
+    document.getElementById('detail-type').value      = type;
+    document.getElementById('detail-location').value  = loc || '';
+
+    // Fields
+    document.getElementById('d-name').value   = img ? img.name       : '';
+    $('#d-artist').val(img ? (img.artist || '') : '').trigger('change');
+
+    // Image preview
+    const previewWrap = document.getElementById('detail-img-preview');
+    const previewImg  = document.getElementById('detail-img-preview-img');
+    if (img && img.url) {
+        previewImg.src = img.url;
+        previewWrap.style.display = 'block';
+    } else {
+        previewImg.removeAttribute('src');
+        previewWrap.style.display = 'none';
+    }
+
+    // Toggle fg/bg fields
+    const fgFields = document.getElementById('fg-fields');
+    const bgFields = document.getElementById('bg-fields');
+    if (type === 'fg') {
+        fgFields.style.removeProperty('display');
+        bgFields.style.setProperty('display', 'none', 'important');
+        document.getElementById('d-depth').value  = img ? img.depth          : '-1';
+        document.getElementById('d-start').value  = img ? img.start_position : '0vw';
+        document.getElementById('d-slide').value  = img ? img.slide          : '0vw';
+        document.getElementById('d-speed').value  = img ? img.speed          : '50vh';
+    } else {
+        fgFields.style.setProperty('display', 'none', 'important');
+        bgFields.style.removeProperty('display');
+        document.getElementById('d-bg-color').value = img ? (img.bg_color || '#fafafa') : '#fafafa';
+    }
+
+    // Delete button: only for saved images. Discard button: only for pending.
+    document.getElementById('detail-delete-btn').style.display  = (img && !img.pending) ? '' : 'none';
+    document.getElementById('detail-discard-btn').style.display = (img && img.pending)  ? '' : 'none';
+    document.getElementById('detail-errors').style.display = 'none';
+    // Show save button outside the panel
+    document.getElementById('save-btn-wrapper').style.display = 'flex';
+    // Clear invalid state when opening a new panel
+    document.getElementById('d-image').classList.remove('is-invalid');
+    document.getElementById('d-name').classList.remove('is-invalid');
+}
+
+function locLabelFor(loc) {
+    const map = {'1':'Far Left','3':'Left','5':'Center','7':'Right','9':'Far Right',
+                 '100':'Title','101':'Second','102':'Third'};
+    return map[loc] || loc;
+}
+
+function closeDetailPanel() {
+    document.getElementById('detail-panel').style.display = 'none';
+    document.getElementById('save-btn-wrapper').style.display = 'none';
+    document.getElementById('detail-image-id').value = '';  // clear so validateCurrentPanel doesn't block
+    document.querySelectorAll('.location-cell').forEach(c => c.classList.remove('selected'));
+    selectedCell = null;
+    hasUnsaved = false;  // reset nav warning when panel is closed
+}
+
+// Flush current panel field values back into THEME_IMAGES in memory.
+// Called before switching cells so edits are not lost.
+// If a pending entry is still completely blank, remove it instead.
+function flushPanelToData() {
+    const imageId = document.getElementById('detail-image-id').value;
+    if (!imageId) return;
+    const type = document.getElementById('detail-type').value;
+    const loc  = document.getElementById('detail-location').value;
+    const data = THEME_IMAGES[currentPage];
+    if (!data) return;
+
+    // If pending and completely blank, remove it silently
+    if (isPending(imageId)) {
+        const hasFile   = !!(PENDING_FILES[imageId] && PENDING_FILES[imageId].image);
+        const hasName   = !!document.getElementById('d-name').value.trim();
+        const hasArtist = !!$('#d-artist').val();
+        if (!hasFile && !hasName && !hasArtist) {
+            if (type === 'bg') {
+                data.backgrounds = (data.backgrounds || []).filter(i => i.id !== imageId);
+                const state = getState(currentPage);
+                state.bgIndex = Math.max(0, Math.min(state.bgIndex, data.backgrounds.length - 1));
+            } else {
+                const imgs = (data.foreground_locations && data.foreground_locations[loc]) || [];
+                data.foreground_locations[loc] = imgs.filter(i => i.id !== imageId);
+                const state = getState(currentPage);
+                if (!state.fgIndexByLocation) state.fgIndexByLocation = {};
+                state.fgIndexByLocation[loc] = Math.max(0, Math.min(
+                    state.fgIndexByLocation[loc] || 0,
+                    data.foreground_locations[loc].length - 1
+                ));
+            }
+            delete PENDING_FILES[imageId];
+            document.getElementById('detail-image-id').value = '';
+            updateGrid();
+            renderPreview();
+            return;
+        }
+    }
+
+    const images = type === 'bg' ? (data.backgrounds || [])
+                                 : ((data.foreground_locations && data.foreground_locations[loc]) || []);
+    const img = images.find(i => String(i.id) === String(imageId));
+    if (!img) return;
+
+    img.name   = document.getElementById('d-name').value;
+    img.artist = $('#d-artist').val() || '';
+    if (type === 'fg') {
+        img.depth          = document.getElementById('d-depth').value;
+        img.start_position = document.getElementById('d-start').value;
+        img.slide          = document.getElementById('d-slide').value;
+        img.speed          = document.getElementById('d-speed').value;
+    } else {
+        img.bg_color = document.getElementById('d-bg-color').value;
+    }
+}
+
+// Validate the current panel. Returns false (and highlights fields) if a pending
+// image has some data entered but is missing required fields.
+// If none of name, artist, or image have been touched, allow navigation away freely.
+function validateCurrentPanel() {
+    const imageId = document.getElementById('detail-image-id').value;
+    if (!isPending(imageId)) return true;  // saved images are always valid
+
+    const hasFile   = !!(PENDING_FILES[imageId] && PENDING_FILES[imageId].image);
+    const hasName   = !!document.getElementById('d-name').value.trim();
+    const hasArtist = !!$('#d-artist').val();
+
+    // If nothing has been entered yet, allow navigation (treat as abandoned blank entry)
+    if (!hasFile && !hasName && !hasArtist) return true;
+
+    // Something was entered — enforce required fields
+    document.getElementById('d-image').classList.toggle('is-invalid', !hasFile);
+    document.getElementById('d-name').classList.toggle('is-invalid', !hasName);
+    return !!(hasFile && hasName);
+}
+
+// Discard the currently-shown pending image entirely.
+function discardPending() {
+    const imageId = document.getElementById('detail-image-id').value;
+    if (!isPending(imageId)) return;
+    const type = document.getElementById('detail-type').value;
+    const loc  = document.getElementById('detail-location').value;
+    const data = THEME_IMAGES[currentPage];
+
+    if (type === 'bg') {
+        const img = (data.backgrounds || []).find(i => i.id === imageId);
+        if (img && img.url) URL.revokeObjectURL(img.url);
+        data.backgrounds = data.backgrounds.filter(i => i.id !== imageId);
+        // Clamp bgIndex
+        const state = getState(currentPage);
+        state.bgIndex = Math.max(0, Math.min(state.bgIndex, data.backgrounds.length - 1));
+    } else {
+        const imgs = (data.foreground_locations && data.foreground_locations[loc]) || [];
+        const img  = imgs.find(i => i.id === imageId);
+        if (img && img.url) URL.revokeObjectURL(img.url);
+        data.foreground_locations[loc] = imgs.filter(i => i.id !== imageId);
+        const state = getState(currentPage);
+        if (!state.fgIndexByLocation) state.fgIndexByLocation = {};
+        state.fgIndexByLocation[loc] = Math.max(0, Math.min(
+            state.fgIndexByLocation[loc] || 0,
+            data.foreground_locations[loc].length - 1
+        ));
+    }
+
+    delete PENDING_FILES[imageId];
+    closeDetailPanel();
+    updateGrid();
+    renderPreview();
+}
+
+function openAddPanel(event, type, loc) {
+    event.stopPropagation();
+    if (!validateCurrentPanel()) return;
+
+    // If current panel has a blank pending entry, handle it before creating a new one
+    const curId = document.getElementById('detail-image-id').value;
+    if (isPending(curId)) {
+        const hasFile   = !!(PENDING_FILES[curId] && PENDING_FILES[curId].image);
+        const hasName   = !!document.getElementById('d-name').value.trim();
+        const hasArtist = !!$('#d-artist').val();
+        if (!hasFile && !hasName && !hasArtist) {
+            // Same cell — just keep the existing blank panel open
+            const curType = document.getElementById('detail-type').value;
+            const curLoc  = document.getElementById('detail-location').value;
+            if (curType === type && curLoc === (loc || '')) return;
+            // Different cell — discard the abandoned blank entry first
+            discardPending();
+        }
+    }
+
+    const tempId = nextTempId();
+    PENDING_FILES[tempId] = { image: null, pattern: null };
+
+    const data = THEME_IMAGES[currentPage] || { backgrounds: [], foreground_locations: {} };
+    if (!THEME_IMAGES[currentPage]) THEME_IMAGES[currentPage] = data;
+
+    if (type === 'fg') {
+        if (!data.foreground_locations) data.foreground_locations = {};
+        if (!data.foreground_locations[loc]) data.foreground_locations[loc] = [];
+        data.foreground_locations[loc].push({
+            id: tempId, pending: true, name: '', url: null, artist: '',
+            depth: -1, start_position: '0vw', slide: '0vw', speed: '50vh',
+            location: parseInt(loc),
+        });
+        const state = getState(currentPage);
+        if (!state.fgIndexByLocation) state.fgIndexByLocation = {};
+        state.fgIndexByLocation[loc] = data.foreground_locations[loc].length - 1;
+    } else {
+        if (!data.backgrounds) data.backgrounds = [];
+        data.backgrounds.push({
+            id: tempId, pending: true, name: '', url: null, artist: '', bg_color: '#fafafa',
+        });
+        getState(currentPage).bgIndex = data.backgrounds.length - 1;
+    }
+
+    updateGrid();
+    renderPreview();
+
+    const cellEl = type === 'bg' ? document.getElementById('cell-bg')
+                                 : document.getElementById('cell-fg-' + loc);
+    // selectCell would call flushPanelToData which is fine (nothing to flush yet)
+    document.querySelectorAll('.location-cell').forEach(c => c.classList.remove('selected'));
+    cellEl.classList.add('selected');
+    selectedCell = { type, loc };
+    document.getElementById('d-image').value   = '';
+    document.getElementById('d-pattern').value = '';
+
+    // Find and populate with the new pending entry
+    const images = type === 'bg' ? data.backgrounds : data.foreground_locations[loc];
+    const img    = images[images.length - 1];
+    populateDetailPanel(type, loc, img);
+}
+
+// Fields that affect animation — trigger live preview update
+document.querySelectorAll('#d-depth,#d-start,#d-slide,#d-speed,#d-bg-color')
+    .forEach(el => {
+        el.addEventListener('input', markDirty);
+        el.addEventListener('change', markDirty);
+    });
+
+// Name/artist do NOT affect animation — only mark dirty, no preview restart
+document.getElementById('d-name').addEventListener('input', () => { hasUnsaved = true; });
+
+function markDirty() {
+    hasUnsaved = true;
+    liveUpdatePreview();
+}
+
+// File input → update pending entry URL and store File reference
+document.getElementById('d-image').addEventListener('change', function() {
+    const file = this.files && this.files[0];
+    if (!file) return;
+
+    const objectUrl = URL.createObjectURL(file);
+    const imageId   = document.getElementById('detail-image-id').value;
+
+    // Store file for later batch save
+    if (isPending(imageId)) {
+        if (!PENDING_FILES[imageId]) PENDING_FILES[imageId] = {};
+        PENDING_FILES[imageId].image = file;
+    }
+
+    // Update the detail panel preview
+    const previewWrap2 = document.getElementById('detail-img-preview');
+    const previewImg   = document.getElementById('detail-img-preview-img');
+    previewImg.src = objectUrl;
+    previewWrap2.style.display = 'block';
+    document.getElementById('d-image').classList.remove('is-invalid');
+
+    // Patch in-memory URL so renderPreview picks up the new image immediately
+    if (!selectedCell) return;
+    const type = selectedCell.type;
+    const loc  = selectedCell.loc;
+    const data = THEME_IMAGES[currentPage];
+    if (!data) return;
+
+    const state  = getState(currentPage);
+    if (type === 'fg') {
+        const images = (data.foreground_locations && data.foreground_locations[loc]) || [];
+        const idx    = (state.fgIndexByLocation && state.fgIndexByLocation[loc]) || 0;
+        if (images[idx]) {
+            if (images[idx].url && isPending(images[idx].id)) URL.revokeObjectURL(images[idx].url);
+            images[idx].url = objectUrl;
+        }
+    } else {
+        const bgs = data.backgrounds || [];
+        if (bgs[state.bgIndex]) {
+            if (bgs[state.bgIndex].url && isPending(bgs[state.bgIndex].id)) URL.revokeObjectURL(bgs[state.bgIndex].url);
+            bgs[state.bgIndex].url = objectUrl;
+        }
+    }
+
+    markDirty();
+    renderPreview();
+    updateGrid();
+});
+
+// Pattern file input — store File reference for pending background images
+document.getElementById('d-pattern').addEventListener('change', function() {
+    const file    = this.files && this.files[0];
+    const imageId = document.getElementById('detail-image-id').value;
+    if (file && isPending(imageId)) {
+        if (!PENDING_FILES[imageId]) PENDING_FILES[imageId] = {};
+        PENDING_FILES[imageId].pattern = file;
+    }
+    markDirty();
+});
+
+// ── Live preview update from detail fields ────────────────────────────────
+function liveUpdatePreview() {
+    if (!selectedCell || selectedCell.type !== 'fg') return;
+    const loc = selectedCell.loc;
+
+    // Patch the in-memory data for the selected image so renderPreview picks up the changes
+    const data = THEME_IMAGES[currentPage];
+    if (!data) return;
+    const state  = getState(currentPage);
+    const images = (data.foreground_locations && data.foreground_locations[loc]) || [];
+    const idx    = (state.fgIndexByLocation && state.fgIndexByLocation[loc]) || 0;
+    const fg     = images[idx];
+    if (!fg) return;
+
+    fg.slide          = document.getElementById('d-slide').value || fg.slide;
+    fg.start_position = document.getElementById('d-start').value || fg.start_position;
+    fg.depth          = parseInt(document.getElementById('d-depth').value) || fg.depth;
+    fg.speed          = document.getElementById('d-speed').value || fg.speed;
+
+    renderPreview();
+}
+
+// ── Save ─────────────────────────────────────────────────────────────────
+// Build a FormData for a given image task (pending or saved edit).
+function buildFormData(task) {
+    const { type, page, loc, img } = task;
+    const fd = new FormData();
+    fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+    fd.append('name', img.name || '');
+    if (img.artist) fd.append('artist', img.artist);
+    fd.append('page', page);
+
+    if (type === 'fg') {
+        fd.append('location',       loc);
+        fd.append('depth',          img.depth          ?? '-1');
+        fd.append('start_position', img.start_position || '0vw');
+        fd.append('slide',          img.slide          || '0vw');
+        fd.append('speed',          img.speed          || '50vh');
+    } else {
+        if (img.bg_color) fd.append('background_color', img.bg_color);
+    }
+
+    // Attach files for pending images
+    if (isPending(img.id) && PENDING_FILES[img.id]) {
+        const files = PENDING_FILES[img.id];
+        if (files.image)   fd.append('image',   files.image);
+        if (files.pattern) fd.append('pattern', files.pattern);
+    }
+
+    // For saved edits, attach any newly selected file from the panel
+    if (!isPending(img.id)) {
+        const imageFile = document.getElementById('d-image').files[0];
+        if (imageFile) fd.append('image', imageFile);
+        if (type === 'bg') {
+            const patternFile = document.getElementById('d-pattern').files[0];
+            if (patternFile) fd.append('pattern', patternFile);
+        }
+    }
+
+    return fd;
+}
+
+// POST a single task. Resolves with the new DB pk, rejects with an error string.
+function postTask(task) {
+    const { type, img } = task;
+    const savedId = !isPending(img.id) ? img.id : null;
+    let url;
+    if (type === 'fg') {
+        url = savedId
+            ? `/admin/themes/${THEME_PK}/hx/foregrounds/${savedId}/`
+            : `/admin/themes/${THEME_PK}/hx/foregrounds/`;
+    } else {
+        url = savedId
+            ? `/admin/themes/${THEME_PK}/hx/backgrounds/${savedId}/`
+            : `/admin/themes/${THEME_PK}/hx/backgrounds/`;
+    }
+
+    return fetch(url, { method: 'POST', body: buildFormData(task) })
+        .then(async resp => {
+            if (resp.ok) {
+                const data = await resp.json();
+                // Update in-memory entry so re-save doesn't duplicate
+                img.id      = data.id;
+                img.pending = false;
+                return data.id;
+            } else if (resp.status === 400) {
+                const data = await resp.json();
+                const msgs = Object.entries(data.errors || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
+                throw new Error(msgs || 'Validation error');
+            } else {
+                throw new Error(`Server error (${resp.status})`);
+            }
+        });
+}
+
+// Remove all blank pending entries (no file uploaded) across all pages.
+function purgeBlankPending() {
+    for (const [page, pageData] of Object.entries(THEME_IMAGES)) {
+        // Backgrounds
+        const bgs = pageData.backgrounds || [];
+        for (let i = bgs.length - 1; i >= 0; i--) {
+            if (bgs[i].pending && !(PENDING_FILES[bgs[i].id] && PENDING_FILES[bgs[i].id].image)) {
+                if (bgs[i].url) URL.revokeObjectURL(bgs[i].url);
+                delete PENDING_FILES[bgs[i].id];
+                bgs.splice(i, 1);
+            }
+        }
+        const bgState = previewState[page];
+        if (bgState) bgState.bgIndex = Math.max(0, Math.min(bgState.bgIndex, bgs.length - 1));
+
+        // Foregrounds
+        for (const [loc, imgs] of Object.entries(pageData.foreground_locations || {})) {
+            for (let i = imgs.length - 1; i >= 0; i--) {
+                if (imgs[i].pending && !(PENDING_FILES[imgs[i].id] && PENDING_FILES[imgs[i].id].image)) {
+                    if (imgs[i].url) URL.revokeObjectURL(imgs[i].url);
+                    delete PENDING_FILES[imgs[i].id];
+                    imgs.splice(i, 1);
+                }
+            }
+            if (bgState && bgState.fgIndexByLocation) {
+                bgState.fgIndexByLocation[loc] = Math.max(0, Math.min(
+                    bgState.fgIndexByLocation[loc] || 0, imgs.length - 1
+                ));
+            }
+        }
+    }
+}
+
+async function saveImage() {
+    flushPanelToData();
+    if (!validateCurrentPanel()) return;
+
+    // Remove any blank pending entries before collecting tasks
+    purgeBlankPending();
+    updateGrid();
+
+    const errDiv = document.getElementById('detail-errors');
+    errDiv.style.display = 'none';
+
+    const btn = document.getElementById('detail-save-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    // Gather all pending images across all pages/locations
+    const tasks = [];
+    for (const [page, pageData] of Object.entries(THEME_IMAGES)) {
+        for (const bg of (pageData.backgrounds || [])) {
+            if (bg.pending) tasks.push({ type: 'bg', page, loc: null, img: bg });
+        }
+        for (const [loc, imgs] of Object.entries(pageData.foreground_locations || {})) {
+            for (const fg of imgs) {
+                if (fg.pending) tasks.push({ type: 'fg', page, loc, img: fg });
+            }
+        }
+    }
+
+    // Include currently-shown saved-image edit (if any)
+    const imageId = document.getElementById('detail-image-id').value;
+    if (imageId && !isPending(imageId)) {
+        const type = document.getElementById('detail-type').value;
+        const loc  = document.getElementById('detail-location').value;
+        // Find the in-memory entry to get latest flushed values
+        const data   = THEME_IMAGES[currentPage];
+        const images = type === 'bg' ? (data.backgrounds || [])
+                                     : ((data.foreground_locations && data.foreground_locations[loc]) || []);
+        const img = images.find(i => String(i.id) === String(imageId));
+        if (img) tasks.push({ type, page: currentPage, loc: loc || null, img });
+    }
+
+    if (tasks.length === 0) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-floppy"></i> Save';
+        return;
+    }
+
+    const results = await Promise.allSettled(tasks.map(t => postTask(t)));
+    const errors  = results.flatMap((r, i) =>
+        r.status === 'rejected' ? [`<strong>${tasks[i].img.name || 'Image'}</strong>: ${r.reason.message}`] : []
+    );
+
+    if (errors.length) {
+        errDiv.innerHTML = errors.join('<br>');
+        errDiv.style.display = 'block';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-floppy"></i> Save';
+    } else {
+        location.reload();
+    }
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────
+function showConfirmModal(title, body, onConfirm) {
+    document.getElementById('confirm-modal-title').textContent = title;
+    document.getElementById('confirm-modal-body').textContent  = body;
+    const okBtn = document.getElementById('confirm-modal-ok');
+    const newOk = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOk, okBtn);
+    newOk.addEventListener('click', () => {
+        bootstrap.Modal.getInstance(document.getElementById('confirm-modal')).hide();
+        onConfirm();
+    });
+    new bootstrap.Modal(document.getElementById('confirm-modal')).show();
+}
+
+function confirmDelete()  { showConfirmModal('Delete Image',   'Delete this image? This cannot be undone.',   deleteImage);     }
+function confirmDiscard() { showConfirmModal('Discard Image',  'Discard this new image? It has not been saved.', discardPending); }
+
+function deleteImage() {
+    const imageId = document.getElementById('detail-image-id').value;
+    const type    = document.getElementById('detail-type').value;
+    if (!imageId) return;
+
+    const url = type === 'fg'
+        ? `/admin/themes/${THEME_PK}/hx/foregrounds/${imageId}/delete/`
+        : `/admin/themes/${THEME_PK}/hx/backgrounds/${imageId}/delete/`;
+
+    const fd = new FormData();
+    fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    fetch(url, { method: 'POST', body: fd })
+        .then(resp => { if (resp.status === 204) location.reload(); });
+}
+
+// ── Animation timing ──────────────────────────────────────────────────────
+// speed (vh) → slide duration in seconds. 100vh = MAX_SLIDE_S.
+const MAX_SLIDE_S = 8;
+const PAUSE_S     = 2;
+
+function speedToSlideS(speedCss) {
+    const match = (speedCss || '').match(/([\d.]+)vh/);
+    const vh    = match ? parseFloat(match[1]) : 50;
+    return Math.max(0.5, (vh / 100) * MAX_SLIDE_S);
+}
+
+// Inject per-image keyframes so each image uses its own slide fraction
+// while all sharing the same total cycle duration (the slowest).
+// Keyframe structure: slide to center → hold → slide back → hold
+let previewStyleEl = null;
+
+function applyPreviewAnimations(fgElements, maxSlideS) {
+    // FORWARD (0 → maxSlideS + PAUSE_S):
+    //   0                        → (maxSlideS - slideS)  : holds at origin (fast ones wait)
+    //   (maxSlideS - slideS)     → maxSlideS              : slides to center
+    //   maxSlideS                → maxSlideS + PAUSE_S    : shared 2s pause at center
+    //
+    // REVERSE (maxSlideS + PAUSE_S → totalS):
+    //   maxSlideS + PAUSE_S      → maxSlideS+PAUSE_S+slideS : slides back to origin
+    //   maxSlideS+PAUSE_S+slideS → maxSlideS+PAUSE_S+maxSlideS : holds at origin (fast wait)
+    //   maxSlideS+PAUSE_S+maxSlideS → totalS               : shared 2s pause at origin
+    //
+    // totalS = (maxSlideS + PAUSE_S) * 2
+    const totalS = (maxSlideS + PAUSE_S) * 2;
+
+    if (previewStyleEl) previewStyleEl.remove();
+    previewStyleEl = document.createElement('style');
+
+    fgElements.forEach(({ el, slideS, offset }) => {
+        const name = el.dataset.animName;
+        const pct  = t => (t / totalS * 100).toFixed(3);
+
+        const t1 = maxSlideS - slideS;              // forward: this image starts sliding
+        const t2 = maxSlideS;                       // all arrive at center together
+        const t3 = maxSlideS + PAUSE_S;             // shared pause ends, reverse starts
+        const t4 = t3 + slideS;                     // this image arrives back at origin
+        const t5 = t3 + maxSlideS;                  // slowest arrives back (all at origin)
+
+        previewStyleEl.textContent += `
+@keyframes ${name} {
+    0%          { transform: translateX(${offset}); }
+    ${pct(t1)}% { transform: translateX(${offset}); }
+    ${pct(t2)}% { transform: translateX(0); }
+    ${pct(t3)}% { transform: translateX(0); }
+    ${pct(t4)}% { transform: translateX(${offset}); }
+    ${pct(t5)}% { transform: translateX(${offset}); }
+    100%        { transform: translateX(${offset}); }
+}
+`;
+        el.style.animationName     = name;
+        el.style.animationDuration = totalS.toFixed(2) + 's';
+    });
+
+    document.head.appendChild(previewStyleEl);
+}
+
+// ── Preview scaling ───────────────────────────────────────────────────────
+// Model values use vw/vh relative to the full viewport.
+// The preview container is a small box, so we remap units:
+//   vw → %   (both express a fraction of their container's width, so 40vw ≡ 40%)
+//   vh → %   (approximate: map vh to a % of preview height via inline style instead)
+//   %  → %   (already container-relative, keep as-is)
+// This preserves the proportional layout without any pixel arithmetic.
+function scaleForPreview(cssValue) {
+    return cssValue.replace(/([-\d.]+)(vw|vh)/g, function(_, num, unit) {
+        // vw and vh both become % — treats the preview width/height as the reference
+        return num + '%';
+    });
+}
+
+// ── Preview render ────────────────────────────────────────────────────────
+function renderPreview() {
+    const container = document.getElementById('preview-container');
+    const bgImg     = document.getElementById('preview-bg');
+    const data      = THEME_IMAGES[currentPage] || { backgrounds: [], foreground_locations: {} };
+    const state     = getState(currentPage);
+
+    // Background colour
+    const bgs = data.backgrounds || [];
+    const bg  = bgs.length > 0 ? bgs[Math.min(state.bgIndex, bgs.length - 1)] : null;
+    container.style.backgroundColor = (bg && bg.bg_color) ? bg.bg_color : THEME_BG_COLOR;
+
+    // Background image
+    if (bg && bg.url) {
+        bgImg.src = bg.url;
+        bgImg.style.display = 'block';
+    } else {
+        bgImg.style.display = 'none';
+    }
+
+    // Remove old fg preview elements
+    container.querySelectorAll('.preview-fg-wrapper').forEach(el => el.remove());
+
+    // Collect all visible foregrounds and compute the slowest slide duration
+    const locs = data.foreground_locations || {};
+    let maxSlideS = 0;
+    const fgEntries = [];
+    let animCounter = 0;
+
+    for (const [loc, images] of Object.entries(locs)) {
+        const idx = (state.fgIndexByLocation && state.fgIndexByLocation[loc]) || 0;
+        const fg  = images[Math.min(idx, images.length - 1)];
+        if (!fg || !fg.url) continue;  // skip pending images with no file yet
+
+        const slideS      = speedToSlideS(fg.speed);
+        if (slideS > maxSlideS) maxSlideS = slideS;
+
+        const scaledStart = scaleForPreview(fg.start_position);
+        const scaledSlide = scaleForPreview(fg.slide);
+        const animName    = `preview-bounce-${animCounter++}`;
+
+        const wrapper = document.createElement('div');
+        wrapper.className    = 'preview-fg-wrapper';
+        wrapper.style.left   = `calc(50% + ${scaledStart})`;
+        wrapper.style.zIndex = fg.depth;
+
+        const img = document.createElement('img');
+        img.className        = 'preview-fg-img';
+        img.src              = fg.url;
+        img.alt              = fg.name;
+        img.dataset.loc      = loc;
+        img.dataset.animName = animName;
+
+        wrapper.appendChild(img);
+        container.appendChild(wrapper);
+        fgEntries.push({ el: img, slideS, offset: scaledSlide });
+    }
+
+    // Apply synchronized animations — all share the slowest total duration
+    if (fgEntries.length > 0) {
+        applyPreviewAnimations(fgEntries, maxSlideS);
+    }
+}
+
+// ── Aspect ratio toggle ───────────────────────────────────────────────────
+// Image height = max(60vh, 100vw/3.555). 60vh wins on tall screens → taller
+// container → object-fit:cover zooms in more → SIDES ARE CROPPED.
+// Cropped screen (e.g. 1920×1080): 60vh=648px > 100vw/3.555=540px → ratio ≈ 2.15, more side crop
+// Full/short (≤1300px breakpoint): min-height=100vw/3.555 wins → ratio=3.555, full width visible
+const RATIOS = { desktop: 2.15, medium: 3.555 };
+
+function setPreviewRatio(mode) {
+    document.getElementById('preview-container').style.aspectRatio = RATIOS[mode];
+    document.getElementById('ratio-desktop').classList.toggle('active', mode === 'desktop');
+    document.getElementById('ratio-medium').classList.toggle('active', mode === 'medium');
+    renderPreview();
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────
+updatePageNav();
+updateGrid();
+renderPreview();
+
+$(function() {
+    $('#d-artist').select2({
+        placeholder: "Search for artist...",
+        allowClear: true,
+        dropdownParent: $('#detail-panel'),
+    });
+    // Artist does NOT affect animation — only mark dirty, no preview restart
+    $('#d-artist').on('select2:select select2:unselect select2:clear', () => { hasUnsaved = true; });
+});
+</script>
+{% endblock scripts %}

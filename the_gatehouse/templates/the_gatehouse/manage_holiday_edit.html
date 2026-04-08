@@ -1,0 +1,46 @@
+{% extends "the_keep/base.html" %}
+{% load crispy_forms_tags %}
+{% block title %}{% if is_edit %}Edit {{ holiday.name }}{% else %}New Holiday{% endif %} | {% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="root-title mb-0">
+            {% if is_edit %}Edit: {{ holiday.name }}{% else %}New Holiday{% endif %}
+        </h1>
+        <a href="{% url 'manage-holidays' %}" class="btn btn-sm btn-secondary">
+            <i class="bi bi-arrow-left"></i> Holidays
+        </a>
+    </div>
+
+    <article class="content-section">
+        <form method="post" id="holiday-form">
+            {% csrf_token %}
+            {{ form | crispy }}
+            <div class="d-flex justify-content-between align-items-center mt-3">
+                <div>
+                    {% if is_edit %}
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                onclick="if(confirm('Delete this holiday? This cannot be undone.')) { document.getElementById('delete-form').submit(); }">
+                            <i class="bi bi-trash"></i> Delete
+                        </button>
+                    {% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'manage-holidays' %}" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-floppy"></i> Save
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        {% if is_edit %}
+            <form id="delete-form" method="post" action="{% url 'manage-holiday-edit' holiday.pk %}" style="display:none;">
+                {% csrf_token %}
+                <input type="hidden" name="_delete" value="1">
+            </form>
+        {% endif %}
+    </article>
+</div>
+{% endblock content %}

@@ -1,0 +1,96 @@
+{% extends "the_keep/base.html" %}
+{% block title %}Themes | {% endblock %}
+{% block content %}
+
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="root-title mb-0">Themes</h1>
+        <div class="d-flex gap-2">
+            <a href="{% url 'manage-theme-create' %}" class="btn btn-sm btn-primary">
+                <i class="bi bi-plus-lg"></i> New Theme
+            </a>
+            <a href="{% url 'admin-dashboard' %}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-arrow-left"></i> Dashboard
+            </a>
+        </div>
+    </div>
+
+    {% if themes %}
+        <article class="content-section">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Colors</th>
+                            <th>Holiday</th>
+                            <th>Active</th>
+                            <th>Public</th>
+                            <th class="text-center">BG</th>
+                            <th class="text-center">FG</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for theme in themes %}
+                        <tr>
+                            <td><strong>{{ theme.name }}</strong></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-1 flex-wrap">
+                                    <span title="Theme color: {{ theme.theme_color }}"
+                                          style="display:block;width:22px;height:22px;border-radius:4px;background:{{ theme.theme_color }};border:1px solid #ccc;"></span>
+                                    <span title="Background color: {{ theme.background_color }}"
+                                          style="display:block;width:22px;height:22px;border-radius:4px;background:{{ theme.background_color }};border:1px solid #ccc;"></span>
+                                </div>
+                            </td>
+                            <td>
+                                {% if theme.holiday %}
+                                    <small>{{ theme.holiday }}</small>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if theme.active %}
+                                    <i class="bi bi-check-circle-fill text-success"></i>
+                                {% else %}
+                                    <i class="bi bi-x-circle text-muted"></i>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if theme.public %}
+                                    <i class="bi bi-check-circle-fill text-success"></i>
+                                {% else %}
+                                    <i class="bi bi-x-circle text-muted"></i>
+                                {% endif %}
+                            </td>
+                            <td class="text-center"><small class="text-muted">{{ theme.bg_count }}</small></td>
+                            <td class="text-center"><small class="text-muted">{{ theme.fg_count }}</small></td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    <a href="{% url 'manage-theme-edit' theme.pk %}" class="btn btn-sm btn-outline-secondary">
+                                        <i class="bi bi-pencil"></i><span class="d-none d-md-inline"> Edit</span>
+                                    </a>
+                                    <a href="{% url 'manage-theme-images' theme.pk %}" class="btn btn-sm btn-outline-primary">
+                                        <i class="bi bi-images"></i><span class="d-none d-md-inline"> Images</span>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    {% else %}
+        <article class="content-section text-center py-5">
+            <i class="bi bi-palette" style="font-size: 3rem; color: #999;"></i>
+            <p class="text-muted mt-3">No themes yet.</p>
+            <a href="{% url 'manage-theme-create' %}" class="btn btn-primary">
+                <i class="bi bi-plus-lg"></i> Create First Theme
+            </a>
+        </article>
+    {% endif %}
+</div>
+
+{% endblock content %}

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.2] - 2026-4-08 Theme Admin
+
+### New Features
+- Admin theme editor UI
+
+### Bug Fixes
+- Fixed bug with no theme background causing missing pattern error
+
 ## [1.11.1] - 2026-4-04 Survey and Series Bugs
 Of course there are bugs...
 
