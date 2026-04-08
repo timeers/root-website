@@ -13,7 +13,8 @@ from .views import (user_settings, player_page_view,
                     woodland_warriors_info, set_global_message, send_notification,
                     manage_themes, manage_theme_edit, manage_theme_images,
                     hx_save_foreground_image, hx_delete_foreground_image,
-                    hx_save_background_image, hx_delete_background_image)
+                    hx_save_background_image, hx_delete_background_image,
+                    manage_holidays, manage_holiday_edit)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -93,6 +94,11 @@ urlpatterns = [
     path('admin/themes/<int:theme_pk>/hx/backgrounds/', hx_save_background_image, name='hx-background-create'),
     path('admin/themes/<int:theme_pk>/hx/backgrounds/<int:pk>/', hx_save_background_image, name='hx-background-edit'),
     path('admin/themes/<int:theme_pk>/hx/backgrounds/<int:pk>/delete/', hx_delete_background_image, name='hx-background-delete'),
+
+    # Holiday management
+    path('admin/holidays/', manage_holidays, name='manage-holidays'),
+    path('admin/holidays/create/', manage_holiday_edit, name='manage-holiday-create'),
+    path('admin/holidays/<int:pk>/edit/', manage_holiday_edit, name='manage-holiday-edit'),
 
     # path('fake-error/', trigger_error),
     # path('test-error/', trigger_other_error),

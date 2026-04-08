@@ -70,6 +70,12 @@
 
 {% block scripts %}
 <script>
+$(function() {
+    $('#id_theme_artists').select2({
+        placeholder: "Search for artist...",
+        allowClear: true,
+    });
+});
 (function() {
     const themeColorInput = document.getElementById('id_theme_color');
     const bgColorInput = document.getElementById('id_background_color');

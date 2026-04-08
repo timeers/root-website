@@ -22,8 +22,8 @@ from django.views.generic import ListView
 from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday
 from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
@@ -1435,8 +1435,20 @@ def admin_dashboard(request):
     global_message_url = reverse('set-global-message')
     send_notification_url = reverse('send-notification')
     manage_themes_url = reverse('manage-themes')
+    manage_holidays_url = reverse('manage-holidays')
     theme_count = Theme.objects.count()
     active_theme_count = Theme.objects.filter(active=True).count()
+    holiday_count = Holiday.objects.count()
+    from datetime import date as _date
+    from django.db.models import Q, F
+    _today_doy = _date.today().timetuple().tm_yday
+    current_holiday = Holiday.objects.filter(
+        Q(start_day_of_year__lte=_today_doy, end_day_of_year__gte=_today_doy)
+        | Q(start_day_of_year__gt=F('end_day_of_year'), end_day_of_year__gte=_today_doy)
+        | Q(start_day_of_year__gt=F('end_day_of_year'), start_day_of_year__lte=_today_doy)
+    ).first()
+    holiday_theme = Theme.objects.filter(holiday=current_holiday, active=True).first() if current_holiday else None
+    current_theme = holiday_theme or website.default_theme
     
 
         # Example Widget
@@ -1570,13 +1582,27 @@ def admin_dashboard(request):
             "subtitle": "Manage visual themes and images",
             "image": "/static/images/ambush.jpg",
             "fields": [
-                {"title": "Total Themes", "content": theme_count},
-                {"title": "Active Themes", "content": active_theme_count},
+                {"title": "Current Theme", "content": current_theme.name if current_theme else "None"},
             ],
             "buttons": [
                 {
                     "label": "Manage Themes",
                     "link": manage_themes_url,
+                    "class": "primary",
+                },
+            ],
+        },
+        {
+            "title": "Holidays",
+            "subtitle": "Manage holiday date ranges for theme activation",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Current Holiday", "content": current_holiday.name if current_holiday else "None"},
+            ],
+            "buttons": [
+                {
+                    "label": "Manage Holidays",
+                    "link": manage_holidays_url,
                     "class": "primary",
                 },
             ],
@@ -2296,8 +2322,33 @@ def manage_theme_images(request, pk):
 
 
 @admin_onboard_required
+def manage_holidays(request):
+    holidays = Holiday.objects.all()
+    return render(request, 'the_gatehouse/manage_holidays.html', {'holidays': holidays})
+
+
+@admin_onboard_required
+def manage_holiday_edit(request, pk=None):
+    holiday = get_object_or_404(Holiday, pk=pk) if pk else None
+    if request.method == 'POST':
+        if request.POST.get('_delete') and holiday:
+            holiday.delete()
+            messages.success(request, 'Holiday deleted.')
+            return redirect('manage-holidays')
+        form = HolidayForm(request.POST, instance=holiday)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Holiday saved.')
+            return redirect('manage-holidays')
+    else:
+        form = HolidayForm(instance=holiday)
+    return render(request, 'the_gatehouse/manage_holiday_edit.html', {
+        'form': form, 'holiday': holiday, 'is_edit': holiday is not None,
+    })
+
+
+@admin_onboard_required
 def hx_save_foreground_image(request, theme_pk, pk=None):
-    from django.http import HttpResponse
     theme = get_object_or_404(Theme, pk=theme_pk)
     fg = get_object_or_404(ForegroundImage, pk=pk, theme=theme) if pk else None
     if request.method == 'POST':
@@ -2306,7 +2357,7 @@ def hx_save_foreground_image(request, theme_pk, pk=None):
             obj = form.save(commit=False)
             obj.theme = theme
             obj.save()
-            response = HttpResponse(status=204)
+            response = JsonResponse({'id': obj.pk})
             response['HX-Trigger'] = 'imagesSaved'
             return response
         return JsonResponse({'errors': form.errors}, status=400)
@@ -2328,7 +2379,6 @@ def hx_delete_foreground_image(request, theme_pk, pk):
 
 @admin_onboard_required
 def hx_save_background_image(request, theme_pk, pk=None):
-    from django.http import HttpResponse
     theme = get_object_or_404(Theme, pk=theme_pk)
     bg = get_object_or_404(BackgroundImage, pk=pk, theme=theme) if pk else None
     if request.method == 'POST':
@@ -2337,7 +2387,7 @@ def hx_save_background_image(request, theme_pk, pk=None):
             obj = form.save(commit=False)
             obj.theme = theme
             obj.save()
-            response = HttpResponse(status=204)
+            response = JsonResponse({'id': obj.pk})
             response['HX-Trigger'] = 'imagesSaved'
             return response
         return JsonResponse({'errors': form.errors}, status=400)
