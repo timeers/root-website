@@ -7,7 +7,8 @@
 #preview-container {
     position: relative;
     width: 100%;
-    height: 180px;
+    height: auto;
+    aspect-ratio: 2.15;  /* default: desktop mode (~60vh at 1600px wide) */
     overflow: hidden;
     border: 1px solid #dee2e6;
     border-radius: 6px;
@@ -189,6 +190,18 @@
     </div>
 
     {# ── Preview ───────────────────────────────────────────────────────── #}
+    <div class="d-flex justify-content-end mb-1">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Preview aspect ratio">
+            <button type="button" class="btn btn-outline-secondary active" id="ratio-desktop"
+                    onclick="setPreviewRatio('desktop')" title="Cropped viewport — sides cropped">
+                <i class="bi bi-fullscreen"></i> Cropped
+            </button>
+            <button type="button" class="btn btn-outline-secondary" id="ratio-medium"
+                    onclick="setPreviewRatio('medium')" title="Full viewport — full width visible">
+                <i class="bi bi-arrows"></i> Wide
+            </button>
+        </div>
+    </div>
     <div id="preview-container" class="mb-3">
         <img class="preview-bg-img" id="preview-bg" src="" alt="" style="display:none;">
     </div>
@@ -911,6 +924,20 @@ function renderPreview() {
     if (fgEntries.length > 0) {
         applyPreviewAnimations(fgEntries, maxSlideS);
     }
+}
+
+// ── Aspect ratio toggle ───────────────────────────────────────────────────
+// Image height = max(60vh, 100vw/3.555). 60vh wins on tall screens → taller
+// container → object-fit:cover zooms in more → SIDES ARE CROPPED.
+// Cropped screen (e.g. 1920×1080): 60vh=648px > 100vw/3.555=540px → ratio ≈ 2.15, more side crop
+// Full/short (≤1300px breakpoint): min-height=100vw/3.555 wins → ratio=3.555, full width visible
+const RATIOS = { desktop: 2.15, medium: 3.555 };
+
+function setPreviewRatio(mode) {
+    document.getElementById('preview-container').style.aspectRatio = RATIOS[mode];
+    document.getElementById('ratio-desktop').classList.toggle('active', mode === 'desktop');
+    document.getElementById('ratio-medium').classList.toggle('active', mode === 'medium');
+    renderPreview();
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
