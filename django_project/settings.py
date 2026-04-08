@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'the_gatehouse.apps.TheGatehouseConfig',
     'the_warroom.apps.TheWarroomConfig',
     'the_tavern.apps.TheTavernConfig',
+    'the_forge.apps.TheForgeConfig',
 
     'debug_toolbar',
     'crispy_forms',
