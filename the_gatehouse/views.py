@@ -1,3 +1,4 @@
+import json
 from functools import wraps
 from datetime import timedelta
 
@@ -1241,10 +1242,9 @@ def add_guild_from_invite(request):
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Invalid request method.'}, status=405)
 
-    import json as json_mod
     try:
-        body = json_mod.loads(request.body)
-    except (json_mod.JSONDecodeError, ValueError):
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
         return JsonResponse({'success': False, 'error': 'Invalid request body.'}, status=400)
 
     invite_input = body.get('invite', '').strip()
@@ -1264,7 +1264,6 @@ def add_guild_from_invite(request):
 
     guild_id = guild_info['guild_id']
 
-    import json
     with open('/etc/config.json') as config_file:
         config = json.load(config_file)
     if guild_id == config['WW_GUILD_ID']:
@@ -1319,7 +1318,6 @@ def add_guild_from_invite(request):
 
 
 def woodland_warriors_info(request):
-    import json
     with open('/etc/config.json') as config_file:
         ext_config = json.load(config_file)
     ww_guild_id = ext_config.get('WW_GUILD_ID')
@@ -2239,7 +2237,6 @@ def send_notification(request, slug=None):
 
 # ── Theme Management ────────────────────────────────────────────────────────
 
-import json as _json
 
 @admin_onboard_required
 def manage_themes(request):
@@ -2311,8 +2308,8 @@ def manage_theme_images(request, pk):
 
     return render(request, 'the_gatehouse/manage_theme_images.html', {
         'theme': theme,
-        'theme_images_json': _json.dumps(theme_images),
-        'page_choices_json': _json.dumps(page_choices),
+        'theme_images_json': json.dumps(theme_images),
+        'page_choices_json': json.dumps(page_choices),
         'selected_page': selected_page,
         'page_choices': page_choices,
         'title_locations': title_locations,

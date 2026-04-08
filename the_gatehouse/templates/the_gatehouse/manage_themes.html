@@ -36,10 +36,12 @@
                         <tr>
                             <td><strong>{{ theme.name }}</strong></td>
                             <td>
-                                <span title="Theme color: {{ theme.theme_color }}"
-                                      style="display:inline-block;width:22px;height:22px;border-radius:4px;background:{{ theme.theme_color }};border:1px solid #ccc;vertical-align:middle;"></span>
-                                <span title="Background color: {{ theme.background_color }}"
-                                      style="display:inline-block;width:22px;height:22px;border-radius:4px;background:{{ theme.background_color }};border:1px solid #ccc;vertical-align:middle;margin-left:4px;"></span>
+                                <div class="d-flex align-items-center gap-1 flex-wrap">
+                                    <span title="Theme color: {{ theme.theme_color }}"
+                                          style="display:block;width:22px;height:22px;border-radius:4px;background:{{ theme.theme_color }};border:1px solid #ccc;"></span>
+                                    <span title="Background color: {{ theme.background_color }}"
+                                          style="display:block;width:22px;height:22px;border-radius:4px;background:{{ theme.background_color }};border:1px solid #ccc;"></span>
+                                </div>
                             </td>
                             <td>
                                 {% if theme.holiday %}
@@ -67,10 +69,10 @@
                             <td>
                                 <div class="d-flex gap-1">
                                     <a href="{% url 'manage-theme-edit' theme.pk %}" class="btn btn-sm btn-outline-secondary">
-                                        <i class="bi bi-pencil"></i> Edit
+                                        <i class="bi bi-pencil"></i><span class="d-none d-md-inline"> Edit</span>
                                     </a>
                                     <a href="{% url 'manage-theme-images' theme.pk %}" class="btn btn-sm btn-outline-primary">
-                                        <i class="bi bi-images"></i> Images
+                                        <i class="bi bi-images"></i><span class="d-none d-md-inline"> Images</span>
                                     </a>
                                 </div>
                             </td>
