@@ -1,9 +1,10 @@
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 from the_gatehouse.models import Profile
 from the_keep.utils import validate_hex_color
 
-class FactionSheet(models.Model):
+class ForgedFaction(models.Model):
     class BackgroundPreset(models.TextChoices):
         NONE = '', '---'
         CATS = 'cats', 'Marquise de Cat'
@@ -28,19 +29,13 @@ class FactionSheet(models.Model):
         'crows': 'pdf/backgrounds/RootBG_Crows.png',
         'rats': 'pdf/backgrounds/RootBG_Rats.png',
         'badgers': 'pdf/backgrounds/RootBG_Badgers.png',
+        'frogs': 'pdf/backgrounds/RootBG_Frogs.png',
+        'knaves': 'pdf/backgrounds/RootBG_Knaves.png',
+        'bats': 'pdf/backgrounds/RootBG_Bats.png',
     }
 
     designer = models.ForeignKey(Profile, related_name='faction_sheets', on_delete=models.CASCADE)
     faction_name = models.CharField(max_length=100)
-    flavor_text = models.TextField(blank=True, null=True)
-    background_preset = models.CharField(
-        max_length=20,
-        choices=BackgroundPreset.choices,
-        blank=True,
-        default='',
-        help_text="Select a preset background, or upload your own below."
-    )
-    background_image = models.ImageField(upload_to='sheet_backgrounds/', blank=True, null=True)
     color = models.CharField(
         max_length=7,
         blank=True,
@@ -48,14 +43,15 @@ class FactionSheet(models.Model):
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
     )
-    include_crafted_items = models.BooleanField(default=True)
+    background_preset = models.CharField(
+        max_length=20,
+        choices=BackgroundPreset.choices,
+        blank=True,
+        default='',
+        help_text="Select a preset background, or upload your own below."
+    )
+    background_image = models.ImageField(upload_to='forge/sheet_backgrounds/', blank=True, null=True)
     repeat_background_image = models.BooleanField(default=False)
-
-
-    def clean(self):
-        from django.core.exceptions import ValidationError
-        if not self.background_preset and not self.background_image:
-            raise ValidationError("Select a preset background or upload a custom image.")
 
     def get_background_path(self):
         if self.background_preset:
@@ -63,6 +59,21 @@ class FactionSheet(models.Model):
             static_dir = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
             return os.path.join(static_dir, self.BACKGROUND_PRESET_FILES[self.background_preset])
         return self.background_image.path
+
+
+class FactionSheet(models.Model):
+    faction = models.ForeignKey(ForgedFaction, related_name='faction_sheets', on_delete=models.CASCADE)
+    flavor_text = models.TextField(blank=True, null=True)
+    action_image = models.ImageField(upload_to='forge/action_icons/', blank=True, null=True)
+    include_crafted_items = models.BooleanField(default=True)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if not self.faction.background_preset and not self.faction.background_image:
+            raise ValidationError("Select a preset background or upload a custom image.")
+
+    def get_background_path(self):
+        return self.faction.get_background_path()
 
     class LayoutChoices(models.TextChoices):
         LAYOUT_AUTO = 'auto'
@@ -90,11 +101,10 @@ class PhaseStep(models.Model):
     class Meta:
         ordering = ['phase', 'number']
 
-class StepSubItem(models.Model):
-    step = models.ForeignKey(PhaseStep, related_name='sub_items', on_delete=models.CASCADE)
+class StepAction(models.Model):
+    step = models.ForeignKey(PhaseStep, related_name='actions', on_delete=models.CASCADE)
     order = models.PositiveIntegerField()
-    title = models.CharField(max_length=200)
-    body = models.TextField(blank=True, null=True)
+    text = models.TextField()
 
 class DecreeSection(models.Model):
     class CardTypes(models.TextChoices):
@@ -131,3 +141,50 @@ class CardboardSlot(models.Model):
 
     class Meta:
         ordering = ['number']
+
+
+class FactionBack(models.Model):
+    class AttributeChoices(models.TextChoices):
+        NONE = 'N', 'None'
+        LOW = 'L', 'Low'
+        MODERATE = 'M', 'Moderate'
+        HIGH = 'H', 'High'
+    faction = models.OneToOneField(ForgedFaction, related_name='faction_backs', on_delete=models.CASCADE)
+    complexity = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
+    card_wealth = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
+    aggression = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
+    crafting_ability = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
+
+    setup_order = models.CharField(max_length=1, default="X")
+
+    how_to_play_title = models.TextField(default='Playing the Faction')
+    how_to_play_text = models.TextField(blank=True, null=True)
+
+class Piece(models.Model):
+    class TypeChoices(models.TextChoices):
+        WARRIOR = 'W'
+        BUILDING = 'B'
+        TOKEN = 'T'
+        CARD = 'C'
+        OTHER = 'O'
+
+    parent = models.ForeignKey(FactionBack, on_delete=models.CASCADE, related_name='pieces')    
+    name = models.CharField(max_length=30)
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
+    type = models.CharField(max_length=1, choices=TypeChoices.choices)
+    small_icon = models.ImageField(upload_to='forge/sheet_backgrounds/', null=True, blank=True)
+
+
+class SetupCard(models.Model):
+    class TypeChoices(models.TextChoices):
+        MILITANT = 'M', 'Militant'
+        INSURGENT = 'I', 'Insurgent'
+    faction = models.ForeignKey(ForgedFaction, related_name='setup_cards', on_delete=models.CASCADE)
+    type = models.CharField(max_length=10, choices=TypeChoices.choices, default=TypeChoices.INSURGENT)
+    reach = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], default=4)
+
+class SetupStep(models.Model):
+    faction_back = models.ForeignKey(FactionBack, related_name='setup_steps', on_delete=models.CASCADE, blank=True, null=True)
+    card = models.ForeignKey(SetupCard, related_name='setup_steps', on_delete=models.CASCADE, blank=True, null=True)
+    number = models.PositiveIntegerField()
+    text = models.TextField()

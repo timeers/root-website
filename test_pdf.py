@@ -5,7 +5,7 @@ django.setup()
 
 from types import SimpleNamespace
 from the_forge.pdf_engine import SheetLayoutEngine
-from the_forge.models import FactionSheet
+from the_forge.models import ForgedFaction
 
 # Fake abilities
 abilities = [
@@ -26,7 +26,10 @@ steps = [
     SimpleNamespace(phase="daylight", number=3, text="You must **Rally** or **Reconcile**. \n **Rally.**  Place 1 warrior. ##Build## Place a building in a clearing you rule, spending wood equal to the connected building cost."),
     SimpleNamespace(phase="daylight", number=4, text="Recruit. Place a warrior in each recruiter clearing."),
     SimpleNamespace(phase="daylight", number=5, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching clearing."),
+    
     SimpleNamespace(phase="evening", number=1, text="##Draw## Draw one card plus one per uncovered {{ draw }} {{ mouse }} {{ bird }} {{ rabbit tilt}}."),
+    SimpleNamespace(phase="evening", number=5, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching clearing."),
+
 ]
 
 # Fake decree sections and card slots
@@ -49,7 +52,7 @@ single_section = SimpleNamespace(
     body=None,
     card_slots=SimpleNamespace(all=lambda: []),
 )
-decree_sections = [decree_section, single_section]
+decree_sections = [single_section]  # decree_section removed temporarily
 
 # Fake cardboard tracks
 building_slots = [
@@ -71,18 +74,24 @@ tracks = [
                     slots=SimpleNamespace(all=lambda: token_slots)),
 ]
 
-# Fake sheet
-sheet = SimpleNamespace(
+# Fake faction (ForgedFaction fields)
+faction = SimpleNamespace(
     faction_name="Marquise de Cat",
-    flavor_text="You're the true voice of this woodland. Dissenters will burn. They will learn to fear your wrath. And bring you cheese.",
     color="#D45B2C",
-    include_crafted_items=True,
     repeat_background_image=True,
-    layout_mode="horizontal",
-    background_preset="cats",
+    background_preset="frogs",
     background_image=None,
-    BACKGROUND_PRESET_FILES=FactionSheet.BACKGROUND_PRESET_FILES,
-    get_background_path=lambda: FactionSheet.get_background_path(sheet),
+    BACKGROUND_PRESET_FILES=ForgedFaction.BACKGROUND_PRESET_FILES,
+)
+faction.get_background_path = lambda: ForgedFaction.get_background_path(faction)
+
+# Fake sheet (FactionSheet fields)
+sheet = SimpleNamespace(
+    faction=faction,
+    flavor_text="You're the true voice of this woodland. Dissenters will burn. They will learn to fear your wrath. And bring you cheese.",
+    include_crafted_items=True,
+    layout_mode="vertical",
+    get_background_path=lambda: faction.get_background_path(),
     abilities=SimpleNamespace(order_by=lambda f: abilities),
     phase_steps=SimpleNamespace(all=lambda: steps),
     decrees=SimpleNamespace(prefetch_related=lambda *a: SimpleNamespace(all=lambda: decree_sections)),

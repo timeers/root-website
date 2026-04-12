@@ -47,7 +47,7 @@ PHASE_INTERNAL_MARGIN = 0.1 * inch
 
 # Phase box background layout
 PHASE_BOX_V_EXTRA_W = X_MARGIN * 2       # padding added to short header width for vertical box width
-PHASE_BOX_V_GAP = 0.1 * inch             # spacing between stacked phases in vertical box
+PHASE_BOX_V_GAP = 0.01 * inch             # spacing between stacked phases in vertical box
 PHASE_BOX_H_PAD_TOP = TOP_MARGIN         # padding above tallest phase in horizontal box
 PHASE_BOX_H_PAD_BOTTOM = BOTTOM_MARGIN   # padding below phase content in horizontal box
 
@@ -73,6 +73,8 @@ DECREE_SLOT_Y_OFFSET = 3.9 * inch  # distance from top of decree image to slot t
 DECREE_SLOT_MIN_GAP = 0.01 * inch  # minimum spacing between/around slots
 DECREE_SLOT_TITLE_OFFSET = 3.3 * inch  # distance from top of slot image to title text
 
+# Image height for inline images like card draw and VP
+INLINE_IMG_H = 14.5
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
 
@@ -143,7 +145,7 @@ def format_step_markup(text):
     result = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
     # {{ keyword }} -> inline image (aspect-ratio preserved, fixed height)
-    INLINE_IMG_H = 14.5
+    
     def image_replacer(match):
         keyword = match.group(1).strip()
         img_path = INLINE_IMAGES_PDF.get(keyword)
@@ -200,7 +202,7 @@ class SheetLayoutEngine:
 
     def __init__(self, faction_sheet):
         self.sheet = faction_sheet
-        self.faction_color = HexColor(self.sheet.color or '#5B4A8A')
+        self.faction_color = HexColor(self.sheet.faction.color or '#5B4A8A')
         self.steps = list(faction_sheet.phase_steps.all())
         self.phases_grouped = {
             phase: list(steps)
@@ -231,10 +233,10 @@ class SheetLayoutEngine:
         self.phases_bottom_y = BOTTOM_MARGIN + tracks_h
 
         self._init_styles()
-        self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, self.sheet.color or '#5B4A8A', 0.5 * inch)
+        self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, self.sheet.faction.color or '#5B4A8A', 0.5 * inch)
 
         # Preload numbered SVGs (0-9) for phase steps, at natural size
-        color_hex = self.sheet.color or '#5B4A8A'
+        color_hex = self.sheet.faction.color or '#5B4A8A'
         self._phase_number_svgs = {}
         for n in range(10):
             svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
@@ -343,24 +345,48 @@ class SheetLayoutEngine:
         return total
 
     def measure_step_height(self, step, width, single_step=False):
-        from reportlab.platypus import Table
+        from reportlab.platypus import Table, TableStyle
         ICON_COL_W = 0.325 * inch
         ICON_TEXT_GAP = 0.015 * inch
         TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
+        ICON_NUDGE_DOWN = 4
 
         text_col_w = PHASE_INTERNAL_MARGIN if single_step else TEXT_COL_X
+        text_content_w = width - text_col_w
         markup = format_step_markup(step.text)
 
-        # Get true paragraph height (accounts for autoLeading)
-        para = Paragraph(markup, self.step_body_style)
-        _, wrap_h = para.wrap(width - text_col_w, 9999)
-        extra_h = true_paragraph_height(para, width - text_col_w) - wrap_h
+        # Extra padding to compensate for autoLeading underreporting (matches _build_phase_story)
+        probe = Paragraph(markup, self.step_body_style)
+        _, wrap_h = probe.wrap(text_content_w, 9999)
+        extra_h = true_paragraph_height(probe, text_content_w) - wrap_h
 
-        # Measure via Table to include table overhead
-        para2 = Paragraph(markup, self.step_body_style)
-        t = Table([['', para2]], colWidths=[text_col_w, None])
+        # Build table matching _build_phase_story exactly
+        para = Paragraph(markup, self.step_body_style)
+        if single_step:
+            t = Table([['', para]], colWidths=[text_col_w, text_content_w])
+            t.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
+            ]))
+        else:
+            svg_drawing = self._phase_number_svgs.get(step.number % 10)
+            first_col = svg_drawing if svg_drawing else ''
+            t = Table([[first_col, para]], colWidths=[text_col_w, text_content_w])
+            t.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (0, -1), TEXT_COL_X - ICON_COL_W),
+                ('RIGHTPADDING', (1, 0), (1, -1), 0),
+                ('TOPPADDING', (0, 0), (0, -1), ICON_NUDGE_DOWN),
+                ('TOPPADDING', (1, 0), (1, -1), 0),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
+            ]))
         _, table_h = t.wrap(width, 9999)
-        return table_h + extra_h
+        return table_h
 
     def determine_layout(self):
         if self.sheet.layout_mode != 'auto':
@@ -395,12 +421,13 @@ class SheetLayoutEngine:
     def _draw_horizontal_phases(self, c):
         phase_order = ['birdsong', 'daylight', 'evening']
         n = len(phase_order)
-        col_w = BODY_W / n
+        content_w = BODY_W - (PHASE_INTERNAL_MARGIN * 2)
+        col_w = content_w / n
         phase_h = self.phases_top_y - self.phases_bottom_y
 
         # Phase box background (rotated 90° CW)
         max_content_h = max(
-            self.measure_phase_height(self.phases_grouped.get(pk, []), col_w - 4)
+            self.measure_phase_height(self.phases_grouped.get(pk, []), col_w)
             for pk in phase_order
         )
         box_h = min(max_content_h + PHASE_BOX_H_PAD_TOP + PHASE_BOX_H_PAD_BOTTOM, phase_h)
@@ -411,56 +438,80 @@ class SheetLayoutEngine:
 
         for i, phase_key in enumerate(phase_order):
             steps = self.phases_grouped.get(phase_key, [])
-            x = X_MARGIN + (i * col_w)
-            frame = Frame(x, self.phases_bottom_y, col_w - 4, phase_h, showBoundary=0)
-            story = self._build_phase_story(phase_key, steps, layout='horizontal')
+            x = X_MARGIN + PHASE_INTERNAL_MARGIN + (i * col_w)
+            frame = Frame(x, self.phases_bottom_y, col_w, phase_h, showBoundary=0)
+            story = self._build_phase_story(phase_key, steps, layout='horizontal', content_width=col_w)
             frame.addFromList(story, c)
 
-    def _draw_vertical_phases(self, c):
-        phase_order = ['birdsong', 'daylight', 'evening']
-        n = len(phase_order)
-        phase_h = self.phases_top_y - self.phases_bottom_y
-        row_h = phase_h / n
-        phase_w = BODY_W - TRACK_PANEL_W if self.tracks else BODY_W
-
-        # Phase box background (portrait orientation)
+    def _vertical_box_dims(self, header_variant, phase_order):
+        """Calculate phase box dimensions for a given header variant ('short' or 'long')."""
         from PIL import Image as PILImage
-        sample_header = PHASE_HEADERS['birdsong']['short']
+        sample_header = PHASE_HEADERS['birdsong'][header_variant]
         pil_img = PILImage.open(sample_header)
         header_w = PHASE_HEADER_H * (pil_img.size[0] / pil_img.size[1])
         box_w = header_w + PHASE_BOX_V_EXTRA_W
+        content_w = box_w - (PHASE_INTERNAL_MARGIN * 2)
 
-        # Height based on stacked phase content + gaps
+        n = len(phase_order)
         total_content_h = sum(
-            self.measure_phase_height(self.phases_grouped.get(pk, []), phase_w)
+            self.measure_phase_height(self.phases_grouped.get(pk, []), content_w)
             for pk in phase_order
         )
-        box_h = total_content_h + (n - 1) * PHASE_BOX_V_GAP + PHASE_BOX_H_PAD_TOP + PHASE_BOX_H_PAD_BOTTOM
+        box_h = total_content_h + (n - 1) * PHASE_BOX_V_GAP + PHASE_BOX_H_PAD_TOP
+        return box_w, box_h, content_w
+
+    def _draw_vertical_phases(self, c):
+        phase_order = ['birdsong', 'daylight', 'evening']
         max_h = self.phases_top_y - BOTTOM_MARGIN
+
+        # Try short headers first; fall back to long if content overflows
+        box_w, box_h, content_w = self._vertical_box_dims('short', phase_order)
+        header_variant = 'short'
+        if box_h > max_h:
+            box_w, box_h, content_w = self._vertical_box_dims('long', phase_order)
+            header_variant = 'long'
+
         if box_h > max_h:
             print(f"WARNING: Phase box height ({box_h:.1f}pts) exceeds available space ({max_h:.1f}pts), clamping.")
             box_h = max_h
 
+        content_x = X_MARGIN + PHASE_INTERNAL_MARGIN
         box_x = X_MARGIN
         box_y = self.phases_top_y - box_h
         self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
 
+        # Stack frames top-to-bottom with content-aware heights
+        cursor_y = self.phases_top_y - PHASE_BOX_H_PAD_TOP
+
         for i, phase_key in enumerate(phase_order):
             steps = self.phases_grouped.get(phase_key, [])
-            y = self.phases_bottom_y + ((n - 1 - i) * row_h)
-            frame = Frame(X_MARGIN, y, phase_w, row_h - 4, showBoundary=0)
-            story = self._build_phase_story(phase_key, steps, layout='vertical')
+            content_h = self.measure_phase_height(steps, content_w)
+            frame_y = cursor_y - content_h
+            # Clamp frame to stay within the phase box
+            if frame_y < box_y:
+                frame_y = box_y
+                content_h = cursor_y - box_y
+            frame = Frame(content_x, frame_y, content_w, content_h,
+                         leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0,
+                         showBoundary=0)
+            story = self._build_phase_story(phase_key, steps, layout='vertical',
+                                            content_width=content_w, header_variant=header_variant)
             frame.addFromList(story, c)
+            cursor_y = frame_y - PHASE_BOX_V_GAP
 
 
 
-    def _build_phase_story(self, phase_key, steps, layout='horizontal'):
+    def _build_phase_story(self, phase_key, steps, layout='horizontal', content_width=None, header_variant=None):
         from reportlab.platypus import Table, TableStyle
 
         story = []
         header_config = PHASE_HEADERS[phase_key]
-        header_variant = 'long' if layout == 'horizontal' else 'short'
+        if header_variant is None:
+            header_variant = 'short'
         header_path = header_config[header_variant]
+
+        # Available width for content wrapping
+        avail_w = content_width if content_width else BODY_W
 
         if os.path.exists(header_path):
             from PIL import Image as PILImage
@@ -485,15 +536,15 @@ class SheetLayoutEngine:
             # Compute extra bottom padding to compensate for autoLeading underreporting
             text_w = SINGLE_STEP_INDENT if single_step else TEXT_COL_X
             probe = Paragraph(markup, self.step_body_style)
-            _, wrap_h = probe.wrap(BODY_W - text_w, 9999)
-            extra_h = true_paragraph_height(probe, BODY_W - text_w) - wrap_h
+            _, wrap_h = probe.wrap(avail_w - text_w, 9999)
+            extra_h = true_paragraph_height(probe, avail_w - text_w) - wrap_h
 
             # DEBUG: red border around step
             debug_border = ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#FF0000'))
 
             if single_step:
                 # No number icon — indent text from left side of box
-                t = Table([['', para]], colWidths=[SINGLE_STEP_INDENT, None])
+                t = Table([['', para]], colWidths=[SINGLE_STEP_INDENT, avail_w - SINGLE_STEP_INDENT])
                 t.setStyle(TableStyle([
                     ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                     ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -507,7 +558,7 @@ class SheetLayoutEngine:
                 svg_drawing = self._phase_number_svgs.get(step.number % 10)
                 if svg_drawing:
                     ICON_NUDGE_DOWN = 4
-                    t = Table([[svg_drawing, para]], colWidths=[TEXT_COL_X, None])
+                    t = Table([[svg_drawing, para]], colWidths=[TEXT_COL_X, avail_w - TEXT_COL_X])
                     t.setStyle(TableStyle([
                         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                         ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
@@ -531,7 +582,7 @@ class SheetLayoutEngine:
         img_reader = ImageReader(img_path)
         iw, ih = img_reader.getSize()
 
-        if self.sheet.repeat_background_image:
+        if self.sheet.faction.repeat_background_image:
             # Cap height to 1/3 of page so we get at least 3 rows
             max_h = PAGE_H / 3
             if ih > max_h:
@@ -599,7 +650,7 @@ class SheetLayoutEngine:
         # Draw faction name centered
         c.setFillColor(self.faction_name_color)
         c.setFont(self.faction_name_font, self.faction_name_font_size)
-        c.drawCentredString(PAGE_W / 2, self.title_bar_y + FACTION_NAME_Y_OFFSET, self.sheet.faction_name)
+        c.drawCentredString(PAGE_W / 2, self.title_bar_y + FACTION_NAME_Y_OFFSET, self.sheet.faction.faction_name)
 
     def _calculate_ability_widths(self, abilities, available_w, icon_w):
         """Calculate proportional box widths based on body text length."""
