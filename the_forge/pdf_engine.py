@@ -6,7 +6,7 @@ import tempfile
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import inch
-from reportlab.platypus import Paragraph, Frame, Image
+from reportlab.platypus import Paragraph, Frame, Image, Flowable
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -38,18 +38,20 @@ FLAVOR_TEXT_PADDING = 0.05 * inch
 FLAVOR_TEXT_BASE_SIZE = 6
 FLAVOR_TEXT_MAX_SIZE = 9
 
-COLOR_BAR_W_RATIO = 0.90
+COLOR_BAR_W_RATIO = 0.95
 FACTION_TOP_BAR_NUDGE = 0.1 * inch
 FACTION_NAME_Y_OFFSET = 0.15 * inch
 
 PHASE_HEADER_H = 0.36 * inch
-PHASE_INTERNAL_MARGIN = 0.1 * inch
+PHASE_INTERNAL_MARGIN = 0.17 * inch
+PHASE_HEADER_MIN_W = 3.0 * inch           # minimum banner width for vertical layout
+PHASE_HEADER_MIN_H = 0.35 * inch          # minimum banner height for vertical layout
+PHASE_HEADER_LOCK_W = 4.25 * inch         # width at which banner height stops scaling
 
 # Phase box background layout
-PHASE_BOX_V_EXTRA_W = X_MARGIN * 2       # padding added to short header width for vertical box width
 PHASE_BOX_V_GAP = 0.01 * inch             # spacing between stacked phases in vertical box
-PHASE_BOX_H_PAD_TOP = TOP_MARGIN         # padding above tallest phase in horizontal box
-PHASE_BOX_H_PAD_BOTTOM = BOTTOM_MARGIN   # padding below phase content in horizontal box
+PHASE_BOX_PAD_TOP = 0.12 * inch          # padding above phase content in phase box
+PHASE_BOX_PAD_BOTTOM = 0.06 * inch     # padding below phase content in phase box
 
 # TokenSlot/BuildingSlot are 214x214 (square)
 TRACK_SLOT_SIZE = 0.55 * inch
@@ -92,18 +94,27 @@ PHASE_HEADERS = {
     'birdsong': {
         'long': os.path.join(STATIC_DIR, 'pdf/headers/BirdsongBarLong.png'),
         'short': os.path.join(STATIC_DIR, 'pdf/headers/BirdsongBarShort.png'),
+        'banner': os.path.join(STATIC_DIR, 'pdf/headers/BirdsongBanner.png'),
         'color': '#E8A838',
     },
     'daylight': {
         'long': os.path.join(STATIC_DIR, 'pdf/headers/DaylightBarLong.png'),
         'short': os.path.join(STATIC_DIR, 'pdf/headers/DaylightBarShort.png'),
+        'banner': os.path.join(STATIC_DIR, 'pdf/headers/DaylightBanner.png'),
         'color': '#6AB0D4',
     },
     'evening': {
         'long': os.path.join(STATIC_DIR, 'pdf/headers/EveningBarLong.png'),
         'short': os.path.join(STATIC_DIR, 'pdf/headers/EveningBarShort.png'),
+        'banner': os.path.join(STATIC_DIR, 'pdf/headers/EveningBanner.png'),
         'color': '#7B6EA8',
     },
+}
+
+PHASE_DISPLAY_NAMES = {
+    'birdsong': 'Birdsong',
+    'daylight': 'Daylight',
+    'evening': 'Evening',
 }
 
 
@@ -196,6 +207,38 @@ def true_paragraph_height(para, width):
             if line_h > base_leading:
                 extra += line_h - base_leading
     return h + extra
+
+
+class BannerWithText(Flowable):
+    """Banner image with overlaid phase name text."""
+
+    def __init__(self, image_path, width, height, text, font_name='Luminari',
+                 font_color=HexColor('#FFFFFF')):
+        super().__init__()
+        self.image_path = image_path
+        self._width = width
+        self._height = height
+        self.text = text
+        self.font_name = font_name
+        self.font_color = font_color
+
+    def wrap(self, availWidth, availHeight):
+        return self._width, self._height
+
+    def draw(self):
+        c = self.canv
+        c.saveState()
+        c.drawImage(self.image_path, 0, 0, width=self._width, height=self._height)
+        font_size = self._height * 0.72
+        left_pad = self._height * 0.15
+        text_y = (self._height - font_size) / 2 + font_size * 0.2
+        c.setFont(self.font_name, font_size)
+        c.setFillColor(self.font_color)
+        txt = c.beginText(left_pad, text_y)
+        txt.setCharSpace(font_size * -0.04)
+        txt.textLine(self.text)
+        c.drawText(txt)
+        c.restoreState()
 
 
 class SheetLayoutEngine:
@@ -336,9 +379,9 @@ class SheetLayoutEngine:
         self.faction_name_font_size = 30
         self.faction_name_color = HexColor('#FFFFFF')
 
-    def measure_phase_height(self, steps, width):
+    def measure_phase_height(self, steps, width, header_h=None):
         """Calculate total height needed for a phase's steps at given width."""
-        total = self._header_height()
+        total = header_h if header_h is not None else self._header_height()
         single_step = len(steps) == 1
         for step in steps:
             total += self.measure_step_height(step, width, single_step=single_step)
@@ -393,9 +436,10 @@ class SheetLayoutEngine:
             return self.sheet.layout_mode
 
         n = len(self.phases_grouped)
-        col_width = BODY_W / n
+        col_width = (BODY_W - (PHASE_INTERNAL_MARGIN * 2) - (PHASE_INTERNAL_MARGIN * (n - 1))) / n
+        header_h = self._banner_height_for_width(col_width)
         max_phase_h = max(
-            self.measure_phase_height(steps, col_width)
+            self.measure_phase_height(steps, col_width, header_h=header_h)
             for steps in self.phases_grouped.values()
         )
         # If tallest column needs more than 50% of available phase height, go horizontal
@@ -421,16 +465,17 @@ class SheetLayoutEngine:
     def _draw_horizontal_phases(self, c):
         phase_order = ['birdsong', 'daylight', 'evening']
         n = len(phase_order)
-        content_w = BODY_W - (PHASE_INTERNAL_MARGIN * 2)
-        col_w = content_w / n
+        # Left/right margins + gaps between columns
+        col_w = (BODY_W - (PHASE_INTERNAL_MARGIN * 2) - (PHASE_INTERNAL_MARGIN * (n - 1))) / n
         phase_h = self.phases_top_y - self.phases_bottom_y
 
         # Phase box background (rotated 90° CW)
+        header_h = self._banner_height_for_width(col_w)
         max_content_h = max(
-            self.measure_phase_height(self.phases_grouped.get(pk, []), col_w)
+            self.measure_phase_height(self.phases_grouped.get(pk, []), col_w, header_h=header_h)
             for pk in phase_order
         )
-        box_h = min(max_content_h + PHASE_BOX_H_PAD_TOP + PHASE_BOX_H_PAD_BOTTOM, phase_h)
+        box_h = min(max_content_h + PHASE_BOX_PAD_TOP + PHASE_BOX_PAD_BOTTOM, phase_h)
         box_w = BODY_W
         box_x = X_MARGIN
         box_y = self.phases_top_y - box_h
@@ -438,42 +483,51 @@ class SheetLayoutEngine:
 
         for i, phase_key in enumerate(phase_order):
             steps = self.phases_grouped.get(phase_key, [])
-            x = X_MARGIN + PHASE_INTERNAL_MARGIN + (i * col_w)
-            frame = Frame(x, self.phases_bottom_y, col_w, phase_h, showBoundary=0)
-            story = self._build_phase_story(phase_key, steps, layout='horizontal', content_width=col_w)
+            x = X_MARGIN + PHASE_INTERNAL_MARGIN + i * (col_w + PHASE_INTERNAL_MARGIN)
+            frame = Frame(x, self.phases_bottom_y, col_w, phase_h,
+                         leftPadding=0, rightPadding=0, topPadding=PHASE_BOX_PAD_TOP, bottomPadding=0,
+                         showBoundary=0)
+            story = self._build_phase_story(phase_key, steps, content_width=col_w)
             frame.addFromList(story, c)
 
-    def _vertical_box_dims(self, header_variant, phase_order):
-        """Calculate phase box dimensions for a given header variant ('short' or 'long')."""
-        from PIL import Image as PILImage
-        sample_header = PHASE_HEADERS['birdsong'][header_variant]
-        pil_img = PILImage.open(sample_header)
-        header_w = PHASE_HEADER_H * (pil_img.size[0] / pil_img.size[1])
-        box_w = header_w + PHASE_BOX_V_EXTRA_W
+    def _vertical_box_dims_for_width(self, box_w, phase_order):
+        """Calculate phase box height for a given box width, using scaled banners."""
         content_w = box_w - (PHASE_INTERNAL_MARGIN * 2)
-
+        header_h = self._banner_height_for_width(content_w)
         n = len(phase_order)
         total_content_h = sum(
-            self.measure_phase_height(self.phases_grouped.get(pk, []), content_w)
+            self.measure_phase_height(self.phases_grouped.get(pk, []), content_w, header_h=header_h)
             for pk in phase_order
         )
-        box_h = total_content_h + (n - 1) * PHASE_BOX_V_GAP + PHASE_BOX_H_PAD_TOP
+        box_h = total_content_h + (n - 1) * PHASE_BOX_V_GAP + PHASE_BOX_PAD_TOP + PHASE_BOX_PAD_BOTTOM
         return box_w, box_h, content_w
 
     def _draw_vertical_phases(self, c):
         phase_order = ['birdsong', 'daylight', 'evening']
         max_h = self.phases_top_y - BOTTOM_MARGIN
 
-        # Try short headers first; fall back to long if content overflows
-        box_w, box_h, content_w = self._vertical_box_dims('short', phase_order)
-        header_variant = 'short'
-        if box_h > max_h:
-            box_w, box_h, content_w = self._vertical_box_dims('long', phase_order)
-            header_variant = 'long'
+        min_w = PHASE_HEADER_MIN_W + (PHASE_INTERNAL_MARGIN * 2)
+        max_w = BODY_W
 
-        if box_h > max_h:
-            print(f"WARNING: Phase box height ({box_h:.1f}pts) exceeds available space ({max_h:.1f}pts), clamping.")
-            box_h = max_h
+        # Check if minimum width already fits
+        _, box_h_at_min, _ = self._vertical_box_dims_for_width(min_w, phase_order)
+        if box_h_at_min <= max_h:
+            box_w, box_h, content_w = min_w, box_h_at_min, min_w - (PHASE_INTERNAL_MARGIN * 2)
+        else:
+            # Binary search for smallest width where content fits
+            lo, hi = min_w, max_w
+            while hi - lo > 1:
+                mid = (lo + hi) / 2
+                _, mid_h, _ = self._vertical_box_dims_for_width(mid, phase_order)
+                if mid_h <= max_h:
+                    hi = mid
+                else:
+                    lo = mid
+            box_w, box_h, content_w = self._vertical_box_dims_for_width(hi, phase_order)
+
+            if box_h > max_h:
+                print(f"WARNING: Phase box height ({box_h:.1f}pts) exceeds available space ({max_h:.1f}pts), clamping.")
+                box_h = max_h
 
         content_x = X_MARGIN + PHASE_INTERNAL_MARGIN
         box_x = X_MARGIN
@@ -481,11 +535,12 @@ class SheetLayoutEngine:
         self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
 
         # Stack frames top-to-bottom with content-aware heights
-        cursor_y = self.phases_top_y - PHASE_BOX_H_PAD_TOP
+        header_h = self._banner_height_for_width(content_w)
+        cursor_y = self.phases_top_y - PHASE_BOX_PAD_TOP
 
         for i, phase_key in enumerate(phase_order):
             steps = self.phases_grouped.get(phase_key, [])
-            content_h = self.measure_phase_height(steps, content_w)
+            content_h = self.measure_phase_height(steps, content_w, header_h=header_h)
             frame_y = cursor_y - content_h
             # Clamp frame to stay within the phase box
             if frame_y < box_y:
@@ -494,34 +549,36 @@ class SheetLayoutEngine:
             frame = Frame(content_x, frame_y, content_w, content_h,
                          leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0,
                          showBoundary=0)
-            story = self._build_phase_story(phase_key, steps, layout='vertical',
-                                            content_width=content_w, header_variant=header_variant)
+            story = self._build_phase_story(phase_key, steps, content_width=content_w)
             frame.addFromList(story, c)
             cursor_y = frame_y - PHASE_BOX_V_GAP
 
 
 
-    def _build_phase_story(self, phase_key, steps, layout='horizontal', content_width=None, header_variant=None):
+    def _build_phase_story(self, phase_key, steps, content_width=None):
         from reportlab.platypus import Table, TableStyle
 
         story = []
         header_config = PHASE_HEADERS[phase_key]
-        if header_variant is None:
-            header_variant = 'short'
-        header_path = header_config[header_variant]
 
         # Available width for content wrapping
         avail_w = content_width if content_width else BODY_W
 
+        # Use banner image scaled to fill content width
+        header_path = header_config['banner']
         if os.path.exists(header_path):
             from PIL import Image as PILImage
             pil_img = PILImage.open(header_path)
-            target_h = PHASE_HEADER_H
             aspect = pil_img.size[0] / pil_img.size[1]
-            target_w = target_h * aspect
-            img = Image(header_path, width=target_w, height=target_h)
-            img.hAlign = 'LEFT'
-            story.append(img)
+            target_w = avail_w
+            if target_w <= PHASE_HEADER_LOCK_W:
+                target_h = max(target_w / aspect, PHASE_HEADER_MIN_H)
+            else:
+                target_h = PHASE_HEADER_LOCK_W / aspect
+            phase_name = PHASE_DISPLAY_NAMES.get(phase_key, phase_key.title())
+            banner = BannerWithText(header_path, target_w, target_h, phase_name)
+            banner.hAlign = 'LEFT'
+            story.append(banner)
 
         ICON_COL_W = 0.325 * inch   # SVGs right-aligned within this width
         ICON_TEXT_GAP = 0.015 * inch
@@ -998,4 +1055,14 @@ class SheetLayoutEngine:
 
     def _header_height(self):
         return PHASE_HEADER_H
+
+    def _banner_height_for_width(self, content_w):
+        """Banner height when scaled to fill content_w, with height lock above PHASE_HEADER_LOCK_W."""
+        from PIL import Image as PILImage
+        pil_img = PILImage.open(PHASE_HEADERS['birdsong']['banner'])
+        aspect = pil_img.size[0] / pil_img.size[1]
+        if content_w <= PHASE_HEADER_LOCK_W:
+            return max(content_w / aspect, PHASE_HEADER_MIN_H)
+        else:
+            return PHASE_HEADER_LOCK_W / aspect
 

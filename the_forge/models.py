@@ -102,9 +102,37 @@ class PhaseStep(models.Model):
         ordering = ['phase', 'number']
 
 class StepAction(models.Model):
+    class CostChoices(models.TextChoices):
+        ACTION = 'action', 'Action'
+        # Items
+        SWORD = 'item_sword', 'Sword'
+        HAMMER = 'item_hammer', 'Hammer'
+        CROSSBOW = 'item_crossbow', 'Crossbow'
+        COINS = 'item_coins', 'Coins'
+        BOOTS = 'item_boots', 'Boots'
+        TEA = 'item_tea', 'Tea'
+        BAG = 'item_bag', 'Bag'
+        TORCH = 'item_torch', 'Torch'
+        ANY_ITEM = 'item_any', 'Any Item'
+        # Cards
+        FOX = 'card_fox', 'Fox'
+        MOUSE = 'card_mouse', 'Mouse'
+        RABBIT = 'card_rabbit', 'Rabbit'
+        BIRD = 'card_bird', 'Bird'
+        NON_BIRD = 'card_nonbird', 'Non-Bird'
+        # Custom
+        OTHER = 'other', 'Other (Custom Image)'
+
     step = models.ForeignKey(PhaseStep, related_name='actions', on_delete=models.CASCADE)
     order = models.PositiveIntegerField()
     text = models.TextField()
+    cost = models.CharField(max_length=20, choices=CostChoices.choices, default=CostChoices.ACTION)
+    cost_image = models.ImageField(upload_to='forge/cost_icons/', blank=True, null=True)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.cost == self.CostChoices.OTHER and not self.cost_image:
+            raise ValidationError({'cost_image': 'A custom image is required when cost is "Other".'})
 
 class DecreeSection(models.Model):
     class CardTypes(models.TextChoices):
