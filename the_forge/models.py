@@ -82,21 +82,39 @@ class FactionSheet(models.Model):
 
     layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_AUTO)
 
-class SheetAbility(models.Model):
+class FactionAbility(models.Model):
     sheet = models.ForeignKey(FactionSheet, related_name='abilities', on_delete=models.CASCADE)
     order = models.PositiveIntegerField()
     title = models.CharField(max_length=100)
     body = models.TextField()
+
+class ContentBox(models.Model):
+    sheet = models.ForeignKey(FactionSheet, related_name='content_boxes', on_delete=models.CASCADE)
+    title = models.CharField(max_length=200, blank=True, default='')
+    text = models.TextField(blank=True, default='')
+    order = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['order']
 
 class PhaseStep(models.Model):
     class PhaseChoices(models.TextChoices):
         BIRDSONG = 'birdsong'
         DAYLIGHT = 'daylight'
         EVENING = 'evening'
+        OTHER = 'other'
     sheet = models.ForeignKey(FactionSheet, related_name='phase_steps', on_delete=models.CASCADE)
+    content_box = models.ForeignKey(ContentBox, related_name='steps', on_delete=models.CASCADE, blank=True, null=True)
     phase = models.CharField(max_length=30, choices=PhaseChoices.choices)
     number = models.PositiveIntegerField()
     text = models.TextField()
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.phase == self.PhaseChoices.OTHER and not self.content_box:
+            raise ValidationError({'content_box': 'A ContentBox is required when phase is "Other".'})
+        if self.phase != self.PhaseChoices.OTHER and self.content_box:
+            raise ValidationError({'content_box': 'ContentBox should only be set when phase is "Other".'})
 
     class Meta:
         ordering = ['phase', 'number']
@@ -157,10 +175,14 @@ class CardboardTrack(models.Model):
     class TrackChoices(models.TextChoices):
         TOKEN = 'token'
         BUILDING = 'building'
-    sheet = models.ForeignKey(FactionSheet, related_name='tracks', on_delete=models.CASCADE)
+    step = models.ForeignKey(PhaseStep, related_name='tracks', on_delete=models.CASCADE)
+    order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=200)
     body = models.TextField(blank=True, null=True)
     type = models.CharField(max_length=20, choices=TrackChoices.choices)
+
+    class Meta:
+        ordering = ['order']
 
 class CardboardSlot(models.Model):
     track = models.ForeignKey(CardboardTrack, related_name='slots', on_delete=models.CASCADE)

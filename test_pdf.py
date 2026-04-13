@@ -95,9 +95,9 @@ sheet = SimpleNamespace(
     abilities=SimpleNamespace(order_by=lambda f: abilities),
     phase_steps=SimpleNamespace(all=lambda: steps),
     decrees=SimpleNamespace(prefetch_related=lambda *a: SimpleNamespace(all=lambda: decree_sections)),
-    tracks=SimpleNamespace(prefetch_related=lambda *a: SimpleNamespace(all=lambda: tracks)),
 )
 
 engine = SheetLayoutEngine(sheet)
+engine.tracks = tracks  # Override since test uses fakes, not real DB objects
 engine.build("test_output.pdf")
 print("Generated test_output.pdf")

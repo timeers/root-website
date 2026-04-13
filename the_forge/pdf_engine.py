@@ -38,7 +38,7 @@ FLAVOR_TEXT_PADDING = 0.05 * inch
 FLAVOR_TEXT_BASE_SIZE = 6
 FLAVOR_TEXT_MAX_SIZE = 9
 
-COLOR_BAR_W_RATIO = 0.95
+COLOR_BAR_W_RATIO = 0.95 # Controls width of content inside top bar in relation to top bar border
 FACTION_TOP_BAR_NUDGE = 0.1 * inch
 FACTION_NAME_Y_OFFSET = 0.15 * inch
 
@@ -246,13 +246,23 @@ class SheetLayoutEngine:
     def __init__(self, faction_sheet):
         self.sheet = faction_sheet
         self.faction_color = HexColor(self.sheet.faction.color or '#5B4A8A')
-        self.steps = list(faction_sheet.phase_steps.all())
+        all_steps = list(faction_sheet.phase_steps.all())
+        self.steps = [s for s in all_steps if s.phase != 'other']
         self.phases_grouped = {
             phase: list(steps)
             for phase, steps in groupby(self.steps, key=lambda s: s.phase)
         }
 
-        self.tracks = list(faction_sheet.tracks.prefetch_related('slots').all())
+        from the_forge.models import CardboardTrack, FactionSheet
+        if isinstance(faction_sheet, FactionSheet):
+            self.tracks = list(
+                CardboardTrack.objects.filter(
+                    step__sheet=faction_sheet,
+                    step__phase__in=['birdsong', 'daylight', 'evening']
+                ).prefetch_related('slots').order_by('order')
+            )
+        else:
+            self.tracks = []
 
         decree_sections = list(faction_sheet.decrees.prefetch_related('card_slots').all())
         self.decree_section = next((d for d in decree_sections if d.type == 'decree'), None)
