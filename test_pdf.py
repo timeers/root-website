@@ -7,6 +7,13 @@ from types import SimpleNamespace
 from the_forge.pdf_engine import SheetLayoutEngine
 from the_forge.models import ForgedFaction
 
+# Helper to create a fake queryset-like actions attribute
+def make_actions_qs(actions_list):
+    return SimpleNamespace(
+        order_by=lambda f: actions_list,
+        all=lambda: actions_list,
+    )
+
 # Fake abilities
 abilities = [
     SimpleNamespace(title="Governors", body="In battle, deal +1 hit. Then you ", order=1),
@@ -17,7 +24,7 @@ abilities = [
 # Fake phase steps
 steps = [
     SimpleNamespace(phase="birdsong", number=1, text="##Craft## with enclaves."),
-    SimpleNamespace(phase="birdsong", number=2, text="##Protect the Weak## \n Once per acclaim, you may spend a card matching its clearing to place 1 Skunk at it."),
+    SimpleNamespace(phase="birdsong", number=2, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching clearing."),
     SimpleNamespace(phase="birdsong", number=3, text="##Take it Easy## if all Captain cards are face down Flip all Captains and items face up. The enemy with the most Prisoners chooses a clearing and places their adjacent Prisoners into it. _(On a tie, choose a tied enemy.)_"),
     SimpleNamespace(phase="birdsong", number=4, text="##Draw## 1 card. ##Discard## down to 5 cards."),
 
@@ -28,9 +35,51 @@ steps = [
     SimpleNamespace(phase="daylight", number=5, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching clearing."),
     
     SimpleNamespace(phase="evening", number=1, text="##Draw## Draw one card plus one per uncovered {{ draw }} {{ mouse }} {{ bird }} {{ rabbit tilt}}."),
-    SimpleNamespace(phase="evening", number=5, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching clearing."),
 
 ]
+
+# Fake StepActions
+sword_action = SimpleNamespace(
+    cost='item_sword', cost_image=None, order=1,
+    text="##Battle## in your clearing. Max hits equals undamaged swords."
+)
+boots_action = SimpleNamespace(
+    cost='item_boots', cost_image=None, order=2,
+    text="**Move** _not into forest_"
+)
+torch_action = SimpleNamespace(
+    cost='item_torch', cost_image=None, order=1,
+    text="##Explore## Take item from ruin in your clearing. Score {{ 1VP }}."
+)
+any_action = SimpleNamespace(
+    cost='item_any', cost_image=None, order=2,
+    text="##Aid## Give a card matching your clearing to a player there. ##And## then increase your relationship with that faction if you have met the ##requirements##."
+)
+fox_action = SimpleNamespace(
+    cost='card_fox', cost_image=None, order=1,
+    text="**Recruit** Place 2 warriors in a fox clearing."
+)
+nonbird_action = SimpleNamespace(
+    cost='card_nonbird', cost_image=None, order=1,
+    text="**Score** Score 2 points."
+)
+action_action = SimpleNamespace(
+    cost='action', cost_image=None, order=1,
+    text="**Score** 1 {{ VP }} per token on the map."
+)
+
+# Assign actions to steps
+steps[0].actions = make_actions_qs([])
+steps[1].actions = make_actions_qs([])
+steps[2].actions = make_actions_qs([sword_action, boots_action])
+steps[3].actions = make_actions_qs([])
+steps[4].actions = make_actions_qs([torch_action, any_action])
+steps[5].actions = make_actions_qs([fox_action, nonbird_action])
+steps[6].actions = make_actions_qs([action_action])
+steps[7].actions = make_actions_qs([])
+steps[8].actions = make_actions_qs([])
+steps[9].actions = make_actions_qs([nonbird_action])
+
 
 # Fake decree sections and card slots
 decree_card_slots = [

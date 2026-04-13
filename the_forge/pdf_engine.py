@@ -78,6 +78,28 @@ DECREE_SLOT_TITLE_OFFSET = 3.3 * inch  # distance from top of slot image to titl
 # Image height for inline images like card draw and VP
 INLINE_IMG_H = 14.5
 
+# StepAction layout
+ACTION_ITEM_H = 0.26 * inch       # item icon height (width scales proportionally)
+ACTION_CARD_H = 0.337 * inch      # card icon height (width scales proportionally)
+ACTION_CARDS_W = 0.57 * inch      # nonbird/other_cards icon width (height scales proportionally)
+ACTION_DEFAULT_W = 0.2 * inch     # action & other cost icon width (height scales proportionally)
+# Arrows from Item to action
+ITEM_ARROW_W = 11.3                  # total space reserved for arrow region
+ITEM_ARROW_ICON_GAP = 5.75           # gap between icon and arrow start
+ITEM_ARROW_TEXT_GAP = 3           # gap between arrow end and text
+ITEM_ARROW_HEAD_SIZE = 6.5         # arrowhead length
+ITEM_ARROW_HEAD_SPREAD = 0.57      # arrowhead width multiplier
+# Arrows from spent cards to action
+CARD_ARROW_W = 40.75                # total space reserved for arrow region
+CARD_ARROW_ICON_GAP = 2           # gap between icon and arrow start
+CARD_ARROW_TEXT_GAP = 3           # gap between arrow end and text
+CARD_ARROW_HEAD_SIZE = 5           # arrowhead length
+CARD_ARROW_HEAD_SPREAD = 0.57      # arrowhead width multiplier
+
+ACTION_ICON_TEXT_GAP = 4           # padding between icon and text for action/other costs (no arrow)
+ACTION_ICON_Y_NUDGE = 0.2         # nudge icon/arrow down as fraction of first line height
+ACTION_ROW_GAP = 1                # vertical gap between action rows in points
+
 STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
 
 ABILITY_BERRY_SVG = os.path.join(STATIC_DIR, 'pdf/svg/ability_berry.svg')
@@ -138,6 +160,27 @@ INLINE_IMAGES_PDF = {
     'fox tilt': os.path.join(STATIC_DIR, 'pdf/inline/fox_tilt.png'),
     'rabbit tilt': os.path.join(STATIC_DIR, 'pdf/inline/rabbit_tilt.png'),
     'bird tilt': os.path.join(STATIC_DIR, 'pdf/inline/bird_tilt.png'),
+}
+
+COST_ICON_PATHS = {
+    # Items (_flip.png variants)
+    'item_sword': os.path.join(STATIC_DIR, 'items/sword_flip.png'),
+    'item_hammer': os.path.join(STATIC_DIR, 'items/hammer_flip.png'),
+    'item_crossbow': os.path.join(STATIC_DIR, 'items/crossbow_flip.png'),
+    'item_coins': os.path.join(STATIC_DIR, 'items/coins_flip.png'),
+    'item_boots': os.path.join(STATIC_DIR, 'items/boots_flip.png'),
+    'item_tea': os.path.join(STATIC_DIR, 'items/tea_flip.png'),
+    'item_bag': os.path.join(STATIC_DIR, 'items/bag_flip.png'),
+    'item_torch': os.path.join(STATIC_DIR, 'items/torch_flip.png'),
+    'item_any': os.path.join(STATIC_DIR, 'items/any_flip.png'),
+    # Cards
+    'card_fox': os.path.join(STATIC_DIR, 'pdf/inline/fox_card.png'),
+    'card_mouse': os.path.join(STATIC_DIR, 'pdf/inline/mouse_card.png'),
+    'card_rabbit': os.path.join(STATIC_DIR, 'pdf/inline/rabbit_card.png'),
+    'card_bird': os.path.join(STATIC_DIR, 'pdf/inline/bird_card.png'),
+    'card_nonbird': os.path.join(STATIC_DIR, 'pdf/inline/other_cards.png'),
+    # Action (default faction icon)
+    'action': os.path.join(STATIC_DIR, 'pdf/inline/default_faction_icon.png'),
 }
 
 
@@ -241,19 +284,148 @@ class BannerWithText(Flowable):
         c.restoreState()
 
 
+def _arrow_total_width_for_cost(cost):
+    """Return total space for arrow region (icon_gap + arrow + text_gap), or icon-text gap for no arrow."""
+    if cost.startswith('item_'):
+        return ITEM_ARROW_ICON_GAP + ITEM_ARROW_W + ITEM_ARROW_TEXT_GAP
+    if cost.startswith('card_'):
+        return CARD_ARROW_ICON_GAP + CARD_ARROW_W + CARD_ARROW_TEXT_GAP
+    return ACTION_ICON_TEXT_GAP  # 'action' and 'other' get padding only, no arrow
+
+
+class StepActionFlowable(Flowable):
+    """Renders a single StepAction row: [cost_icon] → [action_text]"""
+
+    def __init__(self, icon_path, text_paragraph, icon_w, icon_h, total_width, cost):
+        super().__init__()
+        self.icon_path = icon_path
+        self.text_paragraph = text_paragraph
+        self.icon_w = icon_w
+        self.icon_h = icon_h
+        self.total_width = total_width
+        self.total_arrow_w = _arrow_total_width_for_cost(cost)
+        self.draw_arrow = cost.startswith('item_') or cost.startswith('card_')
+        if cost.startswith('item_'):
+            self.icon_gap = ITEM_ARROW_ICON_GAP
+            self.arrow_w = ITEM_ARROW_W
+            self.text_gap = ITEM_ARROW_TEXT_GAP
+            self.head_size = ITEM_ARROW_HEAD_SIZE
+            self.head_spread = ITEM_ARROW_HEAD_SPREAD
+        elif cost.startswith('card_'):
+            self.icon_gap = CARD_ARROW_ICON_GAP
+            self.arrow_w = CARD_ARROW_W
+            self.text_gap = CARD_ARROW_TEXT_GAP
+            self.head_size = CARD_ARROW_HEAD_SIZE
+            self.head_spread = CARD_ARROW_HEAD_SPREAD
+        else:
+            self.icon_gap = 0
+            self.arrow_w = 0
+            self.text_gap = 0
+            self.head_size = 0
+            self.head_spread = 0
+        # Calculate text area width
+        icon_space = self.icon_w if icon_path else 0
+        self.text_w = total_width - icon_space - self.total_arrow_w
+        _, self.wrap_h = text_paragraph.wrap(self.text_w, 9999)
+        self.true_h = true_paragraph_height(text_paragraph, self.text_w)
+
+        # Determine first line height for icon/arrow vertical alignment
+        self.first_line_h = self._get_first_line_height(text_paragraph)
+
+        # If the icon is taller than the first line, we need extra padding above
+        # so the text drops down to align its first line center with the icon center
+        icon_h_eff = self.icon_h if icon_path else 0
+        self.top_pad = max(0, (icon_h_eff - self.first_line_h) / 2)
+
+        # Total height must fit both the text (with top padding) and the full icon + nudge
+        nudge = self.first_line_h * ACTION_ICON_Y_NUDGE
+        self._height = max(self.top_pad + self.true_h, icon_h_eff + nudge)
+
+    @staticmethod
+    def _get_first_line_height(para):
+        """Get the height of the first line from a wrapped paragraph."""
+        if hasattr(para, 'blPara') and hasattr(para.blPara, 'lines') and para.blPara.lines:
+            line = para.blPara.lines[0]
+            ascent = getattr(line, 'ascent', None)
+            descent = getattr(line, 'descent', None)
+            if ascent is not None and descent is not None:
+                return ascent - descent  # descent is negative
+        # Fallback to leading
+        return para.style.leading
+
+    def wrap(self, availWidth, availHeight):
+        return self.total_width, self._height
+
+    def draw(self):
+        c = self.canv
+        c.saveState()
+
+        icon_space = self.icon_w if self.icon_path else 0
+
+        # First line center Y (measured from bottom of flowable)
+        # Nudge down by a fraction of the first line height to compensate for font ascender padding
+        nudge = self.first_line_h * ACTION_ICON_Y_NUDGE
+        first_line_center_y = self._height - self.top_pad - self.first_line_h / 2 - nudge
+
+        # Draw cost icon (centered on first line)
+        if self.icon_path:
+            icon_x = (icon_space - self.icon_w) / 2
+            icon_y = first_line_center_y - self.icon_h / 2
+            c.drawImage(self.icon_path, icon_x, icon_y,
+                        width=self.icon_w, height=self.icon_h, mask='auto')
+
+        # Draw arrow centered on first line (only for item and card costs)
+        if self.draw_arrow:
+            arrow_start_x = icon_space + self.icon_gap
+            arrow_end_x = arrow_start_x + self.arrow_w
+            arrow_mid_y = first_line_center_y
+
+            c.setStrokeColorRGB(0.15, 0.15, 0.15)
+            c.setLineWidth(2.3)
+
+            # Straight line
+            c.line(arrow_start_x, arrow_mid_y, arrow_end_x - self.head_size, arrow_mid_y)
+
+            # Arrowhead triangle
+            c.setFillColorRGB(0.15, 0.15, 0.15)
+            p2 = c.beginPath()
+            p2.moveTo(arrow_end_x, arrow_mid_y)
+            p2.lineTo(arrow_end_x - self.head_size, arrow_mid_y + self.head_size * self.head_spread)
+            p2.lineTo(arrow_end_x - self.head_size, arrow_mid_y - self.head_size * self.head_spread)
+            p2.close()
+            c.drawPath(p2, fill=1, stroke=0)
+
+        # Draw text paragraph
+        text_x = icon_space + self.total_arrow_w
+        text_y = self._height - self.top_pad - self.wrap_h
+        self.text_paragraph.drawOn(c, text_x, text_y)
+
+        # DEBUG: red border around action
+        c.setStrokeColor(HexColor('#FF0000'))
+        c.setLineWidth(0.5)
+        c.rect(0, 0, self.total_width, self._height)
+
+        c.restoreState()
+
+
 class SheetLayoutEngine:
 
     def __init__(self, faction_sheet):
         self.sheet = faction_sheet
         self.faction_color = HexColor(self.sheet.faction.color or '#5B4A8A')
-        all_steps = list(faction_sheet.phase_steps.all())
+        from the_forge.models import CardboardTrack, FactionSheet, StepAction
+        from django.db.models import Prefetch
+        if isinstance(faction_sheet, FactionSheet):
+            all_steps = list(faction_sheet.phase_steps.prefetch_related(
+                Prefetch('actions', queryset=StepAction.objects.order_by('order'))
+            ).all())
+        else:
+            all_steps = list(faction_sheet.phase_steps.all())
         self.steps = [s for s in all_steps if s.phase != 'other']
         self.phases_grouped = {
             phase: list(steps)
             for phase, steps in groupby(self.steps, key=lambda s: s.phase)
         }
-
-        from the_forge.models import CardboardTrack, FactionSheet
         if isinstance(faction_sheet, FactionSheet):
             self.tracks = list(
                 CardboardTrack.objects.filter(
@@ -385,9 +557,103 @@ class SheetLayoutEngine:
             textColor=colors.black,
             alignment=TA_LEFT,
         )
+        self.action_body_style = ParagraphStyle(
+            'ActionBody',
+            fontName='Baskerville',
+            fontSize=8,
+            leading=9,
+            autoLeading='max',
+            textColor=colors.black,
+            alignment=TA_LEFT,
+            spaceAfter=1,
+        )
         self.faction_name_font = 'Luminari'
         self.faction_name_font_size = 30
         self.faction_name_color = HexColor('#FFFFFF')
+
+    def _resolve_cost_icon(self, action):
+        """Resolve icon path and draw dimensions for a StepAction's cost type.
+
+        Returns (icon_path, draw_w, draw_h) or (None, 0, 0) if no icon.
+        """
+        from PIL import Image as PILImage
+
+        cost = action.cost
+        if cost == 'other':
+            icon_path = action.cost_image.path if action.cost_image else None
+        else:
+            icon_path = COST_ICON_PATHS.get(cost)
+
+        if not icon_path or not os.path.exists(icon_path):
+            return None, 0, 0
+
+        pil_img = PILImage.open(icon_path)
+        iw, ih = pil_img.size
+        aspect = iw / ih
+
+        if cost.startswith('item_'):
+            # Fix height, scale width
+            draw_h = ACTION_ITEM_H
+            draw_w = draw_h * aspect
+        elif cost in ('card_fox', 'card_mouse', 'card_rabbit', 'card_bird'):
+            # Fix height, scale width
+            draw_h = ACTION_CARD_H
+            draw_w = draw_h * aspect
+        elif cost == 'card_nonbird':
+            # Fix width, scale height
+            draw_w = ACTION_CARDS_W
+            draw_h = draw_w / aspect
+        else:
+            # action, other — fix width, scale height
+            draw_w = ACTION_DEFAULT_W
+            draw_h = draw_w / aspect
+
+        return icon_path, draw_w, draw_h
+
+    def _build_action_flowables(self, step, avail_w, indent):
+        """Build flowable objects for a step's StepActions.
+
+        Returns a list of Table-wrapped StepActionFlowable objects,
+        or an empty list if the step has no actions.
+        """
+        from reportlab.platypus import Table, TableStyle
+
+        if not hasattr(step, 'actions'):
+            return []
+        actions = step.actions.order_by('order') if hasattr(step.actions, 'order_by') else list(step.actions.all())
+        if not actions:
+            return []
+
+        flowables = []
+        action_w = avail_w - indent
+
+        for action in actions:
+            icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+
+            markup = format_step_markup(action.text)
+            para = Paragraph(markup, self.action_body_style)
+
+            af = StepActionFlowable(
+                icon_path=icon_path,
+                text_paragraph=para,
+                icon_w=icon_w,
+                icon_h=icon_h,
+                total_width=action_w,
+                cost=action.cost,
+            )
+
+            # Wrap in a table to apply the left indent
+            t = Table([['', af]], colWidths=[indent, action_w])
+            t.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                ('TOPPADDING', (0, 0), (-1, -1), ACTION_ROW_GAP),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            flowables.append(t)
+
+        return flowables
 
     def measure_phase_height(self, steps, width, header_h=None):
         """Calculate total height needed for a phase's steps at given width."""
@@ -439,6 +705,23 @@ class SheetLayoutEngine:
                 ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
             ]))
         _, table_h = t.wrap(width, 9999)
+
+        # Add height for StepAction rows
+        if hasattr(step, 'actions'):
+            actions = step.actions.order_by('order') if hasattr(step.actions, 'order_by') else list(step.actions.all())
+            action_content_w = width - text_col_w
+            for action in actions:
+                icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                markup_a = format_step_markup(action.text)
+                para_a = Paragraph(markup_a, self.action_body_style)
+                icon_space = icon_w if icon_path else 0
+                arrow_w = _arrow_total_width_for_cost(action.cost)
+                text_w_a = action_content_w - icon_space - arrow_w
+                _, text_h_a = para_a.wrap(text_w_a, 9999)
+                text_h_a = true_paragraph_height(para_a, text_w_a)
+                row_h = max(text_h_a, icon_h if icon_path else 0) + ACTION_ROW_GAP
+                table_h += row_h
+
         return table_h
 
     def determine_layout(self):
@@ -640,6 +923,11 @@ class SheetLayoutEngine:
                     story.append(t)
                 else:
                     story.append(para)
+
+            # Append StepAction flowables below the step
+            indent = SINGLE_STEP_INDENT if single_step else TEXT_COL_X
+            action_flowables = self._build_action_flowables(step, avail_w, indent)
+            story.extend(action_flowables)
 
         return story
 
