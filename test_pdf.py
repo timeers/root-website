@@ -34,7 +34,7 @@ steps = [
     SimpleNamespace(phase="daylight", number=4, text="Recruit. Place a warrior in each recruiter clearing."),
     SimpleNamespace(phase="daylight", number=5, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching clearing."),
     
-    SimpleNamespace(phase="evening", number=1, text="##Draw## Draw one card plus one per uncovered {{ draw }} {{ mouse }} {{ bird }} {{ rabbit tilt}}."),
+    SimpleNamespace(phase="evening", number=1, text="**Draw** Draw one card plus one per uncovered {{ draw }} {{ mouse }} {{ bird }} {{ rabbit tilt}}."),
 
 ]
 
@@ -56,8 +56,24 @@ any_action = SimpleNamespace(
     text="##Aid## Give a card matching your clearing to a player there. ##And## then increase your relationship with that faction if you have met the ##requirements##."
 )
 fox_action = SimpleNamespace(
-    cost='card_fox', cost_image=None, order=1,
-    text="**Recruit** Place 2 warriors in a fox clearing."
+    cost='card_nonbird', cost_image=None, order=1,
+    text="##Build## Place a garden in a clearing you rule."
+)
+fox_action2 = SimpleNamespace(
+    cost='card_nonbird', cost_image=None, order=2,
+    text="**Recruit** Place a warrior in a {{fox}} fox clearing."
+)
+fox_action3 = SimpleNamespace(
+    cost='card_nonbird', cost_image=None, order=3,
+    text="##Score## _once per suit_ Discard an unrevealed {{ VP }} of rightmost empty Gardens space."
+)
+rabbit_action = SimpleNamespace(
+    cost='card_bird', cost_image=None, order=4,
+    text="##Sacrifice## Place one warrior in the Acolytes box."
+)
+rabbit_action2 = SimpleNamespace(
+    cost='card_bird', cost_image=None, order=5,
+    text="##Convert## Replace one enemy warrior in a rabbit clearing with one of yours."
 )
 nonbird_action = SimpleNamespace(
     cost='card_nonbird', cost_image=None, order=1,
@@ -65,8 +81,13 @@ nonbird_action = SimpleNamespace(
 )
 action_action = SimpleNamespace(
     cost='action', cost_image=None, order=1,
-    text="**Score** 1 {{ VP }} per token on the map."
+    text="**Score** 1 {{ VP }}"
 )
+action_action_2 = SimpleNamespace(
+    cost='action', cost_image=None, order=2,
+    text="**Refresh** 1 item"
+)
+
 
 # Assign actions to steps
 steps[0].actions = make_actions_qs([])
@@ -74,10 +95,12 @@ steps[1].actions = make_actions_qs([])
 steps[2].actions = make_actions_qs([sword_action, boots_action])
 steps[3].actions = make_actions_qs([])
 steps[4].actions = make_actions_qs([torch_action, any_action])
-steps[5].actions = make_actions_qs([fox_action, nonbird_action])
-steps[6].actions = make_actions_qs([action_action])
+# 3 fox actions (odd group) + 2 rabbit actions (even group)
+steps[5].actions = make_actions_qs([fox_action, fox_action2, fox_action3, rabbit_action, rabbit_action2])
+steps[6].actions = make_actions_qs([action_action, action_action_2])
 steps[7].actions = make_actions_qs([])
 steps[8].actions = make_actions_qs([])
+# Single non-bird action (wider icon, shorter arrow)
 steps[9].actions = make_actions_qs([nonbird_action])
 
 

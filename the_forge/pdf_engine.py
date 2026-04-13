@@ -9,6 +9,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, Frame, Image, Flowable
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.pdfmetrics import getFont
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
@@ -99,6 +100,10 @@ CARD_ARROW_HEAD_SPREAD = 0.57      # arrowhead width multiplier
 ACTION_ICON_TEXT_GAP = 4           # padding between icon and text for action/other costs (no arrow)
 ACTION_ICON_Y_NUDGE = 0.2         # nudge icon/arrow down as fraction of first line height
 ACTION_ROW_GAP = 1                # vertical gap between action rows in points
+
+# Minimum card icon width (single-card icons like fox/mouse/rabbit/bird)
+# Used as the centering reference — wider icons shift left into margin
+MIN_CARD_ICON_W = ACTION_CARD_H * (486 / 673)  # ~17.52 pts
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
 
@@ -229,27 +234,117 @@ def format_step_markup(text):
     return result
 
 
-def true_paragraph_height(para, width):
-    """Wrap a Paragraph and return its true height, accounting for autoLeading.
+def tighten_large_font_lines(para):
+    """Reduce descent on lines whose largest font exceeds the style's base size.
 
-    ReportLab's Paragraph.wrap() underreports height when autoLeading='max'
-    is used with mixed font sizes. This inspects the internal line metrics
-    to compute the actual rendered height.
+    With autoLeading='max', a 15pt fragment inflates the line's descent to
+    15pt-scale metrics even when the large text has no descenders (e.g. "Build").
+    This tightens those lines to use the base font's descent, removing the
+    excess gap before the next line.  Must be called after wrap().
+    """
+    if not hasattr(para, 'blPara') or not hasattr(para.blPara, 'lines'):
+        return
+    lines = para.blPara.lines
+    base_size = para.style.fontSize
+    leading = para.style.leading
+    face = getFont(para.style.fontName).face
+    base_descent = face.descent * base_size / 1000.0  # negative
+
+    adjusted = False
+    for line in lines:
+        if not hasattr(line, 'words'):
+            continue
+        max_fs = 0
+        for frag in line.words:
+            cb = getattr(frag, 'cbDefn', None)
+            if cb and getattr(cb, 'kind', None) == 'img':
+                continue
+            fs = getattr(frag, 'fontSize', 0)
+            if fs > max_fs:
+                max_fs = fs
+        if max_fs > base_size:
+            line.descent = base_descent
+            adjusted = True
+
+    if adjusted:
+        para.height = sum(max(l.ascent - l.descent, leading) for l in lines)
+
+
+def true_paragraph_height(para, width):
+    """Wrap a Paragraph and return its true rendered height.
+
+    With autoLeading='max', ReportLab's wrap() can underreport height because
+    the rendering algorithm (_putFragLine) uses effective ascent/descent with
+    minimums of 5/6 and 1/6 of base leading, which can push the last line's
+    bottom below the reported height. This simulates the exact rendering
+    positions to return the true extent.
     """
     _, h = para.wrap(width, 9999)
+    tighten_large_font_lines(para)
+    h = para.height  # may have been updated by tightening
     if not hasattr(para, 'blPara') or not hasattr(para.blPara, 'lines'):
         return h
 
-    base_leading = para.style.leading
-    extra = 0
-    for line in para.blPara.lines:
-        ascent = getattr(line, 'ascent', None)
-        descent = getattr(line, 'descent', None)
-        if ascent is not None and descent is not None:
-            line_h = ascent - descent  # descent is negative
-            if line_h > base_leading:
-                extra += line_h - base_leading
-    return h + extra
+    lines = para.blPara.lines
+    if not lines:
+        return h
+
+    leading = para.style.leading
+    _56 = 5.0 / 6.0
+    _16 = 1.0 / 6.0
+
+    cur_y = None
+    olb = None  # old line bottom
+    oleading = leading
+
+    for i, line in enumerate(lines):
+        a_raw = getattr(line, 'ascent', None)
+        d_raw = getattr(line, 'descent', None)
+
+        if a_raw is not None and d_raw is not None:
+            # autoLeading='max' effective values (matches _putFragLine)
+            ascent = max(_56 * leading, a_raw)
+            descent = max(_16 * leading, -d_raw)
+            line_leading = ascent + descent
+        else:
+            # Tuple-style line (kind==0, no per-line metrics)
+            return h
+
+        if i == 0:
+            cur_y = h - ascent
+        else:
+            if olb is not None:
+                xcy = olb - ascent
+                if oleading != line_leading:
+                    cur_y += line_leading - oleading
+                if abs(xcy - cur_y) > 1e-8:
+                    cur_y = xcy
+
+        olb = cur_y - descent
+        oleading = line_leading
+
+    # olb is the bottom of the last line; if negative, text overflows
+    if olb is not None and olb < 0:
+        h = h + abs(olb)
+
+    # Add margin for lines with enlarged fonts (e.g. ##text## at 15pt).
+    # The exact rendering height leaves descenders touching the boundary;
+    # this adds proportional breathing room when mixed sizes are present.
+    base_size = para.style.fontSize
+    max_line_size = base_size
+    for line in lines:
+        if hasattr(line, 'words'):
+            for frag in line.words:
+                cb = getattr(frag, 'cbDefn', None)
+                if cb and getattr(cb, 'kind', None) == 'img':
+                    continue
+                fs = getattr(frag, 'fontSize', 0)
+                if fs > max_line_size:
+                    max_line_size = fs
+    if max_line_size > base_size:
+        h += (max_line_size - base_size) * 1 # Extra padding at bottom of section to compensate for large text 
+
+    return h
 
 
 class BannerWithText(Flowable):
@@ -323,11 +418,20 @@ class StepActionFlowable(Flowable):
             self.text_gap = 0
             self.head_size = 0
             self.head_spread = 0
+        self.is_card = cost.startswith('card_')
         # Calculate text area width
-        icon_space = self.icon_w if icon_path else 0
+        # For card costs, use MIN_CARD_ICON_W as the icon column width so all
+        # card actions share the same text x-position regardless of icon width.
+        # Wider icons overflow left into the margin.
+        if self.is_card:
+            icon_space = MIN_CARD_ICON_W if icon_path else 0
+        else:
+            icon_space = self.icon_w if icon_path else 0
+        self.icon_space = icon_space
         self.text_w = total_width - icon_space - self.total_arrow_w
         _, self.wrap_h = text_paragraph.wrap(self.text_w, 9999)
         self.true_h = true_paragraph_height(text_paragraph, self.text_w)
+        self.wrap_h = text_paragraph.height  # updated by tightening in true_paragraph_height
 
         # Determine first line height for icon/arrow vertical alignment
         self.first_line_h = self._get_first_line_height(text_paragraph)
@@ -343,14 +447,32 @@ class StepActionFlowable(Flowable):
 
     @staticmethod
     def _get_first_line_height(para):
-        """Get the height of the first line from a wrapped paragraph."""
+        """Get the text-only height of the first line from a wrapped paragraph.
+
+        Ignores inline image contributions so arrows target the visual center
+        of the text, not the inflated line box. Accounts for mixed font sizes
+        (e.g. ##title## markup at 15pt alongside 8pt body text).
+        """
         if hasattr(para, 'blPara') and hasattr(para.blPara, 'lines') and para.blPara.lines:
             line = para.blPara.lines[0]
+            # FragLine (autoLeading='max') — scan text fragments for max font size
+            if hasattr(line, 'words'):
+                max_size = 0
+                for frag in line.words:
+                    # Skip inline images (they have cbDefn with kind='img')
+                    cb = getattr(frag, 'cbDefn', None)
+                    if cb and getattr(cb, 'kind', None) == 'img':
+                        continue
+                    fs = getattr(frag, 'fontSize', 0)
+                    if fs > max_size:
+                        max_size = fs
+                if max_size > 0:
+                    return max_size
+            # Tuple-style line (simple paragraphs without autoLeading)
             ascent = getattr(line, 'ascent', None)
             descent = getattr(line, 'descent', None)
             if ascent is not None and descent is not None:
-                return ascent - descent  # descent is negative
-        # Fallback to leading
+                return ascent - descent
         return para.style.leading
 
     def wrap(self, availWidth, availHeight):
@@ -360,7 +482,7 @@ class StepActionFlowable(Flowable):
         c = self.canv
         c.saveState()
 
-        icon_space = self.icon_w if self.icon_path else 0
+        icon_space = self.icon_space
 
         # First line center Y (measured from bottom of flowable)
         # Nudge down by a fraction of the first line height to compensate for font ascender padding
@@ -369,15 +491,28 @@ class StepActionFlowable(Flowable):
 
         # Draw cost icon (centered on first line)
         if self.icon_path:
-            icon_x = (icon_space - self.icon_w) / 2
+            if self.is_card:
+                # Center-align card icon on MIN_CARD_ICON_W midpoint;
+                # wider icons extend left (negative x) into margin
+                center_x = MIN_CARD_ICON_W / 2
+                icon_x = center_x - self.icon_w / 2
+            else:
+                icon_x = (icon_space - self.icon_w) / 2
             icon_y = first_line_center_y - self.icon_h / 2
             c.drawImage(self.icon_path, icon_x, icon_y,
                         width=self.icon_w, height=self.icon_h, mask='auto')
 
         # Draw arrow centered on first line (only for item and card costs)
         if self.draw_arrow:
-            arrow_start_x = icon_space + self.icon_gap
-            arrow_end_x = arrow_start_x + self.arrow_w
+            if self.is_card:
+                # Arrow starts from icon right edge; shorter for wider icons
+                center_x = MIN_CARD_ICON_W / 2
+                arrow_start_x = center_x + self.icon_w / 2 + self.icon_gap
+                dynamic_arrow_w = self.arrow_w - (self.icon_w - MIN_CARD_ICON_W) / 2
+                arrow_end_x = arrow_start_x + dynamic_arrow_w
+            else:
+                arrow_start_x = icon_space + self.icon_gap
+                arrow_end_x = arrow_start_x + self.arrow_w
             arrow_mid_y = first_line_center_y
 
             c.setStrokeColorRGB(0.15, 0.15, 0.15)
@@ -401,6 +536,190 @@ class StepActionFlowable(Flowable):
         self.text_paragraph.drawOn(c, text_x, text_y)
 
         # DEBUG: red border around action
+        c.setStrokeColor(HexColor('#FF0000'))
+        c.setLineWidth(0.5)
+        c.rect(0, 0, self.total_width, self._height)
+
+        c.restoreState()
+
+
+class CardGroupFlowable(Flowable):
+    """Renders a group of card actions sharing the same cost icon.
+
+    One icon on the left with bracket-style arrows branching to each action's text.
+    """
+
+    def __init__(self, icon_path, text_paragraphs, icon_w, icon_h, total_width, cost):
+        super().__init__()
+        self.icon_path = icon_path
+        self.icon_w = icon_w
+        self.icon_h = icon_h
+        self.total_width = total_width
+        self.cost = cost
+        self.n = len(text_paragraphs)
+
+        # Layout: use MIN_CARD_ICON_W as column width for all card types
+        self.icon_space = MIN_CARD_ICON_W
+        self.total_arrow_w = CARD_ARROW_ICON_GAP + CARD_ARROW_W + CARD_ARROW_TEXT_GAP
+        self.text_w = total_width - self.icon_space - self.total_arrow_w
+
+        # Wrap each paragraph and compute per-row metrics
+        self.paragraphs = text_paragraphs
+        self.wrap_heights = []
+        self.true_heights = []
+        self.first_line_heights = []
+        for para in text_paragraphs:
+            _, wh = para.wrap(self.text_w, 9999)
+            th = true_paragraph_height(para, self.text_w)
+            wh = para.height  # updated by tightening in true_paragraph_height
+            flh = StepActionFlowable._get_first_line_height(para)
+            self.wrap_heights.append(wh)
+            self.true_heights.append(th)
+            self.first_line_heights.append(flh)
+
+        # Total height: sum of text block heights + gaps between them
+        text_total = sum(self.true_heights) + ACTION_ROW_GAP * (self.n - 1)
+        # The icon must also fit; use the max of text total vs icon height
+        self._height = max(text_total, self.icon_h)
+
+    def wrap(self, availWidth, availHeight):
+        return self.total_width, self._height
+
+    def draw(self):
+        c = self.canv
+        c.saveState()
+
+        text_x = self.icon_space + self.total_arrow_w
+
+        # Compute Y positions for each text block (top-to-bottom stacking)
+        # and the first-line center for each (used for arrow targeting)
+        block_top_y = self._height  # start from top
+        first_line_centers = []
+        text_draw_positions = []
+
+        for i in range(self.n):
+            nudge = self.first_line_heights[i] * ACTION_ICON_Y_NUDGE
+            flc_y = block_top_y - self.first_line_heights[i] / 2 - nudge
+            first_line_centers.append(flc_y)
+            text_draw_positions.append(block_top_y - self.wrap_heights[i])
+            # Move down for next block
+            block_top_y -= self.true_heights[i] + ACTION_ROW_GAP
+
+        # Determine icon vertical center
+        if self.n % 2 == 1:
+            # Odd: icon center aligns with middle action's first line center
+            mid_idx = self.n // 2
+            icon_center_y = first_line_centers[mid_idx]
+        else:
+            # Even: icon center between two middle actions' first line centers
+            upper_idx = self.n // 2 - 1
+            lower_idx = self.n // 2
+            icon_center_y = (first_line_centers[upper_idx] + first_line_centers[lower_idx]) / 2
+
+        # Draw icon (centered horizontally on MIN_CARD_ICON_W midpoint)
+        if self.icon_path:
+            center_x = MIN_CARD_ICON_W / 2
+            icon_x = center_x - self.icon_w / 2
+            icon_y = icon_center_y - self.icon_h / 2
+            c.drawImage(self.icon_path, icon_x, icon_y,
+                        width=self.icon_w, height=self.icon_h, mask='auto')
+
+        # Arrow geometry
+        center_x = MIN_CARD_ICON_W / 2
+        arrow_start_x = center_x + self.icon_w / 2 + CARD_ARROW_ICON_GAP
+        dynamic_arrow_w = CARD_ARROW_W - (self.icon_w - MIN_CARD_ICON_W) / 2
+        arrow_end_x = arrow_start_x + dynamic_arrow_w
+
+        # Bracket arrow layout:
+        #   [horiz start] -> [quarter curve] -> [vertical] -> [quarter curve] -> [flat end -> head]
+        # All arrows share the same vertical turn x so they visually align.
+        # Left flat is a ratio of arrow width (0.1242 gives 0.05" for non-bird arrows).
+        LEFT_FLAT_RATIO = 0.1242
+        MAX_CURVE_R = 7.5             # max quarter-circle radius for bends
+        left_flat = dynamic_arrow_w * LEFT_FLAT_RATIO
+
+        c.setStrokeColorRGB(0.15, 0.15, 0.15)
+        c.setLineWidth(2.3)
+        c.setFillColorRGB(0.15, 0.15, 0.15)
+
+        # Find the max y-distance any arrow travels (for scaling curve_r)
+        max_y_dist = max(
+            abs(first_line_centers[i] - icon_center_y)
+            for i in range(self.n)
+            if not (self.n % 2 == 1 and i == self.n // 2)
+        ) if self.n > 1 else 0
+
+        for i in range(self.n):
+            target_y = first_line_centers[i]
+            is_straight = (self.n % 2 == 1 and i == self.n // 2)
+
+            if is_straight:
+                # Straight arrow for middle action (odd count)
+                c.line(arrow_start_x, target_y, arrow_end_x - CARD_ARROW_HEAD_SIZE, target_y)
+            else:
+                # Bracket-style arrow: horiz → curve → vert → curve → horiz
+                dy = target_y - icon_center_y
+                sign = 1 if dy > 0 else -1
+                abs_dy = abs(dy)
+
+                # Scale curve_r based on y-distance relative to the max
+                # Smaller distances get tighter curves
+                if max_y_dist > 0:
+                    curve_r = min(MAX_CURVE_R, MAX_CURVE_R * (abs_dy / max_y_dist))
+                else:
+                    curve_r = MAX_CURVE_R
+                # Don't let the radius exceed half the y-distance
+                curve_r = min(curve_r, abs_dy / 2)
+
+                turn_x = arrow_start_x + left_flat + curve_r
+
+                path = c.beginPath()
+                # Start horizontal from icon at icon_center_y
+                path.moveTo(arrow_start_x, icon_center_y)
+                # Horizontal segment to left curve start
+                horiz_end_x = turn_x - curve_r
+                path.lineTo(horiz_end_x, icon_center_y)
+                # Quarter-circle: horizontal → vertical (toward target)
+                # Bezier approx of quarter circle: control points at ~0.5523 * r
+                k = 0.5523 * curve_r
+                path.curveTo(
+                    horiz_end_x + k, icon_center_y,
+                    turn_x, icon_center_y + sign * (curve_r - k),
+                    turn_x, icon_center_y + sign * curve_r,
+                )
+                # Vertical segment
+                vert_end_y = target_y - sign * curve_r
+                path.lineTo(turn_x, vert_end_y)
+                # Quarter-circle: vertical → horizontal (toward text)
+                flat_start_x = turn_x + curve_r
+                path.curveTo(
+                    turn_x, vert_end_y + sign * (curve_r - k),
+                    turn_x + (curve_r - k), target_y,
+                    flat_start_x, target_y,
+                )
+                # Flat end to arrowhead
+                path.lineTo(arrow_end_x - CARD_ARROW_HEAD_SIZE, target_y)
+                c.drawPath(path, fill=0, stroke=1)
+
+            # Arrowhead triangle
+            p2 = c.beginPath()
+            p2.moveTo(arrow_end_x, target_y)
+            p2.lineTo(arrow_end_x - CARD_ARROW_HEAD_SIZE,
+                      target_y + CARD_ARROW_HEAD_SIZE * CARD_ARROW_HEAD_SPREAD)
+            p2.lineTo(arrow_end_x - CARD_ARROW_HEAD_SIZE,
+                      target_y - CARD_ARROW_HEAD_SIZE * CARD_ARROW_HEAD_SPREAD)
+            p2.close()
+            c.drawPath(p2, fill=1, stroke=0)
+
+        # Draw each text paragraph
+        for i in range(self.n):
+            self.paragraphs[i].drawOn(c, text_x, text_draw_positions[i])
+            # DEBUG: red border around individual action text
+            c.setStrokeColor(HexColor('#FF0000'))
+            c.setLineWidth(0.5)
+            c.rect(text_x, text_draw_positions[i], self.text_w, self.wrap_heights[i])
+
+        # DEBUG: red border around group
         c.setStrokeColor(HexColor('#FF0000'))
         c.setLineWidth(0.5)
         c.rect(0, 0, self.total_width, self._height)
@@ -610,10 +929,28 @@ class SheetLayoutEngine:
 
         return icon_path, draw_w, draw_h
 
+    @staticmethod
+    def _group_actions(actions):
+        """Group consecutive card actions with the same cost type together.
+
+        Non-card actions stay individual. Returns [(cost_or_None, [action, ...]), ...].
+        """
+        groups = []
+        for action in actions:
+            if action.cost.startswith('card_'):
+                if groups and groups[-1][0] == action.cost:
+                    groups[-1][1].append(action)
+                else:
+                    groups.append((action.cost, [action]))
+            else:
+                groups.append((None, [action]))
+        return groups
+
     def _build_action_flowables(self, step, avail_w, indent):
         """Build flowable objects for a step's StepActions.
 
-        Returns a list of Table-wrapped StepActionFlowable objects,
+        Returns a list of Table-wrapped flowable objects (StepActionFlowable
+        for single actions, CardGroupFlowable for grouped card actions),
         or an empty list if the step has no actions.
         """
         from reportlab.platypus import Table, TableStyle
@@ -626,24 +963,41 @@ class SheetLayoutEngine:
 
         flowables = []
         action_w = avail_w - indent
+        groups = self._group_actions(actions)
 
-        for action in actions:
-            icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
-
-            markup = format_step_markup(action.text)
-            para = Paragraph(markup, self.action_body_style)
-
-            af = StepActionFlowable(
-                icon_path=icon_path,
-                text_paragraph=para,
-                icon_w=icon_w,
-                icon_h=icon_h,
-                total_width=action_w,
-                cost=action.cost,
-            )
+        for cost_type, group_actions in groups:
+            if cost_type is None or len(group_actions) == 1:
+                # Single action (card or non-card): use StepActionFlowable
+                action = group_actions[0]
+                icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                markup = format_step_markup(action.text)
+                para = Paragraph(markup, self.action_body_style)
+                af = StepActionFlowable(
+                    icon_path=icon_path,
+                    text_paragraph=para,
+                    icon_w=icon_w, icon_h=icon_h,
+                    total_width=action_w,
+                    cost=action.cost,
+                )
+                flowable = af
+            else:
+                # Multi-action card group: use CardGroupFlowable
+                icon_path, icon_w, icon_h = self._resolve_cost_icon(group_actions[0])
+                paragraphs = []
+                for action in group_actions:
+                    markup = format_step_markup(action.text)
+                    para = Paragraph(markup, self.action_body_style)
+                    paragraphs.append(para)
+                flowable = CardGroupFlowable(
+                    icon_path=icon_path,
+                    text_paragraphs=paragraphs,
+                    icon_w=icon_w, icon_h=icon_h,
+                    total_width=action_w,
+                    cost=cost_type,
+                )
 
             # Wrap in a table to apply the left indent
-            t = Table([['', af]], colWidths=[indent, action_w])
+            t = Table([['', flowable]], colWidths=[indent, action_w])
             t.setStyle(TableStyle([
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -681,6 +1035,8 @@ class SheetLayoutEngine:
 
         # Build table matching _build_phase_story exactly
         para = Paragraph(markup, self.step_body_style)
+        para.wrap(text_content_w, 9999)
+        tighten_large_font_lines(para)
         if single_step:
             t = Table([['', para]], colWidths=[text_col_w, text_content_w])
             t.setStyle(TableStyle([
@@ -706,21 +1062,45 @@ class SheetLayoutEngine:
             ]))
         _, table_h = t.wrap(width, 9999)
 
-        # Add height for StepAction rows
+        # Add height for StepAction rows (grouped for card costs)
         if hasattr(step, 'actions'):
             actions = step.actions.order_by('order') if hasattr(step.actions, 'order_by') else list(step.actions.all())
             action_content_w = width - text_col_w
-            for action in actions:
-                icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
-                markup_a = format_step_markup(action.text)
-                para_a = Paragraph(markup_a, self.action_body_style)
-                icon_space = icon_w if icon_path else 0
-                arrow_w = _arrow_total_width_for_cost(action.cost)
-                text_w_a = action_content_w - icon_space - arrow_w
-                _, text_h_a = para_a.wrap(text_w_a, 9999)
-                text_h_a = true_paragraph_height(para_a, text_w_a)
-                row_h = max(text_h_a, icon_h if icon_path else 0) + ACTION_ROW_GAP
-                table_h += row_h
+            groups = self._group_actions(actions)
+
+            for cost_type, group_actions in groups:
+                if cost_type is None or len(group_actions) == 1:
+                    # Single action
+                    action = group_actions[0]
+                    icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                    markup_a = format_step_markup(action.text)
+                    para_a = Paragraph(markup_a, self.action_body_style)
+                    if action.cost.startswith('card_'):
+                        icon_space = MIN_CARD_ICON_W if icon_path else 0
+                    else:
+                        icon_space = icon_w if icon_path else 0
+                    arrow_w = _arrow_total_width_for_cost(action.cost)
+                    text_w_a = action_content_w - icon_space - arrow_w
+                    _, text_h_a = para_a.wrap(text_w_a, 9999)
+                    text_h_a = true_paragraph_height(para_a, text_w_a)
+                    row_h = max(text_h_a, icon_h if icon_path else 0) + ACTION_ROW_GAP
+                    table_h += row_h
+                else:
+                    # Multi-action card group
+                    icon_path, icon_w, icon_h = self._resolve_cost_icon(group_actions[0])
+                    icon_space = MIN_CARD_ICON_W
+                    arrow_w = CARD_ARROW_ICON_GAP + CARD_ARROW_W + CARD_ARROW_TEXT_GAP
+                    text_w_a = action_content_w - icon_space - arrow_w
+                    group_h = 0
+                    for action in group_actions:
+                        markup_a = format_step_markup(action.text)
+                        para_a = Paragraph(markup_a, self.action_body_style)
+                        _, th = para_a.wrap(text_w_a, 9999)
+                        th = true_paragraph_height(para_a, text_w_a)
+                        group_h += th
+                    group_h += ACTION_ROW_GAP * (len(group_actions) - 1)
+                    group_h = max(group_h, icon_h)
+                    table_h += group_h + ACTION_ROW_GAP
 
         return table_h
 
@@ -885,9 +1265,14 @@ class SheetLayoutEngine:
 
             # Compute extra bottom padding to compensate for autoLeading underreporting
             text_w = SINGLE_STEP_INDENT if single_step else TEXT_COL_X
+            content_w = avail_w - text_w
             probe = Paragraph(markup, self.step_body_style)
-            _, wrap_h = probe.wrap(avail_w - text_w, 9999)
-            extra_h = true_paragraph_height(probe, avail_w - text_w) - wrap_h
+            _, wrap_h = probe.wrap(content_w, 9999)
+            extra_h = true_paragraph_height(probe, content_w) - wrap_h
+
+            # Tighten the rendered paragraph's large-font line spacing
+            para.wrap(content_w, 9999)
+            tighten_large_font_lines(para)
 
             # DEBUG: red border around step
             debug_border = ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#FF0000'))
