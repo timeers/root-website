@@ -86,8 +86,8 @@ ACTION_CARDS_W = 0.57 * inch      # nonbird/other_cards icon width (height scale
 ACTION_DEFAULT_W = 0.2 * inch     # action & other cost icon width (height scales proportionally)
 # Arrows from Item to action
 ITEM_ARROW_W = 11.3                  # total space reserved for arrow region
-ITEM_ARROW_ICON_GAP = 5.75           # gap between icon and arrow start
-ITEM_ARROW_TEXT_GAP = 3           # gap between arrow end and text
+ITEM_ARROW_ICON_GAP = 4.8           # gap between icon and arrow start
+ITEM_ARROW_TEXT_GAP = 1.9           # gap between arrow end and text
 ITEM_ARROW_HEAD_SIZE = 6.5         # arrowhead length
 ITEM_ARROW_HEAD_SPREAD = 0.57      # arrowhead width multiplier
 # Arrows from spent cards to action
@@ -100,6 +100,8 @@ CARD_ARROW_HEAD_SPREAD = 0.57      # arrowhead width multiplier
 ACTION_ICON_TEXT_GAP = 4           # padding between icon and text for action/other costs (no arrow)
 ACTION_ICON_Y_NUDGE = 0.2         # nudge icon/arrow down as fraction of first line height
 ACTION_ROW_GAP = 1                # vertical gap between action rows in points
+SIDE_BY_SIDE_GAP = 6              # horizontal gap between side-by-side actions (pts)
+MAX_ACTIONS_PER_ROW = 4           # max actions packed on one line
 
 # Minimum card icon width (single-card icons like fox/mouse/rabbit/bird)
 # Used as the centering reference — wider icons shift left into margin
@@ -386,6 +388,79 @@ def _arrow_total_width_for_cost(cost):
     if cost.startswith('card_'):
         return CARD_ARROW_ICON_GAP + CARD_ARROW_W + CARD_ARROW_TEXT_GAP
     return ACTION_ICON_TEXT_GAP  # 'action' and 'other' get padding only, no arrow
+
+
+def _measure_action_widths(action, icon_w, icon_h, icon_path, cost, action_body_style):
+    """Measure natural and wrap-once widths/heights for a StepAction.
+
+    Returns (natural_w, natural_h, wrap_once_w, wrap_once_h) where:
+      natural_w/h  = dimensions for single-line rendering (no text wrapping)
+      wrap_once_w/h = dimensions allowing one extra line of wrapping (max 3 lines total)
+      wrap_once_w is None if wrapping would exceed 3 lines
+    """
+    # Icon space
+    if cost.startswith('card_'):
+        icon_space = MIN_CARD_ICON_W if icon_path else 0
+    else:
+        icon_space = icon_w if icon_path else 0
+
+    arrow_w = _arrow_total_width_for_cost(cost)
+    fixed_w = icon_space + arrow_w  # non-text portion
+    icon_h_eff = icon_h if icon_path else 0
+
+    # Measure text natural width by wrapping at a huge width
+    markup = format_step_markup(action.text)
+    PROBE_W = 10000
+    para = Paragraph(markup, action_body_style)
+    para.wrap(PROBE_W, 9999)
+
+    text_natural_w = 0
+    if hasattr(para, 'blPara') and hasattr(para.blPara, 'lines') and para.blPara.lines:
+        for line in para.blPara.lines:
+            # FragLine stores maxWidth and extraSpace; used width = maxWidth - extraSpace
+            max_w = getattr(line, 'maxWidth', 0)
+            extra = getattr(line, 'extraSpace', 0)
+            if max_w:
+                lw = max_w - extra
+            else:
+                lw = getattr(line, 'currentWidth', 0)
+            if lw > text_natural_w:
+                text_natural_w = lw
+
+    natural_w = fixed_w + text_natural_w + 2  # 2pt buffer
+    natural_text_h = true_paragraph_height(para, text_natural_w)
+    natural_h = max(natural_text_h, icon_h_eff)
+
+    # Determine baseline line count at natural width
+    baseline_lines = len(para.blPara.lines) if hasattr(para, 'blPara') and hasattr(para.blPara, 'lines') else 1
+
+    # Only allow wrapping if result would be <= 3 lines
+    target_lines = baseline_lines + 1
+    if target_lines > 3:
+        return natural_w, natural_h, None, None
+
+    # Binary search for wrap-once width: narrowest width that keeps lines <= target
+    min_text_w = para.minWidth() if hasattr(para, 'minWidth') else text_natural_w * 0.3
+    lo, hi = min_text_w, text_natural_w
+
+    for _ in range(12):
+        mid = (lo + hi) / 2
+        probe = Paragraph(markup, action_body_style)
+        probe.wrap(mid, 9999)
+        n_lines = len(probe.blPara.lines) if hasattr(probe, 'blPara') and hasattr(probe.blPara, 'lines') else 1
+        if n_lines <= target_lines:
+            hi = mid
+        else:
+            lo = mid
+
+    wrap_once_w = fixed_w + hi + 2  # 2pt buffer
+    # Measure actual height at wrap-once width
+    probe = Paragraph(markup, action_body_style)
+    probe.wrap(hi + 2, 9999)
+    wrap_once_text_h = true_paragraph_height(probe, hi + 2)
+    wrap_once_h = max(wrap_once_text_h, icon_h_eff)
+
+    return natural_w, natural_h, wrap_once_w, wrap_once_h
 
 
 class StepActionFlowable(Flowable):
@@ -946,6 +1021,113 @@ class SheetLayoutEngine:
                 groups.append((None, [action]))
         return groups
 
+    def _pack_action_rows(self, groups, avail_action_w):
+        """Pack non-card actions into rows using greedy bin-packing.
+
+        Card groups pass through unchanged. Consecutive eligible actions
+        (action, other, item_*) are packed side-by-side when they fit.
+        Allows text to wrap once (up to 3 lines max) to save horizontal space,
+        but only if the side-by-side row is shorter than stacking vertically.
+
+        Returns list of row descriptors:
+          ('single_card', action)
+          ('card_group', cost_type, [actions])
+          ('row', [(action, alloc_w), ...])
+        """
+        rows = []
+        # pending entries: (action, nat_w, nat_h, wrap_w_or_None, wrap_h_or_None)
+        pending = []
+
+        def _flush_pending():
+            if not pending:
+                return
+
+            # --- Pass 1: greedily pack using natural (no-wrap) widths ---
+            # Actions that fit on one row without wrapping, up to MAX_ACTIONS_PER_ROW.
+            packed = set()
+            result_slots = []  # (position_key, row_descriptor)
+
+            pass1_groups = []  # each entry: [index, ...]
+            current_indices = []
+            current_w = 0
+
+            for i, (action, nat_w, nat_h, wrap_w, wrap_h) in enumerate(pending):
+                needed = nat_w + (SIDE_BY_SIDE_GAP if current_indices else 0)
+                if not current_indices or (current_w + needed <= avail_action_w
+                                           and len(current_indices) < MAX_ACTIONS_PER_ROW):
+                    current_indices.append(i)
+                    current_w += needed
+                else:
+                    pass1_groups.append(current_indices)
+                    current_indices = [i]
+                    current_w = nat_w
+            if current_indices:
+                pass1_groups.append(current_indices)
+
+            # Only commit groups with 2+ actions
+            for group in pass1_groups:
+                if len(group) > 1:
+                    row_items = [(pending[k][0], pending[k][1]) for k in group]
+                    result_slots.append((group[0], ('row', row_items)))
+                    packed.update(group)
+
+            # --- Pass 2: try wrapping to pair consecutive unpacked actions (max 2 per row) ---
+            leftovers = [(i, pending[i]) for i in range(len(pending)) if i not in packed]
+            j = 0
+            while j < len(leftovers):
+                idx_a, (action_a, nat_w_a, nat_h_a, wrap_w_a, wrap_h_a) = leftovers[j]
+                paired = False
+
+                if j + 1 < len(leftovers):
+                    idx_b, (action_b, nat_w_b, nat_h_b, wrap_w_b, wrap_h_b) = leftovers[j + 1]
+
+                    # Use wrap widths where available, natural otherwise
+                    w_a = wrap_w_a if wrap_w_a is not None else nat_w_a
+                    h_a = wrap_h_a if wrap_w_a is not None else nat_h_a
+                    w_b = wrap_w_b if wrap_w_b is not None else nat_w_b
+                    h_b = wrap_h_b if wrap_w_b is not None else nat_h_b
+
+                    pair_w = w_a + SIDE_BY_SIDE_GAP + w_b
+                    if pair_w <= avail_action_w:
+                        # Height check: side-by-side must be shorter than stacking
+                        side_by_side_h = max(h_a, h_b)
+                        stacked_h = nat_h_a + nat_h_b + ACTION_ROW_GAP
+
+                        if side_by_side_h < stacked_h:
+                            result_slots.append((idx_a, ('row', [(action_a, w_a), (action_b, w_b)])))
+                            j += 2
+                            paired = True
+
+                if not paired:
+                    result_slots.append((idx_a, ('row', [(action_a, nat_w_a)])))
+                    j += 1
+
+            # Sort by original position to preserve action order
+            result_slots.sort(key=lambda s: s[0])
+            for _, row_desc in result_slots:
+                rows.append(row_desc)
+
+        for cost_type, group_actions in groups:
+            if cost_type is not None:
+                # Card group — flush pending non-card actions first
+                _flush_pending()
+                pending = []
+                if len(group_actions) == 1:
+                    rows.append(('single_card', group_actions[0]))
+                else:
+                    rows.append(('card_group', cost_type, group_actions))
+            else:
+                # Non-card single action — candidate for side-by-side
+                action = group_actions[0]
+                icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                nat_w, nat_h, wrap_w, wrap_h = _measure_action_widths(
+                    action, icon_w, icon_h, icon_path, action.cost, self.action_body_style
+                )
+                pending.append((action, nat_w, nat_h, wrap_w, wrap_h))
+
+        _flush_pending()
+        return rows
+
     def _build_action_flowables(self, step, avail_w, indent):
         """Build flowable objects for a step's StepActions.
 
@@ -964,24 +1146,23 @@ class SheetLayoutEngine:
         flowables = []
         action_w = avail_w - indent
         groups = self._group_actions(actions)
+        packed_rows = self._pack_action_rows(groups, action_w)
 
-        for cost_type, group_actions in groups:
-            if cost_type is None or len(group_actions) == 1:
-                # Single action (card or non-card): use StepActionFlowable
-                action = group_actions[0]
+        for row_info in packed_rows:
+            if row_info[0] == 'single_card':
+                action = row_info[1]
                 icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
                 markup = format_step_markup(action.text)
                 para = Paragraph(markup, self.action_body_style)
-                af = StepActionFlowable(
-                    icon_path=icon_path,
-                    text_paragraph=para,
+                flowable = StepActionFlowable(
+                    icon_path=icon_path, text_paragraph=para,
                     icon_w=icon_w, icon_h=icon_h,
-                    total_width=action_w,
-                    cost=action.cost,
+                    total_width=action_w, cost=action.cost,
                 )
-                flowable = af
-            else:
-                # Multi-action card group: use CardGroupFlowable
+
+            elif row_info[0] == 'card_group':
+                cost_type = row_info[1]
+                group_actions = row_info[2]
                 icon_path, icon_w, icon_h = self._resolve_cost_icon(group_actions[0])
                 paragraphs = []
                 for action in group_actions:
@@ -989,12 +1170,65 @@ class SheetLayoutEngine:
                     para = Paragraph(markup, self.action_body_style)
                     paragraphs.append(para)
                 flowable = CardGroupFlowable(
-                    icon_path=icon_path,
-                    text_paragraphs=paragraphs,
+                    icon_path=icon_path, text_paragraphs=paragraphs,
                     icon_w=icon_w, icon_h=icon_h,
-                    total_width=action_w,
-                    cost=cost_type,
+                    total_width=action_w, cost=cost_type,
                 )
+
+            elif row_info[0] == 'row':
+                action_items = row_info[1]  # [(action, alloc_w), ...]
+
+                if len(action_items) == 1:
+                    # Single non-card action — full width
+                    action, _ = action_items[0]
+                    icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                    markup = format_step_markup(action.text)
+                    para = Paragraph(markup, self.action_body_style)
+                    flowable = StepActionFlowable(
+                        icon_path=icon_path, text_paragraph=para,
+                        icon_w=icon_w, icon_h=icon_h,
+                        total_width=action_w, cost=action.cost,
+                    )
+                else:
+                    # Multiple side-by-side actions — each gets its measured width,
+                    # last action expands to fill remaining row space
+                    total_gaps = SIDE_BY_SIDE_GAP * (len(action_items) - 1)
+                    used_w = sum(w for _, w in action_items[:-1]) + total_gaps
+                    last_w = action_w - used_w  # remaining space for last action
+
+                    sub_flowables = []
+                    col_widths = []
+                    for idx, (action, base_w) in enumerate(action_items):
+                        alloc_w = last_w if idx == len(action_items) - 1 else base_w
+                        icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                        markup = format_step_markup(action.text)
+                        para = Paragraph(markup, self.action_body_style)
+                        af = StepActionFlowable(
+                            icon_path=icon_path, text_paragraph=para,
+                            icon_w=icon_w, icon_h=icon_h,
+                            total_width=alloc_w, cost=action.cost,
+                        )
+                        sub_flowables.append(af)
+                        col_widths.append(alloc_w)
+
+                    # Build single-row table with gap columns between actions
+                    row_cells = []
+                    final_col_widths = []
+                    for i, (af, cw) in enumerate(zip(sub_flowables, col_widths)):
+                        if i > 0:
+                            row_cells.append('')
+                            final_col_widths.append(SIDE_BY_SIDE_GAP)
+                        row_cells.append(af)
+                        final_col_widths.append(cw)
+
+                    flowable = Table([row_cells], colWidths=final_col_widths)
+                    flowable.setStyle(TableStyle([
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                        ('TOPPADDING', (0, 0), (-1, -1), 0),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                    ]))
 
             # Wrap in a table to apply the left indent
             t = Table([['', flowable]], colWidths=[indent, action_w])
@@ -1062,31 +1296,30 @@ class SheetLayoutEngine:
             ]))
         _, table_h = t.wrap(width, 9999)
 
-        # Add height for StepAction rows (grouped for card costs)
+        # Add height for StepAction rows (grouped and packed for side-by-side)
         if hasattr(step, 'actions'):
             actions = step.actions.order_by('order') if hasattr(step.actions, 'order_by') else list(step.actions.all())
             action_content_w = width - text_col_w
             groups = self._group_actions(actions)
+            packed_rows = self._pack_action_rows(groups, action_content_w)
 
-            for cost_type, group_actions in groups:
-                if cost_type is None or len(group_actions) == 1:
-                    # Single action
-                    action = group_actions[0]
+            for row_info in packed_rows:
+                if row_info[0] == 'single_card':
+                    action = row_info[1]
                     icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
                     markup_a = format_step_markup(action.text)
                     para_a = Paragraph(markup_a, self.action_body_style)
-                    if action.cost.startswith('card_'):
-                        icon_space = MIN_CARD_ICON_W if icon_path else 0
-                    else:
-                        icon_space = icon_w if icon_path else 0
+                    icon_space = MIN_CARD_ICON_W if icon_path else 0
                     arrow_w = _arrow_total_width_for_cost(action.cost)
                     text_w_a = action_content_w - icon_space - arrow_w
-                    _, text_h_a = para_a.wrap(text_w_a, 9999)
+                    para_a.wrap(text_w_a, 9999)
                     text_h_a = true_paragraph_height(para_a, text_w_a)
                     row_h = max(text_h_a, icon_h if icon_path else 0) + ACTION_ROW_GAP
                     table_h += row_h
-                else:
-                    # Multi-action card group
+
+                elif row_info[0] == 'card_group':
+                    cost_type = row_info[1]
+                    group_actions = row_info[2]
                     icon_path, icon_w, icon_h = self._resolve_cost_icon(group_actions[0])
                     icon_space = MIN_CARD_ICON_W
                     arrow_w = CARD_ARROW_ICON_GAP + CARD_ARROW_W + CARD_ARROW_TEXT_GAP
@@ -1095,33 +1328,66 @@ class SheetLayoutEngine:
                     for action in group_actions:
                         markup_a = format_step_markup(action.text)
                         para_a = Paragraph(markup_a, self.action_body_style)
-                        _, th = para_a.wrap(text_w_a, 9999)
+                        para_a.wrap(text_w_a, 9999)
                         th = true_paragraph_height(para_a, text_w_a)
                         group_h += th
                     group_h += ACTION_ROW_GAP * (len(group_actions) - 1)
                     group_h = max(group_h, icon_h)
                     table_h += group_h + ACTION_ROW_GAP
 
+                elif row_info[0] == 'row':
+                    action_items = row_info[1]
+                    if len(action_items) == 1:
+                        action, _ = action_items[0]
+                        icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                        markup_a = format_step_markup(action.text)
+                        para_a = Paragraph(markup_a, self.action_body_style)
+                        icon_space = icon_w if icon_path else 0
+                        arrow_w = _arrow_total_width_for_cost(action.cost)
+                        text_w_a = action_content_w - icon_space - arrow_w
+                        para_a.wrap(text_w_a, 9999)
+                        text_h_a = true_paragraph_height(para_a, text_w_a)
+                        row_h = max(text_h_a, icon_h if icon_path else 0) + ACTION_ROW_GAP
+                        table_h += row_h
+                    else:
+                        # Side-by-side: row height = max of individual heights
+                        # Last action gets remaining width (matches _build_action_flowables)
+                        total_gaps = SIDE_BY_SIDE_GAP * (len(action_items) - 1)
+                        used_w = sum(w for _, w in action_items[:-1]) + total_gaps
+                        last_w = action_content_w - used_w
+                        max_h = 0
+                        for idx, (action, base_w) in enumerate(action_items):
+                            alloc_w = last_w if idx == len(action_items) - 1 else base_w
+                            icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                            markup_a = format_step_markup(action.text)
+                            para_a = Paragraph(markup_a, self.action_body_style)
+                            icon_space = icon_w if icon_path else 0
+                            arrow_w = _arrow_total_width_for_cost(action.cost)
+                            text_w_a = alloc_w - icon_space - arrow_w
+                            para_a.wrap(text_w_a, 9999)
+                            text_h_a = true_paragraph_height(para_a, text_w_a)
+                            h = max(text_h_a, icon_h if icon_path else 0)
+                            if h > max_h:
+                                max_h = h
+                        table_h += max_h + ACTION_ROW_GAP
+
         return table_h
 
-    def determine_layout(self):
-        if self.sheet.layout_mode != 'auto':
-            return self.sheet.layout_mode
-
-        n = len(self.phases_grouped)
-        col_width = (BODY_W - (PHASE_INTERNAL_MARGIN * 2) - (PHASE_INTERNAL_MARGIN * (n - 1))) / n
-        header_h = self._banner_height_for_width(col_width)
-        max_phase_h = max(
-            self.measure_phase_height(steps, col_width, header_h=header_h)
-            for steps in self.phases_grouped.values()
-        )
-        # If tallest column needs more than 50% of available phase height, go horizontal
-        phase_h = self.phases_top_y - self.phases_bottom_y
-        return 'horizontal' if max_phase_h > phase_h * 0.5 else 'vertical'
+    # def determine_layout(self):
+    #     n = len(self.phases_grouped)
+    #     col_width = (BODY_W - (PHASE_INTERNAL_MARGIN * 2) - (PHASE_INTERNAL_MARGIN * (n - 1))) / n
+    #     header_h = self._banner_height_for_width(col_width)
+    #     max_phase_h = max(
+    #         self.measure_phase_height(steps, col_width, header_h=header_h)
+    #         for steps in self.phases_grouped.values()
+    #     )
+    #     # If tallest column needs more than 50% of available phase height, go horizontal
+    #     phase_h = self.phases_top_y - self.phases_bottom_y
+    #     return 'horizontal' if max_phase_h > phase_h * 0.5 else 'vertical'
 
     def build(self, output_path):
         c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
-        layout = self.determine_layout()
+        layout = self.sheet.layout_mode
 
         self._draw_background(c)
         self._draw_top_band(c)

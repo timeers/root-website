@@ -62,10 +62,14 @@ class ForgedFaction(models.Model):
 
 
 class FactionSheet(models.Model):
+    class LayoutChoices(models.TextChoices):
+        LAYOUT_HORIZONTAL = 'horizontal'
+        LAYOUT_VERTICAL = 'vertical'
     faction = models.ForeignKey(ForgedFaction, related_name='faction_sheets', on_delete=models.CASCADE)
     flavor_text = models.TextField(blank=True, null=True)
     action_image = models.ImageField(upload_to='forge/action_icons/', blank=True, null=True)
     include_crafted_items = models.BooleanField(default=True)
+    layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_VERTICAL)
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -75,12 +79,8 @@ class FactionSheet(models.Model):
     def get_background_path(self):
         return self.faction.get_background_path()
 
-    class LayoutChoices(models.TextChoices):
-        LAYOUT_AUTO = 'auto'
-        LAYOUT_HORIZONTAL = 'horizontal'
-        LAYOUT_VERTICAL = 'vertical'
 
-    layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_AUTO)
+
 
 class FactionAbility(models.Model):
     sheet = models.ForeignKey(FactionSheet, related_name='abilities', on_delete=models.CASCADE)

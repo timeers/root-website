@@ -45,7 +45,11 @@ sword_action = SimpleNamespace(
 )
 boots_action = SimpleNamespace(
     cost='item_boots', cost_image=None, order=2,
-    text="**Move** _not into forest_"
+    text="##Move## _not into forest_"
+)
+hammer_action = SimpleNamespace(
+    cost='item_hammer', cost_image=None, order=2,
+    text="**Craft** with hammers if you have them."
 )
 torch_action = SimpleNamespace(
     cost='item_torch', cost_image=None, order=1,
@@ -81,23 +85,27 @@ nonbird_action = SimpleNamespace(
 )
 action_action = SimpleNamespace(
     cost='action', cost_image=None, order=1,
-    text="**Score** 1 {{ VP }}"
+    text="##Score## 1 {{ VP }}"
 )
 action_action_2 = SimpleNamespace(
+    cost='action', cost_image=None, order=3,
+    text="##Refresh## 1 item, then score {{1VP}} per item"
+)
+action_action_3 = SimpleNamespace(
     cost='action', cost_image=None, order=2,
-    text="**Refresh** 1 item"
+    text="##Refresh## 1 item"
 )
 
 
 # Assign actions to steps
 steps[0].actions = make_actions_qs([])
 steps[1].actions = make_actions_qs([])
-steps[2].actions = make_actions_qs([sword_action, boots_action])
+steps[2].actions = make_actions_qs([sword_action, boots_action, hammer_action])
 steps[3].actions = make_actions_qs([])
 steps[4].actions = make_actions_qs([torch_action, any_action])
 # 3 fox actions (odd group) + 2 rabbit actions (even group)
 steps[5].actions = make_actions_qs([fox_action, fox_action2, fox_action3, rabbit_action, rabbit_action2])
-steps[6].actions = make_actions_qs([action_action, action_action_2])
+steps[6].actions = make_actions_qs([action_action, action_action_3, action_action_2])
 steps[7].actions = make_actions_qs([])
 steps[8].actions = make_actions_qs([])
 # Single non-bird action (wider icon, shorter arrow)
