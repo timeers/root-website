@@ -16,7 +16,7 @@ def make_actions_qs(actions_list):
 
 # Fake abilities
 abilities = [
-    SimpleNamespace(title="Governors", body="In battle, deal +1 hit. Then you ", order=1),
+    SimpleNamespace(title="Governors", body="In battle, deal +1 hit. Then you {{1VP}}", order=1),
     SimpleNamespace(title="Nimble", body="May move before or after battle. Additionally, whenever you remove an enemy warrior in battle, you may move that warrior's matching piece to any adjacent clearing you rule.", order=2),
     SimpleNamespace(title="Battle Plans II", body="In battle, deal +1 hit. Then you ", order=3),
 ]
@@ -24,7 +24,7 @@ abilities = [
 # Fake phase steps
 steps = [
     SimpleNamespace(phase="birdsong", number=1, text="##Craft## with enclaves."),
-    SimpleNamespace(phase="birdsong", number=2, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching clearing."),
+    SimpleNamespace(phase="birdsong", number=2, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching {{VP}}clearing."),
     SimpleNamespace(phase="birdsong", number=3, text="##Take it Easy## if all Captain cards are face down Flip all Captains and items face up. The enemy with the most Prisoners chooses a clearing and places their adjacent Prisoners into it. _(On a tie, choose a tied enemy.)_"),
     SimpleNamespace(phase="birdsong", number=4, text="##Draw## 1 card. ##Discard## down to 5 cards."),
 
@@ -97,6 +97,24 @@ action_action_3 = SimpleNamespace(
 )
 
 
+# Helper to create a fake queryset-like boxes attribute
+def make_boxes_qs(boxes_list):
+    return SimpleNamespace(
+        order_by=lambda f: boxes_list,
+        all=lambda: boxes_list,
+    )
+
+# Fake bordered boxes
+damaged_box = SimpleNamespace(
+    title="Damaged", body="_Cannot be used until repaired._", height="small", order=1
+)
+long_text_box = SimpleNamespace(
+    title="Abilities", body="This is a **medium** box with some longer text to test wrapping. You may ##Battle## in any clearing where you have warriors. Deal extra hits equal to your **fortifications**.", height="medium", order=1
+)
+large_box = SimpleNamespace(
+    title="Dominance", body="**Win Condition:** You win if you rule 3 opposite corners at the start of your Birdsong.\n\nThis replaces your normal victory condition. You cannot score victory points while this card is active.\n\n_Once played, this card cannot be removed._\n\nAdditional text to test overflow behavior in the large box size. This should be enough text to demonstrate the clipping and ellipsis functionality.", height="medium", order=1
+)
+
 # Assign actions to steps
 steps[0].actions = make_actions_qs([])
 steps[1].actions = make_actions_qs([])
@@ -110,6 +128,13 @@ steps[7].actions = make_actions_qs([])
 steps[8].actions = make_actions_qs([])
 # Single non-bird action (wider icon, shorter arrow)
 steps[9].actions = make_actions_qs([nonbird_action])
+
+# Assign boxes to steps (most steps have no boxes)
+for s in steps:
+    s.boxes = make_boxes_qs([])
+steps[2].boxes = make_boxes_qs([damaged_box])
+steps[5].boxes = make_boxes_qs([long_text_box])
+steps[9].boxes = make_boxes_qs([large_box])
 
 
 # Fake decree sections and card slots

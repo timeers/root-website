@@ -172,10 +172,15 @@ class CardSlot(models.Model):
         ordering = ['number']
 
 class BorderedBox(models.Model):
+    class BoxSize(models.TextChoices):
+        SMALL = 'small'
+        MEDIUM = 'medium'
+        LARGE = 'large'
     step = models.ForeignKey(PhaseStep, related_name='boxes', on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=200)
     body = models.TextField(blank=True, null=True)
+    height = models.CharField(max_length=15, choices=BoxSize.choices)
 
 class CardboardTrack(models.Model):
     class TrackChoices(models.TextChoices):

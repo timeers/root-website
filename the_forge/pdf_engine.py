@@ -54,6 +54,17 @@ PHASE_BOX_V_GAP = 0.01 * inch             # spacing between stacked phases in ve
 PHASE_BOX_PAD_TOP = 0.12 * inch          # padding above phase content in phase box
 PHASE_BOX_PAD_BOTTOM = 0.06 * inch     # padding below phase content in phase box
 
+# BorderedBox layout
+BORDERED_BOX_HEIGHTS = {
+    'small': 0.85 * inch,
+    'medium': 1.33 * inch,
+    'large': 2.25 * inch,
+}
+BORDERED_BOX_BORDER_W = 1.0            # thin black border stroke width (pts)
+BORDERED_BOX_TITLE_SIZE = 13           # Luminari title font size (pts)
+BORDERED_BOX_BODY_PAD = 6             # padding inside box for body text (pts)
+BORDERED_BOX_TITLE_GAP = 4            # gap between border line and title text on each side (pts)
+
 # TokenSlot/BuildingSlot are 214x214 (square)
 TRACK_SLOT_SIZE = 0.55 * inch
 TRACK_SLOT_GAP = 0.1 * inch
@@ -191,6 +202,26 @@ COST_ICON_PATHS = {
 }
 
 
+def _replace_inline_images(text):
+    """Replace {{ keyword }} with ReportLab <img> tags.
+
+    Expects already XML-escaped input. Unknown keywords are left as-is.
+    """
+    def image_replacer(match):
+        keyword = match.group(1).strip()
+        img_path = INLINE_IMAGES_PDF.get(keyword)
+        if not img_path or not os.path.exists(img_path):
+            return match.group(0)
+        from PIL import Image as PILImage
+        pil_img = PILImage.open(img_path)
+        iw, ih = pil_img.size
+        aspect = iw / ih
+        img_w = INLINE_IMG_H * aspect
+        return f'<img src="{img_path}" width="{img_w:.1f}" height="{INLINE_IMG_H}" valign="middle"/>'
+
+    return re.sub(r"\{\{\s*([^}]+?)\s*\}\}", image_replacer, text)
+
+
 def format_step_markup(text):
     """Convert semi-markdown to ReportLab Paragraph XML.
 
@@ -206,20 +237,7 @@ def format_step_markup(text):
     result = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
     # {{ keyword }} -> inline image (aspect-ratio preserved, fixed height)
-    
-    def image_replacer(match):
-        keyword = match.group(1).strip()
-        img_path = INLINE_IMAGES_PDF.get(keyword)
-        if not img_path or not os.path.exists(img_path):
-            return match.group(0)
-        from PIL import Image as PILImage
-        pil_img = PILImage.open(img_path)
-        iw, ih = pil_img.size
-        aspect = iw / ih
-        img_w = INLINE_IMG_H * aspect
-        return f'<img src="{img_path}" width="{img_w:.1f}" height="{INLINE_IMG_H}" valign="middle"/>'
-
-    result = re.sub(r"\{\{\s*([^}]+?)\s*\}\}", image_replacer, result)
+    result = _replace_inline_images(result)
 
     # ##text## -> title-size font
     result = re.sub(r"##(.+?)##", r'<font name="Baskerville" size="15">\1</font>', result)
@@ -233,6 +251,16 @@ def format_step_markup(text):
     # Newlines -> line breaks
     result = result.replace('\n', '<br/>')
 
+    return result
+
+
+def format_inline_images(text):
+    """Replace {{ keyword }} with inline images only — no other markup."""
+    if not text:
+        return ""
+    result = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    result = _replace_inline_images(result)
+    result = result.replace('\n', '<br/>')
     return result
 
 
@@ -378,6 +406,115 @@ class BannerWithText(Flowable):
         txt.setCharSpace(font_size * -0.04)
         txt.textLine(self.text)
         c.drawText(txt)
+        c.restoreState()
+
+
+class BorderedBoxFlowable(Flowable):
+    """A bordered box with a Luminari title centered on the top border.
+
+    The top border breaks around the title text. Body text (with sudo markdown)
+    is rendered inside the box. If the body overflows, it is clipped and "..."
+    is drawn at the bottom.
+    """
+
+    def __init__(self, title, body_markup, total_width, box_height, body_style):
+        super().__init__()
+        self._width = total_width
+        self._height = box_height
+        self.title = title
+        self.body_markup = body_markup
+        self.body_style = body_style
+
+    def wrap(self, availWidth, availHeight):
+        return self._width, self._height
+
+    def draw(self):
+        c = self.canv
+        c.saveState()
+
+        w = self._width
+        h = self._height
+        bw = BORDERED_BOX_BORDER_W
+        half_bw = bw / 2  # extend lines by half stroke width so corners meet flush
+
+        # --- Title measurement ---
+        title_font_size = BORDERED_BOX_TITLE_SIZE
+        title_w = pdfmetrics.stringWidth(self.title, 'Luminari', title_font_size)
+        gap = BORDERED_BOX_TITLE_GAP
+        title_block_w = title_w + gap * 2  # total gap in top border
+
+        # Center the title horizontally
+        title_x_start = (w - title_block_w) / 2
+        title_x_end = title_x_start + title_block_w
+
+        # Top border y (ReportLab origin is bottom-left, so top = h)
+        top_y = h
+
+        # --- Draw border ---
+        # Lines are extended by half_bw at each end so the stroke overlaps
+        # at corners, producing clean mitered joints.
+        c.setStrokeColorRGB(0, 0, 0)
+        c.setLineWidth(bw)
+
+        # Bottom border (extend left and right by half_bw)
+        c.line(-half_bw, 0, w + half_bw, 0)
+        # Left border (extend top and bottom by half_bw)
+        c.line(0, -half_bw, 0, top_y + half_bw)
+        # Right border (extend top and bottom by half_bw)
+        c.line(w, -half_bw, w, top_y + half_bw)
+        # Top border — two segments with gap for title (extend outer ends by half_bw)
+        c.line(-half_bw, top_y, title_x_start, top_y)
+        c.line(title_x_end, top_y, w + half_bw, top_y)
+
+        # --- Draw title (centered vertically on top border) ---
+        # Position baseline so the cap-height midpoint sits on the border line.
+        # Cap height ≈ 70% of font size for most fonts; baseline = top_y - capH/2
+        cap_h = title_font_size * 0.70
+        title_y = top_y - cap_h / 2
+        c.setFont('Luminari', title_font_size)
+        c.setFillColorRGB(0, 0, 0)
+        c.drawCentredString(w / 2, title_y, self.title)
+
+        # --- Draw body text (if any) ---
+        if self.body_markup:
+            from reportlab.lib.styles import ParagraphStyle
+            from reportlab.lib.enums import TA_CENTER
+
+            pad = BORDERED_BOX_BODY_PAD
+            # Body area starts below the title and has padding on all sides
+            title_area_h = title_font_size * 0.6  # space reserved below top border for title
+            body_x = pad
+            body_w = w - pad * 2
+            body_top_y = top_y - title_area_h - pad
+            body_available_h = body_top_y - pad  # from body top to bottom + padding
+
+            # Center body text horizontally
+            centered_style = ParagraphStyle(
+                'BorderedBoxBody',
+                parent=self.body_style,
+                alignment=TA_CENTER,
+            )
+
+            para = Paragraph(self.body_markup, centered_style)
+            para_w, para_h = para.wrap(body_w, 9999)
+            tighten_large_font_lines(para)
+            para_h = para.height
+
+            overflow = para_h > body_available_h
+
+            if overflow:
+                print(f"WARNING: BorderedBox '{self.title}' body text overflows "
+                      f"(needs {para_h:.1f}pt, available {body_available_h:.1f}pt)")
+                # Clip to box interior
+                c.saveState()
+                p = c.beginPath()
+                p.rect(body_x, pad, body_w, body_top_y - pad)
+                c.clipPath(p, stroke=0, fill=0)
+                para.drawOn(c, body_x, body_top_y - para_h)
+                c.restoreState()
+            else:
+                para.drawOn(c, body_x, body_top_y - para_h)
+
         c.restoreState()
 
 
@@ -1371,6 +1508,12 @@ class SheetLayoutEngine:
                                 max_h = h
                         table_h += max_h + ACTION_ROW_GAP
 
+        # Add bordered box heights
+        if hasattr(step, 'boxes'):
+            boxes = step.boxes.order_by('order')
+            for box in boxes:
+                table_h += BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium'])
+
         return table_h
 
     # def determine_layout(self):
@@ -1579,6 +1722,29 @@ class SheetLayoutEngine:
             indent = SINGLE_STEP_INDENT if single_step else TEXT_COL_X
             action_flowables = self._build_action_flowables(step, avail_w, indent)
             story.extend(action_flowables)
+
+            # Append BorderedBox flowables below the actions
+            if hasattr(step, 'boxes'):
+                boxes = step.boxes.order_by('order')
+                for box in boxes:
+                    box_h = BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium'])
+                    body_markup = format_step_markup(box.body) if box.body else ''
+                    bf = BorderedBoxFlowable(
+                        title=box.title,
+                        body_markup=body_markup,
+                        total_width=avail_w - indent,
+                        box_height=box_h,
+                        body_style=self.step_body_style,
+                    )
+                    t = Table([['', bf]], colWidths=[indent, avail_w - indent])
+                    t.setStyle(TableStyle([
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                        ('TOPPADDING', (0, 0), (-1, -1), BORDERED_BOX_TITLE_SIZE / 2),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                    ]))
+                    story.append(t)
 
         return story
 
@@ -1850,7 +2016,7 @@ class SheetLayoutEngine:
                 # Flow title + body text to the right of the icon
                 story = [
                     Paragraph(f"<b>{ability.title}</b>", self.ability_title_style),
-                    Paragraph(ability.body, self.ability_body_style),
+                    Paragraph(format_inline_images(ability.body), self.ability_body_style),
                 ]
                 frame = Frame(
                     x + icon_w, box_y,
