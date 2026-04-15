@@ -24,7 +24,7 @@ abilities = [
 # Fake phase steps
 steps = [
     SimpleNamespace(phase="birdsong", number=1, text="##Craft## with enclaves."),
-    SimpleNamespace(phase="birdsong", number=2, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching {{VP}}clearing."),
+    SimpleNamespace(phase="birdsong", number=2, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 8VP }} {{ 0VP }} {{ -4VP }} {{ VP }} a _sawmill_ in the card's matching {{VP}}clearing."),
     SimpleNamespace(phase="birdsong", number=3, text="##Take it Easy## if all Captain cards are face down Flip all Captains and items face up. The enemy with the most Prisoners chooses a clearing and places their adjacent Prisoners into it. _(On a tie, choose a tied enemy.)_"),
     SimpleNamespace(phase="birdsong", number=4, text="##Draw## 1 card. ##Discard## down to 5 cards."),
 
@@ -104,6 +104,13 @@ def make_boxes_qs(boxes_list):
         all=lambda: boxes_list,
     )
 
+# Helper for fake track querysets
+def make_tracks_qs(tracks_list):
+    return SimpleNamespace(
+        order_by=lambda f: tracks_list,
+        all=lambda: tracks_list,
+    )
+
 # Fake bordered boxes
 damaged_box = SimpleNamespace(
     title="Damaged", body="_Cannot be used until repaired._", height="small", order=1
@@ -113,6 +120,35 @@ long_text_box = SimpleNamespace(
 )
 large_box = SimpleNamespace(
     title="Dominance", body="**Win Condition:** You win if you rule 3 opposite corners at the start of your Birdsong.\n\nThis replaces your normal victory condition. You cannot score victory points while this card is active.\n\n_Once played, this card cannot be removed._\n\nAdditional text to test overflow behavior in the large box size. This should be enough text to demonstrate the clipping and ellipsis functionality.", height="medium", order=1
+)
+
+# Fake cardboard tracks (new grid-based model)
+# Gardens track: 1 row x 4 columns — testing multi-image layouts
+gardens_slots = [
+    SimpleNamespace(number=1, row=0, column=0, row_title="", content="1VP", background_image=None),
+    SimpleNamespace(number=2, row=0, column=1, row_title="", content="fox|2VP", background_image=None),
+    SimpleNamespace(number=3, row=0, column=2, row_title="", content="rabbit|mouse|3VP", background_image=None),
+    SimpleNamespace(number=4, row=0, column=3, row_title="", content="fox|rabbit|mouse|4VP", background_image=None),
+]
+gardens_track = SimpleNamespace(
+    title="Gardens", type="building", body=None, order=0,
+    num_columns=4, column_headers="+0|+2|+3|+4", column_cost_type="",
+    column_dividers="", background_image=None,
+    slots=SimpleNamespace(all=lambda: gardens_slots),
+)
+
+# Roosts track: 1 row x 4 columns with token slots
+roosts_slots = [
+    SimpleNamespace(number=1, row=0, column=0, row_title="", content="", background_image=None),
+    SimpleNamespace(number=2, row=0, column=1, row_title="", content="1VP", background_image=None),
+    SimpleNamespace(number=3, row=0, column=2, row_title="", content="2VP", background_image=None),
+    SimpleNamespace(number=4, row=0, column=3, row_title="", content="3VP", background_image=None),
+]
+roosts_track = SimpleNamespace(
+    title="Roosts", type="token", body=None, order=1,
+    num_columns=4, column_headers="", column_cost_type="",
+    column_dividers="", background_image=None,
+    slots=SimpleNamespace(all=lambda: roosts_slots),
 )
 
 # Assign actions to steps
@@ -132,9 +168,14 @@ steps[9].actions = make_actions_qs([nonbird_action])
 # Assign boxes to steps (most steps have no boxes)
 for s in steps:
     s.boxes = make_boxes_qs([])
+    s.tracks = make_tracks_qs([])
 steps[2].boxes = make_boxes_qs([damaged_box])
 steps[5].boxes = make_boxes_qs([long_text_box])
 steps[9].boxes = make_boxes_qs([large_box])
+
+# Assign tracks to specific steps
+steps[0].tracks = make_tracks_qs([gardens_track])
+steps[9].tracks = make_tracks_qs([roosts_track])
 
 
 # Fake decree sections and card slots
@@ -159,30 +200,10 @@ single_section = SimpleNamespace(
 )
 decree_sections = [single_section]  # decree_section removed temporarily
 
-# Fake cardboard tracks
-building_slots = [
-    SimpleNamespace(title="1", number=1),
-    SimpleNamespace(title="2", number=2),
-    SimpleNamespace(title="3", number=3),
-    SimpleNamespace(title="4", number=4),
-    SimpleNamespace(title="5", number=5),
-]
-token_slots = [
-    SimpleNamespace(title="1", number=1),
-    SimpleNamespace(title="2", number=2),
-    SimpleNamespace(title="3", number=3),
-]
-tracks = [
-    SimpleNamespace(title="Sawmills", type="building", body=None,
-                    slots=SimpleNamespace(all=lambda: building_slots)),
-    SimpleNamespace(title="Keep Tokens", type="token", body=None,
-                    slots=SimpleNamespace(all=lambda: token_slots)),
-]
-
 # Fake faction (ForgedFaction fields)
 faction = SimpleNamespace(
     faction_name="Marquise de Cat",
-    color="#D45B2C",
+    color="#FF6800",
     repeat_background_image=True,
     background_preset="frogs",
     background_image=None,
@@ -203,6 +224,5 @@ sheet = SimpleNamespace(
 )
 
 engine = SheetLayoutEngine(sheet)
-engine.tracks = tracks  # Override since test uses fakes, not real DB objects
 engine.build("test_output.pdf")
 print("Generated test_output.pdf")

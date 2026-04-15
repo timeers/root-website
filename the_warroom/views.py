@@ -113,6 +113,7 @@ def game_list_view(request):
     context['background_image'] = background_image
     context['foreground_images'] = foreground_images
     context['background_pattern'] = background_pattern
+    context['page_artists'] = theme_artists
     
     t1 = time.perf_counter()
     # print(f"[TIMING] context theme assembly: {t1 - t0:.4f}s")
@@ -211,6 +212,7 @@ def leaderboard_view(request):
     context['background_image'] = background_image
     context['foreground_images'] = foreground_images
     context['background_pattern'] = background_pattern
+    context['page_artists'] = theme_artists
 
     
     # Leaderboard thresholds
@@ -337,6 +339,7 @@ def player_game_list_view(request, slug=None):
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,
+        'page_artists': theme_artists,
     }
 
 
@@ -414,6 +417,7 @@ def my_submitted_games_view(request):
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,
+        'page_artists': theme_artists,
     }
 
     template_name = 'the_warroom/partials/game_list_home.html' if getattr(request, 'htmx', False) else 'the_warroom/my_submitted_games.html'
@@ -2977,6 +2981,7 @@ def tournaments_home(request):
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,
+        'page_artists': theme_artists,
     }
     return render(request, 'the_warroom/tournaments_home.html', context)
 
@@ -3654,6 +3659,7 @@ def in_progress_view(request):
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,
+        'page_artists': theme_artists,
     }
 
     return render(request, 'the_warroom/in_progress.html', context)

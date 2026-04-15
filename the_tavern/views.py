@@ -423,6 +423,7 @@ def survey_list_view(request):
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,
+        'page_artists': theme_artists,
     }
     return render(request, 'the_tavern/survey_list.html', context)
 

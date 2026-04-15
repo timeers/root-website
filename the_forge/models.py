@@ -191,17 +191,65 @@ class CardboardTrack(models.Model):
     title = models.CharField(max_length=200)
     body = models.TextField(blank=True, null=True)
     type = models.CharField(max_length=20, choices=TrackChoices.choices)
+    num_columns = models.PositiveIntegerField(default=1)
+    column_headers = models.CharField(
+        max_length=500, blank=True, default='',
+        help_text='Pipe-delimited column labels, e.g. "0|1|2|3|4"'
+    )
+    column_cost_type = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text='Inline image keyword for column header icons, e.g. "VP"'
+    )
+    column_dividers = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text='Section dividers as "col:label" pairs, e.g. "2:1|5:2|7:3"'
+    )
+    background_image = models.ImageField(upload_to='forge/track_backgrounds/', blank=True, null=True)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.column_headers:
+            headers = self.column_headers.split('|')
+            if len(headers) != self.num_columns:
+                raise ValidationError({
+                    'column_headers': f'Expected {self.num_columns} headers, got {len(headers)}.'
+                })
+        if self.column_dividers:
+            for part in self.column_dividers.split('|'):
+                if ':' not in part:
+                    raise ValidationError({
+                        'column_dividers': f'Invalid format "{part}". Use "col:label" pairs.'
+                    })
+                col_str, _ = part.split(':', 1)
+                try:
+                    col = int(col_str)
+                except ValueError:
+                    raise ValidationError({
+                        'column_dividers': f'Column index "{col_str}" is not a number.'
+                    })
+                if col >= self.num_columns:
+                    raise ValidationError({
+                        'column_dividers': f'Column index {col} exceeds num_columns ({self.num_columns}).'
+                    })
 
     class Meta:
         ordering = ['order']
 
 class CardboardSlot(models.Model):
     track = models.ForeignKey(CardboardTrack, related_name='slots', on_delete=models.CASCADE)
-    title = models.CharField(max_length=200)
-    number = models.PositiveIntegerField()
+    number = models.PositiveIntegerField(help_text='For admin ordering')
+    row = models.PositiveIntegerField(default=0)
+    column = models.PositiveIntegerField(default=0)
+    row_title = models.CharField(max_length=200, blank=True, default='')
+    content = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text='Pipe-delimited image keywords, e.g. "1VP" or "fox|1VP"'
+    )
+    background_image = models.ImageField(upload_to='forge/slot_backgrounds/', blank=True, null=True)
 
     class Meta:
-        ordering = ['number']
+        ordering = ['row', 'column']
+        unique_together = [('track', 'row', 'column')]
 
 
 class FactionBack(models.Model):

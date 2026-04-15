@@ -65,11 +65,18 @@ BORDERED_BOX_TITLE_SIZE = 13           # Luminari title font size (pts)
 BORDERED_BOX_BODY_PAD = 6             # padding inside box for body text (pts)
 BORDERED_BOX_TITLE_GAP = 4            # gap between border line and title text on each side (pts)
 
-# TokenSlot/BuildingSlot are 214x214 (square)
-TRACK_SLOT_SIZE = 0.55 * inch
-TRACK_SLOT_GAP = 0.1 * inch
-TRACK_PANEL_W = 2.0 * inch
-TRACK_ROW_H = TRACK_SLOT_SIZE + 0.15 * inch
+# Track slot rendering
+TRACK_SLOT_SIZE = 0.67 * inch
+TRACK_SLOT_GAP = 0.06 * inch
+TRACK_ROW_TITLE_W = 0.75 * inch
+TRACK_COL_HEADER_H = 0.25 * inch
+TRACK_TITLE_SIZE = 11
+TRACK_TITLE_GAP = 4
+TRACK_BODY_GAP = 4
+TRACK_HEADER_FONT_SIZE = 7
+TRACK_ROW_TITLE_FONT_SIZE = 7
+TRACK_SLOT_BG_OPACITY = 0.12          # Opacity for slot backgrounds (faction color & images). Adjust to taste.
+TRACK_DIVIDER_W = 0.2 * inch
 
 # Card-Slot.png is 63.5mm x 88mm (standard poker card size)
 CARD_SLOT_W = 2.5 * inch
@@ -160,10 +167,28 @@ PHASE_DISPLAY_NAMES = {
 
 INLINE_IMAGES_PDF = {
     'draw': os.path.join(STATIC_DIR, 'pdf/inline/card.png'),
+
+    '0VP': os.path.join(STATIC_DIR, 'pdf/inline/0VP.png'),
     '1VP': os.path.join(STATIC_DIR, 'pdf/inline/1VP.png'),
     '2VP': os.path.join(STATIC_DIR, 'pdf/inline/2VP.png'),
     '3VP': os.path.join(STATIC_DIR, 'pdf/inline/3VP.png'),
     '4VP': os.path.join(STATIC_DIR, 'pdf/inline/4VP.png'),
+    '5VP': os.path.join(STATIC_DIR, 'pdf/inline/5VP.png'),
+    '6VP': os.path.join(STATIC_DIR, 'pdf/inline/6VP.png'),
+    '7VP': os.path.join(STATIC_DIR, 'pdf/inline/7VP.png'),
+    '8VP': os.path.join(STATIC_DIR, 'pdf/inline/8VP.png'),
+    '9VP': os.path.join(STATIC_DIR, 'pdf/inline/9VP.png'),
+
+    '-1VP': os.path.join(STATIC_DIR, 'pdf/inline/-1VP.png'),
+    '-2VP': os.path.join(STATIC_DIR, 'pdf/inline/-2VP.png'),
+    '-3VP': os.path.join(STATIC_DIR, 'pdf/inline/-3VP.png'),
+    '-4VP': os.path.join(STATIC_DIR, 'pdf/inline/-4VP.png'),
+    '-5VP': os.path.join(STATIC_DIR, 'pdf/inline/-5VP.png'),
+    '-6VP': os.path.join(STATIC_DIR, 'pdf/inline/-6VP.png'),
+    '-7VP': os.path.join(STATIC_DIR, 'pdf/inline/-7VP.png'),
+    '-8VP': os.path.join(STATIC_DIR, 'pdf/inline/-8VP.png'),
+    '-9VP': os.path.join(STATIC_DIR, 'pdf/inline/-9VP.png'),
+
     'VP': os.path.join(STATIC_DIR, 'pdf/inline/VP.png'),
 
     'bird': os.path.join(STATIC_DIR, 'pdf/inline/bird_card.png'),
@@ -516,6 +541,333 @@ class BorderedBoxFlowable(Flowable):
                 para.drawOn(c, body_x, body_top_y - para_h)
 
         c.restoreState()
+
+
+class TrackFlowable(Flowable):
+    """Renders a CardboardTrack grid inline within phase step content.
+
+    Supports column headers with cost icons, row titles, section dividers,
+    and per-slot content images with background fills.
+    """
+
+    def __init__(self, track, slots, total_width, body_style, faction_color):
+        super().__init__()
+        self.track = track
+        self.total_width = total_width
+        self.body_style = body_style
+        self.faction_color = faction_color
+
+        # Build grid: grid[row][col] = slot or None
+        self.grid = {}
+        self.num_rows = 0
+        self.has_row_titles = False
+        self.row_titles = {}
+        for slot in slots:
+            r, c = slot.row, slot.column
+            if r not in self.grid:
+                self.grid[r] = {}
+            self.grid[r][c] = slot
+            if r + 1 > self.num_rows:
+                self.num_rows = r + 1
+            if slot.row_title:
+                self.has_row_titles = True
+                if r not in self.row_titles:
+                    self.row_titles[r] = slot.row_title
+
+        if self.num_rows == 0:
+            self.num_rows = 1
+
+        self.num_cols = track.num_columns
+        self.has_headers = bool(track.column_headers)
+
+        # Parse dividers: {col_index: label}
+        self.dividers = {}
+        if track.column_dividers:
+            for part in track.column_dividers.split('|'):
+                if ':' in part:
+                    col_str, label = part.split(':', 1)
+                    self.dividers[int(col_str)] = label
+
+        # Count dividers that appear before each column to calculate offset
+        self._divider_offsets = {}
+        divider_count = 0
+        for col_idx in range(self.num_cols):
+            if col_idx in self.dividers:
+                divider_count += 1
+            self._divider_offsets[col_idx] = divider_count
+
+        self.total_dividers = divider_count
+
+        # Calculate dimensions
+        self._calc_dimensions()
+
+    def _calc_dimensions(self):
+        # Title height
+        self._title_h = TRACK_TITLE_SIZE + TRACK_TITLE_GAP
+
+        # Body height
+        self._body_h = 0
+        if self.track.body:
+            from reportlab.lib.enums import TA_CENTER
+            from reportlab.lib.styles import ParagraphStyle
+            centered = ParagraphStyle('TrackBody', parent=self.body_style, alignment=TA_CENTER)
+            body_markup = format_step_markup(self.track.body)
+            para = Paragraph(body_markup, centered)
+            _, self._body_h = para.wrap(self.total_width, 9999)
+            self._body_h += TRACK_BODY_GAP
+
+        # Header height
+        self._header_h = TRACK_COL_HEADER_H if self.has_headers else 0
+
+        # Row title width
+        self._row_title_w = TRACK_ROW_TITLE_W if self.has_row_titles else 0
+
+        # Slot size — fixed at design size
+        self._slot_size = TRACK_SLOT_SIZE
+        self._slot_gap = TRACK_SLOT_GAP
+        self._divider_w = TRACK_DIVIDER_W
+
+        # Grid dimensions
+        divider_space = self.total_dividers * self._divider_w
+        self._grid_w = (self.num_cols * self._slot_size +
+                        (self.num_cols - 1) * self._slot_gap +
+                        divider_space)
+        self._grid_h = (self.num_rows * self._slot_size +
+                        max(0, self.num_rows - 1) * self._slot_gap)
+
+        self._width = self.total_width
+        self._height = self._title_h + self._body_h + self._header_h + self._grid_h
+
+    def wrap(self, availWidth, availHeight):
+        return self._width, self._height
+
+    def _col_x(self, col_idx):
+        """X position for a column, accounting for row titles and dividers."""
+        divider_offset = self._divider_offsets.get(col_idx, 0) * self._divider_w
+        return (self._row_title_w +
+                col_idx * (self._slot_size + self._slot_gap) +
+                divider_offset)
+
+    def _row_y(self, row_idx, top_of_grid):
+        """Y position (bottom of slot) for a row, from top of grid downward."""
+        return top_of_grid - (row_idx + 1) * self._slot_size - row_idx * self._slot_gap
+
+    def draw(self):
+        c = self.canv
+        c.saveState()
+
+        h = self._height
+        cursor_y = h  # start from top
+
+        # --- Track title (centered) ---
+        cursor_y -= TRACK_TITLE_SIZE
+        c.setFont('Luminari', TRACK_TITLE_SIZE)
+        c.setFillColorRGB(0, 0, 0)
+        grid_center_x = self._row_title_w + self._grid_w / 2
+        c.drawCentredString(grid_center_x, cursor_y, self.track.title)
+        cursor_y -= TRACK_TITLE_GAP
+
+        # --- Body text (centered, if present) ---
+        if self.track.body and self._body_h > 0:
+            from reportlab.lib.enums import TA_CENTER
+            from reportlab.lib.styles import ParagraphStyle
+            centered = ParagraphStyle('TrackBody', parent=self.body_style, alignment=TA_CENTER)
+            body_markup = format_step_markup(self.track.body)
+            para = Paragraph(body_markup, centered)
+            para_w, para_h = para.wrap(self._width, 9999)
+            para.drawOn(c, 0, cursor_y - para_h)
+            cursor_y -= para_h + TRACK_BODY_GAP
+
+        # --- Column headers ---
+        if self.has_headers:
+            headers = self.track.column_headers.split('|')
+            cost_keyword = self.track.column_cost_type if self.track.column_cost_type else None
+
+            for col_idx in range(self.num_cols):
+                x = self._col_x(col_idx)
+                slot_center_x = x + self._slot_size / 2
+                label = headers[col_idx] if col_idx < len(headers) else ''
+
+                if cost_keyword:
+                    # Draw cost icon above the label
+                    img_path = INLINE_IMAGES_PDF.get(cost_keyword)
+                    if img_path and os.path.exists(img_path):
+                        from PIL import Image as PILImage
+                        pil_img = PILImage.open(img_path)
+                        iw, ih = pil_img.size
+                        aspect = iw / ih
+                        icon_h = self._header_h * 0.5
+                        icon_w = icon_h * aspect
+                        icon_x = slot_center_x - icon_w / 2
+                        icon_y = cursor_y - icon_h
+                        c.drawImage(img_path, icon_x, icon_y,
+                                    width=icon_w, height=icon_h, mask='auto')
+                        # Label below icon
+                        c.setFont('Baskerville', TRACK_HEADER_FONT_SIZE)
+                        c.setFillColorRGB(0, 0, 0)
+                        c.drawCentredString(slot_center_x, icon_y - TRACK_HEADER_FONT_SIZE - 1, label)
+                else:
+                    # Just the label, centered vertically in header area
+                    c.setFont('Baskerville', TRACK_HEADER_FONT_SIZE)
+                    c.setFillColorRGB(0, 0, 0)
+                    label_y = cursor_y - self._header_h / 2 - TRACK_HEADER_FONT_SIZE * 0.35
+                    c.drawCentredString(slot_center_x, label_y, label)
+
+            cursor_y -= self._header_h
+
+        # Top of the slot grid
+        grid_top_y = cursor_y
+
+        # --- Section dividers ---
+        for col_idx, label in self.dividers.items():
+            div_x = self._col_x(col_idx) - self._divider_w / 2 - self._slot_gap / 2
+            # Vertical line spanning the grid
+            c.setStrokeColorRGB(0, 0, 0)
+            c.setLineWidth(1.0)
+            c.line(div_x, grid_top_y, div_x, grid_top_y - self._grid_h)
+            # Divider label centered above the line
+            c.setFont('Baskerville-Bold', 9)
+            c.setFillColorRGB(0, 0, 0)
+            label_y = grid_top_y + 2
+            c.drawCentredString(div_x, label_y, label)
+
+        # --- Row titles ---
+        for row_idx in range(self.num_rows):
+            title = self.row_titles.get(row_idx, '')
+            if title:
+                slot_y = self._row_y(row_idx, grid_top_y)
+                title_y = slot_y + self._slot_size / 2 - TRACK_ROW_TITLE_FONT_SIZE * 0.35
+                c.setFont('Luminari', TRACK_ROW_TITLE_FONT_SIZE)
+                c.setFillColorRGB(0, 0, 0)
+                c.drawRightString(self._row_title_w - 4, title_y, title)
+
+        # --- Slots ---
+        for row_idx in range(self.num_rows):
+            for col_idx in range(self.num_cols):
+                slot = self.grid.get(row_idx, {}).get(col_idx)
+                x = self._col_x(col_idx)
+                y = self._row_y(row_idx, grid_top_y)
+                self._draw_slot(c, x, y, slot)
+
+        c.restoreState()
+
+    def _draw_slot(self, c, x, y, slot):
+        """Draw a single slot at position (x, y) bottom-left."""
+        s = self._slot_size
+        is_token = self.track.type == 'token'
+
+        # --- Background fill ---
+        c.saveState()
+        bg_drawn = False
+
+        # Try slot background image
+        if slot and slot.background_image:
+            try:
+                self._draw_bg_image(c, slot.background_image.path, x, y, s, is_token)
+                bg_drawn = True
+            except (ValueError, FileNotFoundError):
+                pass
+
+        # Try track background image
+        if not bg_drawn and self.track.background_image:
+            try:
+                self._draw_bg_image(c, self.track.background_image.path, x, y, s, is_token)
+                bg_drawn = True
+            except (ValueError, FileNotFoundError):
+                pass
+
+        # Fallback: faction color at reduced opacity
+        if not bg_drawn:
+            c.setFillColor(self.faction_color)
+            c.setFillAlpha(TRACK_SLOT_BG_OPACITY)
+            if is_token:
+                c.circle(x + s / 2, y + s / 2, s / 2, fill=1, stroke=0)
+            else:
+                c.roundRect(x, y, s, s, s * 0.15, fill=1, stroke=0)
+
+        c.restoreState()
+
+        # --- Content images ---
+        if slot and slot.content:
+            keywords = [k.strip() for k in slot.content.split('|') if k.strip()]
+            images = []
+            for kw in keywords:
+                img_path = INLINE_IMAGES_PDF.get(kw)
+                if img_path and os.path.exists(img_path):
+                    images.append(img_path)
+            if images:
+                self._draw_content_images(c, x, y, s, images, is_token)
+
+    def _draw_bg_image(self, c, img_path, x, y, s, is_token):
+        """Draw a background image at reduced opacity, clipped to slot shape."""
+        c.saveState()
+        # Clip to slot shape
+        p = c.beginPath()
+        if is_token:
+            cx, cy = x + s / 2, y + s / 2
+            p.circle(cx, cy, s / 2)
+        else:
+            p.roundRect(x, y, s, s, s * 0.15)
+        c.clipPath(p, stroke=0, fill=0)
+        c.setFillAlpha(TRACK_SLOT_BG_OPACITY)
+        c.drawImage(img_path, x, y, width=s, height=s, mask='auto',
+                    preserveAspectRatio=True, anchor='c')
+        c.restoreState()
+
+    def _draw_content_images(self, c, x, y, s, images, is_token):
+        """Draw 1-4 content images positioned within the slot."""
+        from PIL import Image as PILImage
+        n = len(images)
+        pad = s * 0.12  # padding from slot edge
+        area = s - 2 * pad
+
+        if n == 1:
+            # Centered
+            img_size = area * 0.7
+            positions = [(x + s / 2 - img_size / 2, y + s / 2 - img_size / 2)]
+        elif n == 2:
+            # Top-left and bottom-right (diagonal)
+            img_size = area * 0.48
+            positions = [
+                (x + pad, y + s - pad - img_size),           # top-left
+                (x + s - pad - img_size, y + pad),           # bottom-right
+            ]
+        elif n == 3:
+            # Top-center, bottom-left, bottom-right
+            img_size = area * 0.42
+            positions = [
+                (x + s / 2 - img_size / 2, y + s - pad - img_size),  # top-center
+                (x + pad, y + pad),                                    # bottom-left
+                (x + s - pad - img_size, y + pad),                     # bottom-right
+            ]
+        else:
+            # 2x2 grid
+            img_size = area * 0.42
+            gap = (area - 2 * img_size) / 1
+            positions = [
+                (x + pad, y + s - pad - img_size),                     # top-left
+                (x + pad + img_size + gap, y + s - pad - img_size),    # top-right
+                (x + pad, y + pad),                                    # bottom-left
+                (x + pad + img_size + gap, y + pad),                   # bottom-right
+            ]
+
+        for i, img_path in enumerate(images[:len(positions)]):
+            ix, iy = positions[i]
+            # Preserve aspect ratio
+            pil_img = PILImage.open(img_path)
+            iw, ih = pil_img.size
+            aspect = iw / ih
+            if aspect >= 1:
+                draw_w = img_size
+                draw_h = img_size / aspect
+            else:
+                draw_h = img_size
+                draw_w = img_size * aspect
+            # Center within allocated position
+            offset_x = (img_size - draw_w) / 2
+            offset_y = (img_size - draw_h) / 2
+            c.drawImage(img_path, ix + offset_x, iy + offset_y,
+                        width=draw_w, height=draw_h, mask='auto')
 
 
 def _arrow_total_width_for_cost(cost):
@@ -948,7 +1300,8 @@ class SheetLayoutEngine:
         from django.db.models import Prefetch
         if isinstance(faction_sheet, FactionSheet):
             all_steps = list(faction_sheet.phase_steps.prefetch_related(
-                Prefetch('actions', queryset=StepAction.objects.order_by('order'))
+                Prefetch('actions', queryset=StepAction.objects.order_by('order')),
+                Prefetch('tracks', queryset=CardboardTrack.objects.prefetch_related('slots').order_by('order')),
             ).all())
         else:
             all_steps = list(faction_sheet.phase_steps.all())
@@ -957,15 +1310,6 @@ class SheetLayoutEngine:
             phase: list(steps)
             for phase, steps in groupby(self.steps, key=lambda s: s.phase)
         }
-        if isinstance(faction_sheet, FactionSheet):
-            self.tracks = list(
-                CardboardTrack.objects.filter(
-                    step__sheet=faction_sheet,
-                    step__phase__in=['birdsong', 'daylight', 'evening']
-                ).prefetch_related('slots').order_by('order')
-            )
-        else:
-            self.tracks = []
 
         decree_sections = list(faction_sheet.decrees.prefetch_related('card_slots').all())
         self.decree_section = next((d for d in decree_sections if d.type == 'decree'), None)
@@ -983,10 +1327,9 @@ class SheetLayoutEngine:
         # Color bar: same top-down calculation as the SVG, then nudge below it
         self.title_bar_y = PAGE_H - self.decree_slide - TOP_MARGIN - FACTION_TOP_BAR_NUDGE - TITLE_BAR_H
 
-        # Phase area: top is below the Faction Top Bar image, bottom is above tracks
+        # Phase area: top is below the Faction Top Bar image, bottom is at margin
         self.phases_top_y = self.faction_top_bar_top - self.faction_top_bar_h
-        tracks_h = len(self.tracks) * TRACK_ROW_H if self.tracks else 0
-        self.phases_bottom_y = BOTTOM_MARGIN + tracks_h
+        self.phases_bottom_y = BOTTOM_MARGIN
 
         self._init_styles()
         self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, self.sheet.faction.color or '#5B4A8A', 0.5 * inch)
@@ -1514,6 +1857,21 @@ class SheetLayoutEngine:
             for box in boxes:
                 table_h += BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium'])
 
+        # Add track heights
+        if hasattr(step, 'tracks'):
+            tracks = step.tracks.order_by('order')
+            for track in tracks:
+                slots = list(track.slots.all())
+                tf = TrackFlowable(
+                    track=track,
+                    slots=slots,
+                    total_width=width - text_col_w,
+                    body_style=self.step_body_style,
+                    faction_color=self.faction_color,
+                )
+                _, track_h = tf.wrap(width - text_col_w, 9999)
+                table_h += track_h + TRACK_TITLE_GAP
+
         return table_h
 
     # def determine_layout(self):
@@ -1540,7 +1898,6 @@ class SheetLayoutEngine:
         else:
             self._draw_vertical_phases(c)
 
-        self._draw_tracks(c, layout)
         self._draw_card_slots(c)
         c.save()
 
@@ -1742,6 +2099,28 @@ class SheetLayoutEngine:
                         ('LEFTPADDING', (0, 0), (-1, -1), 0),
                         ('RIGHTPADDING', (0, 0), (-1, -1), 0),
                         ('TOPPADDING', (0, 0), (-1, -1), BORDERED_BOX_TITLE_SIZE / 2),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                    ]))
+                    story.append(t)
+
+            # Append Track flowables below bordered boxes
+            if hasattr(step, 'tracks'):
+                tracks = step.tracks.order_by('order')
+                for track in tracks:
+                    slots = list(track.slots.all())
+                    tf = TrackFlowable(
+                        track=track,
+                        slots=slots,
+                        total_width=avail_w - indent,
+                        body_style=self.step_body_style,
+                        faction_color=self.faction_color,
+                    )
+                    t = Table([['', tf]], colWidths=[indent, avail_w - indent])
+                    t.setStyle(TableStyle([
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                        ('TOPPADDING', (0, 0), (-1, -1), TRACK_TITLE_GAP),
                         ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
                     ]))
                     story.append(t)
@@ -2116,57 +2495,6 @@ class SheetLayoutEngine:
             y = BOTTOM_MARGIN
             c.drawImage(CARD_SLOT_IMG, x, y,
                         width=CARD_SLOT_W, height=CARD_SLOT_H, mask='auto')
-
-    def _draw_tracks(self, c, layout):
-        if not self.tracks:
-            return
-
-        for track_idx, track in enumerate(self.tracks):
-            slots = list(track.slots.all())
-            img_path = TOKEN_SLOT_IMG if track.type == 'token' else BUILDING_SLOT_IMG
-
-            if layout == 'horizontal':
-                self._draw_track_horizontal(c, track, slots, img_path, track_idx)
-            else:
-                self._draw_track_vertical(c, track, slots, img_path, track_idx)
-
-    def _draw_track_horizontal(self, c, track, slots, img_path, track_idx):
-        # Tracks stacked upward from BOTTOM_MARGIN
-        base_y = BOTTOM_MARGIN + (track_idx * TRACK_ROW_H)
-
-        # Track title
-        c.setFont('Luminari', 9)
-        c.setFillColor(HexColor('#000000'))
-        c.drawString(X_MARGIN, base_y + TRACK_SLOT_SIZE + 0.02 * inch, track.title)
-
-        # Draw slots horizontally
-        for i, slot in enumerate(slots):
-            x = X_MARGIN + i * (TRACK_SLOT_SIZE + TRACK_SLOT_GAP)
-            c.drawImage(img_path, x, base_y,
-                        width=TRACK_SLOT_SIZE, height=TRACK_SLOT_SIZE, mask='auto')
-            c.setFont('Baskerville', 6)
-            c.drawCentredString(x + TRACK_SLOT_SIZE / 2, base_y - 8, slot.title)
-
-    def _draw_track_vertical(self, c, track, slots, img_path, track_idx):
-        # Tracks on the right side panel
-        panel_x = PAGE_W - X_MARGIN - TRACK_PANEL_W
-
-        track_block_h = TRACK_SLOT_SIZE + 0.25 * inch
-        base_y = self.phases_top_y - (track_idx * track_block_h) - 0.2 * inch
-
-        # Track title
-        c.setFont('Luminari', 9)
-        c.setFillColor(HexColor('#000000'))
-        c.drawString(panel_x, base_y, track.title)
-
-        # Draw slots horizontally within the panel
-        for i, slot in enumerate(slots):
-            x = panel_x + i * (TRACK_SLOT_SIZE + TRACK_SLOT_GAP)
-            y = base_y - TRACK_SLOT_SIZE - 0.02 * inch
-            c.drawImage(img_path, x, y,
-                        width=TRACK_SLOT_SIZE, height=TRACK_SLOT_SIZE, mask='auto')
-            c.setFont('Baskerville', 6)
-            c.drawCentredString(x + TRACK_SLOT_SIZE / 2, y - 8, slot.title)
 
     def _header_height(self):
         return PHASE_HEADER_H

@@ -1687,7 +1687,7 @@ def list_view(request, slug=None):
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,
-        # 'theme_artists': theme_artists,
+        'page_artists': theme_artists,
         'used_languages': used_languages,
         'language_code': language_code,
         'selected_expansion': expansion,
@@ -3363,7 +3363,7 @@ class PNPAssetListView(ListView):
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
         context['background_pattern'] = background_pattern
-        # context['theme_artists'] = theme_artists
+        context['page_artists'] = theme_artists
 
         
         # Get the search query from the GET parameters
@@ -3444,6 +3444,7 @@ class MyPNPAssetListView(LoginRequiredMixin, ListView):
         context['background_image'] = background_image
         context['foreground_images'] = foreground_images
         context['background_pattern'] = background_pattern
+        context['page_artists'] = theme_artists
 
         # Add unpinned_assets as empty for consistency with the template
         context['unpinned_assets'] = PNPAsset.objects.none()
