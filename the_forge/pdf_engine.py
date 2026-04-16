@@ -69,14 +69,20 @@ BORDERED_BOX_TITLE_GAP = 4            # gap between border line and title text o
 TRACK_SLOT_SIZE = 0.67 * inch
 TRACK_SLOT_GAP = 0.06 * inch
 TRACK_ROW_TITLE_W = 0.75 * inch
-TRACK_COL_HEADER_H = 0.25 * inch
+TRACK_COL_HEADER_H = 0.30 * inch # Controls the header height for below and above track
 TRACK_TITLE_SIZE = 11
 TRACK_TITLE_GAP = 4
 TRACK_BODY_GAP = 4
-TRACK_HEADER_FONT_SIZE = 7
+TRACK_HEADER_FONT_SIZE = 16 # Controls the font size of the track headers 1VP, 2 etc.
 TRACK_ROW_TITLE_FONT_SIZE = 7
 TRACK_SLOT_BG_OPACITY = 0.12          # Opacity for slot backgrounds (faction color & images). Adjust to taste.
-TRACK_DIVIDER_W = 0.2 * inch
+TRACK_HEADER_BELOW_PAD = 4
+TRACK_HEADER_ICON_H = 0.30 * inch   # Controls how tall header icons are
+TRACK_DIVIDER_W = 0.05 * inch
+TRACK_OVERLAP_MAX_V_OFFSET = 0.65 * inch   # Max vertical zigzag shift for non-touching tokens
+TRACK_OVERLAP_MIN_H_STEP = 0.30 * inch     # Minimum horizontal step (below this = warning)
+TRACK_OVERLAP_DIVIDER_W = 0.02 * inch      # Reduced divider width when overlapping
+TRACK_OVERLAP_CLEARANCE = 0.03 * inch      # Minimum gap between circle edges when zigzagging
 
 # Card-Slot.png is 63.5mm x 88mm (standard poker card size)
 CARD_SLOT_W = 2.5 * inch
@@ -223,15 +229,17 @@ COST_ICON_PATHS = {
     'card_bird': os.path.join(STATIC_DIR, 'pdf/inline/bird_card.png'),
     'card_nonbird': os.path.join(STATIC_DIR, 'pdf/inline/other_cards.png'),
     # Action (default faction icon)
-    'action': os.path.join(STATIC_DIR, 'pdf/inline/default_faction_icon.png'),
+    'action': os.path.join(STATIC_DIR, 'pdf/inline/faction-lord of the hundreds.png'),
 }
 
 
-def _replace_inline_images(text):
+def _replace_inline_images(text, img_height=None):
     """Replace {{ keyword }} with ReportLab <img> tags.
 
     Expects already XML-escaped input. Unknown keywords are left as-is.
     """
+    h = img_height or INLINE_IMG_H
+
     def image_replacer(match):
         keyword = match.group(1).strip()
         img_path = INLINE_IMAGES_PDF.get(keyword)
@@ -241,8 +249,8 @@ def _replace_inline_images(text):
         pil_img = PILImage.open(img_path)
         iw, ih = pil_img.size
         aspect = iw / ih
-        img_w = INLINE_IMG_H * aspect
-        return f'<img src="{img_path}" width="{img_w:.1f}" height="{INLINE_IMG_H}" valign="middle"/>'
+        img_w = h * aspect
+        return f'<img src="{img_path}" width="{img_w:.1f}" height="{h}" valign="middle"/>'
 
     return re.sub(r"\{\{\s*([^}]+?)\s*\}\}", image_replacer, text)
 
@@ -580,13 +588,13 @@ class TrackFlowable(Flowable):
         self.num_cols = track.num_columns
         self.has_headers = bool(track.column_headers)
 
-        # Parse dividers: {col_index: label}
-        self.dividers = {}
+        # Parse dividers: set of column indices
+        self.dividers = set()
         if track.column_dividers:
-            for part in track.column_dividers.split('|'):
-                if ':' in part:
-                    col_str, label = part.split(':', 1)
-                    self.dividers[int(col_str)] = label
+            for col_str in track.column_dividers.split(','):
+                col_str = col_str.strip()
+                if col_str:
+                    self.dividers.add(int(col_str))
 
         # Count dividers that appear before each column to calculate offset
         self._divider_offsets = {}
@@ -597,6 +605,15 @@ class TrackFlowable(Flowable):
             self._divider_offsets[col_idx] = divider_count
 
         self.total_dividers = divider_count
+
+        # Track each column's position within its segment (resets at dividers)
+        self._pos_in_segment = {}
+        pos = 0
+        for col_idx in range(self.num_cols):
+            if col_idx in self.dividers:
+                pos = 0
+            self._pos_in_segment[col_idx] = pos
+            pos += 1
 
         # Calculate dimensions
         self._calc_dimensions()
@@ -627,13 +644,68 @@ class TrackFlowable(Flowable):
         self._slot_gap = TRACK_SLOT_GAP
         self._divider_w = TRACK_DIVIDER_W
 
-        # Grid dimensions
+        # Grid dimensions (initial, non-overlapping)
         divider_space = self.total_dividers * self._divider_w
         self._grid_w = (self.num_cols * self._slot_size +
                         (self.num_cols - 1) * self._slot_gap +
                         divider_space)
+
+        # Overlap detection (token tracks only)
+        available_w = self.total_width - self._row_title_w
+        num_segments = self.total_dividers + 1
+        cols_that_step = self.num_cols - num_segments  # columns after the first in each segment
+
+        if (self.track.type == 'token' and self._grid_w > available_w
+                and cols_that_step > 0):
+            self._is_overlapping = True
+            effective_divider_w = TRACK_OVERLAP_DIVIDER_W
+            h_step = ((available_w - num_segments * self._slot_size
+                       - self.total_dividers * effective_divider_w)
+                      / cols_that_step)
+            if h_step < TRACK_OVERLAP_MIN_H_STEP:
+                print(f"WARNING: Token track '{self.track.title}' cannot fit even with "
+                      f"maximum overlap. h_step={h_step / inch:.3f}in, "
+                      f"minimum={TRACK_OVERLAP_MIN_H_STEP / inch:.3f}in.")
+                h_step = TRACK_OVERLAP_MIN_H_STEP
+            self._h_step = h_step
+            # Vertical offset so circles don't touch: dy = sqrt(d^2 - dx^2) + clearance
+            import math
+            d = self._slot_size + TRACK_OVERLAP_CLEARANCE  # effective diameter with clearance
+            if h_step < d:
+                self._v_zigzag = math.sqrt(d * d - h_step * h_step)
+            else:
+                self._v_zigzag = 0
+            self._v_zigzag = min(self._v_zigzag, TRACK_OVERLAP_MAX_V_OFFSET)
+        else:
+            self._is_overlapping = False
+            self._h_step = self._slot_size + self._slot_gap
+            self._v_zigzag = 0
+            effective_divider_w = self._divider_w
+
+        # Precompute column x-positions
+        self._col_positions = []
+        x = self._row_title_w
+        for col_idx in range(self.num_cols):
+            if col_idx in self.dividers:
+                x += effective_divider_w
+            self._col_positions.append(x)
+            if col_idx < self.num_cols - 1:
+                if self._is_overlapping and (col_idx + 1) not in self.dividers:
+                    x += self._h_step
+                elif self._is_overlapping:
+                    x += self._slot_size
+                else:
+                    x += self._slot_size + self._slot_gap
+
+        # Recalculate grid width from actual positions
+        self._grid_w = (self._col_positions[-1] + self._slot_size
+                        - self._row_title_w) if self.num_cols > 0 else 0
+
         self._grid_h = (self.num_rows * self._slot_size +
-                        max(0, self.num_rows - 1) * self._slot_gap)
+                        max(0, self.num_rows - 1) * self._slot_gap +
+                        self._v_zigzag)
+
+        # Headers stay at a fixed height (no zigzag), no extra padding needed
 
         self._width = self.total_width
         self._height = self._title_h + self._body_h + self._header_h + self._grid_h
@@ -642,11 +714,14 @@ class TrackFlowable(Flowable):
         return self._width, self._height
 
     def _col_x(self, col_idx):
-        """X position for a column, accounting for row titles and dividers."""
-        divider_offset = self._divider_offsets.get(col_idx, 0) * self._divider_w
-        return (self._row_title_w +
-                col_idx * (self._slot_size + self._slot_gap) +
-                divider_offset)
+        """X position for a column, accounting for row titles, dividers, and overlap."""
+        return self._col_positions[col_idx]
+
+    def _col_y_offset(self, col_idx):
+        """Vertical zigzag offset for overlapping token tracks."""
+        if not self._is_overlapping:
+            return 0
+        return self._v_zigzag if (self._pos_in_segment[col_idx] % 2 == 1) else 0
 
     def _row_y(self, row_idx, top_of_grid):
         """Y position (bottom of slot) for a row, from top of grid downward."""
@@ -678,58 +753,29 @@ class TrackFlowable(Flowable):
             para.drawOn(c, 0, cursor_y - para_h)
             cursor_y -= para_h + TRACK_BODY_GAP
 
-        # --- Column headers ---
-        if self.has_headers:
-            headers = self.track.column_headers.split('|')
-            cost_keyword = self.track.column_cost_type if self.track.column_cost_type else None
-
-            for col_idx in range(self.num_cols):
-                x = self._col_x(col_idx)
-                slot_center_x = x + self._slot_size / 2
-                label = headers[col_idx] if col_idx < len(headers) else ''
-
-                if cost_keyword:
-                    # Draw cost icon above the label
-                    img_path = INLINE_IMAGES_PDF.get(cost_keyword)
-                    if img_path and os.path.exists(img_path):
-                        from PIL import Image as PILImage
-                        pil_img = PILImage.open(img_path)
-                        iw, ih = pil_img.size
-                        aspect = iw / ih
-                        icon_h = self._header_h * 0.5
-                        icon_w = icon_h * aspect
-                        icon_x = slot_center_x - icon_w / 2
-                        icon_y = cursor_y - icon_h
-                        c.drawImage(img_path, icon_x, icon_y,
-                                    width=icon_w, height=icon_h, mask='auto')
-                        # Label below icon
-                        c.setFont('Baskerville', TRACK_HEADER_FONT_SIZE)
-                        c.setFillColorRGB(0, 0, 0)
-                        c.drawCentredString(slot_center_x, icon_y - TRACK_HEADER_FONT_SIZE - 1, label)
-                else:
-                    # Just the label, centered vertically in header area
-                    c.setFont('Baskerville', TRACK_HEADER_FONT_SIZE)
-                    c.setFillColorRGB(0, 0, 0)
-                    label_y = cursor_y - self._header_h / 2 - TRACK_HEADER_FONT_SIZE * 0.35
-                    c.drawCentredString(slot_center_x, label_y, label)
-
+        # --- Column headers (above) ---
+        headers_above = self.has_headers and getattr(self.track, 'header_position', 'above') == 'above'
+        if headers_above:
+            self._draw_column_headers(c, cursor_y)
             cursor_y -= self._header_h
 
         # Top of the slot grid
         grid_top_y = cursor_y
+        headers_below = self.has_headers and getattr(self.track, 'header_position', 'above') == 'below'
 
         # --- Section dividers ---
-        for col_idx, label in self.dividers.items():
-            div_x = self._col_x(col_idx) - self._divider_w / 2 - self._slot_gap / 2
-            # Vertical line spanning the grid
+        for col_idx in self.dividers:
+            if self._is_overlapping:
+                prev_right = self._col_x(col_idx - 1) + self._slot_size
+                this_left = self._col_x(col_idx)
+                div_x = (prev_right + this_left) / 2
+            else:
+                div_x = self._col_x(col_idx) - self._divider_w / 2 - self._slot_gap / 2
+            div_top = grid_top_y + (self._header_h if headers_above else 0)
+            div_bottom = grid_top_y - self._grid_h - (TRACK_HEADER_BELOW_PAD + self._header_h if headers_below else 0)
             c.setStrokeColorRGB(0, 0, 0)
             c.setLineWidth(1.0)
-            c.line(div_x, grid_top_y, div_x, grid_top_y - self._grid_h)
-            # Divider label centered above the line
-            c.setFont('Baskerville-Bold', 9)
-            c.setFillColorRGB(0, 0, 0)
-            label_y = grid_top_y + 2
-            c.drawCentredString(div_x, label_y, label)
+            c.line(div_x, div_top, div_x, div_bottom)
 
         # --- Row titles ---
         for row_idx in range(self.num_rows):
@@ -746,10 +792,70 @@ class TrackFlowable(Flowable):
             for col_idx in range(self.num_cols):
                 slot = self.grid.get(row_idx, {}).get(col_idx)
                 x = self._col_x(col_idx)
-                y = self._row_y(row_idx, grid_top_y)
+                y = self._row_y(row_idx, grid_top_y) - self._col_y_offset(col_idx)
                 self._draw_slot(c, x, y, slot)
 
+        # --- Column headers (below) ---
+        if headers_below:
+            below_y = grid_top_y - self._grid_h - TRACK_HEADER_BELOW_PAD
+            self._draw_column_headers(c, below_y)
+
         c.restoreState()
+
+    def _draw_column_headers(self, c, top_y):
+        """Draw column headers starting from top_y downward."""
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+
+        headers = self.track.column_headers.split('|')
+        cost_keyword = self.track.column_cost_type if self.track.column_cost_type else None
+
+        for col_idx in range(self.num_cols):
+            x = self._col_x(col_idx)
+            slot_center_x = x + self._slot_size / 2
+            label = headers[col_idx] if col_idx < len(headers) else ''
+
+            if cost_keyword:
+                # Draw cost icon with label text below it
+                img_path = INLINE_IMAGES_PDF.get(cost_keyword)
+                if img_path and os.path.exists(img_path):
+                    from PIL import Image as PILImage
+                    pil_img = PILImage.open(img_path)
+                    iw, ih = pil_img.size
+                    aspect = iw / ih
+                    icon_h = TRACK_HEADER_ICON_H
+                    icon_w = icon_h * aspect
+                    icon_x = slot_center_x - icon_w / 2
+                    icon_y = top_y - icon_h
+                    c.drawImage(img_path, icon_x, icon_y,
+                                width=icon_w, height=icon_h, mask='auto')
+                    # Label below icon
+                    c.setFont('Baskerville-Bold', TRACK_HEADER_FONT_SIZE)
+                    c.setFillColorRGB(0, 0, 0)
+                    c.drawCentredString(slot_center_x, icon_y - TRACK_HEADER_FONT_SIZE - 1, label)
+            else:
+                # Check if label contains inline image syntax
+                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H)
+                if '<img' in processed:
+                    # Render as Paragraph to support inline images
+                    header_style = ParagraphStyle(
+                        'TrackHeader', parent=self.body_style,
+                        fontName='Baskerville-Bold',
+                        fontSize=TRACK_HEADER_FONT_SIZE,
+                        leading=TRACK_HEADER_FONT_SIZE + 2,
+                        alignment=TA_CENTER,
+                    )
+                    para = Paragraph(processed, header_style)
+                    para_w, para_h = para.wrap(self._slot_size, 9999)
+                    para_x = x
+                    para_y = top_y - self._header_h / 2 - para_h / 2
+                    para.drawOn(c, para_x, para_y)
+                else:
+                    # Plain text label
+                    c.setFont('Baskerville-Bold', TRACK_HEADER_FONT_SIZE)
+                    c.setFillColorRGB(0, 0, 0)
+                    label_y = top_y - self._header_h / 2 - TRACK_HEADER_FONT_SIZE * 0.35
+                    c.drawCentredString(slot_center_x, label_y, label)
 
     def _draw_slot(self, c, x, y, slot):
         """Draw a single slot at position (x, y) bottom-left."""

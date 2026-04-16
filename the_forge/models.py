@@ -202,7 +202,14 @@ class CardboardTrack(models.Model):
     )
     column_dividers = models.CharField(
         max_length=200, blank=True, default='',
-        help_text='Section dividers as "col:label" pairs, e.g. "2:1|5:2|7:3"'
+        help_text='Comma-separated column indices for dividers, e.g. "2,5,7"'
+    )
+    class HeaderPosition(models.TextChoices):
+        ABOVE = 'above'
+        BELOW = 'below'
+    header_position = models.CharField(
+        max_length=10, choices=HeaderPosition.choices, default=HeaderPosition.ABOVE,
+        help_text='Display column headers above or below the slots'
     )
     background_image = models.ImageField(upload_to='forge/track_backgrounds/', blank=True, null=True)
 
@@ -215,17 +222,13 @@ class CardboardTrack(models.Model):
                     'column_headers': f'Expected {self.num_columns} headers, got {len(headers)}.'
                 })
         if self.column_dividers:
-            for part in self.column_dividers.split('|'):
-                if ':' not in part:
-                    raise ValidationError({
-                        'column_dividers': f'Invalid format "{part}". Use "col:label" pairs.'
-                    })
-                col_str, _ = part.split(':', 1)
+            for col_str in self.column_dividers.split(','):
+                col_str = col_str.strip()
                 try:
                     col = int(col_str)
                 except ValueError:
                     raise ValidationError({
-                        'column_dividers': f'Column index "{col_str}" is not a number.'
+                        'column_dividers': f'"{col_str}" is not a number.'
                     })
                 if col >= self.num_columns:
                     raise ValidationError({

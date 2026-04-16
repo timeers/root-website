@@ -115,9 +115,9 @@ def make_tracks_qs(tracks_list):
 damaged_box = SimpleNamespace(
     title="Damaged", body="_Cannot be used until repaired._", height="small", order=1
 )
-long_text_box = SimpleNamespace(
-    title="Abilities", body="This is a **medium** box with some longer text to test wrapping. You may ##Battle## in any clearing where you have warriors. Deal extra hits equal to your **fortifications**.", height="medium", order=1
-)
+# long_text_box = SimpleNamespace(
+#     title="Abilities", body="This is a **medium** box with some longer text to test wrapping. You may ##Battle## in any clearing where you have warriors. Deal extra hits equal to your **fortifications**.", height="medium", order=1
+# )
 large_box = SimpleNamespace(
     title="Dominance", body="**Win Condition:** You win if you rule 3 opposite corners at the start of your Birdsong.\n\nThis replaces your normal victory condition. You cannot score victory points while this card is active.\n\n_Once played, this card cannot be removed._\n\nAdditional text to test overflow behavior in the large box size. This should be enough text to demonstrate the clipping and ellipsis functionality.", height="medium", order=1
 )
@@ -131,23 +131,28 @@ gardens_slots = [
     SimpleNamespace(number=4, row=0, column=3, row_title="", content="fox|rabbit|mouse|4VP", background_image=None),
 ]
 gardens_track = SimpleNamespace(
-    title="Gardens", type="building", body=None, order=0,
-    num_columns=4, column_headers="+0|+2|+3|+4", column_cost_type="",
-    column_dividers="", background_image=None,
+    title="Gardens", type="building", body="_Place in a clearing you rule with no other gardens._", order=0,
+    num_columns=4, column_headers="+0|{{ 1VP }}|{{ mouse }}|+4", column_cost_type="",
+    column_dividers="2", background_image=None, header_position="above",
     slots=SimpleNamespace(all=lambda: gardens_slots),
 )
 
-# Roosts track: 1 row x 4 columns with token slots
+# Roosts track: 1 row x 7 columns with token slots (tests overlap)
 roosts_slots = [
     SimpleNamespace(number=1, row=0, column=0, row_title="", content="", background_image=None),
     SimpleNamespace(number=2, row=0, column=1, row_title="", content="1VP", background_image=None),
     SimpleNamespace(number=3, row=0, column=2, row_title="", content="2VP", background_image=None),
     SimpleNamespace(number=4, row=0, column=3, row_title="", content="3VP", background_image=None),
+    SimpleNamespace(number=5, row=0, column=4, row_title="", content="4VP", background_image=None),
+    SimpleNamespace(number=6, row=0, column=5, row_title="", content="5VP", background_image=None),
+    SimpleNamespace(number=7, row=0, column=6, row_title="", content="5VP", background_image=None),
+    SimpleNamespace(number=7, row=0, column=6, row_title="", content="5VP", background_image=None),
+
 ]
 roosts_track = SimpleNamespace(
     title="Roosts", type="token", body=None, order=1,
-    num_columns=4, column_headers="", column_cost_type="",
-    column_dividers="", background_image=None,
+    num_columns=8, column_headers="{{ 1VP }}|{{ cards }}|{{ bird }}|4VP|{{ 1VP }}|{{ cards }}|{{ bird }}", column_cost_type="",
+    column_dividers="2", background_image=None, header_position="above",
     slots=SimpleNamespace(all=lambda: roosts_slots),
 )
 
@@ -170,7 +175,7 @@ for s in steps:
     s.boxes = make_boxes_qs([])
     s.tracks = make_tracks_qs([])
 steps[2].boxes = make_boxes_qs([damaged_box])
-steps[5].boxes = make_boxes_qs([long_text_box])
+steps[5].boxes = make_boxes_qs([])
 steps[9].boxes = make_boxes_qs([large_box])
 
 # Assign tracks to specific steps
@@ -198,7 +203,7 @@ single_section = SimpleNamespace(
     body=None,
     card_slots=SimpleNamespace(all=lambda: []),
 )
-decree_sections = [single_section]  # decree_section removed temporarily
+decree_sections = []  # single_section, decree_section removed temporarily
 
 # Fake faction (ForgedFaction fields)
 faction = SimpleNamespace(
