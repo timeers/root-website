@@ -75,8 +75,9 @@ TRACK_TITLE_GAP = 4
 TRACK_BODY_GAP = 4
 TRACK_HEADER_FONT_SIZE = 16 # Controls the font size of the track headers 1VP, 2 etc.
 TRACK_ROW_TITLE_FONT_SIZE = 7
-TRACK_SLOT_BG_OPACITY = 0.12          # Opacity for slot backgrounds (faction color & images). Adjust to taste.
+TRACK_SLOT_BG_OPACITY = 0.20          # Opacity for slot backgrounds (faction color & images). Adjust to taste.
 TRACK_HEADER_BELOW_PAD = 4
+TRACK_BOTTOM_PAD = 4
 TRACK_HEADER_ICON_H = 0.30 * inch   # Controls how tall header icons are
 TRACK_DIVIDER_W = 0.05 * inch
 TRACK_OVERLAP_MAX_V_OFFSET = 0.65 * inch   # Max vertical zigzag shift for non-touching tokens
@@ -606,14 +607,10 @@ class TrackFlowable(Flowable):
 
         self.total_dividers = divider_count
 
-        # Track each column's position within its segment (resets at dividers)
+        # Track each column's position for zigzag (continuous across dividers)
         self._pos_in_segment = {}
-        pos = 0
         for col_idx in range(self.num_cols):
-            if col_idx in self.dividers:
-                pos = 0
-            self._pos_in_segment[col_idx] = pos
-            pos += 1
+            self._pos_in_segment[col_idx] = col_idx
 
         # Calculate dimensions
         self._calc_dimensions()
@@ -662,10 +659,9 @@ class TrackFlowable(Flowable):
             h_step = ((available_w - num_segments * self._slot_size
                        - self.total_dividers * effective_divider_w)
                       / cols_that_step)
+            self._overflow_warning = False
             if h_step < TRACK_OVERLAP_MIN_H_STEP:
-                print(f"WARNING: Token track '{self.track.title}' cannot fit even with "
-                      f"maximum overlap. h_step={h_step / inch:.3f}in, "
-                      f"minimum={TRACK_OVERLAP_MIN_H_STEP / inch:.3f}in.")
+                self._overflow_warning = True
                 h_step = TRACK_OVERLAP_MIN_H_STEP
             self._h_step = h_step
             # Vertical offset so circles don't touch: dy = sqrt(d^2 - dx^2) + clearance
@@ -678,6 +674,7 @@ class TrackFlowable(Flowable):
             self._v_zigzag = min(self._v_zigzag, TRACK_OVERLAP_MAX_V_OFFSET)
         else:
             self._is_overlapping = False
+            self._overflow_warning = False
             self._h_step = self._slot_size + self._slot_gap
             self._v_zigzag = 0
             effective_divider_w = self._divider_w
@@ -728,6 +725,10 @@ class TrackFlowable(Flowable):
         return top_of_grid - (row_idx + 1) * self._slot_size - row_idx * self._slot_gap
 
     def draw(self):
+        if getattr(self, '_overflow_warning', False):
+            print(f"WARNING: Token track '{self.track.title}' cannot fit even with "
+                  f"maximum overlap. h_step={self._h_step / inch:.3f}in, "
+                  f"minimum={TRACK_OVERLAP_MIN_H_STEP / inch:.3f}in.")
         c = self.canv
         c.saveState()
 
@@ -1976,7 +1977,7 @@ class SheetLayoutEngine:
                     faction_color=self.faction_color,
                 )
                 _, track_h = tf.wrap(width - text_col_w, 9999)
-                table_h += track_h + TRACK_TITLE_GAP
+                table_h += track_h + TRACK_TITLE_GAP + TRACK_BOTTOM_PAD
 
         return table_h
 
@@ -2044,7 +2045,7 @@ class SheetLayoutEngine:
             self.measure_phase_height(self.phases_grouped.get(pk, []), content_w, header_h=header_h)
             for pk in phase_order
         )
-        box_h = total_content_h + (n - 1) * PHASE_BOX_V_GAP + PHASE_BOX_PAD_TOP + PHASE_BOX_PAD_BOTTOM
+        box_h = total_content_h + n * 4 + (n - 1) * PHASE_BOX_V_GAP + PHASE_BOX_PAD_TOP + PHASE_BOX_PAD_BOTTOM
         return box_w, box_h, content_w
 
     def _draw_vertical_phases(self, c):
@@ -2086,12 +2087,14 @@ class SheetLayoutEngine:
         for i, phase_key in enumerate(phase_order):
             steps = self.phases_grouped.get(phase_key, [])
             content_h = self.measure_phase_height(steps, content_w, header_h=header_h)
-            frame_y = cursor_y - content_h
+            # Add a small buffer so the last flowable isn't dropped by the frame
+            frame_h = content_h + 4
+            frame_y = cursor_y - frame_h
             # Clamp frame to stay within the phase box
             if frame_y < box_y:
                 frame_y = box_y
-                content_h = cursor_y - box_y
-            frame = Frame(content_x, frame_y, content_w, content_h,
+                frame_h = cursor_y - box_y
+            frame = Frame(content_x, frame_y, content_w, frame_h,
                          leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0,
                          showBoundary=0)
             story = self._build_phase_story(phase_key, steps, content_width=content_w)
@@ -2227,7 +2230,7 @@ class SheetLayoutEngine:
                         ('LEFTPADDING', (0, 0), (-1, -1), 0),
                         ('RIGHTPADDING', (0, 0), (-1, -1), 0),
                         ('TOPPADDING', (0, 0), (-1, -1), TRACK_TITLE_GAP),
-                        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), TRACK_BOTTOM_PAD),
                     ]))
                     story.append(t)
 
