@@ -54,6 +54,18 @@ PHASE_BOX_V_GAP = 0.01 * inch             # spacing between stacked phases in ve
 PHASE_BOX_PAD_TOP = 0.12 * inch          # padding above phase content in phase box
 PHASE_BOX_PAD_BOTTOM = 0.06 * inch     # padding below phase content in phase box
 
+# ContentBox layout
+CONTENT_BOX_GAP = 0.10 * inch              # gap between adjacent content boxes
+CONTENT_BOX_TITLE_SIZE = 13                # Luminari font size for content box title
+CONTENT_BOX_TITLE_PAD_TOP = 6             # padding above title text inside box
+CONTENT_BOX_TITLE_PAD_BOTTOM = 4          # padding below title text
+CONTENT_BOX_TEXT_SIZE = 9                  # Baskerville font size for content box body text
+CONTENT_BOX_TEXT_PAD_BOTTOM = 4           # padding below text before steps
+CONTENT_BOX_PAD_TOP = PHASE_BOX_PAD_TOP
+CONTENT_BOX_PAD_BOTTOM = PHASE_BOX_PAD_BOTTOM
+CONTENT_BOX_INTERNAL_MARGIN = PHASE_INTERNAL_MARGIN
+CONTENT_BOX_MIN_W = 2.0 * inch            # minimum content box width
+
 # BorderedBox layout
 BORDERED_BOX_HEIGHTS = {
     'small': 0.85 * inch,
@@ -69,6 +81,7 @@ BORDERED_BOX_TITLE_GAP = 4            # gap between border line and title text o
 TRACK_SLOT_SIZE = 0.67 * inch
 TRACK_SLOT_GAP = 0.06 * inch
 TRACK_ROW_TITLE_W = 0.75 * inch
+TRACK_ROW_TITLE_VERTICAL_W = 0.22 * inch  # narrower column for vertically rotated row titles
 TRACK_COL_HEADER_H = 0.30 * inch # Controls the header height for below and above track
 TRACK_TITLE_SIZE = 11
 TRACK_TITLE_GAP = 4
@@ -101,8 +114,82 @@ DECREE_SLOT_Y_OFFSET = 3.9 * inch  # distance from top of decree image to slot t
 DECREE_SLOT_MIN_GAP = 0.01 * inch  # minimum spacing between/around slots
 DECREE_SLOT_TITLE_OFFSET = 3.3 * inch  # distance from top of slot image to title text
 
+# Card pile layout (bottom-right stacks of cards)
+CARD_PILE_TITLE_TOP_OFFSET = 0.4 * inch        # top of title text from top of card image (when pile fits fully on page)
+CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW = 0.10 * inch  # tighter offset when pile overflows off the page
+CARD_PILE_TITLE_TO_BODY_GAP = 0.0 * inch       # vertical gap between bottom of title and top of body
+CARD_PILE_PADDING = 0.18 * inch                 # horizontal text padding inside card
+CARD_PILE_GAP = 0.20 * inch                     # horizontal margin between adjacent card piles
+CARD_PILE_TITLE_SIZE = 20                       # title font size (Luminari)
+
 # Image height for inline images like card draw and VP
 INLINE_IMG_H = 14.5
+
+# --- FactionBack layout constants ---
+MANIFEST_BOX_H = 2.4 * inch
+MANIFEST_TITLE_SIZE = 18
+MANIFEST_TITLE_CHAR_SPACE = 0.3        # extra spacing (pts) between letters of the manifest title
+MANIFEST_COLUMN_HEADER_SIZE = 14
+MANIFEST_COLUMN_HEADER_CHAR_SPACE = 0.3  # extra spacing (pts) between letters of column headers
+MANIFEST_PIECE_LABEL_SIZE = 11
+MANIFEST_INNER_PAD = 0.0 * inch
+MANIFEST_DIVIDER_INSET_TOP = 0.35 * inch      # distance from top of band to top of column divider
+MANIFEST_DIVIDER_INSET_BOTTOM = 0.05 * inch   # distance from bottom of band to bottom of column divider
+MANIFEST_DIVIDER_W = 1.25                       # stroke width (pts) of the vertical column dividers
+MANIFEST_ICON_MAX_H = 0.55 * inch
+MANIFEST_ICON_MAX_W = 0.9 * inch
+MANIFEST_PIECE_GAP = 0.10 * inch
+MANIFEST_PIECE_ICON_TEXT_GAP = 6              # gap (pts) between piece icon and its label
+MANIFEST_PIECE_LABEL_H_PAD = 4                # horizontal padding on each side of piece label within column
+MANIFEST_PIECE_V_PAD = 3                      # vertical padding on top/bottom of each piece within its slot
+MANIFEST_PIECE_COL_H_PAD = 5                  # horizontal gap between pieces and the manifest border/dividers
+MANIFEST_PIECE_NAME_LEADING = 1.05            # line-height multiplier when piece name wraps
+
+ATTR_BLOCK_TOP_PAD = 0.08 * inch       # padding above first attribute row
+ATTR_LABEL_SIZE = 13                    # italic label ("Complexity") font size
+ATTR_LABEL_CHAR_SPACE = 0.3             # extra spacing (pts) between letters of the label
+ATTR_LABEL_GAP = 8.0                    # gap (pts) between label and bar
+ATTR_BAR_H = 0.32 * inch                # height of the fill bar
+ATTR_BAR_BORDER_LEFT_W = 1.2            # black left border stroke width (like .bar-container)
+ATTR_BAR_BORDER_LEFT_PAD = 0.6          # gap between border and bar start
+ATTR_LABEL_BORDER_LEFT_PAD = 2.3        # gap between border and label start
+ATTR_BAR_FILL_RATIOS = {                # matches CSS .bar-background-{low/moderate/high/none}
+    'N': 0.02,
+    'L': 0.28,
+    'M': 0.59,
+    'H': 0.98,
+}
+ATTR_BAR_LEVEL_LABELS = {
+    'N': 'NONE',
+    'L': 'LOW',
+    'M': 'MODERATE',
+    'H': 'HIGH',
+}
+ATTR_BAR_LEVEL_FONT_SIZE = 9.5            # font size of "HIGH"/"MODERATE" text inside bar
+ATTR_BAR_LEVEL_CHAR_SPACE = 0.45         # extra spacing (pts) between letters of the level label
+ATTR_BAR_LEVEL_TEXT_X_PAD = 5           # left padding of level label inside bar
+ATTR_BAR_LEVEL_TEXT_COLOR_LIGHT = '#FFFFFF'   # text color when white is legible on fill
+ATTR_BAR_LEVEL_TEXT_COLOR_DARK = '#000000'    # fallback when white is not legible
+ATTR_BAR_LEVEL_N_TEXT_COLOR = '#000000'       # N always uses black (bar is barely filled)
+ATTR_ROW_GAP = 0.14 * inch              # vertical gap between attribute rows
+ATTR_WHITE_TEXT_MIN_CONTRAST = 1.9      # mirrors JS isWhiteTextLegible threshold (large text)
+
+SETUP_TITLE_SIZE = 18
+SETUP_TITLE_GAP = 0.05 * inch
+SETUP_MARKER_SIZE = 0.32 * inch
+SETUP_MARKER_TEXT_GAP = 0.08 * inch
+SETUP_STEP_GAP = 0.08 * inch
+
+HOWTOPLAY_TITLE_SIZE = 18
+HOWTOPLAY_TITLE_GAP = 0.05 * inch
+HOWTOPLAY_BODY_SIZE = 10
+
+BACK_X_MARGIN = 0.7 * inch             # left/right page margin for the FactionBack
+BACK_TOP_MARGIN = 0.75 * inch             # top page margin for the FactionBack
+BACK_BOTTOM_MARGIN = 0.15 * inch         # bottom page margin for the FactionBack
+BACK_BG_SCREEN_OPACITY = 0.70            # white screen opacity applied over the background to lighten it
+BACK_COLUMN_GAP = 0.25 * inch
+LEFT_COL_W_RATIO = 0.48
 
 # StepAction layout
 ACTION_ITEM_H = 0.26 * inch       # item icon height (width scales proportionally)
@@ -143,6 +230,7 @@ TOKEN_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/TokenSlot.png')
 BUILDING_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/BuildingSlot.png')
 DECREE_DIR = os.path.join(STATIC_DIR, 'pdf/decree')
 PHASE_BOX_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Phase_Box.svg')
+MEEPLE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/meeple.svg')
 
 PHASE_HEADERS = {
     'birdsong': {
@@ -260,6 +348,7 @@ def format_step_markup(text):
     """Convert semi-markdown to ReportLab Paragraph XML.
 
     ##text## -> Baskerville 15pt (title size)
+    ~~text~~ -> Luminari (decorative font)
     **text** -> bold
     _text_   -> italic
     {{ key }} -> inline image (safe fallback if no match)
@@ -275,6 +364,9 @@ def format_step_markup(text):
 
     # ##text## -> title-size font
     result = re.sub(r"##(.+?)##", r'<font name="Baskerville" size="15">\1</font>', result)
+
+    # ~~text~~ -> Luminari (decorative)
+    result = re.sub(r"~~(.+?)~~", r'<font name="Luminari">\1</font>', result)
 
     # **text** -> bold
     result = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", result)
@@ -589,6 +681,10 @@ class TrackFlowable(Flowable):
         self.num_cols = track.num_columns
         self.has_headers = bool(track.column_headers)
 
+        # header_title forces row title column allocation
+        if getattr(track, 'header_title', '') and track.header_title:
+            self.has_row_titles = True
+
         # Parse dividers: set of column indices
         self.dividers = set()
         if track.column_dividers:
@@ -634,7 +730,11 @@ class TrackFlowable(Flowable):
         self._header_h = TRACK_COL_HEADER_H if self.has_headers else 0
 
         # Row title width
-        self._row_title_w = TRACK_ROW_TITLE_W if self.has_row_titles else 0
+        self._vertical_row_titles = (getattr(self.track, 'row_title_orientation', 'horizontal') == 'vertical')
+        if self.has_row_titles:
+            self._row_title_w = TRACK_ROW_TITLE_VERTICAL_W if self._vertical_row_titles else TRACK_ROW_TITLE_W
+        else:
+            self._row_title_w = 0
 
         # Slot size — fixed at design size
         self._slot_size = TRACK_SLOT_SIZE
@@ -779,14 +879,49 @@ class TrackFlowable(Flowable):
             c.line(div_x, div_top, div_x, div_bottom)
 
         # --- Row titles ---
-        for row_idx in range(self.num_rows):
-            title = self.row_titles.get(row_idx, '')
-            if title:
-                slot_y = self._row_y(row_idx, grid_top_y)
-                title_y = slot_y + self._slot_size / 2 - TRACK_ROW_TITLE_FONT_SIZE * 0.35
-                c.setFont('Luminari', TRACK_ROW_TITLE_FONT_SIZE)
-                c.setFillColorRGB(0, 0, 0)
-                c.drawRightString(self._row_title_w - 4, title_y, title)
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_RIGHT, TA_CENTER
+        if self._vertical_row_titles:
+            row_title_style = ParagraphStyle(
+                'TrackRowTitle', parent=self.body_style,
+                fontName='Baskerville',
+                fontSize=TRACK_ROW_TITLE_FONT_SIZE,
+                leading=TRACK_ROW_TITLE_FONT_SIZE + 2,
+                alignment=TA_CENTER,
+            )
+            for row_idx in range(self.num_rows):
+                title = self.row_titles.get(row_idx, '')
+                if title:
+                    slot_y = self._row_y(row_idx, grid_top_y)
+                    title_markup = format_step_markup(title)
+                    para = Paragraph(title_markup, row_title_style)
+                    # Wrap at slot height so text flows along the rotated axis
+                    para_w, para_h = para.wrap(self._slot_size, 9999)
+                    c.saveState()
+                    # Rotate 90° CCW: text reads bottom-to-top
+                    center_x = self._row_title_w / 2
+                    center_y = slot_y + self._slot_size / 2
+                    c.translate(center_x, center_y)
+                    c.rotate(90)
+                    para.drawOn(c, -para_w / 2, -para_h / 2)
+                    c.restoreState()
+        else:
+            row_title_style = ParagraphStyle(
+                'TrackRowTitle', parent=self.body_style,
+                fontName='Baskerville',
+                fontSize=TRACK_ROW_TITLE_FONT_SIZE,
+                leading=TRACK_ROW_TITLE_FONT_SIZE + 2,
+                alignment=TA_RIGHT,
+            )
+            for row_idx in range(self.num_rows):
+                title = self.row_titles.get(row_idx, '')
+                if title:
+                    slot_y = self._row_y(row_idx, grid_top_y)
+                    title_markup = format_step_markup(title)
+                    para = Paragraph(title_markup, row_title_style)
+                    para_w, para_h = para.wrap(self._row_title_w - 4, 9999)
+                    para_y = slot_y + self._slot_size / 2 - para_h / 2
+                    para.drawOn(c, 0, para_y)
 
         # --- Slots ---
         for row_idx in range(self.num_rows):
@@ -806,7 +941,41 @@ class TrackFlowable(Flowable):
     def _draw_column_headers(self, c, top_y):
         """Draw column headers starting from top_y downward."""
         from reportlab.lib.styles import ParagraphStyle
-        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+
+        # Draw header title in row-title column area
+        header_title = getattr(self.track, 'header_title', '') or ''
+        if header_title and self._row_title_w > 0:
+            title_markup = format_step_markup(header_title)
+            if self._vertical_row_titles:
+                title_style = ParagraphStyle(
+                    'TrackHeaderTitle', parent=self.body_style,
+                    fontName='Baskerville',
+                    fontSize=TRACK_ROW_TITLE_FONT_SIZE,
+                    leading=TRACK_ROW_TITLE_FONT_SIZE + 2,
+                    alignment=TA_CENTER,
+                )
+                para = Paragraph(title_markup, title_style)
+                para_w, para_h = para.wrap(self._header_h, 9999)
+                c.saveState()
+                center_x = self._row_title_w / 2
+                center_y = top_y - self._header_h / 2
+                c.translate(center_x, center_y)
+                c.rotate(90)
+                para.drawOn(c, -para_w / 2, -para_h / 2)
+                c.restoreState()
+            else:
+                title_style = ParagraphStyle(
+                    'TrackHeaderTitle', parent=self.body_style,
+                    fontName='Baskerville',
+                    fontSize=TRACK_ROW_TITLE_FONT_SIZE,
+                    leading=TRACK_ROW_TITLE_FONT_SIZE + 2,
+                    alignment=TA_RIGHT,
+                )
+                para = Paragraph(title_markup, title_style)
+                para_w, para_h = para.wrap(self._row_title_w - 4, 9999)
+                para_y = top_y - self._header_h / 2 - para_h / 2
+                para.drawOn(c, 0, para_y)
 
         headers = self.track.column_headers.split('|')
         cost_keyword = self.track.column_cost_type if self.track.column_cost_type else None
@@ -1398,12 +1567,41 @@ class CardGroupFlowable(Flowable):
         c.restoreState()
 
 
+def _rects_overlap(x1, y1, w1, h1, x2, y2, w2, h2):
+    """Return True if two axis-aligned rectangles overlap."""
+    return not (x1 + w1 <= x2 or x2 + w2 <= x1 or y1 + h1 <= y2 or y2 + h2 <= y1)
+
+
+def _is_white_text_legible(hex_color, min_ratio=1.9):
+    """Mirror of the JS isWhiteTextLegible() in faction_attributes.html.
+
+    Returns True if white text on hex_color background meets the contrast
+    threshold (WCAG-style relative luminance ratio).
+    """
+    h = hex_color.lstrip('#')
+    if len(h) == 3:
+        h = ''.join(ch * 2 for ch in h)
+    try:
+        r = int(h[0:2], 16) / 255.0
+        g = int(h[2:4], 16) / 255.0
+        b = int(h[4:6], 16) / 255.0
+    except (ValueError, IndexError):
+        return True
+
+    def channel(v):
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    lum = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    ratio = (1.0 + 0.05) / (lum + 0.05)
+    return ratio >= min_ratio
+
+
 class SheetLayoutEngine:
 
     def __init__(self, faction_sheet):
         self.sheet = faction_sheet
         self.faction_color = HexColor(self.sheet.faction.color or '#5B4A8A')
-        from the_forge.models import CardboardTrack, FactionSheet, StepAction
+        from the_forge.models import CardboardTrack, FactionSheet, PhaseStep, StepAction
         from django.db.models import Prefetch
         if isinstance(faction_sheet, FactionSheet):
             all_steps = list(faction_sheet.phase_steps.prefetch_related(
@@ -1418,9 +1616,22 @@ class SheetLayoutEngine:
             for phase, steps in groupby(self.steps, key=lambda s: s.phase)
         }
 
+        # Load content boxes with their 'other' phase steps
+        self.content_boxes = list(
+            faction_sheet.content_boxes.prefetch_related(
+                Prefetch('steps',
+                    queryset=PhaseStep.objects.filter(phase='other').prefetch_related(
+                        Prefetch('actions', queryset=StepAction.objects.order_by('order')),
+                        Prefetch('tracks', queryset=CardboardTrack.objects.prefetch_related('slots').order_by('order')),
+                        'boxes',
+                    ).order_by('number')
+                )
+            ).order_by('order')
+        )
+
         decree_sections = list(faction_sheet.decrees.prefetch_related('card_slots').all())
-        self.decree_section = next((d for d in decree_sections if d.type == 'decree'), None)
-        self.single_section = next((d for d in decree_sections if d.type == 'single'), None)
+        self.decree_section = next(iter(decree_sections), None)
+        self.card_piles = list(faction_sheet.card_piles.all())
 
         # decree_slide = how far the decree image slides down onto the page
         # (0 = fully hidden above page, draw_h = fully visible)
@@ -1437,6 +1648,9 @@ class SheetLayoutEngine:
         # Phase area: top is below the Faction Top Bar image, bottom is at margin
         self.phases_top_y = self.faction_top_bar_top - self.faction_top_bar_h
         self.phases_bottom_y = BOTTOM_MARGIN
+
+        self._placed_boxes = []
+        self._phases_rect = None
 
         self._init_styles()
         self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, self.sheet.faction.color or '#5B4A8A', 0.5 * inch)
@@ -1551,6 +1765,27 @@ class SheetLayoutEngine:
         self.faction_name_font = 'Luminari'
         self.faction_name_font_size = 30
         self.faction_name_color = HexColor('#FFFFFF')
+
+        from reportlab.lib.enums import TA_CENTER
+        self.content_box_title_style = ParagraphStyle(
+            'ContentBoxTitle',
+            fontName='Luminari',
+            fontSize=CONTENT_BOX_TITLE_SIZE,
+            leading=CONTENT_BOX_TITLE_SIZE + 2,
+            textColor=colors.black,
+            alignment=TA_CENTER,
+            spaceAfter=CONTENT_BOX_TITLE_PAD_BOTTOM,
+        )
+        self.content_box_text_style = ParagraphStyle(
+            'ContentBoxText',
+            fontName='Baskerville',
+            fontSize=CONTENT_BOX_TEXT_SIZE,
+            leading=CONTENT_BOX_TEXT_SIZE + 2,
+            autoLeading='max',
+            textColor=colors.black,
+            alignment=TA_CENTER,
+            spaceAfter=CONTENT_BOX_TEXT_PAD_BOTTOM,
+        )
 
     def _resolve_cost_icon(self, action):
         """Resolve icon path and draw dimensions for a StepAction's cost type.
@@ -1817,16 +2052,19 @@ class SheetLayoutEngine:
                         ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
                     ]))
 
-            # Wrap in a table to apply the left indent
-            t = Table([['', flowable]], colWidths=[indent, action_w])
-            t.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                ('TOPPADDING', (0, 0), (-1, -1), ACTION_ROW_GAP),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-            ]))
-            flowables.append(t)
+            if indent:
+                # Wrap in a table to apply the left indent
+                t = Table([['', flowable]], colWidths=[indent, action_w])
+                t.setStyle(TableStyle([
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                    ('TOPPADDING', (0, 0), (-1, -1), ACTION_ROW_GAP),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                ]))
+                flowables.append(t)
+            else:
+                flowables.append(flowable)
 
         return flowables
 
@@ -1838,35 +2076,211 @@ class SheetLayoutEngine:
             total += self.measure_step_height(step, width, single_step=single_step)
         return total
 
-    def measure_step_height(self, step, width, single_step=False):
+    def measure_content_box_height(self, content_box, width):
+        """Calculate total content height for a content box at given content width.
+        Does NOT include box padding — that is handled by the Frame's topPadding/bottomPadding."""
+        total = 0
+        if content_box.title:
+            p = Paragraph(content_box.title, self.content_box_title_style)
+            _, h = p.wrap(width, 9999)
+            total += h + CONTENT_BOX_TITLE_PAD_TOP
+        if content_box.text:
+            markup = format_step_markup(content_box.text)
+            p = Paragraph(markup, self.content_box_text_style)
+            _, h = p.wrap(width, 9999)
+            total += h
+        steps = list(content_box.steps.all())
+        single_step = len(steps) == 1
+        for step in steps:
+            total += self.measure_step_height(step, width, single_step=single_step, body_style=self.content_box_text_style)
+        return total
+
+    def _content_box_dims_for_width(self, content_box, box_w):
+        """Calculate content box height for a given box width."""
+        content_w = box_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
+        content_h = self.measure_content_box_height(content_box, content_w)
+        box_h = content_h + CONTENT_BOX_PAD_TOP + CONTENT_BOX_PAD_BOTTOM
+        return box_w, box_h, content_w
+
+    def _content_box_fits(self, x, y, w, h):
+        """Check if a content box at (x, y) with dimensions (w, h) fits on the page."""
+        if x < X_MARGIN or x + w > PAGE_W - X_MARGIN:
+            return False
+        if y < BOTTOM_MARGIN or y + h > self.phases_top_y:
+            return False
+        # Check overlap with phases box
+        if hasattr(self, '_phases_rect'):
+            px, py, pw, ph = self._phases_rect
+            if _rects_overlap(x, y, w, h, px, py, pw, ph):
+                return False
+        # Check overlap with previously placed content boxes
+        for bx, by, bw, bh in self._placed_boxes:
+            if _rects_overlap(x, y, w, h, bx, by, bw, bh):
+                return False
+        return True
+
+    def _min_track_width_for_content_box(self, content_box):
+        """Return the minimum content width needed for all tracks in a content box to fit.
+
+        For building tracks, returns the natural (non-overlapping) grid width.
+        For token tracks, returns the minimum overlapping width using TRACK_OVERLAP_MIN_H_STEP.
+        Includes the step indent and row title width. Returns 0 if no tracks.
+        """
+        SINGLE_STEP_INDENT = PHASE_INTERNAL_MARGIN
+        steps = list(content_box.steps.all())
+        single_step = len(steps) == 1
+        indent = SINGLE_STEP_INDENT if single_step else (0.325 * inch + 0.015 * inch)
+
+        max_needed = 0
+        for step in steps:
+            if not hasattr(step, 'tracks'):
+                continue
+            tracks = step.tracks.order_by('order')
+            for track in tracks:
+                num_cols = track.num_columns
+                if num_cols == 0:
+                    continue
+
+                # Parse dividers
+                dividers = set()
+                if track.column_dividers:
+                    for col_str in track.column_dividers.split(','):
+                        col_str = col_str.strip()
+                        if col_str:
+                            dividers.add(int(col_str))
+                total_dividers = len(dividers)
+
+                # Row title width
+                slots = list(track.slots.all())
+                has_row_titles = any(s.row_title for s in slots)
+                if getattr(track, 'header_title', '') and track.header_title:
+                    has_row_titles = True
+                vertical_titles = getattr(track, 'row_title_orientation', 'horizontal') == 'vertical'
+                if has_row_titles:
+                    row_title_w = TRACK_ROW_TITLE_VERTICAL_W if vertical_titles else TRACK_ROW_TITLE_W
+                else:
+                    row_title_w = 0
+
+                if track.type == 'token':
+                    # Minimum overlapping width: each segment's first slot at full size,
+                    # remaining slots at TRACK_OVERLAP_MIN_H_STEP
+                    num_segments = total_dividers + 1
+                    cols_that_step = num_cols - num_segments
+                    min_grid_w = (num_segments * TRACK_SLOT_SIZE
+                                  + cols_that_step * TRACK_OVERLAP_MIN_H_STEP
+                                  + total_dividers * TRACK_OVERLAP_DIVIDER_W)
+                    track_w = min_grid_w + row_title_w + indent
+                else:
+                    # Building track: needs full natural width
+                    divider_space = total_dividers * TRACK_DIVIDER_W
+                    natural_grid_w = (num_cols * TRACK_SLOT_SIZE
+                                      + (num_cols - 1) * TRACK_SLOT_GAP
+                                      + divider_space)
+                    track_w = natural_grid_w + row_title_w + indent
+
+                if track_w > max_needed:
+                    max_needed = track_w
+
+        return max_needed
+
+    def _natural_track_width_for_steps(self, steps, indent):
+        """Return the natural (non-overlapped) width needed for all tracks in the given steps.
+
+        Always uses full slot size + gap for all track types (no overlap assumption).
+        Returns 0 if no tracks.
+        """
+        max_needed = 0
+        for step in steps:
+            if not hasattr(step, 'tracks'):
+                continue
+            tracks = step.tracks.order_by('order')
+            for track in tracks:
+                num_cols = track.num_columns
+                if num_cols == 0:
+                    continue
+
+                # Parse dividers
+                dividers = set()
+                if track.column_dividers:
+                    for col_str in track.column_dividers.split(','):
+                        col_str = col_str.strip()
+                        if col_str:
+                            dividers.add(int(col_str))
+                total_dividers = len(dividers)
+
+                # Row title width
+                slots = list(track.slots.all())
+                has_row_titles = any(s.row_title for s in slots)
+                if getattr(track, 'header_title', '') and track.header_title:
+                    has_row_titles = True
+                vertical_titles = getattr(track, 'row_title_orientation', 'horizontal') == 'vertical'
+                if has_row_titles:
+                    row_title_w = TRACK_ROW_TITLE_VERTICAL_W if vertical_titles else TRACK_ROW_TITLE_W
+                else:
+                    row_title_w = 0
+
+                divider_space = total_dividers * TRACK_DIVIDER_W
+                natural_grid_w = (num_cols * TRACK_SLOT_SIZE
+                                  + (num_cols - 1) * TRACK_SLOT_GAP
+                                  + divider_space)
+                track_w = natural_grid_w + row_title_w + indent
+
+                if track_w > max_needed:
+                    max_needed = track_w
+
+        return max_needed
+
+    def _preferred_track_width_for_content_box(self, content_box):
+        """Return the natural (non-overlapped) content width needed for all tracks in a content box."""
+        SINGLE_STEP_INDENT = PHASE_INTERNAL_MARGIN
+        steps = list(content_box.steps.all())
+        single_step = len(steps) == 1
+        indent = SINGLE_STEP_INDENT if single_step else (0.325 * inch + 0.015 * inch)
+        return self._natural_track_width_for_steps(steps, indent)
+
+    def _preferred_phase_track_width(self, phase_order):
+        """Return the phase box width needed to avoid track staggering in any phase step."""
+        ICON_COL_W = 0.325 * inch
+        ICON_TEXT_GAP = 0.015 * inch
+        TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
+
+        max_needed = 0
+        for pk in phase_order:
+            steps = self.phases_grouped.get(pk, [])
+            single_step = len(steps) == 1
+            indent = 0 if single_step else TEXT_COL_X
+            w = self._natural_track_width_for_steps(steps, indent)
+            if w > max_needed:
+                max_needed = w
+
+        if max_needed == 0:
+            return 0
+        return max_needed + (PHASE_INTERNAL_MARGIN * 2)
+
+    def measure_step_height(self, step, width, single_step=False, body_style=None):
         from reportlab.platypus import Table, TableStyle
         ICON_COL_W = 0.325 * inch
         ICON_TEXT_GAP = 0.015 * inch
         TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
         ICON_NUDGE_DOWN = 4
 
-        text_col_w = PHASE_INTERNAL_MARGIN if single_step else TEXT_COL_X
+        style = body_style or self.step_body_style
+        text_col_w = 0 if single_step else TEXT_COL_X
         text_content_w = width - text_col_w
         markup = format_step_markup(step.text)
 
         # Extra padding to compensate for autoLeading underreporting (matches _build_phase_story)
-        probe = Paragraph(markup, self.step_body_style)
+        probe = Paragraph(markup, style)
         _, wrap_h = probe.wrap(text_content_w, 9999)
         extra_h = true_paragraph_height(probe, text_content_w) - wrap_h
 
         # Build table matching _build_phase_story exactly
-        para = Paragraph(markup, self.step_body_style)
+        para = Paragraph(markup, style)
         para.wrap(text_content_w, 9999)
         tighten_large_font_lines(para)
         if single_step:
-            t = Table([['', para]], colWidths=[text_col_w, text_content_w])
-            t.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                ('TOPPADDING', (0, 0), (-1, -1), 0),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
-            ]))
+            _, table_h = para.wrap(width, 9999)
+            table_h += extra_h
         else:
             svg_drawing = self._phase_number_svgs.get(step.number % 10)
             first_col = svg_drawing if svg_drawing else ''
@@ -1881,7 +2295,7 @@ class SheetLayoutEngine:
                 ('TOPPADDING', (1, 0), (1, -1), 0),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
             ]))
-        _, table_h = t.wrap(width, 9999)
+            _, table_h = t.wrap(width, 9999)
 
         # Add height for StepAction rows (grouped and packed for side-by-side)
         if hasattr(step, 'actions'):
@@ -1958,11 +2372,11 @@ class SheetLayoutEngine:
                                 max_h = h
                         table_h += max_h + ACTION_ROW_GAP
 
-        # Add bordered box heights
+        # Add bordered box heights (including table TOPPADDING that wraps each box)
         if hasattr(step, 'boxes'):
             boxes = step.boxes.order_by('order')
             for box in boxes:
-                table_h += BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium'])
+                table_h += BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium']) + BORDERED_BOX_TITLE_SIZE / 2
 
         # Add track heights
         if hasattr(step, 'tracks'):
@@ -2006,6 +2420,15 @@ class SheetLayoutEngine:
             self._draw_vertical_phases(c)
 
         self._draw_card_slots(c)
+
+        if self.content_boxes:
+            if layout == 'horizontal':
+                self._draw_horizontal_content_boxes(c)
+            else:
+                self._draw_vertical_content_boxes(c)
+
+        self._draw_card_piles(c)
+
         c.save()
 
     def _draw_horizontal_phases(self, c):
@@ -2026,6 +2449,7 @@ class SheetLayoutEngine:
         box_x = X_MARGIN
         box_y = self.phases_top_y - box_h
         self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=True)
+        self._phases_rect = (box_x, box_y, box_w, box_h)
 
         for i, phase_key in enumerate(phase_order):
             steps = self.phases_grouped.get(phase_key, [])
@@ -2055,13 +2479,29 @@ class SheetLayoutEngine:
         min_w = PHASE_HEADER_MIN_W + (PHASE_INTERNAL_MARGIN * 2)
         max_w = BODY_W
 
-        # Check if minimum width already fits
-        _, box_h_at_min, _ = self._vertical_box_dims_for_width(min_w, phase_order)
-        if box_h_at_min <= max_h:
-            box_w, box_h, content_w = min_w, box_h_at_min, min_w - (PHASE_INTERNAL_MARGIN * 2)
+        # Preferred width to avoid track staggering
+        preferred_w = self._preferred_phase_track_width(phase_order)
+        if self.content_boxes:
+            # Reserve enough space for the widest content box (including its track needs)
+            max_cb_min_w = CONTENT_BOX_MIN_W
+            for cb in self.content_boxes:
+                min_tw = self._min_track_width_for_content_box(cb)
+                if min_tw > 0:
+                    cb_w = min_tw + CONTENT_BOX_INTERNAL_MARGIN * 2
+                else:
+                    cb_w = CONTENT_BOX_MIN_W
+                max_cb_min_w = max(max_cb_min_w, cb_w)
+            max_phase_w_for_cb = BODY_W - CONTENT_BOX_GAP - max_cb_min_w
+            preferred_w = min(preferred_w, max_phase_w_for_cb)
+        preferred_w = max(preferred_w, min_w)
+
+        # Check if preferred width already fits
+        _, box_h_at_pref, _ = self._vertical_box_dims_for_width(preferred_w, phase_order)
+        if box_h_at_pref <= max_h:
+            box_w, box_h, content_w = preferred_w, box_h_at_pref, preferred_w - (PHASE_INTERNAL_MARGIN * 2)
         else:
             # Binary search for smallest width where content fits
-            lo, hi = min_w, max_w
+            lo, hi = preferred_w, max_w
             while hi - lo > 1:
                 mid = (lo + hi) / 2
                 _, mid_h, _ = self._vertical_box_dims_for_width(mid, phase_order)
@@ -2079,6 +2519,7 @@ class SheetLayoutEngine:
         box_x = X_MARGIN
         box_y = self.phases_top_y - box_h
         self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
+        self._phases_rect = (box_x, box_y, box_w, box_h)
 
         # Stack frames top-to-bottom with content-aware heights
         header_h = self._banner_height_for_width(content_w)
@@ -2101,11 +2542,400 @@ class SheetLayoutEngine:
             frame.addFromList(story, c)
             cursor_y = frame_y - PHASE_BOX_V_GAP
 
+    def _draw_vertical_content_boxes(self, c):
+        """Draw content boxes to the right of (and below) the phases box in vertical layout."""
+        self._placed_boxes = []
+        px, py, pw, ph = self._phases_rect
+        target_h = self.phases_top_y - BOTTOM_MARGIN
 
+        # Available space to the right of the phases box
+        right_x = px + pw + CONTENT_BOX_GAP
+        right_w = (PAGE_W - X_MARGIN) - right_x
 
-    def _build_phase_story(self, phase_key, steps, content_width=None):
+        if right_w < CONTENT_BOX_MIN_W:
+            return
+
+        # Pre-compute minimum and preferred track widths for each content box
+        min_track_widths = {}
+        preferred_track_widths = {}
+        for cb in self.content_boxes:
+            min_track_widths[id(cb)] = self._min_track_width_for_content_box(cb)
+            preferred_track_widths[id(cb)] = self._preferred_track_width_for_content_box(cb)
+
+        remaining = list(self.content_boxes)
+        cursor_y_top = self.phases_top_y
+        row_start_x = right_x
+        row_avail_w = right_w
+
+        while remaining:
+            # Try to fit as many as possible in this row at even widths
+            row_count = len(remaining)
+            while row_count > 0:
+                total_gaps = CONTENT_BOX_GAP * (row_count - 1)
+                even_w = (row_avail_w - total_gaps) / row_count
+                if even_w >= CONTENT_BOX_MIN_W:
+                    content_w_at_even = even_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
+                    all_fit = True
+                    for cb in remaining[:row_count]:
+                        # Check height fits
+                        _, h, _ = self._content_box_dims_for_width(cb, even_w)
+                        if h > target_h:
+                            all_fit = False
+                            break
+                        # Check tracks fit at this content width
+                        min_tw = min_track_widths[id(cb)]
+                        if min_tw > 0 and content_w_at_even < min_tw:
+                            all_fit = False
+                            break
+                    if all_fit:
+                        break
+                row_count -= 1
+
+            if row_count == 0:
+                # Can't fit any more boxes
+                for cb in remaining:
+                    print(f"WARNING: ContentBox '{cb.title}' does not fit, skipping.")
+                break
+
+            # Place this row of boxes
+            row_boxes = remaining[:row_count]
+            remaining = remaining[row_count:]
+            total_gaps = CONTENT_BOX_GAP * (row_count - 1)
+            even_w = (row_avail_w - total_gaps) / row_count
+
+            # Calculate natural width for each box (narrowest that fits height)
+            box_widths = []
+            for cb in row_boxes:
+                min_tw = min_track_widths[id(cb)]
+                pref_tw = preferred_track_widths[id(cb)]
+                # Minimum box width to fit tracks (with overlap)
+                min_w_for_tracks = (min_tw + CONTENT_BOX_INTERNAL_MARGIN * 2) if min_tw > 0 else CONTENT_BOX_MIN_W
+                fallback_min = max(CONTENT_BOX_MIN_W, min_w_for_tracks)
+                # Preferred box width to avoid staggering
+                pref_w_for_tracks = (pref_tw + CONTENT_BOX_INTERNAL_MARGIN * 2) if pref_tw > 0 else CONTENT_BOX_MIN_W
+                preferred_min = max(CONTENT_BOX_MIN_W, pref_w_for_tracks)
+
+                # Binary search for narrowest width that fits height
+                _, h_at_even, _ = self._content_box_dims_for_width(cb, even_w)
+                if h_at_even > target_h:
+                    # Use even_w (clamped height)
+                    box_widths.append(even_w)
+                else:
+                    # Try preferred (non-staggered) width first, fall back to minimum
+                    lo = preferred_min
+                    if lo > even_w:
+                        lo = fallback_min
+                    else:
+                        _, h_at_pref, _ = self._content_box_dims_for_width(cb, lo)
+                        if h_at_pref > target_h:
+                            lo = fallback_min
+                    lo, hi = lo, even_w
+                    while hi - lo > 1:
+                        mid = (lo + hi) / 2
+                        _, mid_h, _ = self._content_box_dims_for_width(cb, mid)
+                        if mid_h <= target_h:
+                            hi = mid
+                        else:
+                            lo = mid
+                    box_widths.append(hi)
+
+            # Distribute extra space evenly before, between, and after boxes
+            total_box_w = sum(box_widths)
+            extra_space = row_avail_w - total_box_w - total_gaps
+            # n boxes create n+1 slots (before first, between each, after last)
+            padding = extra_space / (row_count + 1)
+            extra_per_gap = padding  # added to each gap between boxes
+            cursor_x = row_start_x + padding  # offset before first box
+
+            row_bottom_y = cursor_y_top  # track the lowest bottom in this row
+            for i, (cb, box_w) in enumerate(zip(row_boxes, box_widths)):
+                _, box_h, content_w = self._content_box_dims_for_width(cb, box_w)
+                if box_h > target_h:
+                    box_h = target_h
+                box_y = cursor_y_top - box_h
+
+                self._draw_phase_box(c, cursor_x, box_y, box_w, box_h, rotated=False)
+                content_x = cursor_x + CONTENT_BOX_INTERNAL_MARGIN
+                frame = Frame(content_x, box_y, content_w, box_h,
+                             leftPadding=0, rightPadding=0,
+                             topPadding=CONTENT_BOX_PAD_TOP, bottomPadding=CONTENT_BOX_PAD_BOTTOM,
+                             showBoundary=0)
+                story = self._build_content_box_story(cb, content_w)
+                frame.addFromList(story, c)
+                self._placed_boxes.append((cursor_x, box_y, box_w, box_h))
+
+                if box_y < row_bottom_y:
+                    row_bottom_y = box_y
+                gap = CONTENT_BOX_GAP + (extra_per_gap if row_count > 1 else 0)
+                cursor_x += box_w + gap
+
+            # Next row starts below the tallest box in this row
+            cursor_y_top = row_bottom_y - CONTENT_BOX_GAP
+            target_h = cursor_y_top - BOTTOM_MARGIN
+            if target_h <= 0:
+                for cb in remaining:
+                    print(f"WARNING: ContentBox '{cb.title}' does not fit, skipping.")
+                break
+
+    def _draw_horizontal_content_boxes(self, c):
+        """Draw content boxes below the phases box using column-first packing.
+
+        Boxes are stacked top-to-bottom in a column, overflowing to the next
+        column to the right when vertical space runs out.  Mirrors the logic
+        of _draw_vertical_content_boxes but transposed (columns instead of rows).
+        """
+        self._placed_boxes = []
+        px, py, pw, ph = self._phases_rect
+
+        below_top = py - CONTENT_BOX_GAP
+        avail_h = below_top - BOTTOM_MARGIN
+        if avail_h <= 0:
+            return
+
+        # Pre-compute track width constraints
+        min_track_widths = {}
+        preferred_track_widths = {}
+        for cb in self.content_boxes:
+            min_track_widths[id(cb)] = self._min_track_width_for_content_box(cb)
+            preferred_track_widths[id(cb)] = self._preferred_track_width_for_content_box(cb)
+
+        remaining = list(self.content_boxes)
+        col_start_x = X_MARGIN
+        col_avail_w = BODY_W
+
+        while remaining:
+            # Try to fit col_count boxes stacked in the current column
+            col_count = len(remaining)
+            while col_count > 0:
+                total_gaps = CONTENT_BOX_GAP * (col_count - 1)
+                even_h = (avail_h - total_gaps) / col_count
+                content_w_at_col = col_avail_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
+                all_fit = True
+                for cb in remaining[:col_count]:
+                    # Check height fits within even share (allow clamping for single-box columns)
+                    _, h, _ = self._content_box_dims_for_width(cb, col_avail_w)
+                    if h > even_h and col_count > 1:
+                        all_fit = False
+                        break
+                    # Check tracks fit at this content width
+                    min_tw = min_track_widths[id(cb)]
+                    if min_tw > 0 and content_w_at_col < min_tw:
+                        all_fit = False
+                        break
+                if all_fit:
+                    break
+                col_count -= 1
+
+            if col_count == 0:
+                for cb in remaining:
+                    print(f"WARNING: ContentBox '{cb.title}' does not fit, skipping.")
+                break
+
+            # Determine boxes for this column
+            col_boxes = remaining[:col_count]
+            remaining = remaining[col_count:]
+            total_gaps = CONTENT_BOX_GAP * (col_count - 1)
+            even_h = (avail_h - total_gaps) / col_count
+
+            # Binary search for narrowest column width where all boxes fit within even_h
+            # Lower bound: max of CONTENT_BOX_MIN_W and track-required widths
+            lo = CONTENT_BOX_MIN_W
+            for cb in col_boxes:
+                min_tw = min_track_widths[id(cb)]
+                pref_tw = preferred_track_widths[id(cb)]
+                if pref_tw > 0:
+                    min_w_for_tracks = pref_tw + CONTENT_BOX_INTERNAL_MARGIN * 2
+                elif min_tw > 0:
+                    min_w_for_tracks = min_tw + CONTENT_BOX_INTERNAL_MARGIN * 2
+                else:
+                    min_w_for_tracks = CONTENT_BOX_MIN_W
+                lo = max(lo, min_w_for_tracks)
+
+            # Check if preferred width is feasible; fall back to minimum tracks
+            if lo > col_avail_w:
+                lo = CONTENT_BOX_MIN_W
+                for cb in col_boxes:
+                    min_tw = min_track_widths[id(cb)]
+                    if min_tw > 0:
+                        lo = max(lo, min_tw + CONTENT_BOX_INTERNAL_MARGIN * 2)
+
+            hi = col_avail_w
+            # Check whether any box will be height-clamped even at full width
+            any_clamped = any(
+                self._content_box_dims_for_width(cb, col_avail_w)[1] > even_h
+                for cb in col_boxes
+            )
+            if any_clamped:
+                # Width can't help height-clamped boxes — use the minimum width
+                col_w = min(lo, col_avail_w)
+            else:
+                # Binary search: find narrowest width where all boxes fit in even_h
+                while hi - lo > 1:
+                    mid = (lo + hi) / 2
+                    fits = True
+                    for cb in col_boxes:
+                        _, h, _ = self._content_box_dims_for_width(cb, mid)
+                        if h > even_h:
+                            fits = False
+                            break
+                    if fits:
+                        hi = mid
+                    else:
+                        lo = mid
+                col_w = hi
+
+            # Calculate actual box heights at col_w
+            box_heights = []
+            for cb in col_boxes:
+                _, box_h, _ = self._content_box_dims_for_width(cb, col_w)
+                if box_h > even_h:
+                    box_h = even_h
+                box_heights.append(box_h)
+
+            # Distribute extra vertical space evenly before, between, and after boxes
+            total_box_h = sum(box_heights)
+            extra_space = avail_h - total_box_h - total_gaps
+            padding = extra_space / (col_count + 1)
+            cursor_y = below_top - padding  # offset before first box
+
+            col_right_x = col_start_x  # track rightmost edge for next column
+            for cb, box_h in zip(col_boxes, box_heights):
+                box_y = cursor_y - box_h
+                _, _, content_w = self._content_box_dims_for_width(cb, col_w)
+
+                self._draw_phase_box(c, col_start_x, box_y, col_w, box_h, rotated=False)
+                content_x = col_start_x + CONTENT_BOX_INTERNAL_MARGIN
+                frame = Frame(content_x, box_y, content_w, box_h,
+                             leftPadding=0, rightPadding=0,
+                             topPadding=CONTENT_BOX_PAD_TOP, bottomPadding=CONTENT_BOX_PAD_BOTTOM,
+                             showBoundary=0)
+                story = self._build_content_box_story(cb, content_w)
+                frame.addFromList(story, c)
+                self._placed_boxes.append((col_start_x, box_y, col_w, box_h))
+
+                gap = CONTENT_BOX_GAP + (padding if col_count > 1 else 0)
+                cursor_y = box_y - gap
+
+            # Next column starts to the right
+            col_start_x += col_w + CONTENT_BOX_GAP
+            col_avail_w -= col_w + CONTENT_BOX_GAP
+            if col_avail_w < CONTENT_BOX_MIN_W:
+                for cb in remaining:
+                    print(f"WARNING: ContentBox '{cb.title}' does not fit, skipping.")
+                break
+
+    def _build_steps_story(self, steps, avail_w, centered=False):
+        """Build flowables for a list of PhaseSteps (no header). Reused by phases and content boxes."""
         from reportlab.platypus import Table, TableStyle
 
+        story = []
+        ICON_COL_W = 0.325 * inch   # SVGs right-aligned within this width
+        ICON_TEXT_GAP = 0.015 * inch
+        TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
+        single_step = len(steps) == 1
+
+        body_style = self.content_box_text_style if centered else self.step_body_style
+
+        for step in steps:
+            markup = format_step_markup(step.text)
+            para = Paragraph(markup, body_style)
+
+            # Compute extra bottom padding to compensate for autoLeading underreporting
+            text_w = 0 if single_step else TEXT_COL_X
+            content_w = avail_w - text_w
+            probe = Paragraph(markup, body_style)
+            _, wrap_h = probe.wrap(content_w, 9999)
+            extra_h = true_paragraph_height(probe, content_w) - wrap_h
+
+            # Tighten the rendered paragraph's large-font line spacing
+            para.wrap(content_w, 9999)
+            tighten_large_font_lines(para)
+
+            # DEBUG: red border around step
+            debug_border = ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#FF0000'))
+
+            if single_step:
+                # No number icon — text takes full width
+                story.append(para)
+            else:
+                svg_drawing = self._phase_number_svgs.get(step.number % 10)
+                if svg_drawing:
+                    ICON_NUDGE_DOWN = 4
+                    t = Table([[svg_drawing, para]], colWidths=[TEXT_COL_X, avail_w - TEXT_COL_X])
+                    t.setStyle(TableStyle([
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                        ('RIGHTPADDING', (0, 0), (0, -1), TEXT_COL_X - ICON_COL_W),
+                        ('RIGHTPADDING', (1, 0), (1, -1), 0),
+                        ('TOPPADDING', (0, 0), (0, -1), ICON_NUDGE_DOWN),
+                        ('TOPPADDING', (1, 0), (1, -1), 0),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
+                        debug_border,
+                    ]))
+                    story.append(t)
+                else:
+                    story.append(para)
+
+            # Append StepAction flowables below the step
+            indent = 0 if single_step else TEXT_COL_X
+            action_flowables = self._build_action_flowables(step, avail_w, indent)
+            story.extend(action_flowables)
+
+            # Append BorderedBox flowables below the actions
+            if hasattr(step, 'boxes'):
+                boxes = step.boxes.order_by('order')
+                for box in boxes:
+                    box_h = BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium'])
+                    body_markup = format_step_markup(box.body) if box.body else ''
+                    bf = BorderedBoxFlowable(
+                        title=box.title,
+                        body_markup=body_markup,
+                        total_width=avail_w - indent,
+                        box_height=box_h,
+                        body_style=self.step_body_style,
+                    )
+                    if indent:
+                        t = Table([['', bf]], colWidths=[indent, avail_w - indent])
+                        t.setStyle(TableStyle([
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                            ('TOPPADDING', (0, 0), (-1, -1), BORDERED_BOX_TITLE_SIZE / 2),
+                            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+                        ]))
+                        story.append(t)
+                    else:
+                        story.append(bf)
+
+            # Append Track flowables below bordered boxes
+            if hasattr(step, 'tracks'):
+                tracks = step.tracks.order_by('order')
+                for track in tracks:
+                    slots = list(track.slots.all())
+                    tf = TrackFlowable(
+                        track=track,
+                        slots=slots,
+                        total_width=avail_w - indent,
+                        body_style=self.step_body_style,
+                        faction_color=self.faction_color,
+                    )
+                    if indent:
+                        t = Table([['', tf]], colWidths=[indent, avail_w - indent])
+                        t.setStyle(TableStyle([
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                            ('TOPPADDING', (0, 0), (-1, -1), TRACK_TITLE_GAP),
+                            ('BOTTOMPADDING', (0, 0), (-1, -1), TRACK_BOTTOM_PAD),
+                        ]))
+                        story.append(t)
+                    else:
+                        story.append(tf)
+
+        return story
+
+    def _build_phase_story(self, phase_key, steps, content_width=None):
         story = []
         header_config = PHASE_HEADERS[phase_key]
 
@@ -2128,112 +2958,19 @@ class SheetLayoutEngine:
             banner.hAlign = 'LEFT'
             story.append(banner)
 
-        ICON_COL_W = 0.325 * inch   # SVGs right-aligned within this width
-        ICON_TEXT_GAP = 0.015 * inch
-        TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
-        single_step = len(steps) == 1
-        SINGLE_STEP_INDENT = PHASE_INTERNAL_MARGIN
+        story.extend(self._build_steps_story(steps, avail_w))
+        return story
 
-        for step in steps:
-            markup = format_step_markup(step.text)
-            para = Paragraph(markup, self.step_body_style)
-
-            # Compute extra bottom padding to compensate for autoLeading underreporting
-            text_w = SINGLE_STEP_INDENT if single_step else TEXT_COL_X
-            content_w = avail_w - text_w
-            probe = Paragraph(markup, self.step_body_style)
-            _, wrap_h = probe.wrap(content_w, 9999)
-            extra_h = true_paragraph_height(probe, content_w) - wrap_h
-
-            # Tighten the rendered paragraph's large-font line spacing
-            para.wrap(content_w, 9999)
-            tighten_large_font_lines(para)
-
-            # DEBUG: red border around step
-            debug_border = ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#FF0000'))
-
-            if single_step:
-                # No number icon — indent text from left side of box
-                t = Table([['', para]], colWidths=[SINGLE_STEP_INDENT, avail_w - SINGLE_STEP_INDENT])
-                t.setStyle(TableStyle([
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                    ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                    ('TOPPADDING', (0, 0), (-1, -1), 0),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
-                    debug_border,
-                ]))
-                story.append(t)
-            else:
-                svg_drawing = self._phase_number_svgs.get(step.number % 10)
-                if svg_drawing:
-                    ICON_NUDGE_DOWN = 4
-                    t = Table([[svg_drawing, para]], colWidths=[TEXT_COL_X, avail_w - TEXT_COL_X])
-                    t.setStyle(TableStyle([
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                        ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
-                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                        ('RIGHTPADDING', (0, 0), (0, -1), TEXT_COL_X - ICON_COL_W),
-                        ('RIGHTPADDING', (1, 0), (1, -1), 0),
-                        ('TOPPADDING', (0, 0), (0, -1), ICON_NUDGE_DOWN),
-                        ('TOPPADDING', (1, 0), (1, -1), 0),
-                        ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
-                        debug_border,
-                    ]))
-                    story.append(t)
-                else:
-                    story.append(para)
-
-            # Append StepAction flowables below the step
-            indent = SINGLE_STEP_INDENT if single_step else TEXT_COL_X
-            action_flowables = self._build_action_flowables(step, avail_w, indent)
-            story.extend(action_flowables)
-
-            # Append BorderedBox flowables below the actions
-            if hasattr(step, 'boxes'):
-                boxes = step.boxes.order_by('order')
-                for box in boxes:
-                    box_h = BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium'])
-                    body_markup = format_step_markup(box.body) if box.body else ''
-                    bf = BorderedBoxFlowable(
-                        title=box.title,
-                        body_markup=body_markup,
-                        total_width=avail_w - indent,
-                        box_height=box_h,
-                        body_style=self.step_body_style,
-                    )
-                    t = Table([['', bf]], colWidths=[indent, avail_w - indent])
-                    t.setStyle(TableStyle([
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                        ('TOPPADDING', (0, 0), (-1, -1), BORDERED_BOX_TITLE_SIZE / 2),
-                        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-                    ]))
-                    story.append(t)
-
-            # Append Track flowables below bordered boxes
-            if hasattr(step, 'tracks'):
-                tracks = step.tracks.order_by('order')
-                for track in tracks:
-                    slots = list(track.slots.all())
-                    tf = TrackFlowable(
-                        track=track,
-                        slots=slots,
-                        total_width=avail_w - indent,
-                        body_style=self.step_body_style,
-                        faction_color=self.faction_color,
-                    )
-                    t = Table([['', tf]], colWidths=[indent, avail_w - indent])
-                    t.setStyle(TableStyle([
-                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-                        ('TOPPADDING', (0, 0), (-1, -1), TRACK_TITLE_GAP),
-                        ('BOTTOMPADDING', (0, 0), (-1, -1), TRACK_BOTTOM_PAD),
-                    ]))
-                    story.append(t)
-
+    def _build_content_box_story(self, content_box, content_width):
+        """Build flowables for a content box: centered title, text, then steps."""
+        story = []
+        if content_box.title:
+            story.append(Paragraph(content_box.title, self.content_box_title_style))
+        if content_box.text:
+            markup = format_step_markup(content_box.text)
+            story.append(Paragraph(markup, self.content_box_text_style))
+        steps = list(content_box.steps.all())
+        story.extend(self._build_steps_story(steps, content_width, centered=True))
         return story
 
     def _draw_background(self, c):
@@ -2598,12 +3335,203 @@ class SheetLayoutEngine:
                         c.setFont('Luminari', 12)
                         c.drawCentredString(x + DECREE_SLOT_W / 2, slot_y + DECREE_SLOT_H - DECREE_SLOT_TITLE_OFFSET, slot.title)
 
-        # Single slot: bottom-right corner, fully on page
-        if self.single_section:
-            x = PAGE_W - X_MARGIN - CARD_SLOT_W
-            y = BOTTOM_MARGIN
-            c.drawImage(CARD_SLOT_IMG, x, y,
-                        width=CARD_SLOT_W, height=CARD_SLOT_H, mask='auto')
+    def _draw_card_piles(self, c):
+        if not self.card_piles:
+            return
+        rightmost_x = PAGE_W - X_MARGIN - CARD_SLOT_W
+        for i, pile in enumerate(self.card_piles):
+            x = rightmost_x - i * (CARD_SLOT_W + CARD_PILE_GAP)
+            self._place_and_draw_card_pile(c, pile, x)
+
+    def _card_pile_body_paragraph(self, body_text, text_w):
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        html = format_step_markup(body_text)
+        style = ParagraphStyle(
+            name='CardPileBody',
+            fontName='Baskerville',
+            fontSize=9,
+            leading=9 * 1.2,
+            alignment=TA_CENTER,
+            textColor=HexColor('#FFFFFF'),
+        )
+        para = Paragraph(html, style)
+        text_h = true_paragraph_height(para, text_w)
+        return para, text_h
+
+    def _card_pile_title_paragraph(self, title_text, text_w):
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        # Escape XML special chars in the raw input (no markup support for titles)
+        html = (title_text.replace('&', '&amp;')
+                          .replace('<', '&lt;')
+                          .replace('>', '&gt;'))
+        style = ParagraphStyle(
+            name='CardPileTitle',
+            fontName='Luminari',
+            fontSize=CARD_PILE_TITLE_SIZE,
+            leading=CARD_PILE_TITLE_SIZE * 1.1,
+            alignment=TA_CENTER,
+            textColor=HexColor('#FFFFFF'),
+        )
+        para = Paragraph(html, style)
+        text_h = true_paragraph_height(para, text_w)
+        return para, text_h
+
+    def _card_pile_obstructions(self):
+        # Content boxes get an extra vertical margin below them so piles don't sit flush.
+        rects = [(bx, by - CONTENT_BOX_GAP, bw, bh + CONTENT_BOX_GAP)
+                 for (bx, by, bw, bh) in self._placed_boxes]
+        if self._phases_rect:
+            rects.append(self._phases_rect)
+        return rects
+
+    @staticmethod
+    def _rects_overlap(a, b):
+        ax, ay, aw, ah = a
+        bx, by, bw, bh = b
+        return not (ax + aw <= bx or bx + bw <= ax or ay + ah <= by or by + bh <= ay)
+
+    def _rect_is_clear(self, rect, obstructions):
+        return all(not self._rects_overlap(rect, obs) for obs in obstructions)
+
+    def _place_and_draw_card_pile(self, c, pile, x):
+        text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
+
+        title_para = None
+        title_h = 0.0
+        if pile.title:
+            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+
+        body_para = None
+        body_h = 0.0
+        if pile.body:
+            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+
+        # Text zone height as a function of title-top offset. The body-start offset
+        # scales 1:1 with the title-top offset (title/body block is a rigid unit).
+        def text_zone_h_for(title_top_offset):
+            if title_para is None and body_para is None:
+                return 0.0
+            body_top_offset = title_top_offset + title_h + (
+                CARD_PILE_TITLE_TO_BODY_GAP if title_para and body_para else 0.0
+            )
+            return body_top_offset + body_h
+
+        obstructions = self._card_pile_obstructions()
+        default_y = BOTTOM_MARGIN
+
+        def max_offset_for(candidate_y):
+            """Largest title_top_offset in [OVERFLOW, FULL] that keeps the text zone
+            on-page and clear of obstructions at this y. Returns None if even the
+            tightest offset doesn't fit."""
+            card_top = candidate_y + CARD_SLOT_H
+            # At offset O, text-zone top = card_top - O, text-zone bottom =
+            # card_top - O - (text_zone_h_for(O) - O) = card_top - text_zone_h_for(O).
+            # Because text_zone_h_for(O) = O + (title_h + gap + body_h), the bottom
+            # depends only on (title_h + gap + body_h), i.e. is independent of O.
+            # So on-page / obstruction constraints on the BOTTOM don't vary with O.
+            # The TOP of the text zone does vary: larger O pushes text down.
+            # Constraints: text_zone_bottom >= 0, and rect clears obstructions.
+            zone_h_tight = text_zone_h_for(CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW)
+            zone_h_full = text_zone_h_for(CARD_PILE_TITLE_TOP_OFFSET)
+            # Test the tight placement first (smallest zone → easiest to fit).
+            tight_bottom = card_top - zone_h_tight
+            if tight_bottom < 0:
+                return None
+            tight_rect = (x, tight_bottom, CARD_SLOT_W, zone_h_tight)
+            if not self._rect_is_clear(tight_rect, obstructions):
+                return None
+            # Tight fits — now try the full placement.
+            full_bottom = card_top - zone_h_full
+            if full_bottom >= 0:
+                full_rect = (x, full_bottom, CARD_SLOT_W, zone_h_full)
+                if self._rect_is_clear(full_rect, obstructions):
+                    return CARD_PILE_TITLE_TOP_OFFSET
+            # Binary-search the largest offset in (OVERFLOW, FULL) that fits.
+            lo, hi = CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW, CARD_PILE_TITLE_TOP_OFFSET
+            for _ in range(12):  # 12 iterations → sub-0.001" precision
+                mid = (lo + hi) / 2
+                zone_h_mid = text_zone_h_for(mid)
+                mid_bottom = card_top - zone_h_mid
+                if mid_bottom >= 0 and self._rect_is_clear(
+                    (x, mid_bottom, CARD_SLOT_W, zone_h_mid), obstructions
+                ):
+                    lo = mid
+                else:
+                    hi = mid
+            return lo
+
+        # --- Try upright: sweep y from default downward; first y with a valid offset wins. ---
+        zone_h_tight = text_zone_h_for(CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW)
+        y_min = zone_h_tight - CARD_SLOT_H  # lowest y keeping tight text on-page
+        step = 1.0
+        candidate_y = default_y
+        while candidate_y >= y_min:
+            offset = max_offset_for(candidate_y)
+            if offset is not None:
+                self._draw_card_pile_upright(c, pile, x, candidate_y,
+                                             title_para, title_h, body_para, body_h,
+                                             offset)
+                return
+            candidate_y -= step
+
+        # --- Rotated fallback: 90 CCW, overflow off right edge, tight offset. ---
+        rot_bottom = BOTTOM_MARGIN
+        rot_text_rect = (x, rot_bottom, zone_h_tight, CARD_SLOT_W)
+        text_fits_on_page = (x + zone_h_tight) <= PAGE_W and rot_bottom + CARD_SLOT_W <= PAGE_H
+        if text_fits_on_page and self._rect_is_clear(rot_text_rect, obstructions):
+            self._draw_card_pile_rotated(c, pile, x, rot_bottom,
+                                         title_para, title_h, body_para, body_h,
+                                         CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW)
+            return
+
+        # --- Final fallback — upright at BOTTOM_MARGIN, text possibly cut off. ---
+        print(f"ERROR: CardPile '{pile.title or pile.number}' cannot render with title/body fully visible. Rendering with text cut off.")
+        self._draw_card_pile_upright(c, pile, x, default_y,
+                                     title_para, title_h, body_para, body_h,
+                                     CARD_PILE_TITLE_TOP_OFFSET)
+
+    def _draw_card_pile_upright(self, c, pile, x, y,
+                                title_para, title_h, body_para, body_h,
+                                title_top_offset):
+        c.drawImage(CARD_SLOT_IMG, x, y,
+                    width=CARD_SLOT_W, height=CARD_SLOT_H, mask='auto')
+        self._draw_card_pile_text(c, x, y, title_para, title_h, body_para, body_h,
+                                  title_top_offset)
+
+    def _draw_card_pile_rotated(self, c, pile, x, y,
+                                title_para, title_h, body_para, body_h,
+                                title_top_offset):
+        c.saveState()
+        c.translate(x, y)
+        c.rotate(90)
+        card_local_x = 0
+        card_local_y = -CARD_SLOT_H
+        c.drawImage(CARD_SLOT_IMG, card_local_x, card_local_y,
+                    width=CARD_SLOT_W, height=CARD_SLOT_H, mask='auto')
+        self._draw_card_pile_text(c, card_local_x, card_local_y,
+                                  title_para, title_h, body_para, body_h,
+                                  title_top_offset)
+        c.restoreState()
+
+    def _draw_card_pile_text(self, c, x, y, title_para, title_h, body_para, body_h,
+                             title_top_offset):
+        """Draw the title and body paragraphs onto a card whose bottom-left is at (x, y)."""
+        text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
+        card_top = y + CARD_SLOT_H
+
+        if title_para is not None:
+            title_top = card_top - title_top_offset
+            title_para.wrapOn(c, text_w, title_h)
+            title_para.drawOn(c, x + CARD_PILE_PADDING, title_top - title_h)
+
+        if body_para is not None:
+            gap = CARD_PILE_TITLE_TO_BODY_GAP if title_para is not None else 0.0
+            body_top_offset = title_top_offset + title_h + gap
+            body_top = card_top - body_top_offset
+            body_para.wrapOn(c, text_w, body_h)
+            body_para.drawOn(c, x + CARD_PILE_PADDING, body_top - body_h)
 
     def _header_height(self):
         return PHASE_HEADER_H
@@ -2618,3 +3546,609 @@ class SheetLayoutEngine:
         else:
             return PHASE_HEADER_LOCK_W / aspect
 
+
+class FactionBackLayoutEngine:
+    """Renders the back side of a faction sheet (FactionBack model).
+
+    Sections (top to bottom):
+      1. Background image (same as FactionSheet front)
+      2. Component Manifest band — pieces grouped by type (W/B/T/Other)
+      3. Left column: attribute bars + Setup section with numbered SVG markers
+      4. Right column: How to play title + body text
+    """
+
+    PIECE_COLUMNS = [
+        ('Warriors', ('W',)),
+        ('Buildings', ('B',)),
+        ('Tokens', ('T',)),
+        ('Other Pieces', ('C', 'O')),
+    ]
+
+    def __init__(self, faction_back):
+        self.back = faction_back
+        self.faction = faction_back.faction
+        self.color_hex = self.faction.color or '#5B4A8A'
+        self.faction_color = HexColor(self.color_hex)
+
+        pieces = self._resolve_pieces(faction_back)
+        self._pieces_by_col = []
+        for title, types in self.PIECE_COLUMNS:
+            col_pieces = [p for p in pieces if p.type in types]
+            self._pieces_by_col.append((title, col_pieces))
+
+        self._setup_steps = self._resolve_setup_steps(faction_back)
+
+        self._setup_marker_svgs = {}
+        for n in range(10):
+            svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
+            if os.path.exists(svg_path):
+                self._setup_marker_svgs[n] = self._load_colored_svg(
+                    svg_path, '#000000', fit_size=SETUP_MARKER_SIZE
+                )
+
+        # Faction-colored meeple used as a fallback icon for Warrior pieces
+        # that have no small_icon attached.
+        self._warrior_fallback_svg = None
+        if os.path.exists(MEEPLE_SVG):
+            try:
+                self._warrior_fallback_svg = self._load_colored_svg(
+                    MEEPLE_SVG, self.color_hex
+                )
+            except Exception:
+                self._warrior_fallback_svg = None
+
+        self._init_styles()
+
+    # ---------- Data resolution (works with real models or SimpleNamespace) ----------
+
+    def _resolve_pieces(self, back):
+        pieces_attr = getattr(back, 'pieces', None)
+        if pieces_attr is None:
+            return []
+        if hasattr(pieces_attr, 'all'):
+            return list(pieces_attr.all())
+        return list(pieces_attr)
+
+    def _resolve_setup_steps(self, back):
+        steps_attr = getattr(back, 'setup_steps', None)
+        if steps_attr is None:
+            return []
+        if hasattr(steps_attr, 'order_by'):
+            try:
+                return list(steps_attr.order_by('number'))
+            except Exception:
+                pass
+        if hasattr(steps_attr, 'all'):
+            items = list(steps_attr.all())
+        else:
+            items = list(steps_attr)
+        return sorted(items, key=lambda s: getattr(s, 'number', 0))
+
+    # ---------- Helpers reused from SheetLayoutEngine patterns ----------
+
+    def _load_colored_svg(self, svg_path, color_hex, fit_size=None):
+        with open(svg_path, 'r') as f:
+            svg_content = f.read()
+        svg_content = svg_content.replace('#000000', color_hex)
+        with tempfile.NamedTemporaryFile(suffix='.svg', mode='w', delete=False) as tmp:
+            tmp.write(svg_content)
+            tmp_path = tmp.name
+        drawing = svg2rlg(tmp_path)
+        os.unlink(tmp_path)
+        if drawing and fit_size:
+            scale = min(fit_size / drawing.width, fit_size / drawing.height)
+            drawing.width *= scale
+            drawing.height *= scale
+            drawing.scale(scale, scale)
+        return drawing
+
+    def _init_styles(self):
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+
+        self.setup_step_style = ParagraphStyle(
+            'BackSetupStep',
+            fontName='Baskerville',
+            fontSize=9,
+            leading=11,
+            autoLeading='max',
+            textColor=colors.black,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        )
+        self.howtoplay_body_style = ParagraphStyle(
+            'BackHowToPlayBody',
+            fontName='Baskerville',
+            fontSize=HOWTOPLAY_BODY_SIZE,
+            leading=HOWTOPLAY_BODY_SIZE + 2.5,
+            autoLeading='max',
+            textColor=colors.black,
+            alignment=TA_LEFT,
+            spaceAfter=HOWTOPLAY_BODY_SIZE * 0.5,
+        )
+        self.piece_label_style = ParagraphStyle(
+            'BackPieceLabel',
+            fontName='Baskerville',
+            fontSize=MANIFEST_PIECE_LABEL_SIZE,
+            leading=MANIFEST_PIECE_LABEL_SIZE + 1,
+            textColor=colors.black,
+        )
+
+    # ---------- Entry point ----------
+
+    def build(self, output_path):
+        c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+
+        self._draw_background(c)
+
+        # Lighten the background with a white screen at configured opacity.
+        if BACK_BG_SCREEN_OPACITY > 0:
+            c.saveState()
+            c.setFillColorRGB(1, 1, 1, alpha=BACK_BG_SCREEN_OPACITY)
+            c.setStrokeColorRGB(1, 1, 1, alpha=0)
+            c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
+            c.restoreState()
+
+        back_body_w = PAGE_W - (BACK_X_MARGIN * 2)
+
+        manifest_y = PAGE_H - BACK_TOP_MARGIN - MANIFEST_BOX_H
+        self._draw_component_manifest(c, BACK_X_MARGIN, manifest_y, back_body_w, MANIFEST_BOX_H)
+
+        columns_top = manifest_y - 0.18 * inch
+        columns_bottom = BACK_BOTTOM_MARGIN
+        columns_h = columns_top - columns_bottom
+
+        left_w = (back_body_w - BACK_COLUMN_GAP) * LEFT_COL_W_RATIO
+        right_w = back_body_w - BACK_COLUMN_GAP - left_w
+        left_x = BACK_X_MARGIN
+        right_x = left_x + left_w + BACK_COLUMN_GAP
+
+        attrs_bottom = self._draw_attribute_bars(c, left_x, columns_top, left_w)
+        self._draw_setup_section(c, left_x, attrs_bottom - 0.12 * inch, left_w, columns_bottom)
+
+        self._draw_how_to_play(c, right_x, columns_top, right_w, columns_h)
+
+        c.save()
+
+    # ---------- Background (mirrors SheetLayoutEngine._draw_background) ----------
+
+    def _draw_background(self, c):
+        img_path = self.faction.get_background_path()
+        from reportlab.lib.utils import ImageReader
+        img_reader = ImageReader(img_path)
+        iw, ih = img_reader.getSize()
+
+        if self.faction.repeat_background_image:
+            max_h = PAGE_H / 3
+            if ih > max_h:
+                scale = max_h / ih
+                draw_w = iw * scale
+                draw_h = max_h
+            else:
+                draw_w = iw
+                draw_h = ih
+            row = 0
+            y = PAGE_H - draw_h
+            while y > -draw_h:
+                x_offset = -(draw_w / 2) if row % 2 == 1 else 0
+                x = x_offset
+                while x < PAGE_W:
+                    c.drawImage(img_path, x, y, width=draw_w, height=draw_h)
+                    x += draw_w
+                y -= draw_h
+                row += 1
+        else:
+            scale = max(PAGE_W / iw, PAGE_H / ih)
+            draw_w = iw * scale
+            draw_h = ih * scale
+            draw_x = (PAGE_W - draw_w) / 2
+            draw_y = (PAGE_H - draw_h) / 2
+            c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h)
+
+    # ---------- Component manifest band ----------
+
+    def _draw_component_manifest(self, c, x, y, w, h):
+        c.saveState()
+        c.setStrokeColorRGB(0, 0, 0)
+        c.setFillColorRGB(0, 0, 0)
+        border_w = 1.0
+        c.setLineWidth(border_w)
+        half_bw = border_w / 2  # extend lines by half stroke width so corners meet flush
+
+        title = 'Faction Component Manifest'
+        title_size = MANIFEST_TITLE_SIZE
+        # Tracked width = base width + (n-1) * charSpace extra
+        title_w = (pdfmetrics.stringWidth(title, 'Luminari', title_size)
+                   + max(len(title) - 1, 0) * MANIFEST_TITLE_CHAR_SPACE)
+        gap = 6
+        title_x_start = x + (w - title_w) / 2 - gap
+        title_x_end = title_x_start + title_w + gap * 2
+        top_y = y + h
+
+        # Draw borders: bottom, left, right, and the top in two segments that skip the title.
+        # Extend horizontal/vertical lines by half_bw at each end so strokes overlap at corners.
+        c.line(x - half_bw, y, x + w + half_bw, y)                      # bottom
+        c.line(x, y - half_bw, x, top_y + half_bw)                      # left
+        c.line(x + w, y - half_bw, x + w, top_y + half_bw)              # right
+        c.line(x - half_bw, top_y, title_x_start, top_y)                # top-left segment
+        c.line(title_x_end, top_y, x + w + half_bw, top_y)              # top-right segment
+
+        c.setFillColorRGB(0, 0, 0)
+        cap_h = title_size * 0.70
+        title_x = title_x_start + gap
+        title_baseline = top_y - cap_h / 2
+        txt = c.beginText(title_x, title_baseline)
+        txt.setFont('Luminari', title_size)
+        txt.setCharSpace(MANIFEST_TITLE_CHAR_SPACE)
+        txt.textLine(title)
+        c.drawText(txt)
+
+        pad = MANIFEST_INNER_PAD
+        inner_x = x + pad
+        inner_y = y + pad
+        inner_w = w - pad * 2
+        inner_h = h - pad - title_size * 0.6
+
+        col_w = inner_w / len(self.PIECE_COLUMNS)
+        header_size = MANIFEST_COLUMN_HEADER_SIZE
+        header_baseline_y = inner_y + inner_h - header_size
+
+        for i, (col_title, pieces) in enumerate(self._pieces_by_col):
+            col_x = inner_x + i * col_w
+            c.setFillColorRGB(0, 0, 0)
+            header_w = (pdfmetrics.stringWidth(col_title, 'Luminari', header_size)
+                        + max(len(col_title) - 1, 0) * MANIFEST_COLUMN_HEADER_CHAR_SPACE)
+            header_x = col_x + (col_w - header_w) / 2
+            txt = c.beginText(header_x, header_baseline_y)
+            txt.setFont('Luminari', header_size)
+            txt.setCharSpace(MANIFEST_COLUMN_HEADER_CHAR_SPACE)
+            txt.textLine(col_title)
+            c.drawText(txt)
+
+            if i > 0:
+                divider_x = col_x
+                c.setStrokeColorRGB(0, 0, 0)
+                c.setLineWidth(MANIFEST_DIVIDER_W)
+                band_top = y + h
+                c.line(divider_x,
+                       y + MANIFEST_DIVIDER_INSET_BOTTOM,
+                       divider_x,
+                       band_top - MANIFEST_DIVIDER_INSET_TOP)
+
+            pieces_top = header_baseline_y - header_size * 0.4
+            pieces_bottom = inner_y
+            # Piece area spans from box-edge (or previous divider) to next divider (or box-edge),
+            # inset by MANIFEST_PIECE_COL_H_PAD so text never touches the border or dividers.
+            piece_area_left = (x if i == 0 else col_x) + MANIFEST_PIECE_COL_H_PAD
+            piece_area_right = ((x + w) if i == len(self.PIECE_COLUMNS) - 1
+                                else col_x + col_w) - MANIFEST_PIECE_COL_H_PAD
+            # DEBUG: red lines marking MANIFEST_PIECE_COL_H_PAD bounds
+            c.saveState()
+            c.setStrokeColorRGB(1, 0, 0)
+            c.setLineWidth(0.5)
+            c.line(piece_area_left, pieces_bottom, piece_area_left, pieces_top)
+            c.line(piece_area_right, pieces_bottom, piece_area_right, pieces_top)
+            c.restoreState()
+            self._draw_manifest_column_pieces(c, piece_area_left, pieces_bottom,
+                                              piece_area_right - piece_area_left,
+                                              pieces_top - pieces_bottom, pieces)
+        c.restoreState()
+
+    def _draw_manifest_column_pieces(self, c, x, y, w, h, pieces):
+        if not pieces:
+            c.saveState()
+            c.setFont('Baskerville-Italic', MANIFEST_PIECE_LABEL_SIZE)
+            c.setFillColorRGB(0.45, 0.45, 0.45)
+            c.drawCentredString(x + w / 2, y + h / 2, '(none)')
+            c.restoreState()
+            return
+        n = len(pieces)
+        slot_h = h / n
+        for idx, piece in enumerate(pieces):
+            slot_top = y + h - idx * slot_h
+            slot_bottom = slot_top - slot_h
+            self._draw_piece(c, piece, x, slot_bottom, w, slot_h)
+
+    def _draw_piece(self, c, piece, x, y, w, h):
+        icon_path = None
+        icon_attr = getattr(piece, 'small_icon', None)
+        if icon_attr:
+            path_val = getattr(icon_attr, 'path', None)
+            if path_val and os.path.exists(path_val):
+                icon_path = path_val
+            elif isinstance(icon_attr, str) and os.path.exists(icon_attr):
+                icon_path = icon_attr
+
+        quantity = getattr(piece, 'quantity', 1) or 1
+        name = getattr(piece, 'name', '') or ''
+        qty_text = f'\u00d7{quantity}'
+
+        label_size = MANIFEST_PIECE_LABEL_SIZE
+        qty_size = label_size + 1
+        icon_text_gap = MANIFEST_PIECE_ICON_TEXT_GAP
+
+        # Icon sizing
+        icon_max_h = min(MANIFEST_ICON_MAX_H, h - label_size * 1.1)
+        icon_max_w = min(MANIFEST_ICON_MAX_W, w * 0.40)
+
+        draw_w = 0
+        draw_h = 0
+        svg_fallback = None
+        if icon_path:
+            from reportlab.lib.utils import ImageReader
+            try:
+                iw, ih = ImageReader(icon_path).getSize()
+                scale = min(icon_max_w / iw, icon_max_h / ih)
+                draw_w = iw * scale
+                draw_h = ih * scale
+            except Exception:
+                icon_path = None
+                draw_w = 0
+                draw_h = 0
+
+        # Warrior fallback: if no icon was supplied, draw the faction-colored meeple.
+        if not icon_path and getattr(piece, 'type', None) == 'W' and self._warrior_fallback_svg is not None:
+            svg_fallback = self._warrior_fallback_svg
+            base_w = svg_fallback.width or 1
+            base_h = svg_fallback.height or 1
+            scale = min(icon_max_w / base_w, icon_max_h / base_h)
+            draw_w = base_w * scale
+            draw_h = base_h * scale
+
+        # Available width for the label block (×qty + name), respecting horizontal padding
+        h_pad = MANIFEST_PIECE_LABEL_H_PAD
+        v_pad = MANIFEST_PIECE_V_PAD
+        inner_x = x + h_pad
+        inner_w = w - h_pad * 2
+        inner_y = y + v_pad
+        inner_h = h - v_pad * 2
+        has_icon = bool(icon_path) or svg_fallback is not None
+        available_w = inner_w - (draw_w + icon_text_gap if has_icon else 0)
+        if available_w < 20:
+            available_w = 20
+
+        # Build the wrapped name paragraph. Prefix "×N " inline with the name so
+        # it wraps as one block and stays italicized after the quantity.
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+        style = ParagraphStyle(
+            'ManifestPieceLabel',
+            fontName='Baskerville-Italic',
+            fontSize=label_size,
+            leading=label_size * MANIFEST_PIECE_NAME_LEADING,
+            textColor=colors.black,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        )
+        # Quantity in upright Baskerville, name in italic.
+        safe_name = name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        markup = (f'<font name="Baskerville" size="{qty_size}">{qty_text}</font>'
+                  f'&nbsp;{safe_name}')
+        para = Paragraph(markup, style)
+        para.wrap(available_w, 9999)
+        tighten_large_font_lines(para)
+        para_h = para.height
+        # Actual rendered width is the widest line. FragLine stores maxWidth (the
+        # wrap box it was given) and extraSpace (unused trailing space), so the
+        # real line width is maxWidth - extraSpace.
+        try:
+            widths = []
+            for ln in para.blPara.lines:
+                if hasattr(ln, 'maxWidth'):
+                    widths.append(ln.maxWidth - getattr(ln, 'extraSpace', 0))
+                elif isinstance(ln, tuple) and len(ln) >= 2:
+                    # older Paragraph line format: (extraSpace, words)
+                    widths.append(available_w - ln[0])
+            para_w = max(widths) if widths else available_w
+        except Exception:
+            para_w = available_w
+        para_w = max(0, min(para_w, available_w))
+
+        # Horizontally center icon+label group within the padded inner column.
+        total_w = (draw_w + icon_text_gap if has_icon else 0) + para_w
+        start_x = inner_x + (inner_w - total_w) / 2
+        mid_y = inner_y + inner_h / 2
+
+        if icon_path:
+            icon_x = start_x
+            icon_y = mid_y - draw_h / 2
+            c.drawImage(icon_path, icon_x, icon_y, width=draw_w, height=draw_h,
+                        preserveAspectRatio=True, mask='auto')
+            label_x = icon_x + draw_w + icon_text_gap
+        elif svg_fallback is not None:
+            icon_x = start_x
+            icon_y = mid_y - draw_h / 2
+            # _load_colored_svg without fit_size doesn't pre-scale, so apply scale now.
+            base_w = svg_fallback.width or 1
+            base_h = svg_fallback.height or 1
+            sx = draw_w / base_w
+            sy = draw_h / base_h
+            c.saveState()
+            c.translate(icon_x, icon_y)
+            c.scale(sx, sy)
+            renderPDF.draw(svg_fallback, c, 0, 0)
+            c.restoreState()
+            label_x = icon_x + draw_w + icon_text_gap
+        else:
+            label_x = start_x
+
+        # Vertically center the paragraph on the row midpoint.
+        para.drawOn(c, label_x, mid_y - para_h / 2)
+
+    # ---------- Attribute bars ----------
+
+    ATTR_FIELDS = [
+        ('complexity', 'Complexity'),
+        ('card_wealth', 'Card Wealth'),
+        ('aggression', 'Aggression'),
+        ('crafting_ability', 'Crafting Ability'),
+    ]
+
+    def _draw_attribute_bars(self, c, x, top_y, w):
+        """Draws two columns of two bars (like the reference). Returns bottom y of block."""
+        col_gap = 0.2 * inch
+        col_w = (w - col_gap) / 2
+        cursor_y = top_y - ATTR_BLOCK_TOP_PAD
+
+        pairs = [
+            (self.ATTR_FIELDS[0], self.ATTR_FIELDS[1]),
+            (self.ATTR_FIELDS[2], self.ATTR_FIELDS[3]),
+        ]
+
+        row_h = ATTR_LABEL_SIZE + ATTR_LABEL_GAP + ATTR_BAR_H
+        for left, right in pairs:
+            self._draw_attribute_row(c, x, cursor_y, col_w, left[0], left[1])
+            self._draw_attribute_row(c, x + col_w + col_gap, cursor_y, col_w, right[0], right[1])
+            cursor_y -= row_h + ATTR_ROW_GAP
+
+        return cursor_y + ATTR_ROW_GAP
+
+    def _draw_attribute_row(self, c, x, top_y, w, field, label):
+        """Draw a single attribute row (italic label + filled bar with level text).
+
+        Mirrors the web partial: left black border, grey track, faction-color fill
+        sized by ATTR_BAR_FILL_RATIOS, white level text (or black when white is
+        not legible on the faction color).
+        """
+        value = getattr(self.back, field, 'N') or 'N'
+
+        c.saveState()
+
+        # Italic label above the bar ("Complexity", etc.)
+        c.setFillColorRGB(0, 0, 0)
+        label_baseline = top_y - ATTR_LABEL_SIZE
+        label_x = x + ATTR_LABEL_BORDER_LEFT_PAD
+        txt = c.beginText(label_x, label_baseline)
+        txt.setFont('Baskerville-Italic', ATTR_LABEL_SIZE)
+        txt.setCharSpace(ATTR_LABEL_CHAR_SPACE)
+        txt.textLine(label)
+        c.drawText(txt)
+
+        # Bar geometry
+        bar_top = label_baseline - ATTR_LABEL_GAP
+        bar_y = bar_top - ATTR_BAR_H
+        bar_x = x + ATTR_BAR_BORDER_LEFT_PAD
+        bar_w = w - ATTR_BAR_BORDER_LEFT_PAD
+
+        # Left black border, spanning label + bar (mirrors .bar-container border-left)
+        c.setStrokeColorRGB(0, 0, 0)
+        c.setLineWidth(ATTR_BAR_BORDER_LEFT_W)
+        border_top = label_baseline + ATTR_LABEL_SIZE * 0.8
+        c.line(x, bar_y, x, border_top)
+
+        # Faction-color fill sized by level (no track — empty portion is transparent)
+        fill_ratio = ATTR_BAR_FILL_RATIOS.get(value, 0.0)
+        fill_w = bar_w * fill_ratio
+        if fill_w > 0:
+            c.setFillColor(self.faction_color)
+            c.rect(bar_x, bar_y, fill_w, ATTR_BAR_H, stroke=0, fill=1)
+
+        # Level text inside bar — white when legible on faction color, else black.
+        # 'N' always uses black since the fill is barely visible.
+        level_label = ATTR_BAR_LEVEL_LABELS.get(value, '')
+        if level_label:
+            if value == 'N':
+                text_color = ATTR_BAR_LEVEL_N_TEXT_COLOR
+            elif _is_white_text_legible(self.color_hex, ATTR_WHITE_TEXT_MIN_CONTRAST):
+                text_color = ATTR_BAR_LEVEL_TEXT_COLOR_LIGHT
+            else:
+                text_color = ATTR_BAR_LEVEL_TEXT_COLOR_DARK
+            c.setFillColor(HexColor(text_color))
+            text_y = bar_y + (ATTR_BAR_H - ATTR_BAR_LEVEL_FONT_SIZE) / 2 + ATTR_BAR_LEVEL_FONT_SIZE * 0.18
+            txt = c.beginText(bar_x + ATTR_BAR_LEVEL_TEXT_X_PAD, text_y)
+            txt.setFont('Baskerville-Bold', ATTR_BAR_LEVEL_FONT_SIZE)
+            txt.setCharSpace(ATTR_BAR_LEVEL_CHAR_SPACE)
+            txt.textLine(level_label)
+            c.drawText(txt)
+
+        c.restoreState()
+
+    # ---------- Setup section ----------
+
+    def _draw_setup_section(self, c, x, top_y, w, bottom_y):
+        setup_order = getattr(self.back, 'setup_order', '') or ''
+        title = f'Setup ({setup_order})' if setup_order else 'Setup'
+        c.saveState()
+        c.setFont('Baskerville', SETUP_TITLE_SIZE)
+        c.setFillColorRGB(0, 0, 0)
+        title_baseline = top_y - SETUP_TITLE_SIZE
+        c.drawString(x, title_baseline, title)
+        c.restoreState()
+
+        cursor_y = title_baseline - SETUP_TITLE_GAP
+
+        for step in self._setup_steps:
+            number = getattr(step, 'number', 0)
+            text = getattr(step, 'text', '') or ''
+            cursor_y = self._draw_setup_step(c, x, cursor_y, w, number, text)
+            cursor_y -= SETUP_STEP_GAP
+            if cursor_y < bottom_y:
+                break
+
+    def _draw_setup_step(self, c, x, top_y, w, number, text):
+        marker = self._setup_marker_svgs.get(number)
+        marker_w = SETUP_MARKER_SIZE
+        marker_h = SETUP_MARKER_SIZE
+        if marker is not None:
+            marker_w = marker.width
+            marker_h = marker.height
+
+        text_x = x + marker_w + SETUP_MARKER_TEXT_GAP
+        text_w = w - (marker_w + SETUP_MARKER_TEXT_GAP)
+        if text_w < 40:
+            text_w = 40
+
+        markup = format_step_markup(text)
+        para = Paragraph(markup, self.setup_step_style)
+        _, para_h = para.wrap(text_w, 9999)
+        tighten_large_font_lines(para)
+        para_h = para.height
+
+        block_h = max(marker_h, para_h)
+        block_bottom = top_y - block_h
+
+        if marker is not None:
+            marker_y = top_y - marker_h
+            renderPDF.draw(marker, c, x, marker_y)
+        else:
+            c.saveState()
+            c.setFillColor(self.faction_color)
+            c.circle(x + marker_w / 2, top_y - marker_h / 2, marker_w / 2, stroke=0, fill=1)
+            c.setFont('Baskerville-Bold', SETUP_MARKER_SIZE * 0.5)
+            c.setFillColorRGB(1, 1, 1)
+            c.drawCentredString(x + marker_w / 2, top_y - marker_h / 2 - SETUP_MARKER_SIZE * 0.2,
+                                str(number))
+            c.restoreState()
+
+        para_top = top_y - (marker_h - para_h) / 2 if para_h < marker_h else top_y
+        para.drawOn(c, text_x, para_top - para_h)
+
+        return block_bottom
+
+    # ---------- How to play ----------
+
+    def _draw_how_to_play(self, c, x, top_y, w, h):
+        title = getattr(self.back, 'how_to_play_title', '') or 'Playing the Faction'
+        body = getattr(self.back, 'how_to_play_text', '') or ''
+
+        c.saveState()
+        c.setFont('Baskerville', HOWTOPLAY_TITLE_SIZE)
+        c.setFillColorRGB(0, 0, 0)
+        title_baseline = top_y - HOWTOPLAY_TITLE_SIZE
+        c.drawString(x, title_baseline, title)
+        c.restoreState()
+
+        body_top = title_baseline - HOWTOPLAY_TITLE_GAP
+        body_bottom = top_y - h
+        body_h = body_top - body_bottom
+        if body_h <= 0 or not body:
+            return
+
+        markup = format_step_markup(body)
+        para = Paragraph(markup, self.howtoplay_body_style)
+        para.wrap(w, body_h)
+        tighten_large_font_lines(para)
+        para_h = para.height
+        para.drawOn(c, x, body_top - para_h)

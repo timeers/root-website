@@ -192,18 +192,13 @@ decree_card_slots = [
     # SimpleNamespace(number=5, title="Empower", body=None),
 ]
 decree_section = SimpleNamespace(
-    type="decree",
     title="The Decree of Eyrie",
     body=None,
     card_slots=SimpleNamespace(all=lambda: decree_card_slots),
 )
-single_section = SimpleNamespace(
-    type="single",
-    title=None,
-    body=None,
-    card_slots=SimpleNamespace(all=lambda: []),
-)
-decree_sections = []  # single_section, decree_section removed temporarily
+decree_sections = []  # decree_section removed temporarily
+
+card_piles = []
 
 # Fake faction (ForgedFaction fields)
 faction = SimpleNamespace(
@@ -226,6 +221,7 @@ sheet = SimpleNamespace(
     abilities=SimpleNamespace(order_by=lambda f: abilities),
     phase_steps=SimpleNamespace(all=lambda: steps),
     decrees=SimpleNamespace(prefetch_related=lambda *a: SimpleNamespace(all=lambda: decree_sections)),
+    card_piles=SimpleNamespace(all=lambda: card_piles),
 )
 
 engine = SheetLayoutEngine(sheet)

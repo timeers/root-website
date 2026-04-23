@@ -153,17 +153,23 @@ class StepAction(models.Model):
             raise ValidationError({'cost_image': 'A custom image is required when cost is "Other".'})
 
 class DecreeSection(models.Model):
-    class CardTypes(models.TextChoices):
-        SINGLE = 'single'
-        DECREE = 'decree'
     sheet = models.ForeignKey(FactionSheet, related_name='decrees', on_delete=models.CASCADE)
     title = models.CharField(max_length=15, blank=True, null=True)
     body = models.CharField(max_length=20, blank=True, null=True)
-    type = models.CharField(max_length=20, choices=CardTypes.choices)
 
 
 class CardSlot(models.Model):
     decree = models.ForeignKey(DecreeSection, related_name='card_slots', on_delete=models.CASCADE)
+    number = models.PositiveIntegerField()
+    title = models.CharField(max_length=200, blank=True, null=True)
+    body = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['number']
+
+
+class CardPile(models.Model):
+    sheet = models.ForeignKey(FactionSheet, related_name='card_piles', on_delete=models.CASCADE)
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=200, blank=True, null=True)
     body = models.TextField(blank=True, null=True)
@@ -210,6 +216,17 @@ class CardboardTrack(models.Model):
     header_position = models.CharField(
         max_length=10, choices=HeaderPosition.choices, default=HeaderPosition.ABOVE,
         help_text='Display column headers above or below the slots'
+    )
+    header_title = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text='Title displayed in the row-title area of the header row'
+    )
+    class RowTitleOrientation(models.TextChoices):
+        HORIZONTAL = 'horizontal'
+        VERTICAL = 'vertical'
+    row_title_orientation = models.CharField(
+        max_length=12, choices=RowTitleOrientation.choices, default=RowTitleOrientation.HORIZONTAL,
+        help_text='Display row titles horizontally (default) or vertically (rotated 90°)'
     )
     background_image = models.ImageField(upload_to='forge/track_backgrounds/', blank=True, null=True)
 
