@@ -290,10 +290,12 @@ PHASE_NUMBER_SVG_DIR = os.path.join(STATIC_DIR, 'pdf/svg')
 FACTION_TOP_BAR_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Faction_Top_Bar.svg')
 CRAFTED_ITEMS_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Crafted_Items_Box.svg')
 CARD_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/Card-Slot.png')
+CARD_PILE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/card_pile.svg')
 TOKEN_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/TokenSlot.png')
 BUILDING_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/BuildingSlot.png')
 DECREE_DIR = os.path.join(STATIC_DIR, 'pdf/decree')
 PHASE_BOX_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Phase_Box.svg')
+PHASE_BOX_TAN = '#f9e3b3'                 # tan fill color inside Phase_Box.svg
 MEEPLE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/meeple.svg')
 
 PHASE_HEADERS = {
@@ -1641,12 +1643,8 @@ def _rects_overlap(x1, y1, w1, h1, x2, y2, w2, h2):
     return not (x1 + w1 <= x2 or x2 + w2 <= x1 or y1 + h1 <= y2 or y2 + h2 <= y1)
 
 
-def _is_white_text_legible(hex_color, min_ratio=1.9):
-    """Mirror of the JS isWhiteTextLegible() in faction_attributes.html.
-
-    Returns True if white text on hex_color background meets the contrast
-    threshold (WCAG-style relative luminance ratio).
-    """
+def _relative_luminance(hex_color):
+    """WCAG relative luminance for a hex color. Returns None on parse failure."""
     h = hex_color.lstrip('#')
     if len(h) == 3:
         h = ''.join(ch * 2 for ch in h)
@@ -1655,12 +1653,38 @@ def _is_white_text_legible(hex_color, min_ratio=1.9):
         g = int(h[2:4], 16) / 255.0
         b = int(h[4:6], 16) / 255.0
     except (ValueError, IndexError):
-        return True
+        return None
 
     def channel(v):
         return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
 
-    lum = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def _contrast_ratio(hex_a, hex_b):
+    """WCAG contrast ratio between two hex colors (>= 1.0)."""
+    la = _relative_luminance(hex_a)
+    lb = _relative_luminance(hex_b)
+    if la is None or lb is None:
+        return 1.0
+    lighter, darker = max(la, lb), min(la, lb)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _is_color_legible_on(fg_hex, bg_hex, min_ratio=1.9):
+    """True if fg_hex has sufficient contrast against bg_hex."""
+    return _contrast_ratio(fg_hex, bg_hex) >= min_ratio
+
+
+def _is_white_text_legible(hex_color, min_ratio=1.9):
+    """Mirror of the JS isWhiteTextLegible() in faction_attributes.html.
+
+    Returns True if white text on hex_color background meets the contrast
+    threshold (WCAG-style relative luminance ratio).
+    """
+    lum = _relative_luminance(hex_color)
+    if lum is None:
+        return True
     ratio = (1.0 + 0.05) / (lum + 0.05)
     return ratio >= min_ratio
 
@@ -1722,15 +1746,20 @@ class SheetLayoutEngine:
         self._phases_rect = None
 
         self._init_styles()
-        self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, self.sheet.faction.color or '#5B4A8A', 0.5 * inch)
+        # Step numbers and ability berries sit on the Phase_Box.svg tan fill;
+        # if the faction color fails contrast against that tan, use black.
+        faction_color_hex = self.sheet.faction.color or '#5B4A8A'
+        on_tan_hex = (faction_color_hex
+                      if _is_color_legible_on(faction_color_hex, PHASE_BOX_TAN)
+                      else '#000000')
+        self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, on_tan_hex, 0.5 * inch)
 
         # Preload numbered SVGs (0-9) for phase steps, at natural size
-        color_hex = self.sheet.faction.color or '#5B4A8A'
         self._phase_number_svgs = {}
         for n in range(10):
             svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
             if os.path.exists(svg_path):
-                self._phase_number_svgs[n] = self._load_colored_svg(svg_path, color_hex)
+                self._phase_number_svgs[n] = self._load_colored_svg(svg_path, on_tan_hex)
 
     def _load_colored_svg(self, svg_path, color_hex, fit_size=None):
         with open(svg_path, 'r') as f:
@@ -1751,6 +1780,18 @@ class SheetLayoutEngine:
     def _load_phase_box_svg(self, target_w, target_h):
         """Load Phase_Box.svg stretched to target_w x target_h (non-uniform scaling)."""
         drawing = svg2rlg(PHASE_BOX_SVG)
+        if drawing is None:
+            return None
+        sx = target_w / drawing.width
+        sy = target_h / drawing.height
+        drawing.width = target_w
+        drawing.height = target_h
+        drawing.scale(sx, sy)
+        return drawing
+
+    def _load_card_pile_svg(self, color_hex, target_w, target_h):
+        """Load card_pile.svg recolored to color_hex and stretched to target size."""
+        drawing = self._load_colored_svg(CARD_PILE_SVG, color_hex)
         if drawing is None:
             return None
         sx = target_w / drawing.width
@@ -1833,7 +1874,10 @@ class SheetLayoutEngine:
         )
         self.faction_name_font = 'Luminari'
         self.faction_name_font_size = 30
-        self.faction_name_color = HexColor('#FFFFFF')
+        faction_hex = self.sheet.faction.color or '#FFFFFF'
+        self.ink_on_faction_hex = '#FFFFFF' if _is_white_text_legible(faction_hex) else '#000000'
+        self.ink_on_faction = HexColor(self.ink_on_faction_hex)
+        self.faction_name_color = self.ink_on_faction
 
         from reportlab.lib.enums import TA_CENTER
         self.content_box_title_style = ParagraphStyle(
@@ -3388,7 +3432,7 @@ class SheetLayoutEngine:
             fontSize=9,
             leading=9 * 1.2,
             alignment=TA_CENTER,
-            textColor=HexColor('#FFFFFF'),
+            textColor=self.ink_on_faction,
         )
         para = Paragraph(html, style)
         text_h = true_paragraph_height(para, text_w)
@@ -3407,7 +3451,7 @@ class SheetLayoutEngine:
             fontSize=CARD_PILE_TITLE_SIZE,
             leading=CARD_PILE_TITLE_SIZE * 1.1,
             alignment=TA_CENTER,
-            textColor=HexColor('#FFFFFF'),
+            textColor=self.ink_on_faction,
         )
         para = Paragraph(html, style)
         text_h = true_paragraph_height(para, text_w)
@@ -3530,8 +3574,10 @@ class SheetLayoutEngine:
     def _draw_card_pile_upright(self, c, pile, x, y,
                                 title_para, title_h, body_para, body_h,
                                 title_top_offset):
-        c.drawImage(CARD_SLOT_IMG, x, y,
-                    width=CARD_SLOT_W, height=CARD_SLOT_H, mask='auto')
+        drawing = self._load_card_pile_svg(self.ink_on_faction_hex,
+                                           CARD_SLOT_W, CARD_SLOT_H)
+        if drawing:
+            renderPDF.draw(drawing, c, x, y)
         self._draw_card_pile_text(c, x, y, title_para, title_h, body_para, body_h,
                                   title_top_offset)
 
@@ -3543,8 +3589,10 @@ class SheetLayoutEngine:
         c.rotate(90)
         card_local_x = 0
         card_local_y = -CARD_SLOT_H
-        c.drawImage(CARD_SLOT_IMG, card_local_x, card_local_y,
-                    width=CARD_SLOT_W, height=CARD_SLOT_H, mask='auto')
+        drawing = self._load_card_pile_svg(self.ink_on_faction_hex,
+                                           CARD_SLOT_W, CARD_SLOT_H)
+        if drawing:
+            renderPDF.draw(drawing, c, card_local_x, card_local_y)
         self._draw_card_pile_text(c, card_local_x, card_local_y,
                                   title_para, title_h, body_para, body_h,
                                   title_top_offset)

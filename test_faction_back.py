@@ -99,3 +99,16 @@ faction_back = SimpleNamespace(
 engine = FactionBackLayoutEngine(faction_back)
 engine.build('test_faction_back.pdf')
 print('Generated test_faction_back.pdf')
+
+faction_back.back_image = None
+faction.background_preset = None
+faction.background_image = None
+engine_no_image = FactionBackLayoutEngine(faction_back)
+engine_no_image.build('test_faction_back_no_image.pdf')
+print('Generated test_faction_back_no_image.pdf')
+
+faction.background_preset = 'badgers'
+faction.repeat_background_image = True
+engine_brick = FactionBackLayoutEngine(faction_back)
+engine_brick.build('test_faction_back_brick.pdf')
+print('Generated test_faction_back_brick.pdf')

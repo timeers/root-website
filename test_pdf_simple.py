@@ -192,4 +192,9 @@ sheet = SimpleNamespace(
 
 engine = SheetLayoutEngine(sheet)
 engine.build("test_output_simple.pdf")
+
+faction.color = "#FFFF99"
+engine_light = SheetLayoutEngine(sheet)
+engine_light.build("test_output_simple_light.pdf")
+print("Generated test_output_simple_light.pdf")
 print("Generated test_output_simple.pdf")
