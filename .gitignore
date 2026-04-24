@@ -12,6 +12,8 @@ the_tavern/migrations/
 the_tavern/__pycache__/
 the_warroom/migrations/
 the_warroom/__pycache__/
+the_forge/migrations/
+the_forge/__pycache__/
 
 media/background_images/
 media/background_patterns/

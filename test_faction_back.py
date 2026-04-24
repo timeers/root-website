@@ -32,6 +32,8 @@ ICONS = {
 pieces = [
     make_piece('Warriors', 15, 'W', ICONS['warrior']),
     make_piece('Veterans', 4, 'W'),  # no icon -> should fall back to faction-colored meeple.svg
+    make_piece('', 4, 'W'),
+    make_piece('', 4, 'W'),
     make_piece('Waystations\n(double-sided)', 3, 'B', ICONS['building']),
     make_piece('Tablet Relics', 4, 'T', ICONS['token']),
     make_piece('Figure Relics', 4, 'T', ICONS['token']),
@@ -40,10 +42,10 @@ pieces = [
 ]
 
 setup_steps = [
-    SimpleNamespace(number=1, text='Collect all **12 relic tokens** and shuffle them face down (no value showing). Place one face down randomly in each forest.'),
+    SimpleNamespace(number=1, text='Collect all **12 relic tokens** and shuffle them face down _(no value showing)_. Place one face down randomly in each forest.'),
     SimpleNamespace(number=2, text='Place **4 warriors** in a corner clearing that another player has not chosen as their starting clearing, then place **4 warriors** in an adjacent clearing on the map edge.'),
     SimpleNamespace(number=3, text='Place all remaining **relics** face down, as evenly as able, among forests not adjacent to your starting clearings.'),
-    SimpleNamespace(number=4, text='_Flip your board_ and tuck a **Faithful Retainer card** into each of your Retinue column slots. Place all **3 waystations** on the Waystations spaces.'),
+    SimpleNamespace(number=4, text='_**Flip your board**_ and tuck a **Faithful Retainer card** into each of your Retinue column slots. Place all **3 waystations** on the Waystations spaces.'),
 ]
 
 
@@ -60,10 +62,10 @@ faction.get_background_path = lambda: ForgedFaction.get_background_path(faction)
 
 faction_back = SimpleNamespace(
     faction=faction,
-    complexity='H',
-    card_wealth='H',
+    complexity='L',
+    card_wealth='N',
     aggression='M',
-    crafting_ability='M',
+    crafting_ability='H',
     setup_order='K',
     how_to_play_title='Playing the Keepers',
     how_to_play_text=(
@@ -71,6 +73,9 @@ faction_back = SimpleNamespace(
         'conflicts. You will need to **delve** relics out of the forests, move them to '
         'a **waystation** of the same type, and then **recover** them. Whether these '
         'relics belong to you or the Woodland, though, is another question.\n\n'
+        'As **Devout Knights** of an exiled order, you ignore the first hit you take in '
+        'battle if you have both a warrior and a relic in it, whether attacking or '
+        'defending. You can also move relics with your warriors.'
         'As **Devout Knights** of an exiled order, you ignore the first hit you take in '
         'battle if you have both a warrior and a relic in it, whether attacking or '
         'defending. You can also move relics with your warriors.\n\n'
@@ -85,6 +90,9 @@ faction_back = SimpleNamespace(
     setup_steps=SimpleNamespace(
         order_by=lambda f: sorted(setup_steps, key=lambda s: s.number),
         all=lambda: setup_steps,
+    ),
+    back_image=SimpleNamespace(
+        path=os.path.join(STATIC_DIR, 'pdf/inline/mouse_card.png'),
     ),
 )
 

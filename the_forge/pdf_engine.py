@@ -20,9 +20,63 @@ pdfmetrics.registerFont(TTFont('Luminari', os.path.join(FONT_DIR, 'Luminari_edit
 pdfmetrics.registerFont(TTFont('Baskerville', os.path.join(FONT_DIR, 'Baskerville10Pro.ttf')))
 pdfmetrics.registerFont(TTFont('Baskerville-Bold', os.path.join(FONT_DIR, 'Baskerville10Pro-Bold.ttf')))
 pdfmetrics.registerFont(TTFont('Baskerville-Italic', os.path.join(FONT_DIR, 'Baskerville10Pro-Italic.ttf')))
-pdfmetrics.registerFontFamily('Baskerville', normal='Baskerville', bold='Baskerville-Bold', italic='Baskerville-Italic')
+pdfmetrics.registerFont(TTFont('Baskerville-BoldItalic', os.path.join(FONT_DIR, 'Baskerville10Pro-BoldItalic.ttf')))
+pdfmetrics.registerFontFamily('Baskerville', normal='Baskerville', bold='Baskerville-Bold', italic='Baskerville-Italic', boldItalic='Baskerville-BoldItalic')
 
 PAGE_W, PAGE_H = landscape(letter)  # 792 x 612 pts
+
+
+def draw_faction_background(c, faction):
+    """Fill the page with the faction's background.
+
+    - No preset and no uploaded image  -> solid faction color fill.
+    - Image + repeat_background_image  -> brick-tiled pattern.
+    - Image + not repeating            -> cover-fill the page.
+    """
+    try:
+        img_path = faction.get_background_path()
+    except Exception:
+        img_path = None
+
+    if not img_path or not os.path.exists(img_path):
+        color_hex = getattr(faction, 'color', None) or '#5B4A8A'
+        c.saveState()
+        c.setFillColor(HexColor(color_hex))
+        c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
+        c.restoreState()
+        return
+
+    from reportlab.lib.utils import ImageReader
+    img_reader = ImageReader(img_path)
+    iw, ih = img_reader.getSize()
+
+    if getattr(faction, 'repeat_background_image', False):
+        max_h = PAGE_H / 3
+        if ih > max_h:
+            scale = max_h / ih
+            draw_w = iw * scale
+            draw_h = max_h
+        else:
+            draw_w = iw
+            draw_h = ih
+        row = 0
+        y = PAGE_H - draw_h
+        while y > -draw_h:
+            x_offset = -(draw_w / 2) if row % 2 == 1 else 0
+            x = x_offset
+            while x < PAGE_W:
+                c.drawImage(img_path, x, y, width=draw_w, height=draw_h)
+                x += draw_w
+            y -= draw_h
+            row += 1
+    else:
+        scale = max(PAGE_W / iw, PAGE_H / ih)
+        draw_w = iw * scale
+        draw_h = ih * scale
+        draw_x = (PAGE_W - draw_w) / 2
+        draw_y = (PAGE_H - draw_h) / 2
+        c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h)
+
 
 X_MARGIN = 0.25 * inch
 TOP_MARGIN = 0.2 * inch
@@ -152,12 +206,14 @@ ATTR_LABEL_GAP = 8.0                    # gap (pts) between label and bar
 ATTR_BAR_H = 0.32 * inch                # height of the fill bar
 ATTR_BAR_BORDER_LEFT_W = 1.2            # black left border stroke width (like .bar-container)
 ATTR_BAR_BORDER_LEFT_PAD = 0.6          # gap between border and bar start
+ATTR_BAR_BORDER_TOP_EXT = 0.01 * inch    # how far the black border extends above the first row's label
+ATTR_BAR_BORDER_BOTTOM_EXT = 0.08 * inch # how far the black border extends below the last row's bar
 ATTR_LABEL_BORDER_LEFT_PAD = 2.3        # gap between border and label start
 ATTR_BAR_FILL_RATIOS = {                # matches CSS .bar-background-{low/moderate/high/none}
     'N': 0.02,
     'L': 0.28,
-    'M': 0.59,
-    'H': 0.98,
+    'M': 0.55,
+    'H': 0.8,
 }
 ATTR_BAR_LEVEL_LABELS = {
     'N': 'NONE',
@@ -173,16 +229,24 @@ ATTR_BAR_LEVEL_TEXT_COLOR_DARK = '#000000'    # fallback when white is not legib
 ATTR_BAR_LEVEL_N_TEXT_COLOR = '#000000'       # N always uses black (bar is barely filled)
 ATTR_ROW_GAP = 0.14 * inch              # vertical gap between attribute rows
 ATTR_WHITE_TEXT_MIN_CONTRAST = 1.9      # mirrors JS isWhiteTextLegible threshold (large text)
+ATTR_BLOCK_INDENT = 35                      # left indent for the whole attribute bar section
 
-SETUP_TITLE_SIZE = 18
-SETUP_TITLE_GAP = 0.05 * inch
-SETUP_MARKER_SIZE = 0.32 * inch
-SETUP_MARKER_TEXT_GAP = 0.08 * inch
-SETUP_STEP_GAP = 0.08 * inch
 
-HOWTOPLAY_TITLE_SIZE = 18
-HOWTOPLAY_TITLE_GAP = 0.05 * inch
+SETUP_TITLE_SIZE = 22
+SETUP_TITLE_GAP = 0.13 * inch
+SETUP_MARKER_SIZE = 0.32 * inch            # width of the reserved marker slot (for text alignment)
+SETUP_MARKER_HEIGHT = 0.17 * inch          # rendered height of each setup-step number SVG
+SETUP_MARKER_TEXT_GAP = 0.04 * inch          # Gap between setup number and text
+SETUP_STEP_GAP = 0.2 * inch                # Gap between each step in setup
+SETUP_BODY_SIZE = 11                       # setup step body text size
+SETUP_STEP_INDENT = 0.1 * inch            # left indent applied to each setup step (marker + text)
+
+HOWTOPLAY_TITLE_SIZE = 22
+HOWTOPLAY_TITLE_GAP = 0.13 * inch
 HOWTOPLAY_BODY_SIZE = 10
+HOWTOPLAY_IMAGE_MAX_W = 2.25 * inch        # optional FactionBack image: max width
+HOWTOPLAY_IMAGE_MAX_H = 3.5 * inch         # optional FactionBack image: max height
+HOWTOPLAY_IMAGE_GAP = 0.10 * inch          # horizontal gap between text and the image
 
 BACK_X_MARGIN = 0.7 * inch             # left/right page margin for the FactionBack
 BACK_TOP_MARGIN = 0.75 * inch             # top page margin for the FactionBack
@@ -367,6 +431,11 @@ def format_step_markup(text):
 
     # ~~text~~ -> Luminari (decorative)
     result = re.sub(r"~~(.+?)~~", r'<font name="Luminari">\1</font>', result)
+
+    # _**text**_ or **_text_** -> bold italic (must run before the individual
+    # ** and _ rules so the combined markers aren't consumed first).
+    result = re.sub(r"(?<!\w)_\*\*(.+?)\*\*_(?!\w)", r"<b><i>\1</i></b>", result)
+    result = re.sub(r"\*\*_(.+?)_\*\*", r"<b><i>\1</i></b>", result)
 
     # **text** -> bold
     result = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", result)
@@ -2974,41 +3043,7 @@ class SheetLayoutEngine:
         return story
 
     def _draw_background(self, c):
-        img_path = self.sheet.get_background_path()
-        from reportlab.lib.utils import ImageReader
-        img_reader = ImageReader(img_path)
-        iw, ih = img_reader.getSize()
-
-        if self.sheet.faction.repeat_background_image:
-            # Cap height to 1/3 of page so we get at least 3 rows
-            max_h = PAGE_H / 3
-            if ih > max_h:
-                scale = max_h / ih
-                draw_w = iw * scale
-                draw_h = max_h
-            else:
-                draw_w = iw
-                draw_h = ih
-
-            # Brick pattern tile — alternating rows offset by 50%
-            row = 0
-            y = PAGE_H - draw_h
-            while y > -draw_h:
-                x_offset = -(draw_w / 2) if row % 2 == 1 else 0
-                x = x_offset
-                while x < PAGE_W:
-                    c.drawImage(img_path, x, y, width=draw_w, height=draw_h)
-                    x += draw_w
-                y -= draw_h
-                row += 1
-        else:
-            # Cover fill — scale to fill page, preserving aspect ratio
-            scale = max(PAGE_W / iw, PAGE_H / ih)
-            draw_w = iw * scale
-            draw_h = ih * scale
-            draw_x = (PAGE_W - draw_w) / 2
-            draw_y = (PAGE_H - draw_h) / 2
-            c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h)
+        draw_faction_background(c, self.sheet.faction)
 
 
     def _draw_top_band(self, c):
@@ -3583,7 +3618,8 @@ class FactionBackLayoutEngine:
             svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
             if os.path.exists(svg_path):
                 self._setup_marker_svgs[n] = self._load_colored_svg(
-                    svg_path, '#000000', fit_size=SETUP_MARKER_SIZE
+                    svg_path, '#000000', fit_size=SETUP_MARKER_HEIGHT,
+                    fit_height_only=True,
                 )
 
         # Faction-colored meeple used as a fallback icon for Warrior pieces
@@ -3626,7 +3662,7 @@ class FactionBackLayoutEngine:
 
     # ---------- Helpers reused from SheetLayoutEngine patterns ----------
 
-    def _load_colored_svg(self, svg_path, color_hex, fit_size=None):
+    def _load_colored_svg(self, svg_path, color_hex, fit_size=None, fit_height_only=False):
         with open(svg_path, 'r') as f:
             svg_content = f.read()
         svg_content = svg_content.replace('#000000', color_hex)
@@ -3636,7 +3672,10 @@ class FactionBackLayoutEngine:
         drawing = svg2rlg(tmp_path)
         os.unlink(tmp_path)
         if drawing and fit_size:
-            scale = min(fit_size / drawing.width, fit_size / drawing.height)
+            if fit_height_only:
+                scale = fit_size / drawing.height
+            else:
+                scale = min(fit_size / drawing.width, fit_size / drawing.height)
             drawing.width *= scale
             drawing.height *= scale
             drawing.scale(scale, scale)
@@ -3650,8 +3689,8 @@ class FactionBackLayoutEngine:
         self.setup_step_style = ParagraphStyle(
             'BackSetupStep',
             fontName='Baskerville',
-            fontSize=9,
-            leading=11,
+            fontSize=SETUP_BODY_SIZE,
+            leading=SETUP_BODY_SIZE + 2,
             autoLeading='max',
             textColor=colors.black,
             alignment=TA_LEFT,
@@ -3714,37 +3753,7 @@ class FactionBackLayoutEngine:
     # ---------- Background (mirrors SheetLayoutEngine._draw_background) ----------
 
     def _draw_background(self, c):
-        img_path = self.faction.get_background_path()
-        from reportlab.lib.utils import ImageReader
-        img_reader = ImageReader(img_path)
-        iw, ih = img_reader.getSize()
-
-        if self.faction.repeat_background_image:
-            max_h = PAGE_H / 3
-            if ih > max_h:
-                scale = max_h / ih
-                draw_w = iw * scale
-                draw_h = max_h
-            else:
-                draw_w = iw
-                draw_h = ih
-            row = 0
-            y = PAGE_H - draw_h
-            while y > -draw_h:
-                x_offset = -(draw_w / 2) if row % 2 == 1 else 0
-                x = x_offset
-                while x < PAGE_W:
-                    c.drawImage(img_path, x, y, width=draw_w, height=draw_h)
-                    x += draw_w
-                y -= draw_h
-                row += 1
-        else:
-            scale = max(PAGE_W / iw, PAGE_H / ih)
-            draw_w = iw * scale
-            draw_h = ih * scale
-            draw_x = (PAGE_W - draw_w) / 2
-            draw_y = (PAGE_H - draw_h) / 2
-            c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h)
+        draw_faction_background(c, self.faction)
 
     # ---------- Component manifest band ----------
 
@@ -3915,7 +3924,7 @@ class FactionBackLayoutEngine:
         from reportlab.lib import colors
         style = ParagraphStyle(
             'ManifestPieceLabel',
-            fontName='Baskerville-Italic',
+            fontName='Baskerville',
             fontSize=label_size,
             leading=label_size * MANIFEST_PIECE_NAME_LEADING,
             textColor=colors.black,
@@ -3988,6 +3997,8 @@ class FactionBackLayoutEngine:
 
     def _draw_attribute_bars(self, c, x, top_y, w):
         """Draws two columns of two bars (like the reference). Returns bottom y of block."""
+        x = x + ATTR_BLOCK_INDENT
+        w = max(w - ATTR_BLOCK_INDENT, 40)
         col_gap = 0.2 * inch
         col_w = (w - col_gap) / 2
         cursor_y = top_y - ATTR_BLOCK_TOP_PAD
@@ -3998,10 +4009,23 @@ class FactionBackLayoutEngine:
         ]
 
         row_h = ATTR_LABEL_SIZE + ATTR_LABEL_GAP + ATTR_BAR_H
+        first_row_top = cursor_y                               # top_y of first row for border
         for left, right in pairs:
             self._draw_attribute_row(c, x, cursor_y, col_w, left[0], left[1])
             self._draw_attribute_row(c, x + col_w + col_gap, cursor_y, col_w, right[0], right[1])
             cursor_y -= row_h + ATTR_ROW_GAP
+        last_row_bar_bottom = cursor_y + ATTR_ROW_GAP           # bar bottom of final row
+
+        # Single continuous left border per column, extended above the first label
+        # and below the last bar per the *_EXT constants.
+        border_top = first_row_top + ATTR_BAR_BORDER_TOP_EXT
+        border_bottom = last_row_bar_bottom - ATTR_BAR_BORDER_BOTTOM_EXT
+        c.saveState()
+        c.setStrokeColorRGB(0, 0, 0)
+        c.setLineWidth(ATTR_BAR_BORDER_LEFT_W)
+        c.line(x, border_bottom, x, border_top)
+        c.line(x + col_w + col_gap, border_bottom, x + col_w + col_gap, border_top)
+        c.restoreState()
 
         return cursor_y + ATTR_ROW_GAP
 
@@ -4031,12 +4055,6 @@ class FactionBackLayoutEngine:
         bar_y = bar_top - ATTR_BAR_H
         bar_x = x + ATTR_BAR_BORDER_LEFT_PAD
         bar_w = w - ATTR_BAR_BORDER_LEFT_PAD
-
-        # Left black border, spanning label + bar (mirrors .bar-container border-left)
-        c.setStrokeColorRGB(0, 0, 0)
-        c.setLineWidth(ATTR_BAR_BORDER_LEFT_W)
-        border_top = label_baseline + ATTR_LABEL_SIZE * 0.8
-        c.line(x, bar_y, x, border_top)
 
         # Faction-color fill sized by level (no track — empty portion is transparent)
         fill_ratio = ATTR_BAR_FILL_RATIOS.get(value, 0.0)
@@ -4079,24 +4097,26 @@ class FactionBackLayoutEngine:
 
         cursor_y = title_baseline - SETUP_TITLE_GAP
 
+        step_x = x + SETUP_STEP_INDENT
+        step_w = max(w - SETUP_STEP_INDENT, 40)
         for step in self._setup_steps:
             number = getattr(step, 'number', 0)
             text = getattr(step, 'text', '') or ''
-            cursor_y = self._draw_setup_step(c, x, cursor_y, w, number, text)
+            cursor_y = self._draw_setup_step(c, step_x, cursor_y, step_w, number, text)
             cursor_y -= SETUP_STEP_GAP
             if cursor_y < bottom_y:
                 break
 
     def _draw_setup_step(self, c, x, top_y, w, number, text):
         marker = self._setup_marker_svgs.get(number)
-        marker_w = SETUP_MARKER_SIZE
-        marker_h = SETUP_MARKER_SIZE
-        if marker is not None:
-            marker_w = marker.width
-            marker_h = marker.height
+        # Reserve a uniform slot width for the marker (= SETUP_MARKER_SIZE) so
+        # body text lines up across steps, even though individual digit widths vary.
+        slot_w = SETUP_MARKER_SIZE
+        marker_w = marker.width if marker is not None else SETUP_MARKER_SIZE
+        marker_h = marker.height if marker is not None else SETUP_MARKER_SIZE
 
-        text_x = x + marker_w + SETUP_MARKER_TEXT_GAP
-        text_w = w - (marker_w + SETUP_MARKER_TEXT_GAP)
+        text_x = x + slot_w + SETUP_MARKER_TEXT_GAP
+        text_w = w - (slot_w + SETUP_MARKER_TEXT_GAP)
         if text_w < 40:
             text_w = 40
 
@@ -4109,21 +4129,23 @@ class FactionBackLayoutEngine:
         block_h = max(marker_h, para_h)
         block_bottom = top_y - block_h
 
+        # Vertically center the marker on the paragraph's midline.
+        para_mid_y = top_y - para_h / 2
+        marker_x = x + (slot_w - marker_w) / 2
+        marker_y = para_mid_y - marker_h / 2
+
         if marker is not None:
-            marker_y = top_y - marker_h
-            renderPDF.draw(marker, c, x, marker_y)
+            renderPDF.draw(marker, c, marker_x, marker_y)
         else:
             c.saveState()
             c.setFillColor(self.faction_color)
-            c.circle(x + marker_w / 2, top_y - marker_h / 2, marker_w / 2, stroke=0, fill=1)
-            c.setFont('Baskerville-Bold', SETUP_MARKER_SIZE * 0.5)
+            c.circle(marker_x + marker_w / 2, para_mid_y, marker_w / 2, stroke=0, fill=1)
+            c.setFont('Baskerville-Bold', marker_h * 0.6)
             c.setFillColorRGB(1, 1, 1)
-            c.drawCentredString(x + marker_w / 2, top_y - marker_h / 2 - SETUP_MARKER_SIZE * 0.2,
-                                str(number))
+            c.drawCentredString(marker_x + marker_w / 2, para_mid_y - marker_h * 0.2, str(number))
             c.restoreState()
 
-        para_top = top_y - (marker_h - para_h) / 2 if para_h < marker_h else top_y
-        para.drawOn(c, text_x, para_top - para_h)
+        para.drawOn(c, text_x, top_y - para_h)
 
         return block_bottom
 
@@ -4146,9 +4168,82 @@ class FactionBackLayoutEngine:
         if body_h <= 0 or not body:
             return
 
+        # Resolve optional back_image path and natural-scale within max bounds.
+        img_path, img_w, img_h = self._resolve_back_image()
+
         markup = format_step_markup(body)
         para = Paragraph(markup, self.howtoplay_body_style)
-        para.wrap(w, body_h)
+
+        if not img_path:
+            para.wrap(w, body_h)
+            tighten_large_font_lines(para)
+            para_h = para.height
+            para.drawOn(c, x, body_top - para_h)
+            return
+
+        # Anchor the image to the PDF's bottom-right corner exactly.
+        img_x = PAGE_W - img_w
+        img_y = 0
+        c.drawImage(img_path, img_x, img_y, width=img_w, height=img_h,
+                    preserveAspectRatio=True, mask='auto')
+
+        # Variable-width wrap within a single Paragraph. Passing a per-line
+        # widthList to breakLines lets the width change mid-paragraph at
+        # img_top, so running prose continues seamlessly from wide to narrow.
+        img_top = img_y + img_h
+        img_left = img_x  # left edge of the image on the page
+        right_edge = x + w
+        full_w = w
+        # Narrow width runs from text x to the image's left edge (minus gap).
+        # If the image starts to the right of the text column, only the overlap
+        # eats into the text; if it starts inside the column, the text is
+        # clamped to stop before the image.
+        narrow_w = max(min(right_edge, img_left - HOWTOPLAY_IMAGE_GAP) - x, 20)
+
+        # Estimate how many leading lines fit above img_top at full width, then
+        # transition one line earlier so the narrow section starts before the
+        # last full-width line crowds the image's top edge.
+        leading = para.style.leading
+        wide_space = max(body_top - img_top, 0)
+        n_wide = int(wide_space // leading) if leading > 0 else 0
+        n_wide = max(n_wide - 1, 0)
+
+        # Cap against the total number of lines this body will produce at full
+        # width, so we never promise more wide lines than exist.
+        total_lines = len(para.breakLines([full_w]).lines)
+        n_wide = min(n_wide, total_lines)
+
+        widths = [full_w] * n_wide + [narrow_w] * max(total_lines - n_wide, 0)
+        # Pad with narrow widths so breakLines never runs out (harmless if unused).
+        if len(widths) < total_lines + 8:
+            widths += [narrow_w] * (total_lines + 8 - len(widths))
+
+        para = Paragraph(markup, self.howtoplay_body_style)
+        para.blPara = para.breakLines(widths)
+        para.width = full_w
+        para.height = sum(
+            max(line.ascent - line.descent, leading)
+            for line in para.blPara.lines
+        )
         tighten_large_font_lines(para)
-        para_h = para.height
-        para.drawOn(c, x, body_top - para_h)
+        para.drawOn(c, x, body_top - para.height)
+
+    def _resolve_back_image(self):
+        """Returns (path, draw_w, draw_h) for the optional FactionBack image,
+        natural-scaled to fit within HOWTOPLAY_IMAGE_MAX_W × HOWTOPLAY_IMAGE_MAX_H.
+        Returns (None, 0, 0) if no image is set."""
+        img_attr = getattr(self.back, 'back_image', None)
+        if not img_attr:
+            return None, 0, 0
+        path_val = getattr(img_attr, 'path', None)
+        if not path_val and isinstance(img_attr, str):
+            path_val = img_attr
+        if not path_val or not os.path.exists(path_val):
+            return None, 0, 0
+        try:
+            from reportlab.lib.utils import ImageReader
+            iw, ih = ImageReader(path_val).getSize()
+        except Exception:
+            return None, 0, 0
+        scale = min(HOWTOPLAY_IMAGE_MAX_W / iw, HOWTOPLAY_IMAGE_MAX_H / ih, 1.0)
+        return path_val, iw * scale, ih * scale

@@ -288,6 +288,7 @@ class FactionBack(models.Model):
 
     how_to_play_title = models.TextField(default='Playing the Faction')
     how_to_play_text = models.TextField(blank=True, null=True)
+    back_image = models.ImageField(upload_to='forge/faction_back/', blank=True, null=True)
 
 class Piece(models.Model):
     class TypeChoices(models.TextChoices):
