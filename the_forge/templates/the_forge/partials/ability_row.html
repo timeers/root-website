@@ -1,0 +1,17 @@
+{% load static %}
+<div class="border rounded p-2 mb-2" data-row data-id="{{ ability.pk }}">
+  <form method="post" data-edit-url="{% url 'forge-ability-edit' pk=ability.pk %}" class="m-0">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <input type="text" name="title" value="{{ ability.title }}" class="form-control form-control-sm" required>
+      <input type="number" name="order" value="{{ ability.order }}" class="form-control form-control-sm" style="width:5rem;">
+      <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+      <button type="button" class="btn btn-sm btn-outline-danger"
+              data-delete-url="{% url 'forge-ability-delete' pk=ability.pk %}">Delete</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="body" class="form-control" rows="3">{{ ability.body }}</textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+  </form>
+</div>

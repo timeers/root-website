@@ -1,0 +1,96 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="mb-2">
+  <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary">&larr; All Factions</a>
+</div>
+
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-start">
+    <h2 class="root-title">
+      {% if faction.color %}
+        <span class="badge" style="background:{{ faction.color }};">&nbsp;</span>
+      {% endif %}
+      {{ faction.faction_name }}
+    </h2>
+    <div class="d-flex gap-2">
+      <a href="{% url 'forge-faction-edit' pk=faction.pk %}" class="btn btn-sm btn-outline-secondary">Edit Faction</a>
+      <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" class="btn btn-sm btn-primary">Download PDF</a>
+    </div>
+  </div>
+  <p class="text-muted mb-0">
+    {{ faction.get_background_preset_display|default:"Custom background" }}
+    {% if faction.repeat_background_image %} · repeating{% endif %}
+  </p>
+</div>
+
+<!-- Faction Sheets -->
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h4 class="root-title mb-0">Faction Sheets</h4>
+    <form method="post" action="{% url 'forge-sheet-create' faction_pk=faction.pk %}" class="m-0">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-primary">+ Add Sheet</button>
+    </form>
+  </div>
+
+  {% if sheets %}
+    <ul class="list-group">
+      {% for s in sheets %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <span>Sheet #{{ s.pk }} — {{ s.get_layout_mode_display }}</span>
+          <span class="d-flex gap-2">
+            <a href="{% url 'forge-sheet-edit' pk=s.pk %}" class="btn btn-sm btn-outline-primary">Edit</a>
+            <form method="post" action="{% url 'forge-sheet-delete' pk=s.pk %}" class="m-0"
+                  onsubmit="return confirm('Delete this sheet?');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+            </form>
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-muted mb-0">No sheets yet.</p>
+  {% endif %}
+</div>
+
+<!-- Faction Back -->
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h4 class="root-title mb-0">Faction Back</h4>
+  </div>
+
+  {% if back %}
+    <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary align-self-start">Edit Back</a>
+  {% else %}
+    <form method="post" action="{% url 'forge-back-create' faction_pk=faction.pk %}" class="m-0">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-primary">+ Create Back</button>
+    </form>
+  {% endif %}
+</div>
+
+<!-- Setup Cards -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Setup Cards</h4>
+  <div id="setup-card-list">
+    {% for card in setup_cards %}
+      {% include 'the_forge/partials/setup_card_row.html' with card=card %}
+    {% empty %}
+      <p class="text-muted mb-2" id="setup-card-empty">No setup cards yet.</p>
+    {% endfor %}
+  </div>
+
+  <form id="setup-card-add-form" class="row g-2 mt-2"
+        data-add-url="{% url 'forge-setup-card-add' faction_pk=faction.pk %}">
+    {% csrf_token %}
+    <div class="col-auto">{{ setup_card_form.type.label_tag }} {{ setup_card_form.type }}</div>
+    <div class="col-auto">{{ setup_card_form.reach.label_tag }} {{ setup_card_form.reach }}</div>
+    <div class="col-auto align-self-end"><button type="submit" class="btn btn-sm btn-primary">+ Add</button></div>
+  </form>
+</div>
+
+<script src="{% static 'the_forge/forge_editor.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,185 @@
+"""Forge-specific inline image keyword map and picker order.
+
+This module is the single curation point for the rich-text image picker on
+forge editor pages and for `format_forge_text` rendering on forge display
+pages. To add, remove, or reorder a keyword:
+
+  - Add the URL to `FORGE_INLINE_IMAGES` (the keyword -> static URL map).
+  - Add the keyword to `FORGE_PICKER_ORDER` in the order it should appear in
+    the toolbar's image picker. Keywords missing from this list are hidden
+    from the picker even if they exist in the map (so we can still render
+    legacy {{ keyword }} content without showing the keyword as a button).
+
+PDF rendering uses its own map at `the_forge/pdf_engine.py:INLINE_IMAGES_PDF`
+because PDFs reference filesystem paths, not static URLs. Keep the two in
+sync when adding icons that should also appear in generated PDFs.
+"""
+
+from django.templatetags.static import static
+
+
+# Keyword -> static URL. Order here doesn't matter; picker order is set
+# by FORGE_PICKER_ORDER below. Add aliases (e.g. `bunny`/`rabbit`) by
+# pointing multiple keys at the same URL.
+FORGE_INLINE_IMAGES = {
+    # Items (law icon set)
+    'torch': static('items/law/torch.png'),
+    'tea': static('items/law/tea.png'),
+    'sword': static('items/law/sword.png'),
+    'bag': static('items/law/bag.png'),
+    'hammer': static('items/law/hammer.png'),
+    'crossbow': static('items/law/crossbow.png'),
+    'coin': static('items/law/coin.png'),
+    'boot': static('items/law/boot.png'),
+
+    # Generic gameplay
+    'hired': static('items/law/hired.png'),
+    'ability': static('items/law/ability.png'),
+    'daylight': static('items/law/daylight.png'),
+    'birdsong': static('items/law/birdsong.png'),
+    'card': static('pdf/inline/card.png'),
+
+    # Animals (law icon set)
+    'bunny': static('items/law/bunny.png'),
+    'rat': static('items/law/rat.png'),
+    'vb': static('items/law/raccoon.png'),
+    'otter': static('items/law/otter.png'),
+    'cat': static('items/law/cat.png'),
+    'badger': static('items/law/badger.png'),
+    'bird': static('items/law/bird.png'),
+    'mole': static('items/law/mole.png'),
+    'lizard': static('items/law/lizard.png'),
+    'crow': static('items/law/crow.png'),
+    'frog': static('items/law/frog.png'),
+    'bat': static('items/law/bat.png'),
+    'skunk': static('items/law/skunk.png'),
+
+    # Cards (suits)
+    'fox_card': static('pdf/inline/fox_card.png'),
+    'mouse_card': static('pdf/inline/mouse_card.png'),
+    'rabbit_card': static('pdf/inline/rabbit_card.png'),
+    'bird_card': static('pdf/inline/bird_card.png'),
+    'cards': static('pdf/inline/other_cards.png'),
+
+    # Tilts
+    'fox_tilt': static('pdf/inline/fox_tilt.png'),
+    'mouse_tilt': static('pdf/inline/mouse_tilt.png'),
+    'rabbit_tilt': static('pdf/inline/rabbit_tilt.png'),
+    'bird_tilt': static('pdf/inline/bird_tilt.png'),
+
+    # Victory points
+    'VP': static('pdf/inline/VP.png'),
+    '0VP': static('pdf/inline/0VP.png'),
+    '1VP': static('pdf/inline/1VP.png'),
+    '2VP': static('pdf/inline/2VP.png'),
+    '3VP': static('pdf/inline/3VP.png'),
+    '4VP': static('pdf/inline/4VP.png'),
+    '5VP': static('pdf/inline/5VP.png'),
+    '6VP': static('pdf/inline/6VP.png'),
+    '7VP': static('pdf/inline/7VP.png'),
+    '8VP': static('pdf/inline/8VP.png'),
+    '9VP': static('pdf/inline/9VP.png'),
+    '-1VP': static('pdf/inline/-1VP.png'),
+    '-2VP': static('pdf/inline/-2VP.png'),
+    '-3VP': static('pdf/inline/-3VP.png'),
+    '-4VP': static('pdf/inline/-4VP.png'),
+    '-5VP': static('pdf/inline/-5VP.png'),
+    '-6VP': static('pdf/inline/-6VP.png'),
+    '-7VP': static('pdf/inline/-7VP.png'),
+    '-8VP': static('pdf/inline/-8VP.png'),
+    '-9VP': static('pdf/inline/-9VP.png'),
+}
+
+
+# Ordered list controlling which keywords appear in the image picker, and
+# in what order. Keys not listed here are still recognised by
+# `format_forge_text` (so existing saved {{ keyword }} content keeps
+# rendering) but won't show as a button in the picker.
+FORGE_PICKER_ORDER = [
+    # Gameplay
+    'birdsong',
+    'daylight',
+    'hired',
+    'ability',
+
+    # Items
+    'sword',
+    'hammer',
+    'crossbow',
+    'bag',
+    'boot',
+    'tea',
+    'coin',
+    'torch',
+
+    # Cards
+    'card',
+    'cards',
+    'fox_card',
+    'mouse_card',
+    'rabbit_card',
+    'bird_card',
+
+    # Tilts
+    'fox_tilt',
+    'mouse_tilt',
+    'rabbit_tilt',
+    'bird_tilt',
+
+    # VP
+    'VP',
+    '1VP',
+    '2VP',
+    '3VP',
+    '4VP',
+    '5VP',
+    '6VP',
+    '7VP',
+    '8VP',
+    '9VP',
+    '-1VP',
+    '-2VP',
+    '-3VP',
+    '-4VP',
+    '-5VP',
+    '-6VP',
+    '-7VP',
+    '-8VP',
+    '-9VP',
+
+    # Animals
+    'bunny',
+    'bird',
+    'cat',
+    'vb',
+    'lizard',
+    'otter',
+    'mole',
+
+    'crow',
+
+    'rat',
+    'badger',
+    
+    'frog',
+    'bat',
+    'skunk',
+
+]
+
+
+def picker_keywords():
+    """Return the ordered list of keywords to display in the picker.
+
+    Filters out any entry that doesn't have a URL in FORGE_INLINE_IMAGES so
+    a typo in FORGE_PICKER_ORDER doesn't render an empty button.
+    """
+    return [k for k in FORGE_PICKER_ORDER if k in FORGE_INLINE_IMAGES]
+
+
+def picker_image_map():
+    """Return the keyword -> URL map filtered to keys the picker will show
+    plus any other keys still referenced by saved content. We pass the full
+    map so the editor can hydrate existing {{ keyword }} markers even when
+    the keyword has been removed from the picker order."""
+    return dict(FORGE_INLINE_IMAGES)

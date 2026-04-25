@@ -1,0 +1,22 @@
+{% load static %}
+<div class="border rounded p-2 mb-2" data-row data-id="{{ action.pk }}">
+  <form method="post" enctype="multipart/form-data" data-edit-url="{% url 'forge-stepaction-edit' pk=action.pk %}" class="m-0">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <input type="number" name="order" value="{{ action.order }}" class="form-control form-control-sm" style="width:5rem;">
+      <select name="cost" class="form-select form-select-sm" style="width:auto;">
+        {% for v,l in action.CostChoices.choices %}
+          <option value="{{ v }}" {% if action.cost == v %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+      </select>
+      <input type="file" name="cost_image" accept="image/*" class="form-control form-control-sm">
+      <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+      <button type="button" class="btn btn-sm btn-outline-danger"
+              data-delete-url="{% url 'forge-stepaction-delete' pk=action.pk %}">Delete</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="text" class="form-control" rows="2">{{ action.text }}</textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+  </form>
+</div>

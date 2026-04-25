@@ -1,0 +1,131 @@
+/* Forge rich-text widget */
+
+.forge-rich-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.forge-rich-text textarea {
+  width: 100%;
+  min-height: 6em;
+  font-family: inherit;
+}
+
+/* Hidden mirror textarea — keeps the canonical markdown for form submit. */
+.forge-rich-text textarea.forge-rich-text-input[hidden] {
+  display: none !important;
+}
+
+/* Contenteditable WYSIWYG surface that replaces the visible textarea. */
+.forge-rich-text-editor {
+  width: 100%;
+  min-height: 6em;
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #fff;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  outline: none;
+}
+
+.forge-rich-text-editor:focus {
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2);
+}
+
+/* Mirror display-side marker styles inside the editor so users see
+   the same look they'd see on the rendered page / PDF. */
+.forge-rich-text-editor [data-forge="luminari"] {
+  font-family: 'Luminari', serif;
+}
+.forge-rich-text-editor [data-forge="header"] {
+  font-family: 'Baskerville', 'Libre Baskerville', serif;
+  font-size: 1.5em;
+}
+.forge-rich-text-editor img.inline-icon {
+  height: 1.2em;
+  width: auto;
+  vertical-align: text-bottom;
+}
+
+.forge-rich-text-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.forge-rich-text-toolbar button {
+  min-width: 2em;
+  height: 2em;
+  padding: 0 0.5em;
+  border: 1px solid #888;
+  background: #f5f5f5;
+  cursor: pointer;
+  font-size: 0.95em;
+  border-radius: 3px;
+}
+
+.forge-rich-text-toolbar button[data-active="true"] {
+  background: #444;
+  color: #fff;
+  border-color: #222;
+}
+
+.forge-rich-text-toolbar button.rt-apply {
+  margin-left: 4px;
+  font-weight: bold;
+}
+
+.forge-rich-text-toolbar button.rt-luminari {
+  font-family: 'Luminari', serif;
+}
+
+.forge-rich-text-image-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid #ccc;
+  background: #fafafa;
+  max-width: 100%;
+  border-radius: 3px;
+}
+
+.forge-rich-text-image-picker button {
+  padding: 2px 6px;
+  border: 1px solid #bbb;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85em;
+  border-radius: 2px;
+}
+
+.forge-rich-text-image-picker button:hover {
+  background: #e8e8e8;
+}
+
+/* When the JS swaps the text label for a real <img>, render a square tile
+   so all icons line up at a consistent size in the picker grid. */
+.forge-rich-text-image-picker button.rt-image-btn {
+  width: 2.4em;
+  height: 2.4em;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.forge-rich-text-image-picker button.rt-image-btn img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  display: block;
+}

@@ -436,14 +436,17 @@ def format_step_markup(text):
 
     # _**text**_ or **_text_** -> bold italic (must run before the individual
     # ** and _ rules so the combined markers aren't consumed first).
-    result = re.sub(r"(?<!\w)_\*\*(.+?)\*\*_(?!\w)", r"<b><i>\1</i></b>", result)
+    # Boundary class [^A-Za-z0-9] (not \w) so an adjacent `_` doesn't block
+    # the match — \w treats `_` as a word char, which mis-parsed sequences
+    # like `_x __**y**_` produced by abutting italic/BI spans.
+    result = re.sub(r"(?<![A-Za-z0-9])_\*\*(.+?)\*\*_(?![A-Za-z0-9])", r"<b><i>\1</i></b>", result)
     result = re.sub(r"\*\*_(.+?)_\*\*", r"<b><i>\1</i></b>", result)
 
     # **text** -> bold
     result = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", result)
 
     # _text_ -> italic (word-boundary aware)
-    result = re.sub(r"(?<!\w)_(.+?)_(?!\w)", r"<i>\1</i>", result)
+    result = re.sub(r"(?<![A-Za-z0-9])_(.+?)_(?![A-Za-z0-9])", r"<i>\1</i>", result)
 
     # Newlines -> line breaks
     result = result.replace('\n', '<br/>')

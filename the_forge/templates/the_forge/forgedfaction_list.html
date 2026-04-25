@@ -1,0 +1,29 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="root-title">The Forge</h2>
+  <a href="{% url 'forge-faction-create' %}" class="btn btn-primary">+ New Faction</a>
+</div>
+
+<div class="card p-3">
+  {% if factions %}
+    <ul class="list-group">
+      {% for faction in factions %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <a href="{% url 'forge-faction-detail' pk=faction.pk %}">
+            {% if faction.color %}
+              <span class="badge" style="background:{{ faction.color }};">&nbsp;</span>
+            {% endif %}
+            {{ faction.faction_name }}
+          </a>
+          <span class="text-muted small">{{ faction.get_background_preset_display|default:"Custom background" }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-muted mb-0">You haven't created any forged factions yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

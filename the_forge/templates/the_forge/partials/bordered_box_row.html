@@ -1,0 +1,22 @@
+{% load static %}
+<div class="border rounded p-2 mb-2" data-row data-id="{{ box.pk }}">
+  <form method="post" data-edit-url="{% url 'forge-box-edit' pk=box.pk %}" class="m-0">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <input type="text" name="title" value="{{ box.title }}" class="form-control form-control-sm" required>
+      <select name="height" class="form-select form-select-sm" style="width:auto;">
+        <option value="small" {% if box.height == 'small' %}selected{% endif %}>Small</option>
+        <option value="medium" {% if box.height == 'medium' %}selected{% endif %}>Medium</option>
+        <option value="large" {% if box.height == 'large' %}selected{% endif %}>Large</option>
+      </select>
+      <input type="number" name="order" value="{{ box.order }}" class="form-control form-control-sm" style="width:5rem;">
+      <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+      <button type="button" class="btn btn-sm btn-outline-danger"
+              data-delete-url="{% url 'forge-box-delete' pk=box.pk %}">Delete</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="body" class="form-control" rows="2">{{ box.body }}</textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+  </form>
+</div>

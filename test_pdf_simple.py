@@ -178,7 +178,7 @@ sheet = SimpleNamespace(
     faction=faction,
     flavor_text="You rule this woodland.",
     include_crafted_items=True,
-    layout_mode="vertical",
+    layout_mode="horizontal",
     get_background_path=lambda: faction.get_background_path(),
     abilities=SimpleNamespace(order_by=lambda f: abilities),
     phase_steps=SimpleNamespace(all=lambda: steps),

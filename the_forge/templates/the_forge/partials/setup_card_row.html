@@ -1,0 +1,16 @@
+{% load static %}
+<div class="border rounded p-2 mb-2 d-flex align-items-center gap-2" data-row data-id="{{ card.pk }}">
+  <form method="post" data-edit-url="{% url 'forge-setup-card-edit' pk=card.pk %}" class="d-flex gap-2 align-items-center flex-grow-1 m-0">
+    {% csrf_token %}
+    <select name="type" class="form-select form-select-sm" style="width:auto;">
+      <option value="M" {% if card.type == 'M' %}selected{% endif %}>Militant</option>
+      <option value="I" {% if card.type == 'I' %}selected{% endif %}>Insurgent</option>
+    </select>
+    <label class="small mb-0">Reach
+      <input type="number" name="reach" value="{{ card.reach }}" min="1" max="10" class="form-control form-control-sm d-inline-block" style="width:5rem;">
+    </label>
+    <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+  </form>
+  <button type="button" class="btn btn-sm btn-outline-danger"
+          data-delete-url="{% url 'forge-setup-card-delete' pk=card.pk %}">Delete</button>
+</div>

@@ -1,0 +1,133 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'the_forge/forge_richtext.css' %}">
+<div class="mb-2">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; {{ faction.faction_name }}</a>
+</div>
+
+<div class="card p-3 mb-3">
+  <h2 class="root-title">{{ faction.faction_name }} — Back</h2>
+</div>
+
+<!-- Main FactionBack form -->
+<form method="post" enctype="multipart/form-data" class="card p-3 mb-3">
+  {% csrf_token %}
+  <h5 class="root-title">Attributes</h5>
+  <div class="row">
+    {% for field in form %}
+      {% if field.name in 'complexity,card_wealth,aggression,crafting_ability,setup_order' %}
+        <div class="col-md-6 col-lg-4 mb-2">
+          {{ field.label_tag }}
+          {{ field }}
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <h5 class="root-title mt-3">How to Play</h5>
+  <div class="mb-2">
+    {{ form.how_to_play_title.label_tag }}
+    {{ form.how_to_play_title }}
+  </div>
+  <div class="mb-2">
+    {{ form.how_to_play_text.label_tag }}
+    <div class="forge-rich-text">
+      {{ form.how_to_play_text }}
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+  </div>
+
+  <div class="mb-2">
+    {{ form.back_image.label_tag }}
+    {% if back.back_image %}
+      <div class="mb-2"><img src="{{ back.back_image.url }}" style="max-width:200px;" class="img-fluid rounded"></div>
+    {% endif %}
+    {{ form.back_image }}
+  </div>
+
+  <button type="submit" class="btn btn-success">Save Back</button>
+</form>
+
+<!-- Pieces -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Pieces</h4>
+  <div id="piece-list">
+    {% for piece in pieces %}
+      {% include 'the_forge/partials/piece_row.html' with piece=piece %}
+    {% empty %}
+      <p class="text-muted mb-2" id="piece-empty">No pieces yet.</p>
+    {% endfor %}
+  </div>
+
+  <form id="piece-add-form" class="row g-2 align-items-center mt-2"
+        data-add-url="{% url 'forge-piece-add' back_pk=back.pk %}" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="col-auto"><input type="text" name="name" class="form-control form-control-sm" placeholder="Name" required></div>
+    <div class="col-auto"><input type="number" name="quantity" class="form-control form-control-sm" placeholder="Qty" value="1" min="1" max="99" style="width:5rem;"></div>
+    <div class="col-auto">
+      <select name="type" class="form-select form-select-sm">
+        <option value="W">Warrior</option>
+        <option value="B">Building</option>
+        <option value="T">Token</option>
+        <option value="C">Card</option>
+        <option value="O">Other</option>
+      </select>
+    </div>
+    <div class="col-auto"><input type="file" name="small_icon" accept="image/*" class="form-control form-control-sm"></div>
+    <div class="col-auto"><button type="submit" class="btn btn-sm btn-primary">+ Add Piece</button></div>
+  </form>
+</div>
+
+<!-- Setup Steps -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Setup Steps</h4>
+  <div id="setup-step-list" data-reorder-url="{% url 'forge-setup-step-reorder' back_pk=back.pk %}">
+    {% for step in setup_steps %}
+      {% include 'the_forge/partials/setup_step_row.html' with step=step %}
+    {% empty %}
+      <p class="text-muted mb-2" id="setup-step-empty">No setup steps yet.</p>
+    {% endfor %}
+  </div>
+
+  <form id="setup-step-add-form" class="mt-2"
+        data-add-url="{% url 'forge-setup-step-add' back_pk=back.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <label class="small mb-0">#
+        <input type="number" name="number" class="form-control form-control-sm d-inline-block" style="width:4rem;">
+      </label>
+      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Step</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+  </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+{{ inline_images_map|json_script:"forge-inline-images" }}
+<script src="{% static 'the_forge/forge_richtext.js' %}"></script>
+<script src="{% static 'the_forge/forge_editor.js' %}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const list = document.getElementById('setup-step-list');
+  if (!list || !list.dataset.reorderUrl) return;
+  const csrftoken = document.cookie.match(/csrftoken=([^;]+)/)[1];
+  new Sortable(list, {
+    animation: 150,
+    handle: '[data-row]',
+    onEnd: async () => {
+      const order = [...list.querySelectorAll('[data-row]')].map(r => r.dataset.id);
+      await fetch(list.dataset.reorderUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+        body: JSON.stringify({order}),
+      });
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -2797,3 +2797,12 @@ tr.clickable-row:hover {
   box-shadow: none !important;
   resize: vertical;
 }
+
+/* Forge text classes — emitted by format_forge_text filter. */
+.luminari {
+  font-family: 'Luminari', serif;
+}
+.forge-header {
+  font-size: 1.4em;
+  font-family: 'Luminari', serif;
+}

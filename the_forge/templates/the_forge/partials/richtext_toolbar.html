@@ -1,0 +1,20 @@
+{% comment %}
+Toolbar partial — drops in next to any textarea wrapped in .forge-rich-text.
+Context: `inline_keywords` (list of strings). Caller wraps the whole block in
+<div class="forge-rich-text">...</div> alongside the <textarea>.
+{% endcomment %}
+<div class="forge-rich-text-toolbar">
+  <button type="button" data-style="bold" title="Bold (Ctrl+B)"><b>B</b></button>
+  <button type="button" data-style="italic" title="Italic (Ctrl+I)"><i>I</i></button>
+  <button type="button" data-style="bolditalic" title="Bold Italic"><b><i>BI</i></b></button>
+  <button type="button" data-style="luminari" class="rt-luminari" title="Luminari">L</button>
+  <button type="button" data-style="header" title="Header">H</button>
+  <button type="button" data-action="image" title="Insert image">🖼</button>
+</div>
+{% if inline_keywords %}
+<div class="forge-rich-text-image-picker" hidden>
+  {% for key in inline_keywords %}
+    <button type="button" data-insert="{{ key }}">{{ key }}</button>
+  {% endfor %}
+</div>
+{% endif %}

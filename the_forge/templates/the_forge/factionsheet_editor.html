@@ -1,0 +1,185 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'the_forge/forge_richtext.css' %}">
+
+<div class="mb-2">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; {{ faction.faction_name }}</a>
+</div>
+
+<div class="card p-3 mb-3">
+  <h2 class="root-title">{{ faction.faction_name }} — Sheet #{{ sheet.pk }}</h2>
+</div>
+
+<!-- Sheet main form -->
+<form method="post" enctype="multipart/form-data" class="card p-3 mb-3">
+  {% csrf_token %}
+  <div class="mb-2">
+    {{ form.flavor_text.label_tag }}
+    {{ form.flavor_text }}
+  </div>
+  <div class="mb-2">
+    {{ form.action_image.label_tag }}
+    {% if sheet.action_image %}
+      <div class="mb-2"><img src="{{ sheet.action_image.url }}" style="max-height:80px;"></div>
+    {% endif %}
+    {{ form.action_image }}
+  </div>
+  <div class="row">
+    <div class="col-md-6 form-check mb-2">
+      {{ form.include_crafted_items }}
+      {{ form.include_crafted_items.label_tag }}
+    </div>
+    <div class="col-md-6 mb-2">
+      {{ form.layout_mode.label_tag }}
+      {{ form.layout_mode }}
+    </div>
+  </div>
+  <button type="submit" class="btn btn-success">Save Sheet</button>
+</form>
+
+<!-- Abilities -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Abilities</h4>
+  <div id="ability-list" data-reorder-url="{% url 'forge-ability-reorder' sheet_pk=sheet.pk %}">
+    {% for ability in abilities %}
+      {% include 'the_forge/partials/ability_row.html' with ability=ability %}
+    {% empty %}
+      <p class="text-muted mb-2" id="ability-empty">No abilities yet.</p>
+    {% endfor %}
+  </div>
+  <form id="ability-add-form" class="mt-2" data-add-url="{% url 'forge-ability-add' sheet_pk=sheet.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <input type="text" name="title" class="form-control form-control-sm" placeholder="Title" required>
+      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Ability</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="body" class="form-control" rows="3" placeholder="Ability body…"></textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+    <input type="hidden" name="order" value="">
+  </form>
+</div>
+
+<!-- Content Boxes -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Content Boxes</h4>
+  <div id="content-box-list">
+    {% for box in content_boxes %}
+      {% include 'the_forge/partials/content_box_row.html' with box=box %}
+    {% empty %}
+      <p class="text-muted mb-2" id="content-box-empty">No content boxes yet.</p>
+    {% endfor %}
+  </div>
+  <form id="content-box-add-form" class="mt-2" data-add-url="{% url 'forge-contentbox-add' sheet_pk=sheet.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <input type="text" name="title" class="form-control form-control-sm" placeholder="Title">
+      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Box</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="text" class="form-control" rows="3" placeholder="Text…"></textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+    <input type="hidden" name="order" value="">
+  </form>
+</div>
+
+<!-- Phase Steps -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Phase Steps</h4>
+  <div id="phase-step-list">
+    {% for step in phase_steps %}
+      {% include 'the_forge/partials/phase_step_row.html' with step=step %}
+    {% empty %}
+      <p class="text-muted mb-2" id="phase-step-empty">No phase steps yet.</p>
+    {% endfor %}
+  </div>
+  <form id="phase-step-add-form" class="mt-2" data-add-url="{% url 'forge-phasestep-add' sheet_pk=sheet.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <select name="phase" class="form-select form-select-sm" style="width:auto;">
+        <option value="birdsong">Birdsong</option>
+        <option value="daylight">Daylight</option>
+        <option value="evening">Evening</option>
+        <option value="other">Other</option>
+      </select>
+      <input type="number" name="number" class="form-control form-control-sm" style="width:5rem;" placeholder="#">
+      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Step</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+  </form>
+</div>
+
+<!-- Decrees -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Decrees</h4>
+  <div id="decree-list">
+    {% for d in decrees %}
+      {% include 'the_forge/partials/decree_row.html' with decree=d card_slot_form=None %}
+    {% empty %}
+      <p class="text-muted mb-2" id="decree-empty">No decrees yet.</p>
+    {% endfor %}
+  </div>
+  <form id="decree-add-form" class="mt-2 d-flex gap-2 align-items-center"
+        data-add-url="{% url 'forge-decree-add' sheet_pk=sheet.pk %}">
+    {% csrf_token %}
+    <input type="text" name="title" class="form-control form-control-sm" placeholder="Title" style="max-width:12rem;">
+    <input type="text" name="body" class="form-control form-control-sm" placeholder="Body" style="max-width:12rem;">
+    <button type="submit" class="btn btn-sm btn-primary">+ Add Decree</button>
+  </form>
+</div>
+
+<!-- Card Piles -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Card Piles</h4>
+  <div id="card-pile-list">
+    {% for pile in card_piles %}
+      {% include 'the_forge/partials/card_pile_row.html' with pile=pile %}
+    {% empty %}
+      <p class="text-muted mb-2" id="card-pile-empty">No card piles yet.</p>
+    {% endfor %}
+  </div>
+  <form id="card-pile-add-form" class="mt-2" data-add-url="{% url 'forge-cardpile-add' sheet_pk=sheet.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <input type="text" name="title" class="form-control form-control-sm" placeholder="Title" style="max-width:12rem;">
+      <input type="number" name="number" class="form-control form-control-sm" style="width:5rem;" placeholder="#">
+      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Pile</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="body" class="form-control" rows="2"></textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+  </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+{{ inline_images_map|json_script:"forge-inline-images" }}
+<script src="{% static 'the_forge/forge_richtext.js' %}"></script>
+<script src="{% static 'the_forge/forge_editor.js' %}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const list = document.getElementById('ability-list');
+  if (!list || !list.dataset.reorderUrl) return;
+  const csrftoken = document.cookie.match(/csrftoken=([^;]+)/)[1];
+  new Sortable(list, {
+    animation: 150,
+    handle: '[data-row]',
+    onEnd: async () => {
+      const order = [...list.querySelectorAll('[data-row]')].map(r => r.dataset.id);
+      await fetch(list.dataset.reorderUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+        body: JSON.stringify({order}),
+      });
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="mb-2">
+  {% if faction %}
+    <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; Back</a>
+  {% else %}
+    <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary">&larr; All Factions</a>
+  {% endif %}
+</div>
+
+<div class="card p-3 mb-3">
+  <h2 class="root-title">
+    {% if is_create %}New Forged Faction{% else %}Edit {{ faction.faction_name }}{% endif %}
+  </h2>
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="mb-3">
+      {{ form.faction_name.label_tag }}
+      {{ form.faction_name }}
+    </div>
+    <div class="mb-3">
+      {{ form.color.label_tag }}
+      {{ form.color }}
+    </div>
+    <div class="mb-3">
+      {{ form.background_preset.label_tag }}
+      {{ form.background_preset }}
+      <div class="form-text">{{ form.background_preset.help_text }}</div>
+    </div>
+    <div class="mb-3">
+      {{ form.background_image.label_tag }}
+      {% if faction.background_image %}
+        <div class="mb-2"><img src="{{ faction.background_image.url }}" style="max-width:200px;" class="img-fluid rounded"></div>
+      {% endif %}
+      {{ form.background_image }}
+    </div>
+    <div class="form-check mb-3">
+      {{ form.repeat_background_image }}
+      {{ form.repeat_background_image.label_tag }}
+    </div>
+
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <button type="submit" class="btn btn-success">
+      {% if is_create %}Create{% else %}Save{% endif %}
+    </button>
+  </form>
+</div>
+{% endblock %}
