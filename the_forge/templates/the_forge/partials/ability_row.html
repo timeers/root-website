@@ -1,4 +1,4 @@
-{% load static %}
+{% load static forge_text %}
 <div class="border rounded p-2 mb-2" data-row data-id="{{ ability.pk }}">
   <form method="post" data-edit-url="{% url 'forge-ability-edit' pk=ability.pk %}" class="m-0">
     {% csrf_token %}
@@ -11,7 +11,7 @@
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="3">{{ ability.body }}</textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' %}
+      {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='image'|split:',' %}
     </div>
   </form>
 </div>

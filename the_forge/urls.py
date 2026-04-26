@@ -11,7 +11,7 @@ urlpatterns = [
     path('forge/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),
     path('forge/<int:pk>/pdf/', views.forgedfaction_pdf, name='forge-faction-pdf'),
 
-    # FactionSheet
+    # FactionSheet Front
     path('forge/<int:faction_pk>/sheet/new/', views.factionsheet_create, name='forge-sheet-create'),
     path('forge/sheet/<int:pk>/', views.factionsheet_edit, name='forge-sheet-edit'),
     path('forge/sheet/<int:pk>/delete/', views.factionsheet_delete, name='forge-sheet-delete'),
@@ -32,9 +32,10 @@ urlpatterns = [
     path('hx/forge/back/<int:back_pk>/setup-step/reorder/', views.setup_step_reorder, name='forge-setup-step-reorder'),
 
     # SetupCard (child of ForgedFaction)
-    path('hx/forge/<int:faction_pk>/setup-card/add/', views.setup_card_add, name='forge-setup-card-add'),
-    path('hx/forge/setup-card/<int:pk>/edit/', views.setup_card_edit, name='forge-setup-card-edit'),
-    path('hx/forge/setup-card/<int:pk>/delete/', views.setup_card_delete, name='forge-setup-card-delete'),
+    path('forge/<int:faction_pk>/setup-card/new/', views.setup_card_create, name='forge-setup-card-create'),
+    path('forge/setup-card/<int:pk>/', views.setup_card_edit, name='forge-setup-card-edit'),
+    path('hx/forge/setup-card/<int:card_pk>/setup-step/add/', views.setup_card_step_add, name='forge-setup-card-step-add'),
+    path('hx/forge/setup-card/<int:card_pk>/setup-step/reorder/', views.setup_card_step_reorder, name='forge-setup-card-step-reorder'),
 
     # FactionAbility (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/ability/add/', views.ability_add, name='forge-ability-add'),

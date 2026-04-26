@@ -65,7 +65,7 @@ class FactionSheet(models.Model):
     class LayoutChoices(models.TextChoices):
         LAYOUT_HORIZONTAL = 'horizontal'
         LAYOUT_VERTICAL = 'vertical'
-    faction = models.ForeignKey(ForgedFaction, related_name='faction_sheets', on_delete=models.CASCADE)
+    faction = models.OneToOneField(ForgedFaction, related_name='faction_sheet', on_delete=models.CASCADE)
     flavor_text = models.TextField(blank=True, null=True)
     action_image = models.ImageField(upload_to='forge/action_icons/', blank=True, null=True)
     include_crafted_items = models.BooleanField(default=True)
@@ -278,7 +278,7 @@ class FactionBack(models.Model):
         LOW = 'L', 'Low'
         MODERATE = 'M', 'Moderate'
         HIGH = 'H', 'High'
-    faction = models.OneToOneField(ForgedFaction, related_name='faction_backs', on_delete=models.CASCADE)
+    faction = models.OneToOneField(ForgedFaction, related_name='faction_back', on_delete=models.CASCADE)
     complexity = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
     card_wealth = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
     aggression = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
@@ -309,7 +309,7 @@ class SetupCard(models.Model):
     class TypeChoices(models.TextChoices):
         MILITANT = 'M', 'Militant'
         INSURGENT = 'I', 'Insurgent'
-    faction = models.ForeignKey(ForgedFaction, related_name='setup_cards', on_delete=models.CASCADE)
+    faction = models.OneToOneField(ForgedFaction, related_name='setup_card', on_delete=models.CASCADE)
     type = models.CharField(max_length=10, choices=TypeChoices.choices, default=TypeChoices.INSURGENT)
     reach = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], default=4)
 

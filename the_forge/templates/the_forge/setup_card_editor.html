@@ -1,0 +1,78 @@
+{% extends 'the_keep/base.html' %}
+{% load static forge_text %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'the_forge/forge_richtext.css' %}">
+<div class="mb-2">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; {{ faction.faction_name }}</a>
+</div>
+
+<div class="card p-3 mb-3">
+  <h2 class="root-title">{{ faction.faction_name }} — Setup Card</h2>
+</div>
+
+<form method="post" class="card p-3 mb-3">
+  {% csrf_token %}
+  <div class="row">
+    <div class="col-md-6 mb-2">
+      {{ form.type.label_tag }}
+      {{ form.type }}
+    </div>
+    <div class="col-md-6 mb-2">
+      {{ form.reach.label_tag }}
+      {{ form.reach }}
+    </div>
+  </div>
+  <button type="submit" class="btn btn-success">Save Setup Card</button>
+</form>
+
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Setup Steps</h4>
+  <div id="setup-step-list" data-reorder-url="{% url 'forge-setup-card-step-reorder' card_pk=card.pk %}">
+    {% for step in setup_steps %}
+      {% include 'the_forge/partials/setup_step_row.html' with step=step %}
+    {% empty %}
+      <p class="text-muted mb-2" id="setup-step-empty">No setup steps yet.</p>
+    {% endfor %}
+  </div>
+
+  <form id="setup-step-add-form" class="mt-2"
+        data-add-url="{% url 'forge-setup-card-step-add' card_pk=card.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <label class="small mb-0">#
+        <input type="number" name="number" class="form-control form-control-sm d-inline-block" style="width:4rem;">
+      </label>
+      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Step</button>
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
+    </div>
+  </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+{{ inline_images_map|json_script:"forge-inline-images" }}
+<script src="{% static 'the_forge/forge_richtext.js' %}"></script>
+<script src="{% static 'the_forge/forge_editor.js' %}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const list = document.getElementById('setup-step-list');
+  if (!list || !list.dataset.reorderUrl) return;
+  const csrftoken = document.cookie.match(/csrftoken=([^;]+)/)[1];
+  new Sortable(list, {
+    animation: 150,
+    handle: '[data-row]',
+    onEnd: async () => {
+      const order = [...list.querySelectorAll('[data-row]')].map(r => r.dataset.id);
+      await fetch(list.dataset.reorderUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+        body: JSON.stringify({order}),
+      });
+    }
+  });
+});
+</script>
+{% endblock %}

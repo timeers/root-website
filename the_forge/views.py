@@ -108,18 +108,23 @@ def forgedfaction_detail(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_edit_forge(request, faction):
         return HttpResponseForbidden()
-    sheets = faction.faction_sheets.all()
     try:
-        back = faction.faction_backs
+        sheet = faction.faction_sheet
+    except FactionSheet.DoesNotExist:
+        sheet = None
+    try:
+        back = faction.faction_back
     except FactionBack.DoesNotExist:
         back = None
-    setup_cards = faction.setup_cards.all()
+    try:
+        setup_card = faction.setup_card
+    except SetupCard.DoesNotExist:
+        setup_card = None
     return render(request, 'the_forge/forgedfaction_detail.html', {
         'faction': faction,
-        'sheets': sheets,
+        'sheet': sheet,
         'back': back,
-        'setup_cards': setup_cards,
-        'setup_card_form': SetupCardForm(),
+        'setup_card': setup_card,
     })
 
 
@@ -157,7 +162,7 @@ def factionsheet_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
-    sheet = FactionSheet.objects.create(faction=faction)
+    sheet, _ = FactionSheet.objects.get_or_create(faction=faction)
     return redirect('forge-sheet-edit', pk=sheet.pk)
 
 
@@ -350,40 +355,65 @@ def setup_step_reorder(request, back_pk):
 # ---------- SetupCard (child of ForgedFaction) ----------
 
 @editor_required
-@require_http_methods(["POST"])
-def setup_card_add(request, faction_pk):
+def setup_card_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
-    if (resp := _child_permission_check(request, faction)):
+    if (resp := _forbid_if_not_editor(request, faction)):
         return resp
-    form = SetupCardForm(request.POST)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    card = form.save(commit=False)
-    card.faction = faction
-    card.save()
-    return render(request, 'the_forge/partials/setup_card_row.html', {'card': card})
+    card, _ = SetupCard.objects.get_or_create(faction=faction)
+    return redirect('forge-setup-card-edit', pk=card.pk)
 
 
 @editor_required
-@require_http_methods(["POST"])
 def setup_card_edit(request, pk):
     card = get_object_or_404(SetupCard, pk=pk)
-    if (resp := _child_permission_check(request, card.faction)):
+    if (resp := _forbid_if_not_editor(request, card.faction)):
         return resp
-    form = SetupCardForm(request.POST, instance=card)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    form.save()
-    return render(request, 'the_forge/partials/setup_card_row.html', {'card': card})
+    if request.method == 'POST':
+        form = SetupCardForm(request.POST, instance=card)
+        if form.is_valid():
+            form.save()
+            return redirect('forge-setup-card-edit', pk=card.pk)
+    else:
+        form = SetupCardForm(instance=card)
+    return render(request, 'the_forge/setup_card_editor.html', {
+        'card': card,
+        'faction': card.faction,
+        'form': form,
+        'setup_steps': card.setup_steps.order_by('number'),
+        'setup_step_form': SetupStepForm(),
+        'inline_keywords': _inline_keywords(),
+        'inline_images_map': _inline_images_map(),
+    })
 
 
 @editor_required
-@require_http_methods(["DELETE"])
-def setup_card_delete(request, pk):
-    card = get_object_or_404(SetupCard, pk=pk)
+@require_http_methods(["POST"])
+def setup_card_step_add(request, card_pk):
+    card = get_object_or_404(SetupCard, pk=card_pk)
     if (resp := _child_permission_check(request, card.faction)):
         return resp
-    card.delete()
+    form = SetupStepForm(request.POST)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    step = form.save(commit=False)
+    step.card = card
+    if not step.number:
+        step.number = card.setup_steps.count() + 1
+    step.save()
+    return render(request, 'the_forge/partials/setup_step_row.html', {
+        'step': step, 'inline_keywords': _inline_keywords(),
+    })
+
+
+@editor_required
+@require_http_methods(["POST"])
+def setup_card_step_reorder(request, card_pk):
+    card = get_object_or_404(SetupCard, pk=card_pk)
+    if (resp := _child_permission_check(request, card.faction)):
+        return resp
+    data = json.loads(request.body)
+    for index, sid in enumerate(data.get('order', []), start=1):
+        SetupStep.objects.filter(id=sid, card=card).update(number=index)
     return HttpResponse(status=204)
 
 

@@ -10,6 +10,18 @@ register = template.Library()
 
 
 @register.filter
+def split(value, delimiter=","):
+    """Split a string on `delimiter` (default ",") and return a list.
+
+    Used for passing a list literal into `{% include %}` from a template — e.g.
+    `{% include '...' with allowed_buttons='bold,italic'|split:',' %}`.
+    """
+    if not value:
+        return []
+    return [s.strip() for s in str(value).split(delimiter)]
+
+
+@register.filter
 def format_forge_text(value):
     """Render forge semi-markdown as HTML.
 

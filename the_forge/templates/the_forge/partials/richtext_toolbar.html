@@ -1,20 +1,23 @@
 {% comment %}
 Toolbar partial — drops in next to any textarea wrapped in .forge-rich-text.
-Context: `inline_keywords` (list of strings). Caller wraps the whole block in
-<div class="forge-rich-text">...</div> alongside the <textarea>.
+Context:
+  `inline_keywords`  (list of strings) — image picker keys.
+  `allowed_buttons`  (list of strings, optional) — restricts which toolbar
+                     buttons render. Valid names: bold, italic, bolditalic,
+                     luminari, header, image. If omitted/empty, all buttons show.
 {% endcomment %}
 <div class="forge-rich-text-toolbar">
-  <button type="button" data-style="bold" title="Bold (Ctrl+B)"><b>B</b></button>
-  <button type="button" data-style="italic" title="Italic (Ctrl+I)"><i>I</i></button>
-  <button type="button" data-style="bolditalic" title="Bold Italic"><b><i>BI</i></b></button>
-  <button type="button" data-style="luminari" class="rt-luminari" title="Luminari">L</button>
-  <button type="button" data-style="header" title="Header">H</button>
-  <button type="button" data-action="image" title="Insert image">🖼</button>
+  {% if not allowed_buttons or 'bold' in allowed_buttons %}<button type="button" data-style="bold" title="Bold"><b>B</b></button>{% endif %}
+  {% if not allowed_buttons or 'italic' in allowed_buttons %}<button type="button" data-style="italic" title="Italic"><i>I</i></button>{% endif %}
+  {% if not allowed_buttons or 'bolditalic' in allowed_buttons %}<button type="button" data-style="bolditalic" title="Bold Italic"><b><i>BI</i></b></button>{% endif %}
+  {% if not allowed_buttons or 'luminari' in allowed_buttons %}<button type="button" data-style="luminari" class="rt-luminari" title="Luminari">L</button>{% endif %}
+  {% if not allowed_buttons or 'header' in allowed_buttons %}<button type="button" data-style="header" title="Header">H</button>{% endif %}
+  {% if not allowed_buttons or 'image' in allowed_buttons %}<button type="button" data-action="image" title="Insert image">🖼</button>{% endif %}
 </div>
-{% if inline_keywords %}
+{% if inline_keywords %}{% if not allowed_buttons or 'image' in allowed_buttons %}
 <div class="forge-rich-text-image-picker" hidden>
   {% for key in inline_keywords %}
     <button type="button" data-insert="{{ key }}">{{ key }}</button>
   {% endfor %}
 </div>
-{% endif %}
+{% endif %}{% endif %}

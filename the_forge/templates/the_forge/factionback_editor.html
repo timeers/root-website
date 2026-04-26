@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static %}
+{% load static forge_text %}
 
 {% block content %}
 <link rel="stylesheet" href="{% static 'the_forge/forge_richtext.css' %}">
@@ -35,7 +35,7 @@
     {{ form.how_to_play_text.label_tag }}
     <div class="forge-rich-text">
       {{ form.how_to_play_text }}
-      {% include 'the_forge/partials/richtext_toolbar.html' %}
+      {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold'|split:',' %}
     </div>
   </div>
 
@@ -102,7 +102,7 @@
     </div>
     <div class="forge-rich-text">
       <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' %}
+      {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
     </div>
   </form>
 </div>
