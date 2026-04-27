@@ -1,0 +1,11 @@
+{% load static %}
+<div class="sheet-flavor-row card p-3 mb-3" data-row data-id="{{ sheet.pk }}">
+  <label class="sheet-flavor-label mb-2">Flavor Text</label>
+  <form method="post" data-edit-url="{% url 'forge-sheet-flavor-edit' pk=sheet.pk %}" class="m-0" data-dirty-form>
+    {% csrf_token %}
+    <textarea name="flavor_text" class="sheet-flavor-input form-control" rows="3" placeholder="Optional text to the left of the Faction Abilities">{{ sheet.flavor_text|default_if_none:'' }}</textarea>
+    <div class="d-flex justify-content-end mt-2">
+      <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save Flavor Text</button>
+    </div>
+  </form>
+</div>

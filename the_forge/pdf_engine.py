@@ -14,6 +14,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
 from itertools import groupby
+from django.templatetags.static import static
 
 FONT_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static', 'fonts')
 pdfmetrics.registerFont(TTFont('Luminari', os.path.join(FONT_DIR, 'Luminari_edit.ttf')))
@@ -326,65 +327,46 @@ PHASE_DISPLAY_NAMES = {
 }
 
 
-INLINE_IMAGES_PDF = {
-    'draw': os.path.join(STATIC_DIR, 'pdf/inline/card.png'),
+def _resolve_static_url(url):
+    """Resolve a `static()` URL back to a filesystem path for ReportLab."""
+    if not url:
+        return None
+    from django.contrib.staticfiles import finders
+    rel = url.split('/static/', 1)[-1]
+    return finders.find(rel)
 
-    '0VP': os.path.join(STATIC_DIR, 'pdf/inline/0VP.png'),
-    '1VP': os.path.join(STATIC_DIR, 'pdf/inline/1VP.png'),
-    '2VP': os.path.join(STATIC_DIR, 'pdf/inline/2VP.png'),
-    '3VP': os.path.join(STATIC_DIR, 'pdf/inline/3VP.png'),
-    '4VP': os.path.join(STATIC_DIR, 'pdf/inline/4VP.png'),
-    '5VP': os.path.join(STATIC_DIR, 'pdf/inline/5VP.png'),
-    '6VP': os.path.join(STATIC_DIR, 'pdf/inline/6VP.png'),
-    '7VP': os.path.join(STATIC_DIR, 'pdf/inline/7VP.png'),
-    '8VP': os.path.join(STATIC_DIR, 'pdf/inline/8VP.png'),
-    '9VP': os.path.join(STATIC_DIR, 'pdf/inline/9VP.png'),
 
-    '-1VP': os.path.join(STATIC_DIR, 'pdf/inline/-1VP.png'),
-    '-2VP': os.path.join(STATIC_DIR, 'pdf/inline/-2VP.png'),
-    '-3VP': os.path.join(STATIC_DIR, 'pdf/inline/-3VP.png'),
-    '-4VP': os.path.join(STATIC_DIR, 'pdf/inline/-4VP.png'),
-    '-5VP': os.path.join(STATIC_DIR, 'pdf/inline/-5VP.png'),
-    '-6VP': os.path.join(STATIC_DIR, 'pdf/inline/-6VP.png'),
-    '-7VP': os.path.join(STATIC_DIR, 'pdf/inline/-7VP.png'),
-    '-8VP': os.path.join(STATIC_DIR, 'pdf/inline/-8VP.png'),
-    '-9VP': os.path.join(STATIC_DIR, 'pdf/inline/-9VP.png'),
+def _inline_image_path(keyword):
+    """Resolve an inline-image keyword (from FORGE_INLINE_IMAGES) to a path."""
+    from .inline_images import FORGE_INLINE_IMAGES
+    return _resolve_static_url(FORGE_INLINE_IMAGES.get(keyword))
 
-    'VP': os.path.join(STATIC_DIR, 'pdf/inline/VP.png'),
 
-    'bird': os.path.join(STATIC_DIR, 'pdf/inline/bird_card.png'),
-    'mouse': os.path.join(STATIC_DIR, 'pdf/inline/mouse_card.png'),
-    'fox': os.path.join(STATIC_DIR, 'pdf/inline/fox_card.png'),
-    'rabbit': os.path.join(STATIC_DIR, 'pdf/inline/rabbit_card.png'),
-    'bunny': os.path.join(STATIC_DIR, 'pdf/inline/rabbit_card.png'),
+def _cost_icon_path(cost):
+    """Resolve a StepAction cost (from COST_ICON_PATHS) to a path."""
+    return _resolve_static_url(COST_ICON_PATHS.get(cost))
 
-    'cards': os.path.join(STATIC_DIR, 'pdf/inline/other_cards.png'),
-
-    'mouse tilt': os.path.join(STATIC_DIR, 'pdf/inline/mouse_tilt.png'),
-    'fox tilt': os.path.join(STATIC_DIR, 'pdf/inline/fox_tilt.png'),
-    'rabbit tilt': os.path.join(STATIC_DIR, 'pdf/inline/rabbit_tilt.png'),
-    'bird tilt': os.path.join(STATIC_DIR, 'pdf/inline/bird_tilt.png'),
-}
-
+# StepAction.cost -> static URL. Keys must match StepAction.CostChoices values
+# in models.py. Resolved to a filesystem path via `_cost_icon_path`.
 COST_ICON_PATHS = {
     # Items (_flip.png variants)
-    'item_sword': os.path.join(STATIC_DIR, 'items/sword_flip.png'),
-    'item_hammer': os.path.join(STATIC_DIR, 'items/hammer_flip.png'),
-    'item_crossbow': os.path.join(STATIC_DIR, 'items/crossbow_flip.png'),
-    'item_coins': os.path.join(STATIC_DIR, 'items/coins_flip.png'),
-    'item_boots': os.path.join(STATIC_DIR, 'items/boots_flip.png'),
-    'item_tea': os.path.join(STATIC_DIR, 'items/tea_flip.png'),
-    'item_bag': os.path.join(STATIC_DIR, 'items/bag_flip.png'),
-    'item_torch': os.path.join(STATIC_DIR, 'items/torch_flip.png'),
-    'item_any': os.path.join(STATIC_DIR, 'items/any_flip.png'),
+    'item_sword': static('items/sword_flip.png'),
+    'item_hammer': static('items/hammer_flip.png'),
+    'item_crossbow': static('items/crossbow_flip.png'),
+    'item_coins': static('items/coins_flip.png'),
+    'item_boots': static('items/boots_flip.png'),
+    'item_tea': static('items/tea_flip.png'),
+    'item_bag': static('items/bag_flip.png'),
+    'item_torch': static('items/torch_flip.png'),
+    'item_any': static('items/any_flip.png'),
     # Cards
-    'card_fox': os.path.join(STATIC_DIR, 'pdf/inline/fox_card.png'),
-    'card_mouse': os.path.join(STATIC_DIR, 'pdf/inline/mouse_card.png'),
-    'card_rabbit': os.path.join(STATIC_DIR, 'pdf/inline/rabbit_card.png'),
-    'card_bird': os.path.join(STATIC_DIR, 'pdf/inline/bird_card.png'),
-    'card_nonbird': os.path.join(STATIC_DIR, 'pdf/inline/other_cards.png'),
+    'card_fox': static('pdf/inline/fox_card.png'),
+    'card_mouse': static('pdf/inline/mouse_card.png'),
+    'card_rabbit': static('pdf/inline/rabbit_card.png'),
+    'card_bird': static('pdf/inline/bird_card.png'),
+    'card_nonbird': static('pdf/inline/other_cards.png'),
     # Action (default faction icon)
-    'action': os.path.join(STATIC_DIR, 'pdf/inline/faction-lord of the hundreds.png'),
+    'action': static('pdf/inline/faction-lord of the hundreds.png'),
 }
 
 
@@ -397,7 +379,7 @@ def _replace_inline_images(text, img_height=None):
 
     def image_replacer(match):
         keyword = match.group(1).strip()
-        img_path = INLINE_IMAGES_PDF.get(keyword)
+        img_path = _inline_image_path(keyword)
         if not img_path or not os.path.exists(img_path):
             return match.group(0)
         from PIL import Image as PILImage
@@ -734,23 +716,26 @@ class TrackFlowable(Flowable):
 
         # Build grid: grid[row][col] = slot or None
         self.grid = {}
-        self.num_rows = 0
         self.has_row_titles = False
         self.row_titles = {}
+        max_slot_row = 0
         for slot in slots:
             r, c = slot.row, slot.column
             if r not in self.grid:
                 self.grid[r] = {}
             self.grid[r][c] = slot
-            if r + 1 > self.num_rows:
-                self.num_rows = r + 1
+            if r + 1 > max_slot_row:
+                max_slot_row = r + 1
             if slot.row_title:
                 self.has_row_titles = True
                 if r not in self.row_titles:
                     self.row_titles[r] = slot.row_title
 
-        if self.num_rows == 0:
-            self.num_rows = 1
+        # Prefer the explicit `num_rows` field on the track when available;
+        # fall back to the largest row referenced by an existing slot so older
+        # tracks that pre-date the field still render.
+        explicit_rows = getattr(track, 'num_rows', 0) or 0
+        self.num_rows = max(explicit_rows, max_slot_row, 1)
 
         self.num_cols = track.num_columns
         self.has_headers = bool(track.column_headers)
@@ -1052,54 +1037,31 @@ class TrackFlowable(Flowable):
                 para.drawOn(c, 0, para_y)
 
         headers = self.track.column_headers.split('|')
-        cost_keyword = self.track.column_cost_type if self.track.column_cost_type else None
 
         for col_idx in range(self.num_cols):
             x = self._col_x(col_idx)
             slot_center_x = x + self._slot_size / 2
             label = headers[col_idx] if col_idx < len(headers) else ''
 
-            if cost_keyword:
-                # Draw cost icon with label text below it
-                img_path = INLINE_IMAGES_PDF.get(cost_keyword)
-                if img_path and os.path.exists(img_path):
-                    from PIL import Image as PILImage
-                    pil_img = PILImage.open(img_path)
-                    iw, ih = pil_img.size
-                    aspect = iw / ih
-                    icon_h = TRACK_HEADER_ICON_H
-                    icon_w = icon_h * aspect
-                    icon_x = slot_center_x - icon_w / 2
-                    icon_y = top_y - icon_h
-                    c.drawImage(img_path, icon_x, icon_y,
-                                width=icon_w, height=icon_h, mask='auto')
-                    # Label below icon
-                    c.setFont('Baskerville-Bold', TRACK_HEADER_FONT_SIZE)
-                    c.setFillColorRGB(0, 0, 0)
-                    c.drawCentredString(slot_center_x, icon_y - TRACK_HEADER_FONT_SIZE - 1, label)
+            processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H)
+            if '<img' in processed:
+                header_style = ParagraphStyle(
+                    'TrackHeader', parent=self.body_style,
+                    fontName='Baskerville-Bold',
+                    fontSize=TRACK_HEADER_FONT_SIZE,
+                    leading=TRACK_HEADER_FONT_SIZE + 2,
+                    alignment=TA_CENTER,
+                )
+                para = Paragraph(processed, header_style)
+                para_w, para_h = para.wrap(self._slot_size, 9999)
+                para_x = x
+                para_y = top_y - self._header_h / 2 - para_h / 2
+                para.drawOn(c, para_x, para_y)
             else:
-                # Check if label contains inline image syntax
-                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H)
-                if '<img' in processed:
-                    # Render as Paragraph to support inline images
-                    header_style = ParagraphStyle(
-                        'TrackHeader', parent=self.body_style,
-                        fontName='Baskerville-Bold',
-                        fontSize=TRACK_HEADER_FONT_SIZE,
-                        leading=TRACK_HEADER_FONT_SIZE + 2,
-                        alignment=TA_CENTER,
-                    )
-                    para = Paragraph(processed, header_style)
-                    para_w, para_h = para.wrap(self._slot_size, 9999)
-                    para_x = x
-                    para_y = top_y - self._header_h / 2 - para_h / 2
-                    para.drawOn(c, para_x, para_y)
-                else:
-                    # Plain text label
-                    c.setFont('Baskerville-Bold', TRACK_HEADER_FONT_SIZE)
-                    c.setFillColorRGB(0, 0, 0)
-                    label_y = top_y - self._header_h / 2 - TRACK_HEADER_FONT_SIZE * 0.35
-                    c.drawCentredString(slot_center_x, label_y, label)
+                c.setFont('Baskerville-Bold', TRACK_HEADER_FONT_SIZE)
+                c.setFillColorRGB(0, 0, 0)
+                label_y = top_y - self._header_h / 2 - TRACK_HEADER_FONT_SIZE * 0.35
+                c.drawCentredString(slot_center_x, label_y, label)
 
     def _draw_slot(self, c, x, y, slot):
         """Draw a single slot at position (x, y) bottom-left."""
@@ -1142,7 +1104,7 @@ class TrackFlowable(Flowable):
             keywords = [k.strip() for k in slot.content.split('|') if k.strip()]
             images = []
             for kw in keywords:
-                img_path = INLINE_IMAGES_PDF.get(kw)
+                img_path = _inline_image_path(kw)
                 if img_path and os.path.exists(img_path):
                     images.append(img_path)
             if images:
@@ -1914,7 +1876,7 @@ class SheetLayoutEngine:
         if cost == 'other':
             icon_path = action.cost_image.path if action.cost_image else None
         else:
-            icon_path = COST_ICON_PATHS.get(cost)
+            icon_path = _cost_icon_path(cost)
 
         if not icon_path or not os.path.exists(icon_path):
             return None, 0, 0
@@ -2354,21 +2316,53 @@ class SheetLayoutEngine:
         indent = SINGLE_STEP_INDENT if single_step else (0.325 * inch + 0.015 * inch)
         return self._natural_track_width_for_steps(steps, indent)
 
+    def _natural_text_width_for_steps(self, steps, indent):
+        """Return the longest natural (single-line) width across all step body paragraphs."""
+        PROBE_W = 10000
+        max_needed = 0
+        for step in steps:
+            markup = format_step_markup(step.text)
+            para = Paragraph(markup, self.step_body_style)
+            para.wrap(PROBE_W, 9999)
+            text_natural_w = 0
+            if hasattr(para, 'blPara') and hasattr(para.blPara, 'lines') and para.blPara.lines:
+                for line in para.blPara.lines:
+                    max_w = getattr(line, 'maxWidth', 0)
+                    extra = getattr(line, 'extraSpace', 0)
+                    lw = (max_w - extra) if max_w else getattr(line, 'currentWidth', 0)
+                    if lw > text_natural_w:
+                        text_natural_w = lw
+            total_w = text_natural_w + indent
+            if total_w > max_needed:
+                max_needed = total_w
+        return max_needed
+
     def _preferred_phase_track_width(self, phase_order):
-        """Return the phase box width needed to avoid track staggering in any phase step."""
+        """Return the phase box width needed to avoid track staggering in any phase step.
+
+        Also factors in the natural width of the step body text so that a narrow track
+        does not force the box narrower than the text would naturally want — which
+        otherwise forces text to wrap into many lines and pushes the binary search
+        in `_draw_vertical_phases` all the way to full page width.
+        """
         ICON_COL_W = 0.325 * inch
         ICON_TEXT_GAP = 0.015 * inch
         TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
 
-        max_needed = 0
+        max_track = 0
+        max_text = 0
         for pk in phase_order:
             steps = self.phases_grouped.get(pk, [])
             single_step = len(steps) == 1
             indent = 0 if single_step else TEXT_COL_X
-            w = self._natural_track_width_for_steps(steps, indent)
-            if w > max_needed:
-                max_needed = w
+            tw = self._natural_track_width_for_steps(steps, indent)
+            if tw > max_track:
+                max_track = tw
+            txw = self._natural_text_width_for_steps(steps, indent)
+            if txw > max_text:
+                max_text = txw
 
+        max_needed = max(max_track, max_text)
         if max_needed == 0:
             return 0
         return max_needed + (PHASE_INTERNAL_MARGIN * 2)
@@ -2488,19 +2482,16 @@ class SheetLayoutEngine:
                                 max_h = h
                         table_h += max_h + ACTION_ROW_GAP
 
-        # Add bordered box heights (including table TOPPADDING that wraps each box)
-        if hasattr(step, 'boxes'):
-            boxes = step.boxes.order_by('order')
-            for box in boxes:
-                table_h += BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium']) + BORDERED_BOX_TITLE_SIZE / 2
-
-        # Add track heights
-        if hasattr(step, 'tracks'):
-            tracks = step.tracks.order_by('order')
-            for track in tracks:
-                slots = list(track.slots.all())
+        # Add bordered box + track heights, iterated in the user's intermixed
+        # order from the editor (boxes and tracks share an `order` sequence).
+        for child in step.ordered_children:
+            obj = child['obj']
+            if child['kind'] == 'box':
+                table_h += BORDERED_BOX_HEIGHTS.get(obj.height, BORDERED_BOX_HEIGHTS['medium']) + BORDERED_BOX_TITLE_SIZE / 2
+            else:
+                slots = list(obj.slots.all())
                 tf = TrackFlowable(
-                    track=track,
+                    track=obj,
                     slots=slots,
                     total_width=width - text_col_w,
                     body_style=self.step_body_style,
@@ -2998,14 +2989,16 @@ class SheetLayoutEngine:
             action_flowables = self._build_action_flowables(step, avail_w, indent)
             story.extend(action_flowables)
 
-            # Append BorderedBox flowables below the actions
-            if hasattr(step, 'boxes'):
-                boxes = step.boxes.order_by('order')
-                for box in boxes:
-                    box_h = BORDERED_BOX_HEIGHTS.get(box.height, BORDERED_BOX_HEIGHTS['medium'])
-                    body_markup = format_step_markup(box.body) if box.body else ''
+            # Append BorderedBox + Track flowables below the actions, in the
+            # user's intermixed order from the editor (boxes and tracks share
+            # an `order` sequence).
+            for child in step.ordered_children:
+                obj = child['obj']
+                if child['kind'] == 'box':
+                    box_h = BORDERED_BOX_HEIGHTS.get(obj.height, BORDERED_BOX_HEIGHTS['medium'])
+                    body_markup = format_step_markup(obj.body) if obj.body else ''
                     bf = BorderedBoxFlowable(
-                        title=box.title,
+                        title=obj.title,
                         body_markup=body_markup,
                         total_width=avail_w - indent,
                         box_height=box_h,
@@ -3023,14 +3016,10 @@ class SheetLayoutEngine:
                         story.append(t)
                     else:
                         story.append(bf)
-
-            # Append Track flowables below bordered boxes
-            if hasattr(step, 'tracks'):
-                tracks = step.tracks.order_by('order')
-                for track in tracks:
-                    slots = list(track.slots.all())
+                else:
+                    slots = list(obj.slots.all())
                     tf = TrackFlowable(
-                        track=track,
+                        track=obj,
                         slots=slots,
                         total_width=avail_w - indent,
                         body_style=self.step_body_style,

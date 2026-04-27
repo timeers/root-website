@@ -1,17 +1,23 @@
 {% load static forge_text %}
-<div class="border rounded p-2 mb-2" data-row data-id="{{ ability.pk }}">
-  <form method="post" data-edit-url="{% url 'forge-ability-edit' pk=ability.pk %}" class="m-0">
+<div class="border rounded p-2 mb-2 d-flex gap-2 align-items-start ability-row" data-row data-id="{{ ability.pk }}">
+  <span class="ability-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+  <img src="{% static 'pdf/svg/ability_berry.svg' %}" alt="" class="ability-marker mt-1" style="width:1.25rem; flex-shrink:0;">
+  <form method="post" data-edit-url="{% url 'forge-ability-edit' pk=ability.pk %}" class="m-0 flex-grow-1" data-dirty-form>
     {% csrf_token %}
-    <div class="d-flex gap-2 align-items-center mb-1">
+    <input type="hidden" name="order" value="{{ ability.order }}">
+    <div class="mb-1">
       <input type="text" name="title" value="{{ ability.title }}" class="form-control form-control-sm" required>
-      <input type="number" name="order" value="{{ ability.order }}" class="form-control form-control-sm" style="width:5rem;">
-      <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
-      <button type="button" class="btn btn-sm btn-outline-danger"
-              data-delete-url="{% url 'forge-ability-delete' pk=ability.pk %}">Delete</button>
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="3">{{ ability.body }}</textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='image'|split:',' %}
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  data-delete-url="{% url 'forge-ability-delete' pk=ability.pk %}">Delete</button>
+        </div>
+      </div>
     </div>
   </form>
 </div>

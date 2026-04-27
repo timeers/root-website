@@ -1,0 +1,60 @@
+{% load static forge_text %}
+<div class="forge-slot-modal" id="forge-slot-modal" hidden role="dialog" aria-modal="true" aria-labelledby="forge-slot-modal-title">
+  <div class="forge-slot-modal__backdrop" data-slot-modal-close></div>
+  <div class="forge-slot-modal__panel">
+    <div class="forge-slot-modal__header">
+      <h5 id="forge-slot-modal-title" class="m-0">Edit slot</h5>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-slot-modal-close>Close</button>
+    </div>
+    <form id="forge-slot-modal-form" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="forge-slot-modal__body">
+
+        <div class="forge-slot-modal__section">
+          <label class="form-label small text-muted">Selected images (max 4)</label>
+          <div class="forge-slot-modal__tray" data-slot-tray></div>
+          <input type="hidden" name="content" data-slot-content-input>
+          <p class="small text-muted m-0">Click an image below to add. Click an item in the tray to remove.</p>
+        </div>
+
+        <div class="forge-slot-modal__section">
+          <label class="form-label small text-muted">Image picker</label>
+          <div class="forge-slot-modal__picker" data-slot-picker>
+            {% for keyword in inline_keywords %}
+              <button type="button" class="forge-slot-modal__pick" data-keyword="{{ keyword }}" title="{{ keyword }}">
+                <img src="{{ inline_images_map|dict_get:keyword }}" alt="{{ keyword }}">
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="forge-slot-modal__section row g-2">
+          <div class="col-md-6">
+            <label class="form-label small text-muted">Background image</label>
+            <input type="file" name="background_image" accept="image/*" class="form-control form-control-sm" data-slot-bg-input>
+            <div class="align-items-center gap-2 mt-1" data-slot-bg-preview-wrap style="display:none;">
+              <img alt="Preview" class="forge-slot-bg-thumb" data-slot-bg-preview>
+              <span class="small text-muted">New image preview</span>
+            </div>
+            <div class="align-items-center gap-2 mt-1" data-slot-bg-current style="display:none;">
+              <img alt="Current background" class="forge-slot-bg-thumb" data-slot-bg-thumb>
+              <label class="small text-muted m-0">
+                <input type="checkbox" name="background_image-clear" value="1" data-slot-bg-clear>
+                Clear current image
+              </label>
+            </div>
+          </div>
+          <div class="col-md-6" data-slot-row-title-wrap>
+            <label class="form-label small text-muted">Row title (column 0 only)</label>
+            <input type="text" name="row_title" class="form-control form-control-sm" data-slot-row-title-input>
+          </div>
+        </div>
+      </div>
+
+      <div class="forge-slot-modal__footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-slot-modal-close>Cancel</button>
+        <button type="submit" class="btn btn-sm btn-primary">Save slot</button>
+      </div>
+    </form>
+  </div>
+</div>

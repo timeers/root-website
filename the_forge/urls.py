@@ -14,11 +14,17 @@ urlpatterns = [
     # FactionSheet Front
     path('forge/<int:faction_pk>/sheet/new/', views.factionsheet_create, name='forge-sheet-create'),
     path('forge/sheet/<int:pk>/', views.factionsheet_edit, name='forge-sheet-edit'),
+    path('forge/sheet/<int:pk>/pdf/', views.factionsheet_pdf, name='forge-sheet-pdf'),
     path('forge/sheet/<int:pk>/delete/', views.factionsheet_delete, name='forge-sheet-delete'),
+    path('hx/forge/sheet/<int:pk>/flavor/edit/', views.sheet_flavor_edit, name='forge-sheet-flavor-edit'),
+    path('hx/forge/sheet/<int:pk>/crafted/toggle/', views.sheet_crafted_toggle, name='forge-sheet-crafted-toggle'),
+    path('hx/forge/sheet/<int:pk>/layout/toggle/', views.sheet_layout_toggle, name='forge-sheet-layout-toggle'),
+    path('hx/forge/sheet/<int:pk>/decree/toggle/', views.sheet_decree_toggle, name='forge-sheet-decree-toggle'),
 
     # FactionBack
     path('forge/<int:faction_pk>/back/new/', views.factionback_create, name='forge-back-create'),
     path('forge/back/<int:pk>/', views.factionback_edit, name='forge-back-edit'),
+    path('forge/back/<int:pk>/pdf/', views.factionback_pdf, name='forge-back-pdf'),
 
     # Piece (child of FactionBack)
     path('hx/forge/back/<int:back_pk>/piece/add/', views.piece_add, name='forge-piece-add'),
@@ -52,37 +58,43 @@ urlpatterns = [
     path('hx/forge/sheet/<int:sheet_pk>/phase-step/add/', views.phasestep_add, name='forge-phasestep-add'),
     path('hx/forge/phase-step/<int:pk>/edit/', views.phasestep_edit, name='forge-phasestep-edit'),
     path('hx/forge/phase-step/<int:pk>/delete/', views.phasestep_delete, name='forge-phasestep-delete'),
+    path('hx/forge/sheet/<int:sheet_pk>/phase-step/<str:phase>/reorder/', views.phasestep_reorder, name='forge-phasestep-reorder'),
 
     # StepAction (child of PhaseStep)
     path('hx/forge/phase-step/<int:step_pk>/action/add/', views.stepaction_add, name='forge-stepaction-add'),
     path('hx/forge/action/<int:pk>/edit/', views.stepaction_edit, name='forge-stepaction-edit'),
     path('hx/forge/action/<int:pk>/delete/', views.stepaction_delete, name='forge-stepaction-delete'),
+    path('hx/forge/phase-step/<int:step_pk>/action/reorder/', views.stepaction_reorder, name='forge-stepaction-reorder'),
+    path('hx/forge/phase-step/<int:step_pk>/action/form/', views.stepaction_form, name='forge-stepaction-form'),
+    path('hx/forge/phase-step/<int:step_pk>/action-type/set/', views.phasestep_action_type_set, name='forge-phasestep-action-type-set'),
 
     # BorderedBox (child of PhaseStep)
     path('hx/forge/phase-step/<int:step_pk>/box/add/', views.borderedbox_add, name='forge-box-add'),
     path('hx/forge/box/<int:pk>/edit/', views.borderedbox_edit, name='forge-box-edit'),
     path('hx/forge/box/<int:pk>/delete/', views.borderedbox_delete, name='forge-box-delete'),
 
+    # Mixed boxes+tracks reorder
+    path('hx/forge/phase-step/<int:step_pk>/children/reorder/', views.step_children_reorder, name='forge-step-children-reorder'),
+
     # CardboardTrack (child of PhaseStep)
     path('hx/forge/phase-step/<int:step_pk>/track/add/', views.track_add, name='forge-track-add'),
-    path('forge/track/<int:pk>/', views.track_edit, name='forge-track-edit'),
+    path('hx/forge/track/<int:pk>/edit/', views.track_edit, name='forge-track-edit'),
     path('hx/forge/track/<int:pk>/delete/', views.track_delete, name='forge-track-delete'),
 
     # CardboardSlot (child of CardboardTrack)
-    path('hx/forge/track/<int:track_pk>/slot/add/', views.slot_add, name='forge-slot-add'),
-    path('hx/forge/slot/<int:pk>/edit/', views.slot_edit, name='forge-slot-edit'),
+    path('hx/forge/track/<int:track_pk>/slot/<int:row>/<int:col>/upsert/', views.slot_upsert, name='forge-slot-upsert'),
     path('hx/forge/slot/<int:pk>/delete/', views.slot_delete, name='forge-slot-delete'),
 
     # DecreeSection + CardSlot (children of FactionSheet / DecreeSection)
-    path('hx/forge/sheet/<int:sheet_pk>/decree/add/', views.decree_add, name='forge-decree-add'),
     path('hx/forge/decree/<int:pk>/edit/', views.decree_edit, name='forge-decree-edit'),
-    path('hx/forge/decree/<int:pk>/delete/', views.decree_delete, name='forge-decree-delete'),
     path('hx/forge/decree/<int:decree_pk>/card-slot/add/', views.cardslot_add, name='forge-cardslot-add'),
+    path('hx/forge/decree/<int:decree_pk>/card-slot/reorder/', views.cardslot_reorder, name='forge-cardslot-reorder'),
     path('hx/forge/card-slot/<int:pk>/edit/', views.cardslot_edit, name='forge-cardslot-edit'),
     path('hx/forge/card-slot/<int:pk>/delete/', views.cardslot_delete, name='forge-cardslot-delete'),
 
     # CardPile (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/card-pile/add/', views.cardpile_add, name='forge-cardpile-add'),
+    path('hx/forge/sheet/<int:sheet_pk>/card-pile/reorder/', views.cardpile_reorder, name='forge-cardpile-reorder'),
     path('hx/forge/card-pile/<int:pk>/edit/', views.cardpile_edit, name='forge-cardpile-edit'),
     path('hx/forge/card-pile/<int:pk>/delete/', views.cardpile_delete, name='forge-cardpile-delete'),
 ]

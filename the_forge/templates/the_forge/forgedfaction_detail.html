@@ -30,7 +30,10 @@
   <div class="d-flex justify-content-between align-items-center">
     <h4 class="root-title mb-0">Front</h4>
     {% if sheet %}
-      <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit Front</a>
+      <div class="d-flex gap-2">
+        <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" class="btn btn-sm btn-primary">Download PDF</a>
+        <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit Front</a>
+      </div>
     {% else %}
       <form method="post" action="{% url 'forge-sheet-create' faction_pk=faction.pk %}" class="m-0">
         {% csrf_token %}
@@ -45,7 +48,10 @@
   <div class="d-flex justify-content-between align-items-center">
     <h4 class="root-title mb-0">Back</h4>
     {% if back %}
-      <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary">Edit Back</a>
+      <div class="d-flex gap-2">
+        <a href="{% url 'forge-back-pdf' pk=back.pk %}" class="btn btn-sm btn-primary">Download PDF</a>
+        <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary">Edit Back</a>
+      </div>
     {% else %}
       <form method="post" action="{% url 'forge-back-create' faction_pk=faction.pk %}" class="m-0">
         {% csrf_token %}

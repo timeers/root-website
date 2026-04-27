@@ -69,6 +69,7 @@ class FactionSheet(models.Model):
     flavor_text = models.TextField(blank=True, null=True)
     action_image = models.ImageField(upload_to='forge/action_icons/', blank=True, null=True)
     include_crafted_items = models.BooleanField(default=True)
+    include_decree = models.BooleanField(default=False)
     layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_VERTICAL)
 
     def clean(self):
@@ -103,11 +104,40 @@ class PhaseStep(models.Model):
         DAYLIGHT = 'daylight'
         EVENING = 'evening'
         OTHER = 'other'
+
+    class ActionType(models.TextChoices):
+        ACTION = 'action', 'Action'
+        ITEM = 'item', 'Item'
+        CARD = 'card', 'Card'
+        OTHER = 'other', 'Other (custom image)'
+
     sheet = models.ForeignKey(FactionSheet, related_name='phase_steps', on_delete=models.CASCADE)
     content_box = models.ForeignKey(ContentBox, related_name='steps', on_delete=models.CASCADE, blank=True, null=True)
     phase = models.CharField(max_length=30, choices=PhaseChoices.choices)
     number = models.PositiveIntegerField()
     text = models.TextField()
+    action_type = models.CharField(max_length=10, choices=ActionType.choices, default=ActionType.ACTION)
+
+    def allowed_cost_choices(self):
+        """Subset of StepAction.CostChoices valid for this step's action_type.
+        Returns a list of (value, label) tuples. OTHER returns just OTHER."""
+        if self.action_type == self.ActionType.ACTION:
+            return [(StepAction.CostChoices.ACTION.value, StepAction.CostChoices.ACTION.label)]
+        if self.action_type == self.ActionType.ITEM:
+            return [(c.value, c.label) for c in StepAction.CostChoices if c.value.startswith('item_')]
+        if self.action_type == self.ActionType.CARD:
+            return [(c.value, c.label) for c in StepAction.CostChoices if c.value.startswith('card_')]
+        return [(StepAction.CostChoices.OTHER.value, StepAction.CostChoices.OTHER.label)]
+
+    def cost_choices_with(self, current_value):
+        """Like `allowed_cost_choices` but also includes `current_value` if it
+        falls outside the allowed set. Lets a row dropdown preserve a saved
+        cost that doesn't match the step's current action_type."""
+        choices = list(self.allowed_cost_choices())
+        if current_value and not any(v == current_value for v, _ in choices):
+            label = dict(StepAction.CostChoices.choices).get(current_value, current_value)
+            choices.append((current_value, label))
+        return choices
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -118,6 +148,19 @@ class PhaseStep(models.Model):
 
     class Meta:
         ordering = ['phase', 'number']
+
+    @property
+    def ordered_children(self):
+        """Boxes and tracks merged into one sequence ordered by `order`.
+        Yields dicts with kind/obj/order so templates can render the mixed list.
+        Tiebreak by kind to keep the order stable when both share an `order` value."""
+        items = []
+        for b in self.boxes.all():
+            items.append({'kind': 'box', 'obj': b, 'order': b.order})
+        for t in self.tracks.all():
+            items.append({'kind': 'track', 'obj': t, 'order': t.order})
+        items.sort(key=lambda i: (i['order'], i['kind']))
+        return items
 
 class StepAction(models.Model):
     class CostChoices(models.TextChoices):
@@ -161,7 +204,7 @@ class DecreeSection(models.Model):
 class CardSlot(models.Model):
     decree = models.ForeignKey(DecreeSection, related_name='card_slots', on_delete=models.CASCADE)
     number = models.PositiveIntegerField()
-    title = models.CharField(max_length=200, blank=True, null=True)
+    title = models.CharField(max_length=20, blank=True, null=True)
     body = models.TextField(blank=True, null=True)
 
     class Meta:
@@ -198,13 +241,19 @@ class CardboardTrack(models.Model):
     body = models.TextField(blank=True, null=True)
     type = models.CharField(max_length=20, choices=TrackChoices.choices)
     num_columns = models.PositiveIntegerField(default=1)
+    num_rows = models.PositiveIntegerField(default=1)
+
+    def grid(self):
+        """Return a 2D list `grid[row][col]` of CardboardSlot or None.
+        Used by the editor template to render the live grid preview."""
+        cells = [[None] * self.num_columns for _ in range(self.num_rows)]
+        for slot in self.slots.all():
+            if slot.row < self.num_rows and slot.column < self.num_columns:
+                cells[slot.row][slot.column] = slot
+        return cells
     column_headers = models.CharField(
         max_length=500, blank=True, default='',
         help_text='Pipe-delimited column labels, e.g. "0|1|2|3|4"'
-    )
-    column_cost_type = models.CharField(
-        max_length=20, blank=True, default='',
-        help_text='Inline image keyword for column header icons, e.g. "VP"'
     )
     column_dividers = models.CharField(
         max_length=200, blank=True, default='',
@@ -270,6 +319,10 @@ class CardboardSlot(models.Model):
     class Meta:
         ordering = ['row', 'column']
         unique_together = [('track', 'row', 'column')]
+
+    @property
+    def content_keywords(self):
+        return [k.strip() for k in (self.content or '').split('|') if k.strip()]
 
 
 class FactionBack(models.Model):

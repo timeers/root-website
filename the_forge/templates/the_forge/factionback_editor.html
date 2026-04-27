@@ -11,20 +11,81 @@
   <h2 class="root-title">{{ faction.faction_name }} — Back</h2>
 </div>
 
+<!-- Pieces -->
+<div class="card p-3 mb-3">
+  <div class="manifest-box">
+    <div class="d-flex flex-wrap justify-content-between align-items-center">
+      <h3 class="root-title manifest-title mx-auto">Faction Component Manifest</h3>
+    </div>
+
+    <div class="row row-cols-1 row-cols-md-2 row-cols-xl-5 g-2 forge-piece-grid">
+      {% for code, label, items in piece_sections %}
+        <div class="col">
+        <div class="p-2 text-center piece-box h-100">
+          <h5 class="root-title">{{ label }}</h5>
+          <div id="piece-list-{{ code }}" class="d-flex flex-column align-items-stretch">
+            {% for piece in items %}
+              {% include 'the_forge/partials/piece_row.html' with piece=piece %}
+            {% endfor %}
+          </div>
+          <button type="button" class="btn btn-sm btn-primary mt-2 piece-add-toggle"
+                  data-form="#piece-add-form-{{ code }}">Add+</button>
+          <form id="piece-add-form-{{ code }}" class="piece-form-container mt-2"
+                data-add-url="{% url 'forge-piece-add' back_pk=back.pk %}"
+                data-target="#piece-list-{{ code }}"
+                enctype="multipart/form-data" hidden>
+            {% csrf_token %}
+            <input type="hidden" name="type" value="{{ code }}">
+            <div class="d-flex justify-content-center align-items-center gap-2 mb-1">
+              <img class="lg-faction-icon image-preview" src="" alt="Preview" hidden>
+              <label class="file-input-button mb-0">Choose Icon
+                <input type="file" name="small_icon" accept="image/*" class="compact-file-input">
+              </label>
+            </div>
+            <div class="d-flex justify-content-center align-items-center gap-1 mb-1">
+              <input type="number" name="quantity" class="form-control form-control-sm form-control-num" value="1" min="1" max="99" placeholder="#">
+              <input type="text" name="name" class="form-control form-control-sm" placeholder="Name" required style="width: 90px;">
+            </div>
+            <div class="d-flex justify-content-center align-items-center gap-2">
+              <button type="submit" class="btn btn-sm btn-primary">Save</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary piece-add-cancel">Cancel</button>
+            </div>
+          </form>
+        </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+
 <!-- Main FactionBack form -->
 <form method="post" enctype="multipart/form-data" class="card p-3 mb-3">
   {% csrf_token %}
   <h5 class="root-title">Attributes</h5>
-  <div class="row">
-    {% for field in form %}
-      {% if field.name in 'complexity,card_wealth,aggression,crafting_ability,setup_order' %}
-        <div class="col-md-6 col-lg-4 mb-2">
-          {{ field.label_tag }}
-          {{ field }}
+  {% with bar_color=faction.color|default:'#777777' %}
+  <div class="row" id="factionback-attr-bars" data-bar-color="{{ bar_color }}">
+    {% for field_name, field_label in attribute_fields %}
+      <div class="col-12 col-md-6 mb-2">
+        <div class="bar-label">{{ field_label }}</div>
+        <div class="d-flex align-items-center gap-2 bar-edit-row" data-attr="{{ field_name }}">
+          <button type="button" class="btn btn-sm btn-secondary bar-step-down" aria-label="Decrease"><i class="bi bi-chevron-left"></i></button>
+          <div class="bar-container flex-grow-1 mb-0" style="border-left:none; padding:0;">
+            <div class="bar-background bar-background-variable"
+                 style="--bar-color: {{ bar_color }}; --bar-width: 2%;">
+              <div class="bar-text">None</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary bar-step-up" aria-label="Increase"><i class="bi bi-chevron-right"></i></button>
         </div>
-      {% endif %}
+      </div>
     {% endfor %}
   </div>
+  {{ form.complexity.as_hidden }}
+  {{ form.card_wealth.as_hidden }}
+  {{ form.aggression.as_hidden }}
+  {{ form.crafting_ability.as_hidden }}
+  {% endwith %}
 
   <h5 class="root-title mt-3">How to Play</h5>
   <div class="mb-2">
@@ -47,38 +108,16 @@
     {{ form.back_image }}
   </div>
 
+  <div class="row mt-2">
+    <div class="col-md-6 col-lg-4 mb-2">
+      {{ form.setup_order.label_tag }}
+      {{ form.setup_order }}
+    </div>
+  </div>
+
   <button type="submit" class="btn btn-success">Save Back</button>
 </form>
 
-<!-- Pieces -->
-<div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Pieces</h4>
-  <div id="piece-list">
-    {% for piece in pieces %}
-      {% include 'the_forge/partials/piece_row.html' with piece=piece %}
-    {% empty %}
-      <p class="text-muted mb-2" id="piece-empty">No pieces yet.</p>
-    {% endfor %}
-  </div>
-
-  <form id="piece-add-form" class="row g-2 align-items-center mt-2"
-        data-add-url="{% url 'forge-piece-add' back_pk=back.pk %}" enctype="multipart/form-data">
-    {% csrf_token %}
-    <div class="col-auto"><input type="text" name="name" class="form-control form-control-sm" placeholder="Name" required></div>
-    <div class="col-auto"><input type="number" name="quantity" class="form-control form-control-sm" placeholder="Qty" value="1" min="1" max="99" style="width:5rem;"></div>
-    <div class="col-auto">
-      <select name="type" class="form-select form-select-sm">
-        <option value="W">Warrior</option>
-        <option value="B">Building</option>
-        <option value="T">Token</option>
-        <option value="C">Card</option>
-        <option value="O">Other</option>
-      </select>
-    </div>
-    <div class="col-auto"><input type="file" name="small_icon" accept="image/*" class="form-control form-control-sm"></div>
-    <div class="col-auto"><button type="submit" class="btn btn-sm btn-primary">+ Add Piece</button></div>
-  </form>
-</div>
 
 <!-- Setup Steps -->
 <div class="card p-3 mb-3">
@@ -91,18 +130,20 @@
     {% endfor %}
   </div>
 
-  <form id="setup-step-add-form" class="mt-2"
+  <button type="button" id="setup-step-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Step</button>
+
+  <form id="setup-step-add-form" class="mt-2" hidden
         data-add-url="{% url 'forge-setup-step-add' back_pk=back.pk %}">
     {% csrf_token %}
-    <div class="d-flex gap-2 align-items-center mb-1">
-      <label class="small mb-0">#
-        <input type="number" name="number" class="form-control form-control-sm d-inline-block" style="width:4rem;">
-      </label>
-      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Step</button>
-    </div>
     <div class="forge-rich-text">
       <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary">Add</button>
+          <button type="button" id="setup-step-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+        </div>
+      </div>
     </div>
   </form>
 </div>
@@ -116,9 +157,21 @@ document.addEventListener('DOMContentLoaded', () => {
   const list = document.getElementById('setup-step-list');
   if (!list || !list.dataset.reorderUrl) return;
   const csrftoken = document.cookie.match(/csrftoken=([^;]+)/)[1];
+
+  function renumberMarkers() {
+    list.querySelectorAll('[data-row]').forEach((row, idx) => {
+      const n = idx + 1;
+      const img = row.querySelector('.setup-step-marker');
+      if (img) {
+        img.src = img.src.replace(/\d+\.svg$/, `${n % 10}.svg`);
+        img.alt = String(n);
+      }
+    });
+  }
+
   new Sortable(list, {
     animation: 150,
-    handle: '[data-row]',
+    handle: '.setup-step-grip',
     onEnd: async () => {
       const order = [...list.querySelectorAll('[data-row]')].map(r => r.dataset.id);
       await fetch(list.dataset.reorderUrl, {
@@ -126,8 +179,172 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
         body: JSON.stringify({order}),
       });
+      renumberMarkers();
+    }
+  });
+
+  // Dirty-state tracking: mark a row as having unsaved edits.
+  list.addEventListener('input', (ev) => {
+    const form = ev.target.closest('form[data-dirty-form]');
+    if (!form) return;
+    form.closest('[data-row]')?.classList.add('is-dirty');
+  });
+  // forge_editor.js replaces the row on successful save, so the new row
+  // starts clean automatically. No explicit reset needed here.
+
+  // Collapsible add-step form
+  const toggle = document.getElementById('setup-step-add-toggle');
+  const addForm = document.getElementById('setup-step-add-form');
+  const cancel = document.getElementById('setup-step-add-cancel');
+  if (toggle && addForm) {
+    toggle.addEventListener('click', () => {
+      addForm.hidden = false;
+      toggle.hidden = true;
+      const ta = addForm.querySelector('textarea');
+      if (ta) ta.focus();
+    });
+  }
+  if (cancel && addForm && toggle) {
+    cancel.addEventListener('click', () => {
+      addForm.hidden = true;
+      toggle.hidden = false;
+      const ta = addForm.querySelector('textarea');
+      if (ta) ta.value = '';
+    });
+  }
+  // After a successful add, the existing forge_editor.js handler clears inputs;
+  // we additionally re-collapse the form. Listen on the form itself.
+  if (addForm && toggle) {
+    addForm.addEventListener('submit', () => {
+      // Defer hiding until after the async submit handler finishes.
+      // forge_editor.js calls preventDefault and posts via fetch; on success
+      // it clears the inputs. We hide on the next tick after a short delay
+      // to allow the row to be inserted.
+      const observer = new MutationObserver(() => {
+        addForm.hidden = true;
+        toggle.hidden = false;
+        observer.disconnect();
+      });
+      observer.observe(list, { childList: true });
+    });
+  }
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.piece-add-toggle').forEach(btn => {
+    const form = document.querySelector(btn.dataset.form);
+    if (!form) return;
+    btn.addEventListener('click', () => {
+      form.hidden = false;
+      btn.hidden = true;
+      const nameInput = form.querySelector('input[name="name"]');
+      if (nameInput) nameInput.focus();
+    });
+    const cancel = form.querySelector('.piece-add-cancel');
+    if (cancel) {
+      cancel.addEventListener('click', () => {
+        form.hidden = true;
+        btn.hidden = false;
+        form.querySelectorAll('input[type="text"], input[type="number"], input[type="file"]').forEach(el => {
+          if (el.type === 'number') { el.value = el.defaultValue || '1'; } else { el.value = ''; }
+        });
+        const previewImg = form.querySelector('.image-preview');
+        if (previewImg) { previewImg.hidden = true; previewImg.src = ''; }
+      });
+    }
+    // Re-collapse after a successful add. forge_editor.js inserts the new row
+    // into the target list, so observe that list and re-hide the form once a
+    // child is added.
+    const targetSelector = form.dataset.target;
+    const list = targetSelector ? document.querySelector(targetSelector) : null;
+    if (list) {
+      form.addEventListener('submit', () => {
+        const observer = new MutationObserver(() => {
+          form.hidden = true;
+          btn.hidden = false;
+          observer.disconnect();
+        });
+        observer.observe(list, { childList: true });
+      });
     }
   });
 });
+</script>
+<script>
+(function () {
+  const STATES = [
+    { value: 'N', label: 'None',     width: '2%'  },
+    { value: 'L', label: 'Low',      width: '28%' },
+    { value: 'M', label: 'Moderate', width: '59%' },
+    { value: 'H', label: 'High',     width: '98%' },
+  ];
+
+  function hexToRgb(hex) {
+    hex = (hex || '').replace(/^#/, '');
+    if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+    if (hex.length !== 6) return { r: 128, g: 128, b: 128 };
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16),
+    };
+  }
+  function luminance(r, g, b) {
+    const a = [r, g, b].map(v => {
+      v = v / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+  }
+  function isWhiteTextLegible(hex) {
+    const { r, g, b } = hexToRgb(hex);
+    const ratio = (1 + 0.05) / (luminance(r, g, b) + 0.05);
+    return ratio >= 1.9;
+  }
+
+  const root = document.getElementById('factionback-attr-bars');
+  if (!root) return;
+  const whiteLegible = isWhiteTextLegible(root.dataset.barColor);
+
+  function indexOfValue(v) {
+    const i = STATES.findIndex(s => s.value === v);
+    return i === -1 ? 0 : i;
+  }
+
+  function render(row) {
+    const attr = row.dataset.attr;
+    const hidden = document.querySelector('input[type="hidden"][name="' + attr + '"]');
+    const idx = indexOfValue(hidden ? hidden.value : 'N');
+    const state = STATES[idx];
+    const bg = row.querySelector('.bar-background');
+    const text = row.querySelector('.bar-text');
+    bg.style.setProperty('--bar-width', state.width);
+    text.textContent = state.label;
+    if (whiteLegible && state.value !== 'N') {
+      text.classList.remove('bar-black-text');
+    } else {
+      text.classList.add('bar-black-text');
+    }
+    row.querySelector('.bar-step-down').disabled = idx === 0;
+    row.querySelector('.bar-step-up').disabled = idx === STATES.length - 1;
+  }
+
+  function step(row, delta) {
+    const attr = row.dataset.attr;
+    const hidden = document.querySelector('input[type="hidden"][name="' + attr + '"]');
+    if (!hidden) return;
+    let idx = indexOfValue(hidden.value) + delta;
+    idx = Math.max(0, Math.min(STATES.length - 1, idx));
+    hidden.value = STATES[idx].value;
+    render(row);
+  }
+
+  root.querySelectorAll('.bar-edit-row').forEach(row => {
+    render(row);
+    row.querySelector('.bar-step-down').addEventListener('click', () => step(row, -1));
+    row.querySelector('.bar-step-up').addEventListener('click', () => step(row, +1));
+  });
+})();
 </script>
 {% endblock %}

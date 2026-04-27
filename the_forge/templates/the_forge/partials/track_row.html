@@ -1,12 +1,95 @@
 {% load static %}
-<div class="border rounded p-2 mb-2 d-flex justify-content-between align-items-center" data-row data-id="{{ track.pk }}">
-  <span>
-    <strong>{{ track.title }}</strong>
-    <span class="small text-muted">({{ track.get_type_display }}, {{ track.num_columns }} col)</span>
-  </span>
-  <span class="d-flex gap-2">
-    <a href="{% url 'forge-track-edit' pk=track.pk %}" class="btn btn-sm btn-outline-primary">Edit</a>
-    <button type="button" class="btn btn-sm btn-outline-danger"
-            data-delete-url="{% url 'forge-track-delete' pk=track.pk %}">Delete</button>
-  </span>
+{% with cols=track.num_columns rows=track.num_rows %}
+<div class="forge-card-row track-row" data-row data-id="{{ track.pk }}" data-kind="track">
+  <form method="post" enctype="multipart/form-data"
+        data-edit-url="{% url 'forge-track-edit' pk=track.pk %}"
+        data-track-form="{{ track.pk }}"
+        class="track-row__form" data-dirty-form>
+    {% csrf_token %}
+
+    <div class="forge-card-row__head flex-nowrap">
+      <span class="row-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+      <span class="forge-card-row__badge track-badge flex-shrink-0">Track</span>
+      <input type="text" name="title" value="{{ track.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1" style="min-width:0;max-width:none;" placeholder="Title" required>
+      <div class="btn-group btn-group-sm forge-segmented flex-shrink-0" role="group" aria-label="Type">
+        <input type="radio" class="btn-check" name="type" id="track-{{ track.pk }}-type-token"
+               value="token" {% if track.type == 'token' %}checked{% endif %} data-track-type-input>
+        <label class="btn btn-outline-secondary" for="track-{{ track.pk }}-type-token" title="Token"><i class="bi bi-circle"></i></label>
+        <input type="radio" class="btn-check" name="type" id="track-{{ track.pk }}-type-building"
+               value="building" {% if track.type == 'building' %}checked{% endif %} data-track-type-input>
+        <label class="btn btn-outline-secondary" for="track-{{ track.pk }}-type-building" title="Building"><i class="bi bi-square"></i></label>
+      </div>
+    </div>
+
+    <div class="forge-rich-text mt-2">
+      <textarea name="body" class="form-control" rows="2" placeholder="Body / description…">{{ track.body }}</textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' %}
+    </div>
+
+    <div class="track-row__settings mt-2">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <label class="small text-muted">Header pos
+          <select name="header_position" class="form-select form-select-sm d-inline-block" style="width:auto;">
+            <option value="above" {% if track.header_position == 'above' %}selected{% endif %}>Above</option>
+            <option value="below" {% if track.header_position == 'below' %}selected{% endif %}>Below</option>
+          </select>
+        </label>
+        <label class="small text-muted">Row title
+          <select name="row_title_orientation" class="form-select form-select-sm d-inline-block" style="width:auto;">
+            <option value="horizontal" {% if track.row_title_orientation == 'horizontal' %}selected{% endif %}>Horizontal</option>
+            <option value="vertical" {% if track.row_title_orientation == 'vertical' %}selected{% endif %}>Vertical</option>
+          </select>
+        </label>
+        <label class="small text-muted">Header title
+          <input type="text" name="header_title" value="{{ track.header_title }}" class="form-control form-control-sm d-inline-block" style="width:10rem;">
+        </label>
+        <label class="small text-muted">Column headers
+          <input type="text" name="column_headers" value="{{ track.column_headers }}" class="form-control form-control-sm d-inline-block" style="width:14rem;" placeholder="0|1|2|3">
+        </label>
+        <label class="small text-muted">Dividers
+          <input type="text" name="column_dividers" value="{{ track.column_dividers }}" class="form-control form-control-sm d-inline-block" style="width:8rem;" placeholder="2,5">
+        </label>
+        <label class="small text-muted">Cols
+          <span class="forge-stepper">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-track-step="cols" data-delta="-1">−</button>
+            <input type="number" name="num_columns" value="{{ cols }}" min="1" class="form-control form-control-sm" style="width:4.5rem;">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-track-step="cols" data-delta="1">+</button>
+          </span>
+        </label>
+        <label class="small text-muted">Rows
+          <span class="forge-stepper">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-track-step="rows" data-delta="-1">−</button>
+            <input type="number" name="num_rows" value="{{ rows }}" min="1" class="form-control form-control-sm" style="width:4.5rem;">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-track-step="rows" data-delta="1">+</button>
+          </span>
+        </label>
+        <label class="small text-muted">Background
+          <input type="file" name="background_image" accept="image/*" class="form-control form-control-sm d-inline-block" style="width:14rem;">
+        </label>
+      </div>
+    </div>
+
+    {# Live grid preview — horizontally scrollable so wide grids don't break the layout. #}
+    <div class="track-row-scroll mt-2">
+      <div class="track-grid track-grid--{{ track.type }}"
+           data-track-grid="{{ track.pk }}"
+           data-track-id="{{ track.pk }}"
+           data-num-cols="{{ cols }}"
+           data-num-rows="{{ rows }}"
+           style="--track-cols: {{ cols }};{% if track.background_image %} --track-bg: url('{{ track.background_image.url }}');{% endif %}">
+        {% for row in track.grid %}
+          {% for slot in row %}
+            {% include 'the_forge/partials/track_slot_cell.html' with track=track slot=slot row=forloop.parentloop.counter0 col=forloop.counter0 %}
+          {% endfor %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-3">
+      <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+      <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
+              data-delete-url="{% url 'forge-track-delete' pk=track.pk %}">Delete</button>
+    </div>
+  </form>
 </div>
+{% endwith %}

@@ -1,0 +1,24 @@
+{% load static forge_text %}
+<button type="button" class="track-cell track-cell--{{ track.type }}{% if slot %} track-cell--filled{% endif %}"
+        data-slot-cell
+        data-track-id="{{ track.pk }}"
+        data-row="{{ row }}"
+        data-col="{{ col }}"
+        data-row-title="{% if slot %}{{ slot.row_title }}{% endif %}"
+        data-content="{% if slot %}{{ slot.content }}{% endif %}"
+        data-bg-url="{% if slot and slot.background_image %}{{ slot.background_image.url }}{% endif %}"
+        title="Edit slot ({{ row }}, {{ col }})"
+        {% if slot and slot.background_image %}style="--slot-bg: url('{{ slot.background_image.url }}');"{% endif %}>
+  {% if slot and slot.content %}
+    <span class="track-cell__icons">
+      {% for keyword in slot.content_keywords %}
+        {% with url=inline_images|dict_get:keyword %}
+          {% if url %}<img src="{{ url }}" alt="{{ keyword }}">{% endif %}
+        {% endwith %}
+      {% endfor %}
+    </span>
+  {% endif %}
+  {% if slot and slot.row_title and col == 0 %}
+    <span class="track-cell__row-title">{{ slot.row_title }}</span>
+  {% endif %}
+</button>

@@ -1,29 +1,26 @@
 {% load static %}
-<div class="border rounded p-2 mb-2 d-flex align-items-center gap-2" data-row data-id="{{ piece.pk }}">
+<div class="border rounded p-2 mb-2 piece-form-container" data-row data-id="{{ piece.pk }}">
   <form method="post" enctype="multipart/form-data" data-edit-url="{% url 'forge-piece-edit' pk=piece.pk %}"
-        class="row g-2 align-items-center flex-grow-1 m-0">
+        class="m-0">
     {% csrf_token %}
-    <div class="col-auto">
-      <input type="text" name="name" value="{{ piece.name }}" class="form-control form-control-sm" placeholder="Name" required>
+    <input type="hidden" name="type" value="{{ piece.type }}">
+    <div class="d-flex justify-content-center align-items-center gap-2 mb-1">
+      {% if piece.small_icon %}
+        <img class="lg-faction-icon piece-current-icon" src="{{ piece.small_icon.url }}" alt="{{ piece.name }}">
+      {% endif %}
+      <img class="lg-faction-icon image-preview" src="" alt="Preview" hidden>
+      <label class="file-input-button mb-0">Choose Icon
+        <input type="file" name="small_icon" accept="image/*" class="compact-file-input">
+      </label>
     </div>
-    <div class="col-auto">
-      <input type="number" name="quantity" value="{{ piece.quantity }}" min="1" max="99" class="form-control form-control-sm" style="width:5rem;">
+    <div class="d-flex justify-content-center align-items-center gap-1 mb-1">
+      <input type="number" name="quantity" value="{{ piece.quantity }}" min="1" max="99" class="form-control form-control-sm form-control-num">
+      <input type="text" name="name" value="{{ piece.name }}" class="form-control form-control-sm" placeholder="Name" required style="width: 90px;">
     </div>
-    <div class="col-auto">
-      <select name="type" class="form-select form-select-sm">
-        <option value="W" {% if piece.type == 'W' %}selected{% endif %}>Warrior</option>
-        <option value="B" {% if piece.type == 'B' %}selected{% endif %}>Building</option>
-        <option value="T" {% if piece.type == 'T' %}selected{% endif %}>Token</option>
-        <option value="C" {% if piece.type == 'C' %}selected{% endif %}>Card</option>
-        <option value="O" {% if piece.type == 'O' %}selected{% endif %}>Other</option>
-      </select>
+    <div class="d-flex justify-content-center align-items-center gap-2 flex-wrap">
+      <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+      <button type="button" class="btn btn-sm btn-outline-danger"
+              data-delete-url="{% url 'forge-piece-delete' pk=piece.pk %}"><i class="bi bi-trash3"></i></button>
     </div>
-    <div class="col-auto">
-      {% if piece.small_icon %}<img src="{{ piece.small_icon.url }}" style="height:24px;">{% endif %}
-      <input type="file" name="small_icon" accept="image/*" class="form-control form-control-sm" style="width:auto;display:inline-block;">
-    </div>
-    <div class="col-auto"><button type="submit" class="btn btn-sm btn-outline-primary">Save</button></div>
   </form>
-  <button type="button" class="btn btn-sm btn-outline-danger"
-          data-delete-url="{% url 'forge-piece-delete' pk=piece.pk %}">Delete</button>
 </div>

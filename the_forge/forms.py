@@ -10,7 +10,6 @@ from .models import (
     DecreeSection,
     FactionAbility,
     FactionBack,
-    FactionSheet,
     ForgedFaction,
     PhaseStep,
     Piece,
@@ -50,17 +49,6 @@ class ForgedFactionForm(forms.ModelForm):
         }
 
 
-class FactionSheetForm(forms.ModelForm):
-    class Meta:
-        model = FactionSheet
-        fields = [
-            'flavor_text',
-            'action_image',
-            'include_crafted_items',
-            'layout_mode',
-        ]
-
-
 class FactionBackForm(forms.ModelForm):
     class Meta:
         model = FactionBack
@@ -88,6 +76,10 @@ class FactionAbilityForm(forms.ModelForm):
             'body': RichTextarea(),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['order'].required = False
+
 
 class ContentBoxForm(forms.ModelForm):
     class Meta:
@@ -101,61 +93,85 @@ class ContentBoxForm(forms.ModelForm):
 class PhaseStepForm(forms.ModelForm):
     class Meta:
         model = PhaseStep
-        fields = ['phase', 'number', 'content_box', 'text']
+        fields = ['phase', 'text']
         widgets = {
             'text': RichTextarea(),
         }
 
     def __init__(self, *args, **kwargs):
-        sheet = kwargs.pop('sheet', None)
+        kwargs.pop('sheet', None)
         super().__init__(*args, **kwargs)
-        if sheet is not None:
-            self.fields['content_box'].queryset = sheet.content_boxes.all()
-        self.fields['content_box'].required = False
 
 
 class StepActionForm(forms.ModelForm):
     class Meta:
         model = StepAction
-        fields = ['order', 'text', 'cost', 'cost_image']
+        fields = ['text', 'cost', 'cost_image']
         widgets = {
             'text': RichTextarea(attrs={'rows': 3}),
+            'cost': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'cost_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }
 
 
 class BorderedBoxForm(forms.ModelForm):
     class Meta:
         model = BorderedBox
-        fields = ['order', 'title', 'body', 'height']
+        fields = ['title', 'body', 'height']
         widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
             'body': RichTextarea(),
+            'height': forms.Select(attrs={'class': 'form-select form-select-sm'}),
         }
 
 
 class CardboardTrackForm(forms.ModelForm):
+    """Used by the inline create endpoint (track_add). The compact create UI
+    only submits a subset, so optional fields are relaxed at the form level."""
     class Meta:
         model = CardboardTrack
         fields = [
-            'order', 'title', 'body', 'type',
-            'num_columns', 'column_headers', 'column_cost_type',
+            'title', 'body', 'type',
+            'num_columns', 'num_rows', 'column_headers',
             'column_dividers', 'header_position', 'header_title',
             'row_title_orientation', 'background_image',
         ]
         widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
             'body': RichTextarea(),
+            'type': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'num_columns': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': 1}),
+            'num_rows': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': 1}),
+            'column_headers': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'column_dividers': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'header_position': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'header_title': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'row_title_orientation': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'background_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['header_position'].required = False
+        self.fields['row_title_orientation'].required = False
+        self.fields['body'].required = False
 
 
 class CardboardSlotForm(forms.ModelForm):
     class Meta:
         model = CardboardSlot
-        fields = ['number', 'row', 'column', 'row_title', 'content', 'background_image']
+        fields = ['row_title', 'content', 'background_image']
 
 
 class DecreeSectionForm(forms.ModelForm):
     class Meta:
         model = DecreeSection
         fields = ['title', 'body']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['title'].required = False
+        self.fields['body'].required = False
 
 
 class CardSlotForm(forms.ModelForm):
@@ -166,6 +182,12 @@ class CardSlotForm(forms.ModelForm):
             'body': RichTextarea(),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['number'].required = False
+        self.fields['title'].required = False
+        self.fields['body'].required = False
+
 
 class CardPileForm(forms.ModelForm):
     class Meta:
@@ -174,6 +196,12 @@ class CardPileForm(forms.ModelForm):
         widgets = {
             'body': RichTextarea(),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['number'].required = False
+        self.fields['title'].required = False
+        self.fields['body'].required = False
 
 
 class PieceForm(forms.ModelForm):
@@ -191,7 +219,7 @@ class SetupCardForm(forms.ModelForm):
 class SetupStepForm(forms.ModelForm):
     class Meta:
         model = SetupStep
-        fields = ['number', 'text']
+        fields = ['text']
         widgets = {
             'text': RichTextarea(attrs={'rows': 3}),
         }

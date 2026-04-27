@@ -10,6 +10,26 @@ register = template.Library()
 
 
 @register.filter
+def dict_get(d, key):
+    """Lookup `key` in a dict-like value. Returns empty string if missing."""
+    if d is None:
+        return ''
+    try:
+        return d.get(key, '')
+    except AttributeError:
+        return ''
+
+
+@register.filter
+def cost_choices_with(step, current):
+    """Proxy to PhaseStep.cost_choices_with so templates can call it as a filter:
+    `{% for v,l in action.step|cost_choices_with:action.cost %}`."""
+    if step is None:
+        return []
+    return step.cost_choices_with(current)
+
+
+@register.filter
 def split(value, delimiter=","):
     """Split a string on `delimiter` (default ",") and return a list.
 

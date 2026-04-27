@@ -10,9 +10,10 @@ pages. To add, remove, or reorder a keyword:
     from the picker even if they exist in the map (so we can still render
     legacy {{ keyword }} content without showing the keyword as a button).
 
-PDF rendering uses its own map at `the_forge/pdf_engine.py:INLINE_IMAGES_PDF`
-because PDFs reference filesystem paths, not static URLs. Keep the two in
-sync when adding icons that should also appear in generated PDFs.
+PDF rendering also reads from this map via `pdf_engine._inline_image_path`,
+which resolves the `static()` URL back to a filesystem path through Django's
+staticfiles finders. This module is the single source of truth for both
+editor and PDF — adding a keyword here makes it available in both.
 """
 
 from django.templatetags.static import static
@@ -155,12 +156,11 @@ FORGE_PICKER_ORDER = [
     'lizard',
     'otter',
     'mole',
-
     'crow',
 
     'rat',
     'badger',
-    
+
     'frog',
     'bat',
     'skunk',

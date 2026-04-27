@@ -34,7 +34,7 @@ steps = [
     SimpleNamespace(phase="daylight", number=4, text="Recruit. Place a warrior in each recruiter clearing."),
     SimpleNamespace(phase="daylight", number=5, text="##Settle## Choose a clearing. Spend a card to place one {{ 1VP }} at {{ 2VP }} {{ 3VP }} {{ 4VP }} {{ VP }} a _sawmill_ in the card's matching clearing."),
     
-    SimpleNamespace(phase="evening", number=1, text="**Draw** Draw one card plus one per uncovered {{ draw }} {{ mouse }} {{ bird }} {{ rabbit tilt}}."),
+    SimpleNamespace(phase="evening", number=1, text="**Draw** Draw one card plus one per uncovered {{ card }} {{ mouse_card }} {{ bird_card }} {{ rabbit_tilt }}."),
 
 ]
 
@@ -65,7 +65,7 @@ fox_action = SimpleNamespace(
 )
 fox_action2 = SimpleNamespace(
     cost='card_nonbird', cost_image=None, order=2,
-    text="**Recruit** Place a warrior in a {{fox}} fox clearing."
+    text="**Recruit** Place a warrior in a {{fox_card}} fox clearing."
 )
 fox_action3 = SimpleNamespace(
     cost='card_nonbird', cost_image=None, order=3,
@@ -111,6 +111,16 @@ def make_tracks_qs(tracks_list):
         all=lambda: tracks_list,
     )
 
+# Mirrors PhaseStep.ordered_children: merges boxes + tracks by `order`.
+def build_ordered_children(step):
+    items = []
+    for b in step.boxes.all():
+        items.append({'kind': 'box', 'obj': b, 'order': b.order})
+    for t in step.tracks.all():
+        items.append({'kind': 'track', 'obj': t, 'order': t.order})
+    items.sort(key=lambda i: (i['order'], i['kind']))
+    return items
+
 # Fake bordered boxes
 damaged_box = SimpleNamespace(
     title="Damaged", body="_Cannot be used until repaired._", height="small", order=1
@@ -126,13 +136,13 @@ large_box = SimpleNamespace(
 # Gardens track: 1 row x 4 columns — testing multi-image layouts
 gardens_slots = [
     SimpleNamespace(number=1, row=0, column=0, row_title="", content="1VP", background_image=None),
-    SimpleNamespace(number=2, row=0, column=1, row_title="", content="fox|2VP", background_image=None),
-    SimpleNamespace(number=3, row=0, column=2, row_title="", content="rabbit|mouse|3VP", background_image=None),
-    SimpleNamespace(number=4, row=0, column=3, row_title="", content="fox|rabbit|mouse|4VP", background_image=None),
+    SimpleNamespace(number=2, row=0, column=1, row_title="", content="fox_card|2VP", background_image=None),
+    SimpleNamespace(number=3, row=0, column=2, row_title="", content="rabbit_card|mouse_card|3VP", background_image=None),
+    SimpleNamespace(number=4, row=0, column=3, row_title="", content="fox_card|rabbit_card|mouse_card|4VP", background_image=None),
 ]
 gardens_track = SimpleNamespace(
     title="Gardens", type="building", body="_Place in a clearing you rule with no other gardens._", order=0,
-    num_columns=4, column_headers="+0|{{ 1VP }}|{{ mouse }}|+4", column_cost_type="",
+    num_columns=4, column_headers="+0|{{ 1VP }}|{{ mouse_card }}|+4",
     column_dividers="2", background_image=None, header_position="above",
     slots=SimpleNamespace(all=lambda: gardens_slots),
 )
@@ -151,7 +161,7 @@ roosts_slots = [
 ]
 roosts_track = SimpleNamespace(
     title="Roosts", type="token", body=None, order=1,
-    num_columns=8, column_headers="{{ 1VP }}|{{ cards }}|{{ bird }}|4VP|{{ 1VP }}|{{ cards }}|{{ bird }}", column_cost_type="",
+    num_columns=8, column_headers="{{ 1VP }}|{{ cards }}|{{ bird_card }}|4VP|{{ 1VP }}|{{ cards }}|{{ bird_card }}",
     column_dividers="2", background_image=None, header_position="above",
     slots=SimpleNamespace(all=lambda: roosts_slots),
 )
@@ -181,6 +191,10 @@ steps[9].boxes = make_boxes_qs([large_box])
 # Assign tracks to specific steps
 steps[0].tracks = make_tracks_qs([gardens_track])
 steps[9].tracks = make_tracks_qs([roosts_track])
+
+# Attach ordered_children to every step (mirrors PhaseStep.ordered_children).
+for s in steps:
+    s.ordered_children = build_ordered_children(s)
 
 
 # Fake decree sections and card slots

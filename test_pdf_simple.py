@@ -28,6 +28,16 @@ def make_tracks_qs(tracks_list):
         all=lambda: tracks_list,
     )
 
+# Mirrors PhaseStep.ordered_children: merges boxes + tracks by `order`.
+def build_ordered_children(step):
+    items = []
+    for b in step.boxes.all():
+        items.append({'kind': 'box', 'obj': b, 'order': b.order})
+    for t in step.tracks.all():
+        items.append({'kind': 'track', 'obj': t, 'order': t.order})
+    items.sort(key=lambda i: (i['order'], i['kind']))
+    return items
+
 # Fake abilities
 abilities = [
     SimpleNamespace(title="Nimble", body="May move before or after battle.", order=1),
@@ -35,10 +45,10 @@ abilities = [
 
 # Fake phase steps (one per phase)
 steps = [
-    SimpleNamespace(phase="birdsong", number=1, text="**Draw** one card plus one per uncovered {{ draw }}."),
+    SimpleNamespace(phase="birdsong", number=1, text="**Draw** one card plus one per uncovered {{ card }}."),
     SimpleNamespace(phase="birdsong", number=2, text="##Craft## with workshops."),
-    SimpleNamespace(phase="daylight", number=1, text="**Draw** one card plus one per uncovered {{ draw }}."),
-    SimpleNamespace(phase="evening", number=1, text="**Draw** one card plus one per uncovered {{ draw }}."),
+    SimpleNamespace(phase="daylight", number=1, text="**Draw** one card plus one per uncovered {{ card }}."),
+    SimpleNamespace(phase="evening", number=1, text="**Draw** one card plus one per uncovered {{ card }}."),
     SimpleNamespace(phase="evening", number=2, text="##March## Move up to 3 times."),
 
 ]
@@ -50,14 +60,14 @@ sword_action = SimpleNamespace(
 )
 
 # Token track with enough columns to trigger overlap
-sympathy_bg = SimpleNamespace(path="the_keep/static/pdf/inline/Sympathy Token.png")
+# sympathy_bg = SimpleNamespace(path="the_keep/static/pdf/inline/Sympathy Token.png")
 roosts_slots = [
-    SimpleNamespace(number=i+1, row=0, column=i, row_title="Roosts" if i == 0 else "", content=f"{i}VP" if i > 0 else "", background_image=sympathy_bg)
+    SimpleNamespace(number=i+1, row=0, column=i, row_title="Roosts" if i == 0 else "", content=f"{i}VP" if i > 0 else "", background_image="")
     for i in range(5)
 ]
 roosts_track = SimpleNamespace(
     title="Roosts", type="token", body="_Only one per clearing_", order=0,
-    num_columns=5, column_headers="{{ 1VP }}|{{ cards }}|{{ bird }}|{{ 4VP }}|{{ 1VP }}|{{ cards }}|{{ bird }}", column_cost_type="",
+    num_columns=5, column_headers="{{ 1VP }}|{{ cards }}|{{ bird_card }}|{{ 4VP }}|{{ 1VP }}|{{ cards }}|{{ bird_card }}",
     column_dividers="4", background_image=None, header_position="above",
     header_title="", row_title_orientation="vertical",
     slots=SimpleNamespace(all=lambda: roosts_slots),
@@ -102,7 +112,7 @@ building_slots = [
 building_track = SimpleNamespace(
     title="Buildings", type="building", body="", order=1,
     num_columns=5, column_headers="0|1|2|3",
-    column_cost_type="", column_dividers="", background_image=None, header_position="above",
+    column_dividers="", background_image=None, header_position="above",
     header_title="~~Cost~~", row_title_orientation="vertical",
     slots=SimpleNamespace(all=lambda: building_slots),
 )
@@ -154,6 +164,10 @@ content_box_3 = SimpleNamespace(
 
 all_content_boxes = [content_box_1, content_box_2, content_box_3]
 
+# Attach ordered_children to every step (mirrors PhaseStep.ordered_children).
+for s in steps + [cb1_step, cb2_step, cb3_step]:
+    s.ordered_children = build_ordered_children(s)
+
 # Helper to fake the content_boxes queryset chain
 def _make_content_boxes_qs(boxes):
     return SimpleNamespace(
@@ -178,13 +192,13 @@ sheet = SimpleNamespace(
     faction=faction,
     flavor_text="You rule this woodland.",
     include_crafted_items=True,
-    layout_mode="horizontal",
+    layout_mode="vertical",
     get_background_path=lambda: faction.get_background_path(),
     abilities=SimpleNamespace(order_by=lambda f: abilities),
     phase_steps=SimpleNamespace(all=lambda: steps),
     decrees=SimpleNamespace(prefetch_related=lambda *a: SimpleNamespace(all=lambda: [])),
     card_piles=SimpleNamespace(all=lambda: [
-        SimpleNamespace(number=1, title="Character Card", body="Discard a card of matching suit to **recruit**. {{ fox }} {{ bird }}"),
+        SimpleNamespace(number=1, title="Character Card", body="Discard a card of matching suit to **recruit**. {{ fox_card }} {{ bird_card }}"),
         SimpleNamespace(number=2, title="Mood Card", body="_Set up with the Stubborn mood._"),
     ]),
     content_boxes=_make_content_boxes_qs(all_content_boxes),

@@ -1,0 +1,45 @@
+{% load static %}
+<div class="phase-step-action-controls d-flex align-items-center gap-2 mt-3"
+     data-step-id="{{ step.pk }}">
+  <div class="ms-auto d-flex gap-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-box data-step-id="{{ step.pk }}">+ Add Box</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-track data-step-id="{{ step.pk }}">+ Add Track</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-toggle-actions data-step-id="{{ step.pk }}"
+            aria-expanded="{% if step.actions.exists %}true{% else %}false{% endif %}"
+            aria-controls="actions-panel-{{ step.pk }}">Actions ▾</button>
+  </div>
+</div>
+
+<div class="phase-step-action-header mt-2"
+     id="actions-panel-{{ step.pk }}"
+     data-actions-panel
+     data-step-id="{{ step.pk }}"
+     data-action-type-url="{% url 'forge-phasestep-action-type-set' step_pk=step.pk %}"
+     {% if not step.actions.exists %}hidden{% endif %}>
+  <div class="d-flex align-items-center gap-2">
+    <strong class="small text-muted">Action Type:</strong>
+    <select class="form-select form-select-sm phase-step-action-type"
+            data-step-id="{{ step.pk }}"
+            {% if step.actions.exists %}disabled{% endif %}
+            style="max-width:11rem;">
+      {% for v,l in step.ActionType.choices %}
+        <option value="{{ v }}" {% if step.action_type == v %}selected{% endif %}>{{ l }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="phase-step-action-list mt-2" data-step-id="{{ step.pk }}"
+       data-reorder-url="{% url 'forge-stepaction-reorder' step_pk=step.pk %}">
+    {% for a in step.actions.all %}
+      {% include 'the_forge/partials/step_action_row.html' with action=a %}
+    {% endfor %}
+  </div>
+
+  <div class="mt-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-action data-step-id="{{ step.pk }}">+ Add Action</button>
+  </div>
+</div>

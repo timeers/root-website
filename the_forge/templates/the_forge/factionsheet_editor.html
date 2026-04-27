@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static %}
+{% load static forge_text %}
 
 {% block content %}
 <link rel="stylesheet" href="{% static 'the_forge/forge_richtext.css' %}">
@@ -12,56 +12,109 @@
   <h2 class="root-title">{{ faction.faction_name }} — Sheet #{{ sheet.pk }}</h2>
 </div>
 
-<!-- Sheet main form -->
-<form method="post" enctype="multipart/form-data" class="card p-3 mb-3">
-  {% csrf_token %}
-  <div class="mb-2">
-    {{ form.flavor_text.label_tag }}
-    {{ form.flavor_text }}
-  </div>
-  <div class="mb-2">
-    {{ form.action_image.label_tag }}
-    {% if sheet.action_image %}
-      <div class="mb-2"><img src="{{ sheet.action_image.url }}" style="max-height:80px;"></div>
-    {% endif %}
-    {{ form.action_image }}
-  </div>
-  <div class="row">
-    <div class="col-md-6 form-check mb-2">
-      {{ form.include_crafted_items }}
-      {{ form.include_crafted_items.label_tag }}
-    </div>
-    <div class="col-md-6 mb-2">
-      {{ form.layout_mode.label_tag }}
-      {{ form.layout_mode }}
-    </div>
-  </div>
-  <button type="submit" class="btn btn-success">Save Sheet</button>
-</form>
+<!-- Flavor text (inline save) -->
+{% include 'the_forge/partials/sheet_flavor_form.html' with sheet=sheet %}
+
+<!-- Settings toggles (auto-save) -->
+{% include 'the_forge/partials/sheet_settings_toggles.html' with sheet=sheet %}
 
 <!-- Abilities -->
 <div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Abilities</h4>
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <img src="{% static 'pdf/svg/ability_berry.svg' %}" alt="" style="width:1.5rem;">
+    <h4 class="root-title m-0">Abilities</h4>
+  </div>
   <div id="ability-list" data-reorder-url="{% url 'forge-ability-reorder' sheet_pk=sheet.pk %}">
     {% for ability in abilities %}
       {% include 'the_forge/partials/ability_row.html' with ability=ability %}
-    {% empty %}
-      <p class="text-muted mb-2" id="ability-empty">No abilities yet.</p>
     {% endfor %}
   </div>
-  <form id="ability-add-form" class="mt-2" data-add-url="{% url 'forge-ability-add' sheet_pk=sheet.pk %}">
+
+  <button type="button" id="ability-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Ability</button>
+
+  <form id="ability-add-form" class="mt-2" hidden data-add-url="{% url 'forge-ability-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
     <div class="d-flex gap-2 align-items-center mb-1">
       <input type="text" name="title" class="form-control form-control-sm" placeholder="Title" required>
-      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Ability</button>
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="3" placeholder="Ability body…"></textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' %}
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary">Add</button>
+          <button type="button" id="ability-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+        </div>
+      </div>
     </div>
-    <input type="hidden" name="order" value="">
   </form>
 </div>
+
+<!-- Decree -->
+<div class="card p-3 mb-3">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <h4 class="root-title m-0">Decree/Retinue</h4>
+    <label class="d-flex align-items-center gap-2 m-0">
+      <span class="small">Include Card Columns</span>
+      <input type="checkbox" id="decree-toggle"
+             data-decree-toggle-url="{% url 'forge-sheet-decree-toggle' pk=sheet.pk %}"
+             {% if sheet.include_decree %}checked{% endif %}>
+    </label>
+  </div>
+  <div id="decree-body" {% if not sheet.include_decree %}hidden{% endif %}>
+    {% if decree %}
+      {% include 'the_forge/partials/decree_section.html' with decree=decree %}
+    {% endif %}
+  </div>
+</div>
+
+
+<!-- Phase Steps -->
+<div class="card p-3 mb-3">
+
+  {% for phase_code, phase_label, phase_steps_list, phase_image in phase_sections %}
+    <div class="mb-3">
+      <img src="{% static phase_image %}" alt="{{ phase_label }}" class="img-fluid mb-2 d-block">
+      <div id="phase-step-list-{{ phase_code }}"
+           data-reorder-url="{% url 'forge-phasestep-reorder' sheet_pk=sheet.pk phase=phase_code %}">
+        {% for step in phase_steps_list %}
+          {% include 'the_forge/partials/phase_step_row.html' with step=step %}
+        {% endfor %}
+      </div>
+      <button type="button" class="btn btn-sm btn-primary mt-2" data-phase-step-add-toggle="{{ phase_code }}">
+        + Add {{ phase_label }} Step
+      </button>
+      <form id="phase-step-add-form-{{ phase_code }}" class="mt-2" hidden
+            data-add-url="{% url 'forge-phasestep-add' sheet_pk=sheet.pk %}"
+            data-target="#phase-step-list-{{ phase_code }}">
+        {% csrf_token %}
+        <input type="hidden" name="phase" value="{{ phase_code }}">
+        <div class="forge-rich-text">
+          <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+          <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+            {% include 'the_forge/partials/richtext_toolbar.html' %}
+            <div class="ms-auto d-flex gap-2">
+              <button type="submit" class="btn btn-sm btn-primary">Add</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-phase-step-add-cancel="{{ phase_code }}">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  {% endfor %}
+</div>
+
+{# Hidden inline-form templates — cloned by JS when + Add Box / + Add Track is clicked.
+   We render with step_pk=0; JS swaps the literal "/0/" segment in data-add-url for the real step pk.
+   The + Action form is fetched per-step (filtered by step.action_type) instead of cloned. #}
+<template id="forge-box-form-template">
+  {% include 'the_forge/partials/bordered_box_form.html' with step_pk=0 box_height_choices=box_height_choices %}
+</template>
+<template id="forge-track-form-template">
+  {% include 'the_forge/partials/cardboard_track_form.html' with step_pk=0 %}
+</template>
+
+{% include 'the_forge/partials/slot_modal.html' %}
 
 <!-- Content Boxes -->
 <div class="card p-3 mb-3">
@@ -87,74 +140,33 @@
   </form>
 </div>
 
-<!-- Phase Steps -->
-<div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Phase Steps</h4>
-  <div id="phase-step-list">
-    {% for step in phase_steps %}
-      {% include 'the_forge/partials/phase_step_row.html' with step=step %}
-    {% empty %}
-      <p class="text-muted mb-2" id="phase-step-empty">No phase steps yet.</p>
-    {% endfor %}
-  </div>
-  <form id="phase-step-add-form" class="mt-2" data-add-url="{% url 'forge-phasestep-add' sheet_pk=sheet.pk %}">
-    {% csrf_token %}
-    <div class="d-flex gap-2 align-items-center mb-1">
-      <select name="phase" class="form-select form-select-sm" style="width:auto;">
-        <option value="birdsong">Birdsong</option>
-        <option value="daylight">Daylight</option>
-        <option value="evening">Evening</option>
-        <option value="other">Other</option>
-      </select>
-      <input type="number" name="number" class="form-control form-control-sm" style="width:5rem;" placeholder="#">
-      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Step</button>
-    </div>
-    <div class="forge-rich-text">
-      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' %}
-    </div>
-  </form>
-</div>
 
-<!-- Decrees -->
-<div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Decrees</h4>
-  <div id="decree-list">
-    {% for d in decrees %}
-      {% include 'the_forge/partials/decree_row.html' with decree=d card_slot_form=None %}
-    {% empty %}
-      <p class="text-muted mb-2" id="decree-empty">No decrees yet.</p>
-    {% endfor %}
-  </div>
-  <form id="decree-add-form" class="mt-2 d-flex gap-2 align-items-center"
-        data-add-url="{% url 'forge-decree-add' sheet_pk=sheet.pk %}">
-    {% csrf_token %}
-    <input type="text" name="title" class="form-control form-control-sm" placeholder="Title" style="max-width:12rem;">
-    <input type="text" name="body" class="form-control form-control-sm" placeholder="Body" style="max-width:12rem;">
-    <button type="submit" class="btn btn-sm btn-primary">+ Add Decree</button>
-  </form>
-</div>
 
 <!-- Card Piles -->
 <div class="card p-3 mb-3">
   <h4 class="root-title mb-2">Card Piles</h4>
-  <div id="card-pile-list">
+  <div id="card-pile-list" data-reorder-url="{% url 'forge-cardpile-reorder' sheet_pk=sheet.pk %}">
     {% for pile in card_piles %}
       {% include 'the_forge/partials/card_pile_row.html' with pile=pile %}
-    {% empty %}
-      <p class="text-muted mb-2" id="card-pile-empty">No card piles yet.</p>
     {% endfor %}
   </div>
-  <form id="card-pile-add-form" class="mt-2" data-add-url="{% url 'forge-cardpile-add' sheet_pk=sheet.pk %}">
+
+  <button type="button" id="card-pile-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Pile</button>
+
+  <form id="card-pile-add-form" class="mt-2" hidden data-add-url="{% url 'forge-cardpile-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
     <div class="d-flex gap-2 align-items-center mb-1">
-      <input type="text" name="title" class="form-control form-control-sm" placeholder="Title" style="max-width:12rem;">
-      <input type="number" name="number" class="form-control form-control-sm" style="width:5rem;" placeholder="#">
-      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Pile</button>
+      <input type="text" name="title" class="form-control form-control-sm" placeholder="Title">
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="2"></textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' %}
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-warning">Save</button>
+          <button type="button" id="card-pile-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+        </div>
+      </div>
     </div>
   </form>
 </div>
@@ -165,20 +177,216 @@
 <script src="{% static 'the_forge/forge_editor.js' %}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  const list = document.getElementById('ability-list');
-  if (!list || !list.dataset.reorderUrl) return;
   const csrftoken = document.cookie.match(/csrftoken=([^;]+)/)[1];
-  new Sortable(list, {
-    animation: 150,
-    handle: '[data-row]',
-    onEnd: async () => {
-      const order = [...list.querySelectorAll('[data-row]')].map(r => r.dataset.id);
-      await fetch(list.dataset.reorderUrl, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
-        body: JSON.stringify({order}),
+
+  const abilityList = document.getElementById('ability-list');
+  if (abilityList && abilityList.dataset.reorderUrl) {
+    new Sortable(abilityList, {
+      animation: 150,
+      handle: '.ability-grip',
+      onEnd: async () => {
+        const order = [...abilityList.querySelectorAll('[data-row]')].map(r => r.dataset.id);
+        await fetch(abilityList.dataset.reorderUrl, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+          body: JSON.stringify({order}),
+        });
+      }
+    });
+
+    abilityList.addEventListener('input', (ev) => {
+      const form = ev.target.closest('form[data-dirty-form]');
+      if (!form) return;
+      form.closest('[data-row]')?.classList.add('is-dirty');
+    });
+  }
+
+  const abilityAddToggle = document.getElementById('ability-add-toggle');
+  const abilityAddForm = document.getElementById('ability-add-form');
+  const abilityAddCancel = document.getElementById('ability-add-cancel');
+  if (abilityAddToggle && abilityAddForm) {
+    abilityAddToggle.addEventListener('click', () => {
+      abilityAddForm.hidden = false;
+      abilityAddToggle.hidden = true;
+      const titleInput = abilityAddForm.querySelector('input[name="title"]');
+      if (titleInput) titleInput.focus();
+    });
+  }
+  if (abilityAddCancel && abilityAddForm && abilityAddToggle) {
+    abilityAddCancel.addEventListener('click', () => {
+      abilityAddForm.hidden = true;
+      abilityAddToggle.hidden = false;
+      abilityAddForm.querySelectorAll('input[type="text"], textarea').forEach(el => { el.value = ''; });
+    });
+  }
+  if (abilityAddForm && abilityAddToggle && abilityList) {
+    abilityAddForm.addEventListener('submit', () => {
+      const observer = new MutationObserver(() => {
+        abilityAddForm.hidden = true;
+        abilityAddToggle.hidden = false;
+        observer.disconnect();
       });
-    }
+      observer.observe(abilityList, { childList: true });
+    });
+  }
+
+  function renumberCardSlots(list) {
+    list.querySelectorAll('[data-row]').forEach((row, idx) => {
+      const n = idx + 1;
+      const label = row.querySelector('.card-slot-number');
+      if (label) label.textContent = '#' + n;
+      const numInput = row.querySelector('input[name="number"]');
+      if (numInput) numInput.value = n;
+    });
+  }
+
+  function initCardSlotSortable() {
+    const list = document.getElementById('card-slot-list');
+    if (!list || !list.dataset.reorderUrl || list.dataset.sortableBound) return;
+    list.dataset.sortableBound = '1';
+    new Sortable(list, {
+      animation: 150,
+      handle: '.card-slot-grip',
+      onEnd: async () => {
+        const order = [...list.querySelectorAll('[data-row]')].map(r => r.dataset.id);
+        await fetch(list.dataset.reorderUrl, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+          body: JSON.stringify({order}),
+        });
+        renumberCardSlots(list);
+      }
+    });
+  }
+  initCardSlotSortable();
+
+  const cardPileList = document.getElementById('card-pile-list');
+  function renumberCardPiles(list) {
+    list.querySelectorAll('[data-row]').forEach((row, idx) => {
+      const n = idx + 1;
+      const label = row.querySelector('.card-pile-number');
+      if (label) label.textContent = n;
+      const numInput = row.querySelector('input[name="number"]');
+      if (numInput) numInput.value = n;
+    });
+  }
+  if (cardPileList && cardPileList.dataset.reorderUrl) {
+    new Sortable(cardPileList, {
+      animation: 150,
+      handle: '.card-pile-grip',
+      onEnd: async () => {
+        const order = [...cardPileList.querySelectorAll('[data-row]')].map(r => r.dataset.id);
+        await fetch(cardPileList.dataset.reorderUrl, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+          body: JSON.stringify({order}),
+        });
+        renumberCardPiles(cardPileList);
+      }
+    });
+  }
+
+  const cardPileAddToggle = document.getElementById('card-pile-add-toggle');
+  const cardPileAddForm = document.getElementById('card-pile-add-form');
+  const cardPileAddCancel = document.getElementById('card-pile-add-cancel');
+  if (cardPileAddToggle && cardPileAddForm) {
+    cardPileAddToggle.addEventListener('click', () => {
+      cardPileAddForm.hidden = false;
+      cardPileAddToggle.hidden = true;
+      const titleInput = cardPileAddForm.querySelector('input[name="title"]');
+      if (titleInput) titleInput.focus();
+    });
+  }
+  if (cardPileAddCancel && cardPileAddForm && cardPileAddToggle) {
+    cardPileAddCancel.addEventListener('click', () => {
+      cardPileAddForm.hidden = true;
+      cardPileAddToggle.hidden = false;
+      cardPileAddForm.querySelectorAll('input[type="text"], textarea').forEach(el => { el.value = ''; });
+    });
+  }
+  if (cardPileAddForm && cardPileAddToggle && cardPileList) {
+    cardPileAddForm.addEventListener('submit', () => {
+      const observer = new MutationObserver(() => {
+        cardPileAddForm.hidden = true;
+        cardPileAddToggle.hidden = false;
+        renumberCardPiles(cardPileList);
+        observer.disconnect();
+      });
+      observer.observe(cardPileList, { childList: true });
+    });
+  }
+
+  const decreeToggle = document.getElementById('decree-toggle');
+  const decreeBody = document.getElementById('decree-body');
+  if (decreeToggle && decreeBody) {
+    decreeToggle.addEventListener('change', async () => {
+      const turningOn = decreeToggle.checked;
+      if (!turningOn) {
+        if (!confirm('Delete this section and all its card columns?')) {
+          decreeToggle.checked = true;
+          return;
+        }
+      }
+      const fd = new FormData();
+      fd.append('value', turningOn ? 'true' : 'false');
+      const resp = await fetch(decreeToggle.dataset.decreeToggleUrl, {
+        method: 'POST',
+        body: fd,
+        headers: {'X-CSRFToken': csrftoken},
+      });
+      if (!resp.ok) {
+        alert('Failed to update decree.');
+        decreeToggle.checked = !turningOn;
+        return;
+      }
+      if (turningOn) {
+        decreeBody.innerHTML = await resp.text();
+        decreeBody.hidden = false;
+        const newAddForm = document.getElementById('card-slot-add-form');
+        if (newAddForm && window.bindForgeAddForm) window.bindForgeAddForm(newAddForm);
+        initCardSlotSortable();
+      } else {
+        decreeBody.innerHTML = '';
+        decreeBody.hidden = true;
+      }
+    });
+  }
+
+  function renumberPhaseList(list) {
+    [...list.children].filter(el => el.matches('[data-row]')).forEach((row, idx) => {
+      const n = idx + 1;
+      const img = row.querySelector(':scope > .setup-step-marker');
+      if (img) {
+        img.src = img.src.replace(/\d+\.svg$/, `${n % 10}.svg`);
+        img.alt = String(n);
+      }
+    });
+  }
+  async function postPhaseListOrder(list) {
+    if (!list || !list.dataset.reorderUrl) return;
+    const order = [...list.children].filter(el => el.matches('[data-row]')).map(r => r.dataset.id);
+    await fetch(list.dataset.reorderUrl, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+      body: JSON.stringify({order}),
+    });
+  }
+  ['birdsong', 'daylight', 'evening'].forEach(phase => {
+    const list = document.getElementById(`phase-step-list-${phase}`);
+    if (!list || !list.dataset.reorderUrl) return;
+    new Sortable(list, {
+      animation: 150,
+      handle: '.setup-step-grip',
+      group: 'phase-steps',
+      onEnd: async (ev) => {
+        const dest = ev.to;
+        const src = ev.from;
+        await postPhaseListOrder(dest);
+        if (src !== dest) await postPhaseListOrder(src);
+        renumberPhaseList(dest);
+        if (src !== dest) renumberPhaseList(src);
+      }
+    });
   });
 });
 </script>
