@@ -10,6 +10,9 @@
 
 <div class="card p-3 mb-3">
   <h2 class="root-title">{{ faction.faction_name }} - Front</h2>
+  <div class="mt-2">
+    <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Layout Preview</a>
+  </div>
 </div>
 
 <!-- Flavor text (inline save) -->

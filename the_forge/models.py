@@ -75,6 +75,19 @@ class FactionSheet(models.Model):
     include_decree = models.BooleanField(default=False)
     layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_VERTICAL)
 
+    # Layout overrides (inches). Null = auto. `_h` = horizontal layout, `_v` = vertical.
+    # `phase_box_w_h` is stored for forward compat but not yet consumed by the engine.
+    phase_box_x_h = models.FloatField(blank=True, null=True)
+    phase_box_y_h = models.FloatField(blank=True, null=True)
+    phase_box_w_h = models.FloatField(blank=True, null=True)
+    phase_box_h_h = models.FloatField(blank=True, null=True)
+    phase_box_x_v = models.FloatField(blank=True, null=True)
+    phase_box_y_v = models.FloatField(blank=True, null=True)
+    phase_box_w_v = models.FloatField(blank=True, null=True)
+    phase_box_h_v = models.FloatField(blank=True, null=True)
+    decree_y_h = models.FloatField(blank=True, null=True)
+    decree_y_v = models.FloatField(blank=True, null=True)
+
     def clean(self):
         from django.core.exceptions import ValidationError
         if not self.faction.background_preset and not self.faction.background_image:
@@ -97,6 +110,16 @@ class ContentBox(models.Model):
     title = models.CharField(max_length=200, blank=True, default='')
     text = models.TextField(blank=True, default='')
     order = models.PositiveIntegerField()
+
+    # Per-layout placement overrides (inches). Null = auto.
+    x_h = models.FloatField(blank=True, null=True)
+    y_h = models.FloatField(blank=True, null=True)
+    w_h = models.FloatField(blank=True, null=True)
+    h_h = models.FloatField(blank=True, null=True)
+    x_v = models.FloatField(blank=True, null=True)
+    y_v = models.FloatField(blank=True, null=True)
+    w_v = models.FloatField(blank=True, null=True)
+    h_v = models.FloatField(blank=True, null=True)
 
     class Meta:
         ordering = ['order']
@@ -219,6 +242,12 @@ class CardPile(models.Model):
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=200, blank=True, null=True)
     body = models.TextField(blank=True, null=True)
+
+    # Per-layout coordinate overrides (inches). Size is fixed; only x/y can be overridden.
+    x_h = models.FloatField(blank=True, null=True)
+    y_h = models.FloatField(blank=True, null=True)
+    x_v = models.FloatField(blank=True, null=True)
+    y_v = models.FloatField(blank=True, null=True)
 
     class Meta:
         ordering = ['number']

@@ -232,6 +232,116 @@ def factionsheet_edit(request, pk):
 
 
 @editor_required
+def factionsheet_preview(request, pk):
+    sheet = get_object_or_404(FactionSheet, pk=pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+    from .pdf_engine import SheetLayoutEngine
+    from .layout_cache import get_or_compute_layout
+
+    def compute(mode):
+        return get_or_compute_layout(
+            sheet,
+            lambda: SheetLayoutEngine(sheet).compute_layout(layout_mode=mode),
+            layout_mode=mode,
+        )
+
+    payloads = {
+        'horizontal': compute('horizontal'),
+        'vertical': compute('vertical'),
+    }
+    payload = payloads[sheet.layout_mode]
+    import json
+    return render(request, 'the_forge/factionsheet_preview.html', {
+        'sheet': sheet,
+        'faction': sheet.faction,
+        'payload': payload,
+        'payload_json': json.dumps(payload),
+        'payloads_json': json.dumps(payloads),
+    })
+
+
+@editor_required
+@require_http_methods(["POST"])
+def factionsheet_preview_save(request, pk):
+    """Save layout overrides from the preview page form.
+
+    Form fields:
+      layout_mode: 'horizontal' | 'vertical'
+      reset_to_auto: '1' to clear all overrides for the active layout
+      phase_box_x, phase_box_y, phase_box_w, phase_box_h
+      decree_y
+      content_box_<id>_x, _y, _w, _h
+      card_pile_<id>_x, _y
+
+    Blank inputs → None (auto). The non-active layout's `_h`/`_v` fields are
+    not touched.
+    """
+    sheet = get_object_or_404(FactionSheet, pk=pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+
+    mode = request.POST.get('layout_mode', sheet.layout_mode)
+    if mode not in ('horizontal', 'vertical'):
+        return HttpResponseBadRequest("Invalid layout_mode")
+    s = mode[0]  # 'h' or 'v'
+
+    reset = request.POST.get('reset_to_auto') == '1'
+
+    def parse(name):
+        raw = request.POST.get(name, '').strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except ValueError:
+            return None
+
+    sheet.layout_mode = mode
+
+    if reset:
+        setattr(sheet, f'phase_box_x_{s}', None)
+        setattr(sheet, f'phase_box_y_{s}', None)
+        setattr(sheet, f'phase_box_w_{s}', None)
+        setattr(sheet, f'phase_box_h_{s}', None)
+        setattr(sheet, f'decree_y_{s}', None)
+        sheet.save()
+        for cb in sheet.content_boxes.all():
+            setattr(cb, f'x_{s}', None)
+            setattr(cb, f'y_{s}', None)
+            setattr(cb, f'w_{s}', None)
+            setattr(cb, f'h_{s}', None)
+            cb.save()
+        for cp in sheet.card_piles.all():
+            setattr(cp, f'x_{s}', None)
+            setattr(cp, f'y_{s}', None)
+            cp.save()
+        return redirect('forge-sheet-preview', pk=sheet.pk)
+
+    setattr(sheet, f'phase_box_x_{s}', parse('phase_box_x'))
+    setattr(sheet, f'phase_box_y_{s}', parse('phase_box_y'))
+    setattr(sheet, f'phase_box_w_{s}', parse('phase_box_w'))
+    setattr(sheet, f'phase_box_h_{s}', parse('phase_box_h'))
+    if sheet.include_decree:
+        setattr(sheet, f'decree_y_{s}', parse('decree_y'))
+    sheet.save()
+
+    for cb in sheet.content_boxes.all():
+        setattr(cb, f'x_{s}', parse(f'content_box_{cb.id}_x'))
+        setattr(cb, f'y_{s}', parse(f'content_box_{cb.id}_y'))
+        setattr(cb, f'w_{s}', parse(f'content_box_{cb.id}_w'))
+        setattr(cb, f'h_{s}', parse(f'content_box_{cb.id}_h'))
+        cb.save()
+
+    for cp in sheet.card_piles.all():
+        setattr(cp, f'x_{s}', parse(f'card_pile_{cp.id}_x'))
+        setattr(cp, f'y_{s}', parse(f'card_pile_{cp.id}_y'))
+        cp.save()
+
+    return redirect('forge-sheet-preview', pk=sheet.pk)
+
+
+@editor_required
 @require_http_methods(["POST"])
 def factionsheet_delete(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)

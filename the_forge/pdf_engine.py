@@ -28,6 +28,45 @@ pdfmetrics.registerFontFamily('Baskerville', normal='Baskerville', bold='Baskerv
 PAGE_W, PAGE_H = landscape(letter)  # 792 x 612 pts
 
 
+class _NoOpCanvas:
+    """A duck-typed Canvas replacement that discards drawing calls.
+
+    Used by SheetLayoutEngine.compute_layout() to skip painting/rasterizing
+    while still letting placement math and Paragraph.wrap traverse the document
+    tree. Flowable.drawOn is short-circuited via _SKIP_FLOWABLE_DRAW below so
+    flowables never attempt to write to this canvas.
+    """
+    _is_noop = True
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __getattr__(self, name):
+        def _noop(*a, **kw):
+            return self
+        return _noop
+
+    def saveState(self): return None
+    def restoreState(self): return None
+    def setPageSize(self, *a, **kw): return None
+    def showPage(self): return None
+    def save(self): return None
+    def getPageNumber(self): return 1
+
+
+# Patch Flowable.drawOn so it skips painting when handed a _NoOpCanvas.
+# Frame.addFromList still runs wrap() (which is what we need for measurement);
+# only the actual draw step is skipped.
+_orig_drawOn = Flowable.drawOn
+
+def _drawOn_skip_on_noop(self, canvas, x, y, _sW=0):
+    if getattr(canvas, '_is_noop', False):
+        return None
+    return _orig_drawOn(self, canvas, x, y, _sW=_sW)
+
+Flowable.drawOn = _drawOn_skip_on_noop
+
+
 def draw_faction_background(c, faction):
     """Fill the page with the faction's background.
 
@@ -2607,8 +2646,92 @@ class SheetLayoutEngine:
     #     phase_h = self.phases_top_y - self.phases_bottom_y
     #     return 'horizontal' if max_phase_h > phase_h * 0.5 else 'vertical'
 
+    def _override(self, obj, field_h, field_v):
+        """Return the layout-mode-appropriate override value or None.
+
+        `_h` fields apply when sheet.layout_mode == 'horizontal', `_v` otherwise.
+        Values are stored in inches; callers are responsible for *inch conversion."""
+        attr = field_h if self.sheet.layout_mode == 'horizontal' else field_v
+        return getattr(obj, attr, None)
+
+    def _record_phase_breakdown(self, phase_key, steps, content_x, content_top_y, content_w, header_h, content_bottom_y=None):
+        """Preview-only: record a colored phase header bar and one rect per step.
+        If content_bottom_y is provided, the last step is extended down to it so the
+        preview shows no visual gap between phases (matching the PDF's flush layout).
+        No-op outside compute_layout()."""
+        if not getattr(self, '_recording', False):
+            return
+        cfg = PHASE_HEADERS.get(phase_key, {})
+        banner_y = content_top_y - header_h
+        self._record_element(kind='phase_header_bar',
+                             x=content_x, y=banner_y, w=content_w, h=header_h,
+                             phase=phase_key,
+                             label=PHASE_DISPLAY_NAMES.get(phase_key, phase_key.title()),
+                             fill=cfg.get('color', '#888888'))
+        if not steps:
+            return
+        single_step = len(steps) == 1
+        cursor_y = banner_y
+        last_idx = len(steps) - 1
+        for i, step in enumerate(steps):
+            step_h = self.measure_step_height(step, content_w, single_step=single_step)
+            step_y = cursor_y - step_h
+            if i == last_idx and content_bottom_y is not None and step_y > content_bottom_y:
+                step_h = cursor_y - content_bottom_y
+                step_y = content_bottom_y
+            self._record_element(kind='phase_step', id=step.id,
+                                 x=content_x, y=step_y, w=content_w, h=step_h,
+                                 number=step.number, text=step.text or '',
+                                 single_step=single_step,
+                                 phase=phase_key)
+            cursor_y = step_y
+
+    def _record_element(self, **fields):
+        """Record an element placement for compute_layout(). Coordinates passed
+        in here are in points; converted to inches at the boundary."""
+        if not getattr(self, '_recording', False):
+            return
+        out = dict(fields)
+        for key in ('x', 'y', 'w', 'h'):
+            if key in out and out[key] is not None:
+                out[key] = out[key] / inch
+        self._layout_elements.append(out)
+
+    def compute_layout(self, layout_mode=None):
+        """Run the same placement math as build() but return a structured
+        payload of element rects (in inches) instead of producing a PDF.
+
+        If layout_mode is provided, the sheet's layout_mode is temporarily
+        overridden for this computation (the database value is not changed).
+        Returns a dict with: page (w/h in inches), layout_mode, elements list."""
+        from io import BytesIO
+        self._recording = True
+        self._skip_drawing = True
+        self._layout_elements = []
+        original_mode = self.sheet.layout_mode
+        if layout_mode is not None:
+            self.sheet.layout_mode = layout_mode
+        try:
+            self.build(BytesIO())
+        finally:
+            self._recording = False
+            self._skip_drawing = False
+            self.sheet.layout_mode = original_mode
+        elements = self._layout_elements
+        # Reset for any subsequent real build() call so we don't accidentally
+        # carry recording state forward.
+        self._layout_elements = []
+        return {
+            'page': {'w': PAGE_W / inch, 'h': PAGE_H / inch},
+            'layout_mode': layout_mode or original_mode,
+            'elements': elements,
+        }
+
     def build(self, output_path):
-        c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+        if getattr(self, '_skip_drawing', False):
+            c = _NoOpCanvas()
+        else:
+            c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
         layout = self.sheet.layout_mode
 
         self._draw_background(c)
@@ -2648,17 +2771,34 @@ class SheetLayoutEngine:
         box_w = BODY_W
         box_x = X_MARGIN
         box_y = self.phases_top_y - box_h
+
+        # Apply overrides. `phase_box_w_h` is stored for forward compat but the
+        # horizontal phase row still uses the full BODY_W today.
+        ov_x = self.sheet.phase_box_x_h
+        ov_y = self.sheet.phase_box_y_h
+        ov_h = self.sheet.phase_box_h_h
+        if ov_x is not None:
+            box_x = ov_x * inch
+        if ov_y is not None:
+            box_y = ov_y * inch
+        if ov_h is not None:
+            box_h = ov_h * inch
+
         self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=True)
         self._phases_rect = (box_x, box_y, box_w, box_h)
+        self._record_element(kind='phase_box', x=box_x, y=box_y, w=box_w, h=box_h)
 
         for i, phase_key in enumerate(phase_order):
             steps = self.phases_grouped.get(phase_key, [])
-            x = X_MARGIN + PHASE_INTERNAL_MARGIN + i * (col_w + PHASE_INTERNAL_MARGIN)
-            frame = Frame(x, self.phases_bottom_y, col_w, phase_h,
+            x = box_x + PHASE_INTERNAL_MARGIN + i * (col_w + PHASE_INTERNAL_MARGIN)
+            frame = Frame(x, box_y, col_w, box_h,
                          leftPadding=0, rightPadding=0, topPadding=PHASE_BOX_PAD_TOP, bottomPadding=0,
                          showBoundary=0)
             story = self._build_phase_story(phase_key, steps, content_width=col_w)
             frame.addFromList(story, c)
+            content_top_y = box_y + box_h - PHASE_BOX_PAD_TOP
+            self._record_phase_breakdown(phase_key, steps, x, content_top_y, col_w, header_h,
+                                         content_bottom_y=box_y)
 
     def _vertical_box_dims_for_width(self, box_w, phase_order):
         """Calculate phase box height for a given box width, using scaled banners."""
@@ -2675,6 +2815,42 @@ class SheetLayoutEngine:
     def _draw_vertical_phases(self, c):
         phase_order = ['birdsong', 'daylight', 'evening']
         max_h = self.phases_top_y - BOTTOM_MARGIN
+
+        # If all four override fields are set, skip the auto-sizing search and
+        # use the user-chosen rect directly.
+        ov_x = self.sheet.phase_box_x_v
+        ov_y = self.sheet.phase_box_y_v
+        ov_w = self.sheet.phase_box_w_v
+        ov_h = self.sheet.phase_box_h_v
+        if all(v is not None for v in (ov_x, ov_y, ov_w, ov_h)):
+            box_x = ov_x * inch
+            box_y = ov_y * inch
+            box_w = ov_w * inch
+            box_h = ov_h * inch
+            content_w = box_w - (PHASE_INTERNAL_MARGIN * 2)
+            content_x = box_x + PHASE_INTERNAL_MARGIN
+            self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
+            self._phases_rect = (box_x, box_y, box_w, box_h)
+            self._record_element(kind='phase_box', x=box_x, y=box_y, w=box_w, h=box_h)
+            header_h = self._banner_height_for_width(content_w)
+            cursor_y = box_y + box_h - PHASE_BOX_PAD_TOP
+            for phase_key in phase_order:
+                steps = self.phases_grouped.get(phase_key, [])
+                content_h = self.measure_phase_height(steps, content_w, header_h=header_h)
+                frame_h = content_h + 4
+                frame_y = cursor_y - frame_h
+                if frame_y < box_y:
+                    frame_y = box_y
+                    frame_h = cursor_y - box_y
+                frame = Frame(content_x, frame_y, content_w, frame_h,
+                             leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0,
+                             showBoundary=0)
+                story = self._build_phase_story(phase_key, steps, content_width=content_w)
+                frame.addFromList(story, c)
+                self._record_phase_breakdown(phase_key, steps, content_x, frame_y + frame_h, content_w, header_h,
+                                             content_bottom_y=frame_y)
+                cursor_y = frame_y - PHASE_BOX_V_GAP
+            return
 
         min_w = PHASE_HEADER_MIN_W + (PHASE_INTERNAL_MARGIN * 2)
         max_w = BODY_W
@@ -2720,6 +2896,7 @@ class SheetLayoutEngine:
         box_y = self.phases_top_y - box_h
         self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
         self._phases_rect = (box_x, box_y, box_w, box_h)
+        self._record_element(kind='phase_box', x=box_x, y=box_y, w=box_w, h=box_h)
 
         # Stack frames top-to-bottom with content-aware heights
         header_h = self._banner_height_for_width(content_w)
@@ -2740,13 +2917,52 @@ class SheetLayoutEngine:
                          showBoundary=0)
             story = self._build_phase_story(phase_key, steps, content_width=content_w)
             frame.addFromList(story, c)
+            self._record_phase_breakdown(phase_key, steps, content_x, frame_y + frame_h, content_w, header_h,
+                                         content_bottom_y=frame_y)
             cursor_y = frame_y - PHASE_BOX_V_GAP
+
+    def _draw_overridden_content_box(self, c, cb):
+        """Render a ContentBox at its layout-mode override coords if all four are set.
+        Returns True if the box was drawn (and should be skipped from auto-packing)."""
+        ov_x = self._override(cb, 'x_h', 'x_v')
+        ov_y = self._override(cb, 'y_h', 'y_v')
+        ov_w = self._override(cb, 'w_h', 'w_v')
+        ov_h = self._override(cb, 'h_h', 'h_v')
+        if not all(v is not None for v in (ov_x, ov_y, ov_w, ov_h)):
+            return False
+        box_x = ov_x * inch
+        box_y = ov_y * inch
+        box_w = ov_w * inch
+        box_h = ov_h * inch
+        content_w = box_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
+        self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
+        content_x = box_x + CONTENT_BOX_INTERNAL_MARGIN
+        frame = Frame(content_x, box_y, content_w, box_h,
+                     leftPadding=0, rightPadding=0,
+                     topPadding=CONTENT_BOX_PAD_TOP, bottomPadding=CONTENT_BOX_PAD_BOTTOM,
+                     showBoundary=0)
+        story = self._build_content_box_story(cb, content_w)
+        frame.addFromList(story, c)
+        self._placed_boxes.append((box_x, box_y, box_w, box_h))
+        self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
+                             x=box_x, y=box_y, w=box_w, h=box_h)
+        return True
 
     def _draw_vertical_content_boxes(self, c):
         """Draw content boxes to the right of (and below) the phases box in vertical layout."""
         self._placed_boxes = []
         px, py, pw, ph = self._phases_rect
         target_h = self.phases_top_y - BOTTOM_MARGIN
+
+        # Pull out any boxes with a full set of overrides; render them
+        # immediately and exclude from the packing pass.
+        auto_boxes = []
+        for cb in self.content_boxes:
+            if self._draw_overridden_content_box(c, cb):
+                continue
+            auto_boxes.append(cb)
+        if not auto_boxes:
+            return
 
         # Available space to the right of the phases box
         right_x = px + pw + CONTENT_BOX_GAP
@@ -2758,11 +2974,11 @@ class SheetLayoutEngine:
         # Pre-compute minimum and preferred track widths for each content box
         min_track_widths = {}
         preferred_track_widths = {}
-        for cb in self.content_boxes:
+        for cb in auto_boxes:
             min_track_widths[id(cb)] = self._min_track_width_for_content_box(cb)
             preferred_track_widths[id(cb)] = self._preferred_track_width_for_content_box(cb)
 
-        remaining = list(self.content_boxes)
+        remaining = list(auto_boxes)
         cursor_y_top = self.phases_top_y
         row_start_x = right_x
         row_avail_w = right_w
@@ -2863,6 +3079,8 @@ class SheetLayoutEngine:
                 story = self._build_content_box_story(cb, content_w)
                 frame.addFromList(story, c)
                 self._placed_boxes.append((cursor_x, box_y, box_w, box_h))
+                self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
+                                     x=cursor_x, y=box_y, w=box_w, h=box_h)
 
                 if box_y < row_bottom_y:
                     row_bottom_y = box_y
@@ -2887,6 +3105,16 @@ class SheetLayoutEngine:
         self._placed_boxes = []
         px, py, pw, ph = self._phases_rect
 
+        # Pull out any boxes with a full set of overrides; render them
+        # immediately and exclude from the packing pass.
+        auto_boxes = []
+        for cb in self.content_boxes:
+            if self._draw_overridden_content_box(c, cb):
+                continue
+            auto_boxes.append(cb)
+        if not auto_boxes:
+            return
+
         below_top = py - CONTENT_BOX_GAP
         avail_h = below_top - BOTTOM_MARGIN
         if avail_h <= 0:
@@ -2895,11 +3123,11 @@ class SheetLayoutEngine:
         # Pre-compute track width constraints
         min_track_widths = {}
         preferred_track_widths = {}
-        for cb in self.content_boxes:
+        for cb in auto_boxes:
             min_track_widths[id(cb)] = self._min_track_width_for_content_box(cb)
             preferred_track_widths[id(cb)] = self._preferred_track_width_for_content_box(cb)
 
-        remaining = list(self.content_boxes)
+        remaining = list(auto_boxes)
         col_start_x = X_MARGIN
         col_avail_w = BODY_W
 
@@ -3012,6 +3240,8 @@ class SheetLayoutEngine:
                 story = self._build_content_box_story(cb, content_w)
                 frame.addFromList(story, c)
                 self._placed_boxes.append((col_start_x, box_y, col_w, box_h))
+                self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
+                                     x=col_start_x, y=box_y, w=col_w, h=box_h)
 
                 gap = CONTENT_BOX_GAP + (padding if col_count > 1 else 0)
                 cursor_y = box_y - gap
@@ -3181,6 +3411,14 @@ class SheetLayoutEngine:
     def _draw_top_band(self, c):
         self._draw_title_bar(c)
         self._draw_ability_boxes(c)
+        # Record the whole header region as a non-editable container for the preview.
+        header_top = self.faction_top_bar_top
+        header_bottom = self.title_bar_y - FACTION_TOP_BAR_NUDGE - (ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE)
+        header_h = header_top - header_bottom
+        self._record_element(kind='header_bar',
+                             x=X_MARGIN, y=header_bottom,
+                             w=BODY_W, h=header_h,
+                             label=self.sheet.faction.faction_name)
 
     def _draw_title_bar(self, c):
         img_w = self.faction_top_bar_w
@@ -3215,6 +3453,15 @@ class SheetLayoutEngine:
         c.setFillColor(self.faction_name_color)
         c.setFont(self.faction_name_font, self.faction_name_font_size)
         c.drawCentredString(PAGE_W / 2, self.title_bar_y + FACTION_NAME_Y_OFFSET, self.sheet.faction.faction_name)
+
+        # Record color bar + faction name for preview
+        faction_hex = self.sheet.faction.color or '#5B4A8A'
+        self._record_element(kind='header_color_bar',
+                             x=bar_x, y=self.title_bar_y,
+                             w=bar_w, h=TITLE_BAR_H,
+                             label=self.sheet.faction.faction_name,
+                             fill=faction_hex,
+                             text_color=self.ink_on_faction_hex)
 
     def _calculate_ability_widths(self, abilities, available_w, icon_w):
         """Calculate proportional box widths based on body text length."""
@@ -3373,6 +3620,10 @@ class SheetLayoutEngine:
             c.setLineWidth(0.5)
             c.rect(flavor_x, flavor_y, flavor_w, box_h, fill=0, stroke=1)
             c.restoreState()
+            self._record_element(kind='header_flavor',
+                                 x=flavor_x, y=flavor_y,
+                                 w=flavor_w, h=box_h,
+                                 text=flavor_text)
 
         # Calculate available width for abilities
         available_w = bar_w
@@ -3398,6 +3649,10 @@ class SheetLayoutEngine:
                 c.setLineWidth(0.5)
                 c.rect(x, box_y, box_w, box_h, fill=0, stroke=1)
                 c.restoreState()
+                self._record_element(kind='header_ability',
+                                     x=x, y=box_y, w=box_w, h=box_h,
+                                     title=ability.title or '',
+                                     body=ability.body or '')
 
                 # Ability icon (SVG colored with faction color)
                 if self._ability_icon:
@@ -3439,6 +3694,9 @@ class SheetLayoutEngine:
             c.setLineWidth(0.5)
             c.rect(crafted_x, crafted_y, crafted_w, crafted_h, fill=0, stroke=1)
             c.restoreState()
+            self._record_element(kind='header_crafted',
+                                 x=crafted_x, y=crafted_y,
+                                 w=crafted_w, h=crafted_h)
 
     def _get_decree_bg_path(self):
         filename = 'title.png' if (self.decree_section.title or self.decree_section.body) else 'no-title.png'
@@ -3465,8 +3723,14 @@ class SheetLayoutEngine:
                 iw, ih = ir.getSize()
                 scale = PAGE_W / iw
                 draw_h = ih * scale
-                draw_y = PAGE_H - self.decree_slide
+                ov_decree_y = self._override(self.sheet, 'decree_y_h', 'decree_y_v')
+                if ov_decree_y is not None:
+                    draw_y = ov_decree_y * inch
+                else:
+                    draw_y = PAGE_H - self.decree_slide
                 decree_img_top = draw_y + draw_h
+                self._record_element(kind='decree', x=0, y=draw_y, w=PAGE_W, h=draw_h,
+                                     title=self.decree_section.title or '')
                 c.drawImage(bg_img, 0, draw_y,
                             width=PAGE_W, height=draw_h, mask='auto')
             else:
@@ -3502,12 +3766,29 @@ class SheetLayoutEngine:
                         c.setFont('Luminari', 12)
                         c.drawCentredString(x + DECREE_SLOT_W / 2, slot_y + DECREE_SLOT_H - DECREE_SLOT_TITLE_OFFSET, slot.title)
 
+                    self._record_element(kind='card_slot', id=slot.id,
+                                         x=x, y=slot_y,
+                                         w=DECREE_SLOT_W, h=DECREE_SLOT_H,
+                                         title=slot.title or '')
+
     def _draw_card_piles(self, c):
         if not self.card_piles:
             return
         rightmost_x = PAGE_W - X_MARGIN - CARD_SLOT_W
-        for i, pile in enumerate(self.card_piles):
-            x = rightmost_x - i * (CARD_SLOT_W + CARD_PILE_GAP)
+        auto_index = 0
+        for pile in self.card_piles:
+            ov_x = self._override(pile, 'x_h', 'x_v')
+            ov_y = self._override(pile, 'y_h', 'y_v')
+            if ov_x is not None and ov_y is not None:
+                # Both coords overridden — draw upright at the chosen point,
+                # bypassing the obstruction sweep.
+                self._draw_card_pile_at(c, pile, ov_x * inch, ov_y * inch)
+                continue
+            if ov_x is not None:
+                x = ov_x * inch
+            else:
+                x = rightmost_x - auto_index * (CARD_SLOT_W + CARD_PILE_GAP)
+                auto_index += 1
             self._place_and_draw_card_pile(c, pile, x)
 
     def _card_pile_body_paragraph(self, body_text, text_w):
@@ -3561,6 +3842,27 @@ class SheetLayoutEngine:
 
     def _rect_is_clear(self, rect, obstructions):
         return all(not self._rects_overlap(rect, obs) for obs in obstructions)
+
+    def _draw_card_pile_at(self, c, pile, x, y):
+        """Draw a card pile upright at exactly (x, y), skipping collision search.
+        Used when both x/y overrides are present."""
+        text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
+        title_para = title_h = None
+        body_para = body_h = None
+        if pile.title:
+            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+        else:
+            title_h = 0.0
+        if pile.body:
+            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+        else:
+            body_h = 0.0
+        self._draw_card_pile_upright(c, pile, x, y,
+                                     title_para, title_h, body_para, body_h,
+                                     CARD_PILE_TITLE_TOP_OFFSET)
+        self._record_element(kind='card_pile', id=pile.id,
+                             title=pile.title or '', number=pile.number,
+                             x=x, y=y, w=CARD_SLOT_W, h=CARD_SLOT_H)
 
     def _place_and_draw_card_pile(self, c, pile, x):
         text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
@@ -3640,6 +3942,9 @@ class SheetLayoutEngine:
                 self._draw_card_pile_upright(c, pile, x, candidate_y,
                                              title_para, title_h, body_para, body_h,
                                              offset)
+                self._record_element(kind='card_pile', id=pile.id,
+                                     title=pile.title or '', number=pile.number,
+                                     x=x, y=candidate_y, w=CARD_SLOT_W, h=CARD_SLOT_H)
                 return
             candidate_y -= step
 
@@ -3651,6 +3956,10 @@ class SheetLayoutEngine:
             self._draw_card_pile_rotated(c, pile, x, rot_bottom,
                                          title_para, title_h, body_para, body_h,
                                          CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW)
+            self._record_element(kind='card_pile', id=pile.id,
+                                 title=pile.title or '', number=pile.number,
+                                 x=x, y=rot_bottom, w=CARD_SLOT_W, h=CARD_SLOT_H,
+                                 rotated=True)
             return
 
         # --- Final fallback — upright at BOTTOM_MARGIN, text possibly cut off. ---
@@ -3658,6 +3967,9 @@ class SheetLayoutEngine:
         self._draw_card_pile_upright(c, pile, x, default_y,
                                      title_para, title_h, body_para, body_h,
                                      CARD_PILE_TITLE_TOP_OFFSET)
+        self._record_element(kind='card_pile', id=pile.id,
+                             title=pile.title or '', number=pile.number,
+                             x=x, y=default_y, w=CARD_SLOT_W, h=CARD_SLOT_H)
 
     def _draw_card_pile_upright(self, c, pile, x, y,
                                 title_para, title_h, body_para, body_h,
