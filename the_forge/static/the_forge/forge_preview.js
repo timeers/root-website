@@ -26,6 +26,9 @@
 
   // Stash header-band decoratives so the decree drag can move them.
   let headerBandDecorations = [];
+  // Lowest y of the header band (bottom edge in PDF coords). Phase box top
+  // must stay below this so they don't overlap.
+  let headerFloorYIn = null;
 
   function elementKey(el) {
     if (el.kind === 'phase_box') return 'phase_box';
@@ -151,6 +154,7 @@
     canvas.innerHTML = '';
     domIndex = {};
     headerBandDecorations = [];
+    headerFloorYIn = null;
     pageW = payload.page.w * SCALE;
     pageH = payload.page.h * SCALE;
     canvas.style.width = pageW + 'px';
@@ -200,6 +204,9 @@
         div._wIn = el.w || 0;
         div._hIn = el.h || 0;
         headerBandDecorations.push(div);
+        if (headerFloorYIn == null || el.y < headerFloorYIn) {
+          headerFloorYIn = el.y;
+        }
       }
     });
   }
@@ -265,8 +272,11 @@
 
   // ---- Drag wiring ----
 
+  let dragActive = false;
+
   function startDrag(ev, key) {
     if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    if (dragActive) return; // ignore re-entry while another drag is active
     const st = editState[key];
     if (!st) return;
     const entry = domIndex[key];
@@ -288,9 +298,14 @@
     const headerBandStartY = isDecreeDrag
       ? headerBandDecorations.map((d) => d._curYIn != null ? d._curYIn : d._origYIn) : [];
 
-    entry.primary.setPointerCapture(ev.pointerId);
+    // Capture on whichever element actually received the pointerdown (the
+    // primary or one of its decoratives), so move/up events route back here.
+    const captureEl = ev.currentTarget;
+    captureEl.setPointerCapture(ev.pointerId);
     entry.primary.classList.add('forge-preview-element--dragging');
+    dragActive = true;
     ev.preventDefault();
+    ev.stopPropagation();
 
     function onMove(mv) {
       const dxIn = (mv.clientX - startX) / SCALE;
@@ -325,6 +340,13 @@
         const pileLo = (st.y_min != null) ? st.y_min : 0;
         nx = clamp(nx, 0, Math.max(0, pageWIn - w));
         ny = clamp(ny, pileLo, Math.max(pileLo, pageHIn - h));
+      } else if (st.kind === 'phase_box') {
+        // Phase box top can't overlap the header band.
+        nx = clamp(nx, 0, Math.max(0, pageWIn - w));
+        const yHi = (headerFloorYIn != null)
+          ? Math.max(0, headerFloorYIn - h)
+          : Math.max(0, pageHIn - h);
+        ny = clamp(ny, 0, yHi);
       } else {
         nx = clamp(nx, 0, Math.max(0, pageWIn - w));
         ny = clamp(ny, 0, Math.max(0, pageHIn - h));
@@ -341,24 +363,33 @@
           applyState('phase_box');
           syncHiddenInputs('phase_box');
         }
+        // Header band moves by dy; recompute the new header floor so the phase
+        // box top can't overlap it after the slide.
+        let newFloor = null;
         headerBandDecorations.forEach((d, i) => {
           const newY = headerBandStartY[i] + dy;
           placeDiv(d, d._origXIn, newY, d._wIn, d._hIn);
           d._curYIn = newY;
+          if (newFloor == null || newY < newFloor) newFloor = newY;
         });
+        if (newFloor != null) headerFloorYIn = newFloor;
       }
     }
 
     function onUp() {
-      entry.primary.removeEventListener('pointermove', onMove);
-      entry.primary.removeEventListener('pointerup', onUp);
-      entry.primary.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
       entry.primary.classList.remove('forge-preview-element--dragging');
+      try { captureEl.releasePointerCapture(ev.pointerId); } catch (e) { /* already released */ }
+      dragActive = false;
     }
 
-    entry.primary.addEventListener('pointermove', onMove);
-    entry.primary.addEventListener('pointerup', onUp);
-    entry.primary.addEventListener('pointercancel', onUp);
+    // Attach to window (not captureEl) so the gesture is always cleaned up
+    // even if pointer events get retargeted by capture/release transitions.
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }
 
   function wireDrag() {
@@ -367,6 +398,13 @@
       div.classList.add('forge-preview-element--draggable');
       div.style.cursor = (editState[key] && editState[key].kind === 'decree') ? 'ns-resize' : 'move';
       div.addEventListener('pointerdown', (ev) => startDrag(ev, key));
+      // Decoratives belonging to this editable element should drag the
+      // parent. Forward their pointer events.
+      entry.decorations.forEach((dec) => {
+        dec.classList.add('forge-preview-element--draggable');
+        dec.style.cursor = div.style.cursor;
+        dec.addEventListener('pointerdown', (ev) => startDrag(ev, key));
+      });
     });
   }
 
