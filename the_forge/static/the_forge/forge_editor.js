@@ -84,6 +84,53 @@
     reader.readAsDataURL(file);
   });
 
+  // Renumber siblings after a row is removed. Called from the delete handler.
+  function renumberAfterDelete(list) {
+    if (!list) return;
+    if (list.id === 'card-pile-list') {
+      list.querySelectorAll('[data-row]').forEach((row, idx) => {
+        const n = idx + 1;
+        const label = row.querySelector('.card-pile-number');
+        if (label) label.textContent = n;
+        const numInput = row.querySelector('input[name="number"]');
+        if (numInput) numInput.value = n;
+      });
+      return;
+    }
+    if (list.id === 'card-slot-list') {
+      list.querySelectorAll('[data-row]').forEach((row, idx) => {
+        const n = idx + 1;
+        const label = row.querySelector('.card-slot-number');
+        if (label) label.textContent = '#' + n;
+        const numInput = row.querySelector('input[name="number"]');
+        if (numInput) numInput.value = n;
+      });
+      return;
+    }
+    if (list.id === 'content-box-list') {
+      list.querySelectorAll(':scope > [data-row]').forEach((row, idx) => {
+        const n = idx + 1;
+        const label = row.querySelector('.content-box-section-label');
+        if (label) label.textContent = 'Section ' + n;
+        const orderInput = row.querySelector('input[name="order"]');
+        if (orderInput) orderInput.value = n;
+      });
+      return;
+    }
+    // Phase-step lists: the per-phase containers and per-content-box step lists
+    // both render their numbers via setup-step-marker SVGs.
+    if (list.id?.startsWith('phase-step-list-') || list.matches('.content-box-steps[data-step-list]')) {
+      [...list.children].filter(el => el.matches('[data-row]')).forEach((row, idx) => {
+        const n = idx + 1;
+        const img = row.querySelector(':scope > .setup-step-marker');
+        if (img) {
+          img.src = img.src.replace(/\d+\.svg$/, `${n % 10}.svg`);
+          img.alt = String(n);
+        }
+      });
+    }
+  }
+
   // Generic delete — <button data-delete-url="...">
   document.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-delete-url]');
@@ -101,7 +148,9 @@
     }
     const row = btn.closest('[data-row]');
     const actionList = btn.closest('.phase-step-action-list');
+    const parentList = row?.parentElement;
     if (row) row.remove();
+    renumberAfterDelete(parentList);
     if (actionList?.dataset.stepId) setActionTypeLock(actionList.dataset.stepId);
   });
 
@@ -289,11 +338,29 @@
     setActionTypeLock(stepPk);
   }
 
+  // Disable + Add Box / + Add Track while an inline box/track form is open in
+  // this step. The forms include image pickers and contenteditable mirrors, so
+  // letting two open at once would split focus and confuse the picker state.
+  function setStepChildAddLock(stepPk) {
+    const list = document.querySelector(`.phase-step-children[data-step-id="${stepPk}"]`);
+    const formOpen = !!list?.querySelector('.forge-inline-form');
+    document.querySelectorAll(
+      `[data-add-box][data-step-id="${stepPk}"], [data-add-track][data-step-id="${stepPk}"]`
+    ).forEach(btn => {
+      btn.disabled = formOpen;
+      btn.classList.toggle('disabled', formOpen);
+    });
+  }
+
   function setActionTypeLock(stepPk) {
-    const sel = document.querySelector(`.phase-step-action-type[data-step-id="${stepPk}"]`);
-    if (!sel) return;
     const list = document.querySelector(`.phase-step-action-list[data-step-id="${stepPk}"]`);
     const formOpen = !!list?.querySelector('.forge-inline-form');
+    document.querySelectorAll(`[data-add-action][data-step-id="${stepPk}"]`).forEach(btn => {
+      btn.disabled = formOpen;
+      btn.classList.toggle('disabled', formOpen);
+    });
+    const sel = document.querySelector(`.phase-step-action-type[data-step-id="${stepPk}"]`);
+    if (!sel) return;
     const hasActions = !!list?.querySelector('[data-row][data-kind="action"]');
     const shouldLock = formOpen || hasActions;
     sel.disabled = shouldLock;
@@ -309,8 +376,11 @@
     if (cancel) {
       const inline = cancel.closest('.forge-inline-form');
       const stepPk = inline?.dataset.stepId;
+      const childList = inline?.closest('.phase-step-children');
+      const childStepPk = childList?.dataset.stepId;
       inline?.remove();
       if (stepPk) setActionTypeLock(stepPk);
+      if (childStepPk) setStepChildAddLock(childStepPk);
       return;
     }
     const toggleBtn = ev.target.closest('[data-toggle-actions]');
@@ -327,6 +397,7 @@
     }
     const actionBtn = ev.target.closest('[data-add-action]');
     if (actionBtn) {
+      if (actionBtn.disabled) return;
       const stepPk = actionBtn.dataset.stepId;
       const list = document.querySelector(`.phase-step-action-list[data-step-id="${stepPk}"]`);
       // Action form is fetched per-step (filtered by step.action_type) instead
@@ -336,16 +407,20 @@
     }
     const boxBtn = ev.target.closest('[data-add-box]');
     if (boxBtn) {
+      if (boxBtn.disabled) return;
       const stepPk = boxBtn.dataset.stepId;
       const list = document.querySelector(`.phase-step-children[data-step-id="${stepPk}"]`);
       insertInlineForm('forge-box-form-template', list, stepPk);
+      setStepChildAddLock(stepPk);
       return;
     }
     const trackBtn = ev.target.closest('[data-add-track]');
     if (trackBtn) {
+      if (trackBtn.disabled) return;
       const stepPk = trackBtn.dataset.stepId;
       const list = document.querySelector(`.phase-step-children[data-step-id="${stepPk}"]`);
       insertInlineForm('forge-track-form-template', list, stepPk);
+      setStepChildAddLock(stepPk);
       return;
     }
   });
@@ -406,6 +481,12 @@
     // If the replaced container is an action list, re-evaluate the action-type lock.
     const list = ev.target.closest?.('.phase-step-action-list');
     if (list?.dataset.stepId) setActionTypeLock(list.dataset.stepId);
+    // Re-enable + Add Box / + Add Track once the inline form was consumed.
+    const childList = ev.target.closest?.('.phase-step-children') || ev.target;
+    const childStepPk = childList?.dataset?.stepId;
+    if (childStepPk && childList.classList?.contains('phase-step-children')) {
+      setStepChildAddLock(childStepPk);
+    }
   });
 
   // Cost-image preview: when the user picks a file, show it next to the input.

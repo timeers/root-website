@@ -622,7 +622,11 @@ def contentbox_delete(request, pk):
     box = get_object_or_404(ContentBox, pk=pk)
     if (resp := _child_permission_check(request, box.sheet.faction)):
         return resp
+    sheet = box.sheet
     box.delete()
+    for index, sibling in enumerate(sheet.content_boxes.order_by('order'), start=1):
+        if sibling.order != index:
+            ContentBox.objects.filter(pk=sibling.pk).update(order=index)
     return HttpResponse(status=204)
 
 
@@ -690,7 +694,17 @@ def phasestep_delete(request, pk):
     step = get_object_or_404(PhaseStep, pk=pk)
     if (resp := _child_permission_check(request, step.sheet.faction)):
         return resp
+    sheet = step.sheet
+    phase = step.phase
+    content_box_id = step.content_box_id
     step.delete()
+    if content_box_id:
+        siblings = sheet.phase_steps.filter(content_box_id=content_box_id).order_by('number')
+    else:
+        siblings = sheet.phase_steps.filter(phase=phase, content_box__isnull=True).order_by('number')
+    for index, sibling in enumerate(siblings, start=1):
+        if sibling.number != index:
+            PhaseStep.objects.filter(pk=sibling.pk).update(number=index)
     return HttpResponse(status=204)
 
 
@@ -1028,7 +1042,11 @@ def cardslot_delete(request, pk):
     slot = get_object_or_404(CardSlot, pk=pk)
     if (resp := _child_permission_check(request, slot.decree.sheet.faction)):
         return resp
+    decree = slot.decree
     slot.delete()
+    for index, sibling in enumerate(decree.card_slots.order_by('number'), start=1):
+        if sibling.number != index:
+            CardSlot.objects.filter(pk=sibling.pk).update(number=index)
     return HttpResponse(status=204)
 
 
@@ -1074,7 +1092,11 @@ def cardpile_delete(request, pk):
     pile = get_object_or_404(CardPile, pk=pk)
     if (resp := _child_permission_check(request, pile.sheet.faction)):
         return resp
+    sheet = pile.sheet
     pile.delete()
+    for index, sibling in enumerate(sheet.card_piles.order_by('number'), start=1):
+        if sibling.number != index:
+            CardPile.objects.filter(pk=sibling.pk).update(number=index)
     return HttpResponse(status=204)
 
 

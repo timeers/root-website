@@ -6,7 +6,7 @@
     {% csrf_token %}
     <div class="d-flex flex-nowrap gap-2 align-items-center mb-1">
       <strong class="me-1 small text-muted flex-shrink-0">New box:</strong>
-      <input type="text" name="title" class="form-control form-control-sm flex-grow-1" placeholder="Title" required style="min-width:0;">
+      <input type="text" name="title" class="form-control form-control-sm flex-grow-1 luminari" placeholder="Title" required style="min-width:0;">
       <div class="btn-group btn-group-sm forge-segmented flex-shrink-0" role="group" aria-label="Height">
         {% for value, label in box_height_choices %}
           <input type="radio" class="btn-check" name="height" id="newbox-{{ step_pk }}-{{ value }}"

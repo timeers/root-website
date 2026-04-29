@@ -116,7 +116,7 @@
 
 <!-- Content Boxes -->
 <div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Content Boxes</h4>
+  <h4 class="root-title mb-2">Sections</h4>
   <div id="content-box-list" data-reorder-url="{% url 'forge-contentbox-reorder' sheet_pk=sheet.pk %}">
     {% for box in content_boxes %}
       {% include 'the_forge/partials/content_box_row.html' with box=box %}

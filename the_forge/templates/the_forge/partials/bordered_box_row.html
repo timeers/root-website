@@ -5,7 +5,7 @@
     <div class="forge-card-row__head flex-nowrap">
       <span class="row-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
       <span class="forge-card-row__badge flex-shrink-0">Box</span>
-      <input type="text" name="title" value="{{ box.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1" style="min-width:0;max-width:none;" placeholder="Title" required>
+      <input type="text" name="title" value="{{ box.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1 luminari" style="min-width:0;max-width:none;" placeholder="Title" required>
       <div class="btn-group btn-group-sm forge-segmented flex-shrink-0" role="group" aria-label="Height">
         {% for value, label in box.BoxSize.choices %}
           <input type="radio" class="btn-check" name="height" id="box-{{ box.pk }}-height-{{ value }}"

@@ -11,7 +11,7 @@
     <div class="forge-card-row__head flex-wrap">
       <span class="row-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
       <span class="forge-card-row__badge track-badge flex-shrink-0">Track</span>
-      <input type="text" name="title" value="{{ track.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1" style="min-width:0;max-width:none;" placeholder="Title" required>
+      <input type="text" name="title" value="{{ track.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1 luminari" style="min-width:0;max-width:none;" placeholder="Title" required>
     </div>
 
     <div class="forge-rich-text mt-2">
@@ -59,8 +59,6 @@
       </div>
     </div>
 
-    {# Per-form icon picker. Hidden until an [data-track-image-input] is focused;
-       JS positions it (desktop: under the focused field; mobile: pinned above keyboard). #}
     <div class="forge-icon-picker" data-forge-icon-picker hidden>
       <div class="forge-icon-picker__panel">
         {% for key in inline_keywords %}
