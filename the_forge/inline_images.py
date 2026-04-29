@@ -33,12 +33,31 @@ FORGE_INLINE_IMAGES = {
     'coin': static('items/law/coin.png'),
     'boot': static('items/law/boot.png'),
 
-    # Generic gameplay
+    # Hirelings
     'hired': static('items/law/hired.png'),
     'ability': static('items/law/ability.png'),
     'daylight': static('items/law/daylight.png'),
     'birdsong': static('items/law/birdsong.png'),
+
+    # Other
+    'meeple': static('pdf/inline/meeple.png'),
+    'fox_icon': static('pdf/inline/fox_icon.png'),
+    'mouse_icon': static('pdf/inline/mouse_icon.png'),
+    'rabbit_icon': static('pdf/inline/rabbit_icon.png'),
+    'fox_craft': static('pdf/inline/fox_craft.png'),
+    'mouse_craft': static('pdf/inline/mouse_craft.png'),
+    'rabbit_craft': static('pdf/inline/rabbit_craft.png'),
+    # 'wild_craft': static('pdf/inline/wild_craft.png'),
+
+
+    # Draw cards
+    # '+card': static('pdf/inline/+card.png'),
+    # '-card': static('pdf/inline/-card.png'),
+
     'card': static('pdf/inline/card.png'),
+    'card2': static('pdf/inline/card2.png'),
+    'card3': static('pdf/inline/card3.png'),
+    'card4': static('pdf/inline/card4.png'),
 
     # Animals (law icon set)
     'bunny': static('items/law/bunny.png'),
@@ -97,24 +116,15 @@ FORGE_INLINE_IMAGES = {
 # `format_forge_text` (so existing saved {{ keyword }} content keeps
 # rendering) but won't show as a button in the picker.
 FORGE_PICKER_ORDER = [
-    # Gameplay
-    'birdsong',
-    'daylight',
-    'hired',
-    'ability',
 
-    # Items
-    'sword',
-    'hammer',
-    'crossbow',
-    'bag',
-    'boot',
-    'tea',
-    'coin',
-    'torch',
 
     # Cards
+    # '+card',
+    # '-card',
     'card',
+    'card2',
+    'card3',
+    'card4',
     'cards',
     'fox_card',
     'mouse_card',
@@ -126,6 +136,18 @@ FORGE_PICKER_ORDER = [
     'mouse_tilt',
     'rabbit_tilt',
     'bird_tilt',
+
+    # Icons
+    'meeple',
+    'fox_icon',
+    'mouse_icon',
+    'rabbit_icon',
+    'fox_craft',
+    'mouse_craft',
+    'rabbit_craft',
+    # 'wild_craft',
+
+
 
     # VP
     'VP',
@@ -148,22 +170,39 @@ FORGE_PICKER_ORDER = [
     '-8VP',
     '-9VP',
 
-    # Animals
-    'bunny',
-    'bird',
-    'cat',
-    'vb',
-    'lizard',
-    'otter',
-    'mole',
-    'crow',
+    # # Animals
+    # 'bunny',
+    # 'bird',
+    # 'cat',
+    # 'vb',
+    # 'lizard',
+    # 'otter',
+    # 'mole',
+    # 'crow',
 
-    'rat',
-    'badger',
+    # 'rat',
+    # 'badger',
 
-    'frog',
-    'bat',
-    'skunk',
+    # 'frog',
+    # 'bat',
+    # 'skunk',
+
+    # Items
+    'sword',
+    'hammer',
+    'crossbow',
+    'bag',
+    'boot',
+    'tea',
+    'coin',
+    'torch',
+
+    # Hirelings
+    'birdsong',
+    'daylight',
+    'hired',
+    'ability',
+
 
 ]
 

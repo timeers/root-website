@@ -877,13 +877,17 @@ class TrackFlowable(Flowable):
                     self.row_titles[idx] = title
         self.has_row_titles = bool(self.row_titles) or bool(getattr(track, 'header_title', ''))
 
-        # Parse dividers: set of column indices
+        # Parse dividers: stored values represent "divider AFTER column N"
+        # (set by the editor's spacer buttons, between column N and N+1).
+        # Convert to "divider BEFORE column N+1" for our placement loop.
         self.dividers = set()
         if track.column_dividers:
             for col_str in track.column_dividers.split(','):
                 col_str = col_str.strip()
                 if col_str:
-                    self.dividers.add(int(col_str))
+                    n = int(col_str)
+                    if 0 <= n < self.num_cols - 1:
+                        self.dividers.add(n + 1)
 
         # Count dividers that appear before each column to calculate offset
         self._divider_offsets = {}
@@ -2359,13 +2363,16 @@ class SheetLayoutEngine:
                 if num_cols == 0:
                     continue
 
-                # Parse dividers
+                # Parse dividers (stored values are "after column N"; only
+                # valid positions 0..num_cols-2 contribute to total).
                 dividers = set()
                 if track.column_dividers:
                     for col_str in track.column_dividers.split(','):
                         col_str = col_str.strip()
                         if col_str:
-                            dividers.add(int(col_str))
+                            n = int(col_str)
+                            if 0 <= n < num_cols - 1:
+                                dividers.add(n + 1)
                 total_dividers = len(dividers)
 
                 # Row title width
@@ -2416,13 +2423,15 @@ class SheetLayoutEngine:
                 if num_cols == 0:
                     continue
 
-                # Parse dividers
+                # Parse dividers — stored values are "after column N"; only positions 0..num_cols-2 contribute
                 dividers = set()
                 if track.column_dividers:
                     for col_str in track.column_dividers.split(','):
                         col_str = col_str.strip()
                         if col_str:
-                            dividers.add(int(col_str))
+                            n = int(col_str)
+                            if 0 <= n < num_cols - 1:
+                                dividers.add(n + 1)
                 total_dividers = len(dividers)
 
                 # Row title width
@@ -2690,7 +2699,150 @@ class SheetLayoutEngine:
                                  number=step.number, text=step.text or '',
                                  single_step=single_step,
                                  phase=phase_key)
+            self._record_step_children(step, content_x, step_y, step_h, content_w, single_step)
             cursor_y = step_y
+
+    def _record_content_box_breakdown(self, content_box, box_x, box_y, box_w, box_h):
+        """Preview-only: record bordered_box and track rects inside a content
+        box's steps. Mirrors the layout in _build_content_box_story / Frame."""
+        if not getattr(self, '_recording', False):
+            return
+        content_w = box_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
+        content_x = box_x + CONTENT_BOX_INTERNAL_MARGIN
+        content_top_y = box_y + box_h - CONTENT_BOX_PAD_TOP
+
+        cursor_top = content_top_y
+        if content_box.title:
+            p = Paragraph(content_box.title, self.content_box_title_style)
+            _, h = p.wrap(content_w, 9999)
+            cursor_top -= h + self.content_box_title_style.spaceAfter
+        if content_box.text:
+            markup = format_step_markup(content_box.text)
+            p = Paragraph(markup, self.content_box_text_style)
+            _, h = p.wrap(content_w, 9999)
+            cursor_top -= h + self.content_box_text_style.spaceAfter
+
+        steps = list(content_box.steps.all())
+        single_step = len(steps) == 1
+        step_style = self.content_box_text_style if single_step else self.step_body_style
+        for step in steps:
+            step_h = self.measure_step_height(step, content_w, single_step=single_step,
+                                              body_style=step_style)
+            step_y = cursor_top - step_h
+            self._record_step_children(step, content_x, step_y, step_h, content_w, single_step)
+            cursor_top = step_y
+
+    def _record_step_children(self, step, step_x, step_y, step_h, step_w, single_step):
+        """Preview-only: record bordered_box and track rects inside a phase step.
+        Children stack at the bottom of the step (after text+actions) and are drawn
+        in `ordered_children` order. No-op outside compute_layout()."""
+        if not getattr(self, '_recording', False):
+            return
+        if step.phase == 'other' and step.content_box_id:
+            parent_key = f'content_box_{step.content_box_id}'
+        else:
+            parent_key = 'phase_box'
+        children = list(getattr(step, 'ordered_children', []))
+        if not children:
+            return
+
+        ICON_COL_W = 0.325 * inch
+        ICON_TEXT_GAP = 0.015 * inch
+        TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
+        indent = 0 if single_step else TEXT_COL_X
+        avail_w = step_w - indent
+
+        # Compute each child's height + top pad in points, in order.
+        sized = []
+        total_block_h = 0.0
+        for child in children:
+            obj = child['obj']
+            if child['kind'] == 'box':
+                box_h = BORDERED_BOX_HEIGHTS.get(obj.height, BORDERED_BOX_HEIGHTS['medium'])
+                top_pad = BORDERED_BOX_TITLE_SIZE / 2
+                sized.append({'kind': 'bordered_box', 'obj': obj,
+                              'h': box_h, 'top_pad': top_pad})
+                total_block_h += box_h + top_pad
+            else:
+                slots = list(obj.slots.all())
+                tf = TrackFlowable(track=obj, slots=slots, total_width=avail_w,
+                                   body_style=self.step_body_style,
+                                   faction_color=self.faction_color)
+                _, track_h = tf.wrap(avail_w, 9999)
+                top_pad = TRACK_TITLE_GAP
+                bot_pad = TRACK_BOTTOM_PAD
+                sized.append({'kind': 'track', 'obj': obj, 'h': track_h,
+                              'top_pad': top_pad, 'bot_pad': bot_pad,
+                              'flowable': tf})
+                total_block_h += track_h + top_pad + bot_pad
+
+        # Children block sits at the bottom of the step rect (text/actions above).
+        # In PDF coords, step_y is the bottom; block occupies [step_y, step_y + total_block_h].
+        cursor_top = step_y + min(total_block_h, step_h)
+        for entry in sized:
+            obj = entry['obj']
+            top_pad_pts = entry['top_pad']
+            child_h = entry['h']
+            top_y = cursor_top - top_pad_pts
+            child_y = top_y - child_h
+            if entry['kind'] == 'bordered_box':
+                self._record_element(kind='bordered_box', id=obj.id,
+                                     x=step_x + indent, y=child_y,
+                                     w=avail_w, h=child_h,
+                                     title=obj.title or '',
+                                     step_id=step.id,
+                                     parent_key=parent_key)
+                cursor_top = child_y
+            else:
+                # Track: collect per-slot rects so JS can draw circles/squares
+                # using the same geometry as the PDF (including token zigzag).
+                tf = entry['flowable']
+                dividers = sorted(tf.dividers)
+                # Flowable-local: origin at bottom-left of flowable. Convert to
+                # top-left-origin offsets in inches for the preview.
+                grid_top_y = (tf._height - tf._title_h - tf._body_h
+                              - (tf._header_h if (tf.has_headers and getattr(obj, 'header_position', 'above') == 'above') else 0))
+                slot_size = tf._slot_size
+                slot_rects = []
+                for r in range(tf.num_rows):
+                    for c2 in range(tf.num_cols):
+                        sx = tf._col_x(c2)
+                        sy_bottom = tf._row_y(r, grid_top_y) - tf._col_y_offset(c2)
+                        # Convert to top-left origin: top = total_h - (sy_bottom + slot_size)
+                        top_offset = (tf._height - (sy_bottom + slot_size))
+                        slot_rects.append({
+                            'x': sx / inch,
+                            'y': top_offset / inch,
+                            'size': slot_size / inch,
+                            'row': r,
+                            'col': c2,
+                        })
+                # Divider line x-positions (top-left origin, in inches), full grid height.
+                divider_lines = []
+                for col_idx in dividers:
+                    if tf._is_overlapping:
+                        prev_right = tf._col_x(col_idx - 1) + slot_size
+                        this_left = tf._col_x(col_idx)
+                        div_x = (prev_right + this_left) / 2
+                    else:
+                        div_x = tf._col_x(col_idx) - tf._divider_w / 2 - tf._slot_gap / 2
+                    divider_lines.append(div_x / inch)
+                grid_top_offset = (tf._height - grid_top_y) / inch
+                grid_h_in = tf._grid_h / inch
+                self._record_element(kind='track', id=obj.id,
+                                     x=step_x + indent, y=child_y,
+                                     w=avail_w, h=child_h,
+                                     title=obj.header_title or obj.title or '',
+                                     track_type=obj.type,
+                                     num_rows=obj.num_rows,
+                                     num_columns=obj.num_columns,
+                                     slots=slot_rects,
+                                     divider_lines=divider_lines,
+                                     grid_top=grid_top_offset,
+                                     grid_h=grid_h_in,
+                                     step_id=step.id,
+                                     parent_key=parent_key)
+                cursor_top = child_y - entry.get('bot_pad', 0)
 
     def _record_element(self, **fields):
         """Record an element placement for compute_layout(). Coordinates passed
@@ -2952,6 +3104,7 @@ class SheetLayoutEngine:
         self._placed_boxes.append((box_x, box_y, box_w, box_h))
         self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
                              x=box_x, y=box_y, w=box_w, h=box_h)
+        self._record_content_box_breakdown(cb, box_x, box_y, box_w, box_h)
         return True
 
     def _draw_vertical_content_boxes(self, c):
@@ -3087,6 +3240,7 @@ class SheetLayoutEngine:
                 self._placed_boxes.append((cursor_x, box_y, box_w, box_h))
                 self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
                                      x=cursor_x, y=box_y, w=box_w, h=box_h)
+                self._record_content_box_breakdown(cb, cursor_x, box_y, box_w, box_h)
 
                 if box_y < row_bottom_y:
                     row_bottom_y = box_y
@@ -3248,6 +3402,7 @@ class SheetLayoutEngine:
                 self._placed_boxes.append((col_start_x, box_y, col_w, box_h))
                 self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
                                      x=col_start_x, y=box_y, w=col_w, h=box_h)
+                self._record_content_box_breakdown(cb, col_start_x, box_y, col_w, box_h)
 
                 gap = CONTENT_BOX_GAP + (padding if col_count > 1 else 0)
                 cursor_y = box_y - gap
@@ -3491,6 +3646,28 @@ class SheetLayoutEngine:
         # If all bodies are empty, fall back to equal widths
         if total_chars == 0:
             return [max(distributable_w / n, mw) for mw in min_widths]
+
+        # Equal-width default: if every ability's title+body fits comfortably at
+        # equal width, just split evenly. Skips the proportional allocation when
+        # nothing actually needs extra room.
+        equal_w = distributable_w / n
+        box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE
+        if all(equal_w >= mw for mw in min_widths):
+            all_fit = True
+            for a in abilities:
+                story = [
+                    Paragraph(f"<b>{a.title}</b>", self.ability_title_style),
+                    Paragraph(format_inline_images(a.body), self.ability_body_style),
+                ]
+                used_h = 0
+                for flowable in story:
+                    _, h = flowable.wrap(equal_w - icon_w, 9999)
+                    used_h += h
+                if used_h > box_h:
+                    all_fit = False
+                    break
+            if all_fit:
+                return [equal_w] * n
 
         # Initial proportional allocation
         widths = [(count / total_chars) * distributable_w for count in char_counts]

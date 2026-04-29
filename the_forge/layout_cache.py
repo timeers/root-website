@@ -13,7 +13,7 @@ import json
 
 from django.core.cache import cache
 
-CACHE_PREFIX = 'forge:sheet_layout:v4'
+CACHE_PREFIX = 'forge:sheet_layout:v8'
 CACHE_TIMEOUT = 60 * 60 * 24  # 24h; key is content-addressed so stale entries can't be wrong
 
 

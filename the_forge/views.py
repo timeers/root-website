@@ -12,6 +12,7 @@ from django.views.decorators.http import require_http_methods
 
 from the_gatehouse.views import editor_required
 from .inline_images import picker_image_map, picker_keywords
+from .layout_autogrow import ensure_step_parent_fits
 
 from .forms import (
     BorderedBoxForm,
@@ -774,6 +775,7 @@ def phasestep_add(request, sheet_pk):
     else:
         step.number = sheet.phase_steps.filter(phase=step.phase, content_box__isnull=True).count() + 1
     step.save()
+    ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/phase_step_row.html', {
         'step': _annotate_step(step), 'inline_keywords': _inline_keywords(),
     })
@@ -793,6 +795,7 @@ def phasestep_edit(request, pk):
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
+    ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/phase_step_row.html', {
         'step': _annotate_step(step), 'inline_keywords': _inline_keywords(),
     })
@@ -868,6 +871,7 @@ def stepaction_add(request, step_pk):
     action.step = step
     action.order = step.actions.count() + 1
     action.save()
+    ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/step_action_row.html', {
         'action': action, 'inline_keywords': _inline_keywords(),
     })
@@ -883,6 +887,7 @@ def stepaction_edit(request, pk):
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
+    ensure_step_parent_fits(action.step)
     return render(request, 'the_forge/partials/step_action_row.html', {
         'action': action, 'inline_keywords': _inline_keywords(),
     })
@@ -953,6 +958,7 @@ def borderedbox_add(request, step_pk):
     box.step = step
     box.order = step.boxes.count() + step.tracks.count() + 1
     box.save()
+    ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(),
     })
@@ -968,6 +974,7 @@ def borderedbox_edit(request, pk):
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
+    ensure_step_parent_fits(box.step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(),
     })
@@ -1019,6 +1026,7 @@ def track_add(request, step_pk):
     track.step = step
     track.order = step.boxes.count() + step.tracks.count() + 1
     track.save()
+    ensure_step_parent_fits(step, check_width=True)
     return render(request, 'the_forge/partials/track_row.html', _track_render_ctx(track))
 
 
@@ -1028,6 +1036,7 @@ def track_edit(request, pk):
     track = get_object_or_404(CardboardTrack, pk=pk)
     if (resp := _child_permission_check(request, track.step.sheet.faction)):
         return resp
+    prev_cols = track.num_columns
     form = CardboardTrackForm(request.POST, request.FILES, instance=track)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1036,6 +1045,7 @@ def track_edit(request, pk):
     form.save()
     track.slots.filter(column__gte=new_cols).delete()
     track.slots.filter(row__gte=new_rows).delete()
+    ensure_step_parent_fits(track.step, check_width=(new_cols > prev_cols))
     return render(request, 'the_forge/partials/track_row.html', _track_render_ctx(track))
 
 

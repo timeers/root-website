@@ -13,6 +13,9 @@
   // when dragged. Map → the parent's element key.
   function decorativeParentKey(el) {
     if (el.kind === 'phase_header_bar' || el.kind === 'phase_step') return 'phase_box';
+    if (el.kind === 'bordered_box' || el.kind === 'track') {
+      return el.parent_key || 'phase_box';
+    }
     if (el.kind === 'card_slot') return 'decree';
     return null;
   }
@@ -91,15 +94,11 @@
         const title = document.createElement('span');
         title.className = 'hdr-title';
         title.textContent = el.title || '';
-        const body = document.createElement('span');
-        body.className = 'hdr-body';
-        body.innerHTML = renderForgeMarkup(el.body || '');
         div.appendChild(title);
-        div.appendChild(body);
         break;
       }
       case 'header_flavor':
-        div.innerHTML = renderForgeMarkup(el.text || '');
+        div.textContent = 'Flavor Text';
         break;
       case 'header_crafted':
         div.textContent = 'Crafted';
@@ -136,6 +135,49 @@
         t.style.textAlign = 'center';
         t.textContent = el.title || `Pile ${el.number || ''}`;
         div.appendChild(t);
+        break;
+      }
+      case 'bordered_box':
+        if (el.title) {
+          const t = document.createElement('div');
+          t.className = 'bordered-box-title';
+          t.textContent = el.title;
+          div.appendChild(t);
+        }
+        break;
+      case 'track': {
+        if (el.title) {
+          const t = document.createElement('div');
+          t.className = 'track-title';
+          t.textContent = el.title;
+          div.appendChild(t);
+        }
+        const isToken = el.track_type === 'token';
+        // Absolute-position slots using engine-computed coords (in inches,
+        // top-left origin within the track flowable).
+        (el.slots || []).forEach((s) => {
+          const slot = document.createElement('div');
+          slot.className = 'track-slot' + (isToken ? ' track-slot--token' : ' track-slot--building');
+          slot.style.position = 'absolute';
+          slot.style.left = (s.x * SCALE) + 'px';
+          slot.style.top = (s.y * SCALE) + 'px';
+          slot.style.width = (s.size * SCALE) + 'px';
+          slot.style.height = (s.size * SCALE) + 'px';
+          div.appendChild(slot);
+        });
+        // Section divider lines (full grid height).
+        if (el.divider_lines && el.grid_h != null && el.grid_top != null) {
+          el.divider_lines.forEach((dx) => {
+            const sep = document.createElement('div');
+            sep.className = 'track-divider';
+            sep.style.position = 'absolute';
+            sep.style.left = (dx * SCALE) + 'px';
+            sep.style.top = (el.grid_top * SCALE) + 'px';
+            sep.style.width = '1px';
+            sep.style.height = (el.grid_h * SCALE) + 'px';
+            div.appendChild(sep);
+          });
+        }
         break;
       }
     }
@@ -191,11 +233,20 @@
       const parentKey = decorativeParentKey(el);
       if (parentKey && domIndex[parentKey]) {
         // Stash the decoration's original offset relative to its parent.
+        // For phase_box children, anchor to the top edge so resizing the
+        // bottom doesn't pull the header/steps off the box's top-left.
         const parent = domIndex[parentKey].data;
         div._dxIn = el.x - parent.x;
-        div._dyIn = el.y - parent.y;
         div._wIn = el.w || 0;
         div._hIn = el.h || 0;
+        if (parentKey === 'phase_box' || parentKey.startsWith('content_box_')) {
+          div._topAnchored = true;
+          // Distance from the decoration's top to the parent's top, in inches.
+          // PDF top edge of decoration is el.y + el.h; parent top is parent.y + parent.h.
+          div._dTopIn = (parent.y + (parent.h || 0)) - (el.y + (el.h || 0));
+        } else {
+          div._dyIn = el.y - parent.y;
+        }
         domIndex[parentKey].decorations.push(div);
       }
       if (HEADER_BAND_KINDS.has(el.kind)) {
@@ -265,7 +316,14 @@
     placeDiv(entry.primary, st.x, st.y, st.w, st.h);
     entry.decorations.forEach((dec) => {
       const xIn = st.x + (dec._dxIn || 0);
-      const yIn = st.y + (dec._dyIn || 0);
+      let yIn;
+      if (dec._topAnchored) {
+        // Keep the decoration glued to the parent's top edge, not its bottom.
+        // parent top (PDF) = st.y + st.h; decoration top = yIn + dec._hIn.
+        yIn = st.y + st.h - (dec._hIn || 0) - (dec._dTopIn || 0);
+      } else {
+        yIn = st.y + (dec._dyIn || 0);
+      }
       placeDiv(dec, xIn, yIn, dec._wIn || 0, dec._hIn || 0);
     });
   }
@@ -408,6 +466,114 @@
     });
   }
 
+  // ---- Resize wiring ----
+
+  const RESIZE_DIRS = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'];
+  const MIN_SIZE_IN = 0.25; // smallest box footprint while resizing
+
+  function startResize(ev, key, dir) {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    if (dragActive) return;
+    const st = editState[key];
+    if (!st) return;
+    const entry = domIndex[key];
+    if (!entry) return;
+
+    const startX = ev.clientX;
+    const startY = ev.clientY;
+    const orig = { x: st.x, y: st.y, w: st.w, h: st.h };
+    const pageWIn = pageW / SCALE;
+    const pageHIn = pageH / SCALE;
+    const headerLid = (st.kind === 'phase_box' && headerFloorYIn != null)
+      ? headerFloorYIn : pageHIn;
+
+    const captureEl = ev.currentTarget;
+    captureEl.setPointerCapture(ev.pointerId);
+    entry.primary.classList.add('forge-preview-element--dragging');
+    dragActive = true;
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    function onMove(mv) {
+      const dxIn = (mv.clientX - startX) / SCALE;
+      const dyInScreen = (mv.clientY - startY) / SCALE;
+      // Screen y grows down; PDF y grows up.
+      const dyIn = -dyInScreen;
+
+      let nx = orig.x;
+      let ny = orig.y;
+      let nw = orig.w;
+      let nh = orig.h;
+
+      // PDF coords: y is bottom; y + h is top. dxIn screen-right; dyIn PDF-up.
+      if (dir.includes('e')) {
+        // Right edge: w changes, x stays. Right edge clamped to page.
+        nw = clamp(orig.w + dxIn, MIN_SIZE_IN, pageWIn - orig.x);
+      }
+      if (dir.includes('w')) {
+        // Left edge: x and w change in opposite directions.
+        // Clamp x >= 0 and w >= MIN.
+        const dx = clamp(dxIn, -orig.x, orig.w - MIN_SIZE_IN);
+        nx = orig.x + dx;
+        nw = orig.w - dx;
+      }
+      if (dir.includes('s')) {
+        // Bottom edge: y and h change in opposite directions when bottom moves.
+        // Mouse down → bottom moves down → y decreases, h increases.
+        // dyIn is PDF-up; bottom moving down corresponds to dyIn negative.
+        // Let dyB = movement of bottom edge in PDF coords (positive = up).
+        // Then y_new = y + dyB, h_new = h - dyB.
+        // dyB = dyIn (mouse up moves bottom up).
+        // Constraints: y_new >= 0 → dyB >= -y, h_new >= MIN → dyB <= h - MIN.
+        const dyB = clamp(dyIn, -orig.y, orig.h - MIN_SIZE_IN);
+        ny = orig.y + dyB;
+        nh = orig.h - dyB;
+      }
+      if (dir.includes('n')) {
+        // Top edge: only h changes (y is the bottom, stays put).
+        // Mouse up (dyIn positive) → top moves up → h increases.
+        // Top can't cross headerLid: y + h <= headerLid.
+        const maxH = headerLid - orig.y;
+        nh = clamp(orig.h + dyIn, MIN_SIZE_IN, Math.max(MIN_SIZE_IN, maxH));
+      }
+
+      st.x = nx;
+      st.y = ny;
+      st.w = nw;
+      st.h = nh;
+      applyState(key);
+      syncHiddenInputs(key);
+    }
+
+    function onUp() {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      entry.primary.classList.remove('forge-preview-element--dragging');
+      try { captureEl.releasePointerCapture(ev.pointerId); } catch (e) { /* already released */ }
+      dragActive = false;
+    }
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }
+
+  function wireResize() {
+    Object.entries(domIndex).forEach(([key, entry]) => {
+      const st = editState[key];
+      if (!st) return;
+      // Only phase_box and content_box are resizable per the spec.
+      if (st.kind !== 'phase_box' && st.kind !== 'content_box') return;
+      RESIZE_DIRS.forEach((dir) => {
+        const handle = document.createElement('div');
+        handle.className = `forge-resize-handle forge-resize-handle--${dir}`;
+        handle.addEventListener('pointerdown', (ev) => startResize(ev, key, dir));
+        entry.primary.appendChild(handle);
+      });
+    });
+  }
+
   function activate(mode) {
     const payload = payloads[mode];
     if (!payload) return;
@@ -417,6 +583,7 @@
     initEditState(payload);
     buildHiddenInputs();
     wireDrag();
+    wireResize();
   }
 
   document.querySelectorAll('input[name="layout_mode"]').forEach((radio) => {
