@@ -1827,6 +1827,12 @@ class SheetLayoutEngine:
         # decree_slide = how far the decree image slides down onto the page
         # (0 = fully hidden above page, draw_h = fully visible)
         self.decree_slide = DECREE_MIN_OFFSET if self.decree_section else 0.0
+        # If a decree_y override is set, derive the slide from it so the header
+        # band, title bar, and phase area all anchor to the overridden position.
+        if self.decree_section:
+            ov_decree_y = self._override(self.sheet, 'decree_y_h', 'decree_y_v')
+            if ov_decree_y is not None:
+                self.decree_slide = PAGE_H - ov_decree_y * inch
 
         # Faction Top Bar image top edge starts at TOP_MARGIN (pushed down by decree)
         self.faction_top_bar_top = PAGE_H - TOP_MARGIN - self.decree_slide
@@ -3730,7 +3736,9 @@ class SheetLayoutEngine:
                     draw_y = PAGE_H - self.decree_slide
                 decree_img_top = draw_y + draw_h
                 self._record_element(kind='decree', x=0, y=draw_y, w=PAGE_W, h=draw_h,
-                                     title=self.decree_section.title or '')
+                                     title=self.decree_section.title or '',
+                                     y_min=(PAGE_H - DECREE_MAX_OFFSET) / inch,
+                                     y_max=(PAGE_H - DECREE_MIN_OFFSET) / inch)
                 c.drawImage(bg_img, 0, draw_y,
                             width=PAGE_W, height=draw_h, mask='auto')
             else:
@@ -3843,6 +3851,24 @@ class SheetLayoutEngine:
     def _rect_is_clear(self, rect, obstructions):
         return all(not self._rects_overlap(rect, obs) for obs in obstructions)
 
+    def _card_pile_min_y(self, pile):
+        """Lowest y at which the pile's tight text zone still fits on-page.
+        At this y, the bottom portion of the card image hangs below y=0."""
+        text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
+        title_h = 0.0
+        body_h = 0.0
+        title_para = body_para = None
+        if pile.title:
+            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+        if pile.body:
+            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+        if title_para is None and body_para is None:
+            zone_h_tight = 0.0
+        else:
+            gap = CARD_PILE_TITLE_TO_BODY_GAP if (title_para and body_para) else 0.0
+            zone_h_tight = CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW + title_h + gap + body_h
+        return zone_h_tight - CARD_SLOT_H
+
     def _draw_card_pile_at(self, c, pile, x, y):
         """Draw a card pile upright at exactly (x, y), skipping collision search.
         Used when both x/y overrides are present."""
@@ -3862,7 +3888,8 @@ class SheetLayoutEngine:
                                      CARD_PILE_TITLE_TOP_OFFSET)
         self._record_element(kind='card_pile', id=pile.id,
                              title=pile.title or '', number=pile.number,
-                             x=x, y=y, w=CARD_SLOT_W, h=CARD_SLOT_H)
+                             x=x, y=y, w=CARD_SLOT_W, h=CARD_SLOT_H,
+                             y_min=self._card_pile_min_y(pile) / inch)
 
     def _place_and_draw_card_pile(self, c, pile, x):
         text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
@@ -3944,7 +3971,8 @@ class SheetLayoutEngine:
                                              offset)
                 self._record_element(kind='card_pile', id=pile.id,
                                      title=pile.title or '', number=pile.number,
-                                     x=x, y=candidate_y, w=CARD_SLOT_W, h=CARD_SLOT_H)
+                                     x=x, y=candidate_y, w=CARD_SLOT_W, h=CARD_SLOT_H,
+                                     y_min=self._card_pile_min_y(pile) / inch)
                 return
             candidate_y -= step
 
@@ -3959,7 +3987,8 @@ class SheetLayoutEngine:
             self._record_element(kind='card_pile', id=pile.id,
                                  title=pile.title or '', number=pile.number,
                                  x=x, y=rot_bottom, w=CARD_SLOT_W, h=CARD_SLOT_H,
-                                 rotated=True)
+                                 rotated=True,
+                                 y_min=self._card_pile_min_y(pile) / inch)
             return
 
         # --- Final fallback — upright at BOTTOM_MARGIN, text possibly cut off. ---
@@ -3969,7 +3998,8 @@ class SheetLayoutEngine:
                                      CARD_PILE_TITLE_TOP_OFFSET)
         self._record_element(kind='card_pile', id=pile.id,
                              title=pile.title or '', number=pile.number,
-                             x=x, y=default_y, w=CARD_SLOT_W, h=CARD_SLOT_H)
+                             x=x, y=default_y, w=CARD_SLOT_W, h=CARD_SLOT_H,
+                             y_min=self._card_pile_min_y(pile) / inch)
 
     def _draw_card_pile_upright(self, c, pile, x, y,
                                 title_para, title_h, body_para, body_h,

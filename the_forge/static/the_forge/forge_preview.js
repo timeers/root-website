@@ -7,30 +7,25 @@
   const inputsContainer = document.getElementById('forge-preview-inputs');
   if (!canvas || !inputsContainer) return;
 
-  // Editable elements (their coords get hidden inputs and -- in later steps --
-  // drag/resize handles). Decorative elements ride along with their parent.
-  const EDITABLE_KINDS = new Set([
-    'phase_box', 'content_box', 'card_pile', 'decree',
-  ]);
+  const EDITABLE_KINDS = new Set(['phase_box', 'content_box', 'card_pile', 'decree']);
 
-  // Decorative kinds drawn but never directly editable.
-  const DECOR_KINDS = new Set([
-    'phase_header_bar', 'phase_step',
-    'header_bar', 'header_color_bar', 'header_ability', 'header_flavor', 'header_crafted',
-    'card_slot',
-  ]);
-
-  function parsePayloads() {
-    try {
-      return JSON.parse(canvas.dataset.payloads || '{}');
-    } catch (e) {
-      console.error('forge_preview: failed to parse payloads', e);
-      return {};
-    }
+  // Decorative kinds that visually belong to a parent and should follow it
+  // when dragged. Map → the parent's element key.
+  function decorativeParentKey(el) {
+    if (el.kind === 'phase_header_bar' || el.kind === 'phase_step') return 'phase_box';
+    if (el.kind === 'card_slot') return 'decree';
+    return null;
   }
 
-  const payloads = parsePayloads();
-  let activeMode = canvas.dataset.activeMode || 'horizontal';
+  // Header band decoratives (faction title bar + abilities) follow the decree
+  // because the engine anchors them to PAGE_H - TOP_MARGIN - decree_slide.
+  // Phase box also follows the decree, so its decoratives ride along too.
+  const HEADER_BAND_KINDS = new Set([
+    'header_bar', 'header_color_bar', 'header_ability', 'header_flavor', 'header_crafted',
+  ]);
+
+  // Stash header-band decoratives so the decree drag can move them.
+  let headerBandDecorations = [];
 
   function elementKey(el) {
     if (el.kind === 'phase_box') return 'phase_box';
@@ -40,51 +35,55 @@
     return null;
   }
 
-  // Render Forge markup (data-forge="header") so phase-step previews preserve
-  // the size differences the PDF shows.
+  function parsePayloads() {
+    try { return JSON.parse(canvas.dataset.payloads || '{}'); }
+    catch (e) { console.error('forge_preview: failed to parse payloads', e); return {}; }
+  }
+
+  const payloads = parsePayloads();
+  let activeMode = canvas.dataset.activeMode || 'horizontal';
+  let pageW = 0, pageH = 0; // px
+
+  // Working state per editable element key → {x, y, w, h} in inches
+  let editState = {};
+
+  // DOM index per element key → {primary: HTMLElement, decorations: HTMLElement[], data: original element record}
+  let domIndex = {};
+
   function renderForgeMarkup(text) {
     if (!text) return '';
-    // Use DOMParser to safely transform <span data-forge="header"> spans.
     const tmpl = document.createElement('template');
     tmpl.innerHTML = text;
-    tmpl.content.querySelectorAll('span[data-forge="header"]').forEach((span) => {
-      span.classList.add('forge-header');
-    });
-    tmpl.content.querySelectorAll('span[data-forge="luminari"]').forEach((span) => {
-      span.classList.add('forge-luminari');
-    });
+    tmpl.content.querySelectorAll('span[data-forge="header"]').forEach((s) => s.classList.add('forge-header'));
+    tmpl.content.querySelectorAll('span[data-forge="luminari"]').forEach((s) => s.classList.add('forge-luminari'));
     return tmpl.innerHTML;
   }
 
   function renderElementContent(el, div) {
     switch (el.kind) {
-      case 'phase_header_bar': {
+      case 'phase_header_bar':
         if (el.fill) div.style.backgroundColor = el.fill;
         if (el.label) div.textContent = el.label;
         break;
-      }
       case 'phase_step': {
-        const num = (el.number != null) ? String(el.number) : '';
-        const text = el.text || '';
         const row = document.createElement('div');
         row.className = 'step-row';
         const iconEl = document.createElement('div');
         iconEl.className = 'step-icon';
-        iconEl.textContent = num;
+        iconEl.textContent = (el.number != null) ? String(el.number) : '';
         const textEl = document.createElement('div');
         textEl.className = 'step-text';
-        textEl.innerHTML = renderForgeMarkup(text);
+        textEl.innerHTML = renderForgeMarkup(el.text || '');
         row.appendChild(iconEl);
         row.appendChild(textEl);
         div.appendChild(row);
         break;
       }
-      case 'header_color_bar': {
+      case 'header_color_bar':
         if (el.fill) div.style.backgroundColor = el.fill;
         if (el.text_color) div.style.color = el.text_color;
         if (el.label) div.textContent = el.label;
         break;
-      }
       case 'header_ability': {
         const title = document.createElement('span');
         title.className = 'hdr-title';
@@ -96,24 +95,21 @@
         div.appendChild(body);
         break;
       }
-      case 'header_flavor': {
+      case 'header_flavor':
         div.innerHTML = renderForgeMarkup(el.text || '');
         break;
-      }
-      case 'header_crafted': {
+      case 'header_crafted':
         div.textContent = 'Crafted';
         break;
-      }
-      case 'card_slot': {
+      case 'card_slot':
         if (el.title) {
-          const titleEl = document.createElement('div');
-          titleEl.className = 'card-slot-title';
-          titleEl.textContent = el.title;
-          div.appendChild(titleEl);
+          const t = document.createElement('div');
+          t.className = 'card-slot-title';
+          t.textContent = el.title;
+          div.appendChild(t);
         }
         break;
-      }
-      case 'decree': {
+      case 'decree':
         if (el.title) {
           const lbl = document.createElement('div');
           lbl.className = 'decree-label';
@@ -121,86 +117,256 @@
           div.appendChild(lbl);
         }
         break;
-      }
-      case 'content_box': {
+      case 'content_box':
         if (el.title) {
-          const titleEl = document.createElement('div');
-          titleEl.style.fontWeight = 'bold';
-          titleEl.style.fontSize = '10px';
-          titleEl.textContent = el.title;
-          div.appendChild(titleEl);
+          const t = document.createElement('div');
+          t.style.fontWeight = 'bold';
+          t.style.fontSize = '10px';
+          t.textContent = el.title;
+          div.appendChild(t);
         }
         break;
-      }
       case 'card_pile': {
-        const titleEl = document.createElement('div');
-        titleEl.style.fontWeight = 'bold';
-        titleEl.style.fontSize = '11px';
-        titleEl.style.textAlign = 'center';
-        titleEl.textContent = el.title || `Pile ${el.number || ''}`;
-        div.appendChild(titleEl);
+        const t = document.createElement('div');
+        t.style.fontWeight = 'bold';
+        t.style.fontSize = '11px';
+        t.style.textAlign = 'center';
+        t.textContent = el.title || `Pile ${el.number || ''}`;
+        div.appendChild(t);
         break;
       }
     }
   }
 
+  function placeDiv(div, xIn, yIn, wIn, hIn) {
+    const w = (wIn || 0) * SCALE;
+    const h = (hIn || 0) * SCALE;
+    div.style.left = (xIn * SCALE) + 'px';
+    div.style.top = (pageH - (yIn * SCALE) - h) + 'px';
+    div.style.width = w + 'px';
+    div.style.height = h + 'px';
+  }
+
   function renderCanvas(payload) {
     canvas.innerHTML = '';
-    const pageW = payload.page.w * SCALE;
-    const pageH = payload.page.h * SCALE;
+    domIndex = {};
+    headerBandDecorations = [];
+    pageW = payload.page.w * SCALE;
+    pageH = payload.page.h * SCALE;
     canvas.style.width = pageW + 'px';
     canvas.style.height = pageH + 'px';
 
     const elements = payload.elements || [];
+
+    // First pass: editable elements
     elements.forEach((el) => {
+      if (!EDITABLE_KINDS.has(el.kind)) return;
+      if (el.x == null || el.y == null) return;
+      const key = elementKey(el);
+      if (!key) return;
+      const div = document.createElement('div');
+      div.className = `forge-preview-element forge-preview-element--${el.kind}`;
+      div.dataset.key = key;
+      div.dataset.kind = el.kind;
+      placeDiv(div, el.x, el.y, el.w || 0, el.h || 0);
+      renderElementContent(el, div);
+      canvas.appendChild(div);
+      domIndex[key] = { primary: div, decorations: [], data: el };
+    });
+
+    // Second pass: decorative elements; if they belong to an editable parent,
+    // record them so dragging the parent can move them too.
+    elements.forEach((el) => {
+      if (EDITABLE_KINDS.has(el.kind)) return;
       if (el.x == null || el.y == null) return;
       const div = document.createElement('div');
       div.className = `forge-preview-element forge-preview-element--${el.kind}`;
-      const w = (el.w || 0) * SCALE;
-      const h = (el.h || 0) * SCALE;
-      const left = el.x * SCALE;
-      // PDF uses bottom-left origin; HTML uses top-left.
-      const top = pageH - (el.y * SCALE) - h;
-      div.style.left = left + 'px';
-      div.style.top = top + 'px';
-      div.style.width = w + 'px';
-      div.style.height = h + 'px';
-      const key = elementKey(el);
-      if (key) {
-        div.dataset.key = key;
-        div.dataset.kind = el.kind;
-      }
+      placeDiv(div, el.x, el.y, el.w || 0, el.h || 0);
       renderElementContent(el, div);
       canvas.appendChild(div);
+      const parentKey = decorativeParentKey(el);
+      if (parentKey && domIndex[parentKey]) {
+        // Stash the decoration's original offset relative to its parent.
+        const parent = domIndex[parentKey].data;
+        div._dxIn = el.x - parent.x;
+        div._dyIn = el.y - parent.y;
+        div._wIn = el.w || 0;
+        div._hIn = el.h || 0;
+        domIndex[parentKey].decorations.push(div);
+      }
+      if (HEADER_BAND_KINDS.has(el.kind)) {
+        div._origXIn = el.x;
+        div._origYIn = el.y;
+        div._wIn = el.w || 0;
+        div._hIn = el.h || 0;
+        headerBandDecorations.push(div);
+      }
     });
   }
 
-  function buildHiddenInputs(payload) {
-    inputsContainer.innerHTML = '';
-    const elements = payload.elements || [];
-    elements.forEach((el) => {
+  function initEditState(payload) {
+    editState = {};
+    (payload.elements || []).forEach((el) => {
       if (!EDITABLE_KINDS.has(el.kind)) return;
       const key = elementKey(el);
       if (!key) return;
-      // Card pile and decree don't have all four coords editable.
-      const fields = (el.kind === 'card_pile') ? ['x', 'y']
-        : (el.kind === 'decree') ? ['y']
+      editState[key] = {
+        x: (el.x != null) ? el.x : 0,
+        y: (el.y != null) ? el.y : 0,
+        w: el.w || 0,
+        h: el.h || 0,
+        kind: el.kind,
+        y_min: el.y_min,
+        y_max: el.y_max,
+      };
+    });
+  }
+
+  function buildHiddenInputs() {
+    inputsContainer.innerHTML = '';
+    Object.entries(editState).forEach(([key, st]) => {
+      const fields = (st.kind === 'card_pile') ? ['x', 'y']
+        : (st.kind === 'decree') ? ['y']
         : ['x', 'y', 'w', 'h'];
       fields.forEach((field) => {
         const input = document.createElement('input');
         input.type = 'hidden';
-        input.name = `${key}_${field}`.replace('phase_box_phase_box_', 'phase_box_');
-        // Keys are 'phase_box', 'decree', 'content_box_<id>', 'card_pile_<id>'.
-        // Above replace is defensive; in practice key never starts with phase_box_.
-        input.name = (key === 'phase_box' || key === 'decree')
-          ? `${key}_${field}`
-          : `${key}_${field}`;
-        const v = el[field];
-        input.value = (v == null) ? '' : String(v);
+        input.name = `${key}_${field}`;
+        input.value = String(st[field]);
         input.dataset.elementKey = key;
         input.dataset.field = field;
         inputsContainer.appendChild(input);
       });
+    });
+  }
+
+  function syncHiddenInputs(key) {
+    const st = editState[key];
+    if (!st) return;
+    inputsContainer.querySelectorAll(`input[data-element-key="${key}"]`).forEach((input) => {
+      const f = input.dataset.field;
+      if (st[f] != null) input.value = String(st[f]);
+    });
+  }
+
+  function clamp(val, lo, hi) { return Math.max(lo, Math.min(hi, val)); }
+
+  function applyState(key) {
+    const entry = domIndex[key];
+    if (!entry) return;
+    const st = editState[key];
+    placeDiv(entry.primary, st.x, st.y, st.w, st.h);
+    entry.decorations.forEach((dec) => {
+      const xIn = st.x + (dec._dxIn || 0);
+      const yIn = st.y + (dec._dyIn || 0);
+      placeDiv(dec, xIn, yIn, dec._wIn || 0, dec._hIn || 0);
+    });
+  }
+
+  // ---- Drag wiring ----
+
+  function startDrag(ev, key) {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    const st = editState[key];
+    if (!st) return;
+    const entry = domIndex[key];
+    if (!entry) return;
+    const startX = ev.clientX;
+    const startY = ev.clientY;
+    const origX = st.x;
+    const origY = st.y;
+    const pageWIn = pageW / SCALE;
+    const pageHIn = pageH / SCALE;
+    const lockY = (st.kind === 'decree'); // decree drags y-only
+
+    // For decree: also slide phase_box + header band by the same dy.
+    const isDecreeDrag = (st.kind === 'decree');
+    const phaseSt = isDecreeDrag ? editState['phase_box'] : null;
+    const phaseOrigY = phaseSt ? phaseSt.y : 0;
+    // Capture the CURRENT y of each header decoration, not the original
+    // payload y — otherwise a second drag would snap them back.
+    const headerBandStartY = isDecreeDrag
+      ? headerBandDecorations.map((d) => d._curYIn != null ? d._curYIn : d._origYIn) : [];
+
+    entry.primary.setPointerCapture(ev.pointerId);
+    entry.primary.classList.add('forge-preview-element--dragging');
+    ev.preventDefault();
+
+    function onMove(mv) {
+      const dxIn = (mv.clientX - startX) / SCALE;
+      const dyInScreen = (mv.clientY - startY) / SCALE;
+      // Screen y grows down; PDF y grows up — flip dy.
+      const dyIn = -dyInScreen;
+      let nx = origX + (lockY ? 0 : dxIn);
+      let ny = origY + dyIn;
+      const w = st.w || 0;
+      const h = st.h || 0;
+      if (st.kind === 'decree') {
+        // Decree slides between min/max provided by the engine; the image
+        // intentionally extends below the page edge so we can't use the
+        // generic 0..pageH clamp.
+        const decreeLo = (st.y_min != null) ? st.y_min : (-h);
+        const decreeHi = (st.y_max != null) ? st.y_max : (pageHIn - h);
+        // Sliding the decree DOWN (decreasing decree y in PDF coords) shifts
+        // the phase box DOWN too. dy applied to phase_box matches dy on decree.
+        // Constrain so phase_box bottom >= 0 (its bottom is phase.y, since y
+        // is its bottom-left). i.e. phase_box.y + dy >= 0 → dy >= -phase.y.
+        let lo = decreeLo;
+        let hi = decreeHi;
+        if (phaseSt) {
+          const minDy = -phaseOrigY; // dy >= -phaseOrigY
+          // Convert to ny bounds: dy = ny - origY → ny >= origY + minDy
+          lo = Math.max(lo, origY + minDy);
+        }
+        ny = clamp(ny, lo, hi);
+      } else if (st.kind === 'card_pile') {
+        // Card piles can hang off the bottom edge — y can go negative until
+        // y_min (text zone still on-page).
+        const pileLo = (st.y_min != null) ? st.y_min : 0;
+        nx = clamp(nx, 0, Math.max(0, pageWIn - w));
+        ny = clamp(ny, pileLo, Math.max(pileLo, pageHIn - h));
+      } else {
+        nx = clamp(nx, 0, Math.max(0, pageWIn - w));
+        ny = clamp(ny, 0, Math.max(0, pageHIn - h));
+      }
+      st.x = nx;
+      st.y = ny;
+      applyState(key);
+      syncHiddenInputs(key);
+
+      if (isDecreeDrag) {
+        const dy = ny - origY;
+        if (phaseSt) {
+          phaseSt.y = phaseOrigY + dy;
+          applyState('phase_box');
+          syncHiddenInputs('phase_box');
+        }
+        headerBandDecorations.forEach((d, i) => {
+          const newY = headerBandStartY[i] + dy;
+          placeDiv(d, d._origXIn, newY, d._wIn, d._hIn);
+          d._curYIn = newY;
+        });
+      }
+    }
+
+    function onUp() {
+      entry.primary.removeEventListener('pointermove', onMove);
+      entry.primary.removeEventListener('pointerup', onUp);
+      entry.primary.removeEventListener('pointercancel', onUp);
+      entry.primary.classList.remove('forge-preview-element--dragging');
+    }
+
+    entry.primary.addEventListener('pointermove', onMove);
+    entry.primary.addEventListener('pointerup', onUp);
+    entry.primary.addEventListener('pointercancel', onUp);
+  }
+
+  function wireDrag() {
+    Object.entries(domIndex).forEach(([key, entry]) => {
+      const div = entry.primary;
+      div.classList.add('forge-preview-element--draggable');
+      div.style.cursor = (editState[key] && editState[key].kind === 'decree') ? 'ns-resize' : 'move';
+      div.addEventListener('pointerdown', (ev) => startDrag(ev, key));
     });
   }
 
@@ -210,14 +376,13 @@
     activeMode = mode;
     canvas.dataset.activeMode = mode;
     renderCanvas(payload);
-    buildHiddenInputs(payload);
+    initEditState(payload);
+    buildHiddenInputs();
+    wireDrag();
   }
 
-  // Layout-mode toggle (radio buttons in the form).
   document.querySelectorAll('input[name="layout_mode"]').forEach((radio) => {
-    radio.addEventListener('change', (ev) => {
-      if (ev.target.checked) activate(ev.target.value);
-    });
+    radio.addEventListener('change', (ev) => { if (ev.target.checked) activate(ev.target.value); });
   });
 
   activate(activeMode);

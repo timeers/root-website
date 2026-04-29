@@ -55,6 +55,14 @@
     padding: 2px 4px;
     overflow: hidden;
   }
+  .forge-preview-element--draggable {
+    user-select: none;
+    touch-action: none;
+  }
+  .forge-preview-element--dragging {
+    outline: 2px solid rgba(180, 90, 30, 0.9);
+    z-index: 10;
+  }
   .forge-preview-element--phase_box   { background: rgba(180, 140, 90, 0.45); }
   .forge-preview-element--phase_header_bar {
     border: 1px solid rgba(0, 0, 0, 0.5);

@@ -13,7 +13,7 @@ import json
 
 from django.core.cache import cache
 
-CACHE_PREFIX = 'forge:sheet_layout'
+CACHE_PREFIX = 'forge:sheet_layout:v4'
 CACHE_TIMEOUT = 60 * 60 * 24  # 24h; key is content-addressed so stale entries can't be wrong
 
 
@@ -108,7 +108,7 @@ def _fast_path_payload(sheet, layout_mode):
     """
     if not _is_fully_overridden(sheet, layout_mode):
         return None
-    from .pdf_engine import PAGE_W, PAGE_H, CARD_SLOT_W, CARD_SLOT_H
+    from .pdf_engine import PAGE_W, PAGE_H, CARD_SLOT_W, CARD_SLOT_H, DECREE_MIN_OFFSET, DECREE_MAX_OFFSET
     from reportlab.lib.units import inch
     s = layout_mode[0]
     elements = []
@@ -127,19 +127,28 @@ def _fast_path_payload(sheet, layout_mode):
             'w': getattr(cb, f'w_{s}'),
             'h': getattr(cb, f'h_{s}'),
         })
-    for cp in sheet.card_piles.all():
+    piles = list(sheet.card_piles.all())
+    if piles:
+        from .pdf_engine import SheetLayoutEngine
+        _eng = SheetLayoutEngine(sheet)  # built lazily so the no-pile path stays cheap
+    else:
+        _eng = None
+    for cp in piles:
         elements.append({
             'kind': 'card_pile', 'id': cp.id, 'number': cp.number, 'title': cp.title or '',
             'x': getattr(cp, f'x_{s}'),
             'y': getattr(cp, f'y_{s}'),
             'w': CARD_SLOT_W / inch,
             'h': CARD_SLOT_H / inch,
+            'y_min': _eng._card_pile_min_y(cp) / inch,
         })
     if sheet.include_decree:
         elements.append({
             'kind': 'decree',
             'x': 0, 'y': getattr(sheet, f'decree_y_{s}'),
             'w': PAGE_W / inch, 'h': 0,  # height comes from the decree image; engine fills it
+            'y_min': (PAGE_H - DECREE_MAX_OFFSET) / inch,
+            'y_max': (PAGE_H - DECREE_MIN_OFFSET) / inch,
         })
     return {
         'page': {'w': PAGE_W / inch, 'h': PAGE_H / inch},
