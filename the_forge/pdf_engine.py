@@ -3,6 +3,7 @@
 import os
 import re
 import tempfile
+from html.parser import HTMLParser
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.colors import HexColor
 from reportlab.lib.units import inch
@@ -370,92 +371,174 @@ COST_ICON_PATHS = {
 }
 
 
+def _xml_escape(s):
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
 def _replace_inline_images(text, img_height=None):
-    """Replace {{ keyword }} with ReportLab <img> tags.
+    """Replace `{{ key }}` tokens with ReportLab <img/> tags.
 
-    Expects already XML-escaped input. Unknown keywords are left as-is.
+    Used for fields edited via the token-based icon picker (forge_editor.js)
+    rather than the rich-text editor — currently track column headers and
+    row titles. XML-escapes surrounding text so `&`/`<`/`>` are safe.
     """
+    if not text:
+        return ''
+    out = []
+    i = 0
+    while i < len(text):
+        start = text.find('{{', i)
+        if start < 0:
+            out.append(_xml_escape(text[i:]))
+            break
+        end = text.find('}}', start + 2)
+        if end < 0:
+            out.append(_xml_escape(text[i:]))
+            break
+        out.append(_xml_escape(text[i:start]))
+        key = text[start + 2:end].strip()
+        if key:
+            out.append(_inline_image_tag(key, img_height))
+        i = end + 2
+    return ''.join(out)
+
+
+def _inline_image_tag(key, img_height=None):
+    """Render <img data-forge-image="KEY"> as a ReportLab Paragraph <img/> tag.
+
+    Returns '' if the key has no entry or the resolved path doesn't exist.
+    """
+    img_path = _inline_image_path(key)
+    if not img_path or not os.path.exists(img_path):
+        return ''
     h = img_height or INLINE_IMG_H
+    from PIL import Image as PILImage
+    pil_img = PILImage.open(img_path)
+    iw, ih = pil_img.size
+    aspect = iw / ih
+    img_w = h * aspect
+    return f'<img src="{img_path}" width="{img_w:.1f}" height="{h}" valign="middle"/>'
 
-    def image_replacer(match):
-        keyword = match.group(1).strip()
-        img_path = _inline_image_path(keyword)
-        if not img_path or not os.path.exists(img_path):
-            return match.group(0)
-        from PIL import Image as PILImage
-        pil_img = PILImage.open(img_path)
-        iw, ih = pil_img.size
-        aspect = iw / ih
-        img_w = h * aspect
-        return f'<img src="{img_path}" width="{img_w:.1f}" height="{h}" valign="middle"/>'
 
-    return re.sub(r"\{\{\s*([^}]+?)\s*\}\}", image_replacer, text)
+class _ForgePdfSanitizer(HTMLParser):
+    """Translate forge rich-text storage HTML to ReportLab Paragraph XML.
+
+    Allowlist (matches the storage format produced by forge_richtext.js):
+      <strong>/<b>                   -> <b>
+      <em>/<i>                       -> <i>
+      <span data-forge="header">     -> <font name="Baskerville" size="15">
+      <span data-forge="luminari">   -> <font name="Luminari">
+      <img data-forge-image="KEY">   -> <img src=...> resolved from
+                                        FORGE_INLINE_IMAGES (dropped if
+                                        unknown / missing on disk)
+      <br>                           -> <br/>
+      Text                           -> XML-escaped passthrough
+    """
+
+    _TAG_MAP = {
+        'strong': ('<b>', '</b>'),
+        'b':      ('<b>', '</b>'),
+        'em':     ('<i>', '</i>'),
+        'i':      ('<i>', '</i>'),
+    }
+
+    def __init__(self, img_height=None):
+        super().__init__(convert_charrefs=True)
+        self._out = []
+        self._stack = []
+        self._img_height = img_height
+
+    def handle_starttag(self, tag, attrs):
+        attr_map = dict(attrs)
+        tag = tag.lower()
+        if tag == 'br':
+            self._out.append('<br/>')
+            return
+        if tag == 'img':
+            key = attr_map.get('data-forge-image')
+            if not key:
+                return
+            rendered = _inline_image_tag(key, self._img_height)
+            if rendered:
+                self._out.append(rendered)
+            return
+        if tag == 'span':
+            forge = attr_map.get('data-forge')
+            if forge == 'header':
+                self._out.append('<font name="Baskerville" size="15">')
+                self._stack.append('</font>')
+                return
+            if forge == 'luminari':
+                self._out.append('<font name="Luminari">')
+                self._stack.append('</font>')
+                return
+            self._stack.append(None)
+            return
+        mapped = self._TAG_MAP.get(tag)
+        if mapped:
+            self._out.append(mapped[0])
+            self._stack.append(mapped[1])
+            return
+        self._stack.append(None)
+
+    def handle_startendtag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in ('br', 'img'):
+            self.handle_starttag(tag, attrs)
+            return
+
+    def handle_endtag(self, tag):
+        if tag.lower() == 'br':
+            return
+        if not self._stack:
+            return
+        close = self._stack.pop()
+        if close is not None:
+            self._out.append(close)
+
+    def handle_data(self, data):
+        if data:
+            self._out.append(_xml_escape(data))
+
+    def result(self):
+        while self._stack:
+            close = self._stack.pop()
+            if close is not None:
+                self._out.append(close)
+        return ''.join(self._out)
 
 
 def format_step_markup(text):
-    """Convert semi-markdown to ReportLab Paragraph XML.
+    """Translate forge rich-text storage HTML to ReportLab Paragraph XML.
 
-    ##text## -> Baskerville 15pt (title size)
-    ~~text~~ -> Luminari (decorative font)
-    **text** -> bold
-    _text_   -> italic
-    {{ key }} -> inline image (safe fallback if no match)
+    Storage is produced by the rich-text editor's serializer (see
+    the_forge/static/the_forge/forge_richtext.js). This function parses
+    the allowlisted HTML and emits the equivalent ReportLab markup
+    (<b>/<i>/<font>/<img>/<br>) ready to be passed to a Paragraph.
     """
     if not text:
         return ""
-
-    # Escape XML special chars in the raw input
-    result = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-
-    # {{ keyword }} -> inline image (aspect-ratio preserved, fixed height)
-    result = _replace_inline_images(result)
-
-    # ##text## -> title-size font
-    result = re.sub(r"##(.+?)##", r'<font name="Baskerville" size="15">\1</font>', result)
-
-    # ~~text~~ -> Luminari (decorative)
-    result = re.sub(r"~~(.+?)~~", r'<font name="Luminari">\1</font>', result)
-
-    # Pre-pass: when two styled spans abut (no whitespace between), the
-    # serializer emits sequences like `**__` / `__**` / `__` between
-    # alphanumerics where one `_` is the close marker of the previous span
-    # and one is the open marker of the next. Insert a ZWSP between them
-    # so the regex engine sees clean boundaries; ZWSP is stripped at the
-    # end so it doesn't render.
-    result = re.sub(r"\*\*__", "**_\u200B_", result)
-    result = re.sub(r"__\*\*", "_\u200B_**", result)
-    result = re.sub(r"(?<=[A-Za-z0-9])__(?=[A-Za-z0-9])", "_\u200B_", result)
-
-    # _**text**_ or **_text_** -> bold italic (must run before the individual
-    # ** and _ rules so the combined markers aren't consumed first).
-    # Boundary `(?<!_)…(?!_)` rejects ambiguous adjacent `_` (handled by the
-    # pre-pass above) without blocking alphanumeric neighbors.
-    result = re.sub(r"(?<!_)_\*\*(.+?)\*\*_(?!_)", r"<b><i>\1</i></b>", result)
-    result = re.sub(r"\*\*_(.+?)_\*\*", r"<b><i>\1</i></b>", result)
-
-    # **text** -> bold
-    result = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", result)
-
-    # _text_ -> italic
-    result = re.sub(r"(?<!_)_(.+?)_(?!_)", r"<i>\1</i>", result)
-
-    # Strip ZWSP separators inserted in the pre-pass.
-    result = result.replace("\u200B", "")
-
-    # Newlines -> line breaks
-    result = result.replace('\n', '<br/>')
-
-    return result
+    parser = _ForgePdfSanitizer()
+    parser.feed(str(text))
+    parser.close()
+    return parser.result()
 
 
-def format_inline_images(text):
-    """Replace {{ keyword }} with inline images only — no other markup."""
+def format_inline_images(text, img_height=None):
+    """Like format_step_markup but suppresses bold/italic/header/luminari.
+
+    Used for fields whose toolbar exposes only the inline-image picker
+    (e.g. ability bodies). Allowlist for those fields is text + <img
+    data-forge-image="KEY"> + <br>; any other tags would be styling the
+    user can't have applied, but we sanitize them away defensively rather
+    than emit them.
+    """
     if not text:
         return ""
-    result = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-    result = _replace_inline_images(result)
-    result = result.replace('\n', '<br/>')
-    return result
+    parser = _ForgePdfSanitizer(img_height=img_height)
+    parser.feed(str(text))
+    parser.close()
+    return parser.result()
 
 
 def tighten_large_font_lines(para):
@@ -963,7 +1046,7 @@ class TrackFlowable(Flowable):
                 title = self.row_titles.get(row_idx, '')
                 if title:
                     slot_y = self._row_y(row_idx, grid_top_y)
-                    title_markup = format_step_markup(title)
+                    title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H)
                     para = Paragraph(title_markup, row_title_style)
                     # Wrap at slot height so text flows along the rotated axis
                     para_w, para_h = para.wrap(self._slot_size, 9999)
@@ -987,7 +1070,7 @@ class TrackFlowable(Flowable):
                 title = self.row_titles.get(row_idx, '')
                 if title:
                     slot_y = self._row_y(row_idx, grid_top_y)
-                    title_markup = format_step_markup(title)
+                    title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H)
                     para = Paragraph(title_markup, row_title_style)
                     para_w, para_h = para.wrap(self._row_title_w - 4, 9999)
                     para_y = slot_y + self._slot_size / 2 - para_h / 2
@@ -1016,7 +1099,7 @@ class TrackFlowable(Flowable):
         # Draw header title in row-title column area
         header_title = getattr(self.track, 'header_title', '') or ''
         if header_title and self._row_title_w > 0:
-            title_markup = format_step_markup(header_title)
+            title_markup = _replace_inline_images(header_title, img_height=TRACK_HEADER_ICON_H)
             if self._vertical_row_titles:
                 title_style = ParagraphStyle(
                     'TrackHeaderTitle', parent=self.body_style,

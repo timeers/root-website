@@ -19,96 +19,127 @@
   const ZWSP = '\u200B';
 
   // =====================================================================
-  // Markdown -> HTML (for hydrating the editor on init)
+  // Storage HTML allowlist
   // =====================================================================
+  // Storage format is HTML restricted to:
+  //   <strong>…</strong>          - bold
+  //   <em>…</em>                  - italic
+  //   <em><strong>…</strong></em> - bold-italic (em-outer)
+  //   <span data-forge="header">…</span>
+  //   <span data-forge="luminari">…</span>
+  //   <img data-forge-image="KEY"> - inline image (bare; src/alt/class added on hydrate)
+  //   <br>
+  //   plain text (HTML-escaped on write, unescaped by browser on hydrate)
+  // Header/luminari/bold/italic are mutually exclusive in the editor, so
+  // header/luminari never wrap or are wrapped by <strong>/<em>.
+
   function escapeHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
   }
 
-  function markdownToHtml(value) {
+  function escapeAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // =====================================================================
+  // Storage HTML -> editor HTML (hydrate on init)
+  // =====================================================================
+  // Parse the saved HTML, walk it, emit a sanitized editor-ready HTML
+  // string with src/alt/class re-attached to inline images.
+  function htmlToEditorHtml(value) {
     if (!value) return '';
-    let html = escapeHtml(String(value));
-    const images = getInlineImages();
-
-    html = html.replace(/\{\{\s*([\w-]+)\s*\}\}/g, function (m, key) {
-      const url = images[key];
-      if (!url) return m;
-      return '<img data-forge-image="' + key + '" src="' + url + '" alt="' + key + '" class="inline-icon">';
-    });
-
-    html = html.replace(/##(.+?)##/g, '<span data-forge="header">$1</span>');
-    html = html.replace(/~~(.+?)~~/g, '<span data-forge="luminari">$1</span>');
-    // Pre-pass: when two styled spans abut (no whitespace between), the
-    // serializer emits sequences like `**__` / `__**` / `__` between
-    // alphanumerics where one `_` is the close of the previous span and one
-    // is the open of the next. Insert a ZWSP between them so the regex
-    // engine sees clean boundaries. The serializer already strips ZWSP from
-    // text nodes, so this round-trips without leaking into saved markdown.
-    html = html.replace(/\*\*__/g, '**_\u200B_');
-    html = html.replace(/__\*\*/g, '_\u200B_**');
-    html = html.replace(/([A-Za-z0-9])__(?=[A-Za-z0-9])/g, '$1_\u200B_');
-    // Em-outer nesting matches the editor's own BI insertion order; this lets
-    // a later "switch to italic" (unwrap bold) preserve the surrounding em.
-    // Boundary `(?<!_)…(?!_)` rejects ambiguous adjacent `_` (handled by the
-    // pre-pass above) without blocking alphanumeric neighbors like
-    // `oneitalictwo`.
-    html = html.replace(/(?<!_)_\*\*(.+?)\*\*_(?!_)/g, '<em><strong>$1</strong></em>');
-    html = html.replace(/\*\*_(.+?)_\*\*/g, '<em><strong>$1</strong></em>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/(?<!_)_(.+?)_(?!_)/g, '<em>$1</em>');
-    html = html.replace(/\u200B/g, '');
-    html = html.replace(/\n/g, '<br>');
-    return html;
+    const tpl = document.createElement('template');
+    tpl.innerHTML = String(value);
+    return sanitizeChildrenForEditor(tpl.content);
   }
 
-  // =====================================================================
-  // DOM -> markdown (serializer; runs on every editor input)
-  // =====================================================================
-  // Hoist leading/trailing whitespace outside formatting marks so adjacent
-  // styled spans don't produce ambiguous boundaries like `_x __**y**_` —
-  // the doubled `__` collides with regex word-boundary handling in both
-  // renderers. Output `_x_ _**y**_` instead.
-  function wrapMark(inner, open, close) {
-    const m = inner.match(/^(\s*)([\s\S]*?)(\s*)$/);
-    const lead = m[1];
-    const core = m[2];
-    const trail = m[3];
-    if (!core) return inner; // whitespace-only — emit as plain text
-    return lead + open + core + close + trail;
+  function sanitizeChildrenForEditor(parent) {
+    let out = '';
+    for (let i = 0; i < parent.childNodes.length; i++) {
+      out += sanitizeNodeForEditor(parent.childNodes[i]);
+    }
+    return out;
   }
 
-  function serializeNode(node) {
+  function sanitizeNodeForEditor(node) {
     if (node.nodeType === Node.TEXT_NODE) {
-      // Strip ZWSP markers — they're caret targets, not content.
-      return (node.nodeValue || '').replace(/\u200B/g, '');
+      return escapeHtml((node.nodeValue || '').replace(/\u200B/g, ''));
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
 
     const tag = node.nodeName;
-    if (tag === 'BR') return '\n';
+    if (tag === 'BR') return '<br>';
 
     if (tag === 'IMG') {
       const key = node.getAttribute('data-forge-image');
-      if (key) return '{{ ' + key + ' }}';
-      return '';
+      if (!key) return '';
+      const url = getInlineImages()[key];
+      if (!url) return '';
+      return '<img data-forge-image="' + escapeAttr(key) + '" src="' + escapeAttr(url)
+        + '" alt="' + escapeAttr(key) + '" class="inline-icon">';
+    }
+
+    if (tag === 'SPAN') {
+      const forge = node.getAttribute('data-forge');
+      if (forge === 'header' || forge === 'luminari') {
+        const inner = sanitizeChildrenForEditor(node);
+        return inner ? '<span data-forge="' + forge + '">' + inner + '</span>' : '';
+      }
+      return sanitizeChildrenForEditor(node);
+    }
+
+    if (tag === 'STRONG' || tag === 'B') {
+      const inner = sanitizeChildrenForEditor(node);
+      return inner ? '<strong>' + inner + '</strong>' : '';
+    }
+    if (tag === 'EM' || tag === 'I') {
+      const inner = sanitizeChildrenForEditor(node);
+      return inner ? '<em>' + inner + '</em>' : '';
+    }
+
+    // DIV/P or any other unknown wrapper: emit children only (strip wrapper).
+    return sanitizeChildrenForEditor(node);
+  }
+
+  // =====================================================================
+  // Editor DOM -> storage HTML (serialize on every editor input)
+  // =====================================================================
+  function serializeNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return escapeHtml((node.nodeValue || '').replace(/\u200B/g, ''));
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+    const tag = node.nodeName;
+    if (tag === 'BR') return '<br>';
+
+    if (tag === 'IMG') {
+      const key = node.getAttribute('data-forge-image');
+      if (!key) return '';
+      // Strip src/alt/class — those are re-resolved at render time from
+      // FORGE_INLINE_IMAGES so updates to the icon map propagate without
+      // re-saving every record.
+      return '<img data-forge-image="' + escapeAttr(key) + '">';
     }
 
     const inner = serializeChildren(node);
-
     const forge = node.getAttribute && node.getAttribute('data-forge');
-    if (forge === 'header') return inner ? '##' + inner + '##' : '';
-    if (forge === 'luminari') return inner ? '~~' + inner + '~~' : '';
+    if (forge === 'header') return inner ? '<span data-forge="header">' + inner + '</span>' : '';
+    if (forge === 'luminari') return inner ? '<span data-forge="luminari">' + inner + '</span>' : '';
 
     if (tag === 'STRONG' || tag === 'B') {
       if (!inner) return '';
+      // BI normalization: if STRONG wraps a single EM child, swap to em-outer.
       if (node.childNodes.length === 1) {
         const c = node.childNodes[0];
         if (c.nodeType === Node.ELEMENT_NODE && (c.nodeName === 'EM' || c.nodeName === 'I')) {
           const ci = serializeChildren(c);
-          return ci ? wrapMark(ci, '_**', '**_') : '';
+          return ci ? '<em><strong>' + ci + '</strong></em>' : '';
         }
       }
-      return wrapMark(inner, '**', '**');
+      return '<strong>' + inner + '</strong>';
     }
     if (tag === 'EM' || tag === 'I') {
       if (!inner) return '';
@@ -116,25 +147,26 @@
         const c = node.childNodes[0];
         if (c.nodeType === Node.ELEMENT_NODE && (c.nodeName === 'STRONG' || c.nodeName === 'B')) {
           const ci = serializeChildren(c);
-          return ci ? wrapMark(ci, '_**', '**_') : '';
+          return ci ? '<em><strong>' + ci + '</strong></em>' : '';
         }
       }
-      return wrapMark(inner, '_', '_');
+      return '<em>' + inner + '</em>';
     }
 
     if (tag === 'DIV' || tag === 'P') {
-      // Browsers wrap a freshly-Enter'd line in a new <div>. Hydrated content
-      // is flat (text + <br>), so the first such DIV has no `\n` separating
-      // it from its preceding inline sibling — emit a leading newline in
-      // that case. Skip the lead when the previous sibling is itself a
-      // block (its trailing `\n` already separates them).
+      // Browsers wrap a freshly-Enter'd line in a fresh DIV. Storage is a
+      // single-line-stream HTML, so collapse blocks to inline content + a
+      // <br> separator. Emit a leading <br> only when the previous sibling
+      // exists and isn't itself a block (so consecutive DIVs don't double
+      // up; a leading inline + DIV gets the separator we'd otherwise miss).
       const prev = node.previousSibling;
       const prevIsBlock = prev && prev.nodeType === Node.ELEMENT_NODE
         && (prev.nodeName === 'DIV' || prev.nodeName === 'P');
-      const lead = prev && !prevIsBlock ? '\n' : '';
-      return lead + inner + '\n';
+      const lead = prev && !prevIsBlock ? '<br>' : '';
+      return lead + inner + '<br>';
     }
 
+    // Unknown wrapper: emit children only.
     return inner;
   }
 
@@ -148,7 +180,9 @@
 
   function serialize(editor) {
     let out = serializeChildren(editor);
-    if (out.endsWith('\n')) out = out.slice(0, -1);
+    // Drop a single trailing <br> the browser sometimes leaves in an empty
+    // contenteditable, so an empty editor saves as ''.
+    if (out.endsWith('<br>')) out = out.slice(0, -4);
     return out;
   }
 
@@ -350,7 +384,7 @@
     editor.contentEditable = 'true';
     editor.setAttribute('role', 'textbox');
     editor.setAttribute('aria-multiline', 'true');
-    editor.innerHTML = markdownToHtml(textarea.value) || '<br>';
+    editor.innerHTML = htmlToEditorHtml(textarea.value) || '<br>';
     textarea.parentNode.insertBefore(editor, textarea);
     textarea.hidden = true;
     textarea.setAttribute('aria-hidden', 'true');

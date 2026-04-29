@@ -1,4 +1,5 @@
 import re
+from html.parser import HTMLParser
 
 from django import template
 from django.utils.html import escape
@@ -79,55 +80,122 @@ def make_range(value):
         return range(0)
 
 
+_FORGE_TAG_MAP = {
+    'strong': ('<strong>', '</strong>'),
+    'b':      ('<strong>', '</strong>'),
+    'em':     ('<em>', '</em>'),
+    'i':      ('<em>', '</em>'),
+}
+
+
+class _ForgeHtmlSanitizer(HTMLParser):
+    """Sanitize forge rich-text HTML against a strict allowlist.
+
+    Allowlist:
+      <strong>/<b>                   -> <strong>
+      <em>/<i>                       -> <em>
+      <span data-forge="header">     -> <span class="forge-header">
+      <span data-forge="luminari">   -> <span class="luminari">
+      <img data-forge-image="KEY">   -> <img src=...> resolved from
+                                        FORGE_INLINE_IMAGES (dropped if KEY
+                                        unknown)
+      <br>                           -> <br>
+      Text                           -> HTML-escaped passthrough
+
+    Anything else (attributes, tags, comments) is dropped silently.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._out = []
+        # Stack of close strings to emit when matching tags close. None
+        # entries mark dropped open tags so we can pair them with their
+        # close events without emitting anything.
+        self._stack = []
+
+    def handle_starttag(self, tag, attrs):
+        attr_map = dict(attrs)
+        tag = tag.lower()
+        if tag == 'br':
+            self._out.append('<br>')
+            return
+        if tag == 'img':
+            key = attr_map.get('data-forge-image')
+            if not key:
+                return
+            url = FORGE_INLINE_IMAGES.get(key)
+            if not url:
+                return
+            self._out.append(
+                f'<img src="{escape(url)}" alt="{escape(key)}" class="inline-icon">'
+            )
+            return
+        if tag == 'span':
+            forge = attr_map.get('data-forge')
+            if forge == 'header':
+                self._out.append("<span class='forge-header'>")
+                self._stack.append('</span>')
+                return
+            if forge == 'luminari':
+                self._out.append("<span class='luminari'>")
+                self._stack.append('</span>')
+                return
+            self._stack.append(None)
+            return
+        mapped = _FORGE_TAG_MAP.get(tag)
+        if mapped:
+            self._out.append(mapped[0])
+            self._stack.append(mapped[1])
+            return
+        # Unknown tag: drop the open, but record so its close pairs cleanly.
+        self._stack.append(None)
+
+    def handle_startendtag(self, tag, attrs):
+        # Self-closing form (e.g. <br/>, <img ... />). Treat as a start tag
+        # for void elements so <br/> and <img ... /> still emit, then don't
+        # push anything to the stack.
+        tag = tag.lower()
+        if tag in ('br', 'img'):
+            self.handle_starttag(tag, attrs)
+            return
+        # Anything else self-closing is unknown: drop entirely.
+
+    def handle_endtag(self, tag):
+        if tag.lower() == 'br':
+            return
+        if not self._stack:
+            return
+        close = self._stack.pop()
+        if close is not None:
+            self._out.append(close)
+
+    def handle_data(self, data):
+        if data:
+            self._out.append(escape(data))
+
+    def result(self):
+        # Close any still-open allowlisted tags so output is well-formed.
+        while self._stack:
+            close = self._stack.pop()
+            if close is not None:
+                self._out.append(close)
+        return ''.join(self._out)
+
+
 @register.filter
 def format_forge_text(value):
-    """Render forge semi-markdown as HTML.
+    """Sanitize forge rich-text HTML for display.
 
-    Mirrors the marker set in the_forge/pdf_engine.py:format_step_markup so on-site
-    rendering matches the generated PDF:
-      ##text##    -> .forge-header (larger)
-      ~~text~~    -> .luminari (decorative font)
-      _**x**_     -> bold italic (combined form, checked before individual)
-      **text**    -> real <strong> (NOT smallcaps — forge differs from law semantics)
-      _text_      -> <em>
-      {{ key }}   -> inline <img> using FORGE_INLINE_IMAGES map
+    Storage is a strict-allowlist HTML produced by the rich-text editor's
+    serializer (see the_forge/static/the_forge/forge_richtext.js). This
+    filter parses it, drops anything outside the allowlist, and emits the
+    final HTML to render: <strong>/<em> kept as-is, <span data-forge="…">
+    rewritten to use CSS classes, and <img data-forge-image="KEY"> resolved
+    against FORGE_INLINE_IMAGES at render time.
     """
     if not value:
         return ""
-
-    html = escape(str(value))
-
-    def image_replacer(match):
-        key = match.group(1).strip()
-        url = FORGE_INLINE_IMAGES.get(key)
-        if not url:
-            return match.group(0)
-        return f'<img src="{url}" alt="{key}" class="inline-icon">'
-    html = re.sub(r"\{\{\s*([\w-]+)\s*\}\}", image_replacer, html)
-
-    html = re.sub(r"##(.+?)##", r"<span class='forge-header'>\1</span>", html)
-    html = re.sub(r"~~(.+?)~~", r"<span class='luminari'>\1</span>", html)
-
-    # Pre-pass: when two styled spans abut (no whitespace between), the
-    # serializer emits sequences like `**__` / `__**` / `__` between
-    # alphanumerics where one `_` is the close marker of the previous span
-    # and one is the open marker of the next. Insert a ZWSP between them
-    # so the regex engine sees clean boundaries; ZWSP is stripped at the
-    # end so it doesn't render.
-    html = re.sub(r"\*\*__", "**_\u200B_", html)
-    html = re.sub(r"__\*\*", "_\u200B_**", html)
-    html = re.sub(r"(?<=[A-Za-z0-9])__(?=[A-Za-z0-9])", "_\u200B_", html)
-
-    # Boundary `(?<!_)…(?!_)` rejects only adjacent `_` (would-be ambiguous
-    # abutting markers — handled by the pre-pass above) without blocking
-    # alphanumeric neighbors so `oneitalictwo` with the middle word italicized
-    # renders correctly.
-    html = re.sub(r"(?<!_)_\*\*(.+?)\*\*_(?!_)", r"<strong><em>\1</em></strong>", html)
-    html = re.sub(r"\*\*_(.+?)_\*\*", r"<strong><em>\1</em></strong>", html)
-
-    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-    html = re.sub(r"(?<!_)_(.+?)_(?!_)", r"<em>\1</em>", html)
-
-    html = html.replace("\u200B", "")
-    html = html.replace("\n", "<br>")
-    return mark_safe(html)
+    parser = _ForgeHtmlSanitizer()
+    parser.feed(str(value))
+    parser.close()
+    return mark_safe(parser.result())
