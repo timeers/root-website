@@ -91,6 +91,18 @@ def _forbid_if_not_editor(request, faction):
     return None
 
 
+def _background_preset_options():
+    return [
+        {
+            'value': value,
+            'label': label,
+            'static_path': ForgedFaction.BACKGROUND_PRESET_FILES[value],
+        }
+        for value, label in ForgedFaction.BackgroundPreset.choices
+        if value
+    ]
+
+
 # ---------- ForgedFaction CRUD ----------
 
 @login_required
@@ -113,6 +125,7 @@ def forgedfaction_create(request):
         form = ForgedFactionForm()
     return render(request, 'the_forge/forgedfaction_form.html', {
         'form': form, 'is_create': True,
+        'background_presets': _background_preset_options(),
     })
 
 
@@ -155,6 +168,7 @@ def forgedfaction_edit(request, pk):
         form = ForgedFactionForm(instance=faction)
     return render(request, 'the_forge/forgedfaction_form.html', {
         'form': form, 'is_create': False, 'faction': faction,
+        'background_presets': _background_preset_options(),
     })
 
 
@@ -184,11 +198,14 @@ def factionsheet_edit(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
+    content_boxes = list(sheet.content_boxes.all())
+    for _box in content_boxes:
+        _box.annotated_steps = _annotate_steps(_box.steps.order_by('number'))
     return render(request, 'the_forge/factionsheet_editor.html', {
         'sheet': sheet,
         'faction': sheet.faction,
         'abilities': sheet.abilities.order_by('order'),
-        'content_boxes': sheet.content_boxes.all(),
+        'content_boxes': content_boxes,
         'phase_sections': [
             ('birdsong', 'Birdsong',
              _annotate_steps(sheet.phase_steps.filter(phase='birdsong').order_by('number')),
@@ -577,6 +594,7 @@ def contentbox_add(request, sheet_pk):
     if not box.order:
         box.order = sheet.content_boxes.count() + 1
     box.save()
+    box.annotated_steps = []
     return render(request, 'the_forge/partials/content_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(),
     })
@@ -592,6 +610,7 @@ def contentbox_edit(request, pk):
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
+    box.annotated_steps = _annotate_steps(box.steps.order_by('number'))
     return render(request, 'the_forge/partials/content_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(),
     })
@@ -604,6 +623,18 @@ def contentbox_delete(request, pk):
     if (resp := _child_permission_check(request, box.sheet.faction)):
         return resp
     box.delete()
+    return HttpResponse(status=204)
+
+
+@editor_required
+@require_http_methods(["POST"])
+def contentbox_reorder(request, sheet_pk):
+    sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
+    if (resp := _child_permission_check(request, sheet.faction)):
+        return resp
+    data = json.loads(request.body)
+    for index, bid in enumerate(data.get('order', []), start=1):
+        ContentBox.objects.filter(id=bid, sheet=sheet).update(order=index)
     return HttpResponse(status=204)
 
 
@@ -620,7 +651,14 @@ def phasestep_add(request, sheet_pk):
         return HttpResponseBadRequest(str(form.errors))
     step = form.save(commit=False)
     step.sheet = sheet
-    step.number = sheet.phase_steps.filter(phase=step.phase).count() + 1
+    if step.phase != PhaseStep.PhaseChoices.OTHER:
+        step.content_box = None
+    if step.content_box and step.content_box.sheet_id != sheet.id:
+        return HttpResponseBadRequest("content_box does not belong to this sheet")
+    if step.content_box:
+        step.number = sheet.phase_steps.filter(content_box=step.content_box).count() + 1
+    else:
+        step.number = sheet.phase_steps.filter(phase=step.phase, content_box__isnull=True).count() + 1
     step.save()
     return render(request, 'the_forge/partials/phase_step_row.html', {
         'step': _annotate_step(step), 'inline_keywords': _inline_keywords(),
@@ -633,7 +671,11 @@ def phasestep_edit(request, pk):
     step = get_object_or_404(PhaseStep, pk=pk)
     if (resp := _child_permission_check(request, step.sheet.faction)):
         return resp
-    form = PhaseStepForm(request.POST, instance=step, sheet=step.sheet)
+    post = request.POST.copy()
+    post['phase'] = step.phase
+    if step.content_box_id:
+        post['content_box'] = step.content_box_id
+    form = PhaseStepForm(post, instance=step, sheet=step.sheet)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
@@ -661,6 +703,18 @@ def phasestep_reorder(request, sheet_pk, phase):
     data = json.loads(request.body)
     for index, sid in enumerate(data.get('order', []), start=1):
         PhaseStep.objects.filter(id=sid, sheet=sheet).update(number=index, phase=phase)
+    return HttpResponse(status=204)
+
+
+@editor_required
+@require_http_methods(["POST"])
+def phasestep_reorder_in_box(request, content_box_pk):
+    box = get_object_or_404(ContentBox, pk=content_box_pk)
+    if (resp := _child_permission_check(request, box.sheet.faction)):
+        return resp
+    data = json.loads(request.body)
+    for index, sid in enumerate(data.get('order', []), start=1):
+        PhaseStep.objects.filter(id=sid, content_box=box).update(number=index)
     return HttpResponse(status=204)
 
 

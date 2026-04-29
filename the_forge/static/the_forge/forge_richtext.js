@@ -30,7 +30,7 @@
     let html = escapeHtml(String(value));
     const images = getInlineImages();
 
-    html = html.replace(/\{\{\s*(\w+)\s*\}\}/g, function (m, key) {
+    html = html.replace(/\{\{\s*([\w-]+)\s*\}\}/g, function (m, key) {
       const url = images[key];
       if (!url) return m;
       return '<img data-forge-image="' + key + '" src="' + url + '" alt="' + key + '" class="inline-icon">';
@@ -38,14 +38,25 @@
 
     html = html.replace(/##(.+?)##/g, '<span data-forge="header">$1</span>');
     html = html.replace(/~~(.+?)~~/g, '<span data-forge="luminari">$1</span>');
+    // Pre-pass: when two styled spans abut (no whitespace between), the
+    // serializer emits sequences like `**__` / `__**` / `__` between
+    // alphanumerics where one `_` is the close of the previous span and one
+    // is the open of the next. Insert a ZWSP between them so the regex
+    // engine sees clean boundaries. The serializer already strips ZWSP from
+    // text nodes, so this round-trips without leaking into saved markdown.
+    html = html.replace(/\*\*__/g, '**_\u200B_');
+    html = html.replace(/__\*\*/g, '_\u200B_**');
+    html = html.replace(/([A-Za-z0-9])__(?=[A-Za-z0-9])/g, '$1_\u200B_');
     // Em-outer nesting matches the editor's own BI insertion order; this lets
     // a later "switch to italic" (unwrap bold) preserve the surrounding em.
-    // Boundary class [^A-Za-z0-9] mirrors the renderers — `_` must not block
-    // a match when adjacent (e.g. `_x __**y**_` from abutting italic/BI).
-    html = html.replace(/(?<![A-Za-z0-9])_\*\*(.+?)\*\*_(?![A-Za-z0-9])/g, '<em><strong>$1</strong></em>');
+    // Boundary `(?<!_)…(?!_)` rejects ambiguous adjacent `_` (handled by the
+    // pre-pass above) without blocking alphanumeric neighbors like
+    // `oneitalictwo`.
+    html = html.replace(/(?<!_)_\*\*(.+?)\*\*_(?!_)/g, '<em><strong>$1</strong></em>');
     html = html.replace(/\*\*_(.+?)_\*\*/g, '<em><strong>$1</strong></em>');
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/(?<![A-Za-z0-9])_(.+?)_(?![A-Za-z0-9])/g, '<em>$1</em>');
+    html = html.replace(/(?<!_)_(.+?)_(?!_)/g, '<em>$1</em>');
+    html = html.replace(/\u200B/g, '');
     html = html.replace(/\n/g, '<br>');
     return html;
   }
@@ -112,7 +123,16 @@
     }
 
     if (tag === 'DIV' || tag === 'P') {
-      return inner + '\n';
+      // Browsers wrap a freshly-Enter'd line in a new <div>. Hydrated content
+      // is flat (text + <br>), so the first such DIV has no `\n` separating
+      // it from its preceding inline sibling — emit a leading newline in
+      // that case. Skip the lead when the previous sibling is itself a
+      // block (its trailing `\n` already separates them).
+      const prev = node.previousSibling;
+      const prevIsBlock = prev && prev.nodeType === Node.ELEMENT_NODE
+        && (prev.nodeName === 'DIV' || prev.nodeName === 'P');
+      const lead = prev && !prevIsBlock ? '\n' : '';
+      return lead + inner + '\n';
     }
 
     return inner;

@@ -214,6 +214,23 @@
   color: #000;
 }
 
+.phase-step-row > .flex-grow-1 {
+  min-width: 0;
+}
+.phase-step-row > .flex-grow-1 > form[data-dirty-form] [data-save-btn] {
+  display: none;
+}
+.phase-step-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.phase-step-row.is-dirty > .flex-grow-1 > form[data-dirty-form] [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+
 .ability-grip {
   cursor: grab;
   user-select: none;
@@ -293,6 +310,39 @@
   line-height: 1;
   min-width: 1.25rem;
   text-align: right;
+}
+
+.content-box-row > .d-flex > form.flex-grow-1 {
+  min-width: 0;
+}
+.content-box-row > .d-flex form[data-dirty-form] [data-save-btn] {
+  display: none;
+}
+.content-box-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.content-box-row.is-dirty > .d-flex form[data-dirty-form] [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+.content-box-grip {
+  cursor: grab;
+  user-select: none;
+  color: #888;
+}
+.content-box-grip:hover {
+  color: #333;
+}
+.sortable-chosen .content-box-grip {
+  cursor: grabbing;
+}
+.content-box-section-label {
+  font-size: 1.1rem;
+  white-space: nowrap;
+  color: #444;
 }
 
 /* Sheet flavor text — modern field, Baskerville italic, dirty highlight */
@@ -497,4 +547,130 @@
 }
 .autosave-status.is-error {
   color: #c0392b;
+}
+
+/* ---------- Forged Faction edit form ---------- */
+.forge-faction-title-input {
+  font-family: 'Luminari', serif;
+  font-size: 2rem;
+  line-height: 1.2;
+  padding: 0.55rem 0.85rem;
+  border-width: 2px;
+}
+
+.forge-color-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.forge-color-row input[type="color"].forge-color-swatch {
+  width: 3.25rem;
+  height: 3.25rem;
+  padding: 0.2rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+.forge-color-hex {
+  width: 9rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: lowercase;
+}
+.forge-color-hex.is-invalid {
+  border-color: #c0392b;
+}
+
+.forge-bg-mode-toggle .btn {
+  min-width: 7rem;
+}
+
+.forge-bg-pair {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: nowrap;
+}
+@media (max-width: 575.98px) {
+  .forge-bg-pair { flex-wrap: wrap; }
+}
+.forge-bg-pair-item {
+  margin: 0;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 360px;
+  text-align: center;
+}
+.forge-bg-pair-item figcaption {
+  margin-top: 0.4rem;
+  font-family: 'Luminari', serif;
+  font-size: 0.95rem;
+  color: #555;
+}
+.forge-bg-rect {
+  width: 100%;
+  aspect-ratio: 11 / 8.5;
+  border: 1px solid #ced4da;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+/* Mirrors BACK_BG_SCREEN_OPACITY = 0.70 in pdf_engine.py — white screen over the back. */
+.forge-bg-rect-back::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.70);
+  pointer-events: none;
+}
+
+.forge-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+.forge-preset-tile {
+  position: relative;
+  cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  background: #f3f3f3;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+.forge-preset-tile:hover {
+  transform: translateY(-1px);
+  border-color: #adb5bd;
+}
+.forge-preset-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.forge-preset-tile .label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+  text-align: center;
+  font-family: 'Luminari', serif;
+  letter-spacing: 0.02em;
+}
+.forge-preset-tile.is-selected {
+  border-color: #28a745;
+  box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.25);
+}
+.forge-preset-tile:focus-visible {
+  outline: none;
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
 }

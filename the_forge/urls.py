@@ -51,8 +51,10 @@ urlpatterns = [
 
     # ContentBox (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/content-box/add/', views.contentbox_add, name='forge-contentbox-add'),
+    path('hx/forge/sheet/<int:sheet_pk>/content-box/reorder/', views.contentbox_reorder, name='forge-contentbox-reorder'),
     path('hx/forge/content-box/<int:pk>/edit/', views.contentbox_edit, name='forge-contentbox-edit'),
     path('hx/forge/content-box/<int:pk>/delete/', views.contentbox_delete, name='forge-contentbox-delete'),
+    path('hx/forge/content-box/<int:content_box_pk>/steps/reorder/', views.phasestep_reorder_in_box, name='forge-contentbox-step-reorder'),
 
     # PhaseStep (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/phase-step/add/', views.phasestep_add, name='forge-phasestep-add'),

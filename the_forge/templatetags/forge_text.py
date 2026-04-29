@@ -11,9 +11,18 @@ register = template.Library()
 
 @register.filter
 def dict_get(d, key):
-    """Lookup `key` in a dict-like value. Returns empty string if missing."""
+    """Lookup `key` in a dict-like value, or by integer index in a list/tuple.
+
+    Returns empty string if missing. Used so templates can do
+    `{{ mapping|dict_get:key }}` or `{{ list|dict_get:i }}`.
+    """
     if d is None:
         return ''
+    if isinstance(d, (list, tuple)):
+        try:
+            return d[int(key)]
+        except (IndexError, ValueError, TypeError):
+            return ''
     try:
         return d.get(key, '')
     except AttributeError:
@@ -42,6 +51,35 @@ def split(value, delimiter=","):
 
 
 @register.filter
+def padded_pipe_split(value, length):
+    """Split a pipe-delimited string and pad/truncate to exactly `length` items."""
+    parts = (value or '').split('|') if value else []
+    return [parts[i] if i < len(parts) else '' for i in range(int(length))]
+
+
+@register.filter
+def divider_index_set(value):
+    """Parse a comma-separated string of column indices into a set of ints."""
+    out = set()
+    if not value:
+        return out
+    for s in str(value).split(','):
+        s = s.strip()
+        if s.isdigit():
+            out.add(int(s))
+    return out
+
+
+@register.filter
+def make_range(value):
+    """Return range(int(value)) — for `{% for i in track.num_columns|make_range %}`."""
+    try:
+        return range(int(value))
+    except (TypeError, ValueError):
+        return range(0)
+
+
+@register.filter
 def format_forge_text(value):
     """Render forge semi-markdown as HTML.
 
@@ -65,20 +103,31 @@ def format_forge_text(value):
         if not url:
             return match.group(0)
         return f'<img src="{url}" alt="{key}" class="inline-icon">'
-    html = re.sub(r"\{\{\s*(\w+)\s*\}\}", image_replacer, html)
+    html = re.sub(r"\{\{\s*([\w-]+)\s*\}\}", image_replacer, html)
 
     html = re.sub(r"##(.+?)##", r"<span class='forge-header'>\1</span>", html)
     html = re.sub(r"~~(.+?)~~", r"<span class='luminari'>\1</span>", html)
 
-    # Boundary classes use [^A-Za-z0-9] (not \w) so that an adjacent `_` —
-    # which can appear when two italic/BI spans abut after serialization —
-    # doesn't suppress the match. \w treats `_` as a word char, which broke
-    # parsing of `_x __**y**_` style sequences.
-    html = re.sub(r"(?<![A-Za-z0-9])_\*\*(.+?)\*\*_(?![A-Za-z0-9])", r"<strong><em>\1</em></strong>", html)
+    # Pre-pass: when two styled spans abut (no whitespace between), the
+    # serializer emits sequences like `**__` / `__**` / `__` between
+    # alphanumerics where one `_` is the close marker of the previous span
+    # and one is the open marker of the next. Insert a ZWSP between them
+    # so the regex engine sees clean boundaries; ZWSP is stripped at the
+    # end so it doesn't render.
+    html = re.sub(r"\*\*__", "**_\u200B_", html)
+    html = re.sub(r"__\*\*", "_\u200B_**", html)
+    html = re.sub(r"(?<=[A-Za-z0-9])__(?=[A-Za-z0-9])", "_\u200B_", html)
+
+    # Boundary `(?<!_)…(?!_)` rejects only adjacent `_` (would-be ambiguous
+    # abutting markers — handled by the pre-pass above) without blocking
+    # alphanumeric neighbors so `oneitalictwo` with the middle word italicized
+    # renders correctly.
+    html = re.sub(r"(?<!_)_\*\*(.+?)\*\*_(?!_)", r"<strong><em>\1</em></strong>", html)
     html = re.sub(r"\*\*_(.+?)_\*\*", r"<strong><em>\1</em></strong>", html)
 
     html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-    html = re.sub(r"(?<![A-Za-z0-9])_(.+?)_(?![A-Za-z0-9])", r"<em>\1</em>", html)
+    html = re.sub(r"(?<!_)_(.+?)_(?!_)", r"<em>\1</em>", html)
 
+    html = html.replace("\u200B", "")
     html = html.replace("\n", "<br>")
     return mark_safe(html)

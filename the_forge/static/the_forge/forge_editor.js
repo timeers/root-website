@@ -447,7 +447,7 @@
   const slotModal = document.getElementById('forge-slot-modal');
   let slotModalState = null;
 
-  function openSlotModal({ trackId, row, col, content, rowTitle, bgUrl }) {
+  function openSlotModal({ trackId, row, col, content, bgUrl }) {
     if (!slotModal) return;
     slotModalState = { trackId, row, col };
     slotModal.querySelector('#forge-slot-modal-title').textContent = `Edit slot (row ${row}, col ${col})`;
@@ -455,9 +455,6 @@
     tray.innerHTML = '';
     const keywords = (content || '').split('|').map(k => k.trim()).filter(Boolean);
     keywords.forEach(k => addTrayItem(k));
-    slotModal.querySelector('[data-slot-row-title-input]').value = rowTitle || '';
-    const wrap = slotModal.querySelector('[data-slot-row-title-wrap]');
-    if (wrap) wrap.style.display = (parseInt(col, 10) === 0) ? '' : 'none';
     const bgInput = slotModal.querySelector('[data-slot-bg-input]');
     if (bgInput) bgInput.value = '';
     const bgClear = slotModal.querySelector('[data-slot-bg-clear]');
@@ -523,7 +520,6 @@
         row: cell.dataset.row,
         col: cell.dataset.col,
         content: cell.dataset.content,
-        rowTitle: cell.dataset.rowTitle,
         bgUrl: cell.dataset.bgUrl,
       });
       return;
@@ -597,9 +593,615 @@
     closeSlotModal();
   });
 
+  // ---------- Cardboard track editor ----------
+  // Inputs around the grid (column headers above each column, row titles to the
+  // left of each row, dividers between columns, +/- ghost rows/cols) are pure
+  // DOM — they get serialised into the track form's hidden fields on submit.
+  function trackEditorMarkDirty(form) {
+    form.closest('[data-row]')?.classList.add('is-dirty');
+  }
+
+  function trackEditorSerialise(form) {
+    const cols = parseInt(form.querySelector('[data-track-num-columns]').value, 10) || 1;
+    const rows = parseInt(form.querySelector('[data-track-num-rows]').value, 10) || 1;
+
+    const headerVals = Array.from({ length: cols }, (_, i) => {
+      const el = form.querySelector(`input[data-col-header="${i}"]`)
+        || form.querySelector(`[data-col-header="${i}"]`);
+      return el ? (el.value !== undefined ? el.value : '') : '';
+    });
+    const anyHeader = headerVals.some(v => v !== '');
+    form.querySelector('[data-track-column-headers]').value = anyHeader ? headerVals.join('|') : '';
+
+    const titleVals = Array.from({ length: rows }, (_, i) => {
+      const el = form.querySelector(`input[data-row-title="${i}"]`)
+        || form.querySelector(`[data-row-title="${i}"]`);
+      return el ? (el.value !== undefined ? el.value : '') : '';
+    });
+    const anyTitle = titleVals.some(v => v !== '');
+    form.querySelector('[data-track-row-titles]').value = anyTitle ? titleVals.join('|') : '';
+
+    const dividerCols = [];
+    form.querySelectorAll('.track-editor__divider.is-active').forEach(d => {
+      const c = parseInt(d.dataset.dividerCol, 10);
+      if (!Number.isNaN(c) && c < cols - 1) dividerCols.push(c);
+    });
+    form.querySelector('[data-track-column-dividers]').value = dividerCols.join(',');
+  }
+
+  function trackEditorAddColumn(form) {
+    const numColInput = form.querySelector('[data-track-num-columns]');
+    const oldCount = parseInt(numColInput.value, 10) || 0;
+    const newIdx = oldCount;
+    numColInput.value = oldCount + 1;
+
+    const headerCells = form.querySelector('[data-track-header-cells]');
+    if (oldCount > 0) {
+      const spacer = document.createElement('button');
+      spacer.type = 'button';
+      spacer.className = 'track-editor__divider-spacer';
+      spacer.dataset.dividerSpacer = newIdx - 1;
+      spacer.title = `Toggle divider after column ${newIdx - 1}`;
+      spacer.setAttribute('aria-label', `Toggle divider after column ${newIdx - 1}`);
+      headerCells.appendChild(spacer);
+    }
+    const headerInput = document.createElement('input');
+    headerInput.type = 'text';
+    headerInput.className = 'form-control form-control-sm track-editor__col-header track-editor__col-header--ghost';
+    headerInput.dataset.colHeader = newIdx;
+    headerInput.dataset.trackImageInput = '';
+    headerInput.disabled = true;
+    headerInput.dataset.ghost = '1';
+    headerCells.appendChild(headerInput);
+
+    const grid = form.querySelector('.track-editor__grid');
+    const trackType = grid.classList.contains('track-grid--token') ? 'token' : 'building';
+    grid.querySelectorAll('[data-grid-row]').forEach(rowEl => {
+      const r = rowEl.dataset.gridRow;
+      // If row already has a divider before the new column position, leave it.
+      if (oldCount > 0) {
+        const lastChild = rowEl.lastElementChild;
+        const beforeNewCol = lastChild && lastChild.matches('.track-cell') ? lastChild : null;
+        if (beforeNewCol) {
+          const div = document.createElement('button');
+          div.type = 'button';
+          div.className = 'track-editor__divider track-editor__divider--ghost';
+          div.dataset.dividerCol = newIdx - 1;
+          div.dataset.ghost = '1';
+          div.disabled = true;
+          rowEl.appendChild(div);
+        }
+      }
+      const ghost = document.createElement('span');
+      ghost.className = `track-cell track-cell--${trackType} track-cell--ghost`;
+      ghost.dataset.ghost = '1';
+      ghost.dataset.row = r;
+      ghost.dataset.col = newIdx;
+      rowEl.appendChild(ghost);
+    });
+
+    form.querySelector('.track-editor').style.setProperty('--track-cols', String(oldCount + 1));
+  }
+
+  function trackEditorRemoveColumn(form) {
+    const numColInput = form.querySelector('[data-track-num-columns]');
+    const oldCount = parseInt(numColInput.value, 10) || 0;
+    if (oldCount <= 1) return;
+
+    // Always remove the highest column to keep indices stable for remaining cells.
+    const removeIdx = oldCount - 1;
+    numColInput.value = oldCount - 1;
+
+    form.querySelector(`[data-col-header="${removeIdx}"]`)?.remove();
+    form.querySelectorAll(`[data-track-header-cells] [data-divider-spacer="${removeIdx - 1}"]`).forEach(s => s.remove());
+    form.querySelectorAll('.track-editor__grid [data-grid-row]').forEach(rowEl => {
+      // Remove last cell + the divider before it (if any).
+      const last = rowEl.lastElementChild;
+      if (last) last.remove();
+      const newLast = rowEl.lastElementChild;
+      if (newLast && newLast.classList.contains('track-editor__divider')) newLast.remove();
+    });
+    form.querySelector('.track-editor').style.setProperty('--track-cols', String(oldCount - 1));
+  }
+
+  function trackEditorAddRow(form) {
+    const numRowInput = form.querySelector('[data-track-num-rows]');
+    const oldCount = parseInt(numRowInput.value, 10) || 0;
+    const newIdx = oldCount;
+    numRowInput.value = oldCount + 1;
+    const cols = parseInt(form.querySelector('[data-track-num-columns]').value, 10) || 1;
+
+    const rowTitleCol = form.querySelector('[data-track-row-title-col]');
+    const rtInput = document.createElement('input');
+    rtInput.type = 'text';
+    rtInput.className = 'form-control form-control-sm track-editor__row-title track-editor__row-title--ghost';
+    rtInput.dataset.rowTitle = newIdx;
+    rtInput.dataset.trackImageInput = '';
+    rtInput.disabled = true;
+    rtInput.dataset.ghost = '1';
+    rowTitleCol.appendChild(rtInput);
+
+    const grid = form.querySelector('.track-editor__grid');
+    const trackType = grid.classList.contains('track-grid--token') ? 'token' : 'building';
+    const rowEl = document.createElement('div');
+    rowEl.className = 'track-editor__grid-row';
+    rowEl.dataset.gridRow = newIdx;
+    rowEl.dataset.ghost = '1';
+    // Mirror dividers from previous row positions so the layout stays consistent.
+    const dividerCols = new Set();
+    form.querySelectorAll('.track-editor__divider.is-active').forEach(d => {
+      const c = parseInt(d.dataset.dividerCol, 10);
+      if (!Number.isNaN(c)) dividerCols.add(c);
+    });
+    for (let c = 0; c < cols; c++) {
+      const ghost = document.createElement('span');
+      ghost.className = `track-cell track-cell--${trackType} track-cell--ghost`;
+      ghost.dataset.ghost = '1';
+      ghost.dataset.row = newIdx;
+      ghost.dataset.col = c;
+      rowEl.appendChild(ghost);
+      if (c < cols - 1) {
+        const div = document.createElement('button');
+        div.type = 'button';
+        div.className = 'track-editor__divider track-editor__divider--ghost';
+        div.dataset.dividerCol = c;
+        if (dividerCols.has(c)) div.classList.add('is-active');
+        div.dataset.ghost = '1';
+        div.disabled = true;
+        rowEl.appendChild(div);
+      }
+    }
+    grid.appendChild(rowEl);
+  }
+
+  function trackEditorRemoveRow(form) {
+    const numRowInput = form.querySelector('[data-track-num-rows]');
+    const oldCount = parseInt(numRowInput.value, 10) || 0;
+    if (oldCount <= 1) return;
+    const removeIdx = oldCount - 1;
+    numRowInput.value = oldCount - 1;
+    form.querySelector(`[data-row-title="${removeIdx}"]`)?.remove();
+    form.querySelector(`.track-editor__grid [data-grid-row="${removeIdx}"]`)?.remove();
+  }
+
+  document.addEventListener('click', (ev) => {
+    const editor = ev.target.closest('[data-track-editor]');
+    if (!editor) return;
+
+    if (ev.target.closest('[data-track-add-col]')) {
+      ev.preventDefault();
+      trackEditorAddColumn(editor);
+      trackEditorMarkDirty(editor);
+      return;
+    }
+    if (ev.target.closest('[data-track-add-row]')) {
+      ev.preventDefault();
+      trackEditorAddRow(editor);
+      trackEditorMarkDirty(editor);
+      return;
+    }
+    const removeColBtn = ev.target.closest('[data-track-remove-col]');
+    if (removeColBtn && !removeColBtn.disabled) {
+      ev.preventDefault();
+      trackEditorRemoveColumn(editor);
+      trackEditorMarkDirty(editor);
+      return;
+    }
+    const removeRowBtn = ev.target.closest('[data-track-remove-row]');
+    if (removeRowBtn && !removeRowBtn.disabled) {
+      ev.preventDefault();
+      trackEditorRemoveRow(editor);
+      trackEditorMarkDirty(editor);
+      return;
+    }
+    const spacerBtn = ev.target.closest('.track-editor__divider-spacer');
+    if (spacerBtn) {
+      ev.preventDefault();
+      const colIdx = spacerBtn.dataset.dividerSpacer;
+      const target = !spacerBtn.classList.contains('is-active');
+      editor.querySelectorAll(`.track-editor__divider[data-divider-col="${colIdx}"]`).forEach(d => {
+        d.classList.toggle('is-active', target);
+      });
+      editor.querySelectorAll(`.track-editor__divider-spacer[data-divider-spacer="${colIdx}"]`).forEach(s => {
+        s.classList.toggle('is-active', target);
+      });
+      trackEditorMarkDirty(editor);
+      return;
+    }
+    const dividerBtn = ev.target.closest('.track-editor__divider');
+    if (dividerBtn && !dividerBtn.disabled) {
+      ev.preventDefault();
+      const colIdx = dividerBtn.dataset.dividerCol;
+      const target = !dividerBtn.classList.contains('is-active');
+      editor.querySelectorAll(`.track-editor__divider[data-divider-col="${colIdx}"]`).forEach(d => {
+        d.classList.toggle('is-active', target);
+      });
+      editor.querySelectorAll(`.track-editor__divider-spacer[data-divider-spacer="${colIdx}"]`).forEach(s => {
+        s.classList.toggle('is-active', target);
+      });
+      trackEditorMarkDirty(editor);
+    }
+  });
+
+  // Header position toggle: just update the hidden field and a CSS class so CSS
+  // re-orders the header strip via flex/grid `order`.
+  document.addEventListener('change', (ev) => {
+    if (ev.target.matches('[data-header-pos-toggle] [name="header_position_ui"]')) {
+      const editor = ev.target.closest('[data-track-editor]');
+      if (!editor) return;
+      const value = ev.target.value;
+      editor.querySelector('[data-track-header-position]').value = value;
+      const root = editor.querySelector('.track-editor');
+      root.classList.remove('track-editor--hp-above', 'track-editor--hp-below');
+      root.classList.add(`track-editor--hp-${value}`);
+      trackEditorMarkDirty(editor);
+      return;
+    }
+    if (ev.target.matches('[data-rt-orientation-toggle] [name="rt_orient_ui"]')) {
+      const editor = ev.target.closest('[data-track-editor]');
+      if (!editor) return;
+      const value = ev.target.value;
+      editor.querySelector('[data-track-row-title-orientation]').value = value;
+      const root = editor.querySelector('.track-editor');
+      root.classList.remove('track-editor--rt-horizontal', 'track-editor--rt-vertical');
+      root.classList.add(`track-editor--rt-${value}`);
+      trackEditorMarkDirty(editor);
+    }
+  });
+
+  // ---------- Inline icon picker ----------
+  // Each [data-track-image-input] gets a contenteditable mounted in front of it
+  // so picker-inserted icons render as real <img>. The original <input> stays
+  // as the form's source of truth (hidden, kept in sync). On disk and over the
+  // wire we still use `{{ key }}` tokens so the PDF engine and the
+  // format_forge_text filter work unchanged.
+
+  let INLINE_IMAGES_CACHE = null;
+  function getInlineImagesMap() {
+    if (INLINE_IMAGES_CACHE !== null) return INLINE_IMAGES_CACHE;
+    const node = document.getElementById('forge-inline-images');
+    let parsed = {};
+    try { parsed = node ? JSON.parse(node.textContent) : {}; }
+    catch (e) { parsed = {}; }
+    // Be defensive: json_script can produce "", null, or a non-object if the
+    // view didn't pass the map. Fall back to scraping the picker buttons,
+    // which carry both the key and the image URL on them.
+    if (!parsed || typeof parsed !== 'object') parsed = {};
+    if (!Object.keys(parsed).length) {
+      document.querySelectorAll('.forge-icon-picker__btn').forEach((btn) => {
+        const k = btn.dataset.iconKey;
+        const img = btn.querySelector('img');
+        if (k && img && img.src) parsed[k] = img.src;
+      });
+    }
+    INLINE_IMAGES_CACHE = parsed;
+    return INLINE_IMAGES_CACHE;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function tokensToHtml(value) {
+    if (!value) return '';
+    const images = getInlineImagesMap();
+    return escapeHtml(value).replace(/\{\{\s*([\w-]+)\s*\}\}/g, (m, key) => {
+      const url = images[key];
+      if (!url) return m;
+      return '<img data-forge-image="' + escapeHtml(key) + '" src="' + escapeHtml(url) +
+        '" alt="' + escapeHtml(key) + '" class="inline-icon">';
+    });
+  }
+
+  function htmlToTokens(root) {
+    let out = '';
+    function walk(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        out += (node.nodeValue || '').replace(/\u200B/g, '');
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node.nodeName === 'IMG') {
+        const key = node.getAttribute('data-forge-image');
+        if (key) out += '{{ ' + key + ' }}';
+        return;
+      }
+      // Enter/<br>/<div> shouldn't reach here (Enter is blocked) but be safe.
+      if (node.nodeName === 'BR') return;
+      for (const c of node.childNodes) walk(c);
+    }
+    for (const c of root.childNodes) walk(c);
+    return out;
+  }
+
+  function insertPlainTextAtCaret(text) {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    const after = document.createRange();
+    after.setStartAfter(node);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+  }
+
+  // Per-form picker state: which contenteditable is active, the saved range
+  // for caret restore, and whether the visualViewport listener is attached.
+  const pickerState = new WeakMap(); // form -> { activeEditor, savedRange, vvHandler }
+
+  function getPickerState(form) {
+    let st = pickerState.get(form);
+    if (!st) { st = { activeEditor: null, savedRange: null, vvHandler: null }; pickerState.set(form, st); }
+    return st;
+  }
+
+  function isMobileLike() {
+    return (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || window.innerWidth < 768;
+  }
+
+  function positionPicker(form, picker, editor) {
+    const mobile = isMobileLike();
+    picker.classList.toggle('forge-icon-picker--keyboard', mobile);
+    if (mobile) {
+      // Pinned to bottom of visualViewport. Initial bottom = 0; viewport
+      // listener fine-tunes when the soft keyboard opens.
+      picker.style.position = 'fixed';
+      picker.style.left = '0';
+      picker.style.right = '0';
+      picker.style.top = 'auto';
+      picker.style.bottom = '0';
+      attachViewportListener(form, picker);
+    } else {
+      detachViewportListener(form);
+      const rect = editor.getBoundingClientRect();
+      const formRect = form.getBoundingClientRect();
+      // Position relative to the form (form must be position: relative; CSS sets that).
+      const top = (rect.bottom - formRect.top) + 4;
+      let left = rect.left - formRect.left;
+      // Clamp so the popover doesn't escape the form's right edge.
+      const panel = picker.querySelector('.forge-icon-picker__panel');
+      const panelW = panel ? panel.offsetWidth || 280 : 280;
+      const maxLeft = formRect.width - panelW - 4;
+      if (left > maxLeft) left = Math.max(4, maxLeft);
+      if (left < 4) left = 4;
+      picker.style.position = 'absolute';
+      picker.style.top = top + 'px';
+      picker.style.left = left + 'px';
+      picker.style.right = '';
+      picker.style.bottom = '';
+    }
+  }
+
+  function attachViewportListener(form, picker) {
+    const st = getPickerState(form);
+    if (st.vvHandler || !window.visualViewport) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const vv = window.visualViewport;
+      const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      picker.style.bottom = offset + 'px';
+    };
+    st.vvHandler = () => { if (!raf) raf = requestAnimationFrame(update); };
+    window.visualViewport.addEventListener('resize', st.vvHandler);
+    window.visualViewport.addEventListener('scroll', st.vvHandler);
+    update();
+  }
+
+  function detachViewportListener(form) {
+    const st = getPickerState(form);
+    if (!st.vvHandler || !window.visualViewport) return;
+    window.visualViewport.removeEventListener('resize', st.vvHandler);
+    window.visualViewport.removeEventListener('scroll', st.vvHandler);
+    st.vvHandler = null;
+  }
+
+  function showPicker(form, editor) {
+    const picker = form.querySelector('[data-forge-icon-picker]');
+    if (!picker) return;
+    const st = getPickerState(form);
+    st.activeEditor = editor;
+    picker.hidden = false;
+    positionPicker(form, picker, editor);
+  }
+
+  function hidePicker(form) {
+    const picker = form.querySelector('[data-forge-icon-picker]');
+    if (!picker) return;
+    picker.hidden = true;
+    detachViewportListener(form);
+    const st = getPickerState(form);
+    st.activeEditor = null;
+    st.savedRange = null;
+  }
+
+  function syncEditorToInput(editor, input) {
+    const next = htmlToTokens(editor);
+    if (input.value !== next) {
+      input.value = next;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  function initForgeIconInput(input) {
+    if (input.dataset.forgeIconInit === '1') return;
+    if (input.disabled || input.dataset.ghost) return;
+    input.dataset.forgeIconInit = '1';
+
+    const editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    editor.className = input.className + ' forge-icon-input';
+    editor.setAttribute('role', 'textbox');
+    editor.setAttribute('aria-label', input.getAttribute('aria-label') || input.name || '');
+    editor.dataset.forgeIconEditor = '1';
+    // Mirror the data-* attributes that other JS (e.g. trackEditorSerialise)
+    // queries — col-header, row-title, track-header-title, track-image-input.
+    if (input.dataset.colHeader !== undefined) editor.dataset.colHeader = input.dataset.colHeader;
+    if (input.dataset.rowTitle !== undefined) editor.dataset.rowTitle = input.dataset.rowTitle;
+    if (input.dataset.trackHeaderTitle !== undefined) editor.dataset.trackHeaderTitle = input.dataset.trackHeaderTitle;
+    editor.dataset.trackImageInput = '';
+    editor.innerHTML = tokensToHtml(input.value);
+
+    input.parentNode.insertBefore(editor, input);
+    input.type = 'hidden';
+    input.removeAttribute('data-track-image-input');
+    // Keep a back-pointer so the editor's input handler can find its hidden input.
+    editor._forgeHiddenInput = input;
+
+    // Block Enter — these are single-line fields. Allow form submit on Enter
+    // by blurring; the existing dirty-form save flow takes over from there.
+    editor.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        editor.blur();
+      } else if (ev.key === 'Escape') {
+        const form = editor.closest('form[data-track-editor]');
+        if (form) hidePicker(form);
+        editor.blur();
+      }
+    });
+
+    editor.addEventListener('paste', (ev) => {
+      ev.preventDefault();
+      const text = (ev.clipboardData || window.clipboardData).getData('text/plain') || '';
+      // Single-line: collapse newlines to spaces.
+      insertPlainTextAtCaret(text.replace(/\r?\n/g, ' '));
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    editor.addEventListener('input', () => {
+      syncEditorToInput(editor, input);
+    });
+  }
+
+  // selectionchange runs at the document level — capture the savedRange for
+  // the active editor so picker clicks can restore it.
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    let node = range.startContainer;
+    while (node && node.nodeType !== Node.ELEMENT_NODE) node = node.parentNode;
+    const editor = node && node.closest && node.closest('[data-forge-icon-editor="1"]');
+    if (!editor) return;
+    const form = editor.closest('form[data-track-editor]');
+    if (!form) return;
+    const st = getPickerState(form);
+    if (st.activeEditor === editor) st.savedRange = range.cloneRange();
+  });
+
+  document.addEventListener('focusin', (ev) => {
+    const editor = ev.target.closest('[data-forge-icon-editor="1"]');
+    if (!editor) return;
+    const form = editor.closest('form[data-track-editor]');
+    if (!form) return;
+    showPicker(form, editor);
+  });
+
+  document.addEventListener('focusout', (ev) => {
+    const editor = ev.target.closest('[data-forge-icon-editor="1"]');
+    if (!editor) return;
+    const form = editor.closest('form[data-track-editor]');
+    if (!form) return;
+    // Defer so a click moving focus into the picker (or another editor) doesn't
+    // close it. If after the tick neither the picker nor another editor has focus,
+    // hide the picker.
+    setTimeout(() => {
+      const active = document.activeElement;
+      if (active && active.closest && active.closest('[data-forge-icon-picker]')) return;
+      const otherEditor = active && active.closest && active.closest('[data-forge-icon-editor="1"]');
+      if (otherEditor && otherEditor.closest('form[data-track-editor]') === form) return;
+      hidePicker(form);
+    }, 0);
+  });
+
+  // Picker buttons: keep focus on the editor (no blur), insert at savedRange.
+  document.addEventListener('mousedown', (ev) => {
+    const picker = ev.target.closest('[data-forge-icon-picker]');
+    if (picker) ev.preventDefault();
+  });
+  document.addEventListener('touchstart', (ev) => {
+    const picker = ev.target.closest('[data-forge-icon-picker]');
+    if (picker) ev.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.forge-icon-picker__btn');
+    if (!btn) return;
+    ev.preventDefault();
+    const form = btn.closest('form[data-track-editor]');
+    if (!form) return;
+    const st = getPickerState(form);
+    const editor = st.activeEditor;
+    if (!editor) return;
+    const key = btn.dataset.iconKey;
+    const url = getInlineImagesMap()[key];
+    if (!url) return;
+
+    // Restore caret if it drifted out (focus was momentarily on the button).
+    let range = st.savedRange;
+    if (!range || !editor.contains(range.startContainer) || !editor.contains(range.endContainer)) {
+      range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    }
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const img = document.createElement('img');
+    img.setAttribute('data-forge-image', key);
+    img.src = url;
+    img.alt = key;
+    img.className = 'inline-icon';
+    range.deleteContents();
+    range.insertNode(img);
+    const after = document.createRange();
+    after.setStartAfter(img);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+    st.savedRange = after.cloneRange();
+    editor.focus();
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  function initIconInputsIn(root) {
+    (root || document).querySelectorAll('[data-track-image-input]').forEach(initForgeIconInput);
+  }
+
+  // Re-init when a row gets replaced after save (event dispatched by the
+  // inline-edit submit handler above). Also re-init on the new row whenever
+  // ghosts are promoted to real inputs. Avoid a document-wide MutationObserver
+  // — picker-driven DOM mutations would re-fire it on every keystroke.
+  document.addEventListener('forge:row-replaced', (ev) => {
+    const row = ev.detail && ev.detail.row;
+    if (row) initIconInputsIn(row);
+  });
+
+  // Reposition desktop popover on window resize / scroll.
+  window.addEventListener('resize', () => {
+    document.querySelectorAll('[data-forge-icon-picker]:not([hidden])').forEach((p) => {
+      const form = p.closest('form[data-track-editor]');
+      const st = form && pickerState.get(form);
+      if (form && st && st.activeEditor) positionPicker(form, p, st.activeEditor);
+    });
+  });
+
+  // Serialise per-cell inputs into hidden track fields right before submit.
+  document.addEventListener('submit', (ev) => {
+    const form = ev.target.closest('form[data-track-editor]');
+    if (form) trackEditorSerialise(form);
+  }, true);
+
   function initAll() {
     document.querySelectorAll('form[data-add-url]').forEach(bindAddForm);
     initStepSortables(document);
+    initIconInputsIn(document);
   }
   window.bindForgeAddForm = bindAddForm;
 

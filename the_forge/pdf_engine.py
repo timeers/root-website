@@ -416,19 +416,31 @@ def format_step_markup(text):
     # ~~text~~ -> Luminari (decorative)
     result = re.sub(r"~~(.+?)~~", r'<font name="Luminari">\1</font>', result)
 
+    # Pre-pass: when two styled spans abut (no whitespace between), the
+    # serializer emits sequences like `**__` / `__**` / `__` between
+    # alphanumerics where one `_` is the close marker of the previous span
+    # and one is the open marker of the next. Insert a ZWSP between them
+    # so the regex engine sees clean boundaries; ZWSP is stripped at the
+    # end so it doesn't render.
+    result = re.sub(r"\*\*__", "**_\u200B_", result)
+    result = re.sub(r"__\*\*", "_\u200B_**", result)
+    result = re.sub(r"(?<=[A-Za-z0-9])__(?=[A-Za-z0-9])", "_\u200B_", result)
+
     # _**text**_ or **_text_** -> bold italic (must run before the individual
     # ** and _ rules so the combined markers aren't consumed first).
-    # Boundary class [^A-Za-z0-9] (not \w) so an adjacent `_` doesn't block
-    # the match — \w treats `_` as a word char, which mis-parsed sequences
-    # like `_x __**y**_` produced by abutting italic/BI spans.
-    result = re.sub(r"(?<![A-Za-z0-9])_\*\*(.+?)\*\*_(?![A-Za-z0-9])", r"<b><i>\1</i></b>", result)
+    # Boundary `(?<!_)…(?!_)` rejects ambiguous adjacent `_` (handled by the
+    # pre-pass above) without blocking alphanumeric neighbors.
+    result = re.sub(r"(?<!_)_\*\*(.+?)\*\*_(?!_)", r"<b><i>\1</i></b>", result)
     result = re.sub(r"\*\*_(.+?)_\*\*", r"<b><i>\1</i></b>", result)
 
     # **text** -> bold
     result = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", result)
 
-    # _text_ -> italic (word-boundary aware)
-    result = re.sub(r"(?<![A-Za-z0-9])_(.+?)_(?![A-Za-z0-9])", r"<i>\1</i>", result)
+    # _text_ -> italic
+    result = re.sub(r"(?<!_)_(.+?)_(?!_)", r"<i>\1</i>", result)
+
+    # Strip ZWSP separators inserted in the pre-pass.
+    result = result.replace("\u200B", "")
 
     # Newlines -> line breaks
     result = result.replace('\n', '<br/>')
@@ -716,8 +728,6 @@ class TrackFlowable(Flowable):
 
         # Build grid: grid[row][col] = slot or None
         self.grid = {}
-        self.has_row_titles = False
-        self.row_titles = {}
         max_slot_row = 0
         for slot in slots:
             r, c = slot.row, slot.column
@@ -726,10 +736,6 @@ class TrackFlowable(Flowable):
             self.grid[r][c] = slot
             if r + 1 > max_slot_row:
                 max_slot_row = r + 1
-            if slot.row_title:
-                self.has_row_titles = True
-                if r not in self.row_titles:
-                    self.row_titles[r] = slot.row_title
 
         # Prefer the explicit `num_rows` field on the track when available;
         # fall back to the largest row referenced by an existing slot so older
@@ -740,9 +746,14 @@ class TrackFlowable(Flowable):
         self.num_cols = track.num_columns
         self.has_headers = bool(track.column_headers)
 
-        # header_title forces row title column allocation
-        if getattr(track, 'header_title', '') and track.header_title:
-            self.has_row_titles = True
+        # Row titles now live on the track as a pipe-delimited string.
+        self.row_titles = {}
+        raw_row_titles = getattr(track, 'row_titles', '') or ''
+        if raw_row_titles:
+            for idx, title in enumerate(raw_row_titles.split('|')):
+                if title:
+                    self.row_titles[idx] = title
+        self.has_row_titles = bool(self.row_titles) or bool(getattr(track, 'header_title', ''))
 
         # Parse dividers: set of column indices
         self.dividers = set()
@@ -2161,16 +2172,17 @@ class SheetLayoutEngine:
         if content_box.title:
             p = Paragraph(content_box.title, self.content_box_title_style)
             _, h = p.wrap(width, 9999)
-            total += h + CONTENT_BOX_TITLE_PAD_TOP
+            total += h + self.content_box_title_style.spaceAfter
         if content_box.text:
             markup = format_step_markup(content_box.text)
             p = Paragraph(markup, self.content_box_text_style)
             _, h = p.wrap(width, 9999)
-            total += h
+            total += h + self.content_box_text_style.spaceAfter
         steps = list(content_box.steps.all())
         single_step = len(steps) == 1
+        step_style = self.content_box_text_style if single_step else self.step_body_style
         for step in steps:
-            total += self.measure_step_height(step, width, single_step=single_step, body_style=self.content_box_text_style)
+            total += self.measure_step_height(step, width, single_step=single_step, body_style=step_style)
         return total
 
     def _content_box_dims_for_width(self, content_box, box_w):
@@ -2229,8 +2241,7 @@ class SheetLayoutEngine:
                 total_dividers = len(dividers)
 
                 # Row title width
-                slots = list(track.slots.all())
-                has_row_titles = any(s.row_title for s in slots)
+                has_row_titles = any(t.strip() for t in (track.row_titles or '').split('|'))
                 if getattr(track, 'header_title', '') and track.header_title:
                     has_row_titles = True
                 vertical_titles = getattr(track, 'row_title_orientation', 'horizontal') == 'vertical'
@@ -2287,8 +2298,7 @@ class SheetLayoutEngine:
                 total_dividers = len(dividers)
 
                 # Row title width
-                slots = list(track.slots.all())
-                has_row_titles = any(s.row_title for s in slots)
+                has_row_titles = any(t.strip() for t in (track.row_titles or '').split('|'))
                 if getattr(track, 'header_title', '') and track.header_title:
                     has_row_titles = True
                 vertical_titles = getattr(track, 'row_title_orientation', 'horizontal') == 'vertical'
@@ -2941,7 +2951,10 @@ class SheetLayoutEngine:
         TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
         single_step = len(steps) == 1
 
-        body_style = self.content_box_text_style if centered else self.step_body_style
+        if centered and single_step:
+            body_style = self.content_box_text_style
+        else:
+            body_style = self.step_body_style
 
         for step in steps:
             markup = format_step_markup(step.text)

@@ -25,7 +25,7 @@ from .models import (
 class CardboardSlotInline(admin.TabularInline):
     model = CardboardSlot
     extra = 0
-    fields = ('number', 'row', 'column', 'row_title', 'content', 'background_image')
+    fields = ('number', 'row', 'column', 'content', 'background_image')
     ordering = ('row', 'column')
 
 
@@ -149,9 +149,9 @@ class CardboardTrackAdmin(admin.ModelAdmin):
 
 @admin.register(CardboardSlot)
 class CardboardSlotAdmin(admin.ModelAdmin):
-    list_display = ('track', 'row', 'column', 'row_title', 'content', 'background_image')
+    list_display = ('track', 'row', 'column', 'content', 'background_image')
     list_filter = ('track__type',)
-    search_fields = ('content', 'row_title')
+    search_fields = ('content',)
 
 
 @admin.register(FactionBack)

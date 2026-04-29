@@ -27,7 +27,7 @@
     <div class="forge-rich-text mt-2">
       <textarea name="text" class="form-control" rows="2">{{ action.text }}</textarea>
       <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-        {% include 'the_forge/partials/richtext_toolbar.html' %}
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='italic,header,image'|split:',' %}
         <div class="ms-auto d-flex gap-2">
           <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
           <button type="button" class="btn btn-sm btn-outline-danger"

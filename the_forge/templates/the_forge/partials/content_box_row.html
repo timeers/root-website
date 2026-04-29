@@ -1,17 +1,37 @@
-{% load static %}
-<div class="border rounded p-2 mb-2" data-row data-id="{{ box.pk }}">
-  <form method="post" data-edit-url="{% url 'forge-contentbox-edit' pk=box.pk %}" class="m-0">
-    {% csrf_token %}
-    <div class="d-flex gap-2 align-items-center mb-1">
-      <input type="text" name="title" value="{{ box.title }}" class="form-control form-control-sm" placeholder="Title">
-      <input type="number" name="order" value="{{ box.order }}" class="form-control form-control-sm" style="width:5rem;">
-      <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
-      <button type="button" class="btn btn-sm btn-outline-danger"
-              data-delete-url="{% url 'forge-contentbox-delete' pk=box.pk %}">Delete</button>
-    </div>
-    <div class="forge-rich-text">
-      <textarea name="text" class="form-control" rows="3">{{ box.text }}</textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' %}
-    </div>
-  </form>
+{% load static forge_text %}
+<div class="border rounded p-2 mb-2 content-box-row" data-row data-id="{{ box.pk }}">
+  <div class="d-flex gap-2 align-items-start">
+    <span class="content-box-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+    <span class="content-box-section-label luminari">Section {{ box.order }}</span>
+    <form method="post" data-edit-url="{% url 'forge-contentbox-edit' pk=box.pk %}" class="m-0 flex-grow-1" data-dirty-form>
+      {% csrf_token %}
+      <input type="hidden" name="order" value="{{ box.order }}">
+      <div class="mb-1">
+        <input type="text" name="title" value="{{ box.title|default_if_none:'' }}" class="form-control form-control-sm" placeholder="Title">
+      </div>
+      <div class="forge-rich-text">
+        <textarea name="text" class="form-control" rows="3">{{ box.text|default_if_none:'' }}</textarea>
+        <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+          {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
+          <div class="ms-auto d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+            <button type="button" class="btn btn-sm btn-outline-danger"
+                    data-delete-url="{% url 'forge-contentbox-delete' pk=box.pk %}">Delete</button>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="content-box-steps mt-2"
+       data-step-list
+       data-content-box-id="{{ box.pk }}"
+       data-reorder-url="{% url 'forge-contentbox-step-reorder' content_box_pk=box.pk %}">
+    {% for step in box.annotated_steps %}
+      {% include 'the_forge/partials/phase_step_row.html' with step=step %}
+    {% endfor %}
+  </div>
+
+  <button type="button" class="btn btn-sm btn-primary mt-2"
+          data-add-content-box-step data-content-box-id="{{ box.pk }}">+ Add Step</button>
 </div>

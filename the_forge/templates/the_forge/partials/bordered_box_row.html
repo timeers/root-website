@@ -1,4 +1,4 @@
-{% load static %}
+{% load static forge_text %}
 <div class="forge-card-row box-row" data-row data-id="{{ box.pk }}" data-kind="box">
   <form method="post" data-edit-url="{% url 'forge-box-edit' pk=box.pk %}" class="box-row__form" data-dirty-form>
     {% csrf_token %}
@@ -17,7 +17,7 @@
     <div class="forge-rich-text mt-2">
       <textarea name="body" class="form-control" rows="2">{{ box.body }}</textarea>
       <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-        {% include 'the_forge/partials/richtext_toolbar.html' %}
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
         <div class="ms-auto d-flex gap-2">
           <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
           <button type="button" class="btn btn-sm btn-outline-danger"

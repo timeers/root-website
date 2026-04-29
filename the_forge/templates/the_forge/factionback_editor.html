@@ -8,7 +8,7 @@
 </div>
 
 <div class="card p-3 mb-3">
-  <h2 class="root-title">{{ faction.faction_name }} — Back</h2>
+  <h2 class="root-title">{{ faction.faction_name }} - Back</h2>
 </div>
 
 <!-- Pieces -->
@@ -120,116 +120,14 @@
 
 
 <!-- Setup Steps -->
-<div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Setup Steps</h4>
-  <div id="setup-step-list" data-reorder-url="{% url 'forge-setup-step-reorder' back_pk=back.pk %}">
-    {% for step in setup_steps %}
-      {% include 'the_forge/partials/setup_step_row.html' with step=step %}
-    {% empty %}
-      <p class="text-muted mb-2" id="setup-step-empty">No setup steps yet.</p>
-    {% endfor %}
-  </div>
-
-  <button type="button" id="setup-step-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Step</button>
-
-  <form id="setup-step-add-form" class="mt-2" hidden
-        data-add-url="{% url 'forge-setup-step-add' back_pk=back.pk %}">
-    {% csrf_token %}
-    <div class="forge-rich-text">
-      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
-      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
-        <div class="ms-auto d-flex gap-2">
-          <button type="submit" class="btn btn-sm btn-primary">Add</button>
-          <button type="button" id="setup-step-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
-        </div>
-      </div>
-    </div>
-  </form>
-</div>
+{% url 'forge-setup-step-reorder' back_pk=back.pk as reorder_url %}
+{% url 'forge-setup-step-add' back_pk=back.pk as add_url %}
+{% include 'the_forge/partials/setup_steps_section.html' with setup_steps=setup_steps reorder_url=reorder_url add_url=add_url %}
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 {{ inline_images_map|json_script:"forge-inline-images" }}
 <script src="{% static 'the_forge/forge_richtext.js' %}"></script>
 <script src="{% static 'the_forge/forge_editor.js' %}"></script>
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const list = document.getElementById('setup-step-list');
-  if (!list || !list.dataset.reorderUrl) return;
-  const csrftoken = document.cookie.match(/csrftoken=([^;]+)/)[1];
-
-  function renumberMarkers() {
-    list.querySelectorAll('[data-row]').forEach((row, idx) => {
-      const n = idx + 1;
-      const img = row.querySelector('.setup-step-marker');
-      if (img) {
-        img.src = img.src.replace(/\d+\.svg$/, `${n % 10}.svg`);
-        img.alt = String(n);
-      }
-    });
-  }
-
-  new Sortable(list, {
-    animation: 150,
-    handle: '.setup-step-grip',
-    onEnd: async () => {
-      const order = [...list.querySelectorAll('[data-row]')].map(r => r.dataset.id);
-      await fetch(list.dataset.reorderUrl, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
-        body: JSON.stringify({order}),
-      });
-      renumberMarkers();
-    }
-  });
-
-  // Dirty-state tracking: mark a row as having unsaved edits.
-  list.addEventListener('input', (ev) => {
-    const form = ev.target.closest('form[data-dirty-form]');
-    if (!form) return;
-    form.closest('[data-row]')?.classList.add('is-dirty');
-  });
-  // forge_editor.js replaces the row on successful save, so the new row
-  // starts clean automatically. No explicit reset needed here.
-
-  // Collapsible add-step form
-  const toggle = document.getElementById('setup-step-add-toggle');
-  const addForm = document.getElementById('setup-step-add-form');
-  const cancel = document.getElementById('setup-step-add-cancel');
-  if (toggle && addForm) {
-    toggle.addEventListener('click', () => {
-      addForm.hidden = false;
-      toggle.hidden = true;
-      const ta = addForm.querySelector('textarea');
-      if (ta) ta.focus();
-    });
-  }
-  if (cancel && addForm && toggle) {
-    cancel.addEventListener('click', () => {
-      addForm.hidden = true;
-      toggle.hidden = false;
-      const ta = addForm.querySelector('textarea');
-      if (ta) ta.value = '';
-    });
-  }
-  // After a successful add, the existing forge_editor.js handler clears inputs;
-  // we additionally re-collapse the form. Listen on the form itself.
-  if (addForm && toggle) {
-    addForm.addEventListener('submit', () => {
-      // Defer hiding until after the async submit handler finishes.
-      // forge_editor.js calls preventDefault and posts via fetch; on success
-      // it clears the inputs. We hide on the next tick after a short delay
-      // to allow the row to be inserted.
-      const observer = new MutationObserver(() => {
-        addForm.hidden = true;
-        toggle.hidden = false;
-        observer.disconnect();
-      });
-      observer.observe(list, { childList: true });
-    });
-  }
-});
-</script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.piece-add-toggle').forEach(btn => {

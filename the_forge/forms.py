@@ -35,6 +35,10 @@ class RichTextarea(forms.Textarea):
 
 
 class ForgedFactionForm(forms.ModelForm):
+    BG_MODE_NONE = 'none'
+    BG_MODE_CUSTOM = 'custom'
+    BG_MODE_PRESET = 'preset'
+
     class Meta:
         model = ForgedFaction
         fields = [
@@ -45,8 +49,29 @@ class ForgedFactionForm(forms.ModelForm):
             'repeat_background_image',
         ]
         widgets = {
-            'color': forms.TextInput(attrs={'type': 'color'}),
+            'faction_name': forms.TextInput(attrs={
+                'class': 'form-control form-control-lg forge-faction-title-input',
+                'placeholder': 'Faction Name',
+            }),
+            'color': forms.TextInput(attrs={
+                'type': 'color',
+                'class': 'form-control form-control-color forge-color-swatch',
+            }),
         }
+
+    def clean(self):
+        cleaned = super().clean()
+        mode = (self.data.get('background_mode') or '').strip()
+        if mode == self.BG_MODE_NONE:
+            cleaned['background_preset'] = ''
+            cleaned['background_image'] = False
+            cleaned['repeat_background_image'] = False
+        elif mode == self.BG_MODE_CUSTOM:
+            cleaned['background_preset'] = ''
+        elif mode == self.BG_MODE_PRESET:
+            cleaned['background_image'] = False
+            cleaned['repeat_background_image'] = False
+        return cleaned
 
 
 class FactionBackForm(forms.ModelForm):
@@ -89,11 +114,17 @@ class ContentBoxForm(forms.ModelForm):
             'text': RichTextarea(),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['order'].required = False
+        self.fields['title'].required = False
+        self.fields['text'].required = False
+
 
 class PhaseStepForm(forms.ModelForm):
     class Meta:
         model = PhaseStep
-        fields = ['phase', 'text']
+        fields = ['phase', 'content_box', 'text']
         widgets = {
             'text': RichTextarea(),
         }
@@ -101,6 +132,8 @@ class PhaseStepForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         kwargs.pop('sheet', None)
         super().__init__(*args, **kwargs)
+        self.fields['content_box'].required = False
+        self.fields['text'].required = False
 
 
 class StepActionForm(forms.ModelForm):
@@ -132,7 +165,7 @@ class CardboardTrackForm(forms.ModelForm):
         model = CardboardTrack
         fields = [
             'title', 'body', 'type',
-            'num_columns', 'num_rows', 'column_headers',
+            'num_columns', 'num_rows', 'column_headers', 'row_titles',
             'column_dividers', 'header_position', 'header_title',
             'row_title_orientation', 'background_image',
         ]
@@ -142,11 +175,12 @@ class CardboardTrackForm(forms.ModelForm):
             'type': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'num_columns': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': 1}),
             'num_rows': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': 1}),
-            'column_headers': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
-            'column_dividers': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
-            'header_position': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'column_headers': forms.HiddenInput(),
+            'row_titles': forms.HiddenInput(),
+            'column_dividers': forms.HiddenInput(),
+            'header_position': forms.HiddenInput(),
             'header_title': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
-            'row_title_orientation': forms.Select(attrs={'class': 'form-select form-select-sm'}),
+            'row_title_orientation': forms.HiddenInput(),
             'background_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }
 
@@ -155,12 +189,15 @@ class CardboardTrackForm(forms.ModelForm):
         self.fields['header_position'].required = False
         self.fields['row_title_orientation'].required = False
         self.fields['body'].required = False
+        self.fields['row_titles'].required = False
+        self.fields['column_headers'].required = False
+        self.fields['column_dividers'].required = False
 
 
 class CardboardSlotForm(forms.ModelForm):
     class Meta:
         model = CardboardSlot
-        fields = ['row_title', 'content', 'background_image']
+        fields = ['content', 'background_image']
 
 
 class DecreeSectionForm(forms.ModelForm):

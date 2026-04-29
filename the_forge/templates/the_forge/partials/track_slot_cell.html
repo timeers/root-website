@@ -4,7 +4,6 @@
         data-track-id="{{ track.pk }}"
         data-row="{{ row }}"
         data-col="{{ col }}"
-        data-row-title="{% if slot %}{{ slot.row_title }}{% endif %}"
         data-content="{% if slot %}{{ slot.content }}{% endif %}"
         data-bg-url="{% if slot and slot.background_image %}{{ slot.background_image.url }}{% endif %}"
         title="Edit slot ({{ row }}, {{ col }})"
@@ -17,8 +16,5 @@
         {% endwith %}
       {% endfor %}
     </span>
-  {% endif %}
-  {% if slot and slot.row_title and col == 0 %}
-    <span class="track-cell__row-title">{{ slot.row_title }}</span>
   {% endif %}
 </button>

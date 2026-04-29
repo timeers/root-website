@@ -2926,24 +2926,242 @@ tr.clickable-row:hover {
 }
 
 /* ---------- Cardboard track grid editor ---------- */
-.track-row__settings {
-  margin-top: 0.5rem;
-  padding: 0.5rem;
-  background: #f4efde;
-  border-radius: 4px;
-}
 .track-row-scroll {
   overflow-x: auto;
   padding: 0.5rem;
   background: #f9f5e7;
   border-radius: 4px;
 }
-.track-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--track-cols, 1), minmax(2.5rem, 3rem));
-  gap: 0.4rem;
+.track-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   width: max-content;
 }
+.track-editor__header-strip { padding: 0.2rem 0; }
+.track-editor__body-strip { padding: 0; }
+.track-editor--hp-below .track-editor__header-strip { order: 2; }
+.track-editor--hp-below .track-editor__body-strip { order: 1; }
+.track-editor--hp-below .track-editor__add-row-wrap { order: 3; }
+.track-editor__header-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+.track-editor__header-title {
+  width: 5rem;
+  flex-shrink: 0;
+}
+.track-editor__header-cells {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.track-editor__divider-spacer {
+  display: inline-block;
+  width: 0.25rem;
+  align-self: stretch;
+  margin: -0.2rem 0; /* bridge header-strip padding so the line meets the grid */
+  background: transparent;
+  border: none;
+  border-left: 2px dashed #b3a98d;
+  cursor: pointer;
+  padding: 0;
+}
+.track-editor__divider-spacer:hover { border-left-color: #d4a017; }
+.track-editor__divider-spacer.is-active { border-left: 3px solid #4d4636; }
+.track-editor__col-header {
+  width: 3rem;
+  text-align: center;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.2rem;
+}
+.track-editor__col-header--ghost,
+.track-editor__row-title--ghost {
+  opacity: 0.45;
+  background: #efe9d3;
+}
+.track-editor__add-col,
+.track-editor__add-row {
+  align-self: center;
+  padding: 0 0.5rem;
+}
+.track-editor__body-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+.track-editor__row-title-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 5rem;
+  flex-shrink: 0;
+}
+.track-editor__row-title {
+  width: 100%;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.2rem;
+  height: 3rem;
+}
+.track-editor--rt-vertical .track-editor__row-title {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: center;
+}
+.track-editor--rt-vertical .track-editor__row-title.forge-icon-input img.inline-icon {
+  transform: rotate(90deg);
+}
+.track-editor__toggles {
+  align-items: flex-end;
+}
+.track-editor__toggle-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.track-editor__toggle-label {
+  line-height: 1;
+}
+.track-editor__toggle-group .btn-group .btn {
+  width: 2.4rem;
+  padding: 0.2rem 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.track-editor__toggle-group--bg input[type="file"] {
+  width: 14rem;
+}
+.track-editor__toggle-group {
+  position: relative;
+}
+form[data-track-editor] {
+  position: relative;
+}
+.forge-icon-input {
+  min-height: calc(1.5em + 0.5rem + 2px);
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.forge-icon-input img.inline-icon {
+  height: 1.2em;
+  width: auto;
+  vertical-align: -0.15em;
+  display: inline-block;
+}
+.forge-icon-picker {
+  position: absolute;
+  z-index: 30;
+}
+.forge-icon-picker[hidden] {
+  display: none;
+}
+.forge-icon-picker__panel {
+  display: grid;
+  grid-template-columns: repeat(8, 2rem);
+  gap: 0.25rem;
+  padding: 0.4rem;
+  background: #fff;
+  border: 1px solid #b3a98d;
+  border-radius: 0.25rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  max-height: 14rem;
+  overflow-y: auto;
+  min-width: 17rem;
+}
+.forge-icon-picker__btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0.15rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.2rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.forge-icon-picker__btn:hover {
+  border-color: #d4a017;
+  background: #fff7e0;
+}
+.forge-icon-picker__btn img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.forge-icon-picker--keyboard {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: auto;
+  z-index: 1050;
+}
+.forge-icon-picker--keyboard .forge-icon-picker__panel {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  max-height: 6rem;
+  grid-template-columns: repeat(auto-fit, 2.4rem);
+  width: 100%;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.15);
+}
+.track-editor__grid-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+.track-editor__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.track-editor__grid-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+}
+.track-editor__grid-row + .track-editor__grid-row { margin-top: 0; }
+.track-editor__divider {
+  width: 0.25rem;
+  align-self: stretch;
+  height: auto;
+  margin: -0.2rem 0; /* cancel row padding so dashed line is continuous */
+  border: none;
+  background: transparent;
+  border-left: 2px dashed #b3a98d;
+  cursor: pointer;
+  padding: 0;
+}
+.track-editor__divider:hover { border-left-color: #d4a017; }
+.track-editor__divider.is-active { border-left: 3px solid #4d4636; }
+.track-editor__divider--ghost { opacity: 0.5; cursor: default; }
+.track-editor__col-buttons,
+.track-editor__row-buttons {
+  align-self: center;
+}
+.track-editor__col-buttons .btn,
+.track-editor__row-buttons .btn {
+  padding: 0 0.5rem;
+  line-height: 1;
+}
+.track-editor__add-row-wrap {
+  margin-left: 5.4rem; /* row-title col width + gap */
+}
+.track-cell--ghost {
+  width: 3rem;
+  height: 3rem;
+  border: 1.5px dashed #b3a98d;
+  background-color: rgba(255, 255, 255, 0.5);
+  cursor: default;
+  display: inline-block;
+  opacity: 0.6;
+}
+.track-cell--ghost.track-cell--token    { border-radius: 50%; }
+.track-cell--ghost.track-cell--building { border-radius: 4px; }
 .track-cell {
   position: relative;
   width: 3rem;
@@ -2995,15 +3213,6 @@ tr.clickable-row:hover {
   max-width: 0.85rem;
   max-height: 0.85rem;
 }
-.track-cell__row-title {
-  position: absolute;
-  left: -3.5rem;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-
 /* ---------- Slot modal ---------- */
 .forge-slot-modal {
   position: fixed;

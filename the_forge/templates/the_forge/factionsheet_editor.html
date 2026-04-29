@@ -9,7 +9,7 @@
 </div>
 
 <div class="card p-3 mb-3">
-  <h2 class="root-title">{{ faction.faction_name }} — Sheet #{{ sheet.pk }}</h2>
+  <h2 class="root-title">{{ faction.faction_name }} - Front</h2>
 </div>
 
 <!-- Flavor text (inline save) -->
@@ -92,7 +92,7 @@
         <div class="forge-rich-text">
           <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
           <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-            {% include 'the_forge/partials/richtext_toolbar.html' %}
+            {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,header,image'|split:',' %}
             <div class="ms-auto d-flex gap-2">
               <button type="submit" class="btn btn-sm btn-primary">Add</button>
               <button type="button" class="btn btn-sm btn-outline-secondary" data-phase-step-add-cancel="{{ phase_code }}">Cancel</button>
@@ -104,9 +104,7 @@
   {% endfor %}
 </div>
 
-{# Hidden inline-form templates — cloned by JS when + Add Box / + Add Track is clicked.
-   We render with step_pk=0; JS swaps the literal "/0/" segment in data-add-url for the real step pk.
-   The + Action form is fetched per-step (filtered by step.action_type) instead of cloned. #}
+
 <template id="forge-box-form-template">
   {% include 'the_forge/partials/bordered_box_form.html' with step_pk=0 box_height_choices=box_height_choices %}
 </template>
@@ -119,26 +117,52 @@
 <!-- Content Boxes -->
 <div class="card p-3 mb-3">
   <h4 class="root-title mb-2">Content Boxes</h4>
-  <div id="content-box-list">
+  <div id="content-box-list" data-reorder-url="{% url 'forge-contentbox-reorder' sheet_pk=sheet.pk %}">
     {% for box in content_boxes %}
       {% include 'the_forge/partials/content_box_row.html' with box=box %}
-    {% empty %}
-      <p class="text-muted mb-2" id="content-box-empty">No content boxes yet.</p>
     {% endfor %}
   </div>
-  <form id="content-box-add-form" class="mt-2" data-add-url="{% url 'forge-contentbox-add' sheet_pk=sheet.pk %}">
+
+  <button type="button" id="content-box-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Section</button>
+
+  <form id="content-box-add-form" class="mt-2" hidden
+        data-add-url="{% url 'forge-contentbox-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
     <div class="d-flex gap-2 align-items-center mb-1">
       <input type="text" name="title" class="form-control form-control-sm" placeholder="Title">
-      <button type="submit" class="btn btn-sm btn-primary ms-auto">+ Add Box</button>
     </div>
     <div class="forge-rich-text">
       <textarea name="text" class="form-control" rows="3" placeholder="Text…"></textarea>
-      {% include 'the_forge/partials/richtext_toolbar.html' %}
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+          <button type="button" id="content-box-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+        </div>
+      </div>
     </div>
-    <input type="hidden" name="order" value="">
   </form>
 </div>
+
+<template id="forge-content-box-step-form-template">
+  <form class="mt-2 content-box-step-add-form forge-inline-form"
+        data-add-url="{% url 'forge-phasestep-add' sheet_pk=sheet.pk %}"
+        data-target=".content-box-steps[data-content-box-id='0']">
+    {% csrf_token %}
+    <input type="hidden" name="phase" value="other">
+    <input type="hidden" name="content_box" value="0">
+    <div class="forge-rich-text">
+      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,header,image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-cancel-content-box-step>Cancel</button>
+        </div>
+      </div>
+    </div>
+  </form>
+</template>
 
 
 
@@ -156,12 +180,12 @@
   <form id="card-pile-add-form" class="mt-2" hidden data-add-url="{% url 'forge-cardpile-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
     <div class="d-flex gap-2 align-items-center mb-1">
-      <input type="text" name="title" class="form-control form-control-sm" placeholder="Title">
+      <input type="text" name="title" class="form-control luminari" style="font-size: 1.25rem;" placeholder="Title">
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="2"></textarea>
       <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
-        {% include 'the_forge/partials/richtext_toolbar.html' %}
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
         <div class="ms-auto d-flex gap-2">
           <button type="submit" class="btn btn-sm btn-warning">Save</button>
           <button type="button" id="card-pile-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
@@ -386,6 +410,111 @@ document.addEventListener('DOMContentLoaded', () => {
         renumberPhaseList(dest);
         if (src !== dest) renumberPhaseList(src);
       }
+    });
+  });
+
+  // ---------- Content Boxes ----------
+  const contentBoxList = document.getElementById('content-box-list');
+  function renumberContentBoxes(list) {
+    list.querySelectorAll(':scope > [data-row]').forEach((row, idx) => {
+      const n = idx + 1;
+      const label = row.querySelector('.content-box-section-label');
+      if (label) label.textContent = 'Section ' + n;
+      const orderInput = row.querySelector('input[name="order"]');
+      if (orderInput) orderInput.value = n;
+    });
+  }
+  if (contentBoxList && contentBoxList.dataset.reorderUrl) {
+    new Sortable(contentBoxList, {
+      animation: 150,
+      handle: '.content-box-grip',
+      onEnd: async () => {
+        const order = [...contentBoxList.querySelectorAll(':scope > [data-row]')].map(r => r.dataset.id);
+        await fetch(contentBoxList.dataset.reorderUrl, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+          body: JSON.stringify({order}),
+        });
+        renumberContentBoxes(contentBoxList);
+      }
+    });
+  }
+
+  function bindContentBoxStepSortables(scope) {
+    (scope || document).querySelectorAll('.content-box-steps[data-step-list]').forEach(list => {
+      if (list.dataset.sortableBound) return;
+      list.dataset.sortableBound = '1';
+      new Sortable(list, {
+        animation: 150,
+        handle: '.setup-step-grip',
+        onEnd: async () => {
+          await postPhaseListOrder(list);
+          renumberPhaseList(list);
+        }
+      });
+    });
+  }
+  bindContentBoxStepSortables(document);
+  document.addEventListener('forge:row-replaced', (ev) => {
+    bindContentBoxStepSortables(ev.target);
+  });
+
+  const contentBoxAddToggle = document.getElementById('content-box-add-toggle');
+  const contentBoxAddForm = document.getElementById('content-box-add-form');
+  const contentBoxAddCancel = document.getElementById('content-box-add-cancel');
+  if (contentBoxAddToggle && contentBoxAddForm) {
+    contentBoxAddToggle.addEventListener('click', () => {
+      contentBoxAddForm.hidden = false;
+      contentBoxAddToggle.hidden = true;
+      const titleInput = contentBoxAddForm.querySelector('input[name="title"]');
+      if (titleInput) titleInput.focus();
+    });
+  }
+  if (contentBoxAddCancel && contentBoxAddForm && contentBoxAddToggle) {
+    contentBoxAddCancel.addEventListener('click', () => {
+      contentBoxAddForm.hidden = true;
+      contentBoxAddToggle.hidden = false;
+      contentBoxAddForm.querySelectorAll('input[type="text"], textarea').forEach(el => { el.value = ''; });
+    });
+  }
+  if (contentBoxAddForm && contentBoxAddToggle && contentBoxList) {
+    contentBoxAddForm.addEventListener('submit', () => {
+      const observer = new MutationObserver(() => {
+        contentBoxAddForm.hidden = true;
+        contentBoxAddToggle.hidden = false;
+        renumberContentBoxes(contentBoxList);
+        bindContentBoxStepSortables(contentBoxList);
+        observer.disconnect();
+      });
+      observer.observe(contentBoxList, { childList: true });
+    });
+  }
+
+  // + Add Step inside a content box
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-add-content-box-step]');
+    if (!btn) return;
+    const boxId = btn.dataset.contentBoxId;
+    const stepList = document.querySelector(`.content-box-steps[data-content-box-id="${boxId}"]`);
+    if (!stepList) return;
+    const existing = stepList.querySelector('.forge-inline-form');
+    if (existing) {
+      existing.querySelector('textarea')?.focus();
+      return;
+    }
+    const tpl = document.getElementById('forge-content-box-step-form-template');
+    if (!tpl) return;
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    node.setAttribute('data-target', `.content-box-steps[data-content-box-id='${boxId}']`);
+    const cbInput = node.querySelector('input[name="content_box"]');
+    if (cbInput) cbInput.value = boxId;
+    stepList.appendChild(node);
+    if (window.bindForgeAddForm) window.bindForgeAddForm(node);
+    if (window.initForgeRichText) window.initForgeRichText(node);
+    const ta = node.querySelector('textarea');
+    if (ta) ta.focus();
+    node.querySelector('[data-cancel-content-box-step]')?.addEventListener('click', () => {
+      node.remove();
     });
   });
 });

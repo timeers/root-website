@@ -1,4 +1,4 @@
-{% load static %}
+{% load static forge_text %}
 <div class="forge-inline-form" data-inline-form="track">
   <form method="post" enctype="multipart/form-data"
         data-add-url="{% url 'forge-track-add' step_pk=step_pk %}"
@@ -9,10 +9,16 @@
       <input type="text" name="title" class="form-control form-control-sm" placeholder="Title" required style="max-width:18rem;">
       <div class="btn-group btn-group-sm forge-segmented" role="group" aria-label="Type">
         <input type="radio" class="btn-check" name="type" id="newtrack-{{ step_pk }}-token" value="token" checked>
-        <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-token">Token</label>
+        <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-token" title="Token"><i class="bi bi-circle"></i></label>
         <input type="radio" class="btn-check" name="type" id="newtrack-{{ step_pk }}-building" value="building">
-        <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-building">Building</label>
+        <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-building" title="Building"><i class="bi bi-square"></i></label>
       </div>
+    </div>
+    <div class="forge-rich-text mt-2">
+      <textarea name="body" class="form-control" rows="2" placeholder="Body / description…"></textarea>
+      {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
+    </div>
+    <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
       <label class="small text-muted">Cols
         <input type="number" name="num_columns" value="3" min="1" class="form-control form-control-sm d-inline-block" style="width:5rem;">
       </label>

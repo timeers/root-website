@@ -28,25 +28,19 @@
           </div>
         </div>
 
-        <div class="forge-slot-modal__section row g-2">
-          <div class="col-md-6">
-            <label class="form-label small text-muted">Background image</label>
-            <input type="file" name="background_image" accept="image/*" class="form-control form-control-sm" data-slot-bg-input>
-            <div class="align-items-center gap-2 mt-1" data-slot-bg-preview-wrap style="display:none;">
-              <img alt="Preview" class="forge-slot-bg-thumb" data-slot-bg-preview>
-              <span class="small text-muted">New image preview</span>
-            </div>
-            <div class="align-items-center gap-2 mt-1" data-slot-bg-current style="display:none;">
-              <img alt="Current background" class="forge-slot-bg-thumb" data-slot-bg-thumb>
-              <label class="small text-muted m-0">
-                <input type="checkbox" name="background_image-clear" value="1" data-slot-bg-clear>
-                Clear current image
-              </label>
-            </div>
+        <div class="forge-slot-modal__section">
+          <label class="form-label small text-muted">Background image</label>
+          <input type="file" name="background_image" accept="image/*" class="form-control form-control-sm" data-slot-bg-input>
+          <div class="align-items-center gap-2 mt-1" data-slot-bg-preview-wrap style="display:none;">
+            <img alt="Preview" class="forge-slot-bg-thumb" data-slot-bg-preview>
+            <span class="small text-muted">New image preview</span>
           </div>
-          <div class="col-md-6" data-slot-row-title-wrap>
-            <label class="form-label small text-muted">Row title (column 0 only)</label>
-            <input type="text" name="row_title" class="form-control form-control-sm" data-slot-row-title-input>
+          <div class="align-items-center gap-2 mt-1" data-slot-bg-current style="display:none;">
+            <img alt="Current background" class="forge-slot-bg-thumb" data-slot-bg-thumb>
+            <label class="small text-muted m-0">
+              <input type="checkbox" name="background_image-clear" value="1" data-slot-bg-clear>
+              Clear current image
+            </label>
           </div>
         </div>
       </div>

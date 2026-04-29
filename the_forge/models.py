@@ -17,6 +17,9 @@ class ForgedFaction(models.Model):
         CROWS = 'crows', 'Corvid Conspiracy'
         RATS = 'rats', 'Lord of the Hundreds'
         BADGERS = 'badgers', 'Keepers in Iron'
+        FROGS = 'frogs', 'Lilipad Diaspora'
+        KNAVES = 'knaves', 'Knaves of the Deepwood'
+        BATS = 'bats', 'Twilight Council'
 
     BACKGROUND_PRESET_FILES = {
         'cats': 'pdf/backgrounds/RootBG_Cats.png',
@@ -115,7 +118,7 @@ class PhaseStep(models.Model):
     content_box = models.ForeignKey(ContentBox, related_name='steps', on_delete=models.CASCADE, blank=True, null=True)
     phase = models.CharField(max_length=30, choices=PhaseChoices.choices)
     number = models.PositiveIntegerField()
-    text = models.TextField()
+    text = models.TextField(blank=True, default='')
     action_type = models.CharField(max_length=10, choices=ActionType.choices, default=ActionType.ACTION)
 
     def allowed_cost_choices(self):
@@ -255,6 +258,10 @@ class CardboardTrack(models.Model):
         max_length=500, blank=True, default='',
         help_text='Pipe-delimited column labels, e.g. "0|1|2|3|4"'
     )
+    row_titles = models.CharField(
+        max_length=2000, blank=True, default='',
+        help_text='Pipe-delimited per-row titles, e.g. "Phase 1|Phase 2|Phase 3"'
+    )
     column_dividers = models.CharField(
         max_length=200, blank=True, default='',
         help_text='Comma-separated column indices for dividers, e.g. "2,5,7"'
@@ -287,6 +294,12 @@ class CardboardTrack(models.Model):
                 raise ValidationError({
                     'column_headers': f'Expected {self.num_columns} headers, got {len(headers)}.'
                 })
+        if self.row_titles:
+            titles = self.row_titles.split('|')
+            if len(titles) != self.num_rows:
+                raise ValidationError({
+                    'row_titles': f'Expected {self.num_rows} row titles, got {len(titles)}.'
+                })
         if self.column_dividers:
             for col_str in self.column_dividers.split(','):
                 col_str = col_str.strip()
@@ -309,7 +322,6 @@ class CardboardSlot(models.Model):
     number = models.PositiveIntegerField(help_text='For admin ordering')
     row = models.PositiveIntegerField(default=0)
     column = models.PositiveIntegerField(default=0)
-    row_title = models.CharField(max_length=200, blank=True, default='')
     content = models.CharField(
         max_length=200, blank=True, default='',
         help_text='Pipe-delimited image keywords, e.g. "1VP" or "fox|1VP"'
