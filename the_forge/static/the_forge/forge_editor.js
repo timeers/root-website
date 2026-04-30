@@ -7,6 +7,27 @@
   }
   const csrftoken = getCookie('csrftoken');
 
+  // Validate [data-required] inputs (which may have been swapped to type=hidden
+  // by the icon-picker init, so the browser skips its `required` check).
+  // Reports validity on the corresponding contenteditable mirror, or alerts.
+  function validateRequiredFields(form) {
+    const fields = form.querySelectorAll('[data-required]');
+    for (const input of fields) {
+      const value = (input.value || '').trim();
+      if (value) continue;
+      const editor = input.previousElementSibling;
+      if (editor && editor.dataset.forgeIconEditor === '1') {
+        editor.focus();
+        editor.classList.add('is-invalid');
+        setTimeout(() => editor.classList.remove('is-invalid'), 1500);
+      } else {
+        input.focus?.();
+      }
+      return false;
+    }
+    return true;
+  }
+
   // Generic add-form handler — picks up any <form data-add-url="..."> and POSTs
   // it, then inserts the returned HTML into the target list.
   function bindAddForm(form) {
@@ -14,6 +35,7 @@
     form._addFormBound = true;
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
+      if (!validateRequiredFields(form)) return;
       const url = form.dataset.addUrl;
       const targetSelector = form.dataset.target || '#' + form.id.replace('-add-form', '-list');
       const list = document.querySelector(targetSelector);
@@ -32,10 +54,11 @@
       const empty = list.querySelector('[id$="-empty"]');
       if (empty) empty.remove();
       list.insertAdjacentHTML('beforeend', html);
+      const newRow = list.lastElementChild;
       // Remove any open inline-form (since a row replaces it).
       list.querySelector('.forge-inline-form')?.remove();
       if (window.initForgeRichText) window.initForgeRichText(list);
-      list.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true }));
+      list.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: newRow } }));
       // Clear text/file inputs in the add form.
       form.querySelectorAll('input[type="text"], input[type="number"], textarea').forEach(el => { el.value = ''; });
       form.querySelectorAll('input[type="file"]').forEach(el => { el.value = ''; });
@@ -159,6 +182,7 @@
     const form = ev.target.closest('form[data-edit-url]');
     if (!form) return;
     ev.preventDefault();
+    if (!validateRequiredFields(form)) return;
     const url = form.dataset.editUrl;
     const fd = new FormData(form);
     const resp = await fetch(url, {
@@ -311,6 +335,32 @@
     node.querySelector('input,textarea,select')?.focus();
   }
 
+  // Insert a nested row form for legend/scale parents. Templates render with
+  // parent_pk=0 in URL segments and the data-target selector — rewrite both.
+  function insertNestedRowForm(templateId, container, urlSegment, parentPk) {
+    if (!container) return;
+    const existing = container.querySelector('.forge-inline-form');
+    if (existing) {
+      existing.querySelector('input,textarea,select')?.focus();
+      return;
+    }
+    const tpl = document.getElementById(templateId);
+    if (!tpl) return;
+    const segRe = new RegExp(urlSegment + '\\/0\\/', 'g');
+    const html = tpl.innerHTML
+      .replace(segRe, `${urlSegment}/${parentPk}/`)
+      .replace(/data-(legend|scale)-id='0'/g, (_m, kind) => `data-${kind}-id='${parentPk}'`);
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html.trim();
+    const node = wrap.firstElementChild;
+    container.appendChild(node);
+    const form = node.querySelector('form');
+    if (form) bindAddForm(form);
+    initIconInputsIn(node);
+    if (window.initForgeRichText) window.initForgeRichText(node);
+    node.querySelector('input,textarea,select')?.focus();
+  }
+
   async function insertActionInlineForm(container, stepPk) {
     if (!container) return;
     const panel = container.closest('[data-actions-panel]');
@@ -338,14 +388,19 @@
     setActionTypeLock(stepPk);
   }
 
-  // Disable + Add Box / + Add Track while an inline box/track form is open in
-  // this step. The forms include image pickers and contenteditable mirrors, so
-  // letting two open at once would split focus and confuse the picker state.
+  // Disable + Add Box / + Add Track / + Add Legend / + Add Scale while an
+  // inline child form is open in this step. The forms include image pickers and
+  // contenteditable mirrors, so letting two open at once would split focus and
+  // confuse the picker state. Only block when the OPEN form lives directly in
+  // .phase-step-children (top-level child) — nested legend/scale row forms are fine.
   function setStepChildAddLock(stepPk) {
     const list = document.querySelector(`.phase-step-children[data-step-id="${stepPk}"]`);
-    const formOpen = !!list?.querySelector('.forge-inline-form');
+    const formOpen = !!list && [...list.children].some(el => el.classList?.contains('forge-inline-form'));
     document.querySelectorAll(
-      `[data-add-box][data-step-id="${stepPk}"], [data-add-track][data-step-id="${stepPk}"]`
+      `[data-add-box][data-step-id="${stepPk}"],` +
+      `[data-add-track][data-step-id="${stepPk}"],` +
+      `[data-add-legend][data-step-id="${stepPk}"],` +
+      `[data-add-scale][data-step-id="${stepPk}"]`
     ).forEach(btn => {
       btn.disabled = formOpen;
       btn.classList.toggle('disabled', formOpen);
@@ -423,6 +478,38 @@
       setStepChildAddLock(stepPk);
       return;
     }
+    const legendBtn = ev.target.closest('[data-add-legend]');
+    if (legendBtn) {
+      if (legendBtn.disabled) return;
+      const stepPk = legendBtn.dataset.stepId;
+      const list = document.querySelector(`.phase-step-children[data-step-id="${stepPk}"]`);
+      insertInlineForm('forge-legend-form-template', list, stepPk);
+      setStepChildAddLock(stepPk);
+      return;
+    }
+    const scaleBtn = ev.target.closest('[data-add-scale]');
+    if (scaleBtn) {
+      if (scaleBtn.disabled) return;
+      const stepPk = scaleBtn.dataset.stepId;
+      const list = document.querySelector(`.phase-step-children[data-step-id="${stepPk}"]`);
+      insertInlineForm('forge-scale-form-template', list, stepPk);
+      setStepChildAddLock(stepPk);
+      return;
+    }
+    const legendRowBtn = ev.target.closest('[data-add-legend-row]');
+    if (legendRowBtn) {
+      const legendPk = legendRowBtn.dataset.legendId;
+      const container = document.querySelector(`[data-legend-entries][data-legend-id="${legendPk}"]`);
+      insertNestedRowForm('forge-legend-row-form-template', container, 'legend', legendPk);
+      return;
+    }
+    const scaleRowBtn = ev.target.closest('[data-add-scale-row]');
+    if (scaleRowBtn) {
+      const scalePk = scaleRowBtn.dataset.scaleId;
+      const container = document.querySelector(`[data-scale-entries][data-scale-id="${scalePk}"]`);
+      insertNestedRowForm('forge-scale-row-form-template', container, 'scale', scalePk);
+      return;
+    }
   });
 
   // ---------- Sortable initialization for phase-step children + actions ----------
@@ -442,7 +529,7 @@
           const order = [...list.querySelectorAll('[data-row]')].map(r => ({
             kind: r.dataset.kind,
             id: parseInt(r.dataset.id, 10),
-          })).filter(o => o.kind === 'box' || o.kind === 'track');
+          })).filter(o => ['box', 'track', 'legend', 'scale'].includes(o.kind));
           await fetch(list.dataset.reorderUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
@@ -937,6 +1024,13 @@
   // wire we still use `{{ key }}` tokens so the PDF engine and the
   // format_forge_text filter work unchanged.
 
+  // Forms that host the inline icon picker: track grid editors *and* generic
+  // single-line inputs that opt in via [data-forge-icon-form] (e.g. scale rows).
+  const PICKER_FORM_SELECTOR = 'form[data-track-editor], form[data-forge-icon-form]';
+  function pickerFormFor(node) {
+    return node && node.closest ? node.closest(PICKER_FORM_SELECTOR) : null;
+  }
+
   let INLINE_IMAGES_CACHE = null;
   function getInlineImagesMap() {
     if (INLINE_IMAGES_CACHE !== null) return INLINE_IMAGES_CACHE;
@@ -1116,6 +1210,10 @@
     const editor = document.createElement('div');
     editor.contentEditable = 'true';
     editor.className = input.className + ' forge-icon-input';
+    // Copy inline style (min-width:0, max-width, etc) so the contenteditable
+    // div sizes the same way as the original input inside flex containers.
+    const inputStyle = input.getAttribute('style');
+    if (inputStyle) editor.setAttribute('style', inputStyle);
     editor.setAttribute('role', 'textbox');
     editor.setAttribute('aria-label', input.getAttribute('aria-label') || input.name || '');
     editor.dataset.forgeIconEditor = '1';
@@ -1140,7 +1238,7 @@
         ev.preventDefault();
         editor.blur();
       } else if (ev.key === 'Escape') {
-        const form = editor.closest('form[data-track-editor]');
+        const form = pickerFormFor(editor);
         if (form) hidePicker(form);
         editor.blur();
       }
@@ -1169,7 +1267,7 @@
     while (node && node.nodeType !== Node.ELEMENT_NODE) node = node.parentNode;
     const editor = node && node.closest && node.closest('[data-forge-icon-editor="1"]');
     if (!editor) return;
-    const form = editor.closest('form[data-track-editor]');
+    const form = pickerFormFor(editor);
     if (!form) return;
     const st = getPickerState(form);
     if (st.activeEditor === editor) st.savedRange = range.cloneRange();
@@ -1178,7 +1276,7 @@
   document.addEventListener('focusin', (ev) => {
     const editor = ev.target.closest('[data-forge-icon-editor="1"]');
     if (!editor) return;
-    const form = editor.closest('form[data-track-editor]');
+    const form = pickerFormFor(editor);
     if (!form) return;
     showPicker(form, editor);
   });
@@ -1186,7 +1284,7 @@
   document.addEventListener('focusout', (ev) => {
     const editor = ev.target.closest('[data-forge-icon-editor="1"]');
     if (!editor) return;
-    const form = editor.closest('form[data-track-editor]');
+    const form = pickerFormFor(editor);
     if (!form) return;
     // Defer so a click moving focus into the picker (or another editor) doesn't
     // close it. If after the tick neither the picker nor another editor has focus,
@@ -1195,7 +1293,7 @@
       const active = document.activeElement;
       if (active && active.closest && active.closest('[data-forge-icon-picker]')) return;
       const otherEditor = active && active.closest && active.closest('[data-forge-icon-editor="1"]');
-      if (otherEditor && otherEditor.closest('form[data-track-editor]') === form) return;
+      if (otherEditor && pickerFormFor(otherEditor) === form) return;
       hidePicker(form);
     }, 0);
   });
@@ -1214,7 +1312,7 @@
     const btn = ev.target.closest('.forge-icon-picker__btn');
     if (!btn) return;
     ev.preventDefault();
-    const form = btn.closest('form[data-track-editor]');
+    const form = pickerFormFor(btn);
     if (!form) return;
     const st = getPickerState(form);
     const editor = st.activeEditor;
@@ -1267,7 +1365,7 @@
   // Reposition desktop popover on window resize / scroll.
   window.addEventListener('resize', () => {
     document.querySelectorAll('[data-forge-icon-picker]:not([hidden])').forEach((p) => {
-      const form = p.closest('form[data-track-editor]');
+      const form = pickerFormFor(p);
       const st = form && pickerState.get(form);
       if (form && st && st.activeEditor) positionPicker(form, p, st.activeEditor);
     });

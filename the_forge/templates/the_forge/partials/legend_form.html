@@ -1,0 +1,16 @@
+{% load static forge_text %}
+<div class="forge-inline-form" data-inline-form="legend">
+  <form method="post"
+        data-add-url="{% url 'forge-legend-add' step_pk=step_pk %}"
+        data-target=".phase-step-children[data-step-id='{{ step_pk }}']">
+    {% csrf_token %}
+    <div class="d-flex flex-nowrap gap-2 align-items-center mb-1">
+      <strong class="me-1 small text-muted flex-shrink-0">New legend:</strong>
+      <input type="text" name="title" class="form-control form-control-sm flex-grow-1 luminari" placeholder="Title (optional)" style="min-width:0;">
+      <div class="d-flex gap-2 flex-shrink-0">
+        <button type="submit" class="btn btn-sm btn-primary">Save</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-cancel-inline-form>Cancel</button>
+      </div>
+    </div>
+  </form>
+</div>

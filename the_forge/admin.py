@@ -14,7 +14,11 @@ from .models import (
     CardboardTrack,
     CardboardSlot,
     FactionBack,
+    Legend,
+    LegendRow,
     Piece,
+    Scale,
+    ScaleRow,
     SetupCard,
     SetupStep,
 )
@@ -46,6 +50,32 @@ class CardboardTrackInline(admin.TabularInline):
     extra = 0
     fields = ('order', 'title', 'type', 'num_rows', 'num_columns')
     show_change_link = True
+
+
+class LegendInline(admin.TabularInline):
+    model = Legend
+    extra = 0
+    fields = ('order', 'title')
+    show_change_link = True
+
+
+class LegendRowInline(admin.TabularInline):
+    model = LegendRow
+    extra = 0
+    fields = ('order', 'title', 'image', 'body')
+
+
+class ScaleInline(admin.TabularInline):
+    model = Scale
+    extra = 0
+    fields = ('order', 'title')
+    show_change_link = True
+
+
+class ScaleRowInline(admin.TabularInline):
+    model = ScaleRow
+    extra = 0
+    fields = ('order', 'range', 'result')
 
 
 class FactionAbilityInline(admin.TabularInline):
@@ -121,11 +151,23 @@ class FactionSheetAdmin(admin.ModelAdmin):
 class PhaseStepAdmin(admin.ModelAdmin):
     list_display = ('sheet', 'phase', 'number', 'content_box', 'short_text')
     list_filter = ('phase',)
-    inlines = [StepActionInline, BorderedBoxInline, CardboardTrackInline]
+    inlines = [StepActionInline, BorderedBoxInline, CardboardTrackInline, LegendInline, ScaleInline]
 
     @admin.display(description='Text')
     def short_text(self, obj):
         return (obj.text or '')[:80]
+
+
+@admin.register(Legend)
+class LegendAdmin(admin.ModelAdmin):
+    list_display = ('step', 'order', 'title')
+    inlines = [LegendRowInline]
+
+
+@admin.register(Scale)
+class ScaleAdmin(admin.ModelAdmin):
+    list_display = ('step', 'order', 'title')
+    inlines = [ScaleRowInline]
 
 
 @admin.register(ContentBox)

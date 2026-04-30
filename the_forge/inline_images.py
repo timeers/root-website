@@ -151,6 +151,7 @@ FORGE_PICKER_ORDER = [
 
     # VP
     'VP',
+    '0VP',
     '1VP',
     '2VP',
     '3VP',

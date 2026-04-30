@@ -1,0 +1,20 @@
+{% load static forge_text %}
+<div class="forge-card-row scale-row" data-row data-id="{{ scale.pk }}" data-kind="scale">
+  <div class="forge-card-row__head flex-nowrap">
+    <span class="row-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+    <span class="forge-card-row__badge flex-shrink-0">Scale</span>
+  </div>
+
+  <div class="scale-row__entries mt-2" data-scale-entries data-scale-id="{{ scale.pk }}">
+    {% for row in scale.rows.all %}
+      {% include 'the_forge/partials/scale_row_entry.html' with row=row %}
+    {% endfor %}
+  </div>
+
+  <div class="mt-2 d-flex gap-2 align-items-center">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-scale-row data-scale-id="{{ scale.pk }}">+ Add Row</button>
+    <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
+            data-delete-url="{% url 'forge-scale-delete' pk=scale.pk %}">Delete</button>
+  </div>
+</div>

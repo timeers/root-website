@@ -177,14 +177,18 @@ class PhaseStep(models.Model):
 
     @property
     def ordered_children(self):
-        """Boxes and tracks merged into one sequence ordered by `order`.
+        """Boxes, tracks, legends, scales merged into one sequence ordered by `order`.
         Yields dicts with kind/obj/order so templates can render the mixed list.
-        Tiebreak by kind to keep the order stable when both share an `order` value."""
+        Tiebreak by kind to keep the order stable when several share an `order` value."""
         items = []
         for b in self.boxes.all():
             items.append({'kind': 'box', 'obj': b, 'order': b.order})
         for t in self.tracks.all():
             items.append({'kind': 'track', 'obj': t, 'order': t.order})
+        for L in self.legends.all():
+            items.append({'kind': 'legend', 'obj': L, 'order': L.order})
+        for s in self.scales.all():
+            items.append({'kind': 'scale', 'obj': s, 'order': s.order})
         items.sort(key=lambda i: (i['order'], i['kind']))
         return items
 
@@ -412,3 +416,42 @@ class SetupStep(models.Model):
     card = models.ForeignKey(SetupCard, related_name='setup_steps', on_delete=models.CASCADE, blank=True, null=True)
     number = models.PositiveIntegerField()
     text = models.TextField()
+
+
+class Legend(models.Model):
+    step = models.ForeignKey(PhaseStep, related_name='legends', on_delete=models.CASCADE)
+    order = models.PositiveIntegerField(default=0)
+    title = models.CharField(max_length=200, blank=True, default='')
+
+    class Meta:
+        ordering = ['order']
+
+
+class LegendRow(models.Model):
+    legend = models.ForeignKey(Legend, related_name='rows', on_delete=models.CASCADE)
+    order = models.PositiveIntegerField(default=0)
+    title = models.CharField(max_length=100)
+    image = models.ImageField(upload_to='forge/legend_images/', blank=True, null=True)
+    body = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ['order']
+
+
+class Scale(models.Model):
+    step = models.ForeignKey(PhaseStep, related_name='scales', on_delete=models.CASCADE)
+    order = models.PositiveIntegerField(default=0)
+    title = models.CharField(max_length=200, blank=True, default='')
+
+    class Meta:
+        ordering = ['order']
+
+
+class ScaleRow(models.Model):
+    scale = models.ForeignKey(Scale, related_name='rows', on_delete=models.CASCADE)
+    order = models.PositiveIntegerField(default=0)
+    range = models.CharField(max_length=20)
+    result = models.CharField(max_length=200)
+
+    class Meta:
+        ordering = ['order']

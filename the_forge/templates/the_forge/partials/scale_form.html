@@ -1,0 +1,13 @@
+{% load static forge_text %}
+<div class="forge-inline-form" data-inline-form="scale">
+  <form method="post"
+        data-add-url="{% url 'forge-scale-add' step_pk=step_pk %}"
+        data-target=".phase-step-children[data-step-id='{{ step_pk }}']">
+    {% csrf_token %}
+    <div class="d-flex flex-nowrap gap-2 align-items-center mb-1">
+      <strong class="me-1 small text-muted flex-grow-1">New scale</strong>
+      <button type="submit" class="btn btn-sm btn-primary flex-shrink-0">Add</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary flex-shrink-0" data-cancel-inline-form>Cancel</button>
+    </div>
+  </form>
+</div>

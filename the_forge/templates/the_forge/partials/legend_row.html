@@ -1,0 +1,27 @@
+{% load static forge_text %}
+<div class="forge-card-row legend-row" data-row data-id="{{ legend.pk }}" data-kind="legend">
+  <form method="post" data-edit-url="{% url 'forge-legend-edit' pk=legend.pk %}" class="legend-row__form" data-dirty-form>
+    {% csrf_token %}
+    <div class="forge-card-row__head flex-nowrap">
+      <span class="row-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+      <span class="forge-card-row__badge flex-shrink-0">Legend</span>
+      <input type="text" name="title" value="{{ legend.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1 luminari" style="min-width:0;max-width:none;" placeholder="Title (optional)">
+      <div class="d-flex gap-2 flex-shrink-0">
+        <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+        <button type="button" class="btn btn-sm btn-outline-danger"
+                data-delete-url="{% url 'forge-legend-delete' pk=legend.pk %}">Delete</button>
+      </div>
+    </div>
+  </form>
+
+  <div class="legend-row__entries mt-2" data-legend-entries data-legend-id="{{ legend.pk }}">
+    {% for row in legend.rows.all %}
+      {% include 'the_forge/partials/legend_row_entry.html' with row=row %}
+    {% endfor %}
+  </div>
+
+  <div class="mt-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-legend-row data-legend-id="{{ legend.pk }}">+ Add Row</button>
+  </div>
+</div>

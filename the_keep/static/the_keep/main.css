@@ -3036,8 +3036,20 @@ tr.clickable-row:hover {
 .track-editor__toggle-group {
   position: relative;
 }
-form[data-track-editor] {
+form[data-track-editor],
+form[data-forge-icon-form] {
   position: relative;
+}
+.scale-entry__field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.scale-entry__field--range {
+  text-align: right;
+}
+.forge-icon-input.is-invalid {
+  border-color: #dc3545;
+  box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
 }
 .forge-icon-input {
   min-height: calc(1.5em + 0.5rem + 2px);

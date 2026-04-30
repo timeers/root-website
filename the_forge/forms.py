@@ -11,8 +11,12 @@ from .models import (
     FactionAbility,
     FactionBack,
     ForgedFaction,
+    Legend,
+    LegendRow,
     PhaseStep,
     Piece,
+    Scale,
+    ScaleRow,
     SetupCard,
     SetupStep,
     StepAction,
@@ -259,4 +263,63 @@ class SetupStepForm(forms.ModelForm):
         fields = ['text']
         widgets = {
             'text': RichTextarea(attrs={'rows': 3}),
+        }
+
+
+class LegendForm(forms.ModelForm):
+    class Meta:
+        model = Legend
+        fields = ['title']
+        widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control form-control-sm luminari'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['title'].required = False
+
+
+class LegendRowForm(forms.ModelForm):
+    class Meta:
+        model = LegendRow
+        fields = ['title', 'image', 'body']
+        widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control form-control-sm luminari'}),
+            'image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
+            'body': RichTextarea(attrs={'rows': 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['body'].required = False
+        self.fields['image'].required = False
+
+
+class ScaleForm(forms.ModelForm):
+    class Meta:
+        model = Scale
+        fields = ['title']
+        widgets = {
+            'title': forms.TextInput(attrs={'class': 'form-control form-control-sm luminari'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['title'].required = False
+
+
+class ScaleRowForm(forms.ModelForm):
+    class Meta:
+        model = ScaleRow
+        fields = ['range', 'result']
+        widgets = {
+            'range': forms.TextInput(attrs={
+                'class': 'form-control form-control-sm',
+                'placeholder': 'Range',
+                'style': 'max-width:6rem;',
+            }),
+            'result': forms.TextInput(attrs={
+                'class': 'form-control form-control-sm',
+                'data-track-image-input': '',
+            }),
         }

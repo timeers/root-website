@@ -89,6 +89,22 @@ urlpatterns = [
     path('hx/forge/track/<int:track_pk>/slot/<int:row>/<int:col>/upsert/', views.slot_upsert, name='forge-slot-upsert'),
     path('hx/forge/slot/<int:pk>/delete/', views.slot_delete, name='forge-slot-delete'),
 
+    # Legend (child of PhaseStep)
+    path('hx/forge/phase-step/<int:step_pk>/legend/add/', views.legend_add, name='forge-legend-add'),
+    path('hx/forge/legend/<int:pk>/edit/', views.legend_edit, name='forge-legend-edit'),
+    path('hx/forge/legend/<int:pk>/delete/', views.legend_delete, name='forge-legend-delete'),
+    path('hx/forge/legend/<int:legend_pk>/row/add/', views.legend_row_add, name='forge-legend-row-add'),
+    path('hx/forge/legend-row/<int:pk>/edit/', views.legend_row_edit, name='forge-legend-row-edit'),
+    path('hx/forge/legend-row/<int:pk>/delete/', views.legend_row_delete, name='forge-legend-row-delete'),
+
+    # Scale (child of PhaseStep)
+    path('hx/forge/phase-step/<int:step_pk>/scale/add/', views.scale_add, name='forge-scale-add'),
+    path('hx/forge/scale/<int:pk>/edit/', views.scale_edit, name='forge-scale-edit'),
+    path('hx/forge/scale/<int:pk>/delete/', views.scale_delete, name='forge-scale-delete'),
+    path('hx/forge/scale/<int:scale_pk>/row/add/', views.scale_row_add, name='forge-scale-row-add'),
+    path('hx/forge/scale-row/<int:pk>/edit/', views.scale_row_edit, name='forge-scale-row-edit'),
+    path('hx/forge/scale-row/<int:pk>/delete/', views.scale_row_delete, name='forge-scale-row-delete'),
+
     # DecreeSection + CardSlot (children of FactionSheet / DecreeSection)
     path('hx/forge/decree/<int:pk>/edit/', views.decree_edit, name='forge-decree-edit'),
     path('hx/forge/decree/<int:decree_pk>/card-slot/add/', views.cardslot_add, name='forge-cardslot-add'),

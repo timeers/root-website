@@ -25,8 +25,12 @@ from .forms import (
     FactionAbilityForm,
     FactionBackForm,
     ForgedFactionForm,
+    LegendForm,
+    LegendRowForm,
     PhaseStepForm,
     PieceForm,
+    ScaleForm,
+    ScaleRowForm,
     SetupCardForm,
     SetupStepForm,
     StepActionForm,
@@ -43,8 +47,12 @@ from .models import (
     FactionBack,
     FactionSheet,
     ForgedFaction,
+    Legend,
+    LegendRow,
     PhaseStep,
     Piece,
+    Scale,
+    ScaleRow,
     SetupCard,
     SetupStep,
     StepAction,
@@ -1008,6 +1016,10 @@ def step_children_reorder(request, step_pk):
             BorderedBox.objects.filter(id=oid, step=step).update(order=index)
         elif kind == 'track':
             CardboardTrack.objects.filter(id=oid, step=step).update(order=index)
+        elif kind == 'legend':
+            Legend.objects.filter(id=oid, step=step).update(order=index)
+        elif kind == 'scale':
+            Scale.objects.filter(id=oid, step=step).update(order=index)
     return HttpResponse(status=204)
 
 
@@ -1056,6 +1068,204 @@ def track_delete(request, pk):
     if (resp := _child_permission_check(request, track.step.sheet.faction)):
         return resp
     track.delete()
+    return HttpResponse(status=204)
+
+
+# ---------- Legend (child of PhaseStep) ----------
+
+def _next_step_child_order(step):
+    """Next `order` for a new mixed-list child of a PhaseStep."""
+    return (step.boxes.count() + step.tracks.count()
+            + step.legends.count() + step.scales.count() + 1)
+
+
+@editor_required
+@require_http_methods(["POST"])
+def legend_add(request, step_pk):
+    step = get_object_or_404(PhaseStep, pk=step_pk)
+    if (resp := _child_permission_check(request, step.sheet.faction)):
+        return resp
+    form = LegendForm(request.POST)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    legend = form.save(commit=False)
+    legend.step = step
+    legend.order = _next_step_child_order(step)
+    legend.save()
+    ensure_step_parent_fits(step)
+    return render(request, 'the_forge/partials/legend_row.html', {
+        'legend': legend, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
+    })
+
+
+@editor_required
+@require_http_methods(["POST"])
+def legend_edit(request, pk):
+    legend = get_object_or_404(Legend, pk=pk)
+    if (resp := _child_permission_check(request, legend.step.sheet.faction)):
+        return resp
+    form = LegendForm(request.POST, instance=legend)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    form.save()
+    ensure_step_parent_fits(legend.step)
+    return render(request, 'the_forge/partials/legend_row.html', {
+        'legend': legend, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
+    })
+
+
+@editor_required
+@require_http_methods(["DELETE"])
+def legend_delete(request, pk):
+    legend = get_object_or_404(Legend, pk=pk)
+    if (resp := _child_permission_check(request, legend.step.sheet.faction)):
+        return resp
+    legend.delete()
+    return HttpResponse(status=204)
+
+
+@editor_required
+@require_http_methods(["POST"])
+def legend_row_add(request, legend_pk):
+    legend = get_object_or_404(Legend, pk=legend_pk)
+    if (resp := _child_permission_check(request, legend.step.sheet.faction)):
+        return resp
+    form = LegendRowForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    row = form.save(commit=False)
+    row.legend = legend
+    row.order = legend.rows.count() + 1
+    row.save()
+    ensure_step_parent_fits(legend.step)
+    return render(request, 'the_forge/partials/legend_row_entry.html', {
+        'row': row, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
+    })
+
+
+@editor_required
+@require_http_methods(["POST"])
+def legend_row_edit(request, pk):
+    row = get_object_or_404(LegendRow, pk=pk)
+    if (resp := _child_permission_check(request, row.legend.step.sheet.faction)):
+        return resp
+    form = LegendRowForm(request.POST, request.FILES, instance=row)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    form.save()
+    ensure_step_parent_fits(row.legend.step)
+    return render(request, 'the_forge/partials/legend_row_entry.html', {
+        'row': row, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
+    })
+
+
+@editor_required
+@require_http_methods(["DELETE"])
+def legend_row_delete(request, pk):
+    row = get_object_or_404(LegendRow, pk=pk)
+    if (resp := _child_permission_check(request, row.legend.step.sheet.faction)):
+        return resp
+    row.delete()
+    return HttpResponse(status=204)
+
+
+# ---------- Scale (child of PhaseStep) ----------
+
+@editor_required
+@require_http_methods(["POST"])
+def scale_add(request, step_pk):
+    step = get_object_or_404(PhaseStep, pk=step_pk)
+    if (resp := _child_permission_check(request, step.sheet.faction)):
+        return resp
+    form = ScaleForm(request.POST)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    scale = form.save(commit=False)
+    scale.step = step
+    scale.order = _next_step_child_order(step)
+    scale.save()
+    ensure_step_parent_fits(step)
+    return render(request, 'the_forge/partials/scale_row.html', {
+        'scale': scale, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
+    })
+
+
+@editor_required
+@require_http_methods(["POST"])
+def scale_edit(request, pk):
+    scale = get_object_or_404(Scale, pk=pk)
+    if (resp := _child_permission_check(request, scale.step.sheet.faction)):
+        return resp
+    form = ScaleForm(request.POST, instance=scale)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    form.save()
+    ensure_step_parent_fits(scale.step)
+    return render(request, 'the_forge/partials/scale_row.html', {
+        'scale': scale, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
+    })
+
+
+@editor_required
+@require_http_methods(["DELETE"])
+def scale_delete(request, pk):
+    scale = get_object_or_404(Scale, pk=pk)
+    if (resp := _child_permission_check(request, scale.step.sheet.faction)):
+        return resp
+    scale.delete()
+    return HttpResponse(status=204)
+
+
+@editor_required
+@require_http_methods(["POST"])
+def scale_row_add(request, scale_pk):
+    scale = get_object_or_404(Scale, pk=scale_pk)
+    if (resp := _child_permission_check(request, scale.step.sheet.faction)):
+        return resp
+    form = ScaleRowForm(request.POST)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    row = form.save(commit=False)
+    row.scale = scale
+    row.order = scale.rows.count() + 1
+    row.save()
+    ensure_step_parent_fits(scale.step, check_width=True)
+    return render(request, 'the_forge/partials/scale_row_entry.html', {
+        'row': row, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
+    })
+
+
+@editor_required
+@require_http_methods(["POST"])
+def scale_row_edit(request, pk):
+    row = get_object_or_404(ScaleRow, pk=pk)
+    if (resp := _child_permission_check(request, row.scale.step.sheet.faction)):
+        return resp
+    form = ScaleRowForm(request.POST, instance=row)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    form.save()
+    ensure_step_parent_fits(row.scale.step, check_width=True)
+    return render(request, 'the_forge/partials/scale_row_entry.html', {
+        'row': row, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
+    })
+
+
+@editor_required
+@require_http_methods(["DELETE"])
+def scale_row_delete(request, pk):
+    row = get_object_or_404(ScaleRow, pk=pk)
+    if (resp := _child_permission_check(request, row.scale.step.sheet.faction)):
+        return resp
+    row.delete()
     return HttpResponse(status=204)
 
 

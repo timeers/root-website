@@ -1,11 +1,15 @@
 {% load static %}
 <div class="phase-step-action-controls d-flex align-items-center gap-2 mt-3"
      data-step-id="{{ step.pk }}">
-  <div class="ms-auto d-flex gap-2">
+  <div class="ms-auto d-flex gap-2 flex-wrap">
     <button type="button" class="btn btn-sm btn-outline-secondary"
             data-add-box data-step-id="{{ step.pk }}">+ Add Box</button>
     <button type="button" class="btn btn-sm btn-outline-secondary"
             data-add-track data-step-id="{{ step.pk }}">+ Add Track</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-legend data-step-id="{{ step.pk }}">+ Add Legend</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-scale data-step-id="{{ step.pk }}">+ Add Scale</button>
     <button type="button" class="btn btn-sm btn-outline-secondary"
             data-toggle-actions data-step-id="{{ step.pk }}"
             aria-expanded="{% if step.actions.exists %}true{% else %}false{% endif %}"

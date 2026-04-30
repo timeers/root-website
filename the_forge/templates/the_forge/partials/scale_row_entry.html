@@ -1,0 +1,27 @@
+{% load static forge_text %}
+<div class="scale-entry forge-card-row" data-row data-id="{{ row.pk }}" data-kind="scale-row">
+  <form method="post"
+        data-edit-url="{% url 'forge-scale-row-edit' pk=row.pk %}"
+        data-forge-icon-form
+        class="scale-entry__form" data-dirty-form>
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center flex-nowrap">
+      <input type="text" name="range" value="{{ row.range }}" class="form-control form-control-sm scale-entry__field scale-entry__field--range" placeholder="Range (ex. 1-2)" required>
+      <span class="fw-bold flex-shrink-0">:</span>
+      <input type="text" name="result" value="{{ row.result }}" class="form-control form-control-sm scale-entry__field" data-track-image-input data-required placeholder="Result" required>
+      <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0" data-save-btn>Save</button>
+      <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0"
+              data-delete-url="{% url 'forge-scale-row-delete' pk=row.pk %}">Delete</button>
+    </div>
+
+    <div class="forge-icon-picker" data-forge-icon-picker hidden>
+      <div class="forge-icon-picker__panel">
+        {% for key in inline_keywords %}
+          <button type="button" class="forge-icon-picker__btn" data-icon-key="{{ key }}" title="{{ key }}">
+            <img src="{{ inline_images|dict_get:key }}" alt="{{ key }}">
+          </button>
+        {% endfor %}
+      </div>
+    </div>
+  </form>
+</div>

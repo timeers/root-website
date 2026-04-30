@@ -193,6 +193,25 @@ TRACK_OVERLAP_MIN_H_STEP = 0.30 * inch     # Minimum horizontal step (below this
 TRACK_OVERLAP_DIVIDER_W = 0.02 * inch      # Reduced divider width when overlapping
 TRACK_OVERLAP_CLEARANCE = 0.03 * inch      # Minimum gap between circle edges when zigzagging
 
+# Legend rendering — title-over-image left column, body right column
+LEGEND_TITLE_FONT_SIZE = 11
+LEGEND_TITLE_GAP = 3                       # gap between title baseline and image
+LEGEND_IMAGE_MAX_H = 0.65 * inch
+LEGEND_LEFT_COL_W = 1.20 * inch            # left (title + image) column width
+LEGEND_COL_GAP = 8                         # gap between left and right columns
+LEGEND_ROW_GAP = 6                         # vertical gap between legend rows
+LEGEND_BLOCK_TITLE_SIZE = 12               # optional Luminari header above the rows
+LEGEND_BLOCK_TITLE_GAP = 4
+
+# Scale rendering — horizontal "1-2:{{1VP}}   3-4:{{2VP}}" layout
+SCALE_FONT_SIZE = 10
+SCALE_ENTRY_GAP = 14                       # horizontal space between entries
+SCALE_ROW_GAP = 6                          # vertical gap between wrapped rows
+SCALE_BLOCK_TITLE_SIZE = 12
+SCALE_TOP_PAD = 2                          # padding above the block (and gap below title when present)
+SCALE_BOTTOM_PAD = 2                       # padding below the block
+SCALE_INLINE_IMG_H = 15                    # height of inline-image icons in scale results
+
 # Card-Slot.png is 63.5mm x 88mm (standard poker card size)
 CARD_SLOT_W = 2.5 * inch
 CARD_SLOT_H = 3.46 * inch
@@ -1401,6 +1420,254 @@ def _measure_action_widths(action, icon_w, icon_h, icon_path, cost, action_body_
     return natural_w, natural_h, wrap_once_w, wrap_once_h
 
 
+class LegendFlowable(Flowable):
+    """Renders a Legend block: optional title above two-column rows.
+
+    Each row: left column = Luminari title above image; right column = body
+    paragraph. The title color is the faction color when legible against the
+    tan page background, otherwise black.
+    """
+
+    def __init__(self, legend, total_width, body_style, title_color_hex):
+        super().__init__()
+        self.legend = legend
+        self.total_width = total_width
+        self.body_style = body_style
+        self.title_color_hex = title_color_hex
+        self._rows_data = []   # list of (title, img_path, img_w, img_h, body_para, body_h, row_h)
+        self._block_title_h = 0
+        self._height = 0
+
+    def _measure(self):
+        if self._rows_data:
+            return
+        from reportlab.lib.styles import ParagraphStyle
+        left_w = LEGEND_LEFT_COL_W
+        right_w = self.total_width - left_w - LEGEND_COL_GAP
+        if right_w < 0.5 * inch:
+            right_w = max(self.total_width - left_w - LEGEND_COL_GAP, 0.5 * inch)
+
+        body_style = ParagraphStyle('LegendBody', parent=self.body_style)
+
+        rows = list(self.legend.rows.all())
+        for r in rows:
+            title = (r.title or '').strip()
+            # Resolve image path on disk
+            img_path = None
+            img_w = img_h = 0
+            if r.image:
+                try:
+                    img_path = r.image.path
+                except Exception:
+                    img_path = None
+            if img_path and os.path.exists(img_path):
+                try:
+                    from PIL import Image as PILImage
+                    pil = PILImage.open(img_path)
+                    aspect = pil.size[0] / pil.size[1] if pil.size[1] else 1
+                    img_h = LEGEND_IMAGE_MAX_H
+                    img_w = img_h * aspect
+                    if img_w > left_w:
+                        img_w = left_w
+                        img_h = img_w / aspect if aspect else LEGEND_IMAGE_MAX_H
+                except Exception:
+                    img_path = None
+
+            body_markup = format_step_markup(r.body) if r.body else ''
+            body_para = Paragraph(body_markup or '&nbsp;', body_style)
+            body_para.wrap(right_w, 9999)
+            body_h = true_paragraph_height(body_para, right_w)
+
+            title_h = LEGEND_TITLE_FONT_SIZE * 1.1 if title else 0
+            left_h = title_h + (LEGEND_TITLE_GAP if title and img_h else 0) + img_h
+            row_h = max(left_h, body_h)
+            self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w))
+
+        block_title = (self.legend.title or '').strip()
+        self._block_title_h = (LEGEND_BLOCK_TITLE_SIZE * 1.1 + LEGEND_BLOCK_TITLE_GAP) if block_title else 0
+
+        total_rows_h = sum(r[6] for r in self._rows_data)
+        gap_h = max(0, len(self._rows_data) - 1) * LEGEND_ROW_GAP
+        self._height = self._block_title_h + total_rows_h + gap_h
+
+    def wrap(self, availWidth, availHeight):
+        self.total_width = min(availWidth, self.total_width) if availWidth else self.total_width
+        self._rows_data = []
+        self._measure()
+        return self.total_width, self._height
+
+    def draw(self):
+        self._measure()
+        c = self.canv
+        c.saveState()
+        title_color = HexColor(self.title_color_hex)
+
+        y = self._height
+        block_title = (self.legend.title or '').strip()
+        if block_title:
+            c.setFont('Luminari', LEGEND_BLOCK_TITLE_SIZE)
+            c.setFillColor(title_color)
+            cap_h = LEGEND_BLOCK_TITLE_SIZE * 0.70
+            c.drawString(0, y - cap_h, block_title)
+            y -= self._block_title_h
+
+        for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w) in enumerate(self._rows_data):
+            row_top = y
+            # Left column: title at top, image below
+            left_y = row_top
+            if title:
+                c.setFont('Luminari', LEGEND_TITLE_FONT_SIZE)
+                c.setFillColor(title_color)
+                cap_h = LEGEND_TITLE_FONT_SIZE * 0.70
+                c.drawString(0, left_y - cap_h, title)
+                left_y -= LEGEND_TITLE_FONT_SIZE * 1.1
+                if img_h:
+                    left_y -= LEGEND_TITLE_GAP
+            if img_path and img_h:
+                c.drawImage(img_path, 0, left_y - img_h, width=img_w, height=img_h,
+                            preserveAspectRatio=True, mask='auto')
+
+            # Right column: body paragraph
+            right_x = left_w + LEGEND_COL_GAP
+            body_para.drawOn(c, right_x, row_top - body_h)
+
+            y = row_top - row_h
+            if i < len(self._rows_data) - 1:
+                y -= LEGEND_ROW_GAP
+
+        c.restoreState()
+
+
+class ScaleFlowable(Flowable):
+    """Renders a Scale block horizontally: "1-2:{{1VP}}   3-4:{{2VP}}".
+
+    The colon separator is drawn automatically; the user only enters range and
+    result. Result text passes through format_step_markup so {{KEY}} tokens
+    render as inline images. Entries flow horizontally and wrap to a new line
+    when they overflow availWidth.
+    """
+
+    def __init__(self, scale, total_width, body_style, title_color_hex, centered=False):
+        super().__init__()
+        self.scale = scale
+        self.total_width = total_width
+        self.body_style = body_style
+        self.title_color_hex = title_color_hex
+        self.centered = centered
+        self._lines = []   # list of list of paragraphs (each line = a list)
+        self._line_heights = []
+        self._block_title_h = 0
+        self._height = 0
+        self._entry_paras = []   # parallel: (range_para, result_para, range_w, result_w, h)
+
+    def _measure(self):
+        if self._lines:
+            return
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        entry_style = ParagraphStyle(
+            'ScaleEntry',
+            parent=self.body_style,
+            fontName='Baskerville',
+            fontSize=SCALE_FONT_SIZE,
+            leading=SCALE_FONT_SIZE * 1.15,
+            alignment=TA_LEFT,
+        )
+
+        rows = list(self.scale.rows.all())
+        # Build paragraph for each entry: "<range>: <result_markup>"
+        for r in rows:
+            rng = (r.range or '').strip()
+            res_markup = _replace_inline_images(r.result, img_height=SCALE_INLINE_IMG_H) if r.result else ''
+            entry_markup = (
+                f'<font face="Baskerville">{_xml_escape(rng)}:</font>&nbsp;{res_markup}'
+            )
+            # Measure natural single-line width on a probe paragraph (wrap at a
+            # huge width and read maxWidth - extraSpace), then build the actual
+            # paragraph at that width so range+result stay inline.
+            PROBE = 9999
+            probe = Paragraph(entry_markup, entry_style)
+            probe.wrap(PROBE, 9999)
+            line_widths = []
+            if hasattr(probe, 'blPara') and hasattr(probe.blPara, 'lines'):
+                for ln in probe.blPara.lines:
+                    extra = getattr(ln, 'extraSpace', None)
+                    max_w = getattr(ln, 'maxWidth', PROBE)
+                    if extra is not None:
+                        line_widths.append(max_w - extra)
+            w_natural = max(line_widths) if line_widths else probe.minWidth()
+            # Add a small safety margin so the wrapper doesn't push to 2 lines
+            w_natural = min(w_natural + 1, self.total_width)
+            para = Paragraph(entry_markup, entry_style)
+            _, h_natural = para.wrap(w_natural, 9999)
+            self._entry_paras.append((para, w_natural, h_natural))
+
+        # Pack entries into lines that fit in total_width
+        avail = self.total_width
+        line = []
+        line_w = 0
+        line_h = 0
+        for para, w, h in self._entry_paras:
+            add_w = w if not line else (w + SCALE_ENTRY_GAP)
+            if line and line_w + add_w > avail:
+                self._lines.append(line)
+                self._line_heights.append(line_h)
+                line = [(para, w, h)]
+                line_w = w
+                line_h = h
+            else:
+                line.append((para, w, h))
+                line_w += add_w
+                line_h = max(line_h, h)
+        if line:
+            self._lines.append(line)
+            self._line_heights.append(line_h)
+
+        block_title = (self.scale.title or '').strip()
+        self._block_title_h = (SCALE_BLOCK_TITLE_SIZE * 1.1 + SCALE_TOP_PAD) if block_title else 0
+
+        total_lines_h = sum(self._line_heights)
+        gap_h = max(0, len(self._lines) - 1) * SCALE_ROW_GAP
+        self._height = self._block_title_h + total_lines_h + gap_h + SCALE_BOTTOM_PAD
+
+    def wrap(self, availWidth, availHeight):
+        self.total_width = min(availWidth, self.total_width) if availWidth else self.total_width
+        self._lines = []
+        self._line_heights = []
+        self._entry_paras = []
+        self._measure()
+        return self.total_width, self._height
+
+    def draw(self):
+        self._measure()
+        c = self.canv
+        c.saveState()
+
+        y = self._height
+        block_title = (self.scale.title or '').strip()
+        if block_title:
+            c.setFont('Luminari', SCALE_BLOCK_TITLE_SIZE)
+            c.setFillColor(HexColor(self.title_color_hex))
+            cap_h = SCALE_BLOCK_TITLE_SIZE * 0.70
+            if self.centered:
+                c.drawCentredString(self.total_width / 2, y - cap_h, block_title)
+            else:
+                c.drawString(0, y - cap_h, block_title)
+            y -= self._block_title_h
+
+        for line, line_h in zip(self._lines, self._line_heights):
+            line_w = sum(w for _, w, _ in line) + max(0, len(line) - 1) * SCALE_ENTRY_GAP
+            x = (self.total_width - line_w) / 2 if self.centered else 0
+            for i, (para, w, h) in enumerate(line):
+                if i > 0:
+                    x += SCALE_ENTRY_GAP
+                para.drawOn(c, x, y - line_h)
+                x += w
+            y -= line_h + SCALE_ROW_GAP
+
+        c.restoreState()
+
+
 class StepActionFlowable(Flowable):
     """Renders a single StepAction row: [cost_icon] → [action_text]"""
 
@@ -1860,6 +2127,7 @@ class SheetLayoutEngine:
         on_tan_hex = (faction_color_hex
                       if _is_color_legible_on(faction_color_hex, PHASE_BOX_TAN)
                       else '#000000')
+        self._on_tan_hex = on_tan_hex
         self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, on_tan_hex, 0.5 * inch)
 
         # Preload numbered SVGs (0-9) for phase steps, at natural size
@@ -2405,6 +2673,21 @@ class SheetLayoutEngine:
                 if track_w > max_needed:
                     max_needed = track_w
 
+            # Also consider scales — minimum width is the widest single entry
+            # so at least one entry can fit per line.
+            for scale in step.scales.all():
+                sf = ScaleFlowable(
+                    scale=scale,
+                    total_width=9999,
+                    body_style=self.step_body_style,
+                    title_color_hex=self._on_tan_hex,
+                )
+                sf.wrap(9999, 9999)
+                widest = max((w for _, w, _ in sf._entry_paras), default=0)
+                scale_w = widest + indent
+                if scale_w > max_needed:
+                    max_needed = scale_w
+
         return max_needed
 
     def _natural_track_width_for_steps(self, steps, indent):
@@ -2452,6 +2735,19 @@ class SheetLayoutEngine:
 
                 if track_w > max_needed:
                     max_needed = track_w
+
+            for scale in step.scales.all():
+                sf = ScaleFlowable(
+                    scale=scale,
+                    total_width=9999,
+                    body_style=self.step_body_style,
+                    title_color_hex=self._on_tan_hex,
+                )
+                sf.wrap(9999, 9999)
+                widest = max((w for _, w, _ in sf._entry_paras), default=0)
+                scale_w = widest + indent
+                if scale_w > max_needed:
+                    max_needed = scale_w
 
         return max_needed
 
@@ -2631,21 +2927,40 @@ class SheetLayoutEngine:
 
         # Add bordered box + track heights, iterated in the user's intermixed
         # order from the editor (boxes and tracks share an `order` sequence).
+        child_w = width - text_col_w
         for child in step.ordered_children:
             obj = child['obj']
             if child['kind'] == 'box':
                 table_h += BORDERED_BOX_HEIGHTS.get(obj.height, BORDERED_BOX_HEIGHTS['medium']) + BORDERED_BOX_TITLE_SIZE / 2
-            else:
+            elif child['kind'] == 'track':
                 slots = list(obj.slots.all())
                 tf = TrackFlowable(
                     track=obj,
                     slots=slots,
-                    total_width=width - text_col_w,
+                    total_width=child_w,
                     body_style=self.step_body_style,
                     faction_color=self.faction_color,
                 )
-                _, track_h = tf.wrap(width - text_col_w, 9999)
+                _, track_h = tf.wrap(child_w, 9999)
                 table_h += track_h + TRACK_TITLE_GAP + TRACK_BOTTOM_PAD
+            elif child['kind'] == 'legend':
+                lf = LegendFlowable(
+                    legend=obj,
+                    total_width=child_w,
+                    body_style=self.step_body_style,
+                    title_color_hex=self._on_tan_hex,
+                )
+                _, lh = lf.wrap(child_w, 9999)
+                table_h += lh + LEGEND_BLOCK_TITLE_GAP + LEGEND_ROW_GAP
+            elif child['kind'] == 'scale':
+                sf = ScaleFlowable(
+                    scale=obj,
+                    total_width=child_w,
+                    body_style=self.step_body_style,
+                    title_color_hex=self._on_tan_hex,
+                )
+                _, sh = sf.wrap(child_w, 9999)
+                table_h += sh + SCALE_TOP_PAD + SCALE_BOTTOM_PAD
 
         return table_h
 
@@ -2763,7 +3078,7 @@ class SheetLayoutEngine:
                 sized.append({'kind': 'bordered_box', 'obj': obj,
                               'h': box_h, 'top_pad': top_pad})
                 total_block_h += box_h + top_pad
-            else:
+            elif child['kind'] == 'track':
                 slots = list(obj.slots.all())
                 tf = TrackFlowable(track=obj, slots=slots, total_width=avail_w,
                                    body_style=self.step_body_style,
@@ -2775,6 +3090,26 @@ class SheetLayoutEngine:
                               'top_pad': top_pad, 'bot_pad': bot_pad,
                               'flowable': tf})
                 total_block_h += track_h + top_pad + bot_pad
+            elif child['kind'] == 'legend':
+                lf = LegendFlowable(legend=obj, total_width=avail_w,
+                                    body_style=self.step_body_style,
+                                    title_color_hex=self._on_tan_hex)
+                _, lh = lf.wrap(avail_w, 9999)
+                top_pad = LEGEND_BLOCK_TITLE_GAP
+                bot_pad = LEGEND_ROW_GAP
+                sized.append({'kind': 'legend', 'obj': obj, 'h': lh,
+                              'top_pad': top_pad, 'bot_pad': bot_pad})
+                total_block_h += lh + top_pad + bot_pad
+            elif child['kind'] == 'scale':
+                sf = ScaleFlowable(scale=obj, total_width=avail_w,
+                                   body_style=self.step_body_style,
+                                   title_color_hex=self._on_tan_hex)
+                _, sh = sf.wrap(avail_w, 9999)
+                top_pad = SCALE_TOP_PAD
+                bot_pad = SCALE_BOTTOM_PAD
+                sized.append({'kind': 'scale', 'obj': obj, 'h': sh,
+                              'top_pad': top_pad, 'bot_pad': bot_pad})
+                total_block_h += sh + top_pad + bot_pad
 
         # Children block sits at the bottom of the step rect (text/actions above).
         # In PDF coords, step_y is the bottom; block occupies [step_y, step_y + total_block_h].
@@ -2793,6 +3128,22 @@ class SheetLayoutEngine:
                                      step_id=step.id,
                                      parent_key=parent_key)
                 cursor_top = child_y
+            elif entry['kind'] == 'legend':
+                self._record_element(kind='legend', id=obj.id,
+                                     x=step_x + indent, y=child_y,
+                                     w=avail_w, h=child_h,
+                                     title=obj.title or '',
+                                     step_id=step.id,
+                                     parent_key=parent_key)
+                cursor_top = child_y - entry.get('bot_pad', 0)
+            elif entry['kind'] == 'scale':
+                self._record_element(kind='scale', id=obj.id,
+                                     x=step_x + indent, y=child_y,
+                                     w=avail_w, h=child_h,
+                                     title=obj.title or '',
+                                     step_id=step.id,
+                                     parent_key=parent_key)
+                cursor_top = child_y - entry.get('bot_pad', 0)
             else:
                 # Track: collect per-slot rects so JS can draw circles/squares
                 # using the same geometry as the PDF (including token zigzag).
@@ -3503,7 +3854,7 @@ class SheetLayoutEngine:
                         story.append(t)
                     else:
                         story.append(bf)
-                else:
+                elif child['kind'] == 'track':
                     slots = list(obj.slots.all())
                     tf = TrackFlowable(
                         track=obj,
@@ -3524,6 +3875,45 @@ class SheetLayoutEngine:
                         story.append(t)
                     else:
                         story.append(tf)
+                elif child['kind'] == 'legend':
+                    lf = LegendFlowable(
+                        legend=obj,
+                        total_width=avail_w - indent,
+                        body_style=self.step_body_style,
+                        title_color_hex=self._on_tan_hex,
+                    )
+                    if indent:
+                        t = Table([['', lf]], colWidths=[indent, avail_w - indent])
+                        t.setStyle(TableStyle([
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                            ('TOPPADDING', (0, 0), (-1, -1), LEGEND_BLOCK_TITLE_GAP),
+                            ('BOTTOMPADDING', (0, 0), (-1, -1), LEGEND_ROW_GAP),
+                        ]))
+                        story.append(t)
+                    else:
+                        story.append(lf)
+                elif child['kind'] == 'scale':
+                    sf = ScaleFlowable(
+                        scale=obj,
+                        total_width=avail_w - indent,
+                        body_style=self.step_body_style,
+                        title_color_hex=self._on_tan_hex,
+                        centered=centered,
+                    )
+                    if indent:
+                        t = Table([['', sf]], colWidths=[indent, avail_w - indent])
+                        t.setStyle(TableStyle([
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                            ('TOPPADDING', (0, 0), (-1, -1), SCALE_TOP_PAD),
+                            ('BOTTOMPADDING', (0, 0), (-1, -1), SCALE_BOTTOM_PAD),
+                        ]))
+                        story.append(t)
+                    else:
+                        story.append(sf)
 
         return story
 
