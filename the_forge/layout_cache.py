@@ -13,7 +13,7 @@ import json
 
 from django.core.cache import cache
 
-CACHE_PREFIX = 'forge:sheet_layout:v8'
+CACHE_PREFIX = 'forge:sheet_layout:v9'
 CACHE_TIMEOUT = 60 * 60 * 24  # 24h; key is content-addressed so stale entries can't be wrong
 
 
@@ -44,7 +44,7 @@ def _fingerprint(sheet, layout_mode):
             'id', 'phase', 'number', 'text', 'action_type', 'content_box_id'):
         parts.append(('phase_step',) + ps)
 
-    from .models import StepAction, BorderedBox, CardboardTrack, CardboardSlot, CardSlot
+    from .models import StepAction, BorderedBox, CardboardTrack, CardboardSlot, CardSlot, Legend, LegendRow, Scale, ScaleRow
 
     for sa in StepAction.objects.filter(step__sheet=sheet).order_by('step_id', 'order').values_list(
             'id', 'step_id', 'order', 'text', 'cost'):
@@ -64,6 +64,24 @@ def _fingerprint(sheet, layout_mode):
             'track_id', 'row', 'column').values_list(
             'id', 'track_id', 'row', 'column', 'number', 'content'):
         parts.append(('slot',) + sl)
+
+    for lg in Legend.objects.filter(step__sheet=sheet).order_by('step_id', 'order').values_list(
+            'id', 'step_id', 'order', 'title'):
+        parts.append(('legend',) + lg)
+
+    for lr in LegendRow.objects.filter(legend__step__sheet=sheet).order_by(
+            'legend_id', 'order').values_list(
+            'id', 'legend_id', 'order', 'title', 'image', 'body'):
+        parts.append(('legend_row',) + lr)
+
+    for sc in Scale.objects.filter(step__sheet=sheet).order_by('step_id', 'order').values_list(
+            'id', 'step_id', 'order', 'title'):
+        parts.append(('scale',) + sc)
+
+    for sr in ScaleRow.objects.filter(scale__step__sheet=sheet).order_by(
+            'scale_id', 'order').values_list(
+            'id', 'scale_id', 'order', 'range', 'result'):
+        parts.append(('scale_row',) + sr)
 
     for cp in sheet.card_piles.order_by('number').values_list(
             'id', 'number', 'title', 'body', 'x_h', 'y_h', 'x_v', 'y_v'):

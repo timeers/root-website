@@ -24,14 +24,24 @@ from django.templatetags.static import static
 # pointing multiple keys at the same URL.
 FORGE_INLINE_IMAGES = {
     # Items (law icon set)
-    'torch': static('items/law/torch.png'),
-    'tea': static('items/law/tea.png'),
-    'sword': static('items/law/sword.png'),
-    'bag': static('items/law/bag.png'),
-    'hammer': static('items/law/hammer.png'),
-    'crossbow': static('items/law/crossbow.png'),
-    'coin': static('items/law/coin.png'),
-    'boot': static('items/law/boot.png'),
+    'law_torch': static('items/law/torch.png'),
+    'law_tea': static('items/law/tea.png'),
+    'law_sword': static('items/law/sword.png'),
+    'law_bag': static('items/law/bag.png'),
+    'law_hammer': static('items/law/hammer.png'),
+    'law_crossbow': static('items/law/crossbow.png'),
+    'law_coin': static('items/law/coin.png'),
+    'law_boot': static('items/law/boot.png'),
+
+    # Items (wo background)
+    'item_torch': static('pdf/inline/item_torch.png'),
+    'item_tea': static('pdf/inline/item_tea.png'),
+    'item_sword': static('pdf/inline/item_sword.png'),
+    'item_bag': static('pdf/inline/item_bag.png'),
+    'item_hammer': static('pdf/inline/item_hammer.png'),
+    'item_crossbow': static('pdf/inline/item_crossbow.png'),
+    'item_coin': static('pdf/inline/item_coin.png'),
+    'item_boot': static('pdf/inline/item_boot.png'),
 
     # Hirelings
     'hired': static('items/law/hired.png'),
@@ -51,8 +61,8 @@ FORGE_INLINE_IMAGES = {
 
 
     # Draw cards
-    # '+card': static('pdf/inline/+card.png'),
-    # '-card': static('pdf/inline/-card.png'),
+    '+card': static('pdf/inline/+card.png'),
+    '-card': static('pdf/inline/+card.png'),
 
     'card': static('pdf/inline/card.png'),
     'card2': static('pdf/inline/card2.png'),
@@ -119,23 +129,24 @@ FORGE_PICKER_ORDER = [
 
 
     # Cards
-    # '+card',
-    # '-card',
+    '+card',
+    '-card',
+
+    'cards',
+    'fox_card',
+    'fox_tilt',
+    'mouse_card',
+    'mouse_tilt',
+    'rabbit_card',
+    'rabbit_tilt',
+    'bird_card',
+    'bird_tilt',
+
+    # More cards
     'card',
     'card2',
     'card3',
     'card4',
-    'cards',
-    'fox_card',
-    'mouse_card',
-    'rabbit_card',
-    'bird_card',
-
-    # Tilts
-    'fox_tilt',
-    'mouse_tilt',
-    'rabbit_tilt',
-    'bird_tilt',
 
     # Icons
     'meeple',
@@ -189,14 +200,23 @@ FORGE_PICKER_ORDER = [
     # 'skunk',
 
     # Items
-    'sword',
-    'hammer',
-    'crossbow',
-    'bag',
-    'boot',
-    'tea',
-    'coin',
-    'torch',
+    'item_sword',
+    'item_hammer',
+    'item_crossbow',
+    'item_bag',
+    'item_boot',
+    'item_tea',
+    'item_coin',
+    'item_torch',
+
+    'law_sword',
+    'law_hammer',
+    'law_crossbow',
+    'law_bag',
+    'law_boot',
+    'law_tea',
+    'law_coin',
+    'law_torch',
 
     # Hirelings
     'birdsong',

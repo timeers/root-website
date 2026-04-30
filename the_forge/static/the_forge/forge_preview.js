@@ -13,7 +13,7 @@
   // when dragged. Map → the parent's element key.
   function decorativeParentKey(el) {
     if (el.kind === 'phase_header_bar' || el.kind === 'phase_step') return 'phase_box';
-    if (el.kind === 'bordered_box' || el.kind === 'track') {
+    if (el.kind === 'bordered_box' || el.kind === 'track' || el.kind === 'legend' || el.kind === 'scale') {
       return el.parent_key || 'phase_box';
     }
     if (el.kind === 'card_slot') return 'decree';
@@ -141,6 +141,22 @@
         if (el.title) {
           const t = document.createElement('div');
           t.className = 'bordered-box-title';
+          t.textContent = el.title;
+          div.appendChild(t);
+        }
+        break;
+      case 'legend':
+        if (el.title) {
+          const t = document.createElement('div');
+          t.className = 'legend-title';
+          t.textContent = el.title;
+          div.appendChild(t);
+        }
+        break;
+      case 'scale':
+        if (el.title) {
+          const t = document.createElement('div');
+          t.className = 'scale-title';
           t.textContent = el.title;
           div.appendChild(t);
         }

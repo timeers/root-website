@@ -194,14 +194,17 @@ TRACK_OVERLAP_DIVIDER_W = 0.02 * inch      # Reduced divider width when overlapp
 TRACK_OVERLAP_CLEARANCE = 0.03 * inch      # Minimum gap between circle edges when zigzagging
 
 # Legend rendering — title-over-image left column, body right column
-LEGEND_TITLE_FONT_SIZE = 11
-LEGEND_TITLE_GAP = 3                       # gap between title baseline and image
-LEGEND_IMAGE_MAX_H = 0.65 * inch
-LEGEND_LEFT_COL_W = 1.20 * inch            # left (title + image) column width
-LEGEND_COL_GAP = 8                         # gap between left and right columns
-LEGEND_ROW_GAP = 6                         # vertical gap between legend rows
-LEGEND_BLOCK_TITLE_SIZE = 12               # optional Luminari header above the rows
-LEGEND_BLOCK_TITLE_GAP = 4
+LEGEND_BLOCK_TITLE_SIZE = 16               # centered Luminari header above the rows (large)
+LEGEND_BLOCK_TITLE_GAP = 6                 # gap below the centered block title
+LEGEND_ROW_TITLE_FONT_SIZE = 11            # Luminari row title (centered over image)
+LEGEND_ROW_TITLE_GAP = 2                   # gap between row title baseline and image top
+LEGEND_BODY_FONT_SIZE = 10                 # body text font size (controls leading too)
+LEGEND_IMAGE_MAX_W = 0.5 * inch            # image hard cap (width)
+LEGEND_IMAGE_MAX_H = 0.5 * inch            # image hard cap (height)
+LEGEND_IMAGE_BODY_GAP = 8                  # gap between image and body text
+LEGEND_LEFT_COL_W = 0.75 * inch            # left column width (room for centered title over 0.5" image)
+LEGEND_ROW_GAP = 8                         # vertical gap between legend rows
+LEGEND_MIN_WIDTH = 3.0 * inch              # auto-width minimum for the legend container
 
 # Scale rendering — horizontal "1-2:{{1VP}}   3-4:{{2VP}}" layout
 SCALE_FONT_SIZE = 10
@@ -1443,11 +1446,16 @@ class LegendFlowable(Flowable):
             return
         from reportlab.lib.styles import ParagraphStyle
         left_w = LEGEND_LEFT_COL_W
-        right_w = self.total_width - left_w - LEGEND_COL_GAP
+        right_w = self.total_width - left_w - LEGEND_IMAGE_BODY_GAP
         if right_w < 0.5 * inch:
-            right_w = max(self.total_width - left_w - LEGEND_COL_GAP, 0.5 * inch)
+            right_w = 0.5 * inch
 
-        body_style = ParagraphStyle('LegendBody', parent=self.body_style)
+        body_style = ParagraphStyle(
+            'LegendBody',
+            parent=self.body_style,
+            fontSize=LEGEND_BODY_FONT_SIZE,
+            leading=LEGEND_BODY_FONT_SIZE * 1.15,
+        )
 
         rows = list(self.legend.rows.all())
         for r in rows:
@@ -1467,8 +1475,8 @@ class LegendFlowable(Flowable):
                     aspect = pil.size[0] / pil.size[1] if pil.size[1] else 1
                     img_h = LEGEND_IMAGE_MAX_H
                     img_w = img_h * aspect
-                    if img_w > left_w:
-                        img_w = left_w
+                    if img_w > LEGEND_IMAGE_MAX_W:
+                        img_w = LEGEND_IMAGE_MAX_W
                         img_h = img_w / aspect if aspect else LEGEND_IMAGE_MAX_H
                 except Exception:
                     img_path = None
@@ -1478,10 +1486,10 @@ class LegendFlowable(Flowable):
             body_para.wrap(right_w, 9999)
             body_h = true_paragraph_height(body_para, right_w)
 
-            title_h = LEGEND_TITLE_FONT_SIZE * 1.1 if title else 0
-            left_h = title_h + (LEGEND_TITLE_GAP if title and img_h else 0) + img_h
-            row_h = max(left_h, body_h)
-            self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w))
+            title_h = LEGEND_ROW_TITLE_FONT_SIZE * 1.1 if title else 0
+            title_block_h = title_h + (LEGEND_ROW_TITLE_GAP if title else 0)
+            row_h = title_block_h + max(img_h, body_h)
+            self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h))
 
         block_title = (self.legend.title or '').strip()
         self._block_title_h = (LEGEND_BLOCK_TITLE_SIZE * 1.1 + LEGEND_BLOCK_TITLE_GAP) if block_title else 0
@@ -1491,7 +1499,13 @@ class LegendFlowable(Flowable):
         self._height = self._block_title_h + total_rows_h + gap_h
 
     def wrap(self, availWidth, availHeight):
-        self.total_width = min(availWidth, self.total_width) if availWidth else self.total_width
+        # Always honor the width the parent gives us. LEGEND_MIN_WIDTH is
+        # advisory and is enforced upstream by _min_track_width_for_content_box,
+        # which sizes the parent content box wide enough. If the parent is still
+        # narrower (e.g. phase boxes that don't consult that contract), wrap
+        # gracefully to fit instead of overflowing.
+        width = min(availWidth, self.total_width) if availWidth else self.total_width
+        self.total_width = width
         self._rows_data = []
         self._measure()
         return self.total_width, self._height
@@ -1508,28 +1522,34 @@ class LegendFlowable(Flowable):
             c.setFont('Luminari', LEGEND_BLOCK_TITLE_SIZE)
             c.setFillColor(title_color)
             cap_h = LEGEND_BLOCK_TITLE_SIZE * 0.70
-            c.drawString(0, y - cap_h, block_title)
+            c.drawCentredString(self.total_width / 2.0, y - cap_h, block_title)
             y -= self._block_title_h
 
-        for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w) in enumerate(self._rows_data):
+        for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h) in enumerate(self._rows_data):
             row_top = y
-            # Left column: title at top, image below
-            left_y = row_top
+            # Row title centered over the image (within left column)
             if title:
-                c.setFont('Luminari', LEGEND_TITLE_FONT_SIZE)
+                c.setFont('Luminari', LEGEND_ROW_TITLE_FONT_SIZE)
                 c.setFillColor(title_color)
-                cap_h = LEGEND_TITLE_FONT_SIZE * 0.70
-                c.drawString(0, left_y - cap_h, title)
-                left_y -= LEGEND_TITLE_FONT_SIZE * 1.1
-                if img_h:
-                    left_y -= LEGEND_TITLE_GAP
+                cap_h = LEGEND_ROW_TITLE_FONT_SIZE * 0.70
+                c.drawCentredString(left_w / 2.0, row_top - cap_h, title)
+
+            # Image: centered horizontally in left column, below the title
+            image_top_y = row_top - title_block_h
             if img_path and img_h:
-                c.drawImage(img_path, 0, left_y - img_h, width=img_w, height=img_h,
+                image_x = (left_w - img_w) / 2.0
+                c.drawImage(img_path, image_x, image_top_y - img_h, width=img_w, height=img_h,
                             preserveAspectRatio=True, mask='auto')
 
-            # Right column: body paragraph
-            right_x = left_w + LEGEND_COL_GAP
-            body_para.drawOn(c, right_x, row_top - body_h)
+            # Body: top aligned with image top, fills the rest of the width.
+            # Paragraphs reserve leading space above the first cap-height; nudge
+            # up by (leading - cap_h) so the visible top of the first line
+            # lands flush with the image top.
+            right_x = left_w + LEGEND_IMAGE_BODY_GAP
+            body_leading = LEGEND_BODY_FONT_SIZE * 1.15
+            body_cap_h = LEGEND_BODY_FONT_SIZE * 0.70
+            body_top_offset = body_leading - body_cap_h
+            body_para.drawOn(c, right_x, image_top_y - body_h + body_top_offset)
 
             y = row_top - row_h
             if i < len(self._rows_data) - 1:
@@ -2759,6 +2779,25 @@ class SheetLayoutEngine:
         indent = SINGLE_STEP_INDENT if single_step else (0.325 * inch + 0.015 * inch)
         return self._natural_track_width_for_steps(steps, indent)
 
+    def _min_legend_width_for_content_box(self, content_box):
+        """Return the minimum content width needed for any legend in a content box.
+
+        Each legend asks for at least LEGEND_MIN_WIDTH for its own column; the
+        content box must add its indent so the legend gets that width after
+        the icon/text indent is removed. Returns 0 if no legends.
+        """
+        SINGLE_STEP_INDENT = PHASE_INTERNAL_MARGIN
+        steps = list(content_box.steps.all())
+        single_step = len(steps) == 1
+        indent = SINGLE_STEP_INDENT if single_step else (0.325 * inch + 0.015 * inch)
+        max_needed = 0
+        for step in steps:
+            for _ in step.legends.all():
+                w = LEGEND_MIN_WIDTH + indent
+                if w > max_needed:
+                    max_needed = w
+        return max_needed
+
     def _natural_text_width_for_steps(self, steps, indent):
         """Return the longest natural (single-line) width across all step body paragraphs."""
         PROBE_W = 10000
@@ -3367,14 +3406,17 @@ class SheetLayoutEngine:
         # Preferred width to avoid track staggering
         preferred_w = self._preferred_phase_track_width(phase_order)
         if self.content_boxes:
-            # Reserve enough space for the widest content box (including its track needs)
+            # Reserve enough space for the widest content box (including its
+            # track and legend needs)
             max_cb_min_w = CONTENT_BOX_MIN_W
             for cb in self.content_boxes:
                 min_tw = self._min_track_width_for_content_box(cb)
+                min_lw = self._min_legend_width_for_content_box(cb)
+                cb_w = CONTENT_BOX_MIN_W
                 if min_tw > 0:
-                    cb_w = min_tw + CONTENT_BOX_INTERNAL_MARGIN * 2
-                else:
-                    cb_w = CONTENT_BOX_MIN_W
+                    cb_w = max(cb_w, min_tw + CONTENT_BOX_INTERNAL_MARGIN * 2)
+                if min_lw > 0:
+                    cb_w = max(cb_w, min_lw + CONTENT_BOX_INTERNAL_MARGIN * 2)
                 max_cb_min_w = max(max_cb_min_w, cb_w)
             max_phase_w_for_cb = BODY_W - CONTENT_BOX_GAP - max_cb_min_w
             preferred_w = min(preferred_w, max_phase_w_for_cb)
@@ -3481,12 +3523,15 @@ class SheetLayoutEngine:
         if right_w < CONTENT_BOX_MIN_W:
             return
 
-        # Pre-compute minimum and preferred track widths for each content box
+        # Pre-compute minimum/preferred track widths and minimum legend widths
+        # for each content box
         min_track_widths = {}
         preferred_track_widths = {}
+        min_legend_widths = {}
         for cb in auto_boxes:
             min_track_widths[id(cb)] = self._min_track_width_for_content_box(cb)
             preferred_track_widths[id(cb)] = self._preferred_track_width_for_content_box(cb)
+            min_legend_widths[id(cb)] = self._min_legend_width_for_content_box(cb)
 
         remaining = list(auto_boxes)
         cursor_y_top = self.phases_top_y
@@ -3513,6 +3558,11 @@ class SheetLayoutEngine:
                         if min_tw > 0 and content_w_at_even < min_tw:
                             all_fit = False
                             break
+                        # Check legends fit at this content width
+                        min_lw = min_legend_widths[id(cb)]
+                        if min_lw > 0 and content_w_at_even < min_lw:
+                            all_fit = False
+                            break
                     if all_fit:
                         break
                 row_count -= 1
@@ -3534,12 +3584,15 @@ class SheetLayoutEngine:
             for cb in row_boxes:
                 min_tw = min_track_widths[id(cb)]
                 pref_tw = preferred_track_widths[id(cb)]
+                min_lw = min_legend_widths[id(cb)]
                 # Minimum box width to fit tracks (with overlap)
                 min_w_for_tracks = (min_tw + CONTENT_BOX_INTERNAL_MARGIN * 2) if min_tw > 0 else CONTENT_BOX_MIN_W
-                fallback_min = max(CONTENT_BOX_MIN_W, min_w_for_tracks)
-                # Preferred box width to avoid staggering
+                # Minimum box width to fit legends (legend asks for LEGEND_MIN_WIDTH)
+                min_w_for_legends = (min_lw + CONTENT_BOX_INTERNAL_MARGIN * 2) if min_lw > 0 else CONTENT_BOX_MIN_W
+                fallback_min = max(CONTENT_BOX_MIN_W, min_w_for_tracks, min_w_for_legends)
+                # Preferred box width to avoid staggering (legends use the same min as preferred)
                 pref_w_for_tracks = (pref_tw + CONTENT_BOX_INTERNAL_MARGIN * 2) if pref_tw > 0 else CONTENT_BOX_MIN_W
-                preferred_min = max(CONTENT_BOX_MIN_W, pref_w_for_tracks)
+                preferred_min = max(CONTENT_BOX_MIN_W, pref_w_for_tracks, min_w_for_legends)
 
                 # Binary search for narrowest width that fits height
                 _, h_at_even, _ = self._content_box_dims_for_width(cb, even_w)
@@ -3631,12 +3684,14 @@ class SheetLayoutEngine:
         if avail_h <= 0:
             return
 
-        # Pre-compute track width constraints
+        # Pre-compute track + legend width constraints
         min_track_widths = {}
         preferred_track_widths = {}
+        min_legend_widths = {}
         for cb in auto_boxes:
             min_track_widths[id(cb)] = self._min_track_width_for_content_box(cb)
             preferred_track_widths[id(cb)] = self._preferred_track_width_for_content_box(cb)
+            min_legend_widths[id(cb)] = self._min_legend_width_for_content_box(cb)
 
         remaining = list(auto_boxes)
         col_start_x = X_MARGIN
@@ -3661,6 +3716,11 @@ class SheetLayoutEngine:
                     if min_tw > 0 and content_w_at_col < min_tw:
                         all_fit = False
                         break
+                    # Check legends fit at this content width
+                    min_lw = min_legend_widths[id(cb)]
+                    if min_lw > 0 and content_w_at_col < min_lw:
+                        all_fit = False
+                        break
                 if all_fit:
                     break
                 col_count -= 1
@@ -3677,11 +3737,12 @@ class SheetLayoutEngine:
             even_h = (avail_h - total_gaps) / col_count
 
             # Binary search for narrowest column width where all boxes fit within even_h
-            # Lower bound: max of CONTENT_BOX_MIN_W and track-required widths
+            # Lower bound: max of CONTENT_BOX_MIN_W and track/legend-required widths
             lo = CONTENT_BOX_MIN_W
             for cb in col_boxes:
                 min_tw = min_track_widths[id(cb)]
                 pref_tw = preferred_track_widths[id(cb)]
+                min_lw = min_legend_widths[id(cb)]
                 if pref_tw > 0:
                     min_w_for_tracks = pref_tw + CONTENT_BOX_INTERNAL_MARGIN * 2
                 elif min_tw > 0:
@@ -3689,14 +3750,19 @@ class SheetLayoutEngine:
                 else:
                     min_w_for_tracks = CONTENT_BOX_MIN_W
                 lo = max(lo, min_w_for_tracks)
+                if min_lw > 0:
+                    lo = max(lo, min_lw + CONTENT_BOX_INTERNAL_MARGIN * 2)
 
             # Check if preferred width is feasible; fall back to minimum tracks
             if lo > col_avail_w:
                 lo = CONTENT_BOX_MIN_W
                 for cb in col_boxes:
                     min_tw = min_track_widths[id(cb)]
+                    min_lw = min_legend_widths[id(cb)]
                     if min_tw > 0:
                         lo = max(lo, min_tw + CONTENT_BOX_INTERNAL_MARGIN * 2)
+                    if min_lw > 0:
+                        lo = max(lo, min_lw + CONTENT_BOX_INTERNAL_MARGIN * 2)
 
             hi = col_avail_w
             # Check whether any box will be height-clamped even at full width
