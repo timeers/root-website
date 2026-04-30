@@ -1,6 +1,5 @@
 import json
 
-from django.contrib.auth.decorators import login_required
 from django.http import (
     HttpResponse,
     HttpResponseForbidden,
@@ -10,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
 from django.views.decorators.http import require_http_methods
 
-from the_gatehouse.views import editor_required
+from the_gatehouse.views import forge_onboard_required, player_required
 from .inline_images import picker_image_map, picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
 
@@ -61,12 +60,31 @@ from .models import (
 
 # ---------- Helpers ----------
 
-def user_can_edit_forge(request, faction):
-    """True if the request user is the faction's designer or an admin."""
+def _faction_for(obj):
+    """Walk a forge object up to its owning ForgedFaction."""
+    if isinstance(obj, ForgedFaction):
+        return obj
+    for attr in ('faction', 'sheet', 'step', 'legend', 'scale',
+                 'track', 'parent', 'decree', 'card', 'faction_back'):
+        parent = getattr(obj, attr, None)
+        if parent is not None:
+            return _faction_for(parent)
+    return None
+
+
+def user_can_edit_forge(request, obj):
+    """True if request.user is the faction's designer or an admin.
+
+    `obj` may be a ForgedFaction or any descendant (FactionSheet, PhaseStep,
+    Legend, LegendRow, etc.). Returns False if obj has no resolvable faction.
+    """
     if not request.user.is_authenticated:
         return False
     profile = getattr(request.user, 'profile', None)
     if not profile:
+        return False
+    faction = _faction_for(obj)
+    if faction is None:
         return False
     if getattr(profile, 'admin', False):
         return True
@@ -94,8 +112,8 @@ def _annotate_steps(steps):
     return [_annotate_step(s) for s in steps]
 
 
-def _forbid_if_not_editor(request, faction):
-    if not user_can_edit_forge(request, faction):
+def _forbid_if_not_editor(request, obj):
+    if not user_can_edit_forge(request, obj):
         return HttpResponseForbidden("You do not have permission to edit this faction.")
     return None
 
@@ -114,14 +132,14 @@ def _background_preset_options():
 
 # ---------- ForgedFaction CRUD ----------
 
-@login_required
+@forge_onboard_required
 def forgedfaction_list(request):
     profile = getattr(request.user, 'profile', None)
     factions = ForgedFaction.objects.filter(designer=profile).order_by('faction_name') if profile else []
     return render(request, 'the_forge/forgedfaction_list.html', {'factions': factions})
 
 
-@editor_required
+@forge_onboard_required
 def forgedfaction_create(request):
     if request.method == 'POST':
         form = ForgedFactionForm(request.POST, request.FILES)
@@ -138,7 +156,7 @@ def forgedfaction_create(request):
     })
 
 
-@login_required
+@forge_onboard_required
 def forgedfaction_detail(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_edit_forge(request, faction):
@@ -163,7 +181,7 @@ def forgedfaction_detail(request, pk):
     })
 
 
-@editor_required
+@forge_onboard_required
 def forgedfaction_edit(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
@@ -181,7 +199,7 @@ def forgedfaction_edit(request, pk):
     })
 
 
-@editor_required
+@forge_onboard_required
 @require_http_methods(["POST"])
 def forgedfaction_delete(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
@@ -193,7 +211,7 @@ def forgedfaction_delete(request, pk):
 
 # ---------- FactionSheet ----------
 
-@editor_required
+@forge_onboard_required
 def factionsheet_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
     if (resp := _forbid_if_not_editor(request, faction)):
@@ -202,7 +220,7 @@ def factionsheet_create(request, faction_pk):
     return redirect('forge-sheet-edit', pk=sheet.pk)
 
 
-@editor_required
+@forge_onboard_required
 def factionsheet_edit(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
@@ -240,7 +258,7 @@ def factionsheet_edit(request, pk):
     })
 
 
-@editor_required
+@forge_onboard_required
 def factionsheet_preview(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
@@ -270,7 +288,7 @@ def factionsheet_preview(request, pk):
     })
 
 
-@editor_required
+@forge_onboard_required
 @require_http_methods(["POST"])
 def factionsheet_preview_save(request, pk):
     """Save layout overrides from the preview page form.
@@ -350,7 +368,7 @@ def factionsheet_preview_save(request, pk):
     return redirect('forge-sheet-preview', pk=sheet.pk)
 
 
-@editor_required
+@forge_onboard_required
 @require_http_methods(["POST"])
 def factionsheet_delete(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
@@ -361,33 +379,33 @@ def factionsheet_delete(request, pk):
     return redirect('forge-faction-detail', pk=faction_pk)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def sheet_flavor_edit(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     sheet.flavor_text = request.POST.get('flavor_text', '')
     sheet.save(update_fields=['flavor_text'])
     return render(request, 'the_forge/partials/sheet_flavor_form.html', {'sheet': sheet})
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def sheet_crafted_toggle(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     sheet.include_crafted_items = request.POST.get('value') == 'true'
     sheet.save(update_fields=['include_crafted_items'])
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def sheet_layout_toggle(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     value = request.POST.get('value')
     if value not in {c.value for c in FactionSheet.LayoutChoices}:
@@ -397,11 +415,11 @@ def sheet_layout_toggle(request, pk):
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def sheet_decree_toggle(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     turning_on = request.POST.get('value') == 'true'
     if turning_on:
@@ -420,7 +438,7 @@ def sheet_decree_toggle(request, pk):
 
 # ---------- FactionBack ----------
 
-@editor_required
+@forge_onboard_required
 def factionback_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
     if (resp := _forbid_if_not_editor(request, faction)):
@@ -429,7 +447,7 @@ def factionback_create(request, faction_pk):
     return redirect('forge-back-edit', pk=back.pk)
 
 
-@editor_required
+@forge_onboard_required
 def factionback_edit(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
     if (resp := _forbid_if_not_editor(request, back.faction)):
@@ -468,21 +486,13 @@ def factionback_edit(request, pk):
     })
 
 
-# ---------- Child-row permission helper ----------
-
-def _child_permission_check(request, faction):
-    if not user_can_edit_forge(request, faction):
-        return HttpResponseForbidden()
-    return None
-
-
 # ---------- Pieces (child of FactionBack) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def piece_add(request, back_pk):
     back = get_object_or_404(FactionBack, pk=back_pk)
-    if (resp := _child_permission_check(request, back.faction)):
+    if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
     form = PieceForm(request.POST, request.FILES)
     if not form.is_valid():
@@ -493,11 +503,11 @@ def piece_add(request, back_pk):
     return render(request, 'the_forge/partials/piece_row.html', {'piece': piece})
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def piece_edit(request, pk):
     piece = get_object_or_404(Piece, pk=pk)
-    if (resp := _child_permission_check(request, piece.parent.faction)):
+    if (resp := _forbid_if_not_editor(request, piece.parent.faction)):
         return resp
     form = PieceForm(request.POST, request.FILES, instance=piece)
     if not form.is_valid():
@@ -506,11 +516,11 @@ def piece_edit(request, pk):
     return render(request, 'the_forge/partials/piece_row.html', {'piece': piece})
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def piece_delete(request, pk):
     piece = get_object_or_404(Piece, pk=pk)
-    if (resp := _child_permission_check(request, piece.parent.faction)):
+    if (resp := _forbid_if_not_editor(request, piece.parent.faction)):
         return resp
     piece.delete()
     return HttpResponse(status=204)
@@ -518,11 +528,11 @@ def piece_delete(request, pk):
 
 # ---------- SetupStep (child of FactionBack) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def setup_step_add(request, back_pk):
     back = get_object_or_404(FactionBack, pk=back_pk)
-    if (resp := _child_permission_check(request, back.faction)):
+    if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
     form = SetupStepForm(request.POST)
     if not form.is_valid():
@@ -536,12 +546,12 @@ def setup_step_add(request, back_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def setup_step_edit(request, pk):
     step = get_object_or_404(SetupStep, pk=pk)
     faction = step.faction_back.faction if step.faction_back else step.card.faction
-    if (resp := _child_permission_check(request, faction)):
+    if (resp := _forbid_if_not_editor(request, faction)):
         return resp
     form = SetupStepForm(request.POST, instance=step)
     if not form.is_valid():
@@ -552,22 +562,22 @@ def setup_step_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def setup_step_delete(request, pk):
     step = get_object_or_404(SetupStep, pk=pk)
     faction = step.faction_back.faction if step.faction_back else step.card.faction
-    if (resp := _child_permission_check(request, faction)):
+    if (resp := _forbid_if_not_editor(request, faction)):
         return resp
     step.delete()
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def setup_step_reorder(request, back_pk):
     back = get_object_or_404(FactionBack, pk=back_pk)
-    if (resp := _child_permission_check(request, back.faction)):
+    if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
     data = json.loads(request.body)
     for index, sid in enumerate(data.get('order', []), start=1):
@@ -577,7 +587,7 @@ def setup_step_reorder(request, back_pk):
 
 # ---------- SetupCard (child of ForgedFaction) ----------
 
-@editor_required
+@forge_onboard_required
 def setup_card_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
     if (resp := _forbid_if_not_editor(request, faction)):
@@ -586,7 +596,7 @@ def setup_card_create(request, faction_pk):
     return redirect('forge-setup-card-edit', pk=card.pk)
 
 
-@editor_required
+@forge_onboard_required
 def setup_card_edit(request, pk):
     card = get_object_or_404(SetupCard, pk=pk)
     if (resp := _forbid_if_not_editor(request, card.faction)):
@@ -609,11 +619,11 @@ def setup_card_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def setup_card_step_add(request, card_pk):
     card = get_object_or_404(SetupCard, pk=card_pk)
-    if (resp := _child_permission_check(request, card.faction)):
+    if (resp := _forbid_if_not_editor(request, card.faction)):
         return resp
     form = SetupStepForm(request.POST)
     if not form.is_valid():
@@ -627,11 +637,11 @@ def setup_card_step_add(request, card_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def setup_card_step_reorder(request, card_pk):
     card = get_object_or_404(SetupCard, pk=card_pk)
-    if (resp := _child_permission_check(request, card.faction)):
+    if (resp := _forbid_if_not_editor(request, card.faction)):
         return resp
     data = json.loads(request.body)
     for index, sid in enumerate(data.get('order', []), start=1):
@@ -641,11 +651,11 @@ def setup_card_step_reorder(request, card_pk):
 
 # ---------- FactionAbility (child of FactionSheet) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def ability_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     form = FactionAbilityForm(request.POST)
     if not form.is_valid():
@@ -660,11 +670,11 @@ def ability_add(request, sheet_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def ability_edit(request, pk):
     ability = get_object_or_404(FactionAbility, pk=pk)
-    if (resp := _child_permission_check(request, ability.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, ability.sheet.faction)):
         return resp
     form = FactionAbilityForm(request.POST, instance=ability)
     if not form.is_valid():
@@ -675,21 +685,21 @@ def ability_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def ability_delete(request, pk):
     ability = get_object_or_404(FactionAbility, pk=pk)
-    if (resp := _child_permission_check(request, ability.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, ability.sheet.faction)):
         return resp
     ability.delete()
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def ability_reorder(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     data = json.loads(request.body)
     for index, aid in enumerate(data.get('order', []), start=1):
@@ -699,11 +709,11 @@ def ability_reorder(request, sheet_pk):
 
 # ---------- ContentBox (child of FactionSheet) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def contentbox_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     form = ContentBoxForm(request.POST)
     if not form.is_valid():
@@ -719,11 +729,11 @@ def contentbox_add(request, sheet_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def contentbox_edit(request, pk):
     box = get_object_or_404(ContentBox, pk=pk)
-    if (resp := _child_permission_check(request, box.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, box.sheet.faction)):
         return resp
     form = ContentBoxForm(request.POST, instance=box)
     if not form.is_valid():
@@ -735,11 +745,11 @@ def contentbox_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def contentbox_delete(request, pk):
     box = get_object_or_404(ContentBox, pk=pk)
-    if (resp := _child_permission_check(request, box.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, box.sheet.faction)):
         return resp
     sheet = box.sheet
     box.delete()
@@ -749,11 +759,11 @@ def contentbox_delete(request, pk):
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def contentbox_reorder(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     data = json.loads(request.body)
     for index, bid in enumerate(data.get('order', []), start=1):
@@ -763,11 +773,11 @@ def contentbox_reorder(request, sheet_pk):
 
 # ---------- PhaseStep (child of FactionSheet) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def phasestep_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     form = PhaseStepForm(request.POST, sheet=sheet)
     if not form.is_valid():
@@ -789,11 +799,11 @@ def phasestep_add(request, sheet_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def phasestep_edit(request, pk):
     step = get_object_or_404(PhaseStep, pk=pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     post = request.POST.copy()
     post['phase'] = step.phase
@@ -809,11 +819,11 @@ def phasestep_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def phasestep_delete(request, pk):
     step = get_object_or_404(PhaseStep, pk=pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     sheet = step.sheet
     phase = step.phase
@@ -829,11 +839,11 @@ def phasestep_delete(request, pk):
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def phasestep_reorder(request, sheet_pk, phase):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     data = json.loads(request.body)
     for index, sid in enumerate(data.get('order', []), start=1):
@@ -841,11 +851,11 @@ def phasestep_reorder(request, sheet_pk, phase):
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def phasestep_reorder_in_box(request, content_box_pk):
     box = get_object_or_404(ContentBox, pk=content_box_pk)
-    if (resp := _child_permission_check(request, box.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, box.sheet.faction)):
         return resp
     data = json.loads(request.body)
     for index, sid in enumerate(data.get('order', []), start=1):
@@ -863,11 +873,11 @@ def _track_render_ctx(track):
     }
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def stepaction_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     form = StepActionForm(request.POST, request.FILES)
     if not form.is_valid():
@@ -885,11 +895,11 @@ def stepaction_add(request, step_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def stepaction_edit(request, pk):
     action = get_object_or_404(StepAction, pk=pk)
-    if (resp := _child_permission_check(request, action.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, action.step.sheet.faction)):
         return resp
     form = StepActionForm(request.POST, request.FILES, instance=action)
     if not form.is_valid():
@@ -901,21 +911,21 @@ def stepaction_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def stepaction_delete(request, pk):
     action = get_object_or_404(StepAction, pk=pk)
-    if (resp := _child_permission_check(request, action.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, action.step.sheet.faction)):
         return resp
     action.delete()
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def stepaction_reorder(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     data = json.loads(request.body)
     for index, aid in enumerate(data.get('order', []), start=1):
@@ -923,22 +933,22 @@ def stepaction_reorder(request, step_pk):
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["GET"])
 def stepaction_form(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     return render(request, 'the_forge/partials/step_action_form.html', {
         'step': step, 'step_pk': step.pk,
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def phasestep_action_type_set(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     if step.actions.exists():
         return HttpResponseBadRequest("Cannot change action type while actions exist.")
@@ -953,11 +963,11 @@ def phasestep_action_type_set(request, step_pk):
 
 # ---------- BorderedBox (child of PhaseStep) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def borderedbox_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     form = BorderedBoxForm(request.POST)
     if not form.is_valid():
@@ -972,11 +982,11 @@ def borderedbox_add(request, step_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def borderedbox_edit(request, pk):
     box = get_object_or_404(BorderedBox, pk=pk)
-    if (resp := _child_permission_check(request, box.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, box.step.sheet.faction)):
         return resp
     form = BorderedBoxForm(request.POST, instance=box)
     if not form.is_valid():
@@ -988,17 +998,17 @@ def borderedbox_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def borderedbox_delete(request, pk):
     box = get_object_or_404(BorderedBox, pk=pk)
-    if (resp := _child_permission_check(request, box.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, box.step.sheet.faction)):
         return resp
     box.delete()
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def step_children_reorder(request, step_pk):
     """Reorder the merged boxes+tracks list for a step.
@@ -1006,7 +1016,7 @@ def step_children_reorder(request, step_pk):
     Each model's `order` field is rewritten so the merged list round-trips.
     """
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     data = json.loads(request.body)
     for index, item in enumerate(data.get('order', []), start=1):
@@ -1025,11 +1035,11 @@ def step_children_reorder(request, step_pk):
 
 # ---------- CardboardTrack (child of PhaseStep) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def track_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     form = CardboardTrackForm(request.POST, request.FILES)
     if not form.is_valid():
@@ -1042,11 +1052,11 @@ def track_add(request, step_pk):
     return render(request, 'the_forge/partials/track_row.html', _track_render_ctx(track))
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def track_edit(request, pk):
     track = get_object_or_404(CardboardTrack, pk=pk)
-    if (resp := _child_permission_check(request, track.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, track.step.sheet.faction)):
         return resp
     prev_cols = track.num_columns
     form = CardboardTrackForm(request.POST, request.FILES, instance=track)
@@ -1061,11 +1071,11 @@ def track_edit(request, pk):
     return render(request, 'the_forge/partials/track_row.html', _track_render_ctx(track))
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def track_delete(request, pk):
     track = get_object_or_404(CardboardTrack, pk=pk)
-    if (resp := _child_permission_check(request, track.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, track.step.sheet.faction)):
         return resp
     track.delete()
     return HttpResponse(status=204)
@@ -1079,11 +1089,11 @@ def _next_step_child_order(step):
             + step.legends.count() + step.scales.count() + 1)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def legend_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     form = LegendForm(request.POST)
     if not form.is_valid():
@@ -1099,11 +1109,11 @@ def legend_add(request, step_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def legend_edit(request, pk):
     legend = get_object_or_404(Legend, pk=pk)
-    if (resp := _child_permission_check(request, legend.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, legend.step.sheet.faction)):
         return resp
     form = LegendForm(request.POST, instance=legend)
     if not form.is_valid():
@@ -1116,21 +1126,21 @@ def legend_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def legend_delete(request, pk):
     legend = get_object_or_404(Legend, pk=pk)
-    if (resp := _child_permission_check(request, legend.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, legend.step.sheet.faction)):
         return resp
     legend.delete()
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def legend_row_add(request, legend_pk):
     legend = get_object_or_404(Legend, pk=legend_pk)
-    if (resp := _child_permission_check(request, legend.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, legend.step.sheet.faction)):
         return resp
     form = LegendRowForm(request.POST, request.FILES)
     if not form.is_valid():
@@ -1146,11 +1156,11 @@ def legend_row_add(request, legend_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def legend_row_edit(request, pk):
     row = get_object_or_404(LegendRow, pk=pk)
-    if (resp := _child_permission_check(request, row.legend.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, row.legend.step.sheet.faction)):
         return resp
     form = LegendRowForm(request.POST, request.FILES, instance=row)
     if not form.is_valid():
@@ -1163,11 +1173,11 @@ def legend_row_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def legend_row_delete(request, pk):
     row = get_object_or_404(LegendRow, pk=pk)
-    if (resp := _child_permission_check(request, row.legend.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, row.legend.step.sheet.faction)):
         return resp
     row.delete()
     return HttpResponse(status=204)
@@ -1175,11 +1185,11 @@ def legend_row_delete(request, pk):
 
 # ---------- Scale (child of PhaseStep) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def scale_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
-    if (resp := _child_permission_check(request, step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     form = ScaleForm(request.POST)
     if not form.is_valid():
@@ -1195,11 +1205,11 @@ def scale_add(request, step_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def scale_edit(request, pk):
     scale = get_object_or_404(Scale, pk=pk)
-    if (resp := _child_permission_check(request, scale.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, scale.step.sheet.faction)):
         return resp
     form = ScaleForm(request.POST, instance=scale)
     if not form.is_valid():
@@ -1212,72 +1222,63 @@ def scale_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def scale_delete(request, pk):
     scale = get_object_or_404(Scale, pk=pk)
-    if (resp := _child_permission_check(request, scale.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, scale.step.sheet.faction)):
         return resp
     scale.delete()
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
-def scale_row_add(request, scale_pk):
-    scale = get_object_or_404(Scale, pk=scale_pk)
-    if (resp := _child_permission_check(request, scale.step.sheet.faction)):
+def scale_save(request, pk):
+    """Save all of a Scale's rows at once.
+
+    POST contains parallel arrays: row_id (blank for new), range, result —
+    one entry per row. Existing rows missing from the payload are deleted.
+    Order is taken from the order entries appear in POST.
+    """
+    scale = get_object_or_404(Scale, pk=pk)
+    if (resp := _forbid_if_not_editor(request, scale.step.sheet.faction)):
         return resp
-    form = ScaleRowForm(request.POST)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    row = form.save(commit=False)
-    row.scale = scale
-    row.order = scale.rows.count() + 1
-    row.save()
+    row_ids = request.POST.getlist('row_id')
+    ranges = request.POST.getlist('range')
+    results = request.POST.getlist('result')
+    if not (len(row_ids) == len(ranges) == len(results)):
+        return HttpResponseBadRequest('row_id/range/result length mismatch')
+    submitted_existing = {int(rid) for rid in row_ids if rid}
+    # Delete rows that were removed client-side
+    scale.rows.exclude(pk__in=submitted_existing).delete()
+    # Upsert in submitted order
+    for order, (rid, rng, res) in enumerate(zip(row_ids, ranges, results), start=1):
+        rng = (rng or '').strip()
+        res = (res or '').strip()
+        if not rng or not res:
+            return HttpResponseBadRequest('Range and result are required for every row')
+        if rid:
+            ScaleRow.objects.filter(pk=int(rid), scale=scale).update(
+                range=rng, result=res, order=order)
+        else:
+            ScaleRow.objects.create(scale=scale, range=rng, result=res, order=order)
     ensure_step_parent_fits(scale.step, check_width=True)
-    return render(request, 'the_forge/partials/scale_row_entry.html', {
-        'row': row, 'inline_keywords': _inline_keywords(),
+    return render(request, 'the_forge/partials/scale_row.html', {
+        'scale': scale, 'inline_keywords': _inline_keywords(),
         'inline_images': _inline_images_map(),
     })
-
-
-@editor_required
-@require_http_methods(["POST"])
-def scale_row_edit(request, pk):
-    row = get_object_or_404(ScaleRow, pk=pk)
-    if (resp := _child_permission_check(request, row.scale.step.sheet.faction)):
-        return resp
-    form = ScaleRowForm(request.POST, instance=row)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    form.save()
-    ensure_step_parent_fits(row.scale.step, check_width=True)
-    return render(request, 'the_forge/partials/scale_row_entry.html', {
-        'row': row, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
-    })
-
-
-@editor_required
-@require_http_methods(["DELETE"])
-def scale_row_delete(request, pk):
-    row = get_object_or_404(ScaleRow, pk=pk)
-    if (resp := _child_permission_check(request, row.scale.step.sheet.faction)):
-        return resp
-    row.delete()
-    return HttpResponse(status=204)
 
 
 # ---------- CardboardSlot (child of CardboardTrack) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def slot_upsert(request, track_pk, row, col):
     """Create or update the slot at (row, col) for the given track.
     Used by the slot edit modal — returns the rendered slot cell partial."""
     track = get_object_or_404(CardboardTrack, pk=track_pk)
-    if (resp := _child_permission_check(request, track.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, track.step.sheet.faction)):
         return resp
     if row >= track.num_rows or col >= track.num_columns:
         return HttpResponseBadRequest("Cell out of grid bounds.")
@@ -1295,11 +1296,11 @@ def slot_upsert(request, track_pk, row, col):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def slot_delete(request, pk):
     slot = get_object_or_404(CardboardSlot, pk=pk)
-    if (resp := _child_permission_check(request, slot.track.step.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, slot.track.step.sheet.faction)):
         return resp
     slot.delete()
     return HttpResponse(status=204)
@@ -1307,11 +1308,11 @@ def slot_delete(request, pk):
 
 # ---------- DecreeSection + CardSlot ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def decree_edit(request, pk):
     decree = get_object_or_404(DecreeSection, pk=pk)
-    if (resp := _child_permission_check(request, decree.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, decree.sheet.faction)):
         return resp
     form = DecreeSectionForm(request.POST, instance=decree)
     if not form.is_valid():
@@ -1320,11 +1321,11 @@ def decree_edit(request, pk):
     return render(request, 'the_forge/partials/decree_title_form.html', {'decree': decree})
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def cardslot_add(request, decree_pk):
     decree = get_object_or_404(DecreeSection, pk=decree_pk)
-    if (resp := _child_permission_check(request, decree.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, decree.sheet.faction)):
         return resp
     form = CardSlotForm(request.POST)
     if not form.is_valid():
@@ -1339,11 +1340,11 @@ def cardslot_add(request, decree_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def cardslot_reorder(request, decree_pk):
     decree = get_object_or_404(DecreeSection, pk=decree_pk)
-    if (resp := _child_permission_check(request, decree.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, decree.sheet.faction)):
         return resp
     data = json.loads(request.body)
     for index, sid in enumerate(data.get('order', []), start=1):
@@ -1351,11 +1352,11 @@ def cardslot_reorder(request, decree_pk):
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def cardslot_edit(request, pk):
     slot = get_object_or_404(CardSlot, pk=pk)
-    if (resp := _child_permission_check(request, slot.decree.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, slot.decree.sheet.faction)):
         return resp
     form = CardSlotForm(request.POST, instance=slot)
     if not form.is_valid():
@@ -1366,11 +1367,11 @@ def cardslot_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def cardslot_delete(request, pk):
     slot = get_object_or_404(CardSlot, pk=pk)
-    if (resp := _child_permission_check(request, slot.decree.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, slot.decree.sheet.faction)):
         return resp
     decree = slot.decree
     slot.delete()
@@ -1382,11 +1383,11 @@ def cardslot_delete(request, pk):
 
 # ---------- CardPile (child of FactionSheet) ----------
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def cardpile_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     form = CardPileForm(request.POST)
     if not form.is_valid():
@@ -1401,11 +1402,11 @@ def cardpile_add(request, sheet_pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def cardpile_edit(request, pk):
     pile = get_object_or_404(CardPile, pk=pk)
-    if (resp := _child_permission_check(request, pile.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, pile.sheet.faction)):
         return resp
     form = CardPileForm(request.POST, instance=pile)
     if not form.is_valid():
@@ -1416,11 +1417,11 @@ def cardpile_edit(request, pk):
     })
 
 
-@editor_required
+@player_required
 @require_http_methods(["DELETE"])
 def cardpile_delete(request, pk):
     pile = get_object_or_404(CardPile, pk=pk)
-    if (resp := _child_permission_check(request, pile.sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, pile.sheet.faction)):
         return resp
     sheet = pile.sheet
     pile.delete()
@@ -1430,11 +1431,11 @@ def cardpile_delete(request, pk):
     return HttpResponse(status=204)
 
 
-@editor_required
+@player_required
 @require_http_methods(["POST"])
 def cardpile_reorder(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     data = json.loads(request.body)
     for index, pid in enumerate(data.get('order', []), start=1):
@@ -1444,10 +1445,10 @@ def cardpile_reorder(request, sheet_pk):
 
 # ---------- PDF download ----------
 
-@login_required
+@forge_onboard_required
 def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
-    if (resp := _child_permission_check(request, faction)):
+    if (resp := _forbid_if_not_editor(request, faction)):
         return resp
     from . import pdf_engine
     generator = getattr(pdf_engine, 'generate_pdf', None)
@@ -1463,10 +1464,10 @@ def forgedfaction_pdf(request, pk):
     return response
 
 
-@login_required
+@forge_onboard_required
 def factionsheet_pdf(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
-    if (resp := _child_permission_check(request, sheet.faction)):
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
     from io import BytesIO
     from .pdf_engine import SheetLayoutEngine
@@ -1477,10 +1478,10 @@ def factionsheet_pdf(request, pk):
     return response
 
 
-@login_required
+@forge_onboard_required
 def factionback_pdf(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
-    if (resp := _child_permission_check(request, back.faction)):
+    if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
     from io import BytesIO
     from .pdf_engine import FactionBackLayoutEngine

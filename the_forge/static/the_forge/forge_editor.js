@@ -506,8 +506,23 @@
     const scaleRowBtn = ev.target.closest('[data-add-scale-row]');
     if (scaleRowBtn) {
       const scalePk = scaleRowBtn.dataset.scaleId;
-      const container = document.querySelector(`[data-scale-entries][data-scale-id="${scalePk}"]`);
-      insertNestedRowForm('forge-scale-row-form-template', container, 'scale', scalePk);
+      const scaleRow = scaleRowBtn.closest('.scale-row');
+      const container = scaleRow?.querySelector(`[data-scale-entries][data-scale-id="${scalePk}"]`);
+      const tpl = scaleRow?.querySelector('template[data-scale-row-template]');
+      if (!container || !tpl) return;
+      const node = tpl.content.firstElementChild.cloneNode(true);
+      container.appendChild(node);
+      initIconInputsIn(node);
+      scaleRow.classList.add('is-dirty');
+      node.querySelector('input[name="range"]')?.focus();
+      return;
+    }
+    const removeScaleRowBtn = ev.target.closest('[data-remove-scale-row]');
+    if (removeScaleRowBtn) {
+      const row = removeScaleRowBtn.closest('[data-scale-row]');
+      const scaleRow = removeScaleRowBtn.closest('.scale-row');
+      row?.remove();
+      scaleRow?.classList.add('is-dirty');
       return;
     }
   });

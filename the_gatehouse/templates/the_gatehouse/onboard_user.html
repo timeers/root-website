@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load static %}
 {% block title %}Onboard | {% endblock %}
 {% block content %}
 
@@ -14,7 +15,7 @@
                 {% if user_type == 'admin' and active_user.admin and not active_user.admin_onboard %}
                     <div class="onboard-content">
                         <div class="mb-4">
-                            <h3 class="h4 fw-semibold mb-3">
+                            <h3 class="h4 fw-semibold mb-3 text-center">
                                 <i class="bi bi-shield-check"></i>
                                 Admin Moderator Role
                             </h3>
@@ -46,7 +47,7 @@
                 {% elif user_type == 'designer' and active_user.designer and active_user.editor_onboard and not active_user.designer_onboard %}
                     <div class="onboard-content">
                         <div class="mb-4">
-                            <h3 class="h4 fw-semibold mb-3">
+                            <h3 class="h4 fw-semibold mb-3 text-center">
                                 <i class="bi bi-pencil-square"></i>
                                 Designer
                             </h3>
@@ -72,7 +73,7 @@
                 {% elif user_type == 'designer' and active_user.designer and not active_user.designer_onboard %}
                     <div class="onboard-content">
                         <div class="mb-4">
-                            <h3 class="h4 fw-semibold mb-3">
+                            <h3 class="h4 fw-semibold mb-3 text-center">
                                 <i class="bi bi-pencil-square"></i>
                                 Designer & Editor
                             </h3>
@@ -111,7 +112,7 @@
                 {% elif user_type == 'editor' and active_user.editor and not active_user.editor_onboard and not active_user.designer_onboard %}
                     <div class="onboard-content">
                         <div class="mb-4">
-                            <h3 class="h4 fw-semibold mb-3">
+                            <h3 class="h4 fw-semibold mb-3 text-center">
                                 <i class="bi bi-pencil-square"></i>
                                 Editor
                             </h3>
@@ -149,10 +150,43 @@
                     </div>
                     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
+                {% elif user_type == 'forge' and active_user.player and not active_user.forge_onboard %}
+                    <div class="onboard-content">
+                        <div class="mb-4">
+                            <h3 class="h4 fw-semibold mb-3 text-center">
+                                <img src="{% static 'items/law/hammer.png' %}" alt="" style="height: 1em; width: auto; vertical-align: -0.125em;">
+                                The Forge (beta)
+                            </h3>
+                            <p class="mb-2">Welcome to the Forge - a tool for designing your own Root content.</p>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Guidelines:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Keep content respectful. No offensive material</li>
+                                <li>Generated PDFs are for personal and community playtesting</li>
+                                <li>Respect Leder Games' trademarks when sharing your designs</li>
+                            </ul>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Your Permissions:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Create and Edit Root templates for your Fan Content</li>
+                                <li>Download templates as PDF files</li>
+                                <li>Remember that this is a beta feature and some bugs are expected</li>
+                                <li>To fine tune your designs it is recommended to finish your designs in a program like Inkscape or Afinity Designer</li>
+                            </ul>
+                        </div>
+
+                        <p class="fw-semibold">Have fun in the Forge!</p>
+                    </div>
+                    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
                 {% elif user_type == 'player' and active_user.player and not active_user.player_onboard %}
                     <div class="onboard-content">
                         <div class="mb-4">
-                            <h3 class="h4 fw-semibold mb-3">
+                            <h3 class="h4 fw-semibold mb-3 text-center">
                                 <i class="bi bi-people"></i>
                                 Community Member
                             </h3>

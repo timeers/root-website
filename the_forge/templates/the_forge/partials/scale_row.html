@@ -5,16 +5,59 @@
     <span class="forge-card-row__badge flex-shrink-0">Scale</span>
   </div>
 
-  <div class="scale-row__entries mt-2" data-scale-entries data-scale-id="{{ scale.pk }}">
-    {% for row in scale.rows.all %}
-      {% include 'the_forge/partials/scale_row_entry.html' with row=row %}
-    {% endfor %}
-  </div>
+  <form method="post"
+        data-edit-url="{% url 'forge-scale-save' pk=scale.pk %}"
+        data-forge-icon-form
+        class="scale-row__form mt-2" data-dirty-form data-scale-form>
+    {% csrf_token %}
+    <div class="scale-row__entries" data-scale-entries data-scale-id="{{ scale.pk }}">
+      {% for row in scale.rows.all %}
+        <div class="scale-entry d-flex gap-2 align-items-center flex-nowrap mb-2" data-scale-row>
+          <input type="hidden" name="row_id" value="{{ row.pk }}">
+          <input type="text" name="range" value="{{ row.range }}"
+                 class="form-control form-control-sm scale-entry__field scale-entry__field--range"
+                 placeholder="Range (ex. 1-2)" required>
+          <span class="fw-bold flex-shrink-0">:</span>
+          <input type="text" name="result" value="{{ row.result }}"
+                 class="form-control form-control-sm scale-entry__field"
+                 data-track-image-input data-required placeholder="Result" required>
+          <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0"
+                  data-remove-scale-row title="Remove row">×</button>
+        </div>
+      {% endfor %}
+    </div>
 
-  <div class="mt-2 d-flex gap-2 align-items-center">
-    <button type="button" class="btn btn-sm btn-outline-secondary"
-            data-add-scale-row data-scale-id="{{ scale.pk }}">+ Add Row</button>
-    <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
-            data-delete-url="{% url 'forge-scale-delete' pk=scale.pk %}">Delete</button>
-  </div>
+    <div class="mt-2 d-flex gap-2 align-items-center">
+      <button type="button" class="btn btn-sm btn-outline-secondary"
+              data-add-scale-row data-scale-id="{{ scale.pk }}">+ Add Row</button>
+      <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+      <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
+              data-delete-url="{% url 'forge-scale-delete' pk=scale.pk %}">Delete</button>
+    </div>
+
+    <div class="forge-icon-picker" data-forge-icon-picker hidden>
+      <div class="forge-icon-picker__panel">
+        {% for key in inline_keywords %}
+          <button type="button" class="forge-icon-picker__btn" data-icon-key="{{ key }}" title="{{ key }}">
+            <img src="{{ inline_images|dict_get:key }}" alt="{{ key }}">
+          </button>
+        {% endfor %}
+      </div>
+    </div>
+  </form>
+
+  <template data-scale-row-template>
+    <div class="scale-entry d-flex gap-2 align-items-center flex-nowrap mb-2" data-scale-row>
+      <input type="hidden" name="row_id" value="">
+      <input type="text" name="range" value=""
+             class="form-control form-control-sm scale-entry__field scale-entry__field--range"
+             placeholder="Range (ex. 1-2)" required>
+      <span class="fw-bold flex-shrink-0">:</span>
+      <input type="text" name="result" value=""
+             class="form-control form-control-sm scale-entry__field"
+             data-track-image-input data-required placeholder="Result" required>
+      <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0"
+              data-remove-scale-row title="Remove row">×</button>
+    </div>
+  </template>
 </div>

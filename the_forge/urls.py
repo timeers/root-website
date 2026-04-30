@@ -101,9 +101,7 @@ urlpatterns = [
     path('hx/forge/phase-step/<int:step_pk>/scale/add/', views.scale_add, name='forge-scale-add'),
     path('hx/forge/scale/<int:pk>/edit/', views.scale_edit, name='forge-scale-edit'),
     path('hx/forge/scale/<int:pk>/delete/', views.scale_delete, name='forge-scale-delete'),
-    path('hx/forge/scale/<int:scale_pk>/row/add/', views.scale_row_add, name='forge-scale-row-add'),
-    path('hx/forge/scale-row/<int:pk>/edit/', views.scale_row_edit, name='forge-scale-row-edit'),
-    path('hx/forge/scale-row/<int:pk>/delete/', views.scale_row_delete, name='forge-scale-row-delete'),
+    path('hx/forge/scale/<int:pk>/save/', views.scale_save, name='forge-scale-save'),
 
     # DecreeSection + CardSlot (children of FactionSheet / DecreeSection)
     path('hx/forge/decree/<int:pk>/edit/', views.decree_edit, name='forge-decree-edit'),
