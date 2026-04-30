@@ -1490,3 +1490,17 @@ def factionback_pdf(request, pk):
     response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="{back.faction.faction_name} - Back.pdf"'
     return response
+
+
+@forge_onboard_required
+def setup_card_pdf(request, pk):
+    card = get_object_or_404(SetupCard, pk=pk)
+    if (resp := _forbid_if_not_editor(request, card.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SetupCardLayoutEngine
+    buffer = BytesIO()
+    SetupCardLayoutEngine(card).build(buffer)
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{card.faction.faction_name} - Setup.pdf"'
+    return response

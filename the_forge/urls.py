@@ -42,6 +42,7 @@ urlpatterns = [
     # SetupCard (child of ForgedFaction)
     path('forge/<int:faction_pk>/setup-card/new/', views.setup_card_create, name='forge-setup-card-create'),
     path('forge/setup-card/<int:pk>/', views.setup_card_edit, name='forge-setup-card-edit'),
+    path('forge/setup-card/<int:pk>/pdf/', views.setup_card_pdf, name='forge-setup-card-pdf'),
     path('hx/forge/setup-card/<int:card_pk>/setup-step/add/', views.setup_card_step_add, name='forge-setup-card-step-add'),
     path('hx/forge/setup-card/<int:card_pk>/setup-step/reorder/', views.setup_card_step_reorder, name='forge-setup-card-step-reorder'),
 

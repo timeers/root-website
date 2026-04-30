@@ -318,6 +318,40 @@ BACK_BG_SCREEN_OPACITY = 0.70            # white screen opacity applied over the
 BACK_COLUMN_GAP = 0.25 * inch
 LEFT_COL_W_RATIO = 0.48
 
+# --- SetupCard layout (poker-card-sized PDF) ---
+# Page = (CARD_SLOT_W, CARD_SLOT_H) — same as cardpiles. All measurements
+# below are in points relative to that page.
+SETUP_CARD_REACH_FONT_SIZE = 22
+SETUP_CARD_REACH_RIGHT_INSET = 0.18 * inch    # distance from right edge of card to reach text
+SETUP_CARD_REACH_BOTTOM_INSET = 0.18 * inch   # distance from bottom edge of card to reach baseline
+
+SETUP_CARD_BAND_X_INSET = 0.217 * inch         # left/right inset of the faction-color band
+SETUP_CARD_BAND_TOP_INSET = 0.336 * inch       # inset from top edge of card to top of band
+SETUP_CARD_BAND_HEIGHT = 0.3491 * inch
+SETUP_CARD_BAND_TEXT_PADDING = 0.06 * inch    # horizontal padding inside the band for the faction name
+
+SETUP_CARD_NAME_SIZE_LARGE = 22
+SETUP_CARD_NAME_SIZE_SMALL = 16
+SETUP_CARD_NAME_LINE_GAP = 1.5                # extra leading between two wrapped lines (pts)
+
+# Header image hangs upward from the bottom-left of the band
+SETUP_CARD_HEADER_MAX_H = 1.4 * inch          # don't let the header overflow upward forever
+
+# Setup-step body rectangle (the white usable area inside background.png).
+# Defined as insets from each edge of the card. Tune these to match the
+# white area in background.png.
+SETUP_CARD_BODY_X_INSET = 0.32 * inch        # inset from left and right edges
+SETUP_CARD_BODY_TOP_INSET = 1 * inch      # inset from top edge
+SETUP_CARD_BODY_BOTTOM_INSET = 0.25 * inch   # inset from bottom edge
+
+# Step rendering — smaller than FactionBack since the card is tiny
+SETUP_CARD_MARKER_SIZE = 0.18 * inch          # reserved marker slot width for alignment
+SETUP_CARD_MARKER_HEIGHT = 0.13 * inch        # rendered SVG height
+SETUP_CARD_MARKER_TEXT_GAP = 0.03 * inch
+SETUP_CARD_STEP_GAP = 0.06 * inch
+SETUP_CARD_STEP_BODY_SIZE = 7.5
+SETUP_CARD_STEP_INDENT = 0.0 * inch
+
 # StepAction layout
 ACTION_ITEM_H = 0.26 * inch       # item icon height (width scales proportionally)
 ACTION_CARD_H = 0.337 * inch      # card icon height (width scales proportionally)
@@ -360,6 +394,11 @@ DECREE_DIR = os.path.join(STATIC_DIR, 'pdf/decree')
 PHASE_BOX_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Phase_Box.svg')
 PHASE_BOX_TAN = '#f9e3b3'                 # tan fill color inside Phase_Box.svg
 MEEPLE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/meeple.svg')
+
+ADSET_DIR = os.path.join(STATIC_DIR, 'pdf/adset')
+SETUP_CARD_BG_PNG = os.path.join(ADSET_DIR, 'background.png')
+SETUP_CARD_MILITANT_PNG = os.path.join(ADSET_DIR, 'militant.png')
+SETUP_CARD_INSURGENT_PNG = os.path.join(ADSET_DIR, 'insurgent.png')
 
 PHASE_HEADERS = {
     'birdsong': {
@@ -5358,3 +5397,298 @@ class FactionBackLayoutEngine:
             return None, 0, 0
         scale = min(HOWTOPLAY_IMAGE_MAX_W / iw, HOWTOPLAY_IMAGE_MAX_H / ih, 1.0)
         return path_val, iw * scale, ih * scale
+
+
+class SetupCardLayoutEngine:
+    """Renders a single SetupCard as a poker-card-sized PDF.
+
+    Layer order (bottom to top):
+      1. adset/background.png (full canvas)
+      2. adset/militant.png or adset/insurgent.png (full canvas)
+      3. Reach number (white Luminari, bottom-right)
+      4. Faction-color band (above the bottom strip)
+      5. Optional header image (bottom-left aligned to band, hangs upward)
+      6. Faction name (Luminari, two-tier sizing + wrap fallback)
+      7. Numbered setup steps inside the white usable area
+    """
+
+    def __init__(self, card):
+        self.card = card
+        self.faction = card.faction
+        self.color_hex = self.faction.color or '#5B4A8A'
+        self.faction_color = HexColor(self.color_hex)
+
+        self._setup_steps = self._resolve_setup_steps(card)
+
+        self._setup_marker_svgs = {}
+        for n in range(10):
+            svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
+            if os.path.exists(svg_path):
+                self._setup_marker_svgs[n] = self._load_colored_svg(
+                    svg_path, '#000000', fit_size=SETUP_CARD_MARKER_HEIGHT,
+                    fit_height_only=True,
+                )
+
+        self._init_styles()
+
+    # ---------- Helpers ----------
+
+    def _resolve_setup_steps(self, card):
+        steps_attr = getattr(card, 'setup_steps', None)
+        if steps_attr is None:
+            return []
+        if hasattr(steps_attr, 'order_by'):
+            try:
+                return list(steps_attr.order_by('number'))
+            except Exception:
+                pass
+        if hasattr(steps_attr, 'all'):
+            items = list(steps_attr.all())
+        else:
+            items = list(steps_attr)
+        return sorted(items, key=lambda s: getattr(s, 'number', 0))
+
+    def _load_colored_svg(self, svg_path, color_hex, fit_size=None, fit_height_only=False):
+        with open(svg_path, 'r') as f:
+            svg_content = f.read()
+        svg_content = svg_content.replace('#000000', color_hex)
+        with tempfile.NamedTemporaryFile(suffix='.svg', mode='w', delete=False) as tmp:
+            tmp.write(svg_content)
+            tmp_path = tmp.name
+        drawing = svg2rlg(tmp_path)
+        os.unlink(tmp_path)
+        if drawing and fit_size:
+            if fit_height_only:
+                scale = fit_size / drawing.height
+            else:
+                scale = min(fit_size / drawing.width, fit_size / drawing.height)
+            drawing.width *= scale
+            drawing.height *= scale
+            drawing.scale(scale, scale)
+        return drawing
+
+    def _init_styles(self):
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+
+        self.setup_step_style = ParagraphStyle(
+            'SetupCardStep',
+            fontName='Baskerville',
+            fontSize=SETUP_CARD_STEP_BODY_SIZE,
+            leading=SETUP_CARD_STEP_BODY_SIZE + 1.5,
+            autoLeading='max',
+            textColor=colors.black,
+            alignment=TA_LEFT,
+            spaceAfter=0,
+        )
+
+    def _header_image_path(self):
+        img = getattr(self.card, 'header_image', None)
+        if not img:
+            return None
+        path_val = getattr(img, 'path', None)
+        if not path_val and isinstance(img, str):
+            path_val = img
+        if not path_val or not os.path.exists(path_val):
+            return None
+        return path_val
+
+    def _type_backdrop_path(self):
+        return SETUP_CARD_MILITANT_PNG if self.card.type == 'M' else SETUP_CARD_INSURGENT_PNG
+
+    # ---------- Faction name fitting ----------
+
+    def _fit_faction_name(self, name, max_w):
+        """Returns (lines, font_size). Tries large/single, small/single,
+        small/two-line wrap (best mid-split), in that order."""
+        large = SETUP_CARD_NAME_SIZE_LARGE
+        small = SETUP_CARD_NAME_SIZE_SMALL
+
+        if pdfmetrics.stringWidth(name, 'Luminari', large) <= max_w:
+            return [name], large
+        if pdfmetrics.stringWidth(name, 'Luminari', small) <= max_w:
+            return [name], small
+
+        # Try wrapping at the whitespace split closest to the middle
+        # that keeps both lines within max_w at the smaller size.
+        words = name.split()
+        if len(words) >= 2:
+            mid = len(words) / 2
+            # Sort split points by distance from middle (closest first).
+            candidates = sorted(range(1, len(words)), key=lambda i: abs(i - mid))
+            for i in candidates:
+                line1 = ' '.join(words[:i])
+                line2 = ' '.join(words[i:])
+                if (pdfmetrics.stringWidth(line1, 'Luminari', small) <= max_w
+                        and pdfmetrics.stringWidth(line2, 'Luminari', small) <= max_w):
+                    return [line1, line2], small
+
+        # Degenerate: a single word too long for the band. Just draw small.
+        return [name], small
+
+    # ---------- Entry point ----------
+
+    def build(self, output_path):
+        c = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+
+        # Layers 1-2: backgrounds
+        if os.path.exists(SETUP_CARD_BG_PNG):
+            c.drawImage(SETUP_CARD_BG_PNG, 0, 0, CARD_SLOT_W, CARD_SLOT_H,
+                        preserveAspectRatio=False, mask='auto')
+        backdrop = self._type_backdrop_path()
+        if os.path.exists(backdrop):
+            c.drawImage(backdrop, 0, 0, CARD_SLOT_W, CARD_SLOT_H,
+                        preserveAspectRatio=False, mask='auto')
+
+        # Layer 3: reach (white Luminari, bottom-right)
+        self._draw_reach(c)
+
+        # Layer 4: faction-color band
+        band_x = SETUP_CARD_BAND_X_INSET
+        band_y = CARD_SLOT_H - SETUP_CARD_BAND_TOP_INSET - SETUP_CARD_BAND_HEIGHT
+        band_w = CARD_SLOT_W - 2 * SETUP_CARD_BAND_X_INSET
+        band_h = SETUP_CARD_BAND_HEIGHT
+        c.saveState()
+        c.setFillColor(self.faction_color)
+        c.setStrokeColorRGB(0, 0, 0, alpha=0)
+        c.rect(band_x, band_y, band_w, band_h, stroke=0, fill=1)
+        c.restoreState()
+
+        # Layer 5: header image (optional)
+        header_path = self._header_image_path()
+        has_header = self._draw_header_image(c, header_path, band_x, band_y, band_w)
+
+        # Layer 6: faction name
+        self._draw_faction_name(c, band_x, band_y, band_w, band_h, has_header)
+
+        # Layer 7: setup steps inside the white usable area
+        self._draw_setup_steps(c)
+
+        c.showPage()
+        c.save()
+
+    # ---------- Drawing helpers ----------
+
+    def _draw_reach(self, c):
+        c.saveState()
+        c.setFont('Luminari', SETUP_CARD_REACH_FONT_SIZE)
+        c.setFillColorRGB(1, 1, 1)
+        c.drawRightString(
+            CARD_SLOT_W - SETUP_CARD_REACH_RIGHT_INSET,
+            SETUP_CARD_REACH_BOTTOM_INSET,
+            str(self.card.reach),
+        )
+        c.restoreState()
+
+    def _draw_header_image(self, c, path, band_x, band_y, band_w):
+        if not path:
+            return False
+        try:
+            from reportlab.lib.utils import ImageReader
+            iw, ih = ImageReader(path).getSize()
+        except Exception:
+            return False
+        if iw <= 0 or ih <= 0:
+            return False
+        draw_w = band_w
+        draw_h = ih * (draw_w / iw)
+        if draw_h > SETUP_CARD_HEADER_MAX_H:
+            draw_h = SETUP_CARD_HEADER_MAX_H
+            draw_w = iw * (draw_h / ih)
+        # Bottom-left of image aligned to bottom-left of band
+        c.drawImage(path, band_x, band_y, draw_w, draw_h,
+                    preserveAspectRatio=True, mask='auto')
+        return True
+
+    def _draw_faction_name(self, c, band_x, band_y, band_w, band_h, has_header):
+        name = self.faction.faction_name or ''
+        if not name:
+            return
+
+        usable_w = band_w - 2 * SETUP_CARD_BAND_TEXT_PADDING
+        lines, size = self._fit_faction_name(name, usable_w)
+
+        # Color: white if header overlays the band OR white is legible on faction color
+        if has_header or _is_white_text_legible(self.color_hex):
+            fill = (1, 1, 1)
+        else:
+            fill = (0, 0, 0)
+
+        leading = size + SETUP_CARD_NAME_LINE_GAP
+        total_h = size + leading * (len(lines) - 1)
+        # Vertically center the text block within the band.
+        # Approximate cap-height as 0.72 * size for centering.
+        cap_h = size * 0.72
+        first_baseline_y = band_y + (band_h + total_h) / 2 - cap_h - (size - cap_h) / 2
+
+        c.saveState()
+        c.setFont('Luminari', size)
+        c.setFillColorRGB(*fill)
+        center_x = band_x + band_w / 2
+        for i, line in enumerate(lines):
+            y = first_baseline_y - i * leading
+            c.drawCentredString(center_x, y, line)
+        c.restoreState()
+
+    def _draw_setup_steps(self, c):
+        body_x = SETUP_CARD_BODY_X_INSET
+        body_w = CARD_SLOT_W - 2 * SETUP_CARD_BODY_X_INSET
+        cursor_y = CARD_SLOT_H - SETUP_CARD_BODY_TOP_INSET
+        bottom_y = SETUP_CARD_BODY_BOTTOM_INSET
+
+        # DEBUG: red outline around the body rectangle for tuning. Remove when geometry is set.
+        c.saveState()
+        c.setStrokeColorRGB(1, 0, 0)
+        c.setLineWidth(0.5)
+        c.rect(body_x, bottom_y, body_w, cursor_y - bottom_y, stroke=1, fill=0)
+        c.restoreState()
+
+        step_x = body_x + SETUP_CARD_STEP_INDENT
+        step_w = max(body_w - SETUP_CARD_STEP_INDENT, 40)
+        for step in self._setup_steps:
+            number = getattr(step, 'number', 0)
+            text = getattr(step, 'text', '') or ''
+            cursor_y = self._draw_setup_step(c, step_x, cursor_y, step_w, number, text)
+            cursor_y -= SETUP_CARD_STEP_GAP
+            if cursor_y < bottom_y:
+                break
+
+    def _draw_setup_step(self, c, x, top_y, w, number, text):
+        marker = self._setup_marker_svgs.get(number)
+        slot_w = SETUP_CARD_MARKER_SIZE
+        marker_w = marker.width if marker is not None else SETUP_CARD_MARKER_SIZE
+        marker_h = marker.height if marker is not None else SETUP_CARD_MARKER_SIZE
+
+        text_x = x + slot_w + SETUP_CARD_MARKER_TEXT_GAP
+        text_w = w - (slot_w + SETUP_CARD_MARKER_TEXT_GAP)
+        if text_w < 30:
+            text_w = 30
+
+        markup = format_step_markup(text)
+        para = Paragraph(markup, self.setup_step_style)
+        _, _ = para.wrap(text_w, 9999)
+        tighten_large_font_lines(para)
+        para_h = para.height
+
+        block_h = max(marker_h, para_h)
+        block_bottom = top_y - block_h
+
+        para_mid_y = top_y - para_h / 2
+        marker_x = x + (slot_w - marker_w) / 2
+        marker_y = para_mid_y - marker_h / 2
+
+        if marker is not None:
+            renderPDF.draw(marker, c, marker_x, marker_y)
+        else:
+            c.saveState()
+            c.setFillColor(self.faction_color)
+            c.circle(marker_x + marker_w / 2, para_mid_y, marker_w / 2, stroke=0, fill=1)
+            c.setFont('Baskerville-Bold', marker_h * 0.6)
+            c.setFillColorRGB(1, 1, 1)
+            c.drawCentredString(marker_x + marker_w / 2, para_mid_y - marker_h * 0.2, str(number))
+            c.restoreState()
+
+        para.drawOn(c, text_x, top_y - para_h)
+
+        return block_bottom

@@ -74,6 +74,8 @@ class FactionSheet(models.Model):
     include_crafted_items = models.BooleanField(default=True)
     include_decree = models.BooleanField(default=False)
     layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_VERTICAL)
+    header_image = models.ImageField(upload_to='forge/faction_headers/', null=True, blank=True)
+
 
     # Layout overrides (inches). Null = auto. `_h` = horizontal layout, `_v` = vertical.
     # `phase_box_w_h` is stored for forward compat but not yet consumed by the engine.
@@ -410,6 +412,8 @@ class SetupCard(models.Model):
     faction = models.OneToOneField(ForgedFaction, related_name='setup_card', on_delete=models.CASCADE)
     type = models.CharField(max_length=10, choices=TypeChoices.choices, default=TypeChoices.INSURGENT)
     reach = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], default=4)
+    header_image = models.ImageField(upload_to='forge/adset/', null=True, blank=True)
+
 
 class SetupStep(models.Model):
     faction_back = models.ForeignKey(FactionBack, related_name='setup_steps', on_delete=models.CASCADE, blank=True, null=True)
