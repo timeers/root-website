@@ -20,8 +20,10 @@
         {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
         <div class="ms-auto d-flex gap-2">
           <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
-          <button type="button" class="btn btn-sm btn-outline-danger"
-                  data-delete-url="{% url 'forge-box-delete' pk=box.pk %}">Delete</button>
+          {% if not express %}
+            <button type="button" class="btn btn-sm btn-outline-danger"
+                    data-delete-url="{% url 'forge-box-delete' pk=box.pk %}">Delete</button>
+          {% endif %}
         </div>
       </div>
     </div>

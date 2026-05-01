@@ -80,7 +80,7 @@
   .forge-resize-handle--ne { top: -5px; right: -5px; cursor: nesw-resize; }
   .forge-resize-handle--sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
   .forge-resize-handle--se { bottom: -5px; right: -5px; cursor: nwse-resize; }
-  .forge-preview-element--phase_box   { background: rgba(180, 140, 90, 0.45); }
+  .forge-preview-element--phase_box   { background: rgba(180, 140, 90, 0.45); z-index: 1; }
   .forge-preview-element--phase_header_bar {
     border: 1px solid rgba(0, 0, 0, 0.5);
     padding: 0 8px;
@@ -134,8 +134,8 @@
   .forge-preview-element--phase_step .forge-luminari {
     font-family: 'Luminari', 'Papyrus', serif;
   }
-  .forge-preview-element--content_box { background: rgba(120, 170, 220, 0.45); }
-  .forge-preview-element--card_pile   { background: rgba(220, 200, 130, 0.55); }
+  .forge-preview-element--content_box { background: rgba(120, 170, 220, 0.45); z-index: 1; }
+  .forge-preview-element--card_pile   { background: rgba(220, 200, 130, 0.55); z-index: 1; }
   .forge-preview-element--bordered_box {
     background: rgba(255, 250, 235, 0.85);
     border: 1px solid rgba(80, 50, 20, 0.8);
@@ -225,6 +225,11 @@
     background: rgba(160, 110, 110, 0.35);
     border-style: dashed;
     padding: 0;
+    /* Decree spans the full page width, so keep it behind other editable
+       elements — otherwise the user can't click overlapping content boxes
+       to drag them. While dragging, .forge-preview-element--dragging bumps
+       z-index to 10, which still beats this. */
+    z-index: 0;
   }
   .forge-preview-element--card_slot {
     background: rgba(245, 233, 208, 0.95);
@@ -263,6 +268,35 @@
     border: 1px dashed rgba(0, 0, 0, 0.25);
     pointer-events: none;
   }
+  .forge-preview-element--header_image {
+    background: transparent;
+    /* No border: the engine renders the image edge-to-edge at the same
+       width as the color bar, so the preview must match. A 1px border
+       (with box-sizing: border-box) would inset the image content by 1px
+       per side and make it look narrower than the bar. */
+    border: 0;
+    padding: 0;
+    overflow: hidden;
+    pointer-events: none;
+    /* Paints over the color bar so the image is fully visible; the title
+       label inside the color bar uses z-index 3 to sit above this image. */
+    z-index: 2;
+  }
+  .forge-preview-element--header_image .hi-thumb {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    /* The image div is bottom-aligned with the color bar but extends well
+       above the visible canvas (overflow: hidden clips the top portion).
+       Use 'contain' so the full image is visible in the surviving portion,
+       and anchor to the bottom so it shows up rather than getting hidden
+       in the off-canvas region. */
+    object-fit: contain;
+    object-position: center bottom;
+    opacity: 0.6;
+    pointer-events: none;
+  }
   .forge-preview-element--header_color_bar {
     border: none;
     padding: 0;
@@ -273,6 +307,13 @@
     font-weight: bold;
     text-shadow: 0 0 2px rgba(0,0,0,0.25);
     cursor: not-allowed;
+    /* Leave z-index unset (auto) so this element doesn't form a stacking
+       context — the .header-color-bar-label child can then escape upward
+       past the header image with its own z-index. */
+  }
+  .forge-preview-element--header_color_bar .header-color-bar-label {
+    position: relative;
+    z-index: 3;
   }
   .forge-preview-element--header_ability {
     background: rgba(255, 255, 255, 0.65);
@@ -310,6 +351,7 @@
     padding: 0;
     overflow: hidden;
     cursor: move;
+    z-index: 1;
   }
   .forge-preview-element--character_image .ci-thumb {
     position: absolute;

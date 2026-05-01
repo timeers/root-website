@@ -1,4 +1,5 @@
 {% load static %}
+{% if not express %}
 <div class="phase-step-action-controls d-flex align-items-center gap-2 mt-3"
      data-step-id="{{ step.pk }}">
   <div class="ms-auto d-flex gap-2 flex-wrap">
@@ -16,13 +17,14 @@
             aria-controls="actions-panel-{{ step.pk }}">Actions ▾</button>
   </div>
 </div>
+{% endif %}
 
 <div class="phase-step-action-header mt-2"
      id="actions-panel-{{ step.pk }}"
      data-actions-panel
      data-step-id="{{ step.pk }}"
      data-action-type-url="{% url 'forge-phasestep-action-type-set' step_pk=step.pk %}"
-     {% if not step.actions.exists %}hidden{% endif %}>
+     {% if not express and not step.actions.exists %}hidden{% endif %}>
   <div class="d-flex align-items-center gap-2">
     <strong class="small text-muted">Action Type:</strong>
     <select class="form-select form-select-sm phase-step-action-type"

@@ -31,8 +31,10 @@
       <button type="button" class="btn btn-sm btn-outline-secondary"
               data-add-scale-row data-scale-id="{{ scale.pk }}">+ Add Row</button>
       <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
-      <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
-              data-delete-url="{% url 'forge-scale-delete' pk=scale.pk %}">Delete</button>
+      {% if not express %}
+        <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
+                data-delete-url="{% url 'forge-scale-delete' pk=scale.pk %}">Delete</button>
+      {% endif %}
     </div>
 
     <div class="forge-icon-picker" data-forge-icon-picker hidden>

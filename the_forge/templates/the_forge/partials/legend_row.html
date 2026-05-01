@@ -8,8 +8,10 @@
       <input type="text" name="title" value="{{ legend.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1 luminari" style="min-width:0;max-width:none;" placeholder="Title (optional)">
       <div class="d-flex gap-2 flex-shrink-0">
         <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
-        <button type="button" class="btn btn-sm btn-outline-danger"
-                data-delete-url="{% url 'forge-legend-delete' pk=legend.pk %}">Delete</button>
+        {% if not express %}
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  data-delete-url="{% url 'forge-legend-delete' pk=legend.pk %}">Delete</button>
+        {% endif %}
       </div>
     </div>
   </form>

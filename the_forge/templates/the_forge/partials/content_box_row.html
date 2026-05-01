@@ -37,31 +37,56 @@
             data-add-content-box-step data-content-box-id="{{ box.pk }}">+ Add Step</button>
 
   {% else %}
-    <div class="d-flex gap-2 align-items-start mb-2">
-      <span class="content-box-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
-      <span class="content-box-section-label luminari">Section {{ box.order }}</span>
-      <div class="ms-auto">
-        <button type="button" class="btn btn-sm btn-outline-danger"
-                data-delete-url="{% url 'forge-contentbox-delete' pk=box.pk %}">Delete Section</button>
+    {% if box.kind == 'actions' or box.kind == 'scale' %}
+      <div class="d-flex gap-2 align-items-start">
+        <span class="content-box-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+        <span class="content-box-section-label luminari">Section {{ box.order }}</span>
+        <form method="post" data-edit-url="{% url 'forge-contentbox-edit' pk=box.pk %}" class="m-0 flex-grow-1" data-dirty-form>
+          {% csrf_token %}
+          <input type="hidden" name="order" value="{{ box.order }}">
+          <div class="mb-1">
+            <input type="text" name="title" value="{{ box.title|default_if_none:'' }}" class="form-control form-control-sm" placeholder="Title">
+          </div>
+          <div class="forge-rich-text">
+            <textarea name="text" class="form-control" rows="3">{{ box.text|default_if_none:'' }}</textarea>
+            <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+              {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
+              <div class="ms-auto d-flex gap-2">
+                <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+                <button type="button" class="btn btn-sm btn-outline-danger"
+                        data-delete-url="{% url 'forge-contentbox-delete' pk=box.pk %}">Delete</button>
+              </div>
+            </div>
+          </div>
+        </form>
       </div>
-    </div>
+    {% else %}
+      <div class="d-flex gap-2 align-items-start mb-2">
+        <span class="content-box-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+        <span class="content-box-section-label luminari">Section {{ box.order }}</span>
+        <div class="ms-auto">
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  data-delete-url="{% url 'forge-contentbox-delete' pk=box.pk %}">Delete Section</button>
+        </div>
+      </div>
+    {% endif %}
 
     {% with single_step=box.annotated_steps.0 %}
       {% if single_step %}
         {% if box.kind == 'actions' %}
-          {% include 'the_forge/partials/phase_step_action_header.html' with step=single_step %}
+          {% include 'the_forge/partials/phase_step_action_header.html' with step=single_step express=True %}
         {% else %}
           <div class="phase-step-children" data-step-id="{{ single_step.pk }}"
                data-reorder-url="{% url 'forge-step-children-reorder' step_pk=single_step.pk %}">
             {% for child in single_step.ordered_children %}
               {% if child.kind == 'box' %}
-                {% include 'the_forge/partials/bordered_box_row.html' with box=child.obj %}
+                {% include 'the_forge/partials/bordered_box_row.html' with box=child.obj express=True %}
               {% elif child.kind == 'track' %}
-                {% include 'the_forge/partials/track_row.html' with track=child.obj %}
+                {% include 'the_forge/partials/track_row.html' with track=child.obj express=True %}
               {% elif child.kind == 'legend' %}
-                {% include 'the_forge/partials/legend_row.html' with legend=child.obj %}
+                {% include 'the_forge/partials/legend_row.html' with legend=child.obj express=True %}
               {% elif child.kind == 'scale' %}
-                {% include 'the_forge/partials/scale_row.html' with scale=child.obj %}
+                {% include 'the_forge/partials/scale_row.html' with scale=child.obj express=True %}
               {% endif %}
             {% endfor %}
           </div>

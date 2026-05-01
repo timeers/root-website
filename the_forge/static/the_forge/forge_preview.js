@@ -24,7 +24,8 @@
   // because the engine anchors them to PAGE_H - TOP_MARGIN - decree_slide.
   // Phase box also follows the decree, so its decoratives ride along too.
   const HEADER_BAND_KINDS = new Set([
-    'header_bar', 'header_color_bar', 'header_ability', 'header_flavor', 'header_crafted',
+    'header_bar', 'header_color_bar', 'header_image',
+    'header_ability', 'header_flavor', 'header_crafted',
   ]);
 
   // Stash header-band decoratives so the decree drag can move them.
@@ -89,7 +90,23 @@
       case 'header_color_bar':
         if (el.fill) div.style.backgroundColor = el.fill;
         if (el.text_color) div.style.color = el.text_color;
-        if (el.label) div.textContent = el.label;
+        if (el.label) {
+          // Wrap the label so it can sit at a higher z-index than the
+          // header image (which paints on top of the bar itself).
+          const lbl = document.createElement('span');
+          lbl.className = 'header-color-bar-label';
+          lbl.textContent = el.label;
+          div.appendChild(lbl);
+        }
+        break;
+      case 'header_image':
+        if (el.image_url) {
+          const himg = document.createElement('img');
+          himg.className = 'hi-thumb';
+          himg.src = el.image_url;
+          himg.alt = '';
+          div.appendChild(himg);
+        }
         break;
       case 'header_ability': {
         const title = document.createElement('span');

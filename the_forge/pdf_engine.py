@@ -2713,14 +2713,22 @@ class SheetLayoutEngine:
         box_h = content_h + CONTENT_BOX_PAD_TOP + CONTENT_BOX_PAD_BOTTOM
         return box_w, box_h, content_w
 
-    def _content_box_fits(self, x, y, w, h):
-        """Check if a content box at (x, y) with dimensions (w, h) fits on the page."""
+    def _content_box_fits(self, x, y, w, h, top_y=None):
+        """Check if a content box at (x, y) with dimensions (w, h) fits on the page.
+
+        ``top_y`` defaults to ``self.phases_top_y`` (the strict bound used for
+        manually-overridden boxes anchored under the title band). The overflow
+        placer passes the full page top so it can search the entire usable
+        page area for an open slot, falling back to the cascade if none exists.
+        """
         if x < X_MARGIN or x + w > PAGE_W - X_MARGIN:
             return False
-        if y < BOTTOM_MARGIN or y + h > self.phases_top_y:
+        if top_y is None:
+            top_y = self.phases_top_y
+        if y < BOTTOM_MARGIN or y + h > top_y:
             return False
         # Check overlap with phases box
-        if hasattr(self, '_phases_rect'):
+        if hasattr(self, '_phases_rect') and self._phases_rect is not None:
             px, py, pw, ph = self._phases_rect
             if _rects_overlap(x, y, w, h, px, py, pw, ph):
                 return False
@@ -2990,92 +2998,21 @@ class SheetLayoutEngine:
             ]))
             _, table_h = t.wrap(width, 9999)
 
-        # Add height for StepAction rows (grouped and packed for side-by-side)
-        if hasattr(step, 'actions'):
-            actions = step.actions.order_by('order') if hasattr(step.actions, 'order_by') else list(step.actions.all())
-            action_content_w = width - text_col_w
-            groups = self._group_actions(actions)
-            packed_rows = self._pack_action_rows(groups, action_content_w)
-
-            for row_info in packed_rows:
-                if row_info[0] == 'single_card':
-                    action = row_info[1]
-                    icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
-                    markup_a = format_step_markup(action.text)
-                    para_a = Paragraph(markup_a, self.action_body_style)
-                    icon_space = MIN_CARD_ICON_W if icon_path else 0
-                    arrow_w = _arrow_total_width_for_cost(action.cost)
-                    text_w_a = action_content_w - icon_space - arrow_w
-                    para_a.wrap(text_w_a, 9999)
-                    text_h_a = true_paragraph_height(para_a, text_w_a)
-                    icon_h_eff = icon_h if icon_path else 0
-                    first_line_h = StepActionFlowable._get_first_line_height(para_a)
-                    top_pad = max(0, (icon_h_eff - first_line_h) / 2)
-                    nudge = first_line_h * ACTION_ICON_Y_NUDGE
-                    row_h = max(top_pad + text_h_a, icon_h_eff + nudge) + ACTION_ROW_GAP
-                    table_h += row_h
-
-                elif row_info[0] == 'card_group':
-                    cost_type = row_info[1]
-                    group_actions = row_info[2]
-                    icon_path, icon_w, icon_h = self._resolve_cost_icon(group_actions[0])
-                    icon_space = MIN_CARD_ICON_W
-                    arrow_w = CARD_ARROW_ICON_GAP + CARD_ARROW_W + CARD_ARROW_TEXT_GAP
-                    text_w_a = action_content_w - icon_space - arrow_w
-                    group_h = 0
-                    for action in group_actions:
-                        markup_a = format_step_markup(action.text)
-                        para_a = Paragraph(markup_a, self.action_body_style)
-                        para_a.wrap(text_w_a, 9999)
-                        th = true_paragraph_height(para_a, text_w_a)
-                        group_h += th
-                    group_h += ACTION_ROW_GAP * (len(group_actions) - 1)
-                    group_h = max(group_h, icon_h)
-                    table_h += group_h + ACTION_ROW_GAP
-
-                elif row_info[0] == 'row':
-                    action_items = row_info[1]
-                    if len(action_items) == 1:
-                        action, _ = action_items[0]
-                        icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
-                        markup_a = format_step_markup(action.text)
-                        para_a = Paragraph(markup_a, self.action_body_style)
-                        icon_space = icon_w if icon_path else 0
-                        arrow_w = _arrow_total_width_for_cost(action.cost)
-                        text_w_a = action_content_w - icon_space - arrow_w
-                        para_a.wrap(text_w_a, 9999)
-                        text_h_a = true_paragraph_height(para_a, text_w_a)
-                        icon_h_eff = icon_h if icon_path else 0
-                        first_line_h = StepActionFlowable._get_first_line_height(para_a)
-                        top_pad = max(0, (icon_h_eff - first_line_h) / 2)
-                        nudge = first_line_h * ACTION_ICON_Y_NUDGE
-                        row_h = max(top_pad + text_h_a, icon_h_eff + nudge) + ACTION_ROW_GAP
-                        table_h += row_h
-                    else:
-                        # Side-by-side: row height = max of individual heights
-                        # Last action gets remaining width (matches _build_action_flowables)
-                        total_gaps = SIDE_BY_SIDE_GAP * (len(action_items) - 1)
-                        used_w = sum(w for _, w in action_items[:-1]) + total_gaps
-                        last_w = action_content_w - used_w
-                        max_h = 0
-                        for idx, (action, base_w) in enumerate(action_items):
-                            alloc_w = last_w if idx == len(action_items) - 1 else base_w
-                            icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
-                            markup_a = format_step_markup(action.text)
-                            para_a = Paragraph(markup_a, self.action_body_style)
-                            icon_space = icon_w if icon_path else 0
-                            arrow_w = _arrow_total_width_for_cost(action.cost)
-                            text_w_a = alloc_w - icon_space - arrow_w
-                            para_a.wrap(text_w_a, 9999)
-                            text_h_a = true_paragraph_height(para_a, text_w_a)
-                            icon_h_eff = icon_h if icon_path else 0
-                            first_line_h = StepActionFlowable._get_first_line_height(para_a)
-                            top_pad = max(0, (icon_h_eff - first_line_h) / 2)
-                            nudge = first_line_h * ACTION_ICON_Y_NUDGE
-                            h = max(top_pad + text_h_a, icon_h_eff + nudge)
-                            if h > max_h:
-                                max_h = h
-                        table_h += max_h + ACTION_ROW_GAP
+        # Add height for StepAction rows by wrapping the same flowables that
+        # _build_steps_story will append to the story. This guarantees the
+        # measured height matches what the build path actually consumes.
+        action_flowables = self._build_action_flowables(step, width, text_col_w)
+        if action_flowables:
+            # When actions follow the step-text paragraph in single_step mode,
+            # _build_steps_story appends `para` directly so the Frame consumes
+            # the paragraph style's spaceAfter as a gap before the first action.
+            # (In multi-step mode the para is wrapped in a Table, so spaceAfter
+            # is absorbed and we don't need to count it.)
+            if single_step:
+                table_h += style.spaceAfter
+            for fl in action_flowables:
+                _, fh = fl.wrap(width, 9999)
+                table_h += fh
 
         # Add bordered box + track heights, iterated in the user's intermixed
         # order from the editor (boxes and tracks share an `order` sequence).
@@ -3408,9 +3345,10 @@ class SheetLayoutEngine:
 
         if self.content_boxes:
             if layout == 'horizontal':
-                self._draw_horizontal_content_boxes(c)
+                leftovers = self._draw_horizontal_content_boxes(c)
             else:
-                self._draw_vertical_content_boxes(c)
+                leftovers = self._draw_vertical_content_boxes(c)
+            self._draw_overflow_content_boxes(c, leftovers)
 
         self._draw_card_piles(c)
 
@@ -3615,7 +3553,11 @@ class SheetLayoutEngine:
         return True
 
     def _draw_vertical_content_boxes(self, c):
-        """Draw content boxes to the right of (and below) the phases box in vertical layout."""
+        """Draw content boxes to the right of (and below) the phases box in vertical layout.
+
+        Returns the list of ContentBoxes that the primary right-strip pack could
+        not fit (so a secondary pass + overflow placer can handle them).
+        """
         self._placed_boxes = []
         px, py, pw, ph = self._phases_rect
         target_h = self.phases_top_y - BOTTOM_MARGIN
@@ -3628,14 +3570,14 @@ class SheetLayoutEngine:
                 continue
             auto_boxes.append(cb)
         if not auto_boxes:
-            return
+            return []
 
         # Available space to the right of the phases box
         right_x = px + pw + CONTENT_BOX_GAP
         right_w = (PAGE_W - X_MARGIN) - right_x
 
         if right_w < CONTENT_BOX_MIN_W:
-            return
+            return list(auto_boxes)
 
         # Pre-compute minimum/preferred track widths and minimum legend widths
         # for each content box
@@ -3648,12 +3590,18 @@ class SheetLayoutEngine:
             min_legend_widths[id(cb)] = self._min_legend_width_for_content_box(cb)
 
         remaining = list(auto_boxes)
+        leftovers = []
         cursor_y_top = self.phases_top_y
         row_start_x = right_x
         row_avail_w = right_w
 
         while remaining:
-            # Try to fit as many as possible in this row at even widths
+            # Try to fit as many as possible in this row at even widths.
+            # The single-box (row_count == 1) attempt only checks horizontal
+            # constraints (track/legend widths) — height is allowed to overflow
+            # and will be clamped at draw time. This matches the existing
+            # clamp behaviour at draw time but ensures we don't bail out of
+            # packing prematurely when one tall box remains.
             row_count = len(remaining)
             while row_count > 0:
                 total_gaps = CONTENT_BOX_GAP * (row_count - 1)
@@ -3662,11 +3610,13 @@ class SheetLayoutEngine:
                     content_w_at_even = even_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
                     all_fit = True
                     for cb in remaining[:row_count]:
-                        # Check height fits
-                        _, h, _ = self._content_box_dims_for_width(cb, even_w)
-                        if h > target_h:
-                            all_fit = False
-                            break
+                        # Check height fits (skip when this is the only
+                        # candidate left for the row — we'll clamp instead)
+                        if row_count > 1:
+                            _, h, _ = self._content_box_dims_for_width(cb, even_w)
+                            if h > target_h:
+                                all_fit = False
+                                break
                         # Check tracks fit at this content width
                         min_tw = min_track_widths[id(cb)]
                         if min_tw > 0 and content_w_at_even < min_tw:
@@ -3682,9 +3632,8 @@ class SheetLayoutEngine:
                 row_count -= 1
 
             if row_count == 0:
-                # Can't fit any more boxes
-                for cb in remaining:
-                    print(f"WARNING: ContentBox '{cb.title}' does not fit, skipping.")
+                # Can't fit any more boxes in this strip — defer to caller
+                leftovers.extend(remaining)
                 break
 
             # Place this row of boxes
@@ -3769,9 +3718,10 @@ class SheetLayoutEngine:
             cursor_y_top = row_bottom_y - CONTENT_BOX_GAP
             target_h = cursor_y_top - BOTTOM_MARGIN
             if target_h <= 0:
-                for cb in remaining:
-                    print(f"WARNING: ContentBox '{cb.title}' does not fit, skipping.")
+                leftovers.extend(remaining)
                 break
+
+        return leftovers
 
     def _draw_horizontal_content_boxes(self, c):
         """Draw content boxes below the phases box using column-first packing.
@@ -3779,6 +3729,9 @@ class SheetLayoutEngine:
         Boxes are stacked top-to-bottom in a column, overflowing to the next
         column to the right when vertical space runs out.  Mirrors the logic
         of _draw_vertical_content_boxes but transposed (columns instead of rows).
+
+        Returns the list of ContentBoxes that the primary below-phases pack
+        could not fit (so a secondary pass + overflow placer can handle them).
         """
         self._placed_boxes = []
         px, py, pw, ph = self._phases_rect
@@ -3791,12 +3744,12 @@ class SheetLayoutEngine:
                 continue
             auto_boxes.append(cb)
         if not auto_boxes:
-            return
+            return []
 
         below_top = py - CONTENT_BOX_GAP
         avail_h = below_top - BOTTOM_MARGIN
         if avail_h <= 0:
-            return
+            return list(auto_boxes)
 
         # Pre-compute track + legend width constraints
         min_track_widths = {}
@@ -3808,6 +3761,7 @@ class SheetLayoutEngine:
             min_legend_widths[id(cb)] = self._min_legend_width_for_content_box(cb)
 
         remaining = list(auto_boxes)
+        leftovers = []
         col_start_x = X_MARGIN
         col_avail_w = BODY_W
 
@@ -3840,8 +3794,7 @@ class SheetLayoutEngine:
                 col_count -= 1
 
             if col_count == 0:
-                for cb in remaining:
-                    print(f"WARNING: ContentBox '{cb.title}' does not fit, skipping.")
+                leftovers.extend(remaining)
                 break
 
             # Determine boxes for this column
@@ -3942,9 +3895,119 @@ class SheetLayoutEngine:
             col_start_x += col_w + CONTENT_BOX_GAP
             col_avail_w -= col_w + CONTENT_BOX_GAP
             if col_avail_w < CONTENT_BOX_MIN_W:
-                for cb in remaining:
-                    print(f"WARNING: ContentBox '{cb.title}' does not fit, skipping.")
+                leftovers.extend(remaining)
                 break
+
+        return leftovers
+
+    def _overflow_box_dims(self, cb):
+        """Pick a natural box size for an overflow content box.
+
+        Width: clamp the preferred track / minimum legend width into the page
+        body. Height: whatever the content needs at that width (no clamp — the
+        user can resize it later in the editor).
+        """
+        pref_tw = self._preferred_track_width_for_content_box(cb)
+        min_lw = self._min_legend_width_for_content_box(cb)
+        target_content_w = max(pref_tw, min_lw,
+                               CONTENT_BOX_MIN_W - CONTENT_BOX_INTERNAL_MARGIN * 2)
+        box_w = target_content_w + CONTENT_BOX_INTERNAL_MARGIN * 2
+        max_box_w = PAGE_W - X_MARGIN * 2
+        if box_w > max_box_w:
+            box_w = max_box_w
+        _, box_h, _ = self._content_box_dims_for_width(cb, box_w)
+        # Cap height at the usable page height so the box stays grabbable.
+        max_box_h = PAGE_H - BOTTOM_MARGIN - TOP_MARGIN
+        if box_h > max_box_h:
+            box_h = max_box_h
+        return box_w, box_h
+
+    def _find_open_slot(self, w, h, step=0.25 * inch):
+        """Scan on a coarse grid for the first (x, y) where a ``w × h`` rect
+        doesn't overlap the phase box or any already-placed content box.
+        Returns ``(x, y)`` or ``None`` if no slot is found.
+
+        Bounded above by ``self.phases_top_y`` so overflow boxes never collide
+        with the faction title / header band — same constraint the Phase box
+        respects.
+        """
+        top_y = self.phases_top_y
+        x_lo = X_MARGIN
+        x_hi = PAGE_W - X_MARGIN - w
+        y_lo = BOTTOM_MARGIN
+        y_hi = top_y - h
+        if x_hi < x_lo or y_hi < y_lo:
+            return None
+        # Top-down, left-to-right so overflow boxes appear near the top first.
+        y = y_hi
+        while y >= y_lo:
+            x = x_lo
+            while x <= x_hi:
+                if self._content_box_fits(x, y, w, h, top_y=top_y):
+                    return x, y
+                x += step
+            y -= step
+        return None
+
+    def _draw_overflow_content_boxes(self, c, leftovers):
+        """Render content boxes that the auto-packer could not fit.
+
+        For each leftover, first try to find an open non-overlapping slot
+        anywhere on the page. If none exists, fall back to a deterministic
+        diagonal cascade so each overflow box remains individually grabbable
+        in the editor — the user moves them with the layout editor.
+
+        Boxes are recorded via ``_record_element`` exactly like normal boxes
+        so the editor / preview pick them up automatically.
+        """
+        if not leftovers:
+            return
+
+        cascade_origin_x = X_MARGIN + 0.5 * inch
+        cascade_origin_y = self.phases_top_y - 1.0 * inch
+        cascade_step = 0.25 * inch
+        cascade_index = 0
+
+        for cb in leftovers:
+            box_w, box_h = self._overflow_box_dims(cb)
+
+            slot = self._find_open_slot(box_w, box_h)
+            if slot is not None:
+                box_x, box_y = slot
+            else:
+                # Cascade fallback. Keep the box fully on the page; if the
+                # diagonal would walk off, wrap back to the origin column.
+                offset = cascade_step * cascade_index
+                box_x = cascade_origin_x + offset
+                box_y = cascade_origin_y - offset - box_h
+                if box_x + box_w > PAGE_W - X_MARGIN or box_y < BOTTOM_MARGIN:
+                    cascade_index = 0
+                    box_x = cascade_origin_x
+                    box_y = cascade_origin_y - box_h
+                    if box_y < BOTTOM_MARGIN:
+                        box_y = BOTTOM_MARGIN
+                cascade_index += 1
+                # Never let the box cross under the header band — same rule
+                # the Phase box follows.
+                max_top = self.phases_top_y
+                if box_y + box_h > max_top:
+                    box_y = max_top - box_h
+                if box_y < BOTTOM_MARGIN:
+                    box_y = BOTTOM_MARGIN
+
+            content_w = box_w - CONTENT_BOX_INTERNAL_MARGIN * 2
+            self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
+            content_x = box_x + CONTENT_BOX_INTERNAL_MARGIN
+            frame = Frame(content_x, box_y, content_w, box_h,
+                         leftPadding=0, rightPadding=0,
+                         topPadding=CONTENT_BOX_PAD_TOP, bottomPadding=CONTENT_BOX_PAD_BOTTOM,
+                         showBoundary=0)
+            story = self._build_content_box_story(cb, content_w)
+            frame.addFromList(story, c)
+            self._placed_boxes.append((box_x, box_y, box_w, box_h))
+            self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
+                                 x=box_x, y=box_y, w=box_w, h=box_h)
+            self._record_content_box_breakdown(cb, box_x, box_y, box_w, box_h)
 
     def _build_steps_story(self, steps, avail_w, centered=False):
         """Build flowables for a list of PhaseSteps (no header). Reused by phases and content boxes."""
@@ -4197,9 +4260,14 @@ class SheetLayoutEngine:
                         hdr_h = bar_w * hih / hiw
                         c.drawImage(hdr_path, bar_x, self.title_bar_y,
                                     width=bar_w, height=hdr_h, mask='auto')
+                        try:
+                            header_image_url = self.sheet.header_image.url
+                        except (ValueError, NotImplementedError):
+                            header_image_url = ''
                         self._record_element(kind='header_image',
                                              x=bar_x, y=self.title_bar_y,
-                                             w=bar_w, h=hdr_h)
+                                             w=bar_w, h=hdr_h,
+                                             image_url=header_image_url)
                 except Exception:
                     pass
 
