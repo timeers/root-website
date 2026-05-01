@@ -2,7 +2,7 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 from the_gatehouse.models import Profile
-from the_keep.utils import validate_hex_color
+from the_keep.utils import validate_hex_color, delete_old_image
 
 class ForgedFaction(models.Model):
     class BackgroundPreset(models.TextChoices):
@@ -63,11 +63,27 @@ class ForgedFaction(models.Model):
             return os.path.join(static_dir, self.BACKGROUND_PRESET_FILES[self.background_preset])
         return self.background_image.path
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = ForgedFaction.objects.get(pk=self.pk)
+                if old.background_image and old.background_image != self.background_image:
+                    delete_old_image(old.background_image)
+            except ForgedFaction.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+
 
 class FactionSheet(models.Model):
     class LayoutChoices(models.TextChoices):
         LAYOUT_HORIZONTAL = 'horizontal'
         LAYOUT_VERTICAL = 'vertical'
+
+    class TitleTextColor(models.TextChoices):
+        AUTO = 'auto', 'Auto'
+        BLACK = 'black', 'Black'
+        WHITE = 'white', 'White'
+
     faction = models.OneToOneField(ForgedFaction, related_name='faction_sheet', on_delete=models.CASCADE)
     flavor_text = models.TextField(blank=True, null=True)
     action_image = models.ImageField(upload_to='forge/action_icons/', blank=True, null=True)
@@ -75,6 +91,11 @@ class FactionSheet(models.Model):
     include_decree = models.BooleanField(default=False)
     layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_VERTICAL)
     header_image = models.ImageField(upload_to='forge/faction_headers/', null=True, blank=True)
+    title_text_color = models.CharField(
+        max_length=10,
+        choices=TitleTextColor.choices,
+        default=TitleTextColor.AUTO,
+    )
 
 
     # Layout overrides (inches). Null = auto. `_h` = horizontal layout, `_v` = vertical.
@@ -98,7 +119,44 @@ class FactionSheet(models.Model):
     def get_background_path(self):
         return self.faction.get_background_path()
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = FactionSheet.objects.get(pk=self.pk)
+                for field_name in ('action_image', 'header_image'):
+                    old_img = getattr(old, field_name)
+                    new_img = getattr(self, field_name)
+                    if old_img and old_img != new_img:
+                        delete_old_image(old_img)
+            except FactionSheet.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
 
+
+class CharacterImage(models.Model):
+    sheet = models.ForeignKey(FactionSheet, related_name='character_images', on_delete=models.CASCADE)
+    image = models.ImageField(upload_to='forge/character_images/')
+    order = models.PositiveIntegerField(default=0)
+
+    x_h = models.FloatField(blank=True, null=True)
+    y_h = models.FloatField(blank=True, null=True)
+    width_h = models.FloatField(blank=True, null=True)
+    x_v = models.FloatField(blank=True, null=True)
+    y_v = models.FloatField(blank=True, null=True)
+    width_v = models.FloatField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['order']
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = CharacterImage.objects.get(pk=self.pk)
+                if old.image and old.image != self.image:
+                    delete_old_image(old.image)
+            except CharacterImage.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
 
 
 class FactionAbility(models.Model):
@@ -213,6 +271,7 @@ class StepAction(models.Model):
         RABBIT = 'card_rabbit', 'Rabbit'
         BIRD = 'card_bird', 'Bird'
         NON_BIRD = 'card_nonbird', 'Non-Bird'
+        CARD = 'card_vertical', 'Card'
         # Custom
         OTHER = 'other', 'Other (Custom Image)'
 
@@ -226,6 +285,17 @@ class StepAction(models.Model):
         from django.core.exceptions import ValidationError
         if self.cost == self.CostChoices.OTHER and not self.cost_image:
             raise ValidationError({'cost_image': 'A custom image is required when cost is "Other".'})
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = StepAction.objects.get(pk=self.pk)
+                if old.cost_image and old.cost_image != self.cost_image:
+                    delete_old_image(old.cost_image)
+            except StepAction.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+
 
 class DecreeSection(models.Model):
     sheet = models.ForeignKey(FactionSheet, related_name='decrees', on_delete=models.CASCADE)
@@ -352,6 +422,17 @@ class CardboardTrack(models.Model):
     class Meta:
         ordering = ['order']
 
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = CardboardTrack.objects.get(pk=self.pk)
+                if old.background_image and old.background_image != self.background_image:
+                    delete_old_image(old.background_image)
+            except CardboardTrack.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+
+
 class CardboardSlot(models.Model):
     track = models.ForeignKey(CardboardTrack, related_name='slots', on_delete=models.CASCADE)
     number = models.PositiveIntegerField(help_text='For admin ordering')
@@ -366,6 +447,16 @@ class CardboardSlot(models.Model):
     class Meta:
         ordering = ['row', 'column']
         unique_together = [('track', 'row', 'column')]
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = CardboardSlot.objects.get(pk=self.pk)
+                if old.background_image and old.background_image != self.background_image:
+                    delete_old_image(old.background_image)
+            except CardboardSlot.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
 
     @property
     def content_keywords(self):
@@ -386,9 +477,20 @@ class FactionBack(models.Model):
 
     setup_order = models.CharField(max_length=1, default="X")
 
-    how_to_play_title = models.TextField(default='Playing the Faction')
+    how_to_play_title = models.TextField(default='Faction')
     how_to_play_text = models.TextField(blank=True, null=True)
     back_image = models.ImageField(upload_to='forge/faction_back/', blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = FactionBack.objects.get(pk=self.pk)
+                if old.back_image and old.back_image != self.back_image:
+                    delete_old_image(old.back_image)
+            except FactionBack.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+
 
 class Piece(models.Model):
     class TypeChoices(models.TextChoices):
@@ -398,11 +500,21 @@ class Piece(models.Model):
         CARD = 'C'
         OTHER = 'O'
 
-    parent = models.ForeignKey(FactionBack, on_delete=models.CASCADE, related_name='pieces')    
+    parent = models.ForeignKey(FactionBack, on_delete=models.CASCADE, related_name='pieces')
     name = models.CharField(max_length=30)
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
     small_icon = models.ImageField(upload_to='forge/sheet_backgrounds/', null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = Piece.objects.get(pk=self.pk)
+                if old.small_icon and old.small_icon != self.small_icon:
+                    delete_old_image(old.small_icon)
+            except Piece.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
 
 
 class SetupCard(models.Model):
@@ -413,6 +525,16 @@ class SetupCard(models.Model):
     type = models.CharField(max_length=10, choices=TypeChoices.choices, default=TypeChoices.INSURGENT)
     reach = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], default=4)
     header_image = models.ImageField(upload_to='forge/adset/', null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = SetupCard.objects.get(pk=self.pk)
+                if old.header_image and old.header_image != self.header_image:
+                    delete_old_image(old.header_image)
+            except SetupCard.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
 
 
 class SetupStep(models.Model):
@@ -440,6 +562,16 @@ class LegendRow(models.Model):
 
     class Meta:
         ordering = ['order']
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = LegendRow.objects.get(pk=self.pk)
+                if old.image and old.image != self.image:
+                    delete_old_image(old.image)
+            except LegendRow.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
 
 
 class Scale(models.Model):

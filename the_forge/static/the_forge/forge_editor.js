@@ -130,6 +130,13 @@
       });
       return;
     }
+    if (list.id === 'character-image-list') {
+      list.querySelectorAll(':scope > [data-row]').forEach((row, idx) => {
+        const label = row.querySelector('.character-image-label');
+        if (label) label.textContent = 'Image ' + (idx + 1);
+      });
+      return;
+    }
     if (list.id === 'content-box-list') {
       list.querySelectorAll(':scope > [data-row]').forEach((row, idx) => {
         const n = idx + 1;

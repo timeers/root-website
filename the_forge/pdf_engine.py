@@ -466,6 +466,7 @@ COST_ICON_PATHS = {
     'card_rabbit': static('pdf/inline/rabbit_card.png'),
     'card_bird': static('pdf/inline/bird_card.png'),
     'card_nonbird': static('pdf/inline/other_cards.png'),
+    'card_vertical': static('pdf/inline/card_vertical.png'),
     # Action (default faction icon)
     'action': static('pdf/inline/faction-lord of the hundreds.png'),
 }
@@ -1236,30 +1237,74 @@ class TrackFlowable(Flowable):
 
         headers = self.track.column_headers.split('|')
 
-        for col_idx in range(self.num_cols):
-            x = self._col_x(col_idx)
-            slot_center_x = x + self._slot_size / 2
-            label = headers[col_idx] if col_idx < len(headers) else ''
+        def header_at(idx):
+            return headers[idx] if idx < len(headers) else ''
 
-            processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H)
-            if '<img' in processed:
-                header_style = ParagraphStyle(
-                    'TrackHeader', parent=self.body_style,
-                    fontName='Baskerville-Bold',
-                    fontSize=TRACK_HEADER_FONT_SIZE,
-                    leading=TRACK_HEADER_FONT_SIZE + 2,
-                    alignment=TA_CENTER,
-                )
-                para = Paragraph(processed, header_style)
-                para_w, para_h = para.wrap(self._slot_size, 9999)
-                para_x = x
-                para_y = top_y - self._header_h / 2 - para_h / 2
-                para.drawOn(c, para_x, para_y)
+        segments = []
+        current = [0]
+        for col_idx in range(1, self.num_cols):
+            if col_idx in self.dividers:
+                segments.append(current)
+                current = [col_idx]
             else:
-                c.setFont('Baskerville-Bold', TRACK_HEADER_FONT_SIZE)
-                c.setFillColorRGB(0, 0, 0)
-                label_y = top_y - self._header_h / 2 - TRACK_HEADER_FONT_SIZE * 0.35
-                c.drawCentredString(slot_center_x, label_y, label)
+                current.append(col_idx)
+        segments.append(current)
+
+        consolidate = bool(self.dividers) and all(
+            len({header_at(i) for i in seg}) == 1 for seg in segments
+        )
+
+        label_y = top_y - self._header_h / 2 - TRACK_HEADER_FONT_SIZE * 0.35
+
+        if consolidate:
+            for seg in segments:
+                label = header_at(seg[0])
+                left = self._col_x(seg[0])
+                right = self._col_x(seg[-1]) + self._slot_size
+                center_x = (left + right) / 2
+                seg_w = right - left
+
+                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H)
+                if '<img' in processed:
+                    header_style = ParagraphStyle(
+                        'TrackHeader', parent=self.body_style,
+                        fontName='Baskerville-Bold',
+                        fontSize=TRACK_HEADER_FONT_SIZE,
+                        leading=TRACK_HEADER_FONT_SIZE + 2,
+                        alignment=TA_CENTER,
+                    )
+                    para = Paragraph(processed, header_style)
+                    para_w, para_h = para.wrap(seg_w, 9999)
+                    para.drawOn(c, center_x - para_w / 2,
+                                top_y - self._header_h / 2 - para_h / 2)
+                else:
+                    c.setFont('Baskerville-Bold', TRACK_HEADER_FONT_SIZE)
+                    c.setFillColorRGB(0, 0, 0)
+                    c.drawCentredString(center_x, label_y, label)
+        else:
+            for col_idx in range(self.num_cols):
+                x = self._col_x(col_idx)
+                slot_center_x = x + self._slot_size / 2
+                label = header_at(col_idx)
+
+                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H)
+                if '<img' in processed:
+                    header_style = ParagraphStyle(
+                        'TrackHeader', parent=self.body_style,
+                        fontName='Baskerville-Bold',
+                        fontSize=TRACK_HEADER_FONT_SIZE,
+                        leading=TRACK_HEADER_FONT_SIZE + 2,
+                        alignment=TA_CENTER,
+                    )
+                    para = Paragraph(processed, header_style)
+                    para_w, para_h = para.wrap(self._slot_size, 9999)
+                    para_x = x
+                    para_y = top_y - self._header_h / 2 - para_h / 2
+                    para.drawOn(c, para_x, para_y)
+                else:
+                    c.setFont('Baskerville-Bold', TRACK_HEADER_FONT_SIZE)
+                    c.setFillColorRGB(0, 0, 0)
+                    c.drawCentredString(slot_center_x, label_y, label)
 
     def _draw_slot(self, c, x, y, slot):
         """Draw a single slot at position (x, y) bottom-left."""
@@ -2310,7 +2355,14 @@ class SheetLayoutEngine:
         self.faction_name_font = 'Luminari'
         self.faction_name_font_size = 30
         faction_hex = self.sheet.faction.color or '#FFFFFF'
-        self.ink_on_faction_hex = '#FFFFFF' if _is_white_text_legible(faction_hex) else '#000000'
+        from the_forge.models import FactionSheet
+        title_choice = self.sheet.title_text_color
+        if title_choice == FactionSheet.TitleTextColor.WHITE:
+            self.ink_on_faction_hex = '#FFFFFF'
+        elif title_choice == FactionSheet.TitleTextColor.BLACK:
+            self.ink_on_faction_hex = '#000000'
+        else:
+            self.ink_on_faction_hex = '#FFFFFF' if _is_white_text_legible(faction_hex) else '#000000'
         self.ink_on_faction = HexColor(self.ink_on_faction_hex)
         self.faction_name_color = self.ink_on_faction
 
@@ -2359,14 +2411,14 @@ class SheetLayoutEngine:
             # Fix height, scale width
             draw_h = ACTION_ITEM_H
             draw_w = draw_h * aspect
-        elif cost in ('card_fox', 'card_mouse', 'card_rabbit', 'card_bird'):
-            # Fix height, scale width
-            draw_h = ACTION_CARD_H
-            draw_w = draw_h * aspect
         elif cost == 'card_nonbird':
             # Fix width, scale height
             draw_w = ACTION_CARDS_W
             draw_h = draw_w / aspect
+        elif cost.startswith('card_'):
+            # Fix height, scale width
+            draw_h = ACTION_CARD_H
+            draw_w = draw_h * aspect
         else:
             # action, other — fix width, scale height
             draw_w = ACTION_DEFAULT_W
@@ -2946,7 +2998,11 @@ class SheetLayoutEngine:
                     text_w_a = action_content_w - icon_space - arrow_w
                     para_a.wrap(text_w_a, 9999)
                     text_h_a = true_paragraph_height(para_a, text_w_a)
-                    row_h = max(text_h_a, icon_h if icon_path else 0) + ACTION_ROW_GAP
+                    icon_h_eff = icon_h if icon_path else 0
+                    first_line_h = StepActionFlowable._get_first_line_height(para_a)
+                    top_pad = max(0, (icon_h_eff - first_line_h) / 2)
+                    nudge = first_line_h * ACTION_ICON_Y_NUDGE
+                    row_h = max(top_pad + text_h_a, icon_h_eff + nudge) + ACTION_ROW_GAP
                     table_h += row_h
 
                 elif row_info[0] == 'card_group':
@@ -2979,7 +3035,11 @@ class SheetLayoutEngine:
                         text_w_a = action_content_w - icon_space - arrow_w
                         para_a.wrap(text_w_a, 9999)
                         text_h_a = true_paragraph_height(para_a, text_w_a)
-                        row_h = max(text_h_a, icon_h if icon_path else 0) + ACTION_ROW_GAP
+                        icon_h_eff = icon_h if icon_path else 0
+                        first_line_h = StepActionFlowable._get_first_line_height(para_a)
+                        top_pad = max(0, (icon_h_eff - first_line_h) / 2)
+                        nudge = first_line_h * ACTION_ICON_Y_NUDGE
+                        row_h = max(top_pad + text_h_a, icon_h_eff + nudge) + ACTION_ROW_GAP
                         table_h += row_h
                     else:
                         # Side-by-side: row height = max of individual heights
@@ -2998,7 +3058,11 @@ class SheetLayoutEngine:
                             text_w_a = alloc_w - icon_space - arrow_w
                             para_a.wrap(text_w_a, 9999)
                             text_h_a = true_paragraph_height(para_a, text_w_a)
-                            h = max(text_h_a, icon_h if icon_path else 0)
+                            icon_h_eff = icon_h if icon_path else 0
+                            first_line_h = StepActionFlowable._get_first_line_height(para_a)
+                            top_pad = max(0, (icon_h_eff - first_line_h) / 2)
+                            nudge = first_line_h * ACTION_ICON_Y_NUDGE
+                            h = max(top_pad + text_h_a, icon_h_eff + nudge)
                             if h > max_h:
                                 max_h = h
                         table_h += max_h + ACTION_ROW_GAP
@@ -3322,6 +3386,7 @@ class SheetLayoutEngine:
         layout = self.sheet.layout_mode
 
         self._draw_background(c)
+        self._draw_character_images(c)
         self._draw_top_band(c)
 
         if layout == 'horizontal':
@@ -4105,6 +4170,29 @@ class SheetLayoutEngine:
         c.setFillColor(self.faction_color)
         c.rect(bar_x, self.title_bar_y, bar_w, TITLE_BAR_H, fill=1, stroke=0)
 
+        # Optional header image — same width as the color bar, bottom-aligned with
+        # the bar bottom, allowed to overflow upward. Drawn before the faction
+        # name so the text sits on top.
+        if self.sheet.header_image:
+            try:
+                hdr_path = self.sheet.header_image.path
+            except (ValueError, NotImplementedError):
+                hdr_path = None
+            if hdr_path and os.path.exists(hdr_path):
+                try:
+                    from reportlab.lib.utils import ImageReader
+                    hdr_reader = ImageReader(hdr_path)
+                    hiw, hih = hdr_reader.getSize()
+                    if hiw > 0 and hih > 0:
+                        hdr_h = bar_w * hih / hiw
+                        c.drawImage(hdr_path, bar_x, self.title_bar_y,
+                                    width=bar_w, height=hdr_h, mask='auto')
+                        self._record_element(kind='header_image',
+                                             x=bar_x, y=self.title_bar_y,
+                                             w=bar_w, h=hdr_h)
+                except Exception:
+                    pass
+
         # Draw faction name centered
         c.setFillColor(self.faction_name_color)
         c.setFont(self.faction_name_font, self.faction_name_font_size)
@@ -4450,6 +4538,69 @@ class SheetLayoutEngine:
                                          x=x, y=slot_y,
                                          w=DECREE_SLOT_W, h=DECREE_SLOT_H,
                                          title=slot.title or '')
+
+    def _draw_character_images(self, c):
+        """Render decorative CharacterImages as background art.
+
+        Defaults: walk leftward from the bottom-right corner with a small gap
+        between each image. Default size caps the larger of width/height at 4".
+        Per-instance overrides (x_h/y_h/width_h or x_v/y_v/width_v) replace the
+        default placement; height is always derived from the image aspect ratio.
+        """
+        images = list(self.sheet.character_images.all().order_by('order'))
+        if not images:
+            return
+        from reportlab.lib.utils import ImageReader
+        gap = 0.15 * inch
+        cursor_x = PAGE_W - gap
+        default_y = gap
+        for img in images:
+            try:
+                path = img.image.path
+            except (ValueError, NotImplementedError):
+                continue
+            if not path or not os.path.exists(path):
+                continue
+            try:
+                reader = ImageReader(path)
+                iw, ih = reader.getSize()
+            except Exception:
+                continue
+            if iw <= 0 or ih <= 0:
+                continue
+            aspect = iw / ih
+
+            ov_w = self._override(img, 'width_h', 'width_v')
+            if ov_w is not None and ov_w > 0:
+                w_in = ov_w
+            else:
+                w_in = 4.0 if aspect >= 1 else 4.0 * aspect
+            h_in = w_in / aspect
+            w = w_in * inch
+            h = h_in * inch
+
+            ov_x = self._override(img, 'x_h', 'x_v')
+            if ov_x is not None:
+                x = ov_x * inch
+            else:
+                x = cursor_x - w
+                cursor_x = x - gap
+
+            ov_y = self._override(img, 'y_h', 'y_v')
+            y = ov_y * inch if ov_y is not None else default_y
+
+            try:
+                c.drawImage(path, x, y, width=w, height=h, mask='auto')
+            except Exception:
+                pass
+
+            try:
+                image_url = img.image.url
+            except (ValueError, NotImplementedError):
+                image_url = ''
+            self._record_element(kind='character_image', id=img.id,
+                                 order=img.order, x=x, y=y, w=w, h=h,
+                                 image_url=image_url)
 
     def _draw_card_piles(self, c):
         if not self.card_piles:
@@ -4982,13 +5133,6 @@ class FactionBackLayoutEngine:
             piece_area_left = (x if i == 0 else col_x) + MANIFEST_PIECE_COL_H_PAD
             piece_area_right = ((x + w) if i == len(self.PIECE_COLUMNS) - 1
                                 else col_x + col_w) - MANIFEST_PIECE_COL_H_PAD
-            # DEBUG: red lines marking MANIFEST_PIECE_COL_H_PAD bounds
-            c.saveState()
-            c.setStrokeColorRGB(1, 0, 0)
-            c.setLineWidth(0.5)
-            c.line(piece_area_left, pieces_bottom, piece_area_left, pieces_top)
-            c.line(piece_area_right, pieces_bottom, piece_area_right, pieces_top)
-            c.restoreState()
             self._draw_manifest_column_pieces(c, piece_area_left, pieces_bottom,
                                               piece_area_right - piece_area_left,
                                               pieces_top - pieces_bottom, pieces)
@@ -5034,6 +5178,7 @@ class FactionBackLayoutEngine:
         draw_w = 0
         draw_h = 0
         svg_fallback = None
+        shape_fallback = None  # 'building' | 'token' | 'card'
         if icon_path:
             from reportlab.lib.utils import ImageReader
             try:
@@ -5046,14 +5191,31 @@ class FactionBackLayoutEngine:
                 draw_w = 0
                 draw_h = 0
 
-        # Warrior fallback: if no icon was supplied, draw the faction-colored meeple.
-        if not icon_path and getattr(piece, 'type', None) == 'W' and self._warrior_fallback_svg is not None:
-            svg_fallback = self._warrior_fallback_svg
-            base_w = svg_fallback.width or 1
-            base_h = svg_fallback.height or 1
-            scale = min(icon_max_w / base_w, icon_max_h / base_h)
-            draw_w = base_w * scale
-            draw_h = base_h * scale
+        # Fallbacks: if no icon was supplied, dispatch on piece type.
+        if not icon_path:
+            ptype = getattr(piece, 'type', None)
+            if ptype == 'W' and self._warrior_fallback_svg is not None:
+                svg_fallback = self._warrior_fallback_svg
+                base_w = svg_fallback.width or 1
+                base_h = svg_fallback.height or 1
+                scale = min(icon_max_w / base_w, icon_max_h / base_h)
+                draw_w = base_w * scale
+                draw_h = base_h * scale
+            elif ptype == 'B':
+                shape_fallback = 'building'
+                side = min(icon_max_w, icon_max_h)
+                draw_w = draw_h = side
+            elif ptype == 'T':
+                shape_fallback = 'token'
+                side = min(icon_max_w, icon_max_h)
+                draw_w = draw_h = side
+            elif ptype == 'C':
+                shape_fallback = 'card'
+                card_ratio = 65.8 / 90.4  # card_pile.svg aspect (portrait)
+                scaled_h = min(icon_max_w / card_ratio, icon_max_h)
+                draw_h = scaled_h
+                draw_w = scaled_h * card_ratio
+            # 'O' (Other): TODO: add fallback for 'O' (Other) pieces here when needed
 
         # Available width for the label block (×qty + name), respecting horizontal padding
         h_pad = MANIFEST_PIECE_LABEL_H_PAD
@@ -5062,7 +5224,7 @@ class FactionBackLayoutEngine:
         inner_w = w - h_pad * 2
         inner_y = y + v_pad
         inner_h = h - v_pad * 2
-        has_icon = bool(icon_path) or svg_fallback is not None
+        has_icon = bool(icon_path) or svg_fallback is not None or shape_fallback is not None
         available_w = inner_w - (draw_w + icon_text_gap if has_icon else 0)
         if available_w < 20:
             available_w = 20
@@ -5128,6 +5290,22 @@ class FactionBackLayoutEngine:
             c.translate(icon_x, icon_y)
             c.scale(sx, sy)
             renderPDF.draw(svg_fallback, c, 0, 0)
+            c.restoreState()
+            label_x = icon_x + draw_w + icon_text_gap
+        elif shape_fallback is not None:
+            icon_x = start_x
+            icon_y = mid_y - draw_h / 2
+            c.saveState()
+            c.setFillColor(self.faction_color)
+            c.setFillAlpha(1.0)
+            if shape_fallback == 'building':
+                s = draw_w
+                c.roundRect(icon_x, icon_y, s, s, s * 0.15, fill=1, stroke=0)
+            elif shape_fallback == 'token':
+                s = draw_w
+                c.circle(icon_x + s / 2, icon_y + s / 2, s / 2, fill=1, stroke=0)
+            elif shape_fallback == 'card':
+                c.roundRect(icon_x, icon_y, draw_w, draw_h, draw_w * 0.10, fill=1, stroke=0)
             c.restoreState()
             label_x = icon_x + draw_w + icon_text_gap
         else:
@@ -5302,7 +5480,8 @@ class FactionBackLayoutEngine:
     # ---------- How to play ----------
 
     def _draw_how_to_play(self, c, x, top_y, w, h):
-        title = getattr(self.back, 'how_to_play_title', '') or 'Playing the Faction'
+        suffix = getattr(self.back, 'how_to_play_title', '') or 'Faction'
+        title = f'Playing the {suffix}'
         body = getattr(self.back, 'how_to_play_text', '') or ''
 
         c.saveState()
@@ -5315,11 +5494,19 @@ class FactionBackLayoutEngine:
         body_top = title_baseline - HOWTOPLAY_TITLE_GAP
         body_bottom = top_y - h
         body_h = body_top - body_bottom
-        if body_h <= 0 or not body:
-            return
 
         # Resolve optional back_image path and natural-scale within max bounds.
         img_path, img_w, img_h = self._resolve_back_image()
+
+        # Draw the image (if any) regardless of whether body text exists.
+        if img_path:
+            img_x = PAGE_W - img_w
+            img_y = 0
+            c.drawImage(img_path, img_x, img_y, width=img_w, height=img_h,
+                        preserveAspectRatio=True, mask='auto')
+
+        if body_h <= 0 or not body:
+            return
 
         markup = format_step_markup(body)
         para = Paragraph(markup, self.howtoplay_body_style)
@@ -5330,12 +5517,6 @@ class FactionBackLayoutEngine:
             para_h = para.height
             para.drawOn(c, x, body_top - para_h)
             return
-
-        # Anchor the image to the PDF's bottom-right corner exactly.
-        img_x = PAGE_W - img_w
-        img_y = 0
-        c.drawImage(img_path, img_x, img_y, width=img_w, height=img_h,
-                    preserveAspectRatio=True, mask='auto')
 
         # Variable-width wrap within a single Paragraph. Passing a per-line
         # widthList to breakLines lets the width change mid-paragraph at
@@ -5371,10 +5552,15 @@ class FactionBackLayoutEngine:
         para = Paragraph(markup, self.howtoplay_body_style)
         para.blPara = para.breakLines(widths)
         para.width = full_w
-        para.height = sum(
-            max(line.ascent - line.descent, leading)
-            for line in para.blPara.lines
-        )
+
+        def _line_h(line):
+            a = getattr(line, 'ascent', None)
+            d = getattr(line, 'descent', None)
+            if a is None or d is None:
+                return leading
+            return max(a - d, leading)
+
+        para.height = sum(_line_h(line) for line in para.blPara.lines)
         tighten_large_font_lines(para)
         para.drawOn(c, x, body_top - para.height)
 

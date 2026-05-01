@@ -19,6 +19,7 @@ urlpatterns = [
     path('forge/sheet/<int:pk>/preview/save/', views.factionsheet_preview_save, name='forge-sheet-preview-save'),
     path('forge/sheet/<int:pk>/delete/', views.factionsheet_delete, name='forge-sheet-delete'),
     path('hx/forge/sheet/<int:pk>/flavor/edit/', views.sheet_flavor_edit, name='forge-sheet-flavor-edit'),
+    path('hx/forge/sheet/<int:pk>/header/edit/', views.sheet_header_edit, name='forge-sheet-header-edit'),
     path('hx/forge/sheet/<int:pk>/crafted/toggle/', views.sheet_crafted_toggle, name='forge-sheet-crafted-toggle'),
     path('hx/forge/sheet/<int:pk>/layout/toggle/', views.sheet_layout_toggle, name='forge-sheet-layout-toggle'),
     path('hx/forge/sheet/<int:pk>/decree/toggle/', views.sheet_decree_toggle, name='forge-sheet-decree-toggle'),
@@ -116,4 +117,8 @@ urlpatterns = [
     path('hx/forge/sheet/<int:sheet_pk>/card-pile/reorder/', views.cardpile_reorder, name='forge-cardpile-reorder'),
     path('hx/forge/card-pile/<int:pk>/edit/', views.cardpile_edit, name='forge-cardpile-edit'),
     path('hx/forge/card-pile/<int:pk>/delete/', views.cardpile_delete, name='forge-cardpile-delete'),
+
+    # CharacterImage (child of FactionSheet)
+    path('hx/forge/sheet/<int:sheet_pk>/character-image/add/', views.character_image_add, name='forge-character-image-add'),
+    path('hx/forge/character-image/<int:pk>/delete/', views.character_image_delete, name='forge-character-image-delete'),
 ]

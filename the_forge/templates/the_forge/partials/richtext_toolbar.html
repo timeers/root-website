@@ -1,3 +1,4 @@
+{% load static %}
 {% comment %}
 Toolbar partial — drops in next to any textarea wrapped in .forge-rich-text.
 Context:
@@ -12,7 +13,7 @@ Context:
   {% if not allowed_buttons or 'bolditalic' in allowed_buttons %}<button type="button" data-style="bolditalic" title="Bold Italic"><b><i>Bi</i></b></button>{% endif %}
   {% if not allowed_buttons or 'luminari' in allowed_buttons %}<button type="button" data-style="luminari" class="rt-luminari" title="Luminari">L</button>{% endif %}
   {% if not allowed_buttons or 'header' in allowed_buttons %}<button type="button" data-style="header" title="Header">H</button>{% endif %}
-  {% if not allowed_buttons or 'image' in allowed_buttons %}<button type="button" data-action="image" title="Insert image">🖼</button>{% endif %}
+  {% if not allowed_buttons or 'image' in allowed_buttons %}<button type="button" data-action="image" title="Insert image"><img src="{% static 'pdf/icon_image.png' %}" alt="Insert image"></button>{% endif %}
 </div>
 {% if inline_keywords %}{% if not allowed_buttons or 'image' in allowed_buttons %}
 <div class="forge-rich-text-image-picker" hidden>

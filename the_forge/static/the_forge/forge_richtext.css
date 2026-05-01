@@ -116,6 +116,16 @@
   border-radius: 3px;
 }
 
+.forge-rich-text-toolbar button:has(img) {
+  padding: 0 0.15em;
+}
+
+.forge-rich-text-toolbar button img {
+  height: 1.6em;
+  width: auto;
+  display: block;
+}
+
 .forge-rich-text-toolbar button[data-active="true"] {
   background: #444;
   color: #fff;

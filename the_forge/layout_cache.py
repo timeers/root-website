@@ -13,7 +13,7 @@ import json
 
 from django.core.cache import cache
 
-CACHE_PREFIX = 'forge:sheet_layout:v9'
+CACHE_PREFIX = 'forge:sheet_layout:v10'
 CACHE_TIMEOUT = 60 * 60 * 24  # 24h; key is content-addressed so stale entries can't be wrong
 
 
@@ -25,6 +25,7 @@ def _fingerprint(sheet, layout_mode):
     parts.append(('sheet', sheet.pk,
                   sheet.include_crafted_items, sheet.include_decree,
                   sheet.flavor_text or '',
+                  str(sheet.header_image) if sheet.header_image else '',
                   sheet.phase_box_x_h, sheet.phase_box_y_h, sheet.phase_box_w_h, sheet.phase_box_h_h,
                   sheet.phase_box_x_v, sheet.phase_box_y_v, sheet.phase_box_w_v, sheet.phase_box_h_v,
                   sheet.decree_y_h, sheet.decree_y_v))
@@ -86,6 +87,11 @@ def _fingerprint(sheet, layout_mode):
     for cp in sheet.card_piles.order_by('number').values_list(
             'id', 'number', 'title', 'body', 'x_h', 'y_h', 'x_v', 'y_v'):
         parts.append(('card_pile',) + cp)
+
+    for ci in sheet.character_images.order_by('order').values_list(
+            'id', 'order', 'image',
+            'x_h', 'y_h', 'width_h', 'x_v', 'y_v', 'width_v'):
+        parts.append(('character_image',) + ci)
 
     for d in sheet.decrees.values_list('id', 'title', 'body'):
         parts.append(('decree',) + d)

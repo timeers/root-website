@@ -8,11 +8,15 @@
 </div>
 
 <div class="card p-3 mb-3">
-  <h2 class="root-title">{{ faction.faction_name }} — Setup Card</h2>
+  <h2 class="root-title">{{ faction.faction_name }} — Adset Card</h2>
 </div>
 
 <form method="post" class="card p-3 mb-3">
   {% csrf_token %}
+  <div class="mb-2">
+    {{ form.faction_name.label_tag }}
+    {{ form.faction_name }}
+  </div>
   <div class="row">
     <div class="col-md-6 mb-2">
       {{ form.type.label_tag }}

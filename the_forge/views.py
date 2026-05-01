@@ -19,10 +19,12 @@ from .forms import (
     CardSlotForm,
     CardboardSlotForm,
     CardboardTrackForm,
+    CharacterImageForm,
     ContentBoxForm,
     DecreeSectionForm,
     FactionAbilityForm,
     FactionBackForm,
+    FactionHeaderForm,
     ForgedFactionForm,
     LegendForm,
     LegendRowForm,
@@ -40,6 +42,7 @@ from .models import (
     CardSlot,
     CardboardSlot,
     CardboardTrack,
+    CharacterImage,
     ContentBox,
     DecreeSection,
     FactionAbility,
@@ -255,6 +258,9 @@ def factionsheet_edit(request, pk):
         'phase_step_form': PhaseStepForm(sheet=sheet),
         'decree_form': DecreeSectionForm(),
         'card_pile_form': CardPileForm(),
+        'header_form': FactionHeaderForm(sheet=sheet),
+        'character_images': sheet.character_images.order_by('order'),
+        'character_image_form': CharacterImageForm(),
     })
 
 
@@ -343,6 +349,11 @@ def factionsheet_preview_save(request, pk):
             setattr(cp, f'x_{s}', None)
             setattr(cp, f'y_{s}', None)
             cp.save()
+        for ci in sheet.character_images.all():
+            setattr(ci, f'x_{s}', None)
+            setattr(ci, f'y_{s}', None)
+            setattr(ci, f'width_{s}', None)
+            ci.save()
         return redirect('forge-sheet-preview', pk=sheet.pk)
 
     setattr(sheet, f'phase_box_x_{s}', parse('phase_box_x'))
@@ -364,6 +375,12 @@ def factionsheet_preview_save(request, pk):
         setattr(cp, f'x_{s}', parse(f'card_pile_{cp.id}_x'))
         setattr(cp, f'y_{s}', parse(f'card_pile_{cp.id}_y'))
         cp.save()
+
+    for ci in sheet.character_images.all():
+        setattr(ci, f'x_{s}', parse(f'character_image_{ci.id}_x'))
+        setattr(ci, f'y_{s}', parse(f'character_image_{ci.id}_y'))
+        setattr(ci, f'width_{s}', parse(f'character_image_{ci.id}_w'))
+        ci.save()
 
     return redirect('forge-sheet-preview', pk=sheet.pk)
 
@@ -388,6 +405,24 @@ def sheet_flavor_edit(request, pk):
     sheet.flavor_text = request.POST.get('flavor_text', '')
     sheet.save(update_fields=['flavor_text'])
     return render(request, 'the_forge/partials/sheet_flavor_form.html', {'sheet': sheet})
+
+
+@player_required
+@require_http_methods(["POST"])
+def sheet_header_edit(request, pk):
+    sheet = get_object_or_404(FactionSheet, pk=pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+    form = FactionHeaderForm(request.POST, request.FILES, sheet=sheet)
+    if not form.is_valid():
+        return HttpResponseBadRequest(form.errors.as_text())
+    form.save()
+    sheet.refresh_from_db()
+    return render(request, 'the_forge/partials/sheet_header_form.html', {
+        'sheet': sheet,
+        'faction': sheet.faction,
+        'header_form': FactionHeaderForm(sheet=sheet),
+    })
 
 
 @player_required
@@ -602,12 +637,12 @@ def setup_card_edit(request, pk):
     if (resp := _forbid_if_not_editor(request, card.faction)):
         return resp
     if request.method == 'POST':
-        form = SetupCardForm(request.POST, instance=card)
+        form = SetupCardForm(request.POST, card=card)
         if form.is_valid():
-            form.save()
+            form.save(card)
             return redirect('forge-setup-card-edit', pk=card.pk)
     else:
-        form = SetupCardForm(instance=card)
+        form = SetupCardForm(card=card)
     return render(request, 'the_forge/setup_card_editor.html', {
         'card': card,
         'faction': card.faction,
@@ -1440,6 +1475,38 @@ def cardpile_reorder(request, sheet_pk):
     data = json.loads(request.body)
     for index, pid in enumerate(data.get('order', []), start=1):
         CardPile.objects.filter(id=pid, sheet=sheet).update(number=index)
+    return HttpResponse(status=204)
+
+
+# ---------- CharacterImage ----------
+
+@player_required
+@require_http_methods(["POST"])
+def character_image_add(request, sheet_pk):
+    sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+    form = CharacterImageForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    ci = form.save(commit=False)
+    ci.sheet = sheet
+    ci.order = sheet.character_images.count() + 1
+    ci.save()
+    return render(request, 'the_forge/partials/character_image_row.html', {'ci': ci})
+
+
+@player_required
+@require_http_methods(["POST", "DELETE"])
+def character_image_delete(request, pk):
+    ci = get_object_or_404(CharacterImage, pk=pk)
+    if (resp := _forbid_if_not_editor(request, ci.sheet.faction)):
+        return resp
+    sheet = ci.sheet
+    ci.delete()
+    for index, sibling in enumerate(sheet.character_images.order_by('order'), start=1):
+        if sibling.order != index:
+            CharacterImage.objects.filter(pk=sibling.pk).update(order=index)
     return HttpResponse(status=204)
 
 

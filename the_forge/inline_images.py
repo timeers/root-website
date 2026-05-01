@@ -62,8 +62,9 @@ FORGE_INLINE_IMAGES = {
 
     # Draw cards
     '+card': static('pdf/inline/+card.png'),
-    '-card': static('pdf/inline/+card.png'),
+    '-card': static('pdf/inline/-card.png'),
 
+    'card_vertical': static('pdf/inline/card_vertical.png'),
     'card': static('pdf/inline/card.png'),
     'card2': static('pdf/inline/card2.png'),
     'card3': static('pdf/inline/card3.png'),
@@ -143,6 +144,7 @@ FORGE_PICKER_ORDER = [
     'bird_tilt',
 
     # More cards
+    'card_vertical',
     'card',
     'card2',
     'card3',

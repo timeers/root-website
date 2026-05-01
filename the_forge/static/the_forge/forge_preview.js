@@ -7,7 +7,7 @@
   const inputsContainer = document.getElementById('forge-preview-inputs');
   if (!canvas || !inputsContainer) return;
 
-  const EDITABLE_KINDS = new Set(['phase_box', 'content_box', 'card_pile', 'decree']);
+  const EDITABLE_KINDS = new Set(['phase_box', 'content_box', 'card_pile', 'decree', 'character_image']);
 
   // Decorative kinds that visually belong to a parent and should follow it
   // when dragged. Map → the parent's element key.
@@ -38,6 +38,7 @@
     if (el.kind === 'decree') return 'decree';
     if (el.kind === 'content_box') return `content_box_${el.id}`;
     if (el.kind === 'card_pile') return `card_pile_${el.id}`;
+    if (el.kind === 'character_image') return `character_image_${el.id}`;
     return null;
   }
 
@@ -101,7 +102,7 @@
         div.textContent = 'Flavor Text';
         break;
       case 'header_crafted':
-        div.textContent = 'Crafted';
+        div.textContent = 'Crafted Items';
         break;
       case 'card_slot':
         if (el.title) {
@@ -135,6 +136,20 @@
         t.style.textAlign = 'center';
         t.textContent = el.title || `Pile ${el.number || ''}`;
         div.appendChild(t);
+        break;
+      }
+      case 'character_image': {
+        if (el.image_url) {
+          const img = document.createElement('img');
+          img.className = 'ci-thumb';
+          img.src = el.image_url;
+          img.alt = '';
+          div.appendChild(img);
+        }
+        const lbl = document.createElement('span');
+        lbl.className = 'ci-label';
+        lbl.textContent = `Image ${el.order || ''}`.trim();
+        div.appendChild(lbl);
         break;
       }
       case 'bordered_box':
@@ -301,6 +316,7 @@
     Object.entries(editState).forEach(([key, st]) => {
       const fields = (st.kind === 'card_pile') ? ['x', 'y']
         : (st.kind === 'decree') ? ['y']
+        : (st.kind === 'character_image') ? ['x', 'y', 'w']
         : ['x', 'y', 'w', 'h'];
       fields.forEach((field) => {
         const input = document.createElement('input');
@@ -510,6 +526,8 @@
     ev.preventDefault();
     ev.stopPropagation();
 
+    const aspect = (orig.h > 0) ? (orig.w / orig.h) : 1;
+
     function onMove(mv) {
       const dxIn = (mv.clientX - startX) / SCALE;
       const dyInScreen = (mv.clientY - startY) / SCALE;
@@ -520,6 +538,34 @@
       let ny = orig.y;
       let nw = orig.w;
       let nh = orig.h;
+
+      // CharacterImage: aspect-ratio locked diagonal resize. Width drives,
+      // height follows from the captured aspect. Anchor the corner opposite
+      // the dragged handle.
+      if (st.kind === 'character_image') {
+        // signed delta-w driven by horizontal direction
+        const dwSigned = dir.includes('e') ? dxIn : (dir.includes('w') ? -dxIn : 0);
+        // signed delta-h driven by vertical direction
+        const dhSigned = dir.includes('n') ? dyIn : (dir.includes('s') ? -dyIn : 0);
+        // Dominant axis wins so the cursor follows the corner naturally.
+        let candidateW;
+        if (Math.abs(dwSigned) >= Math.abs(dhSigned)) {
+          candidateW = orig.w + dwSigned;
+        } else {
+          candidateW = (orig.h + dhSigned) * aspect;
+        }
+        nw = Math.max(MIN_SIZE_IN, candidateW);
+        nh = nw / aspect;
+        if (dir.includes('w')) nx = orig.x + (orig.w - nw);
+        if (dir.includes('s')) ny = orig.y + (orig.h - nh);
+        st.x = nx;
+        st.y = ny;
+        st.w = nw;
+        st.h = nh;
+        applyState(key);
+        syncHiddenInputs(key);
+        return;
+      }
 
       // PDF coords: y is bottom; y + h is top. dxIn screen-right; dyIn PDF-up.
       if (dir.includes('e')) {
@@ -575,13 +621,22 @@
     window.addEventListener('pointercancel', onUp);
   }
 
+  const CORNER_DIRS = ['nw', 'ne', 'sw', 'se'];
+
   function wireResize() {
     Object.entries(domIndex).forEach(([key, entry]) => {
       const st = editState[key];
       if (!st) return;
-      // Only phase_box and content_box are resizable per the spec.
-      if (st.kind !== 'phase_box' && st.kind !== 'content_box') return;
-      RESIZE_DIRS.forEach((dir) => {
+      let dirs;
+      if (st.kind === 'phase_box' || st.kind === 'content_box') {
+        dirs = RESIZE_DIRS;
+      } else if (st.kind === 'character_image') {
+        // Aspect ratio is locked, so only diagonal corners make sense.
+        dirs = CORNER_DIRS;
+      } else {
+        return;
+      }
+      dirs.forEach((dir) => {
         const handle = document.createElement('div');
         handle.className = `forge-resize-handle forge-resize-handle--${dir}`;
         handle.addEventListener('pointerdown', (ev) => startResize(ev, key, dir));

@@ -15,6 +15,92 @@
   </div>
 </div>
 
+<!-- Faction header (name, image, title color) -->
+{% include 'the_forge/partials/sheet_header_form.html' with sheet=sheet faction=faction header_form=header_form %}
+
+<!-- Character Images (decorative background art) -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Character Images</h4>
+  <div id="character-image-list">
+    {% for ci in character_images %}
+      {% include 'the_forge/partials/character_image_row.html' with ci=ci %}
+    {% endfor %}
+  </div>
+
+  <button type="button" id="character-image-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Image</button>
+
+  <form id="character-image-add-form" class="mt-2" hidden enctype="multipart/form-data"
+        data-add-url="{% url 'forge-character-image-add' sheet_pk=sheet.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
+      {{ character_image_form.image }}
+      <img class="forge-character-image-preview" alt="" hidden style="max-height:60px;max-width:120px;">
+    </div>
+    <div class="d-flex gap-2 justify-content-end">
+      <button type="submit" class="btn btn-sm btn-warning">Save</button>
+      <button type="button" id="character-image-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  if (window.__forgeCharacterImageBound) return;
+  window.__forgeCharacterImageBound = true;
+
+  const toggle = document.getElementById('character-image-add-toggle');
+  const form = document.getElementById('character-image-add-form');
+  const cancel = document.getElementById('character-image-add-cancel');
+  if (toggle && form) {
+    toggle.addEventListener('click', () => { form.hidden = false; toggle.hidden = true; });
+  }
+  if (cancel && form && toggle) {
+    cancel.addEventListener('click', () => {
+      form.reset();
+      const preview = form.querySelector('.forge-character-image-preview');
+      if (preview) {
+        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+        preview.removeAttribute('src');
+        preview.setAttribute('hidden', '');
+      }
+      form.hidden = true;
+      toggle.hidden = false;
+    });
+  }
+
+  document.addEventListener('change', (ev) => {
+    const input = ev.target;
+    if (!input.matches || !input.matches('.forge-character-image-input')) return;
+    const preview = input.closest('form')?.querySelector('.forge-character-image-preview');
+    if (!preview) return;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+    const url = URL.createObjectURL(file);
+    preview.dataset.objectUrl = url;
+    preview.src = url;
+    preview.removeAttribute('hidden');
+  });
+
+  // After successful add, hide the form again so the user goes back to the
+  // toggle. bindAddForm dispatches forge:row-replaced from the list element
+  // and clears file inputs itself, so just reset the preview thumbnail.
+  const list = document.getElementById('character-image-list');
+  if (list && form && toggle) {
+    list.addEventListener('forge:row-replaced', () => {
+      const preview = form.querySelector('.forge-character-image-preview');
+      if (preview) {
+        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+        preview.removeAttribute('src');
+        preview.setAttribute('hidden', '');
+      }
+      form.hidden = true;
+      toggle.hidden = false;
+    });
+  }
+})();
+</script>
+
 <!-- Flavor text (inline save) -->
 {% include 'the_forge/partials/sheet_flavor_form.html' with sheet=sheet %}
 

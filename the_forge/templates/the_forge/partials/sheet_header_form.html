@@ -1,0 +1,119 @@
+{% load static %}
+<div class="card p-3 mb-3 forge-header-row" data-row data-id="{{ sheet.pk }}">
+  <label class="form-label root-title mb-2">Header</label>
+
+  <form method="post" enctype="multipart/form-data" class="m-0"
+        data-edit-url="{% url 'forge-sheet-header-edit' pk=sheet.pk %}"
+        data-dirty-form data-forge-header-form>
+    {% csrf_token %}
+
+    <div class="forge-header-preview"
+         data-faction-color="{{ faction.color|default:'#888888' }}"
+         style="--faction-color: {{ faction.color|default:'#888888' }};">
+      <div class="forge-header-preview-bar">
+        <img class="forge-header-preview-image"
+             {% if sheet.header_image %}src="{{ sheet.header_image.url }}"{% else %}hidden{% endif %}
+             alt="">
+        <div class="forge-header-preview-title luminari{% if sheet.title_text_color == 'black' %} is-text-black{% endif %}"
+             data-default-title="{{ faction.faction_name }}">{{ faction.faction_name }}</div>
+      </div>
+    </div>
+
+    <div class="row g-2 mt-2">
+      <div class="col-md-6">
+        <label class="form-label small mb-1" for="id_faction_name">Faction Name</label>
+        {{ header_form.faction_name }}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small mb-1" for="id_title_text_color">Title Color</label>
+        {{ header_form.title_text_color }}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small mb-1" for="id_header_image">Header Image</label>
+        {{ header_form.header_image }}
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-end mt-2">
+      <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save Header</button>
+    </div>
+  </form>
+</div>
+
+<script src="{% static 'the_keep/legibility.js' %}"></script>
+<script>
+(function () {
+  if (window.__forgeHeaderPreviewBound) return;
+  window.__forgeHeaderPreviewBound = true;
+
+  function rootFor(el) {
+    return el && el.closest('.forge-header-row');
+  }
+  function previewIn(root) {
+    return root && root.querySelector('.forge-header-preview');
+  }
+  function applyTitleColor(root) {
+    var preview = previewIn(root);
+    if (!preview) return;
+    var title = preview.querySelector('.forge-header-preview-title');
+    var select = root.querySelector('select[name="title_text_color"]');
+    if (!title || !select) return;
+    var mode = select.value;
+    var useBlack;
+    if (mode === 'black') useBlack = true;
+    else if (mode === 'white') useBlack = false;
+    else useBlack = !window.isWhiteTextLegible(preview.dataset.factionColor || '#888888');
+    title.classList.toggle('is-text-black', useBlack);
+  }
+
+  document.addEventListener('input', function (ev) {
+    var input = ev.target;
+    if (!input.matches || !input.matches('input[name="faction_name"]')) return;
+    var root = rootFor(input);
+    var title = root && root.querySelector('.forge-header-preview-title');
+    if (!title) return;
+    title.textContent = input.value || title.dataset.defaultTitle || '';
+  });
+
+  document.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t.matches) return;
+    var root = rootFor(t);
+    if (!root) return;
+    if (t.matches('select[name="title_text_color"]')) {
+      applyTitleColor(root);
+    } else if (t.matches('input[name="header_image"]')) {
+      var img = root.querySelector('.forge-header-preview-image');
+      if (!img) return;
+      var file = t.files && t.files[0];
+      if (file) {
+        if (img.dataset.objectUrl) URL.revokeObjectURL(img.dataset.objectUrl);
+        var url = URL.createObjectURL(file);
+        img.dataset.objectUrl = url;
+        img.src = url;
+        img.removeAttribute('hidden');
+      }
+    } else if (t.matches('input[name="header_image-clear"]')) {
+      var img2 = root.querySelector('.forge-header-preview-image');
+      if (!img2) return;
+      if (t.checked) {
+        if (img2.dataset.objectUrl) URL.revokeObjectURL(img2.dataset.objectUrl);
+        img2.removeAttribute('src');
+        img2.setAttribute('hidden', '');
+      }
+    }
+  });
+
+  function initAll() {
+    document.querySelectorAll('.forge-header-row').forEach(function (row) {
+      applyTitleColor(row);
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAll);
+  } else {
+    initAll();
+  }
+  document.addEventListener('forge:row-replaced', initAll);
+})();
+</script>

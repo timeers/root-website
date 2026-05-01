@@ -1,4 +1,5 @@
 from django import forms
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 from .models import (
     BorderedBox,
@@ -6,10 +7,12 @@ from .models import (
     CardboardTrack,
     CardPile,
     CardSlot,
+    CharacterImage,
     ContentBox,
     DecreeSection,
     FactionAbility,
     FactionBack,
+    FactionSheet,
     ForgedFaction,
     Legend,
     LegendRow,
@@ -92,7 +95,7 @@ class FactionBackForm(forms.ModelForm):
             'back_image',
         ]
         widgets = {
-            'how_to_play_title': forms.TextInput(),
+            'how_to_play_title': forms.TextInput(attrs={'placeholder': 'Faction'}),
             'how_to_play_text': RichTextarea(attrs={'rows': 8}),
         }
 
@@ -251,10 +254,92 @@ class PieceForm(forms.ModelForm):
         fields = ['name', 'quantity', 'type', 'small_icon']
 
 
-class SetupCardForm(forms.ModelForm):
-    class Meta:
-        model = SetupCard
-        fields = ['type', 'reach']
+class FactionHeaderForm(forms.Form):
+    """Edits faction_name (on ForgedFaction) plus header_image and
+    title_text_color (on FactionSheet) in a single form."""
+
+    faction_name = forms.CharField(
+        max_length=100,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control luminari forge-header-name-input',
+            'placeholder': 'Faction Name',
+        }),
+    )
+    header_image = forms.ImageField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={
+            'class': 'form-control form-control-sm forge-header-image-input',
+            'accept': 'image/*',
+        }),
+    )
+    title_text_color = forms.ChoiceField(
+        choices=FactionSheet.TitleTextColor.choices,
+        widget=forms.Select(attrs={
+            'class': 'form-select form-select-sm forge-header-title-color',
+        }),
+    )
+
+    def __init__(self, *args, sheet=None, **kwargs):
+        self.sheet = sheet
+        super().__init__(*args, **kwargs)
+        if sheet is not None and not self.is_bound:
+            self.fields['faction_name'].initial = sheet.faction.faction_name
+            self.fields['title_text_color'].initial = sheet.title_text_color
+
+    def save(self):
+        sheet = self.sheet
+        faction = sheet.faction
+        faction.faction_name = self.cleaned_data['faction_name']
+        faction.save(update_fields=['faction_name'])
+        sheet.title_text_color = self.cleaned_data['title_text_color']
+        update_fields = ['title_text_color']
+        new_img = self.cleaned_data.get('header_image')
+        if new_img:
+            sheet.header_image = new_img
+            update_fields.append('header_image')
+        elif new_img is False:
+            sheet.header_image = None
+            update_fields.append('header_image')
+        sheet.save(update_fields=update_fields)
+        return sheet
+
+
+class SetupCardForm(forms.Form):
+    """Edits faction_name (on ForgedFaction) plus type and reach (on SetupCard)
+    in a single form."""
+
+    faction_name = forms.CharField(
+        max_length=100,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control luminari',
+            'placeholder': 'Faction Name',
+        }),
+    )
+    type = forms.ChoiceField(
+        choices=SetupCard.TypeChoices.choices,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    reach = forms.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        widget=forms.NumberInput(attrs={'min': 1, 'max': 10, 'class': 'form-control'}),
+    )
+
+    def __init__(self, *args, card=None, **kwargs):
+        self.card = card
+        super().__init__(*args, **kwargs)
+        if card is not None and not self.is_bound:
+            self.fields['faction_name'].initial = card.faction.faction_name
+            self.fields['type'].initial = card.type
+            self.fields['reach'].initial = card.reach
+
+    def save(self, card=None):
+        card = card or self.card
+        card.faction.faction_name = self.cleaned_data['faction_name']
+        card.faction.save(update_fields=['faction_name'])
+        card.type = self.cleaned_data['type']
+        card.reach = self.cleaned_data['reach']
+        card.save(update_fields=['type', 'reach'])
+        return card
 
 
 class SetupStepForm(forms.ModelForm):
@@ -293,6 +378,18 @@ class LegendRowForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['body'].required = False
         self.fields['image'].required = False
+
+
+class CharacterImageForm(forms.ModelForm):
+    class Meta:
+        model = CharacterImage
+        fields = ['image']
+        widgets = {
+            'image': forms.ClearableFileInput(attrs={
+                'class': 'form-control form-control-sm forge-character-image-input',
+                'accept': 'image/*',
+            }),
+        }
 
 
 class ScaleForm(forms.ModelForm):
