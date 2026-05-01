@@ -54,7 +54,7 @@ requests-oauthlib==2.0.0
 s3transfer==0.10.3
 six==1.16.0
 sqlparse==0.5.1
-svglib==1.6.0
+svglib==1.5.1
 tinycss2==1.5.1
 typeguard==4.4.2
 typing_extensions==4.12.2
