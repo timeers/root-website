@@ -15,11 +15,16 @@
     for (const input of fields) {
       const value = (input.value || '').trim();
       if (value) continue;
-      const editor = input.previousElementSibling;
-      if (editor && editor.dataset.forgeIconEditor === '1') {
-        editor.focus();
-        editor.classList.add('is-invalid');
-        setTimeout(() => editor.classList.remove('is-invalid'), 1500);
+      const iconEditor = input.previousElementSibling;
+      const richEditor = input.parentElement?.querySelector('.forge-rich-text-editor');
+      if (iconEditor && iconEditor.dataset.forgeIconEditor === '1') {
+        iconEditor.focus();
+        iconEditor.classList.add('is-invalid');
+        setTimeout(() => iconEditor.classList.remove('is-invalid'), 1500);
+      } else if (richEditor) {
+        richEditor.focus();
+        richEditor.classList.add('is-invalid');
+        setTimeout(() => richEditor.classList.remove('is-invalid'), 1500);
       } else {
         input.focus?.();
       }
@@ -182,6 +187,7 @@
     if (row) row.remove();
     renumberAfterDelete(parentList);
     if (actionList?.dataset.stepId) setActionTypeLock(actionList.dataset.stepId);
+    parentList?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: null } }));
   });
 
   // Inline edit — submits a row's own form to its data-edit-url and replaces the row with the response.
@@ -457,9 +463,11 @@
       const stepPk = inline?.dataset.stepId;
       const childList = inline?.closest('.phase-step-children');
       const childStepPk = childList?.dataset.stepId;
+      const parent = inline?.parentElement;
       inline?.remove();
       if (stepPk) setActionTypeLock(stepPk);
       if (childStepPk) setStepChildAddLock(childStepPk);
+      parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: null } }));
       return;
     }
     const toggleBtn = ev.target.closest('[data-toggle-actions]');
@@ -635,7 +643,8 @@
   document.addEventListener('change', async (ev) => {
     const sel = ev.target.closest('.phase-step-action-type');
     if (!sel) return;
-    const url = sel.closest('.phase-step-action-header')?.dataset.actionTypeUrl;
+    const panel = sel.closest('.phase-step-action-header');
+    const url = panel?.dataset.actionTypeUrl;
     if (!url) return;
     const fd = new FormData();
     fd.append('action_type', sel.value);
@@ -647,6 +656,66 @@
     if (!res.ok) {
       // Revert by reloading the header (server is the source of truth).
       console.warn('action_type set failed', await res.text());
+      return;
+    }
+    const html = await res.text();
+    if (panel && html) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html.trim();
+      const fresh = tmp.querySelector('.phase-step-action-header');
+      if (fresh) {
+        // Preserve the user's open/closed state — server re-renders default to
+        // hidden when no actions exist, but we don't want to collapse the panel
+        // out from under them mid-edit.
+        if (!panel.hasAttribute('hidden')) fresh.removeAttribute('hidden');
+        panel.replaceWith(fresh);
+      }
+    }
+  });
+
+  // Step cost-image clear button: set the Django ClearableFileInput's clear
+  // flag and submit the form.
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-cost-image-clear]');
+    if (!btn) return;
+    const form = btn.closest('form[data-step-cost-image-url]');
+    if (!form) return;
+    const flag = form.querySelector('[data-cost-image-clear-flag]');
+    if (flag) flag.value = 'on';
+    const fileInput = form.querySelector('[data-cost-image-input]');
+    if (fileInput) fileInput.value = '';
+    if (form.requestSubmit) form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+  });
+
+  // Step cost-image form: AJAX submit and replace ONLY the form itself, not
+  // the surrounding action rows (which may have unsaved edits).
+  document.addEventListener('submit', async (ev) => {
+    const form = ev.target.closest('form[data-step-cost-image-url]');
+    if (!form) return;
+    ev.preventDefault();
+    const url = form.dataset.stepCostImageUrl;
+    const fd = new FormData(form);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken },
+      body: fd,
+    });
+    if (!res.ok) {
+      alert('Save failed: ' + await res.text());
+      return;
+    }
+    form.classList.remove('is-dirty');
+    const html = await res.text();
+    if (html) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html.trim();
+      const freshForm = tmp.querySelector('form[data-step-cost-image-url]');
+      const parent = form.parentElement;
+      if (freshForm) {
+        form.replaceWith(freshForm);
+      }
+      parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: freshForm || null } }));
     }
   });
 

@@ -2892,6 +2892,16 @@ tr.clickable-row:hover {
   padding: 2px;
 }
 
+/* Reserve preview space even before an image is chosen so the form width
+   doesn't change when a file is selected (which could cause it to wrap).
+   Bootstrap sets [hidden]{display:none!important}, so we need !important too. */
+.phase-step-cost-image-form .forge-cost-image-preview[hidden] {
+  display: inline-block !important;
+  visibility: hidden;
+  border-color: transparent;
+  background: transparent;
+}
+
 .row-grip,
 .action-grip {
   cursor: grab;

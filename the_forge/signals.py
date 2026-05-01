@@ -4,19 +4,23 @@ from django.db.models.signals import post_save, post_delete
 from the_keep.utils import resize_image_to_webp, resize_image
 
 
-FORGE_MAX = 1600
-ICON_MAX = 400
+FORGE_MAX = 1600     # full-page backgrounds
+MEDIUM_MAX = 1200    # ~4" max display (character, faction back)
+SMALL_MAX = 900      # ~3" max display (setup card header)
+ICON_MAX = 400       # small icons (~1")
+TRACK_MAX = 300      # cardboard track / slot backgrounds (~1" rect/circle)
 
 IMAGE_FIELDS_CONFIG = {
     'ForgedFaction':   {'fields': {'background_image': FORGE_MAX}},
     'FactionSheet':    {'fields': {'action_image': ICON_MAX, 'header_image': FORGE_MAX}},
-    'CharacterImage':  {'fields': {'image': FORGE_MAX}},
+    'CharacterImage':  {'fields': {'image': MEDIUM_MAX}},
     'StepAction':      {'fields': {'cost_image': ICON_MAX}},
-    'CardboardSlot':   {'fields': {'background_image': FORGE_MAX}},
-    'CardboardTrack':  {'fields': {'background_image': FORGE_MAX}},
+    'PhaseStep':       {'fields': {'step_cost_image': ICON_MAX}},
+    'CardboardSlot':   {'fields': {'background_image': TRACK_MAX}},
+    'CardboardTrack':  {'fields': {'background_image': TRACK_MAX}},
     'LegendRow':       {'fields': {'image': ICON_MAX}},
-    'FactionBack':     {'fields': {'back_image': FORGE_MAX}},
-    'SetupCard':       {'fields': {'header_image': FORGE_MAX}},
+    'FactionBack':     {'fields': {'back_image': MEDIUM_MAX}},
+    'SetupCard':       {'fields': {'header_image': SMALL_MAX}},
     'Piece':           {'fields': {'small_icon': ICON_MAX}},
 }
 

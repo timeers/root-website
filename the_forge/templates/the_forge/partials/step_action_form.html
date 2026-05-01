@@ -1,7 +1,8 @@
 {% load static forge_text%}
-<div class="forge-inline-form" data-inline-form="action" data-step-id="{{ step_pk }}">
+<div class="forge-inline-form" data-inline-form="action" data-step-id="{{ step_pk }}" data-row data-kind="action-add">
   <form method="post" enctype="multipart/form-data"
         data-add-url="{% url 'forge-stepaction-add' step_pk=step_pk %}"
+        data-dirty-form
         data-target=".phase-step-action-list[data-step-id='{{ step_pk }}']">
     {% csrf_token %}
     {% if step.action_type == 'action' %}
@@ -24,7 +25,7 @@
       </div>
     {% endif %}
     <div class="forge-rich-text">
-      <textarea name="text" class="form-control" rows="2" placeholder="Action text…" required></textarea>
+      <textarea name="text" class="form-control" rows="2" placeholder="Action text…" data-required></textarea>
       <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
         {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='italic,header,image'|split:',' %}
         <div class="ms-auto d-flex gap-2">

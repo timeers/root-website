@@ -212,6 +212,17 @@ class PhaseStep(models.Model):
     number = models.PositiveIntegerField()
     text = models.TextField(blank=True, default='')
     action_type = models.CharField(max_length=10, choices=ActionType.choices, default=ActionType.ACTION)
+    step_cost_image = models.ImageField(upload_to='forge/cost_icons/', blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = PhaseStep.objects.get(pk=self.pk)
+                if old.step_cost_image and old.step_cost_image != self.step_cost_image:
+                    delete_old_image(old.step_cost_image)
+            except PhaseStep.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
 
     def allowed_cost_choices(self):
         """Subset of StepAction.CostChoices valid for this step's action_type.

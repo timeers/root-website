@@ -4,7 +4,7 @@
 {% block content %}
 <div class="mb-2">
   <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-secondary">&larr; Back to editor</a>
-  <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Download PDF</a>
+  <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">View PDF</a>
 </div>
 
 <form method="post" action="{% url 'forge-sheet-preview-save' pk=sheet.pk %}" id="forge-preview-form">

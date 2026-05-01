@@ -2,6 +2,7 @@ import json
 
 from django.db import transaction
 from django.http import (
+    FileResponse,
     HttpResponse,
     HttpResponseForbidden,
     HttpResponseBadRequest,
@@ -29,6 +30,7 @@ from .forms import (
     ForgedFactionForm,
     LegendForm,
     LegendRowForm,
+    PhaseStepCostImageForm,
     PhaseStepForm,
     PieceForm,
     ScaleForm,
@@ -1064,6 +1066,20 @@ def phasestep_action_type_set(request, step_pk):
     return render(request, 'the_forge/partials/phase_step_action_header.html', {'step': step})
 
 
+@player_required
+@require_http_methods(["POST"])
+def phasestep_cost_image_set(request, step_pk):
+    step = get_object_or_404(PhaseStep, pk=step_pk)
+    if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
+        return resp
+    form = PhaseStepCostImageForm(request.POST, request.FILES, instance=step)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    form.save()
+    step.refresh_from_db()
+    return render(request, 'the_forge/partials/phase_step_action_header.html', {'step': step})
+
+
 # ---------- BorderedBox (child of PhaseStep) ----------
 
 @player_required
@@ -1580,23 +1596,32 @@ def character_image_delete(request, pk):
 
 # ---------- PDF download ----------
 
+def _pdf_file_response(data, filename):
+    from io import BytesIO
+    response = FileResponse(BytesIO(data), content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response
+
+
 @forge_onboard_required
 def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
     from . import pdf_engine
+    from .pdf_cache import cache_key, fingerprint_faction, get_or_build
     generator = getattr(pdf_engine, 'generate_pdf', None)
     if generator is None:
         return HttpResponse(
             "PDF generation is not wired up yet — pdf_engine.generate_pdf() is missing.",
             status=501, content_type='text/plain',
         )
-    buffer = generator(faction)
-    data = buffer.getvalue() if hasattr(buffer, 'getvalue') else buffer
-    response = HttpResponse(data, content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="{faction.faction_name}.pdf"'
-    return response
+    key = cache_key('faction', faction.pk, fingerprint_faction(faction))
+    def build():
+        buffer = generator(faction)
+        return buffer.getvalue() if hasattr(buffer, 'getvalue') else buffer
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{faction.faction_name}.pdf')
 
 
 @forge_onboard_required
@@ -1606,11 +1631,14 @@ def factionsheet_pdf(request, pk):
         return resp
     from io import BytesIO
     from .pdf_engine import SheetLayoutEngine
-    buffer = BytesIO()
-    SheetLayoutEngine(sheet).build(buffer)
-    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="{sheet.faction.faction_name} - Front.pdf"'
-    return response
+    from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
+    key = cache_key('sheet', sheet.pk, fingerprint_sheet(sheet))
+    def build():
+        buffer = BytesIO()
+        SheetLayoutEngine(sheet).build(buffer)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
 
 
 @forge_onboard_required
@@ -1620,11 +1648,14 @@ def factionback_pdf(request, pk):
         return resp
     from io import BytesIO
     from .pdf_engine import FactionBackLayoutEngine
-    buffer = BytesIO()
-    FactionBackLayoutEngine(back).build(buffer)
-    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="{back.faction.faction_name} - Back.pdf"'
-    return response
+    from .pdf_cache import cache_key, fingerprint_back, get_or_build
+    key = cache_key('back', back.pk, fingerprint_back(back))
+    def build():
+        buffer = BytesIO()
+        FactionBackLayoutEngine(back).build(buffer)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
 
 
 @forge_onboard_required
@@ -1634,8 +1665,11 @@ def setup_card_pdf(request, pk):
         return resp
     from io import BytesIO
     from .pdf_engine import SetupCardLayoutEngine
-    buffer = BytesIO()
-    SetupCardLayoutEngine(card).build(buffer)
-    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="{card.faction.faction_name} - Setup.pdf"'
-    return response
+    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    key = cache_key('setup_card', card.pk, fingerprint_setup_card(card))
+    def build():
+        buffer = BytesIO()
+        SetupCardLayoutEngine(card).build(buffer)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{card.faction.faction_name} - Setup.pdf')

@@ -16,7 +16,7 @@
     </h2>
     <div class="d-flex gap-2">
       <a href="{% url 'forge-faction-edit' pk=faction.pk %}" class="btn btn-sm btn-outline-secondary">Edit Faction</a>
-      <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" class="btn btn-sm btn-primary">Download PDF</a>
+      <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
     </div>
   </div>
   <p class="text-muted mb-0">
@@ -31,7 +31,7 @@
     <h4 class="root-title mb-0">Front</h4>
     {% if sheet %}
       <div class="d-flex gap-2">
-        <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" class="btn btn-sm btn-primary">Download PDF</a>
+        <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
         <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit Front</a>
       </div>
     {% else %}
@@ -49,7 +49,7 @@
     <h4 class="root-title mb-0">Back</h4>
     {% if back %}
       <div class="d-flex gap-2">
-        <a href="{% url 'forge-back-pdf' pk=back.pk %}" class="btn btn-sm btn-primary">Download PDF</a>
+        <a href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
         <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary">Edit Back</a>
       </div>
     {% else %}

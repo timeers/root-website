@@ -73,6 +73,7 @@ urlpatterns = [
     path('hx/forge/phase-step/<int:step_pk>/action/reorder/', views.stepaction_reorder, name='forge-stepaction-reorder'),
     path('hx/forge/phase-step/<int:step_pk>/action/form/', views.stepaction_form, name='forge-stepaction-form'),
     path('hx/forge/phase-step/<int:step_pk>/action-type/set/', views.phasestep_action_type_set, name='forge-phasestep-action-type-set'),
+    path('hx/forge/phase-step/<int:step_pk>/cost-image/set/', views.phasestep_cost_image_set, name='forge-phasestep-cost-image-set'),
 
     # BorderedBox (child of PhaseStep)
     path('hx/forge/phase-step/<int:step_pk>/box/add/', views.borderedbox_add, name='forge-box-add'),

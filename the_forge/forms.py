@@ -154,6 +154,15 @@ class StepActionForm(forms.ModelForm):
         }
 
 
+class PhaseStepCostImageForm(forms.ModelForm):
+    class Meta:
+        model = PhaseStep
+        fields = ['step_cost_image']
+        widgets = {
+            'step_cost_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
+        }
+
+
 class BorderedBoxForm(forms.ModelForm):
     class Meta:
         model = BorderedBox

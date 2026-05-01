@@ -12,7 +12,7 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import getFont
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.graphics import renderPDF
+from reportlab.graphics import renderPDF, renderPM
 from svglib.svglib import svg2rlg
 from itertools import groupby
 from django.templatetags.static import static
@@ -398,6 +398,7 @@ FACTION_TOP_BAR_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Faction_Top_Bar.svg')
 CRAFTED_ITEMS_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Crafted_Items_Box.svg')
 CARD_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/Card-Slot.png')
 CARD_PILE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/card_pile.svg')
+MEEPLE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/meeple.svg')
 TOKEN_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/TokenSlot.png')
 BUILDING_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/BuildingSlot.png')
 DECREE_DIR = os.path.join(STATIC_DIR, 'pdf/decree')
@@ -1444,77 +1445,87 @@ def _arrow_total_width_for_cost(cost):
     return ACTION_ICON_TEXT_GAP  # 'action' and 'other' get padding only, no arrow
 
 
-def _measure_action_widths(action, icon_w, icon_h, icon_path, cost, action_body_style):
-    """Measure natural and wrap-once widths/heights for a StepAction.
+ACTION_PACK_MAX_LINES = 4  # max wrapped lines allowed when packing actions side-by-side
 
-    Returns (natural_w, natural_h, wrap_once_w, wrap_once_h) where:
-      natural_w/h  = dimensions for single-line rendering (no text wrapping)
-      wrap_once_w/h = dimensions allowing one extra line of wrapping (max 3 lines total)
-      wrap_once_w is None if wrapping would exceed 3 lines
+
+def _measure_action_widths(action, icon_w, icon_h, icon_path, cost, action_body_style):
+    """Measure natural width/height + reusable metadata for a StepAction.
+
+    Returns a dict with:
+      natural_w, natural_h:     single-line (no wrap) dimensions
+      fixed_w:                  non-text portion (icon_space + arrow_w)
+      icon_h_eff:               icon contribution to row height
+      markup:                   formatted markup string (reuse to build paragraphs)
+      min_text_w:               narrowest the paragraph can render without breaking words
+      text_natural_w:           text-only width when not wrapped
     """
-    # Icon space
     if cost.startswith('card_'):
         icon_space = MIN_CARD_ICON_W if icon_path else 0
     else:
         icon_space = icon_w if icon_path else 0
 
     arrow_w = _arrow_total_width_for_cost(cost)
-    fixed_w = icon_space + arrow_w  # non-text portion
+    fixed_w = icon_space + arrow_w
     icon_h_eff = icon_h if icon_path else 0
 
-    # Measure text natural width by wrapping at a huge width
     markup = format_step_markup(action.text)
     PROBE_W = 10000
     para = Paragraph(markup, action_body_style)
     para.wrap(PROBE_W, 9999)
 
+    # ReportLab returns one of two line shapes depending on which paragraph
+    # backend ran. Plain text uses fast tuples (extraSpace, [words]); rich
+    # markup uses FragLine-like objects with maxWidth/extraSpace attributes.
     text_natural_w = 0
     if hasattr(para, 'blPara') and hasattr(para.blPara, 'lines') and para.blPara.lines:
         for line in para.blPara.lines:
-            # FragLine stores maxWidth and extraSpace; used width = maxWidth - extraSpace
-            max_w = getattr(line, 'maxWidth', 0)
-            extra = getattr(line, 'extraSpace', 0)
-            if max_w:
-                lw = max_w - extra
+            if isinstance(line, tuple):
+                extra = line[0] if line else 0
+                lw = PROBE_W - extra
             else:
-                lw = getattr(line, 'currentWidth', 0)
+                max_w = getattr(line, 'maxWidth', 0)
+                extra = getattr(line, 'extraSpace', 0)
+                if max_w:
+                    lw = max_w - extra
+                else:
+                    lw = getattr(line, 'currentWidth', 0)
             if lw > text_natural_w:
                 text_natural_w = lw
 
-    natural_w = fixed_w + text_natural_w + 2  # 2pt buffer
+    natural_w = fixed_w + text_natural_w + 2
     natural_text_h = true_paragraph_height(para, text_natural_w)
     natural_h = max(natural_text_h, icon_h_eff)
 
-    # Determine baseline line count at natural width
-    baseline_lines = len(para.blPara.lines) if hasattr(para, 'blPara') and hasattr(para.blPara, 'lines') else 1
-
-    # Only allow wrapping if result would be <= 3 lines
-    target_lines = baseline_lines + 1
-    if target_lines > 3:
-        return natural_w, natural_h, None, None
-
-    # Binary search for wrap-once width: narrowest width that keeps lines <= target
     min_text_w = para.minWidth() if hasattr(para, 'minWidth') else text_natural_w * 0.3
-    lo, hi = min_text_w, text_natural_w
 
-    for _ in range(12):
-        mid = (lo + hi) / 2
-        probe = Paragraph(markup, action_body_style)
-        probe.wrap(mid, 9999)
-        n_lines = len(probe.blPara.lines) if hasattr(probe, 'blPara') and hasattr(probe.blPara, 'lines') else 1
-        if n_lines <= target_lines:
-            hi = mid
-        else:
-            lo = mid
+    return {
+        'natural_w': natural_w,
+        'natural_h': natural_h,
+        'fixed_w': fixed_w,
+        'icon_h_eff': icon_h_eff,
+        'markup': markup,
+        'min_text_w': min_text_w,
+        'text_natural_w': text_natural_w,
+    }
 
-    wrap_once_w = fixed_w + hi + 2  # 2pt buffer
-    # Measure actual height at wrap-once width
-    probe = Paragraph(markup, action_body_style)
-    probe.wrap(hi + 2, 9999)
-    wrap_once_text_h = true_paragraph_height(probe, hi + 2)
-    wrap_once_h = max(wrap_once_text_h, icon_h_eff)
 
-    return natural_w, natural_h, wrap_once_w, wrap_once_h
+def _measure_action_at_width(meta, alloc_w, action_body_style, max_lines=ACTION_PACK_MAX_LINES):
+    """Measure an action's rendered height at a specific allocated total width.
+
+    Returns (line_count, total_h) — total_h includes icon_h_eff. Returns
+    (None, None) if the text won't fit in `max_lines` at the available text
+    width (i.e. would need to break mid-word or exceed the line cap).
+    """
+    text_w = alloc_w - meta['fixed_w']
+    if text_w < meta['min_text_w']:
+        return None, None
+    probe = Paragraph(meta['markup'], action_body_style)
+    probe.wrap(text_w, 9999)
+    n_lines = len(probe.blPara.lines) if hasattr(probe, 'blPara') and hasattr(probe.blPara, 'lines') else 1
+    if n_lines > max_lines:
+        return None, None
+    text_h = true_paragraph_height(probe, text_w)
+    return n_lines, max(text_h, meta['icon_h_eff'])
 
 
 class LegendFlowable(Flowable):
@@ -2243,6 +2254,7 @@ class SheetLayoutEngine:
                       else '#000000')
         self._on_tan_hex = on_tan_hex
         self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, on_tan_hex, 0.5 * inch)
+        self._meeple_action_png_path = None
 
         # Preload numbered SVGs (0-9) for phase steps, at natural size
         self._phase_number_svgs = {}
@@ -2266,6 +2278,42 @@ class SheetLayoutEngine:
             drawing.height *= scale
             drawing.scale(scale, scale)
         return drawing
+
+    def _get_meeple_action_icon(self):
+        """Rasterize meeple.svg recolored with self._on_tan_hex to a cached PNG.
+        Returns (png_path, draw_w, draw_h) sized to ACTION_DEFAULT_W width.
+        """
+        from PIL import Image as PILImage
+        if self._meeple_action_png_path and os.path.exists(self._meeple_action_png_path):
+            pil_img = PILImage.open(self._meeple_action_png_path)
+            iw, ih = pil_img.size
+            aspect = iw / ih
+            draw_w = ACTION_DEFAULT_W
+            draw_h = draw_w / aspect
+            return self._meeple_action_png_path, draw_w, draw_h
+
+        with open(MEEPLE_SVG, 'r') as f:
+            svg_content = f.read()
+        svg_content = svg_content.replace('#000000', self._on_tan_hex)
+        with tempfile.NamedTemporaryFile(suffix='.svg', mode='w', delete=False) as tmp:
+            tmp.write(svg_content)
+            tmp_svg_path = tmp.name
+        drawing = svg2rlg(tmp_svg_path)
+        os.unlink(tmp_svg_path)
+        if drawing is None:
+            return None, 0, 0
+
+        png_fd, png_path = tempfile.mkstemp(suffix='.png')
+        os.close(png_fd)
+        renderPM.drawToFile(drawing, png_path, fmt='PNG', dpi=300)
+        self._meeple_action_png_path = png_path
+
+        pil_img = PILImage.open(png_path)
+        iw, ih = pil_img.size
+        aspect = iw / ih
+        draw_w = ACTION_DEFAULT_W
+        draw_h = draw_w / aspect
+        return png_path, draw_w, draw_h
 
     def _load_phase_box_svg(self, target_w, target_h):
         """Load Phase_Box.svg stretched to target_w x target_h (non-uniform scaling)."""
@@ -2407,6 +2455,12 @@ class SheetLayoutEngine:
         cost = action.cost
         if cost == 'other':
             icon_path = action.cost_image.path if action.cost_image else None
+        elif cost == 'action':
+            step = action.step
+            if step.step_cost_image:
+                icon_path = step.step_cost_image.path
+            else:
+                return self._get_meeple_action_icon()
         else:
             icon_path = _cost_icon_path(cost)
 
@@ -2467,76 +2521,107 @@ class SheetLayoutEngine:
           ('row', [(action, alloc_w), ...])
         """
         rows = []
-        # pending entries: (action, nat_w, nat_h, wrap_w_or_None, wrap_h_or_None)
+        # pending entries: dicts with keys: action, natural_w, natural_h,
+        # fixed_w, icon_h_eff, markup, min_text_w, text_natural_w
         pending = []
+
+        def _try_pack_run(run):
+            """Try to pack a contiguous run of actions side-by-side.
+
+            Strategy: start with N = len(run). Each action gets its fair share
+            (avail_action_w / N). Any action whose natural width is <= its fair
+            share is "narrow" — it takes only what it needs and donates the
+            rest. The remaining actions split the leftover space evenly.
+
+            Repeat until no more narrow actions are found, then verify each
+            remaining action fits at its allocated width within
+            ACTION_PACK_MAX_LINES without breaking mid-word. If any fails,
+            return None.
+
+            Returns ('row', [(action, alloc_w), ...]) or None.
+            """
+            n = len(run)
+            if n < 2:
+                return None
+            total_gaps = SIDE_BY_SIDE_GAP * (n - 1)
+            usable_w = avail_action_w - total_gaps
+            if usable_w <= 0:
+                return None
+
+            # Iteratively pull out narrow actions (natural_w <= fair share).
+            allocated = {}  # idx -> alloc_w (final)
+            remaining_idx = list(range(n))
+            remaining_w = usable_w
+            while remaining_idx:
+                share = remaining_w / len(remaining_idx)
+                narrow = [i for i in remaining_idx if run[i]['natural_w'] <= share]
+                if not narrow:
+                    # Everyone left needs at least their fair share
+                    for i in remaining_idx:
+                        allocated[i] = share
+                    break
+                for i in narrow:
+                    allocated[i] = run[i]['natural_w']
+                    remaining_w -= run[i]['natural_w']
+                    remaining_idx.remove(i)
+
+            # Reject if any allocation can't fit the paragraph's narrowest
+            # unbreakable token. Below this threshold ReportLab splits per
+            # character, producing one letter per line.
+            for i, meta in enumerate(run):
+                if allocated[i] < meta['fixed_w'] + meta['min_text_w']:
+                    return None
+
+            # Verify each action fits at its allocation (line cap + no mid-word breaks)
+            row_items = []
+            row_h = 0
+            stacked_h = 0
+            for i, meta in enumerate(run):
+                alloc_w = allocated[i]
+                if alloc_w >= meta['natural_w']:
+                    h_at_alloc = meta['natural_h']
+                else:
+                    n_lines, h_at_alloc = _measure_action_at_width(
+                        meta, alloc_w, self.action_body_style
+                    )
+                    if h_at_alloc is None:
+                        return None
+                row_items.append((meta['action'], alloc_w))
+                if h_at_alloc > row_h:
+                    row_h = h_at_alloc
+                stacked_h += meta['natural_h']
+            stacked_h += ACTION_ROW_GAP * (n - 1)
+
+            # Only commit if side-by-side is actually shorter than stacking
+            if row_h >= stacked_h:
+                return None
+            return ('row', row_items)
 
         def _flush_pending():
             if not pending:
                 return
 
-            # --- Pass 1: greedily pack using natural (no-wrap) widths ---
-            # Actions that fit on one row without wrapping, up to MAX_ACTIONS_PER_ROW.
-            packed = set()
-            result_slots = []  # (position_key, row_descriptor)
-
-            pass1_groups = []  # each entry: [index, ...]
-            current_indices = []
-            current_w = 0
-
-            for i, (action, nat_w, nat_h, wrap_w, wrap_h) in enumerate(pending):
-                needed = nat_w + (SIDE_BY_SIDE_GAP if current_indices else 0)
-                if not current_indices or (current_w + needed <= avail_action_w
-                                           and len(current_indices) < MAX_ACTIONS_PER_ROW):
-                    current_indices.append(i)
-                    current_w += needed
+            i = 0
+            run_results = []  # list of (start_idx, row_descriptor)
+            while i < len(pending):
+                # Greedy: try the largest run first, shrink until packing succeeds
+                # or we fall back to a single action on its own line.
+                max_run = min(MAX_ACTIONS_PER_ROW, len(pending) - i)
+                packed = None
+                for run_size in range(max_run, 1, -1):
+                    run = pending[i:i + run_size]
+                    packed = _try_pack_run(run)
+                    if packed is not None:
+                        break
+                if packed is not None:
+                    run_results.append((i, packed))
+                    i += run_size
                 else:
-                    pass1_groups.append(current_indices)
-                    current_indices = [i]
-                    current_w = nat_w
-            if current_indices:
-                pass1_groups.append(current_indices)
+                    meta = pending[i]
+                    run_results.append((i, ('row', [(meta['action'], meta['natural_w'])])))
+                    i += 1
 
-            # Only commit groups with 2+ actions
-            for group in pass1_groups:
-                if len(group) > 1:
-                    row_items = [(pending[k][0], pending[k][1]) for k in group]
-                    result_slots.append((group[0], ('row', row_items)))
-                    packed.update(group)
-
-            # --- Pass 2: try wrapping to pair consecutive unpacked actions (max 2 per row) ---
-            leftovers = [(i, pending[i]) for i in range(len(pending)) if i not in packed]
-            j = 0
-            while j < len(leftovers):
-                idx_a, (action_a, nat_w_a, nat_h_a, wrap_w_a, wrap_h_a) = leftovers[j]
-                paired = False
-
-                if j + 1 < len(leftovers):
-                    idx_b, (action_b, nat_w_b, nat_h_b, wrap_w_b, wrap_h_b) = leftovers[j + 1]
-
-                    # Use wrap widths where available, natural otherwise
-                    w_a = wrap_w_a if wrap_w_a is not None else nat_w_a
-                    h_a = wrap_h_a if wrap_w_a is not None else nat_h_a
-                    w_b = wrap_w_b if wrap_w_b is not None else nat_w_b
-                    h_b = wrap_h_b if wrap_w_b is not None else nat_h_b
-
-                    pair_w = w_a + SIDE_BY_SIDE_GAP + w_b
-                    if pair_w <= avail_action_w:
-                        # Height check: side-by-side must be shorter than stacking
-                        side_by_side_h = max(h_a, h_b)
-                        stacked_h = nat_h_a + nat_h_b + ACTION_ROW_GAP
-
-                        if side_by_side_h < stacked_h:
-                            result_slots.append((idx_a, ('row', [(action_a, w_a), (action_b, w_b)])))
-                            j += 2
-                            paired = True
-
-                if not paired:
-                    result_slots.append((idx_a, ('row', [(action_a, nat_w_a)])))
-                    j += 1
-
-            # Sort by original position to preserve action order
-            result_slots.sort(key=lambda s: s[0])
-            for _, row_desc in result_slots:
+            for _, row_desc in run_results:
                 rows.append(row_desc)
 
         for cost_type, group_actions in groups:
@@ -2552,10 +2637,11 @@ class SheetLayoutEngine:
                 # Non-card single action — candidate for side-by-side
                 action = group_actions[0]
                 icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
-                nat_w, nat_h, wrap_w, wrap_h = _measure_action_widths(
+                meta = _measure_action_widths(
                     action, icon_w, icon_h, icon_path, action.cost, self.action_body_style
                 )
-                pending.append((action, nat_w, nat_h, wrap_w, wrap_h))
+                meta['action'] = action
+                pending.append(meta)
 
         _flush_pending()
         return rows
@@ -2622,16 +2708,13 @@ class SheetLayoutEngine:
                         total_width=action_w, cost=action.cost,
                     )
                 else:
-                    # Multiple side-by-side actions — each gets its measured width,
-                    # last action expands to fill remaining row space
-                    total_gaps = SIDE_BY_SIDE_GAP * (len(action_items) - 1)
-                    used_w = sum(w for _, w in action_items[:-1]) + total_gaps
-                    last_w = action_w - used_w  # remaining space for last action
-
+                    # Multiple side-by-side actions — each gets the width the
+                    # packer allocated and validated. Don't recompute: doing so
+                    # can drive a column below min_text_w and trigger
+                    # per-character wrapping in ReportLab.
                     sub_flowables = []
                     col_widths = []
-                    for idx, (action, base_w) in enumerate(action_items):
-                        alloc_w = last_w if idx == len(action_items) - 1 else base_w
+                    for action, alloc_w in action_items:
                         icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
                         markup = format_step_markup(action.text)
                         para = Paragraph(markup, self.action_body_style)
@@ -2654,6 +2737,7 @@ class SheetLayoutEngine:
                         final_col_widths.append(cw)
 
                     flowable = Table([row_cells], colWidths=final_col_widths)
+                    flowable.hAlign = 'CENTER' if step.content_box_id else 'LEFT'
                     flowable.setStyle(TableStyle([
                         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                         ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -3597,11 +3681,10 @@ class SheetLayoutEngine:
 
         while remaining:
             # Try to fit as many as possible in this row at even widths.
-            # The single-box (row_count == 1) attempt only checks horizontal
-            # constraints (track/legend widths) — height is allowed to overflow
-            # and will be clamped at draw time. This matches the existing
-            # clamp behaviour at draw time but ensures we don't bail out of
-            # packing prematurely when one tall box remains.
+            # Every box in the row (including the last/single one) must fit
+            # vertically without clamping; if the only remaining box doesn't
+            # fit naturally, defer it to the overflow placer instead of
+            # squishing it.
             row_count = len(remaining)
             while row_count > 0:
                 total_gaps = CONTENT_BOX_GAP * (row_count - 1)
@@ -3610,13 +3693,10 @@ class SheetLayoutEngine:
                     content_w_at_even = even_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
                     all_fit = True
                     for cb in remaining[:row_count]:
-                        # Check height fits (skip when this is the only
-                        # candidate left for the row — we'll clamp instead)
-                        if row_count > 1:
-                            _, h, _ = self._content_box_dims_for_width(cb, even_w)
-                            if h > target_h:
-                                all_fit = False
-                                break
+                        _, h, _ = self._content_box_dims_for_width(cb, even_w)
+                        if h > target_h:
+                            all_fit = False
+                            break
                         # Check tracks fit at this content width
                         min_tw = min_track_widths[id(cb)]
                         if min_tw > 0 and content_w_at_even < min_tw:
@@ -3692,8 +3772,6 @@ class SheetLayoutEngine:
             row_bottom_y = cursor_y_top  # track the lowest bottom in this row
             for i, (cb, box_w) in enumerate(zip(row_boxes, box_widths)):
                 _, box_h, content_w = self._content_box_dims_for_width(cb, box_w)
-                if box_h > target_h:
-                    box_h = target_h
                 box_y = cursor_y_top - box_h
 
                 self._draw_phase_box(c, cursor_x, box_y, box_w, box_h, rotated=False)
@@ -3774,9 +3852,11 @@ class SheetLayoutEngine:
                 content_w_at_col = col_avail_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
                 all_fit = True
                 for cb in remaining[:col_count]:
-                    # Check height fits within even share (allow clamping for single-box columns)
+                    # Every box (including a sole survivor) must fit naturally;
+                    # otherwise defer it to the overflow placer which renders
+                    # at its desired size.
                     _, h, _ = self._content_box_dims_for_width(cb, col_avail_w)
-                    if h > even_h and col_count > 1:
+                    if h > even_h:
                         all_fit = False
                         break
                     # Check tracks fit at this content width
@@ -3832,36 +3912,26 @@ class SheetLayoutEngine:
                         lo = max(lo, min_lw + CONTENT_BOX_INTERNAL_MARGIN * 2)
 
             hi = col_avail_w
-            # Check whether any box will be height-clamped even at full width
-            any_clamped = any(
-                self._content_box_dims_for_width(cb, col_avail_w)[1] > even_h
-                for cb in col_boxes
-            )
-            if any_clamped:
-                # Width can't help height-clamped boxes — use the minimum width
-                col_w = min(lo, col_avail_w)
-            else:
-                # Binary search: find narrowest width where all boxes fit in even_h
-                while hi - lo > 1:
-                    mid = (lo + hi) / 2
-                    fits = True
-                    for cb in col_boxes:
-                        _, h, _ = self._content_box_dims_for_width(cb, mid)
-                        if h > even_h:
-                            fits = False
-                            break
-                    if fits:
-                        hi = mid
-                    else:
-                        lo = mid
-                col_w = hi
+            # Binary search: find narrowest width where all boxes fit in even_h
+            while hi - lo > 1:
+                mid = (lo + hi) / 2
+                fits = True
+                for cb in col_boxes:
+                    _, h, _ = self._content_box_dims_for_width(cb, mid)
+                    if h > even_h:
+                        fits = False
+                        break
+                if fits:
+                    hi = mid
+                else:
+                    lo = mid
+            col_w = hi
 
-            # Calculate actual box heights at col_w
+            # Calculate actual box heights at col_w (no clamping — the row-fit
+            # check above already guarantees each box fits in even_h)
             box_heights = []
             for cb in col_boxes:
                 _, box_h, _ = self._content_box_dims_for_width(cb, col_w)
-                if box_h > even_h:
-                    box_h = even_h
                 box_heights.append(box_h)
 
             # Distribute extra vertical space evenly before, between, and after boxes
@@ -3904,8 +3974,8 @@ class SheetLayoutEngine:
         """Pick a natural box size for an overflow content box.
 
         Width: clamp the preferred track / minimum legend width into the page
-        body. Height: whatever the content needs at that width (no clamp — the
-        user can resize it later in the editor).
+        body. Height: whatever the content needs at that width (no clamp —
+        overflow boxes render at their desired size and may overlap).
         """
         pref_tw = self._preferred_track_width_for_content_box(cb)
         min_lw = self._min_legend_width_for_content_box(cb)
@@ -3916,10 +3986,6 @@ class SheetLayoutEngine:
         if box_w > max_box_w:
             box_w = max_box_w
         _, box_h, _ = self._content_box_dims_for_width(cb, box_w)
-        # Cap height at the usable page height so the box stays grabbable.
-        max_box_h = PAGE_H - BOTTOM_MARGIN - TOP_MARGIN
-        if box_h > max_box_h:
-            box_h = max_box_h
         return box_w, box_h
 
     def _find_open_slot(self, w, h, step=0.25 * inch):
@@ -3953,9 +4019,10 @@ class SheetLayoutEngine:
         """Render content boxes that the auto-packer could not fit.
 
         For each leftover, first try to find an open non-overlapping slot
-        anywhere on the page. If none exists, fall back to a deterministic
-        diagonal cascade so each overflow box remains individually grabbable
-        in the editor — the user moves them with the layout editor.
+        anywhere on the page. If none exists, render the box at its desired
+        natural size, horizontally centered on the page (allowing overlap
+        with other boxes). Vertical position cascades downward so multiple
+        unfit boxes don't sit directly on top of each other.
 
         Boxes are recorded via ``_record_element`` exactly like normal boxes
         so the editor / preview pick them up automatically.
@@ -3963,10 +4030,9 @@ class SheetLayoutEngine:
         if not leftovers:
             return
 
-        cascade_origin_x = X_MARGIN + 0.5 * inch
-        cascade_origin_y = self.phases_top_y - 1.0 * inch
-        cascade_step = 0.25 * inch
-        cascade_index = 0
+        center_y_top = self.phases_top_y - 0.5 * inch
+        center_step = 0.25 * inch
+        center_index = 0
 
         for cb in leftovers:
             box_w, box_h = self._overflow_box_dims(cb)
@@ -3975,25 +4041,16 @@ class SheetLayoutEngine:
             if slot is not None:
                 box_x, box_y = slot
             else:
-                # Cascade fallback. Keep the box fully on the page; if the
-                # diagonal would walk off, wrap back to the origin column.
-                offset = cascade_step * cascade_index
-                box_x = cascade_origin_x + offset
-                box_y = cascade_origin_y - offset - box_h
-                if box_x + box_w > PAGE_W - X_MARGIN or box_y < BOTTOM_MARGIN:
-                    cascade_index = 0
-                    box_x = cascade_origin_x
-                    box_y = cascade_origin_y - box_h
-                    if box_y < BOTTOM_MARGIN:
-                        box_y = BOTTOM_MARGIN
-                cascade_index += 1
-                # Never let the box cross under the header band — same rule
-                # the Phase box follows.
+                # No fit — render at desired size, horizontally centered,
+                # cascading down so subsequent boxes are individually grabbable.
+                box_x = (PAGE_W - box_w) / 2
+                offset = center_step * center_index
+                box_y = center_y_top - offset - box_h
+                center_index += 1
+                # Keep the top edge under the header band when possible.
                 max_top = self.phases_top_y
                 if box_y + box_h > max_top:
                     box_y = max_top - box_h
-                if box_y < BOTTOM_MARGIN:
-                    box_y = BOTTOM_MARGIN
 
             content_w = box_w - CONTENT_BOX_INTERNAL_MARGIN * 2
             self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
