@@ -180,6 +180,21 @@ def editor_required_class_based_view(view_class):
     return view_class
 
 
+def forge_onboard_required(view_func):
+    @login_required
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        profile = request.user.profile
+        if not profile.player:
+            messages.error(request, "You do not have full permissions to view this page.")
+            raise PermissionDenied()
+        if not profile.forge_onboard:
+            next_url = request.GET.get('next', request.path)
+            return redirect(f'{reverse("onboard-user", args=["forge"])}?next={next_url}')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
 
 def player_required(view_func):
     @login_required  # Ensure the user is authenticated
@@ -557,6 +572,13 @@ def onboard_user(request, user_type=None):
                 messages.info(request, "Thank you for helping out!")
             else:
                 messages.warning(request, f"You do not have access to the {user_type} role")
+        elif user_type == 'forge' and not profile.forge_onboard:
+            if profile.player:
+                profile.forge_onboard = True
+                profile.save()
+                messages.info(request, "Welcome to the Forge!")
+            else:
+                messages.warning(request, f"You do not have access to the {user_type} role")
         else:
             # Handle cases where the user is already onboarded
             messages.info(request, f"You already have access to the {user_type} role")
@@ -591,7 +613,7 @@ def onboard_decline(request, user_type=None):
     }
     # print(user_type)
     # print(decline_choices[user_type])
-    decline_type = decline_choices[user_type]
+    decline_type = decline_choices.get(user_type)
     # If a user refuses to accept website policies they will demote themselves
     if request.method == 'POST':
         profile = request.user.profile
@@ -599,10 +621,7 @@ def onboard_decline(request, user_type=None):
         # print(decline_type)
         if decline_type:
             profile.group = decline_type
-        else:
-             profile.gourp = "B"
-        
-        
+
         match user_type:
             case "admin":
                 profile.admin_onboard = False
@@ -616,6 +635,9 @@ def onboard_decline(request, user_type=None):
             case "player":
                 profile.player_onboard = False
                 messages.warning(request, "Once you accept you will be able to record games")
+            case "forge":
+                profile.forge_onboard = False
+                messages.warning(request, "You can revisit the Forge agreement at any time")
             case _:
                 profile.player_onboard = False
                 messages.error(request, "An error occured")

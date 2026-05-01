@@ -1,0 +1,47 @@
+{% load static forge_text %}
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Setup Steps</h4>
+  <div id="setup-step-list-bulk" data-row-list>
+    {% for step in setup_steps %}
+      <div class="border rounded p-2 mb-2 d-flex gap-2 align-items-start setup-step-row" data-row data-id="{{ step.pk }}">
+        <span class="setup-step-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+        <img src="{{ step.svg_url }}" alt="{{ step.number }}" class="setup-step-marker mt-1" style="width:1.25rem; flex-shrink:0;">
+        <div class="flex-grow-1">
+          <input type="hidden" name="step_id" value="{{ step.pk }}">
+          <div class="forge-rich-text">
+            <textarea name="step_text" class="form-control" rows="3">{{ step.text }}</textarea>
+            <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+              {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
+              <div class="ms-auto">
+                <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Delete</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="d-flex justify-content-start mt-2">
+    <button type="button" id="setup-step-add-btn" class="btn btn-sm btn-outline-primary">+ Add Step</button>
+  </div>
+
+  <template id="setup-step-row-template">
+    <div class="border rounded p-2 mb-2 d-flex gap-2 align-items-start setup-step-row" data-row data-id="">
+      <span class="setup-step-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+      <img src="{% static 'pdf/svg/0.svg' %}" alt="" class="setup-step-marker mt-1" style="width:1.25rem; flex-shrink:0;">
+      <div class="flex-grow-1">
+        <input type="hidden" name="step_id" value="">
+        <div class="forge-rich-text">
+          <textarea name="step_text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+          <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+            {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
+            <div class="ms-auto">
+              <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>

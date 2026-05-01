@@ -1,0 +1,37 @@
+{% load static %}
+<div class="card p-3 mb-3">
+  <div class="sheet-toggle-bar">
+    <div class="sheet-toggle-row">
+      <div class="sheet-toggle-label">Crafted Items Box</div>
+      <button type="button"
+              class="sheet-crafted-toggle {% if sheet.include_crafted_items %}is-on{% else %}is-off{% endif %}"
+              data-autosave-url="{% url 'forge-sheet-crafted-toggle' pk=sheet.pk %}"
+              data-autosave-type="crafted"
+              aria-pressed="{% if sheet.include_crafted_items %}true{% else %}false{% endif %}">
+        <img src="{% static 'pdf/boxes/Crafted_Items_Box.svg' %}" alt="Crafted Items" class="sheet-crafted-img">
+        <span class="sheet-crafted-overlay sheet-crafted-overlay--check" aria-hidden="true">&#10003;</span>
+        <span class="sheet-crafted-overlay sheet-crafted-overlay--cross" aria-hidden="true">&#10007;</span>
+      </button>
+    </div>
+    <div class="sheet-toggle-row">
+      <div class="sheet-toggle-label">Phase Layout</div>
+      <div class="sheet-layout-toggle"
+           role="group"
+           data-autosave-url="{% url 'forge-sheet-layout-toggle' pk=sheet.pk %}"
+           data-autosave-type="segmented">
+        <button type="button"
+                class="sheet-layout-option {% if sheet.layout_mode == 'horizontal' %}is-active{% endif %}"
+                data-value="horizontal"
+                aria-label="Horizontal layout">
+          <img src="{% static 'pdf/images/horizontal.png' %}" alt="Horizontal" class="sheet-layout-img">
+        </button>
+        <button type="button"
+                class="sheet-layout-option {% if sheet.layout_mode == 'vertical' %}is-active{% endif %}"
+                data-value="vertical"
+                aria-label="Vertical layout">
+          <img src="{% static 'pdf/images/vertical.png' %}" alt="Vertical" class="sheet-layout-img">
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,17 @@
+{% load static %}
+{% include 'the_forge/partials/decree_title_form.html' with decree=decree %}
+<div class="d-flex flex-wrap gap-2 align-items-stretch">
+  <div id="card-slot-list" class="d-flex flex-wrap gap-2 align-items-stretch"
+       data-reorder-url="{% url 'forge-cardslot-reorder' decree_pk=decree.pk %}">
+    {% for slot in decree.card_slots.all %}
+      {% include 'the_forge/partials/card_slot_row.html' with slot=slot %}
+    {% endfor %}
+  </div>
+  <form id="card-slot-add-form"
+        class="card-slot-add-tile d-flex align-items-center justify-content-center"
+        data-add-url="{% url 'forge-cardslot-add' decree_pk=decree.pk %}"
+        data-target="#card-slot-list">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-outline-primary" title="Add column">+</button>
+  </form>
+</div>

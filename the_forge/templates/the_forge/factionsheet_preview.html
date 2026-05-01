@@ -1,0 +1,391 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="mb-2">
+  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-secondary">&larr; Back to editor</a>
+  <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">View PDF</a>
+</div>
+
+<form method="post" action="{% url 'forge-sheet-preview-save' pk=sheet.pk %}" id="forge-preview-form">
+  {% csrf_token %}
+
+  <div class="card p-3 mb-3">
+    <h2 class="root-title">Layout Editor</h2>
+    <div class="mt-2">
+      <label class="me-2 fw-bold">Layout mode:</label>
+      <div class="btn-group" role="group" aria-label="Layout mode">
+        <input type="radio" class="btn-check" name="layout_mode" value="horizontal"
+               id="layout-horizontal" {% if payload.layout_mode == 'horizontal' %}checked{% endif %}>
+        <label class="btn btn-sm btn-outline-secondary" for="layout-horizontal">Horizontal</label>
+
+        <input type="radio" class="btn-check" name="layout_mode" value="vertical"
+               id="layout-vertical" {% if payload.layout_mode == 'vertical' %}checked{% endif %}>
+        <label class="btn btn-sm btn-outline-secondary" for="layout-vertical">Vertical</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <div id="forge-preview-canvas"
+         data-payloads="{{ payloads_json|escape }}"
+         data-active-mode="{{ payload.layout_mode }}"
+         style="position: relative; background: #f5e9d0; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
+    </div>
+  </div>
+
+  <div id="forge-preview-inputs"></div>
+
+  <div class="card p-3 mb-3 d-flex flex-row gap-2">
+    <button type="submit" class="btn btn-primary">Save Layout</button>
+    <button type="submit" name="reset_to_auto" value="1" class="btn btn-outline-danger"
+            onclick="return confirm('Reset all elements in this layout back to auto?');">
+      Reset to Auto Layout
+    </button>
+  </div>
+</form>
+
+<style>
+  .forge-preview-element {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px solid rgba(0, 0, 0, 0.4);
+    background: rgba(255, 255, 255, 0.6);
+    font-size: 11px;
+    padding: 2px 4px;
+    overflow: hidden;
+  }
+  .forge-preview-element--draggable {
+    user-select: none;
+    touch-action: none;
+  }
+  .forge-preview-element--dragging {
+    outline: 2px solid rgba(180, 90, 30, 0.9);
+    z-index: 10;
+  }
+  .forge-resize-handle {
+    position: absolute;
+    background: rgba(180, 90, 30, 0.95);
+    border: 1px solid #fff;
+    width: 10px;
+    height: 10px;
+    z-index: 20;
+    box-sizing: border-box;
+  }
+  .forge-resize-handle--n  { top: -5px; left: 50%; margin-left: -5px; cursor: ns-resize; }
+  .forge-resize-handle--s  { bottom: -5px; left: 50%; margin-left: -5px; cursor: ns-resize; }
+  .forge-resize-handle--w  { left: -5px; top: 50%; margin-top: -5px; cursor: ew-resize; }
+  .forge-resize-handle--e  { right: -5px; top: 50%; margin-top: -5px; cursor: ew-resize; }
+  .forge-resize-handle--nw { top: -5px; left: -5px; cursor: nwse-resize; }
+  .forge-resize-handle--ne { top: -5px; right: -5px; cursor: nesw-resize; }
+  .forge-resize-handle--sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+  .forge-resize-handle--se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+  .forge-preview-element--phase_box   { background: rgba(180, 140, 90, 0.45); z-index: 1; }
+  .forge-preview-element--phase_header_bar {
+    border: 1px solid rgba(0, 0, 0, 0.5);
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    color: #fff;
+    font-family: 'Luminari', 'Papyrus', serif;
+    font-weight: bold;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+    cursor: not-allowed;
+  }
+  .forge-preview-element--phase_step {
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    padding: 0;
+    font-size: 7.5px;
+    line-height: 9px;
+    font-family: 'Baskerville', Georgia, serif;
+    color: #222;
+    cursor: not-allowed;
+    overflow: hidden;
+    text-align: left;
+  }
+  .forge-preview-element--phase_step .step-num {
+    font-weight: bold;
+    margin-right: 3px;
+  }
+  .forge-preview-element--phase_step .step-row {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    height: 100%;
+  }
+  .forge-preview-element--phase_step .step-icon {
+    width: 19.5px;
+    flex: 0 0 19.5px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 9px;
+  }
+  .forge-preview-element--phase_step .step-text {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .forge-preview-element--phase_step .forge-header {
+    font-size: 12.5px;
+    line-height: 14px;
+    font-family: 'Baskerville', Georgia, serif;
+  }
+  .forge-preview-element--phase_step .forge-luminari {
+    font-family: 'Luminari', 'Papyrus', serif;
+  }
+  .forge-preview-element--content_box { background: rgba(120, 170, 220, 0.45); z-index: 1; }
+  .forge-preview-element--card_pile   { background: rgba(220, 200, 130, 0.55); z-index: 1; }
+  .forge-preview-element--bordered_box {
+    background: rgba(255, 250, 235, 0.85);
+    border: 1px solid rgba(80, 50, 20, 0.8);
+    border-radius: 3px;
+    cursor: not-allowed;
+    padding: 2px 4px;
+    font-family: 'Baskerville', Georgia, serif;
+    color: #3a2a14;
+  }
+  .forge-preview-element--bordered_box .bordered-box-title {
+    font-weight: bold;
+    font-size: 9px;
+    line-height: 11px;
+  }
+  .forge-preview-element--track {
+    background: rgba(245, 235, 215, 0.7);
+    border: 1px dashed rgba(80, 50, 20, 0.5);
+    cursor: not-allowed;
+    padding: 0;
+    overflow: hidden;
+  }
+  .forge-preview-element--track .track-title {
+    position: absolute;
+    top: 1px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-weight: bold;
+    font-size: 8px;
+    line-height: 9px;
+    color: #3a2a14;
+    pointer-events: none;
+  }
+  .forge-preview-element--track .track-slot {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(60, 40, 20, 0.75);
+    box-sizing: border-box;
+  }
+  .forge-preview-element--track .track-slot--token {
+    border-radius: 50%;
+  }
+  .forge-preview-element--track .track-slot--building {
+    border-radius: 2px;
+  }
+  .forge-preview-element--track .track-divider {
+    background: rgba(60, 40, 20, 0.7);
+  }
+  .forge-preview-element--legend {
+    background: rgba(220, 200, 240, 0.55);
+    border: 1px dashed rgba(80, 50, 90, 0.5);
+    cursor: not-allowed;
+    padding: 0;
+    overflow: hidden;
+  }
+  .forge-preview-element--legend .legend-title {
+    position: absolute;
+    top: 1px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-weight: bold;
+    font-size: 9px;
+    line-height: 10px;
+    color: #3a2a14;
+    pointer-events: none;
+  }
+  .forge-preview-element--scale {
+    background: rgba(210, 230, 200, 0.55);
+    border: 1px dashed rgba(60, 90, 50, 0.5);
+    cursor: not-allowed;
+    padding: 0;
+    overflow: hidden;
+  }
+  .forge-preview-element--scale .scale-title {
+    position: absolute;
+    top: 1px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-weight: bold;
+    font-size: 9px;
+    line-height: 10px;
+    color: #3a2a14;
+    pointer-events: none;
+  }
+  .forge-preview-element--decree {
+    background: rgba(160, 110, 110, 0.35);
+    border-style: dashed;
+    padding: 0;
+    /* Decree spans the full page width, so keep it behind other editable
+       elements — otherwise the user can't click overlapping content boxes
+       to drag them. While dragging, .forge-preview-element--dragging bumps
+       z-index to 10, which still beats this. */
+    z-index: 0;
+  }
+  .forge-preview-element--card_slot {
+    background: rgba(245, 233, 208, 0.95);
+    border: 1px solid rgba(60, 40, 20, 0.6);
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    padding: 0;
+    cursor: not-allowed;
+  }
+  .forge-preview-element--card_slot .card-slot-title {
+    position: absolute;
+    bottom: 4px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-weight: bold;
+    font-size: 11px;
+    color: #2b1d10;
+    padding: 0 4px;
+    pointer-events: none;
+  }
+  .forge-preview-element--decree .decree-label {
+    position: absolute;
+    bottom: 4px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-weight: bold;
+    font-size: 12px;
+    color: #3b1f1f;
+    text-shadow: 0 0 3px rgba(255, 235, 210, 0.9);
+    pointer-events: none;
+  }
+  .forge-preview-element--header_bar {
+    background: transparent;
+    border: 1px dashed rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+  }
+  .forge-preview-element--header_image {
+    background: transparent;
+    /* No border: the engine renders the image edge-to-edge at the same
+       width as the color bar, so the preview must match. A 1px border
+       (with box-sizing: border-box) would inset the image content by 1px
+       per side and make it look narrower than the bar. */
+    border: 0;
+    padding: 0;
+    overflow: hidden;
+    pointer-events: none;
+    /* Paints over the color bar so the image is fully visible; the title
+       label inside the color bar uses z-index 3 to sit above this image. */
+    z-index: 2;
+  }
+  .forge-preview-element--header_image .hi-thumb {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    /* The image div is bottom-aligned with the color bar but extends well
+       above the visible canvas (overflow: hidden clips the top portion).
+       Use 'contain' so the full image is visible in the surviving portion,
+       and anchor to the bottom so it shows up rather than getting hidden
+       in the off-canvas region. */
+    object-fit: contain;
+    object-position: center bottom;
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  .forge-preview-element--header_color_bar {
+    border: none;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Luminari', 'Papyrus', serif;
+    font-weight: bold;
+    text-shadow: 0 0 2px rgba(0,0,0,0.25);
+    cursor: not-allowed;
+    /* Leave z-index unset (auto) so this element doesn't form a stacking
+       context — the .header-color-bar-label child can then escape upward
+       past the header image with its own z-index. */
+  }
+  .forge-preview-element--header_color_bar .header-color-bar-label {
+    position: relative;
+    z-index: 3;
+  }
+  .forge-preview-element--header_ability {
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px solid rgba(0, 0, 0, 0.5);
+    padding: 3px 4px;
+    font-size: 8px;
+    line-height: 1.15;
+    color: #222;
+    cursor: not-allowed;
+    text-align: left;
+  }
+  .forge-preview-element--header_ability .hdr-title {
+    font-weight: bold;
+    display: block;
+    margin-bottom: 1px;
+  }
+  .forge-preview-element--header_ability .hdr-body {
+    display: block;
+  }
+  .forge-preview-element--header_flavor {
+    background: rgba(255, 250, 235, 0.85);
+    border: 1px solid rgba(0, 0, 0, 0.4);
+    font-style: italic;
+    font-family: 'Baskerville', Georgia, serif;
+    font-size: 8px;
+    line-height: 1.2;
+    padding: 3px;
+    color: #222;
+    cursor: not-allowed;
+    text-align: left;
+  }
+  .forge-preview-element--character_image {
+    background: rgba(140, 90, 200, 0.18);
+    border: 2px dashed rgba(110, 60, 180, 0.85);
+    padding: 0;
+    overflow: hidden;
+    cursor: move;
+    z-index: 1;
+  }
+  .forge-preview-element--character_image .ci-thumb {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0.85;
+    pointer-events: none;
+  }
+  .forge-preview-element--character_image .ci-label {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    background: rgba(110, 60, 180, 0.85);
+    color: #fff;
+    font-family: 'Luminari', 'Papyrus', serif;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    pointer-events: none;
+  }
+  .forge-preview-element--header_crafted {
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: #555;
+    cursor: not-allowed;
+    font-style: italic;
+  }
+</style>
+
+<script src="{% static 'the_forge/forge_preview.js' %}"></script>
+{% endblock %}

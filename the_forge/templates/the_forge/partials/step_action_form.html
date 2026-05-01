@@ -1,0 +1,38 @@
+{% load static forge_text%}
+<div class="forge-inline-form" data-inline-form="action" data-step-id="{{ step_pk }}" data-row data-kind="action-add">
+  <form method="post" enctype="multipart/form-data"
+        data-add-url="{% url 'forge-stepaction-add' step_pk=step_pk %}"
+        data-dirty-form
+        data-target=".phase-step-action-list[data-step-id='{{ step_pk }}']">
+    {% csrf_token %}
+    {% if step.action_type == 'action' %}
+      <input type="hidden" name="cost" value="action">
+    {% elif step.action_type == 'other' %}
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+        <strong class="me-1 small text-muted">Cost:</strong>
+        <input type="hidden" name="cost" value="other">
+        <input type="file" name="cost_image" accept="image/*" class="form-control form-control-sm" data-cost-image-input required style="max-width:14rem;">
+        <img class="forge-cost-image-preview" data-cost-image-preview src="" alt="" hidden>
+      </div>
+    {% else %}
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+        <strong class="me-1 small text-muted">Cost:</strong>
+        <select name="cost" class="form-select form-select-sm" style="max-width:11rem;">
+          {% for v,l in step.allowed_cost_choices %}
+            <option value="{{ v }}">{{ l }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
+    <div class="forge-rich-text">
+      <textarea name="text" class="form-control" rows="2" placeholder="Action text…" data-required></textarea>
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='italic,header,image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-cancel-inline-form>Cancel</button>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>

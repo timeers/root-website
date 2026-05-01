@@ -1,0 +1,23 @@
+{% load static forge_text %}
+<div class="border rounded p-2 mb-2 d-flex gap-2 align-items-start card-pile-row" data-row data-id="{{ pile.pk }}">
+  <span class="card-pile-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+  <form method="post" data-edit-url="{% url 'forge-cardpile-edit' pk=pile.pk %}" class="m-0 flex-grow-1" data-dirty-form>
+    {% csrf_token %}
+    <input type="hidden" name="number" value="{{ pile.number }}">
+    <div class="d-flex gap-2 align-items-center mb-1">
+      <span class="card-pile-number luminari text-muted">{{ pile.number }}</span>
+      <input type="text" name="title" value="{{ pile.title|default_if_none:'' }}" class="form-control luminari" style="font-size: 1.25rem;" placeholder="Title">
+    </div>
+    <div class="forge-rich-text">
+      <textarea name="body" class="form-control" rows="2">{{ pile.body|default_if_none:'' }}</textarea>
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  data-delete-url="{% url 'forge-cardpile-delete' pk=pile.pk %}">Delete</button>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>

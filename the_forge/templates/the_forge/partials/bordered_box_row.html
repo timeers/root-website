@@ -1,0 +1,31 @@
+{% load static forge_text %}
+<div class="forge-card-row box-row" data-row data-id="{{ box.pk }}" data-kind="box">
+  <form method="post" data-edit-url="{% url 'forge-box-edit' pk=box.pk %}" class="box-row__form" data-dirty-form>
+    {% csrf_token %}
+    <div class="forge-card-row__head flex-nowrap">
+      <span class="row-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+      <span class="forge-card-row__badge flex-shrink-0">Box</span>
+      <input type="text" name="title" value="{{ box.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1 luminari" style="min-width:0;max-width:none;" placeholder="Title" required>
+      <div class="btn-group btn-group-sm forge-segmented flex-shrink-0" role="group" aria-label="Height">
+        {% for value, label in box.BoxSize.choices %}
+          <input type="radio" class="btn-check" name="height" id="box-{{ box.pk }}-height-{{ value }}"
+                 value="{{ value }}" {% if box.height == value %}checked{% endif %}>
+          <label class="btn btn-outline-secondary" for="box-{{ box.pk }}-height-{{ value }}">{{ label }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="forge-rich-text mt-2">
+      <textarea name="body" class="form-control" rows="2">{{ box.body }}</textarea>
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+          {% if not express %}
+            <button type="button" class="btn btn-sm btn-outline-danger"
+                    data-delete-url="{% url 'forge-box-delete' pk=box.pk %}">Delete</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </form>
+</div>

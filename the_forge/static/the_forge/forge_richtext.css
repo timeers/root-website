@@ -1,0 +1,719 @@
+/* Forge rich-text widget */
+
+.forge-rich-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+/* Component manifest column dividers — mirrors pieces.html style.
+   xl: 5 columns side-by-side → vertical line between each.
+   md: 2 columns per row → vertical line between the pair.
+   sm/default: stacked → horizontal line between each. */
+.forge-piece-grid .col > .piece-box {
+  position: relative;
+}
+@media (max-width: 767.98px) {
+  .forge-piece-grid .col + .col > .piece-box::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 10%;
+    right: 10%;
+    height: 1px;
+    background-color: black;
+  }
+}
+@media (min-width: 768px) {
+  .forge-piece-grid .col:not(:nth-child(2n+1)) > .piece-box::before {
+    content: '';
+    position: absolute;
+    top: 10%;
+    bottom: 10%;
+    left: -1px;
+    width: 1px;
+    background-color: black;
+  }
+}
+@media (min-width: 1200px) {
+  .forge-piece-grid .col:not(:nth-child(2n+1)) > .piece-box::before {
+    content: none;
+  }
+  .forge-piece-grid .col:not(:first-child) > .piece-box::before {
+    content: '';
+    position: absolute;
+    top: 10%;
+    bottom: 10%;
+    left: -1px;
+    width: 1px;
+    background-color: black;
+  }
+}
+
+.forge-rich-text textarea {
+  width: 100%;
+  min-height: 6em;
+  font-family: inherit;
+}
+
+/* Hidden mirror textarea — keeps the canonical markdown for form submit. */
+.forge-rich-text textarea.forge-rich-text-input[hidden] {
+  display: none !important;
+}
+
+/* Contenteditable WYSIWYG surface that replaces the visible textarea. */
+.forge-rich-text-editor {
+  width: 100%;
+  min-height: 6em;
+  padding: 6px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #fff;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  outline: none;
+}
+
+.forge-rich-text-editor:focus {
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2);
+}
+
+/* Mirror display-side marker styles inside the editor so users see
+   the same look they'd see on the rendered page / PDF. */
+.forge-rich-text-editor [data-forge="luminari"] {
+  font-family: 'Luminari', serif;
+}
+.forge-rich-text-editor [data-forge="header"] {
+  font-family: 'Baskerville', 'Libre Baskerville', serif;
+  font-size: 1.5em;
+}
+.forge-rich-text-editor img.inline-icon {
+  height: 1.2em;
+  width: auto;
+  vertical-align: text-bottom;
+}
+
+.forge-rich-text-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.forge-rich-text-toolbar button {
+  min-width: 2em;
+  height: 2em;
+  padding: 0 0.5em;
+  border: 1px solid #888;
+  background: #f5f5f5;
+  cursor: pointer;
+  font-size: 0.95em;
+  border-radius: 3px;
+}
+
+.forge-rich-text-toolbar button:has(img) {
+  padding: 0 0.15em;
+}
+
+.forge-rich-text-toolbar button img {
+  height: 1.6em;
+  width: auto;
+  display: block;
+}
+
+.forge-rich-text-toolbar button[data-active="true"] {
+  background: #444;
+  color: #fff;
+  border-color: #222;
+}
+
+.forge-rich-text-toolbar button.rt-apply {
+  margin-left: 4px;
+  font-weight: bold;
+}
+
+.forge-rich-text-toolbar button.rt-luminari {
+  font-family: 'Luminari', serif;
+}
+
+.forge-rich-text-image-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid #ccc;
+  background: #fafafa;
+  max-width: 100%;
+  border-radius: 3px;
+}
+
+.forge-rich-text-image-picker button {
+  padding: 2px 6px;
+  border: 1px solid #bbb;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85em;
+  border-radius: 2px;
+}
+
+.forge-rich-text-image-picker button:hover {
+  background: #e8e8e8;
+}
+
+/* When the JS swaps the text label for a real <img>, render a square tile
+   so all icons line up at a consistent size in the picker grid. */
+.forge-rich-text-image-picker button.rt-image-btn {
+  width: 2.4em;
+  height: 2.4em;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.forge-rich-text-image-picker button.rt-image-btn img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  display: block;
+}
+
+/* Setup step row — drag handle + dirty state */
+.setup-step-grip {
+  cursor: grab;
+  user-select: none;
+  color: #888;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.25rem 0.15rem;
+  letter-spacing: -2px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+.setup-step-grip:hover {
+  color: #333;
+}
+.setup-step-grip:active {
+  cursor: grabbing;
+}
+.sortable-ghost {
+  opacity: 0.4;
+}
+.sortable-chosen .setup-step-grip {
+  cursor: grabbing;
+}
+
+.setup-step-row [data-save-btn] {
+  display: none;
+}
+.setup-step-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.setup-step-row.is-dirty [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+
+.phase-step-row > .flex-grow-1 {
+  min-width: 0;
+}
+.phase-step-row > .flex-grow-1 > form[data-dirty-form] [data-save-btn] {
+  display: none;
+}
+.phase-step-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.phase-step-row.is-dirty > .flex-grow-1 > form[data-dirty-form] [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+
+.ability-grip {
+  cursor: grab;
+  user-select: none;
+}
+.sortable-chosen .ability-grip {
+  cursor: grabbing;
+}
+
+.card-slot-col {
+  width: 11rem;
+  display: flex;
+  flex-direction: column;
+}
+.card-slot-grip {
+  cursor: grab;
+  user-select: none;
+  color: #888;
+  font-size: 1.1rem;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.card-slot-number {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.card-slot-grip:hover {
+  color: #333;
+}
+.sortable-chosen .card-slot-grip {
+  cursor: grabbing;
+}
+.card-slot-add-tile {
+  width: 4rem;
+  min-height: 100%;
+  align-self: stretch;
+}
+.ability-row [data-save-btn] {
+  display: none;
+}
+.ability-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.ability-row.is-dirty [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+
+.card-pile-row [data-save-btn] {
+  display: none;
+}
+.card-pile-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.card-pile-row.is-dirty [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+.card-pile-grip {
+  cursor: grab;
+  user-select: none;
+  color: #888;
+}
+.card-pile-grip:hover {
+  color: #333;
+}
+.sortable-chosen .card-pile-grip {
+  cursor: grabbing;
+}
+.card-pile-number {
+  font-size: 1.15rem;
+  line-height: 1;
+  min-width: 1.25rem;
+  text-align: right;
+}
+
+.content-box-row > .d-flex > form.flex-grow-1 {
+  min-width: 0;
+}
+.content-box-row > .d-flex form[data-dirty-form] [data-save-btn] {
+  display: none;
+}
+.content-box-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.content-box-row.is-dirty > .d-flex form[data-dirty-form] [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+.content-box-grip {
+  cursor: grab;
+  user-select: none;
+  color: #888;
+}
+.content-box-grip:hover {
+  color: #333;
+}
+.sortable-chosen .content-box-grip {
+  cursor: grabbing;
+}
+.content-box-section-label {
+  font-size: 1.1rem;
+  white-space: nowrap;
+  color: #444;
+}
+
+/* Sheet flavor text — modern field, Baskerville italic, dirty highlight */
+.sheet-flavor-label {
+  font-family: 'Luminari', serif;
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
+  color: #444;
+}
+.sheet-flavor-input {
+  font-family: 'Baskerville 10 Pro', 'Baskerville', 'Libre Baskerville', serif;
+  font-style: italic;
+  font-size: 1.15rem;
+  line-height: 1.5;
+  padding: 0.85rem 1rem;
+  border: 1px solid #d8d4cc;
+  border-radius: 10px;
+  background: #fbfaf6;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  resize: vertical;
+}
+.sheet-flavor-input:focus {
+  border-color: #b8a978;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(184, 169, 120, 0.2);
+  outline: none;
+}
+.sheet-flavor-row [data-save-btn] {
+  display: none;
+}
+.sheet-flavor-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.sheet-flavor-row.is-dirty [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+
+.card-slot-col [data-save-btn] {
+  display: none;
+}
+.card-slot-col.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.card-slot-col.is-dirty [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+
+.decree-title-row {
+  border: 1px solid transparent;
+}
+.decree-title-row [data-save-btn] {
+  display: none;
+}
+.decree-title-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.decree-title-row.is-dirty [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
+
+/* Sheet settings toggles — auto-save controls */
+.sheet-toggle-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem 0;
+  align-items: flex-start;
+}
+.sheet-toggle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: center;
+  text-align: center;
+  flex: 1 1 50%;
+  min-width: 400px;
+}
+.sheet-toggle-label {
+  font-family: 'Luminari', serif;
+  font-size: 1rem;
+  color: #444;
+  letter-spacing: 0.02em;
+}
+/* Crafted-items image toggle: SVG with check/cross overlay */
+.sheet-crafted-toggle {
+  position: relative;
+  display: inline-block;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 6px;
+  cursor: pointer;
+  width: clamp(80px, 22vw, 140px);
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+}
+.sheet-crafted-toggle:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+.sheet-crafted-toggle:active {
+  transform: scale(0.98);
+}
+.sheet-crafted-toggle.is-on {
+  border-color: rgba(107, 142, 78, 0.5);
+}
+.sheet-crafted-toggle.is-off {
+  border-color: rgba(192, 57, 43, 0.4);
+}
+.sheet-crafted-toggle.is-off .sheet-crafted-img {
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+.sheet-crafted-img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.sheet-crafted-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: clamp(2rem, 6vw, 3.5rem);
+  font-weight: bold;
+  pointer-events: none;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.9), 0 0 3px rgba(255, 255, 255, 0.9);
+  line-height: 1;
+}
+.sheet-crafted-overlay--check {
+  color: #2e8b3e;
+  display: none;
+}
+.sheet-crafted-overlay--cross {
+  color: #c0392b;
+  display: none;
+}
+.sheet-crafted-toggle.is-on .sheet-crafted-overlay--check {
+  display: block;
+}
+.sheet-crafted-toggle.is-off .sheet-crafted-overlay--cross {
+  display: block;
+}
+
+/* Layout image toggle: pick horizontal or vertical orientation */
+.sheet-layout-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.sheet-layout-option {
+  border: 2px solid transparent;
+  background: transparent;
+  padding: 4px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+  line-height: 0;
+}
+.sheet-layout-option:hover:not(.is-active) {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+.sheet-layout-option:active {
+  transform: scale(0.98);
+}
+.sheet-layout-option.is-active {
+  border-color: #6b8e4e;
+  background: rgba(107, 142, 78, 0.08);
+  box-shadow: 0 0 0 3px rgba(107, 142, 78, 0.15);
+}
+.sheet-layout-option:not(.is-active) .sheet-layout-img {
+  opacity: 0.6;
+}
+.sheet-layout-img {
+  display: block;
+  width: clamp(100px, 18vw, 180px);
+  height: auto;
+  transition: opacity 0.15s ease;
+}
+
+.autosave-status {
+  font-size: 0.8rem;
+  color: #6b8e4e;
+  margin-left: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.autosave-status.is-visible {
+  opacity: 1;
+}
+.autosave-status.is-error {
+  color: #c0392b;
+}
+
+/* ---------- Forged Faction edit form ---------- */
+.forge-faction-title-input {
+  font-family: 'Luminari', serif;
+  font-size: 2rem;
+  line-height: 1.2;
+  padding: 0.55rem 0.85rem;
+  border-width: 2px;
+}
+
+.forge-color-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.forge-color-row input[type="color"].forge-color-swatch {
+  width: 3.25rem;
+  height: 3.25rem;
+  padding: 0.2rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+.forge-color-hex {
+  width: 9rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: lowercase;
+}
+.forge-color-hex.is-invalid {
+  border-color: #c0392b;
+}
+
+.forge-bg-mode-toggle .btn {
+  min-width: 7rem;
+}
+
+.forge-bg-pair {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: nowrap;
+}
+@media (max-width: 575.98px) {
+  .forge-bg-pair { flex-wrap: wrap; }
+}
+.forge-bg-pair-item {
+  margin: 0;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 360px;
+  text-align: center;
+}
+.forge-bg-pair-item figcaption {
+  margin-top: 0.4rem;
+  font-family: 'Luminari', serif;
+  font-size: 0.95rem;
+  color: #555;
+}
+.forge-bg-rect {
+  width: 100%;
+  aspect-ratio: 11 / 8.5;
+  border: 1px solid #ced4da;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+/* Mirrors BACK_BG_SCREEN_OPACITY = 0.70 in pdf_engine.py — white screen over the back. */
+.forge-bg-rect-back::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.70);
+  pointer-events: none;
+}
+
+.forge-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 0.75rem;
+}
+.forge-preset-tile {
+  position: relative;
+  cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  background: #f3f3f3;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+.forge-preset-tile:hover {
+  transform: translateY(-1px);
+  border-color: #adb5bd;
+}
+.forge-preset-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.forge-preset-tile .label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+  text-align: center;
+  font-family: 'Luminari', serif;
+  letter-spacing: 0.02em;
+}
+.forge-preset-tile.is-selected {
+  border-color: #28a745;
+  box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.25);
+}
+.forge-preset-tile:focus-visible {
+  outline: none;
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+}
+
+.forge-unsaved-banner {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1080;
+  background: #b8651e;
+  color: #fff;
+  border: 1px solid #8a4912;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  max-width: calc(100vw - 2rem);
+}
+.forge-unsaved-banner:hover {
+  background: #cf7626;
+}
+.forge-unsaved-banner:focus-visible {
+  outline: 2px solid #ffd591;
+  outline-offset: 2px;
+}
+
+@keyframes forge-dirty-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(184, 101, 30, 0.55); }
+  50%  { box-shadow: 0 0 0 8px rgba(184, 101, 30, 0.15); }
+  100% { box-shadow: 0 0 0 0 rgba(184, 101, 30, 0); }
+}
+[data-row].forge-dirty-pulse {
+  animation: forge-dirty-pulse 0.8s ease-out 2;
+}

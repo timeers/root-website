@@ -1,0 +1,39 @@
+{% load static forge_text %}
+<div class="forge-card-row action-row" data-row data-id="{{ action.pk }}" data-kind="action">
+  <form method="post" enctype="multipart/form-data"
+        data-edit-url="{% url 'forge-stepaction-edit' pk=action.pk %}"
+        class="action-row__form" data-dirty-form>
+    {% csrf_token %}
+    <div class="forge-card-row__head flex-nowrap">
+      <span class="action-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+      <span class="forge-card-row__badge action-badge flex-shrink-0">Action</span>
+      {% if action.step.action_type == 'action' %}
+        <input type="hidden" name="cost" value="{{ action.cost }}">
+      {% elif action.step.action_type == 'other' %}
+        <input type="hidden" name="cost" value="other">
+        <input type="file" name="cost_image" accept="image/*" class="form-control form-control-sm flex-shrink-0" data-cost-image-input style="max-width:14rem;">
+        <img class="forge-cost-image-preview flex-shrink-0" data-cost-image-preview
+             src="{% if action.cost_image %}{{ action.cost_image.url }}{% endif %}"
+             alt=""
+             {% if not action.cost_image %}hidden{% endif %}>
+      {% else %}
+        <select name="cost" class="form-select form-select-sm flex-shrink-0" style="max-width:11rem;">
+          {% for v,l in action.step|cost_choices_with:action.cost %}
+            <option value="{{ v }}" {% if action.cost == v %}selected{% endif %}>{{ l }}</option>
+          {% endfor %}
+        </select>
+      {% endif %}
+    </div>
+    <div class="forge-rich-text mt-2">
+      <textarea name="text" class="form-control" rows="2">{{ action.text }}</textarea>
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='italic,header,image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  data-delete-url="{% url 'forge-stepaction-delete' pk=action.pk %}">Delete</button>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>

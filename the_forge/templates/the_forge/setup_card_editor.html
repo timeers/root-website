@@ -1,0 +1,182 @@
+{% extends 'the_keep/base.html' %}
+{% load static forge_text %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'the_forge/forge_richtext.css' %}">
+<div class="mb-2">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; {{ faction.faction_name }}</a>
+</div>
+
+<div class="card p-3 mb-3">
+  <h2 class="root-title">Adset Card</h2>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+{{ inline_images_map|json_script:"forge-inline-images" }}
+<script src="{% static 'the_forge/forge_richtext.js' %}"></script>
+<script src="{% static 'the_forge/forge_editor.js' %}"></script>
+
+<form id="setup-card-form" method="post" enctype="multipart/form-data" class="card p-3 mb-3">
+  {% csrf_token %}
+
+  <div class="forge-adset-header mb-3 text-center">
+    <img class="forge-adset-preview-image img-fluid rounded"
+         {% if card.header_image %}src="{{ card.header_image.url }}"{% else %}hidden{% endif %}
+         alt="" style="max-height: 160px;">
+  </div>
+
+  <div class="mb-2">
+    {{ form.faction_name.label_tag }}
+    {{ form.faction_name }}
+  </div>
+  <div class="row">
+    <div class="col-md-4 mb-2">
+      {{ form.type.label_tag }}
+      {{ form.type }}
+    </div>
+    <div class="col-md-4 mb-2">
+      {{ form.reach.label_tag }}
+      {{ form.reach }}
+    </div>
+    <div class="col-md-4 mb-2">
+      {{ form.header_image.label_tag }}
+      <div class="d-flex align-items-center gap-2">
+        {{ form.header_image }}
+        {{ form.clear_header_image }}
+        <button type="button"
+                id="header-image-clear-btn"
+                class="btn btn-sm btn-outline-danger"
+                title="Clear header image"
+                aria-label="Clear header image"
+                {% if not card.header_image %}hidden{% endif %}>
+          &times;
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {% include 'the_forge/partials/setup_steps_bulk.html' with setup_steps=setup_steps %}
+
+  <button type="submit" class="btn btn-success mt-3">Save Adset Card</button>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const form = document.getElementById('setup-card-form');
+  if (!form) return;
+
+  const list = document.getElementById('setup-step-list-bulk');
+  const addBtn = document.getElementById('setup-step-add-btn');
+  const tpl = document.getElementById('setup-step-row-template');
+  const previewImg = form.querySelector('.forge-adset-preview-image');
+  const fileInput = form.querySelector('input[name="header_image"]');
+  const clearInput = form.querySelector('input[name="clear_header_image"]');
+  const clearBtn = document.getElementById('header-image-clear-btn');
+
+  function renumberMarkers() {
+    list.querySelectorAll('[data-row]').forEach((row, idx) => {
+      const n = idx + 1;
+      const img = row.querySelector('.setup-step-marker');
+      if (img) {
+        img.src = img.src.replace(/\d+\.svg$/, `${n % 10}.svg`);
+        img.alt = String(n);
+      }
+    });
+  }
+
+  if (list) {
+    new Sortable(list, {
+      animation: 150,
+      handle: '.setup-step-grip',
+      onEnd: () => { renumberMarkers(); markDirty(); },
+    });
+  }
+
+  if (addBtn && tpl && list) {
+    addBtn.addEventListener('click', () => {
+      const frag = tpl.content.cloneNode(true);
+      list.appendChild(frag);
+      const newRow = list.lastElementChild;
+      if (window.initForgeRichText) window.initForgeRichText(newRow);
+      const ta = newRow.querySelector('textarea[name="step_text"]');
+      if (ta) ta.focus();
+      renumberMarkers();
+      markDirty();
+    });
+  }
+
+  list?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-remove-row]');
+    if (!btn) return;
+    const row = btn.closest('[data-row]');
+    if (!row) return;
+    row.remove();
+    renumberMarkers();
+    markDirty();
+  });
+
+  // Header image preview.
+  let objectUrl = null;
+  fileInput?.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file || !previewImg) return;
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    objectUrl = URL.createObjectURL(file);
+    previewImg.src = objectUrl;
+    previewImg.removeAttribute('hidden');
+    // Picking a new file cancels a pending clear.
+    if (clearInput) clearInput.value = '';
+    if (clearBtn) clearBtn.removeAttribute('hidden');
+  });
+  clearBtn?.addEventListener('click', () => {
+    if (clearInput) clearInput.value = 'true';
+    if (fileInput) fileInput.value = '';
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+    if (previewImg) {
+      previewImg.removeAttribute('src');
+      previewImg.setAttribute('hidden', '');
+    }
+    clearBtn.setAttribute('hidden', '');
+    markDirty();
+  });
+
+  // Dirty tracking + beforeunload guard.
+  let dirty = false;
+  let submitting = false;
+  function markDirty() { dirty = true; }
+  form.addEventListener('input', markDirty);
+  form.addEventListener('change', markDirty);
+
+  window.addEventListener('beforeunload', (e) => {
+    if (dirty && !submitting) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
+  // Submit validation: every step must have non-blank text.
+  form.addEventListener('submit', (ev) => {
+    const rows = list ? [...list.querySelectorAll('[data-row]')] : [];
+    let firstBad = null;
+    rows.forEach(row => {
+      const ta = row.querySelector('textarea[name="step_text"]');
+      const value = (ta?.value || '').replace(/<br\s*\/?>/gi, '').trim();
+      if (!value) {
+        row.classList.add('is-error');
+        if (!firstBad) firstBad = row;
+      } else {
+        row.classList.remove('is-error');
+      }
+    });
+    if (firstBad) {
+      ev.preventDefault();
+      firstBad.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const ta = firstBad.querySelector('textarea[name="step_text"]');
+      if (ta) ta.focus();
+      return;
+    }
+    submitting = true;
+  });
+});
+</script>
+{% endblock %}

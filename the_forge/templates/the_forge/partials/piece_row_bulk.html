@@ -1,0 +1,35 @@
+{% load static %}
+<div class="border rounded p-2 mb-2 d-flex gap-2 align-items-center piece-row" data-row data-id="{{ piece.pk|default_if_none:'' }}">
+  <input type="hidden" name="piece_id" value="{{ piece.pk|default_if_none:'' }}">
+  <input type="hidden" name="piece_type" value="{% firstof piece.type type_code '' %}">
+  <input type="hidden" name="piece_clear_icon" value="0" data-clear-flag>
+
+  <div class="piece-icon-cell d-flex align-items-center" style="flex-shrink:0;">
+    <img class="piece-icon-thumb" alt=""
+         src="{% if piece.small_icon %}{{ piece.small_icon.url }}{% endif %}"
+         {% if not piece.small_icon %}hidden{% endif %}
+         style="width:2rem; height:2rem; object-fit:contain;">
+    <label class="btn btn-sm btn-outline-secondary mb-0 ms-1" title="Choose icon">
+      <i class="bi bi-image"></i>
+      <input type="file" name="piece_icon" accept="image/*" class="d-none" data-piece-icon>
+    </label>
+    {% if piece.small_icon %}
+      <label class="form-check-label small ms-1 d-flex align-items-center gap-1" title="Remove current icon">
+        <input type="checkbox" class="form-check-input" data-clear-icon>
+        <span>Clear</span>
+      </label>
+    {% endif %}
+  </div>
+
+  <input type="number" name="piece_quantity" min="1" max="99"
+         value="{{ piece.quantity|default:1 }}"
+         class="form-control form-control-sm form-control-num"
+         style="width:4.5rem; flex-shrink:0;">
+  <input type="text" name="piece_name" value="{{ piece.name|default:'' }}"
+         class="form-control form-control-sm flex-grow-1"
+         placeholder="Name" required>
+
+  <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row title="Remove">
+    <i class="bi bi-trash3"></i>
+  </button>
+</div>

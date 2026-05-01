@@ -1,0 +1,78 @@
+{% load static %}
+{% if not express %}
+<div class="phase-step-action-controls d-flex align-items-center gap-2 mt-3"
+     data-step-id="{{ step.pk }}">
+  <div class="ms-auto d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-box data-step-id="{{ step.pk }}">+ Add Box</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-track data-step-id="{{ step.pk }}">+ Add Track</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-legend data-step-id="{{ step.pk }}">+ Add Legend</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-scale data-step-id="{{ step.pk }}">+ Add Scale</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-toggle-actions data-step-id="{{ step.pk }}"
+            aria-expanded="{% if step.actions.exists %}true{% else %}false{% endif %}"
+            aria-controls="actions-panel-{{ step.pk }}">Actions ▾</button>
+  </div>
+</div>
+{% endif %}
+
+<div class="phase-step-action-header mt-2"
+     id="actions-panel-{{ step.pk }}"
+     data-actions-panel
+     data-step-id="{{ step.pk }}"
+     data-action-type-url="{% url 'forge-phasestep-action-type-set' step_pk=step.pk %}"
+     {% if not express and not step.actions.exists %}hidden{% endif %}>
+  <div class="row g-2 align-items-center">
+    <div class="col-12 {% if step.action_type == 'action' %}col-md-6{% endif %}">
+      <div class="d-flex align-items-center gap-2">
+        <strong class="small text-muted">Action Type:</strong>
+        <select class="form-select form-select-sm phase-step-action-type"
+                data-step-id="{{ step.pk }}"
+                {% if step.actions.exists %}disabled{% endif %}
+                style="max-width:11rem;">
+          {% for v,l in step.ActionType.choices %}
+            <option value="{{ v }}" {% if step.action_type == v %}selected{% endif %}>{{ l }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    {% if step.action_type == 'action' %}
+      <div class="col-12 col-md-6">
+        <form method="post" enctype="multipart/form-data"
+              data-step-cost-image-url="{% url 'forge-phasestep-cost-image-set' step_pk=step.pk %}"
+              data-dirty-form data-row data-kind="step-cost-image" data-id="{{ step.pk }}"
+              class="phase-step-cost-image-form d-flex align-items-center gap-2">
+          {% csrf_token %}
+          <input type="file" name="step_cost_image" accept="image/*"
+                 class="form-control form-control-sm"
+                 data-cost-image-input style="min-width:0;">
+          <input type="hidden" name="step_cost_image-clear" value="" data-cost-image-clear-flag>
+          <img class="forge-cost-image-preview flex-shrink-0" data-cost-image-preview
+               src="{% if step.step_cost_image %}{{ step.step_cost_image.url }}{% endif %}"
+               alt=""
+               {% if not step.step_cost_image %}hidden{% endif %}>
+          <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">Save</button>
+          {% if step.step_cost_image %}
+            <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0"
+                    data-cost-image-clear title="Remove image">×</button>
+          {% endif %}
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="phase-step-action-list mt-2" data-step-id="{{ step.pk }}"
+       data-reorder-url="{% url 'forge-stepaction-reorder' step_pk=step.pk %}">
+    {% for a in step.actions.all %}
+      {% include 'the_forge/partials/step_action_row.html' with action=a %}
+    {% endfor %}
+  </div>
+
+  <div class="mt-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary"
+            data-add-action data-step-id="{{ step.pk }}">+ Add Action</button>
+  </div>
+</div>

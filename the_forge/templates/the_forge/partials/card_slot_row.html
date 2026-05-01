@@ -1,0 +1,22 @@
+{% load static %}
+<div class="border rounded p-2 card-slot-col" data-row data-id="{{ slot.pk }}">
+  <form method="post" data-edit-url="{% url 'forge-cardslot-edit' pk=slot.pk %}" data-dirty-form class="m-0">
+    {% csrf_token %}
+    <input type="hidden" name="number" value="{{ slot.number }}">
+    <div class="d-flex align-items-center gap-1 mb-2">
+      <span class="card-slot-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
+      <span class="text-muted card-slot-number luminari">{{ slot.number }}</span>
+      <input type="text" name="title" value="{{ slot.title|default_if_none:'' }}"
+             maxlength="20" class="form-control form-control-sm flex-grow-1" placeholder="Title">
+    </div>
+    <input type="text" name="body" value="{{ slot.body|default_if_none:'' }}"
+           maxlength="40" class="form-control form-control-sm mb-2"
+           placeholder="Body (optional)" style="font-style:italic;">
+    <div class="d-flex gap-1">
+      <button type="submit" data-save-btn class="btn btn-sm btn-outline-primary flex-grow-1">Save</button>
+      <button type="button" class="btn btn-sm btn-outline-danger flex-grow-1"
+              data-delete-url="{% url 'forge-cardslot-delete' pk=slot.pk %}"
+              data-confirm="Delete this card column?">Delete</button>
+    </div>
+  </form>
+</div>

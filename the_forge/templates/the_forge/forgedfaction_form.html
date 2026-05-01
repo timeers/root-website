@@ -1,0 +1,324 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'the_forge/forge_richtext.css' %}">
+
+<div class="mb-2">
+  {% if faction %}
+    <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; Back</a>
+  {% else %}
+    <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary">&larr; All Factions</a>
+  {% endif %}
+</div>
+
+{% if is_create %}
+  <div class="mb-2">
+    <h2 class="root-title m-0">New Forged Faction</h2>
+  </div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+
+  <div class="card p-3 mb-3">
+    <label for="{{ form.faction_name.id_for_label }}" class="form-label small text-muted text-uppercase">Faction Name</label>
+    {{ form.faction_name }}
+    {% if form.faction_name.errors %}<div class="text-danger small mt-1">{{ form.faction_name.errors }}</div>{% endif %}
+  </div>
+
+  <div class="card p-3 mb-3">
+    <label class="form-label small text-muted text-uppercase">Faction Color</label>
+    <div class="forge-color-row">
+      {{ form.color }}
+      <input type="text" id="forge-color-hex" class="form-control form-control-sm forge-color-hex"
+             value="{{ form.color.value|default:'' }}" placeholder="#RRGGBB" maxlength="7"
+             pattern="^#[0-9a-fA-F]{6}$"
+             title="Enter a 6-digit hex color code, e.g. #1a2b3c">
+    </div>
+    {% if form.color.help_text %}<div class="form-text">{{ form.color.help_text }}</div>{% endif %}
+    {% if form.color.errors %}<div class="text-danger small mt-1">{{ form.color.errors }}</div>{% endif %}
+  </div>
+
+  <div class="card p-3 mb-3" id="forge-bg-card">
+    <label class="form-label small text-muted text-uppercase mb-2">Background</label>
+
+    <div class="btn-group forge-bg-mode-toggle mb-3" role="group" aria-label="Background mode">
+      <input type="radio" class="btn-check" name="background_mode" id="bg-mode-none" value="none"
+             {% if not faction.background_preset and not faction.background_image %}checked{% endif %}>
+      <label class="btn btn-outline-secondary" for="bg-mode-none">Color</label>
+
+
+      <input type="radio" class="btn-check" name="background_mode" id="bg-mode-preset" value="preset"
+             {% if faction.background_preset %}checked{% endif %}>
+      <label class="btn btn-outline-secondary" for="bg-mode-preset">Preset</label>
+      
+      <input type="radio" class="btn-check" name="background_mode" id="bg-mode-custom" value="custom"
+             {% if faction.background_image and not faction.background_preset %}checked{% endif %}>
+      <label class="btn btn-outline-secondary" for="bg-mode-custom">Custom</label>
+
+    </div>
+
+    <div class="forge-bg-panel" data-bg-panel="none" hidden>
+      <div class="forge-bg-pair">
+        <figure class="forge-bg-pair-item">
+          <div class="forge-bg-rect" id="forge-bg-none-front"></div>
+          <figcaption>Front</figcaption>
+        </figure>
+        <figure class="forge-bg-pair-item">
+          <div class="forge-bg-rect forge-bg-rect-back" id="forge-bg-none-back"></div>
+          <figcaption>Back</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="forge-bg-panel" data-bg-panel="custom" hidden>
+      <div class="mb-2">
+        {{ form.background_image }}
+      </div>
+      <div class="form-check mb-3">
+        {{ form.repeat_background_image }}
+        <label class="form-check-label" for="{{ form.repeat_background_image.id_for_label }}">
+          Repeat background image
+        </label>
+      </div>
+      <div class="forge-bg-pair">
+        <figure class="forge-bg-pair-item">
+          <div class="forge-bg-rect forge-bg-rect-image" id="forge-bg-custom-front"
+               {% if faction.background_image %}data-initial-url="{{ faction.background_image.url }}"{% endif %}></div>
+          <figcaption>Front</figcaption>
+        </figure>
+        <figure class="forge-bg-pair-item">
+          <div class="forge-bg-rect forge-bg-rect-image forge-bg-rect-back" id="forge-bg-custom-back"
+               {% if faction.background_image %}data-initial-url="{{ faction.background_image.url }}"{% endif %}></div>
+          <figcaption>Back</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="forge-bg-panel" data-bg-panel="preset" hidden>
+      <div class="forge-preset-grid">
+        {% for preset in background_presets %}
+          <div class="forge-preset-tile{% if faction.background_preset == preset.value %} is-selected{% endif %}"
+               data-preset-value="{{ preset.value }}" role="button" tabindex="0">
+            <img src="{% static preset.static_path %}" alt="{{ preset.label }}">
+            <div class="label">{{ preset.label }}</div>
+          </div>
+        {% endfor %}
+      </div>
+      <div style="display:none;">{{ form.background_preset }}</div>
+    </div>
+  </div>
+
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
+
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-success">
+      {% if is_create %}Create{% else %}Save{% endif %}
+    </button>
+    {% if faction %}
+      <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-outline-secondary">Cancel</a>
+    {% else %}
+      <a href="{% url 'forge-faction-list' %}" class="btn btn-outline-secondary">Cancel</a>
+    {% endif %}
+  </div>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Color picker sync
+  const swatch = document.querySelector('.forge-color-swatch');
+  const hex = document.getElementById('forge-color-hex');
+  const noneFront = document.getElementById('forge-bg-none-front');
+  const noneBack = document.getElementById('forge-bg-none-back');
+  const customFront = document.getElementById('forge-bg-custom-front');
+  const customBack = document.getElementById('forge-bg-custom-back');
+  const isValidHex = (v) => /^#[0-9a-fA-F]{6}$/.test(v);
+  const updateNonePreview = (color) => {
+    const c = color || '#ffffff';
+    if (noneFront) noneFront.style.backgroundColor = c;
+    if (noneBack) noneBack.style.backgroundColor = c;
+  };
+  if (swatch && hex) {
+    swatch.addEventListener('input', () => {
+      hex.value = swatch.value.toLowerCase();
+      hex.classList.remove('is-invalid');
+      updateNonePreview(swatch.value);
+    });
+    hex.addEventListener('input', () => {
+      let v = hex.value.trim();
+      if (v && v[0] !== '#') v = '#' + v;
+      if (isValidHex(v)) {
+        swatch.value = v.toLowerCase();
+        hex.classList.remove('is-invalid');
+        updateNonePreview(swatch.value);
+      } else if (v) {
+        hex.classList.add('is-invalid');
+      } else {
+        hex.classList.remove('is-invalid');
+      }
+    });
+    if (!swatch.value) swatch.value = '#888888';
+    if (!hex.value && swatch.value) hex.value = swatch.value.toLowerCase();
+    updateNonePreview(hex.value || swatch.value);
+  } else {
+    updateNonePreview('#ffffff');
+  }
+
+  // Block submit if hex is non-empty but invalid (empty is allowed — color is optional)
+  const form = document.querySelector('form[enctype="multipart/form-data"]');
+  if (form && hex) {
+    form.addEventListener('submit', (e) => {
+      const v = hex.value.trim();
+      if (v && !isValidHex(v)) {
+        e.preventDefault();
+        hex.classList.add('is-invalid');
+        hex.reportValidity();
+      }
+    });
+  }
+
+  // Background mode toggle
+  const panels = document.querySelectorAll('[data-bg-panel]');
+  const showMode = (mode) => {
+    panels.forEach(p => { p.hidden = (p.dataset.bgPanel !== mode); });
+  };
+  document.querySelectorAll('input[name="background_mode"]').forEach(input => {
+    input.addEventListener('change', () => { if (input.checked) showMode(input.value); });
+  });
+  const checked = document.querySelector('input[name="background_mode"]:checked');
+  showMode(checked ? checked.value : 'none');
+
+  // Preset thumbnail picker
+  const presetField = document.getElementById('{{ form.background_preset.id_for_label }}');
+  const tiles = document.querySelectorAll('.forge-preset-tile');
+  const selectTile = (value) => {
+    tiles.forEach(t => t.classList.toggle('is-selected', t.dataset.presetValue === value));
+    if (presetField) presetField.value = value;
+  };
+  tiles.forEach(tile => {
+    const handler = () => selectTile(tile.dataset.presetValue);
+    tile.addEventListener('click', handler);
+    tile.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); }
+    });
+  });
+
+  // Custom image live preview (Front + Back) with optional brick-tile repeat.
+  // Mirrors draw_faction_background() in pdf_engine.py: tile height = 1/3 of page,
+  // preserves aspect ratio, every other row offset by -tileW/2.
+  const imageInput = document.getElementById('{{ form.background_image.id_for_label }}');
+  const repeatInput = document.getElementById('{{ form.repeat_background_image.id_for_label }}');
+  const customRects = [customFront, customBack].filter(Boolean);
+  let customImageUrl = '';
+  let customImageW = 0;
+  let customImageH = 0;
+
+  const applyCoverToRect = (rect) => {
+    if (!customImageUrl) {
+      rect.style.backgroundImage = '';
+      return;
+    }
+    rect.style.backgroundImage = `url('${customImageUrl}')`;
+    rect.style.backgroundSize = 'cover';
+    rect.style.backgroundPosition = 'center';
+    rect.style.backgroundRepeat = 'no-repeat';
+  };
+
+  let cachedImageEl = null;
+  const ensureLoadedImage = () => new Promise((resolve, reject) => {
+    if (!customImageUrl) { resolve(null); return; }
+    if (cachedImageEl && cachedImageEl.src === customImageUrl) { resolve(cachedImageEl); return; }
+    const img = new Image();
+    img.onload = () => { cachedImageEl = img; resolve(img); };
+    img.onerror = reject;
+    img.src = customImageUrl;
+  });
+
+  const applyTileToRect = async (rect) => {
+    if (!customImageUrl || !customImageW || !customImageH) {
+      rect.style.backgroundImage = '';
+      return;
+    }
+    const previewH = rect.clientHeight;
+    if (!previewH) return;
+    // Mirrors pdf_engine.draw_faction_background():
+    //   max_h = PAGE_H / 3; if ih > max_h: scale to max_h, else use natural ih.
+    // PAGE_H = 612pt (8.5in landscape). Convert image px→preview units via previewH/612.
+    const PAGE_H_PT = 612;
+    const previewPerPt = previewH / PAGE_H_PT;
+    const tileH = Math.min(customImageH * previewPerPt, previewH / 3);
+    const tileW = customImageW * (tileH / customImageH);
+    const img = await ensureLoadedImage();
+    if (!img) return;
+    // Render two-row brick pattern into a canvas, then use as a single repeating bg.
+    const dpr = window.devicePixelRatio || 1;
+    const cw = Math.max(1, Math.round(tileW * dpr));
+    const ch = Math.max(1, Math.round(2 * tileH * dpr));
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    const dw = tileW * dpr;
+    const dh = tileH * dpr;
+    // Row 0 (even): aligned left, drawn twice for horizontal wrap if shifted partner needs it.
+    ctx.drawImage(img, 0, 0, dw, dh);
+    // Row 1 (odd): shifted by -tileW/2, draw twice so the pattern wraps cleanly.
+    ctx.drawImage(img, -dw / 2, dh, dw, dh);
+    ctx.drawImage(img, dw / 2, dh, dw, dh);
+    rect.style.backgroundImage = `url('${canvas.toDataURL()}')`;
+    rect.style.backgroundSize = `${tileW}px ${2 * tileH}px`;
+    rect.style.backgroundPosition = '0 0';
+    rect.style.backgroundRepeat = 'repeat';
+  };
+
+  const renderCustomPreview = () => {
+    const repeating = !!(repeatInput && repeatInput.checked);
+    customRects.forEach(rect => repeating ? applyTileToRect(rect) : applyCoverToRect(rect));
+  };
+
+  const loadCustomImageMeta = (url) => {
+    customImageUrl = url || '';
+    if (!url) {
+      customImageW = customImageH = 0;
+      renderCustomPreview();
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      customImageW = img.naturalWidth;
+      customImageH = img.naturalHeight;
+      renderCustomPreview();
+    };
+    img.src = url;
+  };
+
+  if (imageInput) {
+    imageInput.addEventListener('change', () => {
+      const file = imageInput.files && imageInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => loadCustomImageMeta(e.target.result);
+      reader.readAsDataURL(file);
+    });
+  }
+  if (repeatInput) {
+    repeatInput.addEventListener('change', renderCustomPreview);
+  }
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => {
+      if (repeatInput && repeatInput.checked) renderCustomPreview();
+    });
+    customRects.forEach(rect => ro.observe(rect));
+  }
+
+  // Initialize from any pre-existing image URL on the rectangles
+  const initialUrl = customFront && customFront.dataset.initialUrl
+    || customBack && customBack.dataset.initialUrl
+    || '';
+  if (initialUrl) loadCustomImageMeta(initialUrl);
+});
+</script>
+{% endblock %}

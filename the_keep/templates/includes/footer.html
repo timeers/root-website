@@ -11,7 +11,16 @@
             <a href="{% url 'general-feedback' %}">{% trans 'Feedback' %}</a>
         </div>
         <div>
-        {% if theme_artists %}
+        {% if page_artists %}
+            {% trans 'Page Art by' %}
+            {% for artist in page_artists %}
+                {% if artist.credit_link %}
+                    <a href='{{ artist.credit_link }}'>{{ artist.name }}</a>
+                {% else %}
+                    <a href='{{ artist.get_absolute_url }}'>{{ artist.name }}</a>
+                {% endif %}
+            {% endfor %}
+        {% elif theme_artists %}
             {% trans 'Website Art by' %}
             {% for artist in theme_artists %}
                 {% if artist.credit_link %}

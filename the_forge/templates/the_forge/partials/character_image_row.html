@@ -1,0 +1,9 @@
+{% load static %}
+<div class="border rounded p-2 mb-2 d-flex gap-2 align-items-center character-image-row" data-row data-id="{{ ci.pk }}">
+  <span class="character-image-label luminari text-muted" style="min-width:4.5rem;">Image {{ ci.order }}</span>
+  <img src="{{ ci.image.url }}" alt="" style="max-height:60px;max-width:120px;">
+  <div class="ms-auto">
+    <button type="button" class="btn btn-sm btn-outline-danger"
+            data-delete-url="{% url 'forge-character-image-delete' pk=ci.pk %}">Delete</button>
+  </div>
+</div>
