@@ -1690,12 +1690,11 @@ def setup_card_pdf(request, pk):
         return resp
     from io import BytesIO
     from .pdf_engine import SetupCardLayoutEngine
-    # TEMP: bypass cache while tweaking layout constants
-    buffer = BytesIO()
-    SetupCardLayoutEngine(card).build(buffer)
-    data = buffer.getvalue()
-    # TEMP: force download instead of inline preview
-    from io import BytesIO
-    response = FileResponse(BytesIO(data), content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="{card.faction.faction_name} - Setup.pdf"'
-    return response
+    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    key = cache_key('setup_card', card.pk, fingerprint_setup_card(card))
+    def build():
+        buffer = BytesIO()
+        SetupCardLayoutEngine(card).build(buffer)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')

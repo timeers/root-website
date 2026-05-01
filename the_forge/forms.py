@@ -389,6 +389,7 @@ class SetupCardForm(forms.Form):
             'accept': 'image/*',
         }),
     )
+    clear_header_image = forms.BooleanField(required=False, widget=forms.HiddenInput())
 
     def __init__(self, *args, card=None, **kwargs):
         self.card = card
@@ -409,7 +410,7 @@ class SetupCardForm(forms.Form):
         if new_img:
             card.header_image = new_img
             update_fields.append('header_image')
-        elif new_img is False:
+        elif self.cleaned_data.get('clear_header_image') or new_img is False:
             card.header_image = None
             update_fields.append('header_image')
         card.save(update_fields=update_fields)

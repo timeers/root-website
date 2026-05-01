@@ -340,9 +340,15 @@ SETUP_CARD_BAND_TOP_INSET = 0.336 * inch       # inset from top edge of card to 
 SETUP_CARD_BAND_HEIGHT = 0.3491 * inch
 SETUP_CARD_BAND_TEXT_PADDING = 0.06 * inch    # horizontal padding inside the band for the faction name
 
-SETUP_CARD_NAME_SIZE_LARGE = 16
-SETUP_CARD_NAME_SIZE_SMALL = 12
+SETUP_CARD_NAME_SIZE_LARGE = 12
+SETUP_CARD_NAME_SIZE_SMALL = 10
 SETUP_CARD_NAME_LINE_GAP = 1.5                # extra leading between two wrapped lines (pts)
+SETUP_CARD_NAME_LEFT_PADDING = 0.06 * inch    # left padding inside the band for the faction name
+
+SETUP_CARD_TITLE_TEXT = 'ADVANCED SETUP'
+SETUP_CARD_TITLE_FONT_SIZE = 9.5               # font size (pt) of the "ADVANCED SETUP" title
+SETUP_CARD_TITLE_TOP_MARGIN = 0.833 * inch     # distance from top of card to title baseline
+SETUP_CARD_TITLE_CHAR_SPACING = 0.35           # extra pts of space between each character in the title
 
 # Header image hangs upward from the bottom-left of the band
 SETUP_CARD_HEADER_MAX_H = 1.4 * inch          # don't let the header overflow upward forever
@@ -409,8 +415,8 @@ MEEPLE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/meeple.svg')
 
 ADSET_DIR = os.path.join(STATIC_DIR, 'pdf/adset')
 SETUP_CARD_BG_PNG = os.path.join(ADSET_DIR, 'background.png')
-SETUP_CARD_MILITANT_PNG = os.path.join(ADSET_DIR, 'militant.png')
-SETUP_CARD_INSURGENT_PNG = os.path.join(ADSET_DIR, 'insurgent.png')
+SETUP_CARD_MILITANT_PNG = os.path.join(ADSET_DIR, 'militant2.png')
+SETUP_CARD_INSURGENT_PNG = os.path.join(ADSET_DIR, 'insurgent2.png')
 
 PHASE_HEADERS = {
     'birdsong': {
@@ -5753,7 +5759,7 @@ class SetupCardLayoutEngine:
 
     Layer order (bottom to top):
       1. adset/background.png (full canvas)
-      2. adset/militant.png or adset/insurgent.png (full canvas)
+      2. adset/militant2.png or adset/insurgent2.png (full canvas)
       3. Reach number (white Luminari, bottom-right)
       4. Faction-color band (above the bottom strip)
       5. Optional header image (bottom-left aligned to band, hangs upward)
@@ -5893,6 +5899,20 @@ class SetupCardLayoutEngine:
         # Layer 3: reach (white Luminari, bottom-right)
         self._draw_reach(c)
 
+        # Title: "ADVANCED SETUP" centered near top
+        c.saveState()
+        c.setFillColorRGB(1, 1, 1)
+        title_w = (
+            pdfmetrics.stringWidth(SETUP_CARD_TITLE_TEXT, 'Baskerville-Bold', SETUP_CARD_TITLE_FONT_SIZE)
+            + SETUP_CARD_TITLE_CHAR_SPACING * max(len(SETUP_CARD_TITLE_TEXT) - 1, 0)
+        )
+        txt = c.beginText((CARD_SLOT_W - title_w) / 2, CARD_SLOT_H - SETUP_CARD_TITLE_TOP_MARGIN)
+        txt.setFont('Baskerville-Bold', SETUP_CARD_TITLE_FONT_SIZE)
+        txt.setCharSpace(SETUP_CARD_TITLE_CHAR_SPACING)
+        txt.textLine(SETUP_CARD_TITLE_TEXT)
+        c.drawText(txt)
+        c.restoreState()
+
         # Layer 4: faction-color band
         band_x = SETUP_CARD_BAND_X_INSET
         band_y = CARD_SLOT_H - SETUP_CARD_BAND_TOP_INSET - SETUP_CARD_BAND_HEIGHT
@@ -5974,10 +5994,10 @@ class SetupCardLayoutEngine:
         c.saveState()
         c.setFont('Luminari', size)
         c.setFillColorRGB(*fill)
-        center_x = band_x + band_w / 2
+        text_x = band_x + SETUP_CARD_NAME_LEFT_PADDING
         for i, line in enumerate(lines):
             y = first_baseline_y - i * leading
-            c.drawCentredString(center_x, y, line)
+            c.drawString(text_x, y, line)
         c.restoreState()
 
     def _draw_setup_steps(self, c):
@@ -5985,13 +6005,6 @@ class SetupCardLayoutEngine:
         body_w = CARD_SLOT_W - 2 * SETUP_CARD_BODY_X_INSET
         cursor_y = CARD_SLOT_H - SETUP_CARD_BODY_TOP_INSET
         bottom_y = SETUP_CARD_BODY_BOTTOM_INSET
-
-        # DEBUG: red outline around the body rectangle for tuning. Remove when geometry is set.
-        c.saveState()
-        c.setStrokeColorRGB(1, 0, 0)
-        c.setLineWidth(0.5)
-        c.rect(body_x, bottom_y, body_w, cursor_y - bottom_y, stroke=1, fill=0)
-        c.restoreState()
 
         step_x = body_x + SETUP_CARD_STEP_INDENT
         step_w = max(body_w - SETUP_CARD_STEP_INDENT, 40)

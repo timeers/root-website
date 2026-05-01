@@ -8,7 +8,7 @@
 </div>
 
 <div class="card p-3 mb-3">
-  <h2 class="root-title">{{ faction.faction_name }} — Adset Card</h2>
+  <h2 class="root-title">Adset Card</h2>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
@@ -40,7 +40,18 @@
     </div>
     <div class="col-md-4 mb-2">
       {{ form.header_image.label_tag }}
-      {{ form.header_image }}
+      <div class="d-flex align-items-center gap-2">
+        {{ form.header_image }}
+        {{ form.clear_header_image }}
+        <button type="button"
+                id="header-image-clear-btn"
+                class="btn btn-sm btn-outline-danger"
+                title="Clear header image"
+                aria-label="Clear header image"
+                {% if not card.header_image %}hidden{% endif %}>
+          &times;
+        </button>
+      </div>
     </div>
   </div>
 
@@ -59,7 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const tpl = document.getElementById('setup-step-row-template');
   const previewImg = form.querySelector('.forge-adset-preview-image');
   const fileInput = form.querySelector('input[name="header_image"]');
-  const clearInput = form.querySelector('input[name="header_image-clear"]');
+  const clearInput = form.querySelector('input[name="clear_header_image"]');
+  const clearBtn = document.getElementById('header-image-clear-btn');
 
   function renumberMarkers() {
     list.querySelectorAll('[data-row]').forEach((row, idx) => {
@@ -112,14 +124,20 @@ document.addEventListener('DOMContentLoaded', () => {
     objectUrl = URL.createObjectURL(file);
     previewImg.src = objectUrl;
     previewImg.removeAttribute('hidden');
+    // Picking a new file cancels a pending clear.
+    if (clearInput) clearInput.value = '';
+    if (clearBtn) clearBtn.removeAttribute('hidden');
   });
-  clearInput?.addEventListener('change', () => {
-    if (!previewImg) return;
-    if (clearInput.checked) {
-      if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+  clearBtn?.addEventListener('click', () => {
+    if (clearInput) clearInput.value = 'true';
+    if (fileInput) fileInput.value = '';
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+    if (previewImg) {
       previewImg.removeAttribute('src');
       previewImg.setAttribute('hidden', '');
     }
+    clearBtn.setAttribute('hidden', '');
+    markDirty();
   });
 
   // Dirty tracking + beforeunload guard.
