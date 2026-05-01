@@ -15,7 +15,7 @@
         data-add-url="{{ add_url }}">
     {% csrf_token %}
     <div class="forge-rich-text">
-      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+      <textarea name="text" class="form-control" rows="3" placeholder="Step text…" data-required></textarea>
       <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
         {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
         <div class="ms-auto d-flex gap-2">
@@ -75,12 +75,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (ta) ta.focus();
     });
   }
+  function clearAddForm() {
+    const ta = addForm.querySelector('textarea');
+    if (ta) ta.value = '';
+    addForm.querySelectorAll('.forge-rich-text-editor').forEach(el => { el.innerHTML = '<br>'; });
+  }
   if (cancel && addForm && toggle) {
     cancel.addEventListener('click', () => {
       addForm.hidden = true;
       toggle.hidden = false;
-      const ta = addForm.querySelector('textarea');
-      if (ta) ta.value = '';
+      clearAddForm();
     });
   }
   if (addForm && toggle) {

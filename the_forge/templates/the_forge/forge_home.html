@@ -1,0 +1,64 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="forge-home">
+
+  <section class="forge-home-hero text-center py-5 mb-4">
+    <h1 class="root-title display-4 mb-3">The Forge</h1>
+    <p class="lead mb-4">
+      Design and create a custom Faction Board. 
+      <br>
+      When you're ready print your faction board as a PDF.
+    </p>
+
+    {% if user.is_authenticated %}
+      {% if has_factions %}
+        <a href="{% url 'forge-faction-list' %}" class="btn btn-primary btn-lg">
+          View My Factions
+        </a>
+      {% else %}
+        <a href="{% url 'forge-faction-create' %}" class="btn btn-primary btn-lg">
+          Create a Faction
+        </a>
+      {% endif %}
+    {% else %}
+      <a href="{% url 'login' %}?next={% url 'forge-home' %}" class="btn btn-primary btn-lg">
+        Log In to Get Started
+      </a>
+    {% endif %}
+  </section>
+
+  <section class="forge-home-features mb-5">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Front</h4>
+          <p class="mb-0 text-muted">
+            Build out faction abilities, and Birdsong-Daylight-Evening steps,
+            add extra sections with boxes, tracks and legends.
+          </p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Back</h4>
+          <p class="mb-0 text-muted">
+            Define your faction's piece manifest, complexity ratings, setup order,
+            and how-to-play summary.
+          </p>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Export to PDF</h4>
+          <p class="mb-0 text-muted">
+            Generate PDFs of your faction board, back, and adset card.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}

@@ -136,12 +136,33 @@ def _background_preset_options():
     ]
 
 
+# ---------- Forge Home (public landing page) ----------
+
+def forge_home(request):
+    has_factions = False
+    if request.user.is_authenticated:
+        profile = getattr(request.user, 'profile', None)
+        if profile is not None:
+            has_factions = ForgedFaction.objects.filter(designer=profile).exists()
+    return render(request, 'the_forge/forge_home.html', {
+        'has_factions': has_factions,
+    })
+
+
 # ---------- ForgedFaction CRUD ----------
 
 @forge_onboard_required
 def forgedfaction_list(request):
     profile = getattr(request.user, 'profile', None)
-    factions = ForgedFaction.objects.filter(designer=profile).order_by('faction_name') if profile else []
+    if profile:
+        factions = (
+            ForgedFaction.objects
+            .filter(designer=profile)
+            .select_related('faction_sheet', 'faction_back', 'setup_card')
+            .order_by('faction_name')
+        )
+    else:
+        factions = []
     return render(request, 'the_forge/forgedfaction_list.html', {'factions': factions})
 
 
@@ -640,9 +661,34 @@ def setup_card_edit(request, pk):
     if (resp := _forbid_if_not_editor(request, card.faction)):
         return resp
     if request.method == 'POST':
-        form = SetupCardForm(request.POST, card=card)
+        form = SetupCardForm(request.POST, request.FILES, card=card)
+        ids = request.POST.getlist('step_id')
+        texts = request.POST.getlist('step_text')
+        pairs = [(sid, txt) for sid, txt in zip(ids, texts) if txt.strip()]
         if form.is_valid():
-            form.save(card)
+            with transaction.atomic():
+                form.save(card)
+                existing = {s.pk: s for s in card.setup_steps.all()}
+                kept_ids = set()
+                to_update = []
+                to_create = []
+                for index, (sid, text) in enumerate(pairs, start=1):
+                    if sid and sid.isdigit() and int(sid) in existing:
+                        step = existing[int(sid)]
+                        kept_ids.add(step.pk)
+                        if step.text != text or step.number != index:
+                            step.text = text
+                            step.number = index
+                            to_update.append(step)
+                    else:
+                        to_create.append(SetupStep(card=card, number=index, text=text))
+                stale_ids = set(existing) - kept_ids
+                if stale_ids:
+                    SetupStep.objects.filter(pk__in=stale_ids).delete()
+                if to_update:
+                    SetupStep.objects.bulk_update(to_update, ['text', 'number'])
+                if to_create:
+                    SetupStep.objects.bulk_create(to_create)
             return redirect('forge-setup-card-edit', pk=card.pk)
     else:
         form = SetupCardForm(card=card)
@@ -651,40 +697,9 @@ def setup_card_edit(request, pk):
         'faction': card.faction,
         'form': form,
         'setup_steps': _annotate_steps(card.setup_steps.order_by('number')),
-        'setup_step_form': SetupStepForm(),
         'inline_keywords': _inline_keywords(),
         'inline_images_map': _inline_images_map(),
     })
-
-
-@player_required
-@require_http_methods(["POST"])
-def setup_card_step_add(request, card_pk):
-    card = get_object_or_404(SetupCard, pk=card_pk)
-    if (resp := _forbid_if_not_editor(request, card.faction)):
-        return resp
-    form = SetupStepForm(request.POST)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    step = form.save(commit=False)
-    step.card = card
-    step.number = card.setup_steps.count() + 1
-    step.save()
-    return render(request, 'the_forge/partials/setup_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(),
-    })
-
-
-@player_required
-@require_http_methods(["POST"])
-def setup_card_step_reorder(request, card_pk):
-    card = get_object_or_404(SetupCard, pk=card_pk)
-    if (resp := _forbid_if_not_editor(request, card.faction)):
-        return resp
-    data = json.loads(request.body)
-    for index, sid in enumerate(data.get('order', []), start=1):
-        SetupStep.objects.filter(id=sid, card=card).update(number=index)
-    return HttpResponse(status=204)
 
 
 # ---------- FactionAbility (child of FactionSheet) ----------
@@ -1608,20 +1623,52 @@ def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
-    from . import pdf_engine
-    from .pdf_cache import cache_key, fingerprint_faction, get_or_build
-    generator = getattr(pdf_engine, 'generate_pdf', None)
-    if generator is None:
+    from io import BytesIO
+    from pypdf import PdfWriter, PdfReader
+    from .pdf_engine import SheetLayoutEngine, FactionBackLayoutEngine, SetupCardLayoutEngine
+    from .pdf_cache import (
+        cache_key, fingerprint_sheet, fingerprint_back, fingerprint_setup_card, get_or_build,
+    )
+
+    parts = []
+
+    sheet = getattr(faction, 'faction_sheet', None)
+    if sheet:
+        def build_sheet():
+            buf = BytesIO()
+            SheetLayoutEngine(sheet).build(buf)
+            return buf.getvalue()
+        parts.append(get_or_build(cache_key('sheet', sheet.pk, fingerprint_sheet(sheet)), build_sheet))
+
+    back = getattr(faction, 'faction_back', None)
+    if back:
+        def build_back():
+            buf = BytesIO()
+            FactionBackLayoutEngine(back).build(buf)
+            return buf.getvalue()
+        parts.append(get_or_build(cache_key('back', back.pk, fingerprint_back(back)), build_back))
+
+    card = getattr(faction, 'setup_card', None)
+    if card:
+        def build_card():
+            buf = BytesIO()
+            SetupCardLayoutEngine(card).build(buf)
+            return buf.getvalue()
+        parts.append(get_or_build(cache_key('setup_card', card.pk, fingerprint_setup_card(card)), build_card))
+
+    if not parts:
         return HttpResponse(
-            "PDF generation is not wired up yet — pdf_engine.generate_pdf() is missing.",
-            status=501, content_type='text/plain',
+            "No content yet — create a Front, Back, or Setup Card first.",
+            status=404, content_type='text/plain',
         )
-    key = cache_key('faction', faction.pk, fingerprint_faction(faction))
-    def build():
-        buffer = generator(faction)
-        return buffer.getvalue() if hasattr(buffer, 'getvalue') else buffer
-    data = get_or_build(key, build)
-    return _pdf_file_response(data, f'{faction.faction_name}.pdf')
+
+    writer = PdfWriter()
+    for data in parts:
+        for page in PdfReader(BytesIO(data)).pages:
+            writer.add_page(page)
+    out = BytesIO()
+    writer.write(out)
+    return _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
 
 
 @forge_onboard_required

@@ -311,8 +311,8 @@ class FactionHeaderForm(forms.Form):
 
 
 class SetupCardForm(forms.Form):
-    """Edits faction_name (on ForgedFaction) plus type and reach (on SetupCard)
-    in a single form."""
+    """Edits faction_name (on ForgedFaction) plus type, reach, and header_image
+    (on SetupCard) in a single form."""
 
     faction_name = forms.CharField(
         max_length=100,
@@ -329,6 +329,13 @@ class SetupCardForm(forms.Form):
         validators=[MinValueValidator(1), MaxValueValidator(10)],
         widget=forms.NumberInput(attrs={'min': 1, 'max': 10, 'class': 'form-control'}),
     )
+    header_image = forms.ImageField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={
+            'class': 'form-control form-control-sm',
+            'accept': 'image/*',
+        }),
+    )
 
     def __init__(self, *args, card=None, **kwargs):
         self.card = card
@@ -344,7 +351,15 @@ class SetupCardForm(forms.Form):
         card.faction.save(update_fields=['faction_name'])
         card.type = self.cleaned_data['type']
         card.reach = self.cleaned_data['reach']
-        card.save(update_fields=['type', 'reach'])
+        update_fields = ['type', 'reach']
+        new_img = self.cleaned_data.get('header_image')
+        if new_img:
+            card.header_image = new_img
+            update_fields.append('header_image')
+        elif new_img is False:
+            card.header_image = None
+            update_fields.append('header_image')
+        card.save(update_fields=update_fields)
         return card
 
 

@@ -1,5 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load static %}
+{% load forge_text %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -7,23 +8,53 @@
   <a href="{% url 'forge-faction-create' %}" class="btn btn-primary">+ New Faction</a>
 </div>
 
-<div class="card p-3">
-  {% if factions %}
-    <ul class="list-group">
-      {% for faction in factions %}
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-          <a href="{% url 'forge-faction-detail' pk=faction.pk %}">
-            {% if faction.color %}
-              <span class="badge" style="background:{{ faction.color }};">&nbsp;</span>
-            {% endif %}
-            {{ faction.faction_name }}
-          </a>
-          <span class="text-muted small">{{ faction.get_background_preset_display|default:"Custom background" }}</span>
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
+{% if factions %}
+  <div class="row g-3 forge-faction-grid">
+    {% for faction in factions %}
+      <div class="col-12 col-sm-6 col-lg-4">
+        <a href="{% url 'forge-faction-detail' pk=faction.pk %}"
+           class="forge-faction-card card h-100 text-decoration-none position-relative overflow-hidden">
+          {% if faction.background_image %}
+            <div class="forge-faction-card__bg"
+                 style="background-image:url('{{ faction.background_image.url }}');"></div>
+          {% else %}
+            {% with preset_path=faction.BACKGROUND_PRESET_FILES|dict_get:faction.background_preset %}
+              {% if preset_path %}
+                <div class="forge-faction-card__bg"
+                     style="background-image:url('{% static preset_path %}');"></div>
+              {% elif faction.color %}
+                <div class="forge-faction-card__bg"
+                     style="background:{{ faction.color }};"></div>
+              {% endif %}
+            {% endwith %}
+          {% endif %}
+          <div class="forge-faction-card__overlay"></div>
+          <div class="card-body position-relative d-flex flex-column">
+            <div class="d-flex align-items-center gap-2 mb-3">
+              {% if faction.color %}
+                <span class="forge-faction-card__swatch" style="background:{{ faction.color }};"></span>
+              {% endif %}
+              <h4 class="root-title mb-0 forge-faction-card__name">{{ faction.faction_name }}</h4>
+            </div>
+            <div class="mt-auto d-flex flex-wrap gap-1">
+              <span class="badge {% if faction.faction_sheet %}bg-success{% else %}bg-secondary opacity-50{% endif %}">
+                {% if faction.faction_sheet %}&#10003; {% endif %}Front
+              </span>
+              <span class="badge {% if faction.faction_back %}bg-success{% else %}bg-secondary opacity-50{% endif %}">
+                {% if faction.faction_back %}&#10003; {% endif %}Back
+              </span>
+              <span class="badge {% if faction.setup_card %}bg-success{% else %}bg-secondary opacity-50{% endif %}">
+                {% if faction.setup_card %}&#10003; {% endif %}Adset
+              </span>
+            </div>
+          </div>
+        </a>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card p-3">
     <p class="text-muted mb-0">You haven't created any forged factions yet.</p>
-  {% endif %}
-</div>
+  </div>
+{% endif %}
 {% endblock %}

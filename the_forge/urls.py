@@ -3,21 +3,24 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Forge Home (public landing page)
+    path('forge/', views.forge_home, name='forge-home'),
+
     # ForgedFaction
-    path('forge/', views.forgedfaction_list, name='forge-faction-list'),
-    path('forge/new/', views.forgedfaction_create, name='forge-faction-create'),
-    path('forge/<int:pk>/', views.forgedfaction_detail, name='forge-faction-detail'),
-    path('forge/<int:pk>/edit/', views.forgedfaction_edit, name='forge-faction-edit'),
-    path('forge/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),
-    path('forge/<int:pk>/pdf/', views.forgedfaction_pdf, name='forge-faction-pdf'),
+    path('forge/faction/', views.forgedfaction_list, name='forge-faction-list'),
+    path('forge/faction/new/', views.forgedfaction_create, name='forge-faction-create'),
+    path('forge/faction/<int:pk>/', views.forgedfaction_detail, name='forge-faction-detail'),
+    path('forge/faction/<int:pk>/edit/', views.forgedfaction_edit, name='forge-faction-edit'),
+    path('forge/faction/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),
+    path('forge/faction/<int:pk>/pdf/', views.forgedfaction_pdf, name='forge-faction-pdf'),
 
     # FactionSheet Front
-    path('forge/<int:faction_pk>/sheet/new/', views.factionsheet_create, name='forge-sheet-create'),
-    path('forge/sheet/<int:pk>/', views.factionsheet_edit, name='forge-sheet-edit'),
-    path('forge/sheet/<int:pk>/pdf/', views.factionsheet_pdf, name='forge-sheet-pdf'),
-    path('forge/sheet/<int:pk>/preview/', views.factionsheet_preview, name='forge-sheet-preview'),
-    path('forge/sheet/<int:pk>/preview/save/', views.factionsheet_preview_save, name='forge-sheet-preview-save'),
-    path('forge/sheet/<int:pk>/delete/', views.factionsheet_delete, name='forge-sheet-delete'),
+    path('forge/faction/<int:faction_pk>/sheet/new/', views.factionsheet_create, name='forge-sheet-create'),
+    path('forge/faction/sheet/<int:pk>/', views.factionsheet_edit, name='forge-sheet-edit'),
+    path('forge/faction/sheet/<int:pk>/pdf/', views.factionsheet_pdf, name='forge-sheet-pdf'),
+    path('forge/faction/sheet/<int:pk>/preview/', views.factionsheet_preview, name='forge-sheet-preview'),
+    path('forge/faction/sheet/<int:pk>/preview/save/', views.factionsheet_preview_save, name='forge-sheet-preview-save'),
+    path('forge/faction/sheet/<int:pk>/delete/', views.factionsheet_delete, name='forge-sheet-delete'),
     path('hx/forge/sheet/<int:pk>/flavor/edit/', views.sheet_flavor_edit, name='forge-sheet-flavor-edit'),
     path('hx/forge/sheet/<int:pk>/header/edit/', views.sheet_header_edit, name='forge-sheet-header-edit'),
     path('hx/forge/sheet/<int:pk>/crafted/toggle/', views.sheet_crafted_toggle, name='forge-sheet-crafted-toggle'),
@@ -25,9 +28,9 @@ urlpatterns = [
     path('hx/forge/sheet/<int:pk>/decree/toggle/', views.sheet_decree_toggle, name='forge-sheet-decree-toggle'),
 
     # FactionBack
-    path('forge/<int:faction_pk>/back/new/', views.factionback_create, name='forge-back-create'),
-    path('forge/back/<int:pk>/', views.factionback_edit, name='forge-back-edit'),
-    path('forge/back/<int:pk>/pdf/', views.factionback_pdf, name='forge-back-pdf'),
+    path('forge/faction/<int:faction_pk>/back/new/', views.factionback_create, name='forge-back-create'),
+    path('forge/faction/back/<int:pk>/', views.factionback_edit, name='forge-back-edit'),
+    path('forge/faction/back/<int:pk>/pdf/', views.factionback_pdf, name='forge-back-pdf'),
 
     # Piece (child of FactionBack)
     path('hx/forge/back/<int:back_pk>/piece/add/', views.piece_add, name='forge-piece-add'),
@@ -41,11 +44,9 @@ urlpatterns = [
     path('hx/forge/back/<int:back_pk>/setup-step/reorder/', views.setup_step_reorder, name='forge-setup-step-reorder'),
 
     # SetupCard (child of ForgedFaction)
-    path('forge/<int:faction_pk>/setup-card/new/', views.setup_card_create, name='forge-setup-card-create'),
-    path('forge/setup-card/<int:pk>/', views.setup_card_edit, name='forge-setup-card-edit'),
-    path('forge/setup-card/<int:pk>/pdf/', views.setup_card_pdf, name='forge-setup-card-pdf'),
-    path('hx/forge/setup-card/<int:card_pk>/setup-step/add/', views.setup_card_step_add, name='forge-setup-card-step-add'),
-    path('hx/forge/setup-card/<int:card_pk>/setup-step/reorder/', views.setup_card_step_reorder, name='forge-setup-card-step-reorder'),
+    path('forge/faction/<int:faction_pk>/setup-card/new/', views.setup_card_create, name='forge-setup-card-create'),
+    path('forge/faction/setup-card/<int:pk>/', views.setup_card_edit, name='forge-setup-card-edit'),
+    path('forge/faction/setup-card/<int:pk>/pdf/', views.setup_card_pdf, name='forge-setup-card-pdf'),
 
     # FactionAbility (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/ability/add/', views.ability_add, name='forge-ability-add'),
