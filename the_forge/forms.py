@@ -222,9 +222,6 @@ class CardSlotForm(forms.ModelForm):
     class Meta:
         model = CardSlot
         fields = ['number', 'title', 'body']
-        widgets = {
-            'body': RichTextarea(),
-        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

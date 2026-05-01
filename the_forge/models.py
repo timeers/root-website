@@ -300,14 +300,14 @@ class StepAction(models.Model):
 class DecreeSection(models.Model):
     sheet = models.ForeignKey(FactionSheet, related_name='decrees', on_delete=models.CASCADE)
     title = models.CharField(max_length=15, blank=True, null=True)
-    body = models.CharField(max_length=20, blank=True, null=True)
+    body = models.CharField(max_length=52, blank=True, null=True)
 
 
 class CardSlot(models.Model):
     decree = models.ForeignKey(DecreeSection, related_name='card_slots', on_delete=models.CASCADE)
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=20, blank=True, null=True)
-    body = models.TextField(blank=True, null=True)
+    body = models.CharField(max_length=40, blank=True, null=True)
 
     class Meta:
         ordering = ['number']

@@ -229,7 +229,17 @@ DECREE_SLOT_W = 2.5 * inch
 DECREE_SLOT_H = DECREE_SLOT_W * (793 / 565)
 DECREE_SLOT_Y_OFFSET = 3.9 * inch  # distance from top of decree image to slot tops
 DECREE_SLOT_MIN_GAP = 0.01 * inch  # minimum spacing between/around slots
-DECREE_SLOT_TITLE_OFFSET = 3.3 * inch  # distance from top of slot image to title text
+DECREE_SLOT_TITLE_OFFSET = 3.375 * inch  # distance from top of slot image to title text
+
+DECREE_TITLE_SIZE = 20                       # decree title font size when no body
+DECREE_TITLE_SIZE_WITH_BODY = 17             # smaller decree title size when body present
+DECREE_TITLE_Y_SHIFT_WITH_BODY = 0.05 * inch # distance to move title up when body present
+DECREE_BODY_SIZE = 8                        # decree section body font size (italic)
+DECREE_BODY_GAP = 0.12 * inch                # vertical gap from title baseline to body baseline
+DECREE_SLOT_TITLE_SIZE = 18                  # slot title font size (Baskerville)
+DECREE_SLOT_BODY_OFFSET = 0.224 * inch        # vertical drop from slot title baseline to slot body baseline
+DECREE_SLOT_BODY_SIZE = 10                   # slot body font size (italic)
+DECREE_SLOT_WIDE_TITLE_W = 1.15 * inch        # title width threshold that forces large-text.png on every titled slot
 
 # Card pile layout (bottom-right stacks of cards)
 CARD_PILE_TITLE_TOP_OFFSET = 0.4 * inch        # top of title text from top of card image (when pile fits fully on page)
@@ -4468,14 +4478,15 @@ class SheetLayoutEngine:
         filename = 'title.png' if (self.decree_section.title or self.decree_section.body) else 'no-title.png'
         return os.path.join(DECREE_DIR, filename)
 
-    def _get_slot_image_path(self, slot):
+    def _get_slot_image_path(self, slot, force_large_for_titled=False):
         text_len = len(slot.title or '') + len(slot.body or '')
         if text_len == 0:
             return os.path.join(DECREE_DIR, 'no-text.png')
-        elif text_len < DECREE_TEXT_THRESHOLD:
-            return os.path.join(DECREE_DIR, 'small-text.png')
-        else:
+        if force_large_for_titled and slot.title:
             return os.path.join(DECREE_DIR, 'large-text.png')
+        if text_len < DECREE_TEXT_THRESHOLD:
+            return os.path.join(DECREE_DIR, 'small-text.png')
+        return os.path.join(DECREE_DIR, 'large-text.png')
 
     def _draw_card_slots(self, c):
         # Decree: background overlay + individual slot images
@@ -4505,12 +4516,28 @@ class SheetLayoutEngine:
                 draw_h = 0
                 decree_img_top = PAGE_H
 
-            # Decree section title text
+            # Decree section title + body text
+            has_body = bool(self.decree_section.body)
+            base_title_y = decree_img_top - DECREE_TITLE_Y_OFFSET
             if self.decree_section.title:
-                title_y = decree_img_top - DECREE_TITLE_Y_OFFSET
+                if has_body:
+                    title_y = base_title_y + DECREE_TITLE_Y_SHIFT_WITH_BODY
+                    title_size = DECREE_TITLE_SIZE_WITH_BODY
+                else:
+                    title_y = base_title_y
+                    title_size = DECREE_TITLE_SIZE
                 c.setFillColor(HexColor('#FFFFFF'))
-                c.setFont('Luminari', 20)
+                c.setFont('Luminari', title_size)
                 c.drawCentredString(PAGE_W / 2, title_y, self.decree_section.title)
+
+            if has_body:
+                if self.decree_section.title:
+                    body_y = base_title_y + DECREE_TITLE_Y_SHIFT_WITH_BODY - DECREE_BODY_GAP
+                else:
+                    body_y = base_title_y
+                c.setFillColor(HexColor('#FFFFFF'))
+                c.setFont('Baskerville-Italic', DECREE_BODY_SIZE)
+                c.drawCentredString(PAGE_W / 2, body_y, self.decree_section.body)
 
             # Individual slot images — evenly spaced horizontally, centered
             slots = list(self.decree_section.card_slots.all())
@@ -4521,18 +4548,28 @@ class SheetLayoutEngine:
                 start_x = (PAGE_W - total_w) / 2.0
                 slot_y = decree_img_top - DECREE_SLOT_Y_OFFSET
 
+                any_wide_title = any(
+                    slot.title and pdfmetrics.stringWidth(slot.title, 'Baskerville', DECREE_SLOT_TITLE_SIZE) > DECREE_SLOT_WIDE_TITLE_W
+                    for slot in slots
+                )
+
                 for i, slot in enumerate(slots):
                     x = start_x + i * (DECREE_SLOT_W + gap)
-                    slot_img = self._get_slot_image_path(slot)
+                    slot_img = self._get_slot_image_path(slot, force_large_for_titled=any_wide_title)
                     if os.path.exists(slot_img):
                         c.drawImage(slot_img, x, slot_y,
                                     width=DECREE_SLOT_W, height=DECREE_SLOT_H, mask='auto')
 
-                    # Slot title centered above the slot image
+                    title_y = slot_y + DECREE_SLOT_H - DECREE_SLOT_TITLE_OFFSET
                     if slot.title:
                         c.setFillColor(HexColor('#FFFFFF'))
-                        c.setFont('Luminari', 12)
-                        c.drawCentredString(x + DECREE_SLOT_W / 2, slot_y + DECREE_SLOT_H - DECREE_SLOT_TITLE_OFFSET, slot.title)
+                        c.setFont('Baskerville', DECREE_SLOT_TITLE_SIZE)
+                        c.drawCentredString(x + DECREE_SLOT_W / 2, title_y, slot.title)
+
+                    if slot.body:
+                        c.setFillColor(HexColor('#FFFFFF'))
+                        c.setFont('Baskerville-Italic', DECREE_SLOT_BODY_SIZE)
+                        c.drawCentredString(x + DECREE_SLOT_W / 2, title_y - DECREE_SLOT_BODY_OFFSET, slot.body)
 
                     self._record_element(kind='card_slot', id=slot.id,
                                          x=x, y=slot_y,
