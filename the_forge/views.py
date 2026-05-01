@@ -32,11 +32,9 @@ from .forms import (
     LegendRowForm,
     PhaseStepCostImageForm,
     PhaseStepForm,
-    PieceForm,
     ScaleForm,
     ScaleRowForm,
     SetupCardForm,
-    SetupStepForm,
     StepActionForm,
 )
 from .models import (
@@ -511,20 +509,101 @@ def factionback_edit(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
     if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
+    valid_piece_types = {c.value for c in Piece.TypeChoices}
     if request.method == 'POST':
-        form = FactionBackForm(request.POST, request.FILES, instance=back)
+        form = FactionBackForm(request.POST, request.FILES, back=back)
+        piece_ids = request.POST.getlist('piece_id')
+        piece_types = request.POST.getlist('piece_type')
+        piece_names = request.POST.getlist('piece_name')
+        piece_quantities = request.POST.getlist('piece_quantity')
+        piece_clear_flags = request.POST.getlist('piece_clear_icon')
+        step_ids = request.POST.getlist('step_id')
+        step_texts = request.POST.getlist('step_text')
         if form.is_valid():
-            form.save()
+            with transaction.atomic():
+                form.save(back)
+
+                existing_pieces = {p.pk: p for p in back.pieces.all()}
+                kept_piece_ids = set()
+                rows = list(zip(
+                    piece_ids, piece_types, piece_names, piece_quantities,
+                    piece_clear_flags,
+                ))
+                for index, (sid, ptype, name, qty, clear) in enumerate(rows):
+                    upload = request.FILES.get(f'piece_icon_{index}')
+                    name = (name or '').strip()
+                    if not name:
+                        continue
+                    if ptype not in valid_piece_types:
+                        continue
+                    try:
+                        quantity = max(1, min(99, int(qty or 1)))
+                    except (TypeError, ValueError):
+                        quantity = 1
+                    has_new_file = bool(upload)
+                    should_clear = (clear == '1') and not has_new_file
+                    if sid and sid.isdigit() and int(sid) in existing_pieces:
+                        piece = existing_pieces[int(sid)]
+                        kept_piece_ids.add(piece.pk)
+                        piece.name = name
+                        piece.quantity = quantity
+                        piece.type = ptype
+                        if has_new_file:
+                            piece.small_icon = upload
+                        elif should_clear:
+                            piece.small_icon = None
+                        piece.save()
+                    else:
+                        new_piece = Piece(
+                            parent=back,
+                            name=name,
+                            quantity=quantity,
+                            type=ptype,
+                        )
+                        if has_new_file:
+                            new_piece.small_icon = upload
+                        new_piece.save()
+                stale_piece_ids = set(existing_pieces) - kept_piece_ids
+                if stale_piece_ids:
+                    Piece.objects.filter(pk__in=stale_piece_ids).delete()
+
+                step_pairs = [
+                    (sid, txt) for sid, txt in zip(step_ids, step_texts)
+                    if (txt or '').strip()
+                ]
+                existing_steps = {s.pk: s for s in back.setup_steps.all()}
+                kept_step_ids = set()
+                steps_to_update = []
+                steps_to_create = []
+                for index, (sid, text) in enumerate(step_pairs, start=1):
+                    if sid and sid.isdigit() and int(sid) in existing_steps:
+                        step = existing_steps[int(sid)]
+                        kept_step_ids.add(step.pk)
+                        if step.text != text or step.number != index:
+                            step.text = text
+                            step.number = index
+                            steps_to_update.append(step)
+                    else:
+                        steps_to_create.append(SetupStep(
+                            faction_back=back, number=index, text=text,
+                        ))
+                stale_step_ids = set(existing_steps) - kept_step_ids
+                if stale_step_ids:
+                    SetupStep.objects.filter(pk__in=stale_step_ids).delete()
+                if steps_to_update:
+                    SetupStep.objects.bulk_update(steps_to_update, ['text', 'number'])
+                if steps_to_create:
+                    SetupStep.objects.bulk_create(steps_to_create)
             return redirect('forge-back-edit', pk=back.pk)
     else:
-        form = FactionBackForm(instance=back)
+        form = FactionBackForm(back=back)
     pieces_qs = list(back.pieces.order_by('id'))
     piece_sections = [
-        ('W', 'Warriors', [p for p in pieces_qs if p.type == 'W']),
-        ('B', 'Buildings', [p for p in pieces_qs if p.type == 'B']),
-        ('T', 'Tokens', [p for p in pieces_qs if p.type == 'T']),
-        ('C', 'Cards', [p for p in pieces_qs if p.type == 'C']),
-        ('O', 'Other Pieces', [p for p in pieces_qs if p.type == 'O']),
+        ('W', 'Warriors', 'Warrior', [p for p in pieces_qs if p.type == 'W']),
+        ('B', 'Buildings', 'Building', [p for p in pieces_qs if p.type == 'B']),
+        ('T', 'Tokens', 'Token', [p for p in pieces_qs if p.type == 'T']),
+        ('C', 'Cards', 'Card', [p for p in pieces_qs if p.type == 'C']),
+        ('O', 'Other Pieces', 'Other Piece', [p for p in pieces_qs if p.type == 'O']),
     ]
     return render(request, 'the_forge/factionback_editor.html', {
         'back': back,
@@ -532,8 +611,6 @@ def factionback_edit(request, pk):
         'form': form,
         'piece_sections': piece_sections,
         'setup_steps': _annotate_steps(back.setup_steps.order_by('number')),
-        'piece_form': PieceForm(),
-        'setup_step_form': SetupStepForm(),
         'inline_keywords': _inline_keywords(),
         'inline_images_map': _inline_images_map(),
         'attribute_fields': [
@@ -543,105 +620,6 @@ def factionback_edit(request, pk):
             ('crafting_ability', 'Crafting Ability'),
         ],
     })
-
-
-# ---------- Pieces (child of FactionBack) ----------
-
-@player_required
-@require_http_methods(["POST"])
-def piece_add(request, back_pk):
-    back = get_object_or_404(FactionBack, pk=back_pk)
-    if (resp := _forbid_if_not_editor(request, back.faction)):
-        return resp
-    form = PieceForm(request.POST, request.FILES)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    piece = form.save(commit=False)
-    piece.parent = back
-    piece.save()
-    return render(request, 'the_forge/partials/piece_row.html', {'piece': piece})
-
-
-@player_required
-@require_http_methods(["POST"])
-def piece_edit(request, pk):
-    piece = get_object_or_404(Piece, pk=pk)
-    if (resp := _forbid_if_not_editor(request, piece.parent.faction)):
-        return resp
-    form = PieceForm(request.POST, request.FILES, instance=piece)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    form.save()
-    return render(request, 'the_forge/partials/piece_row.html', {'piece': piece})
-
-
-@player_required
-@require_http_methods(["DELETE"])
-def piece_delete(request, pk):
-    piece = get_object_or_404(Piece, pk=pk)
-    if (resp := _forbid_if_not_editor(request, piece.parent.faction)):
-        return resp
-    piece.delete()
-    return HttpResponse(status=204)
-
-
-# ---------- SetupStep (child of FactionBack) ----------
-
-@player_required
-@require_http_methods(["POST"])
-def setup_step_add(request, back_pk):
-    back = get_object_or_404(FactionBack, pk=back_pk)
-    if (resp := _forbid_if_not_editor(request, back.faction)):
-        return resp
-    form = SetupStepForm(request.POST)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    step = form.save(commit=False)
-    step.faction_back = back
-    step.number = back.setup_steps.count() + 1
-    step.save()
-    return render(request, 'the_forge/partials/setup_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(),
-    })
-
-
-@player_required
-@require_http_methods(["POST"])
-def setup_step_edit(request, pk):
-    step = get_object_or_404(SetupStep, pk=pk)
-    faction = step.faction_back.faction if step.faction_back else step.card.faction
-    if (resp := _forbid_if_not_editor(request, faction)):
-        return resp
-    form = SetupStepForm(request.POST, instance=step)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    form.save()
-    return render(request, 'the_forge/partials/setup_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(),
-    })
-
-
-@player_required
-@require_http_methods(["DELETE"])
-def setup_step_delete(request, pk):
-    step = get_object_or_404(SetupStep, pk=pk)
-    faction = step.faction_back.faction if step.faction_back else step.card.faction
-    if (resp := _forbid_if_not_editor(request, faction)):
-        return resp
-    step.delete()
-    return HttpResponse(status=204)
-
-
-@player_required
-@require_http_methods(["POST"])
-def setup_step_reorder(request, back_pk):
-    back = get_object_or_404(FactionBack, pk=back_pk)
-    if (resp := _forbid_if_not_editor(request, back.faction)):
-        return resp
-    data = json.loads(request.body)
-    for index, sid in enumerate(data.get('order', []), start=1):
-        SetupStep.objects.filter(id=sid, faction_back=back).update(number=index)
-    return HttpResponse(status=204)
 
 
 # ---------- SetupCard (child of ForgedFaction) ----------

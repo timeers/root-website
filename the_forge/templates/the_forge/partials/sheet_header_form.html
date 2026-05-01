@@ -1,7 +1,5 @@
 {% load static %}
 <div class="card p-3 mb-3 forge-header-row" data-row data-id="{{ sheet.pk }}">
-  <label class="form-label root-title mb-2">Header</label>
-
   <form method="post" enctype="multipart/form-data" class="m-0"
         data-edit-url="{% url 'forge-sheet-header-edit' pk=sheet.pk %}"
         data-dirty-form data-forge-header-form>

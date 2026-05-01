@@ -81,23 +81,76 @@ class ForgedFactionForm(forms.ModelForm):
         return cleaned
 
 
-class FactionBackForm(forms.ModelForm):
-    class Meta:
-        model = FactionBack
-        fields = [
-            'complexity',
-            'card_wealth',
-            'aggression',
-            'crafting_ability',
-            'setup_order',
-            'how_to_play_title',
-            'how_to_play_text',
-            'back_image',
+class FactionBackForm(forms.Form):
+    """Edits all simple FactionBack fields. Pieces and setup steps are
+    reconciled separately by the view from parallel POST arrays."""
+
+    complexity = forms.ChoiceField(choices=FactionBack.AttributeChoices.choices)
+    card_wealth = forms.ChoiceField(choices=FactionBack.AttributeChoices.choices)
+    aggression = forms.ChoiceField(choices=FactionBack.AttributeChoices.choices)
+    crafting_ability = forms.ChoiceField(choices=FactionBack.AttributeChoices.choices)
+    setup_order = forms.CharField(
+        label='Setup',
+        max_length=1,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control form-control-lg',
+            'maxlength': '1',
+            'style': 'width: 3rem;',
+        }),
+    )
+    how_to_play_title = forms.CharField(
+        widget=forms.TextInput(attrs={'placeholder': 'Faction', 'class': 'form-control form-control-lg'}),
+    )
+    how_to_play_text = forms.CharField(
+        required=False,
+        widget=RichTextarea(attrs={'rows': 8}),
+    )
+    back_image = forms.ImageField(
+        label='Character Image',
+        required=False,
+        widget=forms.ClearableFileInput(attrs={
+            'class': 'form-control form-control-sm',
+            'accept': 'image/*',
+        }),
+    )
+
+    def __init__(self, *args, back=None, **kwargs):
+        self.back = back
+        super().__init__(*args, **kwargs)
+        if back is not None:
+            self.fields['back_image'].initial = back.back_image
+            if not self.is_bound:
+                self.fields['complexity'].initial = back.complexity
+                self.fields['card_wealth'].initial = back.card_wealth
+                self.fields['aggression'].initial = back.aggression
+                self.fields['crafting_ability'].initial = back.crafting_ability
+                self.fields['setup_order'].initial = back.setup_order
+                self.fields['how_to_play_title'].initial = back.how_to_play_title
+                self.fields['how_to_play_text'].initial = back.how_to_play_text
+
+    def save(self, back=None):
+        back = back or self.back
+        back.complexity = self.cleaned_data['complexity']
+        back.card_wealth = self.cleaned_data['card_wealth']
+        back.aggression = self.cleaned_data['aggression']
+        back.crafting_ability = self.cleaned_data['crafting_ability']
+        back.setup_order = self.cleaned_data.get('setup_order') or 'X'
+        back.how_to_play_title = self.cleaned_data['how_to_play_title']
+        back.how_to_play_text = self.cleaned_data.get('how_to_play_text') or ''
+        update_fields = [
+            'complexity', 'card_wealth', 'aggression', 'crafting_ability',
+            'setup_order', 'how_to_play_title', 'how_to_play_text',
         ]
-        widgets = {
-            'how_to_play_title': forms.TextInput(attrs={'placeholder': 'Faction'}),
-            'how_to_play_text': RichTextarea(attrs={'rows': 8}),
-        }
+        new_img = self.cleaned_data.get('back_image')
+        if new_img:
+            back.back_image = new_img
+            update_fields.append('back_image')
+        elif new_img is False:
+            back.back_image = None
+            update_fields.append('back_image')
+        back.save(update_fields=update_fields)
+        return back
 
 
 class FactionAbilityForm(forms.ModelForm):

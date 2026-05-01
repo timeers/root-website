@@ -32,17 +32,6 @@ urlpatterns = [
     path('forge/faction/back/<int:pk>/', views.factionback_edit, name='forge-back-edit'),
     path('forge/faction/back/<int:pk>/pdf/', views.factionback_pdf, name='forge-back-pdf'),
 
-    # Piece (child of FactionBack)
-    path('hx/forge/back/<int:back_pk>/piece/add/', views.piece_add, name='forge-piece-add'),
-    path('hx/forge/piece/<int:pk>/edit/', views.piece_edit, name='forge-piece-edit'),
-    path('hx/forge/piece/<int:pk>/delete/', views.piece_delete, name='forge-piece-delete'),
-
-    # SetupStep (child of FactionBack)
-    path('hx/forge/back/<int:back_pk>/setup-step/add/', views.setup_step_add, name='forge-setup-step-add'),
-    path('hx/forge/setup-step/<int:pk>/edit/', views.setup_step_edit, name='forge-setup-step-edit'),
-    path('hx/forge/setup-step/<int:pk>/delete/', views.setup_step_delete, name='forge-setup-step-delete'),
-    path('hx/forge/back/<int:back_pk>/setup-step/reorder/', views.setup_step_reorder, name='forge-setup-step-reorder'),
-
     # SetupCard (child of ForgedFaction)
     path('forge/faction/<int:faction_pk>/setup-card/new/', views.setup_card_create, name='forge-setup-card-create'),
     path('forge/faction/setup-card/<int:pk>/', views.setup_card_edit, name='forge-setup-card-edit'),
