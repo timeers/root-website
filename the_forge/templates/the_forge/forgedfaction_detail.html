@@ -91,7 +91,10 @@
           <div class="d-flex justify-content-between align-items-center">
             <h4 class="root-title mb-0">Adset Card</h4>
             {% if setup_card %}
-              <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary">Edit Card</a>
+              <div class="d-flex gap-2">
+                <a href="{% url 'forge-setup-card-pdf' pk=setup_card.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
+                <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary">Edit Card</a>
+              </div>
             {% else %}
               <form method="post" action="{% url 'forge-setup-card-create' faction_pk=faction.pk %}" class="m-0">
                 {% csrf_token %}

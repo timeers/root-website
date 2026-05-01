@@ -331,17 +331,17 @@ LEFT_COL_W_RATIO = 0.48
 # --- SetupCard layout (poker-card-sized PDF) ---
 # Page = (CARD_SLOT_W, CARD_SLOT_H) — same as cardpiles. All measurements
 # below are in points relative to that page.
-SETUP_CARD_REACH_FONT_SIZE = 22
-SETUP_CARD_REACH_RIGHT_INSET = 0.18 * inch    # distance from right edge of card to reach text
-SETUP_CARD_REACH_BOTTOM_INSET = 0.18 * inch   # distance from bottom edge of card to reach baseline
+SETUP_CARD_REACH_FONT_SIZE = 18
+SETUP_CARD_REACH_RIGHT_INSET = 0.35 * inch    # distance from right edge of card to reach text
+SETUP_CARD_REACH_BOTTOM_INSET = 0.3 * inch   # distance from bottom edge of card to reach baseline
 
 SETUP_CARD_BAND_X_INSET = 0.217 * inch         # left/right inset of the faction-color band
 SETUP_CARD_BAND_TOP_INSET = 0.336 * inch       # inset from top edge of card to top of band
 SETUP_CARD_BAND_HEIGHT = 0.3491 * inch
 SETUP_CARD_BAND_TEXT_PADDING = 0.06 * inch    # horizontal padding inside the band for the faction name
 
-SETUP_CARD_NAME_SIZE_LARGE = 22
-SETUP_CARD_NAME_SIZE_SMALL = 16
+SETUP_CARD_NAME_SIZE_LARGE = 16
+SETUP_CARD_NAME_SIZE_SMALL = 12
 SETUP_CARD_NAME_LINE_GAP = 1.5                # extra leading between two wrapped lines (pts)
 
 # Header image hangs upward from the bottom-left of the band
@@ -356,11 +356,11 @@ SETUP_CARD_BODY_BOTTOM_INSET = 0.25 * inch   # inset from bottom edge
 
 # Step rendering — smaller than FactionBack since the card is tiny
 SETUP_CARD_MARKER_SIZE = 0.18 * inch          # reserved marker slot width for alignment
-SETUP_CARD_MARKER_HEIGHT = 0.13 * inch        # rendered SVG height
-SETUP_CARD_MARKER_TEXT_GAP = 0.03 * inch
-SETUP_CARD_STEP_GAP = 0.06 * inch
-SETUP_CARD_STEP_BODY_SIZE = 7.5
-SETUP_CARD_STEP_INDENT = 0.0 * inch
+SETUP_CARD_MARKER_HEIGHT = 0.16 * inch        # rendered SVG height
+SETUP_CARD_MARKER_TEXT_GAP = 0.1 * inch      # horizontal gap between number marker and step text
+SETUP_CARD_STEP_GAP = 0.06 * inch             # vertical gap between consecutive steps
+SETUP_CARD_STEP_BODY_SIZE = 7.5               # font size (pt) of step description text
+SETUP_CARD_STEP_INDENT = 0.0 * inch           # left indent applied to each step block
 
 # StepAction layout
 ACTION_ITEM_H = 0.26 * inch       # item icon height (width scales proportionally)
@@ -394,6 +394,7 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
 
 ABILITY_BERRY_SVG = os.path.join(STATIC_DIR, 'pdf/svg/ability_berry.svg')
 PHASE_NUMBER_SVG_DIR = os.path.join(STATIC_DIR, 'pdf/svg')
+SETUP_CARD_NUMBER_SVG_DIR = os.path.join(STATIC_DIR, 'pdf/svg/adset')
 FACTION_TOP_BAR_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Faction_Top_Bar.svg')
 CRAFTED_ITEMS_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Crafted_Items_Box.svg')
 CARD_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/Card-Slot.png')
@@ -5770,7 +5771,7 @@ class SetupCardLayoutEngine:
 
         self._setup_marker_svgs = {}
         for n in range(10):
-            svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
+            svg_path = os.path.join(SETUP_CARD_NUMBER_SVG_DIR, f'{n}.svg')
             if os.path.exists(svg_path):
                 self._setup_marker_svgs[n] = self._load_colored_svg(
                     svg_path, '#000000', fit_size=SETUP_CARD_MARKER_HEIGHT,
@@ -5922,7 +5923,7 @@ class SetupCardLayoutEngine:
         c.saveState()
         c.setFont('Luminari', SETUP_CARD_REACH_FONT_SIZE)
         c.setFillColorRGB(1, 1, 1)
-        c.drawRightString(
+        c.drawCentredString(
             CARD_SLOT_W - SETUP_CARD_REACH_RIGHT_INSET,
             SETUP_CARD_REACH_BOTTOM_INSET,
             str(self.card.reach),
@@ -6024,17 +6025,18 @@ class SetupCardLayoutEngine:
 
         para_mid_y = top_y - para_h / 2
         marker_x = x + (slot_w - marker_w) / 2
-        marker_y = para_mid_y - marker_h / 2
+        marker_y = top_y - marker_h
+        marker_center_y = top_y - marker_h / 2
 
         if marker is not None:
             renderPDF.draw(marker, c, marker_x, marker_y)
         else:
             c.saveState()
             c.setFillColor(self.faction_color)
-            c.circle(marker_x + marker_w / 2, para_mid_y, marker_w / 2, stroke=0, fill=1)
+            c.circle(marker_x + marker_w / 2, marker_center_y, marker_w / 2, stroke=0, fill=1)
             c.setFont('Baskerville-Bold', marker_h * 0.6)
             c.setFillColorRGB(1, 1, 1)
-            c.drawCentredString(marker_x + marker_w / 2, para_mid_y - marker_h * 0.2, str(number))
+            c.drawCentredString(marker_x + marker_w / 2, marker_center_y - marker_h * 0.2, str(number))
             c.restoreState()
 
         para.drawOn(c, text_x, top_y - para_h)
