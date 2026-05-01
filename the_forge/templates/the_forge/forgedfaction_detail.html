@@ -1,76 +1,108 @@
 {% extends 'the_keep/base.html' %}
 {% load static %}
+{% load forge_text %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center my-2">
+{% if faction.background_image %}
+  <div class="forge-detail-page-bg"
+       style="background-image:url('{{ faction.background_image.url }}');"></div>
+{% else %}
+  {% with preset_path=faction.BACKGROUND_PRESET_FILES|dict_get:faction.background_preset %}
+    {% if preset_path %}
+      <div class="forge-detail-page-bg"
+           style="background-image:url('{% static preset_path %}');"></div>
+    {% else %}
+      <div class="forge-detail-page-bg"
+           style="background:{{ faction.color|default:'#888888' }};"></div>
+    {% endif %}
+  {% endwith %}
+{% endif %}
+<div class="forge-detail-page-overlay"></div>
+
+<div class="d-flex justify-content-between align-items-center my-2 position-relative">
   <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary">&larr; All Factions</a>
   <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
 </div>
 
-<div class="forge-header-preview mb-3 position-relative"
+<div class="forge-detail-frame position-relative"
      style="--faction-color: {{ faction.color|default:'#888888' }};">
-  <div class="forge-header-preview-bar">
-    {% if sheet.header_image %}
-      <img class="forge-header-preview-image" src="{{ sheet.header_image.url }}" alt="">
-    {% endif %}
-    <div class="forge-header-preview-title luminari{% if sheet.title_text_color == 'black' %} is-text-black{% endif %}">
-      {{ faction.faction_name }}
+  <div class="forge-detail-frame__box">
+
+    <div class="forge-header-preview mb-3 position-relative">
+      <div class="forge-header-preview-bar">
+        {% if sheet.header_image %}
+          <img class="forge-header-preview-image" src="{{ sheet.header_image.url }}" alt="">
+        {% endif %}
+        <div class="forge-header-preview-title luminari{% if sheet.title_text_color == 'black' %} is-text-black{% endif %}">
+          {{ faction.faction_name }}
+        </div>
+      </div>
+      <a href="{% url 'forge-faction-edit' pk=faction.pk %}"
+         class="btn btn-sm btn-outline-light position-absolute"
+         style="top: 0.5rem; right: 0.5rem; z-index: 3;">Edit</a>
     </div>
-  </div>
-  <a href="{% url 'forge-faction-edit' pk=faction.pk %}"
-     class="btn btn-sm btn-outline-light position-absolute"
-     style="top: 0.5rem; right: 0.5rem; z-index: 3;">Edit</a>
-</div>
 
-<!-- Front (Faction Sheet) -->
-<div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-center">
-    <h4 class="root-title mb-0">Front</h4>
-    {% if sheet %}
-      <div class="d-flex gap-2">
-        <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Layout</a>
-        <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
-        <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit Front</a>
+    <div class="forge-detail-columns">
+
+      <!-- Front (Faction Sheet) -->
+      <div class="forge-detail-col">
+        <div class="card p-3 h-100">
+          <div class="d-flex justify-content-between align-items-center">
+            <h4 class="root-title mb-0">Front</h4>
+            {% if sheet %}
+              <div class="d-flex gap-2">
+                <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Layout</a>
+                <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
+                <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit Front</a>
+              </div>
+            {% else %}
+              <form method="post" action="{% url 'forge-sheet-create' faction_pk=faction.pk %}" class="m-0">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-primary">+ Create Front</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
       </div>
-    {% else %}
-      <form method="post" action="{% url 'forge-sheet-create' faction_pk=faction.pk %}" class="m-0">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-primary">+ Create Front</button>
-      </form>
-    {% endif %}
-  </div>
-</div>
 
-<!-- Back (Faction Back) -->
-<div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-center">
-    <h4 class="root-title mb-0">Back</h4>
-    {% if back %}
-      <div class="d-flex gap-2">
-        <a href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
-        <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary">Edit Back</a>
+      <!-- Back (Faction Back) -->
+      <div class="forge-detail-col">
+        <div class="card p-3 h-100">
+          <div class="d-flex justify-content-between align-items-center">
+            <h4 class="root-title mb-0">Back</h4>
+            {% if back %}
+              <div class="d-flex gap-2">
+                <a href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
+                <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary">Edit Back</a>
+              </div>
+            {% else %}
+              <form method="post" action="{% url 'forge-back-create' faction_pk=faction.pk %}" class="m-0">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-primary">+ Create Back</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
       </div>
-    {% else %}
-      <form method="post" action="{% url 'forge-back-create' faction_pk=faction.pk %}" class="m-0">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-primary">+ Create Back</button>
-      </form>
-    {% endif %}
-  </div>
-</div>
 
-<!-- Setup Card -->
-<div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-center">
-    <h4 class="root-title mb-0">Adset Card</h4>
-    {% if setup_card %}
-      <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary">Edit Card</a>
-    {% else %}
-      <form method="post" action="{% url 'forge-setup-card-create' faction_pk=faction.pk %}" class="m-0">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-primary">+ Create Adset Card</button>
-      </form>
-    {% endif %}
+      <!-- Setup Card -->
+      <div class="forge-detail-col">
+        <div class="card p-3 h-100">
+          <div class="d-flex justify-content-between align-items-center">
+            <h4 class="root-title mb-0">Adset Card</h4>
+            {% if setup_card %}
+              <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary">Edit Card</a>
+            {% else %}
+              <form method="post" action="{% url 'forge-setup-card-create' faction_pk=faction.pk %}" class="m-0">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-primary">+ Create Adset Card</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+    </div>
   </div>
 </div>
 {% endblock %}

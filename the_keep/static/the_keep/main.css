@@ -3433,3 +3433,59 @@ body.forge-modal-open { overflow: hidden; }
   word-break: break-word;
 }
 
+/* Forge faction detail page — full-page background, overlay, ornamental frame, columns */
+.forge-detail-page-bg {
+  position: fixed;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: -2;
+}
+.forge-detail-page-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.70);
+  z-index: -1;
+}
+.forge-detail-frame {
+  margin-bottom: 1rem;
+}
+.forge-detail-frame__box {
+  position: relative;
+  border: 24px solid transparent;
+  border-image: url('/static/pdf/boxes/Phase_Box.svg') 30 fill / 24px / 0 stretch;
+  padding: 1.25rem;
+}
+@media (min-width: 768px) {
+  .forge-detail-frame__box {
+    border-image: url('/static/pdf/boxes/Medium_Box.svg') 30 fill / 24px / 0 stretch;
+  }
+}
+@media (min-width: 1200px) {
+  .forge-detail-frame__box {
+    border-image: url('/static/pdf/boxes/Faction_Top_Bar.svg') 30 fill / 24px / 0 stretch;
+  }
+}
+.forge-detail-columns {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: stretch;
+}
+@media (min-width: 992px) {
+  .forge-detail-columns { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1400px) {
+  .forge-detail-columns { grid-template-columns: repeat(3, 1fr); }
+}
+.forge-detail-col { display: flex; }
+.forge-detail-col > .card { width: 100%; }
+
+@media (max-width: 767.98px) {
+  .forge-detail-frame .forge-header-preview-bar {
+    aspect-ratio: auto;
+    min-height: 5rem;
+  }
+}
+
