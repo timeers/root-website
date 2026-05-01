@@ -18,89 +18,6 @@
 <!-- Faction header (name, image, title color) -->
 {% include 'the_forge/partials/sheet_header_form.html' with sheet=sheet faction=faction header_form=header_form %}
 
-<!-- Character Images (decorative background art) -->
-<div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Character Images</h4>
-  <div id="character-image-list">
-    {% for ci in character_images %}
-      {% include 'the_forge/partials/character_image_row.html' with ci=ci %}
-    {% endfor %}
-  </div>
-
-  <button type="button" id="character-image-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Image</button>
-
-  <form id="character-image-add-form" class="mt-2" hidden enctype="multipart/form-data"
-        data-add-url="{% url 'forge-character-image-add' sheet_pk=sheet.pk %}">
-    {% csrf_token %}
-    <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
-      {{ character_image_form.image }}
-      <img class="forge-character-image-preview" alt="" hidden style="max-height:60px;max-width:120px;">
-    </div>
-    <div class="d-flex gap-2 justify-content-end">
-      <button type="submit" class="btn btn-sm btn-warning">Save</button>
-      <button type="button" id="character-image-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
-    </div>
-  </form>
-</div>
-
-<script>
-(function () {
-  if (window.__forgeCharacterImageBound) return;
-  window.__forgeCharacterImageBound = true;
-
-  const toggle = document.getElementById('character-image-add-toggle');
-  const form = document.getElementById('character-image-add-form');
-  const cancel = document.getElementById('character-image-add-cancel');
-  if (toggle && form) {
-    toggle.addEventListener('click', () => { form.hidden = false; toggle.hidden = true; });
-  }
-  if (cancel && form && toggle) {
-    cancel.addEventListener('click', () => {
-      form.reset();
-      const preview = form.querySelector('.forge-character-image-preview');
-      if (preview) {
-        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
-        preview.removeAttribute('src');
-        preview.setAttribute('hidden', '');
-      }
-      form.hidden = true;
-      toggle.hidden = false;
-    });
-  }
-
-  document.addEventListener('change', (ev) => {
-    const input = ev.target;
-    if (!input.matches || !input.matches('.forge-character-image-input')) return;
-    const preview = input.closest('form')?.querySelector('.forge-character-image-preview');
-    if (!preview) return;
-    const file = input.files && input.files[0];
-    if (!file) return;
-    if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
-    const url = URL.createObjectURL(file);
-    preview.dataset.objectUrl = url;
-    preview.src = url;
-    preview.removeAttribute('hidden');
-  });
-
-  // After successful add, hide the form again so the user goes back to the
-  // toggle. bindAddForm dispatches forge:row-replaced from the list element
-  // and clears file inputs itself, so just reset the preview thumbnail.
-  const list = document.getElementById('character-image-list');
-  if (list && form && toggle) {
-    list.addEventListener('forge:row-replaced', () => {
-      const preview = form.querySelector('.forge-character-image-preview');
-      if (preview) {
-        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
-        preview.removeAttribute('src');
-        preview.setAttribute('hidden', '');
-      }
-      form.hidden = true;
-      toggle.hidden = false;
-    });
-  }
-})();
-</script>
-
 <!-- Flavor text (inline save) -->
 {% include 'the_forge/partials/sheet_flavor_form.html' with sheet=sheet %}
 
@@ -213,7 +130,8 @@
 {% include 'the_forge/partials/slot_modal.html' %}
 
 <!-- Content Boxes -->
-<div class="card p-3 mb-3">
+<div class="card p-3 mb-3"
+     data-contentbox-add-url="{% url 'forge-contentbox-add' sheet_pk=sheet.pk %}">
   <h4 class="root-title mb-2">Sections</h4>
   <div id="content-box-list" data-reorder-url="{% url 'forge-contentbox-reorder' sheet_pk=sheet.pk %}">
     {% for box in content_boxes %}
@@ -221,11 +139,22 @@
     {% endfor %}
   </div>
 
-  <button type="button" id="content-box-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Section</button>
+  <div id="content-box-kind-picker" class="mt-2 d-flex gap-2 flex-wrap">
+    <button type="button" class="btn btn-sm btn-primary" data-add-section-kind="section">+ Section</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="box">+ Box</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="track">+ Track</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="legend">+ Legend</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="scale">+ Scale</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="actions">+ Actions</button>
+  </div>
+
+  <div id="content-box-add-slot" class="mt-2"></div>
 
   <form id="content-box-add-form" class="mt-2" hidden
-        data-add-url="{% url 'forge-contentbox-add' sheet_pk=sheet.pk %}">
+        data-add-url="{% url 'forge-contentbox-add' sheet_pk=sheet.pk %}"
+        data-target="#content-box-list">
     {% csrf_token %}
+    <input type="hidden" name="kind" value="section">
     <div class="d-flex gap-2 align-items-center mb-1">
       <input type="text" name="title" class="form-control form-control-sm" placeholder="Title">
     </div>
@@ -240,6 +169,47 @@
       </div>
     </div>
   </form>
+
+  {# Action-type chooser shown inline before the action form for kind=actions. #}
+  <template id="forge-section-action-type-template">
+    <div class="forge-inline-form mt-2" data-section-action-type-picker>
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <strong class="small text-muted">Action Type:</strong>
+        <select class="form-select form-select-sm" data-section-action-type style="max-width:14rem;">
+          <option value="action">Action</option>
+          <option value="item">Item</option>
+          <option value="card">Card</option>
+          <option value="other">Other (custom image)</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-primary" data-section-action-type-confirm>Continue</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-section-action-type-cancel>Cancel</button>
+      </div>
+    </div>
+  </template>
+
+  {# Inline action entry form (cloned with action_type already chosen). #}
+  <template id="forge-section-action-form-template">
+    <div class="forge-inline-form" data-inline-form="section-action">
+      <form method="post" enctype="multipart/form-data"
+            data-add-url="{% url 'forge-contentbox-add' sheet_pk=sheet.pk %}"
+            data-target="#content-box-list">
+        {% csrf_token %}
+        <input type="hidden" name="kind" value="actions">
+        <input type="hidden" name="action_type" value="action" data-action-type-input>
+        <div data-cost-slot></div>
+        <div class="forge-rich-text">
+          <textarea name="text" class="form-control" rows="2" placeholder="Action text…" required></textarea>
+          <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+            {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='italic,header,image'|split:',' %}
+            <div class="ms-auto d-flex gap-2">
+              <button type="submit" class="btn btn-sm btn-primary">Save</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-cancel-section-add>Cancel</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  </template>
 </div>
 
 <template id="forge-content-box-step-form-template">
@@ -292,6 +262,89 @@
     </div>
   </form>
 </div>
+
+<!-- Character Images (decorative background art) -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Character Images</h4>
+  <div id="character-image-list">
+    {% for ci in character_images %}
+      {% include 'the_forge/partials/character_image_row.html' with ci=ci %}
+    {% endfor %}
+  </div>
+
+  <button type="button" id="character-image-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Image</button>
+
+  <form id="character-image-add-form" class="mt-2" hidden enctype="multipart/form-data"
+        data-add-url="{% url 'forge-character-image-add' sheet_pk=sheet.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
+      {{ character_image_form.image }}
+      <img class="forge-character-image-preview" alt="" hidden style="max-height:60px;max-width:120px;">
+    </div>
+    <div class="d-flex gap-2 justify-content-end">
+      <button type="submit" class="btn btn-sm btn-warning">Save</button>
+      <button type="button" id="character-image-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  if (window.__forgeCharacterImageBound) return;
+  window.__forgeCharacterImageBound = true;
+
+  const toggle = document.getElementById('character-image-add-toggle');
+  const form = document.getElementById('character-image-add-form');
+  const cancel = document.getElementById('character-image-add-cancel');
+  if (toggle && form) {
+    toggle.addEventListener('click', () => { form.hidden = false; toggle.hidden = true; });
+  }
+  if (cancel && form && toggle) {
+    cancel.addEventListener('click', () => {
+      form.reset();
+      const preview = form.querySelector('.forge-character-image-preview');
+      if (preview) {
+        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+        preview.removeAttribute('src');
+        preview.setAttribute('hidden', '');
+      }
+      form.hidden = true;
+      toggle.hidden = false;
+    });
+  }
+
+  document.addEventListener('change', (ev) => {
+    const input = ev.target;
+    if (!input.matches || !input.matches('.forge-character-image-input')) return;
+    const preview = input.closest('form')?.querySelector('.forge-character-image-preview');
+    if (!preview) return;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+    const url = URL.createObjectURL(file);
+    preview.dataset.objectUrl = url;
+    preview.src = url;
+    preview.removeAttribute('hidden');
+  });
+
+  // After successful add, hide the form again so the user goes back to the
+  // toggle. bindAddForm dispatches forge:row-replaced from the list element
+  // and clears file inputs itself, so just reset the preview thumbnail.
+  const list = document.getElementById('character-image-list');
+  if (list && form && toggle) {
+    list.addEventListener('forge:row-replaced', () => {
+      const preview = form.querySelector('.forge-character-image-preview');
+      if (preview) {
+        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+        preview.removeAttribute('src');
+        preview.setAttribute('hidden', '');
+      }
+      form.hidden = true;
+      toggle.hidden = false;
+    });
+  }
+})();
+</script>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 {{ inline_images_map|json_script:"forge-inline-images" }}
@@ -557,34 +610,169 @@ document.addEventListener('DOMContentLoaded', () => {
     bindContentBoxStepSortables(ev.target);
   });
 
-  const contentBoxAddToggle = document.getElementById('content-box-add-toggle');
   const contentBoxAddForm = document.getElementById('content-box-add-form');
   const contentBoxAddCancel = document.getElementById('content-box-add-cancel');
-  if (contentBoxAddToggle && contentBoxAddForm) {
-    contentBoxAddToggle.addEventListener('click', () => {
-      contentBoxAddForm.hidden = false;
-      contentBoxAddToggle.hidden = true;
-      const titleInput = contentBoxAddForm.querySelector('input[name="title"]');
-      if (titleInput) titleInput.focus();
+  const contentBoxKindPicker = document.getElementById('content-box-kind-picker');
+  const contentBoxAddSlot = document.getElementById('content-box-add-slot');
+  const contentBoxAddUrl = document.querySelector('[data-contentbox-add-url]')?.dataset.contentboxAddUrl;
+
+  // Map of kind -> form template id (defined elsewhere in this template).
+  const KIND_TEMPLATES = {
+    box: 'forge-box-form-template',
+    track: 'forge-track-form-template',
+    legend: 'forge-legend-form-template',
+    scale: 'forge-scale-form-template',
+  };
+
+  function resetSectionAddUI() {
+    contentBoxAddForm.hidden = true;
+    contentBoxAddForm.querySelectorAll('input[type="text"], textarea').forEach(el => { el.value = ''; });
+    contentBoxAddSlot.innerHTML = '';
+    contentBoxKindPicker.hidden = false;
+  }
+
+  function openSectionForm() {
+    contentBoxKindPicker.hidden = true;
+    contentBoxAddForm.hidden = false;
+    const titleInput = contentBoxAddForm.querySelector('input[name="title"]');
+    if (titleInput) titleInput.focus();
+  }
+
+  function openSingleKindForm(kind) {
+    const tplId = KIND_TEMPLATES[kind];
+    const tpl = document.getElementById(tplId);
+    if (!tpl) return;
+    // The per-step templates render with step_pk=0 in URLs/selectors. We
+    // repoint them at forge-contentbox-add and inject a hidden `kind` field
+    // so the server creates the wrappers itself.
+    const wrap = document.createElement('div');
+    wrap.innerHTML = tpl.innerHTML.trim();
+    const node = wrap.firstElementChild;
+    const form = node.querySelector('form');
+    if (!form) return;
+    form.dataset.addUrl = contentBoxAddUrl;
+    form.dataset.target = '#content-box-list';
+    const kindInput = document.createElement('input');
+    kindInput.type = 'hidden';
+    kindInput.name = 'kind';
+    kindInput.value = kind;
+    form.prepend(kindInput);
+    // Cancel button inside templates uses [data-cancel-inline-form] — wire it
+    // to also re-show the kind picker.
+    node.querySelectorAll('[data-cancel-inline-form]').forEach(btn => {
+      btn.addEventListener('click', resetSectionAddUI, { once: true });
+    });
+    contentBoxKindPicker.hidden = true;
+    contentBoxAddSlot.appendChild(node);
+    if (window.bindForgeAddForm) window.bindForgeAddForm(form);
+    if (window.initForgeRichText) window.initForgeRichText(node);
+    node.querySelector('input,textarea,select')?.focus();
+  }
+
+  function openActionsKindFlow() {
+    const typeTpl = document.getElementById('forge-section-action-type-template');
+    if (!typeTpl) return;
+    contentBoxKindPicker.hidden = true;
+    const typeNode = typeTpl.content.firstElementChild.cloneNode(true);
+    contentBoxAddSlot.appendChild(typeNode);
+    typeNode.querySelector('[data-section-action-type-cancel]').addEventListener('click', resetSectionAddUI);
+    typeNode.querySelector('[data-section-action-type-confirm]').addEventListener('click', () => {
+      const select = typeNode.querySelector('[data-section-action-type]');
+      const actionType = select.value;
+      typeNode.remove();
+      openActionEntryForm(actionType);
     });
   }
-  if (contentBoxAddCancel && contentBoxAddForm && contentBoxAddToggle) {
-    contentBoxAddCancel.addEventListener('click', () => {
-      contentBoxAddForm.hidden = true;
-      contentBoxAddToggle.hidden = false;
-      contentBoxAddForm.querySelectorAll('input[type="text"], textarea').forEach(el => { el.value = ''; });
+
+  function buildCostSlot(actionType) {
+    // Mirror step_action_form.html's cost-field branching, but driven by a
+    // selected actionType instead of an existing step.
+    const slot = document.createElement('div');
+    if (actionType === 'action') {
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'cost';
+      hidden.value = 'action';
+      slot.appendChild(hidden);
+      return slot;
+    }
+    if (actionType === 'other') {
+      slot.className = 'd-flex flex-wrap gap-2 align-items-center mb-1';
+      slot.innerHTML = `
+        <strong class="me-1 small text-muted">Cost:</strong>
+        <input type="hidden" name="cost" value="other">
+        <input type="file" name="cost_image" accept="image/*"
+               class="form-control form-control-sm" required style="max-width:14rem;">`;
+      return slot;
+    }
+    // item / card: dropdown of allowed costs.
+    const itemChoices = [
+      ['item_sword','Sword'], ['item_hammer','Hammer'], ['item_crossbow','Crossbow'],
+      ['item_coins','Coins'], ['item_boots','Boots'], ['item_tea','Tea'],
+      ['item_bag','Bag'], ['item_torch','Torch'], ['item_any','Any Item'],
+    ];
+    const cardChoices = [
+      ['card_fox','Fox'], ['card_mouse','Mouse'], ['card_rabbit','Rabbit'],
+      ['card_bird','Bird'], ['card_nonbird','Non-Bird'], ['card_vertical','Card'],
+    ];
+    const choices = actionType === 'item' ? itemChoices : cardChoices;
+    slot.className = 'd-flex flex-wrap gap-2 align-items-center mb-1';
+    const opts = choices.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    slot.innerHTML = `
+      <strong class="me-1 small text-muted">Cost:</strong>
+      <select name="cost" class="form-select form-select-sm" style="max-width:11rem;">${opts}</select>`;
+    return slot;
+  }
+
+  function openActionEntryForm(actionType) {
+    const tpl = document.getElementById('forge-section-action-form-template');
+    if (!tpl) return;
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    node.querySelector('[data-action-type-input]').value = actionType;
+    const costSlot = node.querySelector('[data-cost-slot]');
+    costSlot.replaceWith(buildCostSlot(actionType));
+    contentBoxAddSlot.appendChild(node);
+    const form = node.querySelector('form');
+    if (window.bindForgeAddForm) window.bindForgeAddForm(form);
+    if (window.initForgeRichText) window.initForgeRichText(node);
+    node.querySelector('[data-cancel-section-add]').addEventListener('click', resetSectionAddUI);
+    node.querySelector('textarea')?.focus();
+  }
+
+  if (contentBoxKindPicker) {
+    contentBoxKindPicker.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-add-section-kind]');
+      if (!btn) return;
+      const kind = btn.dataset.addSectionKind;
+      contentBoxAddSlot.innerHTML = '';
+      if (kind === 'section') openSectionForm();
+      else if (kind === 'actions') openActionsKindFlow();
+      else openSingleKindForm(kind);
     });
   }
-  if (contentBoxAddForm && contentBoxAddToggle && contentBoxList) {
+  if (contentBoxAddCancel && contentBoxAddForm) {
+    contentBoxAddCancel.addEventListener('click', resetSectionAddUI);
+  }
+  if (contentBoxAddForm && contentBoxList) {
     contentBoxAddForm.addEventListener('submit', () => {
       const observer = new MutationObserver(() => {
-        contentBoxAddForm.hidden = true;
-        contentBoxAddToggle.hidden = false;
+        resetSectionAddUI();
         renumberContentBoxes(contentBoxList);
         bindContentBoxStepSortables(contentBoxList);
         observer.disconnect();
       });
       observer.observe(contentBoxList, { childList: true });
+    });
+  }
+  // After a single-kind add succeeds, the row is appended to #content-box-list
+  // by bindAddForm; clean up the slot and re-show the picker.
+  if (contentBoxList) {
+    contentBoxList.addEventListener('forge:row-replaced', () => {
+      if (contentBoxAddSlot.children.length > 0 || contentBoxKindPicker.hidden) {
+        resetSectionAddUI();
+        renumberContentBoxes(contentBoxList);
+        bindContentBoxStepSortables(contentBoxList);
+      }
     });
   }
 

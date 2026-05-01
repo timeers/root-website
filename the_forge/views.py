@@ -1,5 +1,6 @@
 import json
 
+from django.db import transaction
 from django.http import (
     HttpResponse,
     HttpResponseForbidden,
@@ -744,23 +745,90 @@ def ability_reorder(request, sheet_pk):
 
 # ---------- ContentBox (child of FactionSheet) ----------
 
+_KIND_CHILD_FORMS = {
+    ContentBox.KindChoices.BOX: BorderedBoxForm,
+    ContentBox.KindChoices.TRACK: CardboardTrackForm,
+    ContentBox.KindChoices.LEGEND: LegendForm,
+    ContentBox.KindChoices.SCALE: ScaleForm,
+    # ACTIONS uses StepActionForm but with extra action_type handling
+}
+
+
 @player_required
 @require_http_methods(["POST"])
 def contentbox_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
-    form = ContentBoxForm(request.POST)
-    if not form.is_valid():
-        return HttpResponseBadRequest(str(form.errors))
-    box = form.save(commit=False)
-    box.sheet = sheet
-    if not box.order:
-        box.order = sheet.content_boxes.count() + 1
-    box.save()
-    box.annotated_steps = []
+
+    kind = request.POST.get('kind') or ContentBox.KindChoices.SECTION
+    valid_kinds = {c.value for c in ContentBox.KindChoices}
+    if kind not in valid_kinds:
+        return HttpResponseBadRequest(f"Invalid kind: {kind}")
+
+    if kind == ContentBox.KindChoices.SECTION:
+        form = ContentBoxForm(request.POST)
+        if not form.is_valid():
+            return HttpResponseBadRequest(str(form.errors))
+        box = form.save(commit=False)
+        box.sheet = sheet
+        box.kind = kind
+        if not box.order:
+            box.order = sheet.content_boxes.count() + 1
+        box.save()
+        box.annotated_steps = []
+        return render(request, 'the_forge/partials/content_box_row.html', {
+            'box': box, 'inline_keywords': _inline_keywords(),
+        })
+
+    # Single-element kind: validate the child form first, then create
+    # ContentBox + hidden PhaseStep + the chosen child in a single transaction.
+    if kind == ContentBox.KindChoices.ACTIONS:
+        action_type = request.POST.get('action_type', '')
+        if action_type not in {c.value for c in PhaseStep.ActionType}:
+            return HttpResponseBadRequest("Invalid action_type for Actions section.")
+        child_form = StepActionForm(request.POST, request.FILES)
+    else:
+        FormCls = _KIND_CHILD_FORMS[kind]
+        child_form = FormCls(request.POST, request.FILES)
+
+    if not child_form.is_valid():
+        return HttpResponseBadRequest(str(child_form.errors))
+
+    if kind == ContentBox.KindChoices.ACTIONS:
+        # Validate cost matches the chosen action_type before creating anything.
+        # (PhaseStep.allowed_cost_choices needs an instance, but only reads action_type.)
+        probe = PhaseStep(action_type=action_type)
+        cost = child_form.cleaned_data.get('cost')
+        if cost not in {v for v, _ in probe.allowed_cost_choices()}:
+            return HttpResponseBadRequest(f"Cost '{cost}' is not allowed for this action_type.")
+
+    with transaction.atomic():
+        box = ContentBox.objects.create(
+            sheet=sheet,
+            kind=kind,
+            order=sheet.content_boxes.count() + 1,
+        )
+        step_kwargs = {
+            'sheet': sheet,
+            'content_box': box,
+            'phase': PhaseStep.PhaseChoices.OTHER,
+            'number': 1,
+        }
+        if kind == ContentBox.KindChoices.ACTIONS:
+            step_kwargs['action_type'] = action_type
+        step = PhaseStep.objects.create(**step_kwargs)
+
+        child = child_form.save(commit=False)
+        child.step = step
+        child.order = 1
+        child.save()
+
+    ensure_step_parent_fits(step, check_width=(kind == ContentBox.KindChoices.TRACK))
+    box.annotated_steps = _annotate_steps(box.steps.order_by('number'))
     return render(request, 'the_forge/partials/content_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(),
     })
 
 

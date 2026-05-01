@@ -203,14 +203,30 @@
     }
     const html = await resp.text();
     const row = form.closest('[data-row]');
-    if (row) {
-      row.insertAdjacentHTML('afterend', html);
-      const newRow = row.nextElementSibling;
-      const parent = row.parentElement;
-      row.remove();
-      if (window.initForgeRichText) window.initForgeRichText(document);
-      if (parent) parent.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: newRow } }));
+    if (!row) return;
+    // If the row has children that are themselves rows (e.g. a content box
+    // containing phase-step rows), swap only the form so we don't blow away
+    // unsaved child edits. Otherwise replace the whole row as before.
+    const hasNestedRows = row.querySelector('[data-row]') !== null;
+    const parent = row.parentElement;
+    if (hasNestedRows) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const newForm = tmp.querySelector('form[data-edit-url="' + url + '"]');
+      if (newForm) {
+        form.replaceWith(newForm);
+        row.classList.remove('is-dirty');
+        if (window.initForgeRichText) window.initForgeRichText(newForm);
+        parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row } }));
+        return;
+      }
+      // fall through to full-row replace if the response shape was unexpected
     }
+    row.insertAdjacentHTML('afterend', html);
+    const newRow = row.nextElementSibling;
+    row.remove();
+    if (window.initForgeRichText) window.initForgeRichText(document);
+    parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: newRow } }));
   });
 
   // Generic dirty-form tracking — any input inside a [data-dirty-form] form
@@ -249,6 +265,7 @@
     el.classList.toggle('is-error', !!isError);
     el.classList.add('is-visible');
     clearTimeout(el._autosaveTimer);
+    if (isError) return;
     el._autosaveTimer = setTimeout(() => {
       el.classList.remove('is-visible');
     }, 1500);
@@ -1399,10 +1416,80 @@
     if (form) trackEditorSerialise(form);
   }, true);
 
+  // ---------- Unsaved-changes banner + beforeunload ----------
+  // Watches the page for [data-row].is-dirty rows (set by the input listener
+  // above when the user types in a [data-dirty-form]). Shows a sticky banner
+  // with a count and warns on navigation. Clicking the banner scrolls to the
+  // first dirty row and pulses it so the user can find which Save to click.
+  function initDirtyBanner() {
+    if (window.__forgeDirtyBannerBound) return;
+    window.__forgeDirtyBannerBound = true;
+
+    const banner = document.createElement('button');
+    banner.type = 'button';
+    banner.id = 'forge-unsaved-banner';
+    banner.className = 'forge-unsaved-banner';
+    banner.hidden = true;
+    banner.setAttribute('aria-live', 'polite');
+    document.body.appendChild(banner);
+
+    function dirtyRows() {
+      return document.querySelectorAll('[data-row].is-dirty');
+    }
+
+    function update() {
+      const rows = dirtyRows();
+      const count = rows.length;
+      if (!count) {
+        banner.hidden = true;
+        return;
+      }
+      banner.hidden = false;
+      banner.textContent = count === 1
+        ? '1 unsaved section — click to find it'
+        : count + ' unsaved sections — click to find them';
+    }
+
+    banner.addEventListener('click', () => {
+      const first = dirtyRows()[0];
+      if (!first) return;
+      first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      first.classList.remove('forge-dirty-pulse');
+      // force reflow so the animation re-runs even if class lingers
+      void first.offsetWidth;
+      first.classList.add('forge-dirty-pulse');
+      setTimeout(() => first.classList.remove('forge-dirty-pulse'), 1600);
+    });
+
+    // Update on dirty-mark (input inside a [data-dirty-form]) and on row
+    // replacement (forge:row-replaced fires after a successful save). Both are
+    // already dispatched by the existing handlers — no broad observer needed.
+    let scheduled = false;
+    function scheduleUpdate() {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => { scheduled = false; update(); });
+    }
+    document.addEventListener('input', (ev) => {
+      if (ev.target.closest('form[data-dirty-form]')) scheduleUpdate();
+    });
+    document.addEventListener('forge:row-replaced', scheduleUpdate);
+
+    window.addEventListener('beforeunload', (ev) => {
+      if (!dirtyRows().length) return;
+      ev.preventDefault();
+      ev.returnValue = '';
+      return '';
+    });
+
+    update();
+  }
+
   function initAll() {
     document.querySelectorAll('form[data-add-url]').forEach(bindAddForm);
     initStepSortables(document);
     initIconInputsIn(document);
+    initDirtyBanner();
   }
   window.bindForgeAddForm = bindAddForm;
 

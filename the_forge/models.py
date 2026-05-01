@@ -166,7 +166,16 @@ class FactionAbility(models.Model):
     body = models.TextField()
 
 class ContentBox(models.Model):
+    class KindChoices(models.TextChoices):
+        SECTION = 'section', 'Section'
+        BOX = 'box', 'Bordered Box'
+        TRACK = 'track', 'Cardboard Track'
+        LEGEND = 'legend', 'Legend'
+        SCALE = 'scale', 'Scale'
+        ACTIONS = 'actions', 'Actions'
+
     sheet = models.ForeignKey(FactionSheet, related_name='content_boxes', on_delete=models.CASCADE)
+    kind = models.CharField(max_length=20, choices=KindChoices.choices, default=KindChoices.SECTION)
     title = models.CharField(max_length=200, blank=True, default='')
     text = models.TextField(blank=True, default='')
     order = models.PositiveIntegerField()
