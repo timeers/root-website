@@ -33,6 +33,38 @@
     return true;
   }
 
+  // Guard against duplicate submissions. While a form's request is in flight,
+  // tag it busy and disable its submit buttons. Re-enabled in the finally block
+  // so failures (network, validation, server 500) restore the UI.
+  async function withSubmitGuard(form, work) {
+    if (form._submitInFlight) return;
+    form._submitInFlight = true;
+    const submitBtns = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+    const originalLabels = new Map();
+    submitBtns.forEach((btn) => {
+      btn.disabled = true;
+      btn.setAttribute('aria-busy', 'true');
+      if (btn.tagName === 'BUTTON' && !btn.dataset.busyLabelSet) {
+        originalLabels.set(btn, btn.innerHTML);
+        btn.dataset.busyLabelSet = '1';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Saving…';
+      }
+    });
+    try {
+      return await work();
+    } finally {
+      submitBtns.forEach((btn) => {
+        btn.disabled = false;
+        btn.removeAttribute('aria-busy');
+        if (originalLabels.has(btn)) {
+          btn.innerHTML = originalLabels.get(btn);
+          delete btn.dataset.busyLabelSet;
+        }
+      });
+      form._submitInFlight = false;
+    }
+  }
+
   // Generic add-form handler — picks up any <form data-add-url="..."> and POSTs
   // it, then inserts the returned HTML into the target list.
   function bindAddForm(form) {
@@ -41,6 +73,7 @@
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       if (!validateRequiredFields(form)) return;
+      await withSubmitGuard(form, async () => {
       const url = form.dataset.addUrl;
       const targetSelector = form.dataset.target || '#' + form.id.replace('-add-form', '-list');
       const list = document.querySelector(targetSelector);
@@ -83,6 +116,7 @@
         const toggle = document.querySelector(`[data-phase-step-add-toggle="${phase}"]`);
         if (toggle) toggle.hidden = false;
       }
+      });
     });
   }
 
@@ -196,43 +230,45 @@
     if (!form) return;
     ev.preventDefault();
     if (!validateRequiredFields(form)) return;
-    const url = form.dataset.editUrl;
-    const fd = new FormData(form);
-    const resp = await fetch(url, {
-      method: 'POST',
-      body: fd,
-      headers: { 'X-CSRFToken': csrftoken },
-    });
-    if (!resp.ok) {
-      alert('Save failed: ' + await resp.text());
-      return;
-    }
-    const html = await resp.text();
-    const row = form.closest('[data-row]');
-    if (!row) return;
-    // If the row has children that are themselves rows (e.g. a content box
-    // containing phase-step rows), swap only the form so we don't blow away
-    // unsaved child edits. Otherwise replace the whole row as before.
-    const hasNestedRows = row.querySelector('[data-row]') !== null;
-    const parent = row.parentElement;
-    if (hasNestedRows) {
-      const tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      const newForm = tmp.querySelector('form[data-edit-url="' + url + '"]');
-      if (newForm) {
-        form.replaceWith(newForm);
-        row.classList.remove('is-dirty');
-        if (window.initForgeRichText) window.initForgeRichText(newForm);
-        parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row } }));
+    await withSubmitGuard(form, async () => {
+      const url = form.dataset.editUrl;
+      const fd = new FormData(form);
+      const resp = await fetch(url, {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-CSRFToken': csrftoken },
+      });
+      if (!resp.ok) {
+        alert('Save failed: ' + await resp.text());
         return;
       }
-      // fall through to full-row replace if the response shape was unexpected
-    }
-    row.insertAdjacentHTML('afterend', html);
-    const newRow = row.nextElementSibling;
-    row.remove();
-    if (window.initForgeRichText) window.initForgeRichText(document);
-    parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: newRow } }));
+      const html = await resp.text();
+      const row = form.closest('[data-row]');
+      if (!row) return;
+      // If the row has children that are themselves rows (e.g. a content box
+      // containing phase-step rows), swap only the form so we don't blow away
+      // unsaved child edits. Otherwise replace the whole row as before.
+      const hasNestedRows = row.querySelector('[data-row]') !== null;
+      const parent = row.parentElement;
+      if (hasNestedRows) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        const newForm = tmp.querySelector('form[data-edit-url="' + url + '"]');
+        if (newForm) {
+          form.replaceWith(newForm);
+          row.classList.remove('is-dirty');
+          if (window.initForgeRichText) window.initForgeRichText(newForm);
+          parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row } }));
+          return;
+        }
+        // fall through to full-row replace if the response shape was unexpected
+      }
+      row.insertAdjacentHTML('afterend', html);
+      const newRow = row.nextElementSibling;
+      row.remove();
+      if (window.initForgeRichText) window.initForgeRichText(document);
+      parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: newRow } }));
+    });
   });
 
   // Generic dirty-form tracking — any input inside a [data-dirty-form] form
