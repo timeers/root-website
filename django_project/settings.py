@@ -202,6 +202,8 @@ AUTH_PASSWORD_VALIDATORS = [
 
 SESSION_COOKIE_AGE = 604800  # 1 week
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False 
+MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/

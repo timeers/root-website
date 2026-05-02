@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
 from django.views.decorators.http import require_http_methods
 
+from django.contrib.auth.decorators import login_required
 from the_gatehouse.views import forge_onboard_required, player_required
 from .inline_images import picker_image_map, picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
@@ -234,7 +235,7 @@ def forgedfaction_edit(request, pk):
     })
 
 
-@forge_onboard_required
+@login_required
 @require_http_methods(["POST"])
 def forgedfaction_delete(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
@@ -326,7 +327,7 @@ def factionsheet_preview(request, pk):
     })
 
 
-@forge_onboard_required
+@login_required
 @require_http_methods(["POST"])
 def factionsheet_preview_save(request, pk):
     """Save layout overrides from the preview page form.
@@ -417,7 +418,7 @@ def factionsheet_preview_save(request, pk):
     return redirect('forge-sheet-preview', pk=sheet.pk)
 
 
-@forge_onboard_required
+@login_required
 @require_http_methods(["POST"])
 def factionsheet_delete(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
@@ -1629,6 +1630,7 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     if instance.preview_fingerprint == fingerprint and instance.image_preview:
         return
     from django.core.files.base import ContentFile
+    from django.utils import timezone
     from .pdf_engine import pdf_bytes_to_webp_bytes
     try:
         webp = pdf_bytes_to_webp_bytes(pdf_bytes)
@@ -1639,10 +1641,11 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     filename = f'{field_prefix}_{instance.pk}.webp'
     instance.image_preview.save(filename, ContentFile(webp), save=False)
     instance.preview_fingerprint = fingerprint
-    instance.save(update_fields=['image_preview', 'preview_fingerprint'])
+    instance.last_generated = timezone.now()
+    instance.save(update_fields=['image_preview', 'preview_fingerprint', 'last_generated'])
 
 
-@forge_onboard_required
+@login_required
 def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
@@ -1704,7 +1707,7 @@ def forgedfaction_pdf(request, pk):
     return _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
 
 
-@forge_onboard_required
+@login_required
 def factionsheet_pdf(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
@@ -1723,7 +1726,7 @@ def factionsheet_pdf(request, pk):
     return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
 
 
-@forge_onboard_required
+@login_required
 def factionsheet_webp(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
@@ -1745,7 +1748,7 @@ def factionsheet_webp(request, pk):
     return _webp_file_response(sheet.image_preview, f'{sheet.faction.faction_name} - Front.webp')
 
 
-@forge_onboard_required
+@login_required
 def factionback_pdf(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
     if (resp := _forbid_if_not_editor(request, back.faction)):
@@ -1764,7 +1767,7 @@ def factionback_pdf(request, pk):
     return _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
 
 
-@forge_onboard_required
+@login_required
 def factionback_webp(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
     if (resp := _forbid_if_not_editor(request, back.faction)):
@@ -1786,7 +1789,7 @@ def factionback_webp(request, pk):
     return _webp_file_response(back.image_preview, f'{back.faction.faction_name} - Back.webp')
 
 
-@forge_onboard_required
+@login_required
 def setup_card_pdf(request, pk):
     card = get_object_or_404(SetupCard, pk=pk)
     if (resp := _forbid_if_not_editor(request, card.faction)):
@@ -1805,7 +1808,7 @@ def setup_card_pdf(request, pk):
     return _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
 
 
-@forge_onboard_required
+@login_required
 def setup_card_webp(request, pk):
     card = get_object_or_404(SetupCard, pk=pk)
     if (resp := _forbid_if_not_editor(request, card.faction)):

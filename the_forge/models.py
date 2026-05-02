@@ -56,6 +56,9 @@ class ForgedFaction(models.Model):
     background_image = models.ImageField(upload_to='forge/sheet_backgrounds/', blank=True, null=True)
     repeat_background_image = models.BooleanField(default=False)
 
+    last_updated = models.DateTimeField(auto_now=True)
+    last_generated = models.DateTimeField(blank=True, null=True)
+
     def get_background_path(self):
         if self.background_preset:
             import os
@@ -113,6 +116,9 @@ class FactionSheet(models.Model):
 
     image_preview = models.ImageField(upload_to='forge/sheet_previews/', blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+
+    last_updated = models.DateTimeField(auto_now=True)
+    last_generated = models.DateTimeField(blank=True, null=True)
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -508,6 +514,9 @@ class FactionBack(models.Model):
     image_preview = models.ImageField(upload_to='forge/back_previews/', blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
 
+    last_updated = models.DateTimeField(auto_now=True)
+    last_generated = models.DateTimeField(blank=True, null=True)
+
     def save(self, *args, **kwargs):
         if self.pk:
             try:
@@ -558,6 +567,9 @@ class SetupCard(models.Model):
 
     image_preview = models.ImageField(upload_to='forge/card_previews/', blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+
+    last_updated = models.DateTimeField(auto_now=True)
+    last_generated = models.DateTimeField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
         if self.pk:
