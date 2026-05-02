@@ -137,6 +137,7 @@ class CharacterImage(models.Model):
     sheet = models.ForeignKey(FactionSheet, related_name='character_images', on_delete=models.CASCADE)
     image = models.ImageField(upload_to='forge/character_images/')
     order = models.PositiveIntegerField(default=0)
+    in_front = models.BooleanField(default=False)
 
     x_h = models.FloatField(blank=True, null=True)
     y_h = models.FloatField(blank=True, null=True)
@@ -327,7 +328,7 @@ class CardSlot(models.Model):
     decree = models.ForeignKey(DecreeSection, related_name='card_slots', on_delete=models.CASCADE)
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=20, blank=True, null=True)
-    body = models.CharField(max_length=40, blank=True, null=True)
+    body = models.CharField(max_length=80, blank=True, null=True)
 
     class Meta:
         ordering = ['number']

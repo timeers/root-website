@@ -1,0 +1,267 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block meta %}    {# Open Graph tags #}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="Root Style Guide">
+<meta property="og:description" content="Reference for the elements, fonts, and conventions used to build a Root faction board in the Forge.">
+<meta name="description" content="Reference for the elements, fonts, and conventions used to build a Root faction board in the Forge.">
+{% endblock meta %}
+
+{% block content %}
+<div class="forge-style-guide">
+
+  <a href="{% url 'forge-home' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>  The Forge</a>
+
+  <section class="forge-style-guide-hero text-center py-5 mb-4">
+    <h1 class="root-title display-4 mb-3">Forge Style Guide</h1>
+    <p class="lead mb-3">
+      A reference for the elements, fonts, and conventions used to build a faction board.
+    </p>
+  </section>
+
+  <section class="mb-5">
+    <h2 class="root-title mb-3">Typography</h2>
+    <p class="text-muted mb-4">
+      Root uses two typefaces. Decorative titles are set in
+      <span class="luminari">Luminari</span>; body text is set in
+      <strong>Baskerville 10 Pro</strong> (with <strong>Bold</strong>, <em>Italic</em>, and <strong><em>Bold-Italic</em></strong> variants).
+    </p>
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Luminari</h4>
+          <p class="text-muted mb-2">Decorative titles and headings.</p>
+          <ul class="mb-0 small">
+            <li>Section Titles</li>
+            <li>Boxes (Satchel & Officers)</li>
+            <li>Cardboard Track Headers (Prowess & Command)</li>
+            <li>Card Outlines (Mood & Leader Cards)</li>
+          </ul>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="forge-baskerville-bold mb-2">Baskerville 10 Pro</h4>
+          <p class="text-muted mb-2">Body text.</p>
+          <ul class="mb-0 small">
+            <li>Bold for emphasis</li>
+            <li>Italics for reminders and thematic text</li>
+            <li>Large for Phase Step names and Actions</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-5">
+    <h2 class="root-title mb-3">Board Elements</h2>
+    <p class="text-muted mb-4">
+      Examples of the primary elements a faction board can contain. Use these as a reference
+      when building your faction.
+    </p>
+
+    {# ---------- Group: Structure ---------- #}
+    <h3 class="root-title mb-3">Structure</h3>
+    <div class="row g-3 mb-4">
+      {# ---------- Faction Sheet ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Phases</h4>
+          <p class="text-muted small mb-2">The primary turn structure of a faction broken into Birdsong, Daylight and Evening.</p>
+          {# Image: phases.png #}
+          <img src="{% static 'the_forge/img/style_guide/phases.png' %}"
+               alt="Phases example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+        {# ---------- Phase Step ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Phase Step</h4>
+          <p class="text-muted small mb-2">A step within Birdsong, Daylight, or Evening.</p>
+          {# Image: steps.png #}
+          <img src="{% static 'the_forge/img/style_guide/steps.png' %}"
+               alt="Phase step example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Sections</h4>
+          <p class="text-muted small mb-2">Faction boards can have other sections outside of the Phase box that contain any number of elements.</p>
+          <img src="{% static 'the_forge/img/style_guide/section_steps.png' %}"
+               alt="Sections example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      {# ---------- Faction Ability ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Faction Ability</h4>
+          <p class="text-muted small mb-2">Special faction abilities listed at the top of the board and marked with a berry icon.</p>
+          {# Image: ability.png #}
+          <img src="{% static 'the_forge/img/style_guide/ability.png' %}"
+               alt="Faction ability example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      {# ---------- Decree Section ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Card Slot Section</h4>
+          <p class="text-muted small mb-2">A row of card slots at the top of the faction board like the Decree or Retinue.</p>
+          {# Image: decree.png #}
+          <img src="{% static 'the_forge/img/style_guide/decree.png' %}"
+               alt="Decree section example" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+
+
+    {# ---------- Group: Actions ---------- #}
+    <h3 class="root-title mb-3">Actions</h3>
+    <div class="row g-3 mb-4">
+
+      {# ---------- Step Action ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Standard Action</h4>
+          <p class="text-muted small mb-2">An action that can be taken by the faction x number of times per turn.</p>
+          {# Image: action_action.png #}
+          <img src="{% static 'the_forge/img/style_guide/action_action.png' %}"
+               alt="Standard action example" class="img-fluid mb-2">
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Card Action</h4>
+          <p class="text-muted small mb-2">An action that can be taken by revealing or discarding a specific card.</p>
+          {# Image: card_actions.png #}
+          <img src="{% static 'the_forge/img/style_guide/card_actions.png' %}"
+               alt="Card action example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Item Action</h4>
+          <p class="text-muted small mb-2">An action that can be taken by exhausting an item.</p>
+          {# Image: item_actions.png #}
+          <img src="{% static 'the_forge/img/style_guide/item_actions.png' %}"
+               alt="Item action example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Custom Action</h4>
+          <p class="text-muted small mb-2">A action that can be taken with some other cost.</p>
+          {# Image: custom_action.png #}
+          <img src="{% static 'the_forge/img/style_guide/custom_action.png' %}"
+               alt="Custom action example" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+
+    {# ---------- Group: Tracks ---------- #}
+    <h3 class="root-title mb-3">Tracks</h3>
+    <div class="row g-3 mb-4">
+      {# ---------- Cardboard Track ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Token Track</h4>
+          <p class="text-muted small mb-2">Grid of Tokens with optional headers, dividers, and backgrounds. Can be compressed when there is not enough room (like the sympathy track).</p>
+          {# Image: token_track.png #}
+          <img src="{% static 'the_forge/img/style_guide/token_track.png' %}"
+               alt="Token track example" class="img-fluid mb-2">
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Building Track</h4>
+          <p class="text-muted small mb-2">Grid of Buildings with optional headers, dividers, and backgrounds.</p>
+          {# Image: building_track.png #}
+          <img src="{% static 'the_forge/img/style_guide/building_track.png' %}"
+               alt="Building track example" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+
+    {# ---------- Group: Information ---------- #}
+    <h3 class="root-title mb-3">Information</h3>
+    <div class="row g-3 mb-4">
+      {# ---------- Legend ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Legend</h4>
+          <p class="text-muted small mb-2">A keyed list of images with labels and short descriptions. Helps players reference different pieces like the Corvid plots.</p>
+          {# Image: legend.png #}
+          <img src="{% static 'the_forge/img/style_guide/legend.png' %}"
+               alt="Legend example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      {# ---------- Scale ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Scale</h4>
+          <p class="text-muted small mb-2">A range & result table typically used for scoring or card draw.</p>
+          {# Image: scale.png #}
+          <img src="{% static 'the_forge/img/style_guide/scale.png' %}"
+               alt="Scale example" class="img-fluid mb-2">
+          {# Image: scale2.png #}
+          <img src="{% static 'the_forge/img/style_guide/scale2.png' %}"
+               alt="Scale alternate example" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+
+    {# ---------- Group: Boxes ---------- #}
+    <h3 class="root-title mb-3">Boxes</h3>
+    <div class="row g-3 mb-4">
+      {# ---------- Bordered Box ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Boxes</h4>
+          <p class="text-muted small mb-2">Titled bordered box for meeples or items. Available in small, medium, and large sizes.</p>
+          {# Image: bordered_box.png (consider showing all three sizes side-by-side) #}
+          <img src="{% static 'the_forge/img/style_guide/bordered_box.png' %}"
+               alt="Bordered box example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      {# ---------- Card Pile ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Card Pile</h4>
+          <p class="text-muted small mb-2">A titled stockpile area for cards like the Eyrie Leaders or the Cult's Lost Souls.</p>
+          {# Image: card_pile.png #}
+          <img src="{% static 'the_forge/img/style_guide/card_pile.png' %}"
+               alt="Card pile example" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+
+    {# ---------- Group: Decorative ---------- #}
+    <h3 class="root-title mb-3">Decorative</h3>
+    <div class="row g-3 mb-4">
+      {# ---------- Character Image ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Character Image</h4>
+          <p class="text-muted small mb-2">Decorative artwork placed on the faction sheet.</p>
+          {# Image: character_art.png #}
+          <img src="{% static 'the_forge/img/style_guide/character_art.png' %}"
+               alt="Character image example" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}

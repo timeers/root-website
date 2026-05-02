@@ -10,7 +10,7 @@
              maxlength="20" class="form-control form-control-sm flex-grow-1" placeholder="Title">
     </div>
     <input type="text" name="body" value="{{ slot.body|default_if_none:'' }}"
-           maxlength="40" class="form-control form-control-sm mb-2"
+           maxlength="80" class="form-control form-control-sm mb-2"
            placeholder="Body (optional)" style="font-style:italic;">
     <div class="d-flex gap-1">
       <button type="submit" data-save-btn class="btn btn-sm btn-outline-primary flex-grow-1">Save</button>

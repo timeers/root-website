@@ -153,6 +153,10 @@ def forge_home(request):
     })
 
 
+def forge_style_guide(request):
+    return render(request, 'the_forge/forge_style_guide.html')
+
+
 # ---------- ForgedFaction CRUD ----------
 
 @forge_onboard_required
@@ -1044,7 +1048,7 @@ def stepaction_form(request, step_pk):
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     return render(request, 'the_forge/partials/step_action_form.html', {
-        'step': step, 'step_pk': step.pk,
+        'step': step, 'step_pk': step.pk, 'inline_keywords': _inline_keywords(),
     })
 
 
@@ -1576,6 +1580,19 @@ def character_image_add(request, sheet_pk):
     ci.sheet = sheet
     ci.order = sheet.character_images.count() + 1
     ci.save()
+    return render(request, 'the_forge/partials/character_image_row.html', {'ci': ci})
+
+
+@player_required
+@require_http_methods(["POST"])
+def character_image_edit(request, pk):
+    ci = get_object_or_404(CharacterImage, pk=pk)
+    if (resp := _forbid_if_not_editor(request, ci.sheet.faction)):
+        return resp
+    form = CharacterImageForm(request.POST, request.FILES, instance=ci)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    form.save()
     return render(request, 'the_forge/partials/character_image_row.html', {'ci': ci})
 
 

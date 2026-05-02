@@ -20,7 +20,7 @@
     <p class="lead mb-4">
       Design and create a custom Faction Board. 
       <br>
-      When you're ready print your faction board as a PDF.
+      When you're ready, print your faction board as a PDF.
     </p>
 
     {% if user.is_authenticated %}
@@ -42,31 +42,37 @@
 
   <section class="forge-home-features mb-5">
     <div class="row g-3">
-      <div class="col-md-4">
+      <div class="col-md-6 col-lg-3">
         <div class="card h-100 p-3">
-          <h4 class="root-title mb-2">Front</h4>
+          <h4 class="root-title mb-2">Build</h4>
           <p class="mb-0 text-muted">
-            Build out faction abilities, and Birdsong-Daylight-Evening steps,
-            add extra sections with boxes, tracks and legends.
+            Design your faction with abilities, actions, tracks and more.
           </p>
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-6 col-lg-3">
         <div class="card h-100 p-3">
-          <h4 class="root-title mb-2">Back</h4>
+          <h4 class="root-title mb-2">Adjust</h4>
           <p class="mb-0 text-muted">
-            Define your faction's piece manifest, complexity ratings, setup order,
-            and how-to-play summary.
+            Adjust you faction board layout with the built in editor.
           </p>
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-6 col-lg-3">
         <div class="card h-100 p-3">
-          <h4 class="root-title mb-2">Export to PDF</h4>
+          <h4 class="root-title mb-2">Export</h4>
           <p class="mb-0 text-muted">
-            Generate PDFs of your faction board, back, and adset card.
+            Generate and save PDFs of your faction board, back, and adset card.
           </p>
         </div>
+      </div>
+      <div class="col-md-6 col-lg-3">
+        <a href="{% url 'forge-style-guide' %}" class="card h-100 p-3 text-decoration-none text-reset">
+          <h4 class="root-title mb-2">Style Guide</h4>
+          <p class="mb-0 text-muted">
+            Reference for faction board elements, fonts, and design conventions.
+          </p>
+        </a>
       </div>
     </div>
   </section>

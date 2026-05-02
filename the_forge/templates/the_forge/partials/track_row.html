@@ -154,11 +154,13 @@
     </div>
 
     <div class="d-flex gap-2 mt-3">
-      <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
-      {% if not express %}
-        <button type="button" class="btn btn-sm btn-outline-danger ms-auto"
-                data-delete-url="{% url 'forge-track-delete' pk=track.pk %}">Delete</button>
-      {% endif %}
+      <div class="ms-auto d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+        {% if not express %}
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  data-delete-url="{% url 'forge-track-delete' pk=track.pk %}">Delete</button>
+        {% endif %}
+      </div>
     </div>
   </form>
 </div>
