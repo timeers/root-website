@@ -21,7 +21,7 @@
 
 <div class="d-flex justify-content-between align-items-center my-2 position-relative">
   <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   All Factions</a>
-  <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary"><i class="bi bi-file-earmark-pdf"></i> Download All</a>
+  <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download"><i class="bi bi-file-earmark-pdf"></i> Download All</a>
 </div>
 
 <div class="forge-detail-frame position-relative"
@@ -55,8 +55,8 @@
                 <div class="btn-group">
                   <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
                   <ul class="dropdown-menu">
-                    <li><a class="dropdown-item" href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
-                    <li><a class="dropdown-item" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                    <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+                    <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                   </ul>
                 </div>
                 <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit Front</a>
@@ -81,8 +81,8 @@
                 <div class="btn-group">
                   <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
                   <ul class="dropdown-menu">
-                    <li><a class="dropdown-item" href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
-                    <li><a class="dropdown-item" href="{% url 'forge-back-webp' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                    <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+                    <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-webp' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                   </ul>
                 </div>
                 <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary">Edit Back</a>
@@ -107,8 +107,8 @@
                 <div class="btn-group">
                   <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
                   <ul class="dropdown-menu">
-                    <li><a class="dropdown-item" href="{% url 'forge-setup-card-pdf' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
-                    <li><a class="dropdown-item" href="{% url 'forge-setup-card-webp' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                    <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-pdf' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+                    <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-webp' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                   </ul>
                 </div>
                 <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary">Edit Card</a>
@@ -126,4 +126,13 @@
     </div>
   </div>
 </div>
+
+<script>
+  window.FORGE_SPINNER_URLS = {
+    bg:  "{% static 'images/backgroundbushes.webp' %}",
+    top: "{% static 'images/smallbush.webp' %}",
+    vb:  "{% static 'images/searchingvb.webp' %}"
+  };
+</script>
+<script src="{% static 'the_forge/forge_async_download.js' %}"></script>
 {% endblock %}
