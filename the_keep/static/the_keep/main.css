@@ -3447,6 +3447,38 @@ body.forge-modal-open { overflow: hidden; }
 .forge-faction-card__name {
   word-break: break-word;
 }
+.forge-faction-card__preview {
+  height: 3rem;
+  width: auto;
+  border-radius: 0.375rem;
+  object-fit: cover;
+  border: 2px solid var(--faction-color, rgba(0, 0, 0, 0.15));
+  background: rgba(255, 255, 255, 0.6);
+}
+.forge-faction-card__preview-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 3rem;
+  padding: 0 0.6rem;
+  border-radius: 0.375rem;
+  border: 2px dashed var(--faction-color, rgba(0, 0, 0, 0.25));
+  background: rgba(255, 255, 255, 0.45);
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.forge-faction-card__preview-empty--landscape {
+  /* Match a 3rem-tall letter-landscape preview (11/8.5 ratio). */
+  width: 3.88rem;
+  padding: 0;
+}
+.forge-faction-card__preview-empty--portrait {
+  /* Match a 3rem-tall poker-card portrait preview (2.5/3.5 ratio). */
+  width: 2.14rem;
+  padding: 0;
+}
 
 /* Forge faction detail page — full-page background, overlay, ornamental frame, columns */
 .forge-detail-page-bg {
@@ -3496,6 +3528,14 @@ body.forge-modal-open { overflow: hidden; }
 }
 .forge-detail-col { display: flex; }
 .forge-detail-col > .card { width: 100%; }
+.forge-detail-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  border: 2px solid var(--faction-color, rgba(0, 0, 0, 0.15));
+  background: rgba(255, 255, 255, 0.6);
+}
 
 @media (max-width: 767.98px) {
   .forge-detail-frame .forge-header-preview-bar {

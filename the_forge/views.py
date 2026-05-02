@@ -1625,8 +1625,8 @@ def _webp_file_response(image_field, filename):
     return response
 
 
-def _maybe_save_pdf_preview(instance, pdf_bytes, fingerprint, field_prefix):
-    if instance.pdf_fingerprint == fingerprint and instance.pdf_preview:
+def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
+    if instance.preview_fingerprint == fingerprint and instance.image_preview:
         return
     from django.core.files.base import ContentFile
     from .pdf_engine import pdf_bytes_to_webp_bytes
@@ -1634,10 +1634,12 @@ def _maybe_save_pdf_preview(instance, pdf_bytes, fingerprint, field_prefix):
         webp = pdf_bytes_to_webp_bytes(pdf_bytes)
     except Exception:
         return
+    if instance.image_preview:
+        instance.image_preview.delete(save=False)
     filename = f'{field_prefix}_{instance.pk}.webp'
-    instance.pdf_preview.save(filename, ContentFile(webp), save=False)
-    instance.pdf_fingerprint = fingerprint
-    instance.save(update_fields=['pdf_preview', 'pdf_fingerprint'])
+    instance.image_preview.save(filename, ContentFile(webp), save=False)
+    instance.preview_fingerprint = fingerprint
+    instance.save(update_fields=['image_preview', 'preview_fingerprint'])
 
 
 @forge_onboard_required
@@ -1662,7 +1664,7 @@ def forgedfaction_pdf(request, pk):
             return buf.getvalue()
         sheet_fp = fingerprint_sheet(sheet)
         sheet_pdf = get_or_build(cache_key('sheet', sheet.pk, sheet_fp), build_sheet)
-        _maybe_save_pdf_preview(sheet, sheet_pdf, sheet_fp, 'sheet')
+        _maybe_save_image_preview(sheet, sheet_pdf, sheet_fp, 'sheet')
         parts.append(sheet_pdf)
 
     back = getattr(faction, 'faction_back', None)
@@ -1673,7 +1675,7 @@ def forgedfaction_pdf(request, pk):
             return buf.getvalue()
         back_fp = fingerprint_back(back)
         back_pdf = get_or_build(cache_key('back', back.pk, back_fp), build_back)
-        _maybe_save_pdf_preview(back, back_pdf, back_fp, 'back')
+        _maybe_save_image_preview(back, back_pdf, back_fp, 'back')
         parts.append(back_pdf)
 
     card = getattr(faction, 'setup_card', None)
@@ -1684,7 +1686,7 @@ def forgedfaction_pdf(request, pk):
             return buf.getvalue()
         card_fp = fingerprint_setup_card(card)
         card_pdf = get_or_build(cache_key('setup_card', card.pk, card_fp), build_card)
-        _maybe_save_pdf_preview(card, card_pdf, card_fp, 'card')
+        _maybe_save_image_preview(card, card_pdf, card_fp, 'card')
         parts.append(card_pdf)
 
     if not parts:
@@ -1717,7 +1719,7 @@ def factionsheet_pdf(request, pk):
         SheetLayoutEngine(sheet).build(buffer)
         return buffer.getvalue()
     data = get_or_build(key, build)
-    _maybe_save_pdf_preview(sheet, data, fp, 'sheet')
+    _maybe_save_image_preview(sheet, data, fp, 'sheet')
     return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
 
 
@@ -1730,17 +1732,17 @@ def factionsheet_webp(request, pk):
     from .pdf_engine import SheetLayoutEngine
     from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
     fp = fingerprint_sheet(sheet)
-    if sheet.pdf_fingerprint != fp or not sheet.pdf_preview:
+    if sheet.preview_fingerprint != fp or not sheet.image_preview:
         def build():
             buffer = BytesIO()
             SheetLayoutEngine(sheet).build(buffer)
             return buffer.getvalue()
         data = get_or_build(cache_key('sheet', sheet.pk, fp), build)
-        _maybe_save_pdf_preview(sheet, data, fp, 'sheet')
+        _maybe_save_image_preview(sheet, data, fp, 'sheet')
         sheet.refresh_from_db()
-    if not sheet.pdf_preview:
+    if not sheet.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(sheet.pdf_preview, f'{sheet.faction.faction_name} - Front.webp')
+    return _webp_file_response(sheet.image_preview, f'{sheet.faction.faction_name} - Front.webp')
 
 
 @forge_onboard_required
@@ -1758,7 +1760,7 @@ def factionback_pdf(request, pk):
         FactionBackLayoutEngine(back).build(buffer)
         return buffer.getvalue()
     data = get_or_build(key, build)
-    _maybe_save_pdf_preview(back, data, fp, 'back')
+    _maybe_save_image_preview(back, data, fp, 'back')
     return _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
 
 
@@ -1771,17 +1773,17 @@ def factionback_webp(request, pk):
     from .pdf_engine import FactionBackLayoutEngine
     from .pdf_cache import cache_key, fingerprint_back, get_or_build
     fp = fingerprint_back(back)
-    if back.pdf_fingerprint != fp or not back.pdf_preview:
+    if back.preview_fingerprint != fp or not back.image_preview:
         def build():
             buffer = BytesIO()
             FactionBackLayoutEngine(back).build(buffer)
             return buffer.getvalue()
         data = get_or_build(cache_key('back', back.pk, fp), build)
-        _maybe_save_pdf_preview(back, data, fp, 'back')
+        _maybe_save_image_preview(back, data, fp, 'back')
         back.refresh_from_db()
-    if not back.pdf_preview:
+    if not back.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(back.pdf_preview, f'{back.faction.faction_name} - Back.webp')
+    return _webp_file_response(back.image_preview, f'{back.faction.faction_name} - Back.webp')
 
 
 @forge_onboard_required
@@ -1799,7 +1801,7 @@ def setup_card_pdf(request, pk):
         SetupCardLayoutEngine(card).build(buffer)
         return buffer.getvalue()
     data = get_or_build(key, build)
-    _maybe_save_pdf_preview(card, data, fp, 'card')
+    _maybe_save_image_preview(card, data, fp, 'card')
     return _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
 
 
@@ -1812,14 +1814,14 @@ def setup_card_webp(request, pk):
     from .pdf_engine import SetupCardLayoutEngine
     from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
     fp = fingerprint_setup_card(card)
-    if card.pdf_fingerprint != fp or not card.pdf_preview:
+    if card.preview_fingerprint != fp or not card.image_preview:
         def build():
             buffer = BytesIO()
             SetupCardLayoutEngine(card).build(buffer)
             return buffer.getvalue()
         data = get_or_build(cache_key('setup_card', card.pk, fp), build)
-        _maybe_save_pdf_preview(card, data, fp, 'card')
+        _maybe_save_image_preview(card, data, fp, 'card')
         card.refresh_from_db()
-    if not card.pdf_preview:
+    if not card.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(card.pdf_preview, f'{card.faction.faction_name} - Adset.webp')
+    return _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')

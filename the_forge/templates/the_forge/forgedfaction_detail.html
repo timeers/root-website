@@ -21,7 +21,9 @@
 
 <div class="d-flex justify-content-between align-items-center my-2 position-relative">
   <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   All Factions</a>
-  <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download"><i class="bi bi-file-earmark-pdf"></i> Download All</a>
+  {% if sheet or back or setup_card %}
+    <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download"><i class="bi bi-file-earmark-pdf"></i> Download All</a>
+  {% endif %}
 </div>
 
 <div class="forge-detail-frame position-relative"
@@ -39,7 +41,7 @@
       </div>
       <a href="{% url 'forge-faction-edit' pk=faction.pk %}"
          class="btn btn-sm btn-outline-light position-absolute"
-         style="top: 0.5rem; right: 0.5rem; z-index: 3;">Edit</a>
+         style="top: 0.5rem; right: 0.5rem; z-index: 3;"><i class="bi bi-pencil-square"></i> Edit</a>
     </div>
 
     <div class="forge-detail-columns">
@@ -52,6 +54,7 @@
             {% if sheet %}
               <div class="d-flex gap-2">
                 <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Layout</a>
+                <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit Front</a>
                 <div class="btn-group">
                   <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
                   <ul class="dropdown-menu">
@@ -59,7 +62,6 @@
                     <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                   </ul>
                 </div>
-                <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit Front</a>
               </div>
             {% else %}
               <form method="post" action="{% url 'forge-sheet-create' faction_pk=faction.pk %}" class="m-0">
@@ -68,6 +70,9 @@
               </form>
             {% endif %}
           </div>
+          {% if sheet.image_preview %}
+            <img src="{{ sheet.image_preview.url }}" alt="Front preview" class="forge-detail-preview mt-3">
+          {% endif %}
         </div>
       </div>
 
@@ -78,6 +83,7 @@
             <h4 class="root-title mb-0">Back</h4>
             {% if back %}
               <div class="d-flex gap-2">
+                <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit Back</a>
                 <div class="btn-group">
                   <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
                   <ul class="dropdown-menu">
@@ -85,7 +91,6 @@
                     <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-webp' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                   </ul>
                 </div>
-                <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary">Edit Back</a>
               </div>
             {% else %}
               <form method="post" action="{% url 'forge-back-create' faction_pk=faction.pk %}" class="m-0">
@@ -94,6 +99,9 @@
               </form>
             {% endif %}
           </div>
+          {% if back.image_preview %}
+            <img src="{{ back.image_preview.url }}" alt="Back preview" class="forge-detail-preview mt-3">
+          {% endif %}
         </div>
       </div>
 
@@ -104,6 +112,7 @@
             <h4 class="root-title mb-0">Adset Card</h4>
             {% if setup_card %}
               <div class="d-flex gap-2">
+                <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit Card</a>
                 <div class="btn-group">
                   <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
                   <ul class="dropdown-menu">
@@ -111,7 +120,6 @@
                     <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-webp' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                   </ul>
                 </div>
-                <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary">Edit Card</a>
               </div>
             {% else %}
               <form method="post" action="{% url 'forge-setup-card-create' faction_pk=faction.pk %}" class="m-0">
@@ -120,6 +128,9 @@
               </form>
             {% endif %}
           </div>
+          {% if setup_card.image_preview %}
+            <img src="{{ setup_card.image_preview.url }}" alt="Adset preview" class="forge-detail-preview mt-3">
+          {% endif %}
         </div>
       </div>
 

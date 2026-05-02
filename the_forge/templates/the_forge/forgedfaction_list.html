@@ -14,7 +14,8 @@
     {% for faction in factions %}
       <div class="col-12 col-sm-6 col-lg-4">
         <a href="{% url 'forge-faction-detail' pk=faction.pk %}"
-           class="forge-faction-card card h-100 text-decoration-none position-relative overflow-hidden">
+           class="forge-faction-card card h-100 text-decoration-none position-relative overflow-hidden"
+           style="--faction-color: {{ faction.color|default:'#888888' }};">
           {% if faction.background_image %}
             <div class="forge-faction-card__bg"
                  style="background-image:url('{{ faction.background_image.url }}');"></div>
@@ -37,16 +38,22 @@
               {% endif %}
               <h4 class="root-title mb-0 forge-faction-card__name">{{ faction.faction_name }}</h4>
             </div>
-            <div class="mt-auto d-flex flex-wrap gap-1">
-              <span class="badge {% if faction.faction_sheet %}bg-success{% else %}bg-secondary opacity-50{% endif %}">
-                {% if faction.faction_sheet %}&#10003; {% endif %}Front
-              </span>
-              <span class="badge {% if faction.faction_back %}bg-success{% else %}bg-secondary opacity-50{% endif %}">
-                {% if faction.faction_back %}&#10003; {% endif %}Back
-              </span>
-              <span class="badge {% if faction.setup_card %}bg-success{% else %}bg-secondary opacity-50{% endif %}">
-                {% if faction.setup_card %}&#10003; {% endif %}Adset
-              </span>
+            <div class="mt-auto d-flex flex-wrap gap-1 align-items-center">
+              {% if faction.faction_sheet.image_preview %}
+                <img src="{{ faction.faction_sheet.image_preview.url }}" alt="Front preview" class="forge-faction-card__preview">
+              {% elif faction.faction_sheet %}
+                <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--landscape">Front</span>
+              {% endif %}
+              {% if faction.faction_back.image_preview %}
+                <img src="{{ faction.faction_back.image_preview.url }}" alt="Back preview" class="forge-faction-card__preview">
+              {% elif faction.faction_back %}
+                <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--landscape">Back</span>
+              {% endif %}
+              {% if faction.setup_card.image_preview %}
+                <img src="{{ faction.setup_card.image_preview.url }}" alt="Adset preview" class="forge-faction-card__preview">
+              {% elif faction.setup_card %}
+                <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--portrait">A</span>
+              {% endif %}
             </div>
           </div>
         </a>

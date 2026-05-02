@@ -111,8 +111,8 @@ class FactionSheet(models.Model):
     decree_y_h = models.FloatField(blank=True, null=True)
     decree_y_v = models.FloatField(blank=True, null=True)
 
-    pdf_preview = models.ImageField(upload_to='forge/sheet_previews/', blank=True, null=True)
-    pdf_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    image_preview = models.ImageField(upload_to='forge/sheet_previews/', blank=True, null=True)
+    preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -126,7 +126,7 @@ class FactionSheet(models.Model):
         if self.pk:
             try:
                 old = FactionSheet.objects.get(pk=self.pk)
-                for field_name in ('action_image', 'header_image', 'pdf_preview'):
+                for field_name in ('action_image', 'header_image', 'image_preview'):
                     old_img = getattr(old, field_name)
                     new_img = getattr(self, field_name)
                     if old_img and old_img != new_img:
@@ -505,14 +505,14 @@ class FactionBack(models.Model):
     how_to_play_text = models.TextField(blank=True, null=True)
     back_image = models.ImageField(upload_to='forge/faction_back/', blank=True, null=True)
 
-    pdf_preview = models.ImageField(upload_to='forge/back_previews/', blank=True, null=True)
-    pdf_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    image_preview = models.ImageField(upload_to='forge/back_previews/', blank=True, null=True)
+    preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
 
     def save(self, *args, **kwargs):
         if self.pk:
             try:
                 old = FactionBack.objects.get(pk=self.pk)
-                for field_name in ('back_image', 'pdf_preview'):
+                for field_name in ('back_image', 'image_preview'):
                     old_img = getattr(old, field_name)
                     new_img = getattr(self, field_name)
                     if old_img and old_img != new_img:
@@ -556,14 +556,14 @@ class SetupCard(models.Model):
     reach = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], default=4)
     header_image = models.ImageField(upload_to='forge/adset/', null=True, blank=True)
 
-    pdf_preview = models.ImageField(upload_to='forge/card_previews/', blank=True, null=True)
-    pdf_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    image_preview = models.ImageField(upload_to='forge/card_previews/', blank=True, null=True)
+    preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
 
     def save(self, *args, **kwargs):
         if self.pk:
             try:
                 old = SetupCard.objects.get(pk=self.pk)
-                for field_name in ('header_image', 'pdf_preview'):
+                for field_name in ('header_image', 'image_preview'):
                     old_img = getattr(old, field_name)
                     new_img = getattr(self, field_name)
                     if old_img and old_img != new_img:
