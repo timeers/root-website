@@ -702,14 +702,13 @@
   const form = document.getElementById('forge-preview-form');
   if (form) form.addEventListener('submit', () => { dirty = false; });
 
-  const viewPdfLink = document.getElementById('forge-preview-view-pdf');
-  if (viewPdfLink) {
-    viewPdfLink.addEventListener('click', (ev) => {
+  document.querySelectorAll('.forge-preview-download').forEach((link) => {
+    link.addEventListener('click', (ev) => {
       if (!dirty) return;
-      const ok = confirm('You have unsaved layout changes. The PDF will not reflect them — view it anyway?');
+      const ok = confirm('You have unsaved layout changes. The download will not reflect them — continue anyway?');
       if (!ok) ev.preventDefault();
     });
-  }
+  });
 
   activate(activeMode);
 })();

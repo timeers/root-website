@@ -28,6 +28,23 @@ pdfmetrics.registerFontFamily('Baskerville', normal='Baskerville', bold='Baskerv
 PAGE_W, PAGE_H = landscape(letter)  # 792 x 612 pts
 
 
+def pdf_bytes_to_webp_bytes(pdf_bytes, dpi=150, quality=85):
+    import fitz  # PyMuPDF
+    from io import BytesIO
+    from PIL import Image as PILImage
+    doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+    try:
+        page = doc.load_page(0)
+        zoom = dpi / 72.0
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        img = PILImage.frombytes('RGB', (pix.width, pix.height), pix.samples)
+        out = BytesIO()
+        img.save(out, format='WEBP', quality=quality, method=6)
+        return out.getvalue()
+    finally:
+        doc.close()
+
+
 class _NoOpCanvas:
     """A duck-typed Canvas replacement that discards drawing calls.
 

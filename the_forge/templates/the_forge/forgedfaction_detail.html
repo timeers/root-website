@@ -20,8 +20,8 @@
 <div class="forge-detail-page-overlay"></div>
 
 <div class="d-flex justify-content-between align-items-center my-2 position-relative">
-  <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary">&larr; All Factions</a>
-  <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
+  <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   All Factions</a>
+  <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary"><i class="bi bi-file-earmark-pdf"></i> Download All</a>
 </div>
 
 <div class="forge-detail-frame position-relative"
@@ -52,7 +52,13 @@
             {% if sheet %}
               <div class="d-flex gap-2">
                 <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Layout</a>
-                <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
+                <div class="btn-group">
+                  <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
+                  <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+                    <li><a class="dropdown-item" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                  </ul>
+                </div>
                 <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit Front</a>
               </div>
             {% else %}
@@ -72,7 +78,13 @@
             <h4 class="root-title mb-0">Back</h4>
             {% if back %}
               <div class="d-flex gap-2">
-                <a href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
+                <div class="btn-group">
+                  <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
+                  <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+                    <li><a class="dropdown-item" href="{% url 'forge-back-webp' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                  </ul>
+                </div>
                 <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary">Edit Back</a>
               </div>
             {% else %}
@@ -92,7 +104,13 @@
             <h4 class="root-title mb-0">Adset Card</h4>
             {% if setup_card %}
               <div class="d-flex gap-2">
-                <a href="{% url 'forge-setup-card-pdf' pk=setup_card.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">View PDF</a>
+                <div class="btn-group">
+                  <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
+                  <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="{% url 'forge-setup-card-pdf' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+                    <li><a class="dropdown-item" href="{% url 'forge-setup-card-webp' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                  </ul>
+                </div>
                 <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary">Edit Card</a>
               </div>
             {% else %}

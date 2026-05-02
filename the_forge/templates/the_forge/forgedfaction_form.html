@@ -8,7 +8,7 @@
   {% if faction %}
     <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; Back</a>
   {% else %}
-    <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary">&larr; All Factions</a>
+    <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   All Factions</a>
   {% endif %}
 </div>
 

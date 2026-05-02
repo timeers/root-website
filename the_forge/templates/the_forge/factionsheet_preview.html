@@ -1,9 +1,12 @@
 {% extends 'the_keep/base.html' %}
 {% load static %}
 
+{% block main_class %}container-fluid main-content{% endblock %}
+{% block main_width_class %}col-12{% endblock %}
+
 {% block content %}
 <div class="my-2 d-flex justify-content-between align-items-center">
-  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; {{ faction.faction_name }}</a>
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   {{ faction.faction_name }}</a>
   <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit faction</a>
 </div>
 
@@ -27,10 +30,13 @@
   </div>
 
   <div class="card p-3 mb-3">
-    <div id="forge-preview-canvas"
-         data-payloads="{{ payloads_json|escape }}"
-         data-active-mode="{{ payload.layout_mode }}"
-         style="position: relative; background: #f5e9d0; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
+    <div class="forge-preview-scroll" style="overflow-x: auto; overflow-y: hidden;">
+      <div id="forge-preview-canvas"
+           class="forge-preview-grid-on"
+           data-payloads="{{ payloads_json|escape }}"
+           data-active-mode="{{ payload.layout_mode }}"
+           style="position: relative; background: #f5e9d0; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
+      </div>
     </div>
   </div>
 
@@ -44,14 +50,34 @@
             onclick="return confirm('Reset all elements in this layout back to auto?');">
       Reset to Auto Layout
     </button>
+    <label class="d-flex align-items-center gap-2 m-0 ms-2">
+      <input type="checkbox" id="forge-grid-toggle" checked>
+      <span class="small">Grid</span>
+    </label>
     <div class="ms-auto d-flex flex-row gap-2">
-      <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" id="forge-preview-view-pdf" class="btn btn-outline-primary">View PDF</a>
+      <div class="btn-group">
+        <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
+        <ul class="dropdown-menu">
+          <li><a class="dropdown-item forge-preview-download" href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+          <li><a class="dropdown-item forge-preview-download" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+        </ul>
+      </div>
       <button type="submit" class="btn btn-primary">Save Layout</button>
     </div>
   </div>
 </form>
 
 <style>
+  #forge-preview-canvas.forge-preview-grid-on::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      repeating-linear-gradient(to right, rgba(0, 0, 0, 0.08) 0 1px, transparent 1px 20px),
+      repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.08) 0 1px, transparent 1px 20px);
+  }
   .forge-preview-element {
     position: absolute;
     box-sizing: border-box;
@@ -394,4 +420,14 @@
 </style>
 
 <script src="{% static 'the_forge/forge_preview.js' %}"></script>
+<script>
+  (function () {
+    const toggle = document.getElementById('forge-grid-toggle');
+    const canvas = document.getElementById('forge-preview-canvas');
+    if (!toggle || !canvas) return;
+    toggle.addEventListener('change', function () {
+      canvas.classList.toggle('forge-preview-grid-on', toggle.checked);
+    });
+  })();
+</script>
 {% endblock %}
