@@ -2,9 +2,9 @@
 {% load static %}
 
 {% block content %}
-<div class="mb-2">
-  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-secondary">&larr; Back to editor</a>
-  <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">View PDF</a>
+<div class="my-2 d-flex justify-content-between align-items-center">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; {{ faction.faction_name }}</a>
+  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit faction</a>
 </div>
 
 <form method="post" action="{% url 'forge-sheet-preview-save' pk=sheet.pk %}" id="forge-preview-form">
@@ -36,12 +36,18 @@
 
   <div id="forge-preview-inputs"></div>
 
-  <div class="card p-3 mb-3 d-flex flex-row gap-2">
-    <button type="submit" class="btn btn-primary">Save Layout</button>
+  <div class="card p-3 mb-3 d-flex flex-row align-items-center gap-2">
+    <button type="button" id="forge-preview-reset-saved" class="btn btn-outline-secondary">
+      Reset to Saved Layout
+    </button>
     <button type="submit" name="reset_to_auto" value="1" class="btn btn-outline-danger"
             onclick="return confirm('Reset all elements in this layout back to auto?');">
       Reset to Auto Layout
     </button>
+    <div class="ms-auto d-flex flex-row gap-2">
+      <a href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener" id="forge-preview-view-pdf" class="btn btn-outline-primary">View PDF</a>
+      <button type="submit" class="btn btn-primary">Save Layout</button>
+    </div>
   </div>
 </form>
 

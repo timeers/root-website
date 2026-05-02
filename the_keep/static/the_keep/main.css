@@ -2839,6 +2839,10 @@ tr.clickable-row:hover {
 .luminari {
   font-family: 'Luminari', serif;
 }
+.forge-baskerville-bold {
+  font-family: 'Baskerville 10 Pro', 'Baskerville', Georgia, serif;
+  font-weight: bold;
+}
 .forge-header {
   font-size: 1.4em;
   font-family: 'Luminari', serif;
@@ -3255,10 +3259,11 @@ form[data-forge-icon-form] {
   background: #fbf8ef;
   border-radius: 8px;
   width: min(720px, 95vw);
-  max-height: 90vh;
+  max-height: min(90vh, 100dvh);
   display: flex;
   flex-direction: column;
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  overflow: hidden;
 }
 .forge-slot-modal__header,
 .forge-slot-modal__footer {
@@ -3267,12 +3272,22 @@ form[data-forge-icon-form] {
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
+  flex: 0 0 auto;
 }
 .forge-slot-modal__header { border-bottom: 1px solid #ddd5c3; }
 .forge-slot-modal__footer { border-top: 1px solid #ddd5c3; }
+#forge-slot-modal-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
 .forge-slot-modal__body {
   padding: 1rem;
   overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .forge-slot-modal__section { margin-bottom: 1rem; }
 .forge-slot-modal__tray {

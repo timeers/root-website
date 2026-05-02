@@ -4,7 +4,8 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="root-title">The Forge</h2>
+  <a href="{% url 'forge-home' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>  The Forge</a>
+  <h2 class="root-title m-0 text-center flex-grow-1">Factions</h2>
   <a href="{% url 'forge-faction-create' %}" class="btn btn-primary">+ New Faction</a>
 </div>
 

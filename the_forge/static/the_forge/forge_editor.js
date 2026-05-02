@@ -723,10 +723,24 @@
   const slotModal = document.getElementById('forge-slot-modal');
   let slotModalState = null;
 
-  function openSlotModal({ trackId, row, col, content, bgUrl }) {
+  function openSlotModal({ trackId, row, col, content, bgUrl, numRows, numCols }) {
     if (!slotModal) return;
     slotModalState = { trackId, row, col };
-    slotModal.querySelector('#forge-slot-modal-title').textContent = `Edit slot (row ${row}, col ${col})`;
+    const r = parseInt(row, 10);
+    const c = parseInt(col, 10);
+    const nRows = parseInt(numRows, 10);
+    const nCols = parseInt(numCols, 10);
+    let title;
+    if (nRows === 1 && nCols === 1) {
+      title = 'Edit slot';
+    } else if (nRows === 1) {
+      title = `Edit slot ${c + 1}`;
+    } else if (nCols === 1) {
+      title = `Edit slot ${r + 1}`;
+    } else {
+      title = `Edit slot (${r + 1}, ${c + 1})`;
+    }
+    slotModal.querySelector('#forge-slot-modal-title').textContent = title;
     const tray = slotModal.querySelector('[data-slot-tray]');
     tray.innerHTML = '';
     const keywords = (content || '').split('|').map(k => k.trim()).filter(Boolean);
@@ -797,6 +811,8 @@
         col: cell.dataset.col,
         content: cell.dataset.content,
         bgUrl: cell.dataset.bgUrl,
+        numRows: cell.dataset.numRows,
+        numCols: cell.dataset.numCols,
       });
       return;
     }

@@ -4,8 +4,8 @@ from django.db import transaction
 from django.http import (
     FileResponse,
     HttpResponse,
-    HttpResponseForbidden,
     HttpResponseBadRequest,
+    HttpResponseForbidden,
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
@@ -118,7 +118,13 @@ def _annotate_steps(steps):
 
 def _forbid_if_not_editor(request, obj):
     if not user_can_edit_forge(request, obj):
-        return HttpResponseForbidden("You do not have permission to edit this faction.")
+        is_partial = (
+            request.headers.get('HX-Request')
+            or request.path.startswith('/hx/')
+        )
+        if is_partial:
+            return HttpResponseForbidden("You do not have permission to edit this faction.")
+        return redirect('forge-home')
     return None
 
 
@@ -185,7 +191,7 @@ def forgedfaction_create(request):
 def forgedfaction_detail(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_edit_forge(request, faction):
-        return HttpResponseForbidden()
+        return redirect('forge-home')
     try:
         sheet = faction.faction_sheet
     except FactionSheet.DoesNotExist:

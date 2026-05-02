@@ -674,9 +674,42 @@
     wireResize();
   }
 
+  // Track unsaved changes so we can warn the user before navigating to the
+  // PDF (which renders from the saved layout, not the in-progress edits).
+  let dirty = false;
+  function markDirty() { dirty = true; }
+  canvas.addEventListener('pointerup', markDirty);
+
+  const savedMode = activeMode;
   document.querySelectorAll('input[name="layout_mode"]').forEach((radio) => {
-    radio.addEventListener('change', (ev) => { if (ev.target.checked) activate(ev.target.value); });
+    radio.addEventListener('change', (ev) => {
+      if (!ev.target.checked) return;
+      activate(ev.target.value);
+      if (ev.target.value !== savedMode) markDirty();
+    });
   });
+
+  const resetBtn = document.getElementById('forge-preview-reset-saved');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      const radio = document.querySelector(`input[name="layout_mode"][value="${savedMode}"]`);
+      if (radio) radio.checked = true;
+      activate(savedMode);
+      dirty = false;
+    });
+  }
+
+  const form = document.getElementById('forge-preview-form');
+  if (form) form.addEventListener('submit', () => { dirty = false; });
+
+  const viewPdfLink = document.getElementById('forge-preview-view-pdf');
+  if (viewPdfLink) {
+    viewPdfLink.addEventListener('click', (ev) => {
+      if (!dirty) return;
+      const ok = confirm('You have unsaved layout changes. The PDF will not reflect them — view it anyway?');
+      if (!ok) ev.preventDefault();
+    });
+  }
 
   activate(activeMode);
 })();
