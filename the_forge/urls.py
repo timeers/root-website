@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     # Forge Home (public landing page)
     path('forge/', views.forge_home, name='forge-home'),
+    path('forge/style-guide/', views.forge_style_guide, name='forge-style-guide'),
 
     # ForgedFaction
     path('forge/faction/', views.forgedfaction_list, name='forge-faction-list'),
@@ -18,6 +19,7 @@ urlpatterns = [
     path('forge/faction/<int:faction_pk>/sheet/new/', views.factionsheet_create, name='forge-sheet-create'),
     path('forge/faction/sheet/<int:pk>/', views.factionsheet_edit, name='forge-sheet-edit'),
     path('forge/faction/sheet/<int:pk>/pdf/', views.factionsheet_pdf, name='forge-sheet-pdf'),
+    path('forge/faction/sheet/<int:pk>/webp/', views.factionsheet_webp, name='forge-sheet-webp'),
     path('forge/faction/sheet/<int:pk>/preview/', views.factionsheet_preview, name='forge-sheet-preview'),
     path('forge/faction/sheet/<int:pk>/preview/save/', views.factionsheet_preview_save, name='forge-sheet-preview-save'),
     path('forge/faction/sheet/<int:pk>/delete/', views.factionsheet_delete, name='forge-sheet-delete'),
@@ -31,11 +33,13 @@ urlpatterns = [
     path('forge/faction/<int:faction_pk>/back/new/', views.factionback_create, name='forge-back-create'),
     path('forge/faction/back/<int:pk>/', views.factionback_edit, name='forge-back-edit'),
     path('forge/faction/back/<int:pk>/pdf/', views.factionback_pdf, name='forge-back-pdf'),
+    path('forge/faction/back/<int:pk>/webp/', views.factionback_webp, name='forge-back-webp'),
 
     # SetupCard (child of ForgedFaction)
     path('forge/faction/<int:faction_pk>/setup-card/new/', views.setup_card_create, name='forge-setup-card-create'),
     path('forge/faction/setup-card/<int:pk>/', views.setup_card_edit, name='forge-setup-card-edit'),
     path('forge/faction/setup-card/<int:pk>/pdf/', views.setup_card_pdf, name='forge-setup-card-pdf'),
+    path('forge/faction/setup-card/<int:pk>/webp/', views.setup_card_webp, name='forge-setup-card-webp'),
 
     # FactionAbility (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/ability/add/', views.ability_add, name='forge-ability-add'),
@@ -111,5 +115,6 @@ urlpatterns = [
 
     # CharacterImage (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/character-image/add/', views.character_image_add, name='forge-character-image-add'),
+    path('hx/forge/character-image/<int:pk>/edit/', views.character_image_edit, name='forge-character-image-edit'),
     path('hx/forge/character-image/<int:pk>/delete/', views.character_image_delete, name='forge-character-image-delete'),
 ]

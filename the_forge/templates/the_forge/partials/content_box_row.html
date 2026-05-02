@@ -8,7 +8,7 @@
         {% csrf_token %}
         <input type="hidden" name="order" value="{{ box.order }}">
         <div class="mb-1">
-          <input type="text" name="title" value="{{ box.title|default_if_none:'' }}" class="form-control form-control-sm" placeholder="Title">
+          <input type="text" name="title" value="{{ box.title|default_if_none:'' }}" class="form-control form-control-sm luminari" placeholder="Title">
         </div>
         <div class="forge-rich-text">
           <textarea name="text" class="form-control" rows="3">{{ box.text|default_if_none:'' }}</textarea>
@@ -45,7 +45,7 @@
           {% csrf_token %}
           <input type="hidden" name="order" value="{{ box.order }}">
           <div class="mb-1">
-            <input type="text" name="title" value="{{ box.title|default_if_none:'' }}" class="form-control form-control-sm" placeholder="Title">
+            <input type="text" name="title" value="{{ box.title|default_if_none:'' }}" class="form-control form-control-sm luminari" placeholder="Title">
           </div>
           <div class="forge-rich-text">
             <textarea name="text" class="form-control" rows="3">{{ box.text|default_if_none:'' }}</textarea>

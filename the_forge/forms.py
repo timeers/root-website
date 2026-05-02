@@ -458,13 +458,22 @@ class LegendRowForm(forms.ModelForm):
 class CharacterImageForm(forms.ModelForm):
     class Meta:
         model = CharacterImage
-        fields = ['image']
+        fields = ['image', 'in_front']
         widgets = {
             'image': forms.ClearableFileInput(attrs={
                 'class': 'form-control form-control-sm forge-character-image-input',
                 'accept': 'image/*',
             }),
+            'in_front': forms.CheckboxInput(attrs={
+                'class': 'form-check-input mt-0',
+            }),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # On edit (instance has pk), keeping the existing image is allowed.
+        if self.instance and self.instance.pk:
+            self.fields['image'].required = False
 
 
 class ScaleForm(forms.ModelForm):

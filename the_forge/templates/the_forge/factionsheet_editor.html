@@ -4,8 +4,8 @@
 {% block content %}
 <link rel="stylesheet" href="{% static 'the_forge/forge_richtext.css' %}">
 
-<div class="mb-2 d-flex justify-content-between align-items-center">
-  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; {{ faction.faction_name }}</a>
+<div class="my-2 d-flex justify-content-between align-items-center">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   {{ faction.faction_name }}</a>
   <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Layout Preview</a>
 </div>
 
@@ -36,7 +36,7 @@
   <form id="ability-add-form" class="mt-2" hidden data-add-url="{% url 'forge-ability-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
     <div class="d-flex gap-2 align-items-center mb-1">
-      <input type="text" name="title" class="form-control form-control-sm" placeholder="Title" required>
+      <input type="text" name="title" class="form-control form-control-sm forge-baskerville-bold" placeholder="Title" required>
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="3" placeholder="Ability body…"></textarea>
@@ -151,7 +151,7 @@
     {% csrf_token %}
     <input type="hidden" name="kind" value="section">
     <div class="d-flex gap-2 align-items-center mb-1">
-      <input type="text" name="title" class="form-control form-control-sm" placeholder="Title">
+      <input type="text" name="title" class="form-control form-control-sm luminari" placeholder="Title">
     </div>
     <div class="forge-rich-text">
       <textarea name="text" class="form-control" rows="3" placeholder="Text…"></textarea>
@@ -275,6 +275,10 @@
     <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
       {{ character_image_form.image }}
       <img class="forge-character-image-preview" alt="" hidden style="max-height:60px;max-width:120px;">
+      <label class="form-check-label small mb-0 d-flex align-items-center gap-1" style="cursor:pointer;">
+        {{ character_image_form.in_front }}
+        In front
+      </label>
     </div>
     <div class="d-flex gap-2 justify-content-end">
       <button type="submit" class="btn btn-sm btn-warning">Save</button>

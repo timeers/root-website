@@ -66,8 +66,23 @@ def _make_delete_handler(field_max_dims):
     return handler
 
 
+PREVIEW_MODELS = ('FactionSheet', 'FactionBack', 'SetupCard')
+
+
+def _delete_image_preview(sender, instance, **kwargs):
+    field = getattr(instance, 'image_preview', None)
+    if field and field.name:
+        try:
+            field.delete(save=False)
+        except Exception:
+            pass
+
+
 def _connect():
     for model_name, cfg in IMAGE_FIELDS_CONFIG.items():
         Model = apps.get_model('the_forge', model_name)
         post_save.connect(_make_resize_handler(cfg['fields']), sender=Model)
         post_delete.connect(_make_delete_handler(cfg['fields']), sender=Model)
+    for model_name in PREVIEW_MODELS:
+        Model = apps.get_model('the_forge', model_name)
+        post_delete.connect(_delete_image_preview, sender=Model)

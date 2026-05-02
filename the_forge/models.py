@@ -111,6 +111,9 @@ class FactionSheet(models.Model):
     decree_y_h = models.FloatField(blank=True, null=True)
     decree_y_v = models.FloatField(blank=True, null=True)
 
+    image_preview = models.ImageField(upload_to='forge/sheet_previews/', blank=True, null=True)
+    preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+
     def clean(self):
         from django.core.exceptions import ValidationError
         if not self.faction.background_preset and not self.faction.background_image:
@@ -123,7 +126,7 @@ class FactionSheet(models.Model):
         if self.pk:
             try:
                 old = FactionSheet.objects.get(pk=self.pk)
-                for field_name in ('action_image', 'header_image'):
+                for field_name in ('action_image', 'header_image', 'image_preview'):
                     old_img = getattr(old, field_name)
                     new_img = getattr(self, field_name)
                     if old_img and old_img != new_img:
@@ -137,6 +140,7 @@ class CharacterImage(models.Model):
     sheet = models.ForeignKey(FactionSheet, related_name='character_images', on_delete=models.CASCADE)
     image = models.ImageField(upload_to='forge/character_images/')
     order = models.PositiveIntegerField(default=0)
+    in_front = models.BooleanField(default=False)
 
     x_h = models.FloatField(blank=True, null=True)
     y_h = models.FloatField(blank=True, null=True)
@@ -327,7 +331,7 @@ class CardSlot(models.Model):
     decree = models.ForeignKey(DecreeSection, related_name='card_slots', on_delete=models.CASCADE)
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=20, blank=True, null=True)
-    body = models.CharField(max_length=40, blank=True, null=True)
+    body = models.CharField(max_length=80, blank=True, null=True)
 
     class Meta:
         ordering = ['number']
@@ -501,12 +505,18 @@ class FactionBack(models.Model):
     how_to_play_text = models.TextField(blank=True, null=True)
     back_image = models.ImageField(upload_to='forge/faction_back/', blank=True, null=True)
 
+    image_preview = models.ImageField(upload_to='forge/back_previews/', blank=True, null=True)
+    preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+
     def save(self, *args, **kwargs):
         if self.pk:
             try:
                 old = FactionBack.objects.get(pk=self.pk)
-                if old.back_image and old.back_image != self.back_image:
-                    delete_old_image(old.back_image)
+                for field_name in ('back_image', 'image_preview'):
+                    old_img = getattr(old, field_name)
+                    new_img = getattr(self, field_name)
+                    if old_img and old_img != new_img:
+                        delete_old_image(old_img)
             except FactionBack.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
@@ -546,12 +556,18 @@ class SetupCard(models.Model):
     reach = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], default=4)
     header_image = models.ImageField(upload_to='forge/adset/', null=True, blank=True)
 
+    image_preview = models.ImageField(upload_to='forge/card_previews/', blank=True, null=True)
+    preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+
     def save(self, *args, **kwargs):
         if self.pk:
             try:
                 old = SetupCard.objects.get(pk=self.pk)
-                if old.header_image and old.header_image != self.header_image:
-                    delete_old_image(old.header_image)
+                for field_name in ('header_image', 'image_preview'):
+                    old_img = getattr(old, field_name)
+                    new_img = getattr(self, field_name)
+                    if old_img and old_img != new_img:
+                        delete_old_image(old_img)
             except SetupCard.DoesNotExist:
                 pass
         super().save(*args, **kwargs)

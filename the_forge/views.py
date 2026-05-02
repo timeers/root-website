@@ -4,8 +4,8 @@ from django.db import transaction
 from django.http import (
     FileResponse,
     HttpResponse,
-    HttpResponseForbidden,
     HttpResponseBadRequest,
+    HttpResponseForbidden,
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
@@ -118,7 +118,13 @@ def _annotate_steps(steps):
 
 def _forbid_if_not_editor(request, obj):
     if not user_can_edit_forge(request, obj):
-        return HttpResponseForbidden("You do not have permission to edit this faction.")
+        is_partial = (
+            request.headers.get('HX-Request')
+            or request.path.startswith('/hx/')
+        )
+        if is_partial:
+            return HttpResponseForbidden("You do not have permission to edit this faction.")
+        return redirect('forge-home')
     return None
 
 
@@ -145,6 +151,10 @@ def forge_home(request):
     return render(request, 'the_forge/forge_home.html', {
         'has_factions': has_factions,
     })
+
+
+def forge_style_guide(request):
+    return render(request, 'the_forge/forge_style_guide.html')
 
 
 # ---------- ForgedFaction CRUD ----------
@@ -185,7 +195,7 @@ def forgedfaction_create(request):
 def forgedfaction_detail(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_edit_forge(request, faction):
-        return HttpResponseForbidden()
+        return redirect('forge-home')
     try:
         sheet = faction.faction_sheet
     except FactionSheet.DoesNotExist:
@@ -1038,7 +1048,7 @@ def stepaction_form(request, step_pk):
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     return render(request, 'the_forge/partials/step_action_form.html', {
-        'step': step, 'step_pk': step.pk,
+        'step': step, 'step_pk': step.pk, 'inline_keywords': _inline_keywords(),
     })
 
 
@@ -1574,6 +1584,19 @@ def character_image_add(request, sheet_pk):
 
 
 @player_required
+@require_http_methods(["POST"])
+def character_image_edit(request, pk):
+    ci = get_object_or_404(CharacterImage, pk=pk)
+    if (resp := _forbid_if_not_editor(request, ci.sheet.faction)):
+        return resp
+    form = CharacterImageForm(request.POST, request.FILES, instance=ci)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    form.save()
+    return render(request, 'the_forge/partials/character_image_row.html', {'ci': ci})
+
+
+@player_required
 @require_http_methods(["POST", "DELETE"])
 def character_image_delete(request, pk):
     ci = get_object_or_404(CharacterImage, pk=pk)
@@ -1596,6 +1619,29 @@ def _pdf_file_response(data, filename):
     return response
 
 
+def _webp_file_response(image_field, filename):
+    response = FileResponse(image_field.open('rb'), content_type='image/webp')
+    response['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response
+
+
+def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
+    if instance.preview_fingerprint == fingerprint and instance.image_preview:
+        return
+    from django.core.files.base import ContentFile
+    from .pdf_engine import pdf_bytes_to_webp_bytes
+    try:
+        webp = pdf_bytes_to_webp_bytes(pdf_bytes)
+    except Exception:
+        return
+    if instance.image_preview:
+        instance.image_preview.delete(save=False)
+    filename = f'{field_prefix}_{instance.pk}.webp'
+    instance.image_preview.save(filename, ContentFile(webp), save=False)
+    instance.preview_fingerprint = fingerprint
+    instance.save(update_fields=['image_preview', 'preview_fingerprint'])
+
+
 @forge_onboard_required
 def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
@@ -1616,7 +1662,10 @@ def forgedfaction_pdf(request, pk):
             buf = BytesIO()
             SheetLayoutEngine(sheet).build(buf)
             return buf.getvalue()
-        parts.append(get_or_build(cache_key('sheet', sheet.pk, fingerprint_sheet(sheet)), build_sheet))
+        sheet_fp = fingerprint_sheet(sheet)
+        sheet_pdf = get_or_build(cache_key('sheet', sheet.pk, sheet_fp), build_sheet)
+        _maybe_save_image_preview(sheet, sheet_pdf, sheet_fp, 'sheet')
+        parts.append(sheet_pdf)
 
     back = getattr(faction, 'faction_back', None)
     if back:
@@ -1624,7 +1673,10 @@ def forgedfaction_pdf(request, pk):
             buf = BytesIO()
             FactionBackLayoutEngine(back).build(buf)
             return buf.getvalue()
-        parts.append(get_or_build(cache_key('back', back.pk, fingerprint_back(back)), build_back))
+        back_fp = fingerprint_back(back)
+        back_pdf = get_or_build(cache_key('back', back.pk, back_fp), build_back)
+        _maybe_save_image_preview(back, back_pdf, back_fp, 'back')
+        parts.append(back_pdf)
 
     card = getattr(faction, 'setup_card', None)
     if card:
@@ -1632,7 +1684,10 @@ def forgedfaction_pdf(request, pk):
             buf = BytesIO()
             SetupCardLayoutEngine(card).build(buf)
             return buf.getvalue()
-        parts.append(get_or_build(cache_key('setup_card', card.pk, fingerprint_setup_card(card)), build_card))
+        card_fp = fingerprint_setup_card(card)
+        card_pdf = get_or_build(cache_key('setup_card', card.pk, card_fp), build_card)
+        _maybe_save_image_preview(card, card_pdf, card_fp, 'card')
+        parts.append(card_pdf)
 
     if not parts:
         return HttpResponse(
@@ -1657,13 +1712,37 @@ def factionsheet_pdf(request, pk):
     from io import BytesIO
     from .pdf_engine import SheetLayoutEngine
     from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
-    key = cache_key('sheet', sheet.pk, fingerprint_sheet(sheet))
+    fp = fingerprint_sheet(sheet)
+    key = cache_key('sheet', sheet.pk, fp)
     def build():
         buffer = BytesIO()
         SheetLayoutEngine(sheet).build(buffer)
         return buffer.getvalue()
     data = get_or_build(key, build)
+    _maybe_save_image_preview(sheet, data, fp, 'sheet')
     return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
+
+
+@forge_onboard_required
+def factionsheet_webp(request, pk):
+    sheet = get_object_or_404(FactionSheet, pk=pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SheetLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
+    fp = fingerprint_sheet(sheet)
+    if sheet.preview_fingerprint != fp or not sheet.image_preview:
+        def build():
+            buffer = BytesIO()
+            SheetLayoutEngine(sheet).build(buffer)
+            return buffer.getvalue()
+        data = get_or_build(cache_key('sheet', sheet.pk, fp), build)
+        _maybe_save_image_preview(sheet, data, fp, 'sheet')
+        sheet.refresh_from_db()
+    if not sheet.image_preview:
+        return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
+    return _webp_file_response(sheet.image_preview, f'{sheet.faction.faction_name} - Front.webp')
 
 
 @forge_onboard_required
@@ -1674,13 +1753,37 @@ def factionback_pdf(request, pk):
     from io import BytesIO
     from .pdf_engine import FactionBackLayoutEngine
     from .pdf_cache import cache_key, fingerprint_back, get_or_build
-    key = cache_key('back', back.pk, fingerprint_back(back))
+    fp = fingerprint_back(back)
+    key = cache_key('back', back.pk, fp)
     def build():
         buffer = BytesIO()
         FactionBackLayoutEngine(back).build(buffer)
         return buffer.getvalue()
     data = get_or_build(key, build)
+    _maybe_save_image_preview(back, data, fp, 'back')
     return _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
+
+
+@forge_onboard_required
+def factionback_webp(request, pk):
+    back = get_object_or_404(FactionBack, pk=pk)
+    if (resp := _forbid_if_not_editor(request, back.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import FactionBackLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_back, get_or_build
+    fp = fingerprint_back(back)
+    if back.preview_fingerprint != fp or not back.image_preview:
+        def build():
+            buffer = BytesIO()
+            FactionBackLayoutEngine(back).build(buffer)
+            return buffer.getvalue()
+        data = get_or_build(cache_key('back', back.pk, fp), build)
+        _maybe_save_image_preview(back, data, fp, 'back')
+        back.refresh_from_db()
+    if not back.image_preview:
+        return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
+    return _webp_file_response(back.image_preview, f'{back.faction.faction_name} - Back.webp')
 
 
 @forge_onboard_required
@@ -1691,10 +1794,34 @@ def setup_card_pdf(request, pk):
     from io import BytesIO
     from .pdf_engine import SetupCardLayoutEngine
     from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
-    key = cache_key('setup_card', card.pk, fingerprint_setup_card(card))
+    fp = fingerprint_setup_card(card)
+    key = cache_key('setup_card', card.pk, fp)
     def build():
         buffer = BytesIO()
         SetupCardLayoutEngine(card).build(buffer)
         return buffer.getvalue()
     data = get_or_build(key, build)
+    _maybe_save_image_preview(card, data, fp, 'card')
     return _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
+
+
+@forge_onboard_required
+def setup_card_webp(request, pk):
+    card = get_object_or_404(SetupCard, pk=pk)
+    if (resp := _forbid_if_not_editor(request, card.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SetupCardLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    fp = fingerprint_setup_card(card)
+    if card.preview_fingerprint != fp or not card.image_preview:
+        def build():
+            buffer = BytesIO()
+            SetupCardLayoutEngine(card).build(buffer)
+            return buffer.getvalue()
+        data = get_or_build(cache_key('setup_card', card.pk, fp), build)
+        _maybe_save_image_preview(card, data, fp, 'card')
+        card.refresh_from_db()
+    if not card.image_preview:
+        return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
+    return _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')

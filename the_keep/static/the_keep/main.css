@@ -2839,6 +2839,10 @@ tr.clickable-row:hover {
 .luminari {
   font-family: 'Luminari', serif;
 }
+.forge-baskerville-bold {
+  font-family: 'Baskerville 10 Pro', 'Baskerville', Georgia, serif;
+  font-weight: bold;
+}
 .forge-header {
   font-size: 1.4em;
   font-family: 'Luminari', serif;
@@ -3255,10 +3259,11 @@ form[data-forge-icon-form] {
   background: #fbf8ef;
   border-radius: 8px;
   width: min(720px, 95vw);
-  max-height: 90vh;
+  max-height: min(90vh, 100dvh);
   display: flex;
   flex-direction: column;
   box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  overflow: hidden;
 }
 .forge-slot-modal__header,
 .forge-slot-modal__footer {
@@ -3267,12 +3272,22 @@ form[data-forge-icon-form] {
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
+  flex: 0 0 auto;
 }
 .forge-slot-modal__header { border-bottom: 1px solid #ddd5c3; }
 .forge-slot-modal__footer { border-top: 1px solid #ddd5c3; }
+#forge-slot-modal-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
 .forge-slot-modal__body {
   padding: 1rem;
   overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .forge-slot-modal__section { margin-bottom: 1rem; }
 .forge-slot-modal__tray {
@@ -3432,6 +3447,38 @@ body.forge-modal-open { overflow: hidden; }
 .forge-faction-card__name {
   word-break: break-word;
 }
+.forge-faction-card__preview {
+  height: 3rem;
+  width: auto;
+  border-radius: 0.375rem;
+  object-fit: cover;
+  border: 2px solid var(--faction-color, rgba(0, 0, 0, 0.15));
+  background: rgba(255, 255, 255, 0.6);
+}
+.forge-faction-card__preview-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 3rem;
+  padding: 0 0.6rem;
+  border-radius: 0.375rem;
+  border: 2px dashed var(--faction-color, rgba(0, 0, 0, 0.25));
+  background: rgba(255, 255, 255, 0.45);
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.forge-faction-card__preview-empty--landscape {
+  /* Match a 3rem-tall letter-landscape preview (11/8.5 ratio). */
+  width: 3.88rem;
+  padding: 0;
+}
+.forge-faction-card__preview-empty--portrait {
+  /* Match a 3rem-tall poker-card portrait preview (2.5/3.5 ratio). */
+  width: 2.14rem;
+  padding: 0;
+}
 
 /* Forge faction detail page — full-page background, overlay, ornamental frame, columns */
 .forge-detail-page-bg {
@@ -3481,6 +3528,14 @@ body.forge-modal-open { overflow: hidden; }
 }
 .forge-detail-col { display: flex; }
 .forge-detail-col > .card { width: 100%; }
+.forge-detail-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  border: 2px solid var(--faction-color, rgba(0, 0, 0, 0.15));
+  background: rgba(255, 255, 255, 0.6);
+}
 
 @media (max-width: 767.98px) {
   .forge-detail-frame .forge-header-preview-bar {

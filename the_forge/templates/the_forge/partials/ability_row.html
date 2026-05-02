@@ -6,7 +6,7 @@
     {% csrf_token %}
     <input type="hidden" name="order" value="{{ ability.order }}">
     <div class="mb-1">
-      <input type="text" name="title" value="{{ ability.title }}" class="form-control form-control-sm" required>
+      <input type="text" name="title" value="{{ ability.title }}" class="form-control form-control-sm forge-baskerville-bold" required>
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="3">{{ ability.body }}</textarea>

@@ -8,7 +8,7 @@
   {% if faction %}
     <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">&larr; Back</a>
   {% else %}
-    <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary">&larr; All Factions</a>
+    <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   All Factions</a>
   {% endif %}
 </div>
 
@@ -114,15 +114,15 @@
     <div class="alert alert-danger">{{ form.non_field_errors }}</div>
   {% endif %}
 
-  <div class="d-flex gap-2">
-    <button type="submit" class="btn btn-success">
-      {% if is_create %}Create{% else %}Save{% endif %}
-    </button>
+  <div class="d-flex gap-2 mb-2 justify-content-end">
     {% if faction %}
       <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-outline-secondary">Cancel</a>
     {% else %}
       <a href="{% url 'forge-faction-list' %}" class="btn btn-outline-secondary">Cancel</a>
     {% endif %}
+    <button type="submit" class="btn btn-success">
+      {% if is_create %}Create{% else %}Save{% endif %}
+    </button>
   </div>
 </form>
 

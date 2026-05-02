@@ -28,6 +28,23 @@ pdfmetrics.registerFontFamily('Baskerville', normal='Baskerville', bold='Baskerv
 PAGE_W, PAGE_H = landscape(letter)  # 792 x 612 pts
 
 
+def pdf_bytes_to_webp_bytes(pdf_bytes, dpi=150, quality=85):
+    import fitz  # PyMuPDF
+    from io import BytesIO
+    from PIL import Image as PILImage
+    doc = fitz.open(stream=pdf_bytes, filetype='pdf')
+    try:
+        page = doc.load_page(0)
+        zoom = dpi / 72.0
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        img = PILImage.frombytes('RGB', (pix.width, pix.height), pix.samples)
+        out = BytesIO()
+        img.save(out, format='WEBP', quality=quality, method=6)
+        return out.getvalue()
+    finally:
+        doc.close()
+
+
 class _NoOpCanvas:
     """A duck-typed Canvas replacement that discards drawing calls.
 
@@ -231,14 +248,15 @@ DECREE_SLOT_Y_OFFSET = 3.9 * inch  # distance from top of decree image to slot t
 DECREE_SLOT_MIN_GAP = 0.01 * inch  # minimum spacing between/around slots
 DECREE_SLOT_TITLE_OFFSET = 3.375 * inch  # distance from top of slot image to title text
 
-DECREE_TITLE_SIZE = 20                       # decree title font size when no body
-DECREE_TITLE_SIZE_WITH_BODY = 17             # smaller decree title size when body present
-DECREE_TITLE_Y_SHIFT_WITH_BODY = 0.05 * inch # distance to move title up when body present
+DECREE_TITLE_SIZE = 20                       # decree title font size
 DECREE_BODY_SIZE = 8                        # decree section body font size (italic)
 DECREE_BODY_GAP = 0.12 * inch                # vertical gap from title baseline to body baseline
 DECREE_SLOT_TITLE_SIZE = 18                  # slot title font size (Baskerville)
-DECREE_SLOT_BODY_OFFSET = 0.224 * inch        # vertical drop from slot title baseline to slot body baseline
+DECREE_SLOT_BODY_OFFSET = 0.226 * inch        # vertical drop from slot title baseline to slot body baseline
 DECREE_SLOT_BODY_SIZE = 10                   # slot body font size (italic)
+DECREE_SLOT_BODY_MAX_W = 1.6 * inch           # max width for slot body line before wrapping to two lines
+DECREE_SLOT_BODY_LINE_GAP = 0.15 * inch       # baseline drop from line 1 to line 2 of wrapped slot body
+DECREE_SLOT_WRAP_SHIFT = 0.18 * inch           # vertical shift applied to slot row when any slot body wraps
 DECREE_SLOT_WIDE_TITLE_W = 1.15 * inch        # title width threshold that forces large-text.png on every titled slot
 
 # Card pile layout (bottom-right stacks of cards)
@@ -1947,11 +1965,6 @@ class StepActionFlowable(Flowable):
         text_y = self._height - self.top_pad - self.wrap_h
         self.text_paragraph.drawOn(c, text_x, text_y)
 
-        # DEBUG: red border around action
-        c.setStrokeColor(HexColor('#FF0000'))
-        c.setLineWidth(0.5)
-        c.rect(0, 0, self.total_width, self._height)
-
         c.restoreState()
 
 
@@ -2126,15 +2139,6 @@ class CardGroupFlowable(Flowable):
         # Draw each text paragraph
         for i in range(self.n):
             self.paragraphs[i].drawOn(c, text_x, text_draw_positions[i])
-            # DEBUG: red border around individual action text
-            c.setStrokeColor(HexColor('#FF0000'))
-            c.setLineWidth(0.5)
-            c.rect(text_x, text_draw_positions[i], self.text_w, self.wrap_heights[i])
-
-        # DEBUG: red border around group
-        c.setStrokeColor(HexColor('#FF0000'))
-        c.setLineWidth(0.5)
-        c.rect(0, 0, self.total_width, self._height)
 
         c.restoreState()
 
@@ -2227,9 +2231,20 @@ class SheetLayoutEngine:
         self.decree_section = next(iter(decree_sections), None)
         self.card_piles = list(faction_sheet.card_piles.all())
 
+        # If any slot body wraps, the slot row shifts up — the minimum amount of
+        # the decree visible on the page must grow by the same shift so the
+        # lifted slots stay on the page.
+        self.decree_wrap_shift = 0.0
+        if self.decree_section:
+            for slot in self.decree_section.card_slots.all():
+                if slot.body and len(self._wrap_slot_body(slot.body)) > 1:
+                    self.decree_wrap_shift = DECREE_SLOT_WRAP_SHIFT
+                    break
+        self.decree_min_offset = DECREE_MIN_OFFSET + self.decree_wrap_shift
+
         # decree_slide = how far the decree image slides down onto the page
         # (0 = fully hidden above page, draw_h = fully visible)
-        self.decree_slide = DECREE_MIN_OFFSET if self.decree_section else 0.0
+        self.decree_slide = self.decree_min_offset if self.decree_section else 0.0
         # If a decree_y override is set, derive the slide from it so the header
         # band, title bar, and phase area all anchor to the overridden position.
         if self.decree_section:
@@ -2364,12 +2379,6 @@ class SheetLayoutEngine:
                 c.rotate(-90)
                 renderPDF.draw(drawing, c, 0, 0)
                 c.restoreState()
-        # DEBUG: red border around phase box
-        c.saveState()
-        c.setStrokeColor(HexColor('#FF0000'))
-        c.setLineWidth(0.5)
-        c.rect(x, y, target_w, target_h, fill=0, stroke=1)
-        c.restoreState()
 
     def _init_styles(self):
         from reportlab.lib.styles import ParagraphStyle
@@ -3424,7 +3433,7 @@ class SheetLayoutEngine:
         layout = self.sheet.layout_mode
 
         self._draw_background(c)
-        self._draw_character_images(c)
+        self._draw_character_images(c, in_front=False)
         self._draw_top_band(c)
 
         if layout == 'horizontal':
@@ -3442,6 +3451,7 @@ class SheetLayoutEngine:
             self._draw_overflow_content_boxes(c, leftovers)
 
         self._draw_card_piles(c)
+        self._draw_character_images(c, in_front=True)
 
         c.save()
 
@@ -4103,9 +4113,6 @@ class SheetLayoutEngine:
             para.wrap(content_w, 9999)
             tighten_large_font_lines(para)
 
-            # DEBUG: red border around step
-            debug_border = ('BOX', (0, 0), (-1, -1), 0.5, HexColor('#FF0000'))
-
             if single_step:
                 # No number icon — text takes full width
                 story.append(para)
@@ -4123,7 +4130,6 @@ class SheetLayoutEngine:
                         ('TOPPADDING', (0, 0), (0, -1), ICON_NUDGE_DOWN),
                         ('TOPPADDING', (1, 0), (1, -1), 0),
                         ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
-                        debug_border,
                     ]))
                     story.append(t)
                 else:
@@ -4296,12 +4302,6 @@ class SheetLayoutEngine:
                 drawing.scale(sx, sy)
                 img_y = self.faction_top_bar_top - img_h
                 renderPDF.draw(drawing, c, img_x, img_y)
-            # DEBUG: red border around faction top bar
-            c.saveState()
-            c.setStrokeColor(HexColor('#FF0000'))
-            c.setLineWidth(0.5)
-            c.rect(img_x, img_y, img_w, img_h, fill=0, stroke=1)
-            c.restoreState()
 
         # Color bar on top
         c.setFillColor(self.faction_color)
@@ -4522,12 +4522,6 @@ class SheetLayoutEngine:
                 showBoundary=0,
             )
             frame.addFromList(story, c)
-            # DEBUG: red border around flavor text box
-            c.saveState()
-            c.setStrokeColor(HexColor('#FF0000'))
-            c.setLineWidth(0.5)
-            c.rect(flavor_x, flavor_y, flavor_w, box_h, fill=0, stroke=1)
-            c.restoreState()
             self._record_element(kind='header_flavor',
                                  x=flavor_x, y=flavor_y,
                                  w=flavor_w, h=box_h,
@@ -4551,12 +4545,6 @@ class SheetLayoutEngine:
             for i, ability in enumerate(abilities):
                 box_w = widths[i]
 
-                # DEBUG: red border around ability box
-                c.saveState()
-                c.setStrokeColor(HexColor('#FF0000'))
-                c.setLineWidth(0.5)
-                c.rect(x, box_y, box_w, box_h, fill=0, stroke=1)
-                c.restoreState()
                 self._record_element(kind='header_ability',
                                      x=x, y=box_y, w=box_w, h=box_h,
                                      title=ability.title or '',
@@ -4596,12 +4584,6 @@ class SheetLayoutEngine:
                 drawing.height = crafted_h
                 drawing.scale(sx, sy)
                 renderPDF.draw(drawing, c, crafted_x, crafted_y)
-            # DEBUG: red border around crafted items box
-            c.saveState()
-            c.setStrokeColor(HexColor('#FF0000'))
-            c.setLineWidth(0.5)
-            c.rect(crafted_x, crafted_y, crafted_w, crafted_h, fill=0, stroke=1)
-            c.restoreState()
             self._record_element(kind='header_crafted',
                                  x=crafted_x, y=crafted_y,
                                  w=crafted_w, h=crafted_h)
@@ -4611,18 +4593,56 @@ class SheetLayoutEngine:
         return os.path.join(DECREE_DIR, filename)
 
     def _get_slot_image_path(self, slot, force_large_for_titled=False):
-        text_len = len(slot.title or '') + len(slot.body or '')
-        if text_len == 0:
+        title = slot.title or ''
+        if not title and not slot.body:
             return os.path.join(DECREE_DIR, 'no-text.png')
-        if force_large_for_titled and slot.title:
+        if not title:
+            return os.path.join(DECREE_DIR, 'small-text.png')
+        if force_large_for_titled:
             return os.path.join(DECREE_DIR, 'large-text.png')
-        if text_len < DECREE_TEXT_THRESHOLD:
+        if len(title) < DECREE_TEXT_THRESHOLD:
             return os.path.join(DECREE_DIR, 'small-text.png')
         return os.path.join(DECREE_DIR, 'large-text.png')
+
+    def _wrap_slot_body(self, text):
+        """Return slot body as 1 or 2 centered, balanced lines.
+
+        Splits on whitespace and picks the split that minimizes the width
+        difference between the two lines, rejecting any split where either
+        line still exceeds DECREE_SLOT_BODY_MAX_W.
+        """
+        font = 'Baskerville-Italic'
+        size = DECREE_SLOT_BODY_SIZE
+        if pdfmetrics.stringWidth(text, font, size) <= DECREE_SLOT_BODY_MAX_W:
+            return [text]
+        words = text.split()
+        if len(words) < 2:
+            return [text]
+        best = None
+        best_diff = None
+        for k in range(1, len(words)):
+            line1 = ' '.join(words[:k])
+            line2 = ' '.join(words[k:])
+            w1 = pdfmetrics.stringWidth(line1, font, size)
+            w2 = pdfmetrics.stringWidth(line2, font, size)
+            if w1 > DECREE_SLOT_BODY_MAX_W or w2 > DECREE_SLOT_BODY_MAX_W:
+                continue
+            diff = abs(w1 - w2)
+            if best_diff is None or diff < best_diff:
+                best = (line1, line2)
+                best_diff = diff
+        if best is None:
+            return [text]
+        return [best[0], best[1]]
 
     def _draw_card_slots(self, c):
         # Decree: background overlay + individual slot images
         if self.decree_section:
+            slots = list(self.decree_section.card_slots.all())
+            slot_lines = [self._wrap_slot_body(slot.body) if slot.body else [] for slot in slots]
+            any_wrapped = any(len(lines) > 1 for lines in slot_lines)
+            extra_h = DECREE_SLOT_WRAP_SHIFT if any_wrapped else 0
+
             # Draw title/no-title background
             # Image starts hidden above page, slides down by decree_slide
             bg_img = self._get_decree_bg_path()
@@ -4641,7 +4661,7 @@ class SheetLayoutEngine:
                 self._record_element(kind='decree', x=0, y=draw_y, w=PAGE_W, h=draw_h,
                                      title=self.decree_section.title or '',
                                      y_min=(PAGE_H - DECREE_MAX_OFFSET) / inch,
-                                     y_max=(PAGE_H - DECREE_MIN_OFFSET) / inch)
+                                     y_max=(PAGE_H - self.decree_min_offset) / inch)
                 c.drawImage(bg_img, 0, draw_y,
                             width=PAGE_W, height=draw_h, mask='auto')
             else:
@@ -4652,33 +4672,23 @@ class SheetLayoutEngine:
             has_body = bool(self.decree_section.body)
             base_title_y = decree_img_top - DECREE_TITLE_Y_OFFSET
             if self.decree_section.title:
-                if has_body:
-                    title_y = base_title_y + DECREE_TITLE_Y_SHIFT_WITH_BODY
-                    title_size = DECREE_TITLE_SIZE_WITH_BODY
-                else:
-                    title_y = base_title_y
-                    title_size = DECREE_TITLE_SIZE
                 c.setFillColor(HexColor('#FFFFFF'))
-                c.setFont('Luminari', title_size)
-                c.drawCentredString(PAGE_W / 2, title_y, self.decree_section.title)
+                c.setFont('Luminari', DECREE_TITLE_SIZE)
+                c.drawCentredString(PAGE_W / 2, base_title_y, self.decree_section.title)
 
             if has_body:
-                if self.decree_section.title:
-                    body_y = base_title_y + DECREE_TITLE_Y_SHIFT_WITH_BODY - DECREE_BODY_GAP
-                else:
-                    body_y = base_title_y
+                body_y = base_title_y - DECREE_BODY_GAP if self.decree_section.title else base_title_y
                 c.setFillColor(HexColor('#FFFFFF'))
                 c.setFont('Baskerville-Italic', DECREE_BODY_SIZE)
                 c.drawCentredString(PAGE_W / 2, body_y, self.decree_section.body)
 
             # Individual slot images — evenly spaced horizontally, centered
-            slots = list(self.decree_section.card_slots.all())
             n = len(slots)
             if n > 0:
                 gap = max((PAGE_W - n * DECREE_SLOT_W) / (n + 1), DECREE_SLOT_MIN_GAP)
                 total_w = n * DECREE_SLOT_W + (n - 1) * gap
                 start_x = (PAGE_W - total_w) / 2.0
-                slot_y = decree_img_top - DECREE_SLOT_Y_OFFSET
+                slot_y = decree_img_top - DECREE_SLOT_Y_OFFSET + extra_h
 
                 any_wide_title = any(
                     slot.title and pdfmetrics.stringWidth(slot.title, 'Baskerville', DECREE_SLOT_TITLE_SIZE) > DECREE_SLOT_WIDE_TITLE_W
@@ -4698,25 +4708,35 @@ class SheetLayoutEngine:
                         c.setFont('Baskerville', DECREE_SLOT_TITLE_SIZE)
                         c.drawCentredString(x + DECREE_SLOT_W / 2, title_y, slot.title)
 
-                    if slot.body:
+                    lines = slot_lines[i]
+                    if lines:
                         c.setFillColor(HexColor('#FFFFFF'))
                         c.setFont('Baskerville-Italic', DECREE_SLOT_BODY_SIZE)
-                        c.drawCentredString(x + DECREE_SLOT_W / 2, title_y - DECREE_SLOT_BODY_OFFSET, slot.body)
+                        body_top_y = title_y - DECREE_SLOT_BODY_OFFSET
+                        for j, line in enumerate(lines):
+                            c.drawCentredString(x + DECREE_SLOT_W / 2,
+                                                body_top_y - j * DECREE_SLOT_BODY_LINE_GAP,
+                                                line)
 
                     self._record_element(kind='card_slot', id=slot.id,
                                          x=x, y=slot_y,
                                          w=DECREE_SLOT_W, h=DECREE_SLOT_H,
                                          title=slot.title or '')
 
-    def _draw_character_images(self, c):
-        """Render decorative CharacterImages as background art.
+    def _draw_character_images(self, c, in_front=False):
+        """Render decorative CharacterImages.
+
+        Called twice per build: once with in_front=False (after the background,
+        before other elements) and once with in_front=True (after everything
+        else, so flagged images sit on top of the rest of the sheet).
 
         Defaults: walk leftward from the bottom-right corner with a small gap
         between each image. Default size caps the larger of width/height at 4".
         Per-instance overrides (x_h/y_h/width_h or x_v/y_v/width_v) replace the
         default placement; height is always derived from the image aspect ratio.
         """
-        images = list(self.sheet.character_images.all().order_by('order'))
+        images = [img for img in self.sheet.character_images.all().order_by('order')
+                  if bool(img.in_front) == in_front]
         if not images:
             return
         from reportlab.lib.utils import ImageReader

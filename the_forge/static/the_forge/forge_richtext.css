@@ -304,6 +304,20 @@
   border-color: #f0ad4e;
   color: #000;
 }
+
+.character-image-row [data-save-btn] {
+  display: none;
+}
+.character-image-row.is-dirty {
+  border-color: #f0ad4e !important;
+  box-shadow: 0 0 0 2px rgba(240, 173, 78, 0.25);
+}
+.character-image-row.is-dirty [data-save-btn] {
+  display: inline-block;
+  background-color: #f0ad4e;
+  border-color: #f0ad4e;
+  color: #000;
+}
 .card-pile-grip {
   cursor: grab;
   user-select: none;
