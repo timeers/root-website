@@ -62,6 +62,7 @@ def _sheet_payload(sheet):
         'faction': _serialize_instance(sheet.faction),
         'sheet': _serialize_instance(sheet),
         'character_images': _serialize_qs(sheet.character_images.all(), order_by=('order', 'pk')),
+        'custom_inline_images': _serialize_qs(sheet.custom_inline_images.all(), order_by=('slot', 'pk')),
         'abilities': _serialize_qs(sheet.abilities.all(), order_by=('order', 'pk')),
         'content_boxes': _serialize_qs(sheet.content_boxes.all(), order_by=('order', 'pk')),
         'card_piles': _serialize_qs(sheet.card_piles.all(), order_by=('number', 'pk')),

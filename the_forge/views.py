@@ -6,6 +6,7 @@ from django.http import (
     HttpResponse,
     HttpResponseBadRequest,
     HttpResponseForbidden,
+    JsonResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
@@ -13,7 +14,7 @@ from django.views.decorators.http import require_http_methods
 
 from django.contrib.auth.decorators import login_required
 from the_gatehouse.views import forge_onboard_required, player_required
-from .inline_images import picker_image_map, picker_keywords
+from .inline_images import picker_image_map, picker_keywords, sheet_inline_images, sheet_picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
 
 from the_gatehouse.utils import build_absolute_uri
@@ -27,6 +28,7 @@ from .forms import (
     CardboardTrackForm,
     CharacterImageForm,
     ContentBoxForm,
+    CustomInlineImageForm,
     DecreeSectionForm,
     FactionAbilityForm,
     FactionBackForm,
@@ -49,6 +51,7 @@ from .models import (
     CardboardTrack,
     CharacterImage,
     ContentBox,
+    CustomInlineImage,
     DecreeSection,
     FactionAbility,
     FactionBack,
@@ -70,6 +73,7 @@ from .models import (
 MAX_CARD_PILES = 5
 MAX_CARD_SLOTS = 5
 MAX_CHARACTER_IMAGES = 5
+MAX_CUSTOM_INLINE_IMAGES = 10
 
 
 # ---------- Helpers ----------
@@ -114,12 +118,43 @@ def user_can_view_forge(request, obj):
     return bool(profile and getattr(profile, 'admin', False))
 
 
-def _inline_keywords():
-    return picker_keywords()
+def _inline_keywords(sheet=None):
+    if sheet is None:
+        return picker_keywords()
+    return sheet_picker_keywords(sheet)
 
 
-def _inline_images_map():
-    return picker_image_map()
+def _inline_images_map(sheet=None):
+    if sheet is None:
+        return picker_image_map()
+    return sheet_inline_images(sheet)
+
+
+def _inline_image_labels(sheet=None):
+    """Per-sheet `custom_image_N` -> user-supplied display name. Built-in
+    keywords are not in this map; pickers fall back to the keyword itself."""
+    if sheet is None:
+        return {}
+    return {ci.keyword: ci.name for ci in sheet.custom_inline_images.all()}
+
+
+def _sheet_from(obj):
+    """Walk a forge object up to its owning FactionSheet. Returns None if
+    none reachable (e.g. FactionBack / SetupCard children)."""
+    if obj is None:
+        return None
+    if isinstance(obj, FactionSheet):
+        return obj
+    sheet = getattr(obj, 'sheet', None)
+    if sheet is not None:
+        return sheet
+    for parent_attr in ('step', 'legend', 'scale', 'track', 'box'):
+        parent = getattr(obj, parent_attr, None)
+        if parent is not None:
+            resolved = _sheet_from(parent)
+            if resolved is not None:
+                return resolved
+    return None
 
 
 def _step_svg_url(number):
@@ -314,9 +349,10 @@ def factionsheet_edit(request, pk):
         ],
         'decree': sheet.decrees.first(),
         'card_piles': sheet.card_piles.order_by('number'),
-        'inline_keywords': _inline_keywords(),
-        'inline_images_map': _inline_images_map(),
-        'inline_images': _inline_images_map(),
+        'inline_keywords': _inline_keywords(sheet),
+        'inline_images_map': _inline_images_map(sheet),
+        'inline_images': _inline_images_map(sheet),
+        'inline_image_labels': _inline_image_labels(sheet),
         'box_height_choices': BorderedBox.BoxSize.choices,
         'ability_form': FactionAbilityForm(),
         'content_box_form': ContentBoxForm(),
@@ -326,6 +362,9 @@ def factionsheet_edit(request, pk):
         'header_form': FactionHeaderForm(sheet=sheet),
         'character_images': sheet.character_images.order_by('order'),
         'character_image_form': CharacterImageForm(),
+        'custom_inline_images': sheet.custom_inline_images.order_by('slot'),
+        'custom_inline_image_form': CustomInlineImageForm(),
+        'max_custom_inline_images': MAX_CUSTOM_INLINE_IMAGES,
     })
 
 
@@ -532,7 +571,7 @@ def sheet_decree_toggle(request, pk):
         decree, _ = DecreeSection.objects.get_or_create(sheet=sheet)
         return render(request, 'the_forge/partials/decree_section.html', {
             'decree': decree,
-            'inline_keywords': _inline_keywords(),
+            'inline_keywords': _inline_keywords(sheet),
         })
     sheet.decrees.all().delete()
     sheet.include_decree = False
@@ -744,7 +783,7 @@ def ability_add(request, sheet_pk):
         ability.order = sheet.abilities.count() + 1
     ability.save()
     return render(request, 'the_forge/partials/ability_row.html', {
-        'ability': ability, 'inline_keywords': _inline_keywords(),
+        'ability': ability, 'inline_keywords': _inline_keywords(ability.sheet),
     })
 
 
@@ -759,7 +798,7 @@ def ability_edit(request, pk):
         return HttpResponseBadRequest(str(form.errors))
     form.save()
     return render(request, 'the_forge/partials/ability_row.html', {
-        'ability': ability, 'inline_keywords': _inline_keywords(),
+        'ability': ability, 'inline_keywords': _inline_keywords(ability.sheet),
     })
 
 
@@ -820,7 +859,7 @@ def contentbox_add(request, sheet_pk):
         box.save()
         box.annotated_steps = []
         return render(request, 'the_forge/partials/content_box_row.html', {
-            'box': box, 'inline_keywords': _inline_keywords(),
+            'box': box, 'inline_keywords': _inline_keywords(box.sheet),
         })
 
     # Single-element kind: validate the child form first, then create
@@ -869,8 +908,8 @@ def contentbox_add(request, sheet_pk):
     ensure_step_parent_fits(step, check_width=(kind == ContentBox.KindChoices.TRACK))
     box.annotated_steps = _annotate_steps(box.steps.order_by('number'))
     return render(request, 'the_forge/partials/content_box_row.html', {
-        'box': box, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
+        'box': box, 'inline_keywords': _inline_keywords(box.sheet),
+        'inline_images': _inline_images_map(box.sheet),
     })
 
 
@@ -886,7 +925,7 @@ def contentbox_edit(request, pk):
     form.save()
     box.annotated_steps = _annotate_steps(box.steps.order_by('number'))
     return render(request, 'the_forge/partials/content_box_row.html', {
-        'box': box, 'inline_keywords': _inline_keywords(),
+        'box': box, 'inline_keywords': _inline_keywords(box.sheet),
     })
 
 
@@ -940,7 +979,7 @@ def phasestep_add(request, sheet_pk):
     step.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/phase_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(),
+        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(step.sheet),
     })
 
 
@@ -960,7 +999,7 @@ def phasestep_edit(request, pk):
     form.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/phase_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(),
+        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(step.sheet),
     })
 
 
@@ -1011,10 +1050,12 @@ def phasestep_reorder_in_box(request, content_box_pk):
 # ---------- StepAction (child of PhaseStep) ----------
 
 def _track_render_ctx(track):
+    sheet = _sheet_from(track)
     return {
         'track': track,
-        'inline_images': _inline_images_map(),
-        'inline_keywords': _inline_keywords(),
+        'inline_images': _inline_images_map(sheet),
+        'inline_keywords': _inline_keywords(sheet),
+        'inline_image_labels': _inline_image_labels(sheet),
     }
 
 
@@ -1036,7 +1077,7 @@ def stepaction_add(request, step_pk):
     action.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/step_action_row.html', {
-        'action': action, 'inline_keywords': _inline_keywords(),
+        'action': action, 'inline_keywords': _inline_keywords(step.sheet),
     })
 
 
@@ -1052,7 +1093,7 @@ def stepaction_edit(request, pk):
     form.save()
     ensure_step_parent_fits(action.step)
     return render(request, 'the_forge/partials/step_action_row.html', {
-        'action': action, 'inline_keywords': _inline_keywords(),
+        'action': action, 'inline_keywords': _inline_keywords(action.step.sheet),
     })
 
 
@@ -1085,7 +1126,7 @@ def stepaction_form(request, step_pk):
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
     return render(request, 'the_forge/partials/step_action_form.html', {
-        'step': step, 'step_pk': step.pk, 'inline_keywords': _inline_keywords(),
+        'step': step, 'step_pk': step.pk, 'inline_keywords': _inline_keywords(step.sheet),
     })
 
 
@@ -1137,7 +1178,7 @@ def borderedbox_add(request, step_pk):
     box.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
-        'box': box, 'inline_keywords': _inline_keywords(),
+        'box': box, 'inline_keywords': _inline_keywords(step.sheet),
     })
 
 
@@ -1153,7 +1194,7 @@ def borderedbox_edit(request, pk):
     form.save()
     ensure_step_parent_fits(box.step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
-        'box': box, 'inline_keywords': _inline_keywords(),
+        'box': box, 'inline_keywords': _inline_keywords(box.step.sheet),
     })
 
 
@@ -1263,8 +1304,8 @@ def legend_add(request, step_pk):
     legend.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/legend_row.html', {
-        'legend': legend, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
+        'legend': legend, 'inline_keywords': _inline_keywords(step.sheet),
+        'inline_images': _inline_images_map(step.sheet),
     })
 
 
@@ -1280,8 +1321,8 @@ def legend_edit(request, pk):
     form.save()
     ensure_step_parent_fits(legend.step)
     return render(request, 'the_forge/partials/legend_row.html', {
-        'legend': legend, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
+        'legend': legend, 'inline_keywords': _inline_keywords(legend.step.sheet),
+        'inline_images': _inline_images_map(legend.step.sheet),
     })
 
 
@@ -1310,8 +1351,8 @@ def legend_row_add(request, legend_pk):
     row.save()
     ensure_step_parent_fits(legend.step)
     return render(request, 'the_forge/partials/legend_row_entry.html', {
-        'row': row, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
+        'row': row, 'inline_keywords': _inline_keywords(legend.step.sheet),
+        'inline_images': _inline_images_map(legend.step.sheet),
     })
 
 
@@ -1327,8 +1368,8 @@ def legend_row_edit(request, pk):
     form.save()
     ensure_step_parent_fits(row.legend.step)
     return render(request, 'the_forge/partials/legend_row_entry.html', {
-        'row': row, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
+        'row': row, 'inline_keywords': _inline_keywords(row.legend.step.sheet),
+        'inline_images': _inline_images_map(row.legend.step.sheet),
     })
 
 
@@ -1359,8 +1400,9 @@ def scale_add(request, step_pk):
     scale.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/scale_row.html', {
-        'scale': scale, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
+        'scale': scale, 'inline_keywords': _inline_keywords(step.sheet),
+        'inline_images': _inline_images_map(step.sheet),
+        'inline_image_labels': _inline_image_labels(step.sheet),
     })
 
 
@@ -1376,8 +1418,9 @@ def scale_edit(request, pk):
     form.save()
     ensure_step_parent_fits(scale.step)
     return render(request, 'the_forge/partials/scale_row.html', {
-        'scale': scale, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
+        'scale': scale, 'inline_keywords': _inline_keywords(scale.step.sheet),
+        'inline_images': _inline_images_map(scale.step.sheet),
+        'inline_image_labels': _inline_image_labels(scale.step.sheet),
     })
 
 
@@ -1424,8 +1467,9 @@ def scale_save(request, pk):
             ScaleRow.objects.create(scale=scale, range=rng, result=res, order=order)
     ensure_step_parent_fits(scale.step, check_width=True)
     return render(request, 'the_forge/partials/scale_row.html', {
-        'scale': scale, 'inline_keywords': _inline_keywords(),
-        'inline_images': _inline_images_map(),
+        'scale': scale, 'inline_keywords': _inline_keywords(scale.step.sheet),
+        'inline_images': _inline_images_map(scale.step.sheet),
+        'inline_image_labels': _inline_image_labels(scale.step.sheet),
     })
 
 
@@ -1451,7 +1495,7 @@ def slot_upsert(request, track_pk, row, col):
     form.save()
     return render(request, 'the_forge/partials/track_slot_cell.html', {
         'track': track, 'slot': slot, 'row': row, 'col': col,
-        'inline_images': _inline_images_map(),
+        'inline_images': _inline_images_map(track.step.sheet),
     })
 
 
@@ -1497,7 +1541,7 @@ def cardslot_add(request, decree_pk):
         slot.number = decree.card_slots.count() + 1
     slot.save()
     return render(request, 'the_forge/partials/card_slot_row.html', {
-        'slot': slot, 'inline_keywords': _inline_keywords(),
+        'slot': slot, 'inline_keywords': _inline_keywords(decree.sheet),
     })
 
 
@@ -1524,7 +1568,7 @@ def cardslot_edit(request, pk):
         return HttpResponseBadRequest(str(form.errors))
     form.save()
     return render(request, 'the_forge/partials/card_slot_row.html', {
-        'slot': slot, 'inline_keywords': _inline_keywords(),
+        'slot': slot, 'inline_keywords': _inline_keywords(slot.decree.sheet),
     })
 
 
@@ -1561,7 +1605,7 @@ def cardpile_add(request, sheet_pk):
         pile.number = sheet.card_piles.count() + 1
     pile.save()
     return render(request, 'the_forge/partials/card_pile_row.html', {
-        'pile': pile, 'inline_keywords': _inline_keywords(),
+        'pile': pile, 'inline_keywords': _inline_keywords(sheet),
     })
 
 
@@ -1576,7 +1620,7 @@ def cardpile_edit(request, pk):
         return HttpResponseBadRequest(str(form.errors))
     form.save()
     return render(request, 'the_forge/partials/card_pile_row.html', {
-        'pile': pile, 'inline_keywords': _inline_keywords(),
+        'pile': pile, 'inline_keywords': _inline_keywords(pile.sheet),
     })
 
 
@@ -1651,6 +1695,80 @@ def character_image_delete(request, pk):
         if sibling.order != index:
             CharacterImage.objects.filter(pk=sibling.pk).update(order=index)
     return HttpResponse(status=204)
+
+
+# ---------- CustomInlineImage ----------
+
+def _next_free_custom_inline_slot(sheet):
+    used = set(sheet.custom_inline_images.values_list('slot', flat=True))
+    for n in range(MAX_CUSTOM_INLINE_IMAGES):
+        if n not in used:
+            return n
+    return None
+
+
+@player_required
+@require_http_methods(["POST"])
+def custom_inline_image_add(request, sheet_pk):
+    sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+    if sheet.custom_inline_images.count() >= MAX_CUSTOM_INLINE_IMAGES:
+        return HttpResponseBadRequest(
+            f"Maximum of {MAX_CUSTOM_INLINE_IMAGES} custom inline images reached."
+        )
+    slot = _next_free_custom_inline_slot(sheet)
+    if slot is None:
+        return HttpResponseBadRequest("No free slots available.")
+    form = CustomInlineImageForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    ci = form.save(commit=False)
+    ci.sheet = sheet
+    ci.slot = slot
+    ci.save()
+    return render(request, 'the_forge/partials/custom_inline_image_row.html', {
+        'ci': ci,
+        'inline_images_map': _inline_images_map(sheet),
+    })
+
+
+@player_required
+@require_http_methods(["POST"])
+def custom_inline_image_edit(request, pk):
+    ci = get_object_or_404(CustomInlineImage, pk=pk)
+    if (resp := _forbid_if_not_editor(request, ci.sheet.faction)):
+        return resp
+    form = CustomInlineImageForm(request.POST, request.FILES, instance=ci)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    form.save()
+    return render(request, 'the_forge/partials/custom_inline_image_row.html', {
+        'ci': ci,
+        'inline_images_map': _inline_images_map(ci.sheet),
+    })
+
+
+@player_required
+@require_http_methods(["GET"])
+def sheet_inline_images_json(request, sheet_pk):
+    """Return the sheet's full inline-image map (built-ins + per-sheet uploads).
+
+    The editor JS calls this after a CustomInlineImage add/edit/delete so the
+    open picker panels and the cached <script id="forge-inline-images"> map
+    pick up the change without a full page reload. `labels` lets the picker
+    show a user-friendly tooltip (the custom image's name) for per-sheet
+    keywords; built-ins fall back to the keyword itself.
+    """
+    sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+    labels = {ci.keyword: ci.name for ci in sheet.custom_inline_images.all()}
+    return JsonResponse({
+        'keywords': _inline_keywords(sheet),
+        'images': _inline_images_map(sheet),
+        'labels': labels,
+    })
 
 
 # ---------- PDF download ----------

@@ -1277,6 +1277,119 @@
     return INLINE_IMAGES_CACHE;
   }
 
+  let INLINE_LABELS_CACHE = null;
+  function getInlineLabelsMap() {
+    if (INLINE_LABELS_CACHE !== null) return INLINE_LABELS_CACHE;
+    const node = document.getElementById('forge-inline-image-labels');
+    let parsed = {};
+    try { parsed = node ? JSON.parse(node.textContent) : {}; }
+    catch (e) { parsed = {}; }
+    if (!parsed || typeof parsed !== 'object') parsed = {};
+    INLINE_LABELS_CACHE = parsed;
+    return INLINE_LABELS_CACHE;
+  }
+  function labelForKey(key) {
+    const labels = getInlineLabelsMap();
+    return (labels && labels[key]) || key;
+  }
+
+  // Refresh the inline-image map and rebuild every visible picker panel after
+  // a CustomInlineImage add/edit/delete. Called by the listener on
+  // #custom-inline-image-list. Pulls the fresh sheet-scoped map from the
+  // server, swaps the <script id="forge-inline-images"> JSON in place (so
+  // future cache reads see the new map), invalidates this module's cache and
+  // forge_richtext.js's, then re-renders the toolbar pickers and the
+  // [data-forge-icon-picker] panels in track / scale rows.
+  async function refreshInlineImagesFrom(url) {
+    if (!url) return;
+    let payload;
+    try {
+      const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!resp.ok) return;
+      payload = await resp.json();
+    } catch (e) { return; }
+    const images = (payload && payload.images) || {};
+    const keywords = (payload && payload.keywords) || [];
+    const labels = (payload && payload.labels) || {};
+
+    // 1. Update the source-of-truth <script> tags so any code that reads them
+    //    fresh (forge_richtext.js editor init for newly-mounted editors) gets
+    //    the new data. Also publish the ordered keyword list so the rich-text
+    //    picker rebuilder knows the new order.
+    const scriptNode = document.getElementById('forge-inline-images');
+    if (scriptNode) scriptNode.textContent = JSON.stringify(images);
+    const labelsNode = document.getElementById('forge-inline-image-labels');
+    if (labelsNode) labelsNode.textContent = JSON.stringify(labels);
+    window.forgeInlineKeywords = keywords.slice();
+
+    // 2. Drop both module caches.
+    INLINE_IMAGES_CACHE = null;
+    INLINE_LABELS_CACHE = null;
+    if (window.forgeRichText && window.forgeRichText.invalidateInlineImages) {
+      window.forgeRichText.invalidateInlineImages();
+    }
+
+    // 3. Ask forge_richtext.js to re-render every rich-text image picker.
+    //    Each editor registered a per-instance rebuild closure on init, so
+    //    click handlers are reattached correctly.
+    if (window.forgeRichText && window.forgeRichText.rebindAllImagePickers) {
+      window.forgeRichText.rebindAllImagePickers();
+    }
+
+    // 4. Re-render the track/scale-row [data-forge-icon-picker] panels.
+    //    Their click handlers live in this file and use event delegation, so
+    //    plain DOM rewrites are safe.
+    document.querySelectorAll('[data-forge-icon-picker] .forge-icon-picker__panel').forEach((panel) => {
+      rebuildIconPickerPanel(panel, keywords, images);
+    });
+  }
+
+  function rebuildIconPickerPanel(panel, keywords, images) {
+    // Track/scale row pickers use <button class="forge-icon-picker__btn"
+    // data-icon-key="KEY"><img></button>. Click handlers are bound by event
+    // delegation on document, so plain DOM rewrites are safe.
+    const existing = new Map();
+    panel.querySelectorAll('.forge-icon-picker__btn').forEach((btn) => {
+      existing.set(btn.dataset.iconKey, btn);
+    });
+    const frag = document.createDocumentFragment();
+    keywords.forEach((key) => {
+      const url = images[key];
+      const label = labelForKey(key);
+      let btn = existing.get(key);
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'forge-icon-picker__btn';
+        btn.dataset.iconKey = key;
+      } else {
+        existing.delete(key);
+        btn.innerHTML = '';
+      }
+      btn.title = label;
+      const img = document.createElement('img');
+      if (url) img.src = url;
+      img.alt = label;
+      btn.appendChild(img);
+      frag.appendChild(btn);
+    });
+    existing.forEach((btn) => btn.remove());
+    panel.innerHTML = '';
+    panel.appendChild(frag);
+  }
+
+  // Listen for CustomInlineImage mutations. forge:row-replaced bubbles up
+  // from any list whose row was added / edited / deleted; we filter to the
+  // custom-inline-image list and refetch the fresh map.
+  document.addEventListener('forge:row-replaced', (ev) => {
+    const list = ev.target.closest
+      ? ev.target.closest('#custom-inline-image-list')
+      : null;
+    if (!list) return;
+    const url = list.dataset.inlineImagesRefreshUrl;
+    if (url) refreshInlineImagesFrom(url);
+  });
+
   function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -1288,8 +1401,9 @@
     return escapeHtml(value).replace(/\{\{\s*([\w-]+)\s*\}\}/g, (m, key) => {
       const url = images[key];
       if (!url) return m;
+      const label = labelForKey(key);
       return '<img data-forge-image="' + escapeHtml(key) + '" src="' + escapeHtml(url) +
-        '" alt="' + escapeHtml(key) + '" class="inline-icon">';
+        '" alt="' + escapeHtml(label) + '" class="inline-icon">';
     });
   }
 

@@ -16,6 +16,44 @@
     return INLINE_IMAGES;
   }
 
+  // Drop the cached map. Called from forge_editor.js after a CustomInlineImage
+  // mutation invalidates the per-sheet overlay. Next call to getInlineImages
+  // re-reads from the (also updated) <script id="forge-inline-images"> tag.
+  function invalidateInlineImages() {
+    INLINE_IMAGES = null;
+    INLINE_LABELS = null;
+  }
+
+  // Per-sheet labels for custom_image_N keywords. Keyword -> human label.
+  // Built-in keywords are not present here; callers should fall back to the
+  // keyword itself as the tooltip / alt text.
+  let INLINE_LABELS = null;
+  function getInlineLabels() {
+    if (INLINE_LABELS !== null) return INLINE_LABELS;
+    const node = document.getElementById('forge-inline-image-labels');
+    if (node) {
+      try { INLINE_LABELS = JSON.parse(node.textContent) || {}; }
+      catch (e) { INLINE_LABELS = {}; }
+    } else {
+      INLINE_LABELS = {};
+    }
+    return INLINE_LABELS;
+  }
+  function labelFor(key) {
+    const labels = getInlineLabels();
+    return (labels && labels[key]) || key;
+  }
+
+  // Set of per-picker rebind functions, registered by editor init. After a
+  // refresh, forge_editor.js calls rebindAllImagePickers() to re-render each
+  // picker's button list and re-attach the per-editor click handlers.
+  const PICKER_REBINDERS = new Set();
+  function rebindAllImagePickers() {
+    PICKER_REBINDERS.forEach((fn) => {
+      try { fn(); } catch (e) { /* per-editor failure shouldn't break the rest */ }
+    });
+  }
+
   const ZWSP = '\u200B';
 
   // =====================================================================
@@ -842,7 +880,7 @@
       const img = document.createElement('img');
       img.setAttribute('data-forge-image', key);
       img.src = url;
-      img.alt = key;
+      img.alt = labelFor(key);
       img.className = 'inline-icon';
       range.deleteContents();
       range.insertNode(img);
@@ -855,25 +893,60 @@
       editor.dispatchEvent(new Event('input', { bubbles: true }));
     }
     if (imgBtn && picker) {
-      const images = getInlineImages();
-      picker.querySelectorAll('button[data-insert]').forEach((btn) => {
-        const key = btn.dataset.insert;
-        const url = images[key];
-        if (url) {
-          btn.textContent = '';
-          btn.title = key;
-          btn.classList.add('rt-image-btn');
-          const img = document.createElement('img');
-          img.src = url;
-          img.alt = key;
-          btn.appendChild(img);
-        }
-        btn.addEventListener('mousedown', (e) => e.preventDefault());
-        btn.addEventListener('click', () => {
-          insertImageAtCaret(key);
-          picker.hidden = true;
+      // Build the picker button list. Extracted so we can rebuild it after
+      // CustomInlineImage add/edit/delete without re-initing the editor.
+      function buildPickerButtons() {
+        const images = getInlineImages();
+        // Existing buttons we'll reuse where possible (preserves any focus
+        // state); leftovers are removed at the end.
+        const existing = new Map();
+        picker.querySelectorAll('button[data-insert]').forEach((btn) => {
+          existing.set(btn.dataset.insert, btn);
         });
-      });
+        // Server gives us the ordered keyword list separately. Read from the
+        // payload set by forge_editor.js, falling back to the keys present in
+        // the map at first init (initial render uses pre-rendered <button>
+        // tags so this fallback is fine).
+        const ordered = window.forgeInlineKeywords && window.forgeInlineKeywords.length
+          ? window.forgeInlineKeywords
+          : Array.from(existing.keys());
+        const frag = document.createDocumentFragment();
+        ordered.forEach((key) => {
+          const url = images[key];
+          const label = labelFor(key);
+          let btn = existing.get(key);
+          const isNew = !btn;
+          if (isNew) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.insert = key;
+          } else {
+            existing.delete(key);
+            btn.innerHTML = '';
+          }
+          btn.title = label;
+          btn.classList.add('rt-image-btn');
+          if (url) {
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = label;
+            btn.appendChild(img);
+          }
+          if (isNew || !btn._forgeBound) {
+            btn._forgeBound = true;
+            btn.addEventListener('mousedown', (e) => e.preventDefault());
+            btn.addEventListener('click', () => {
+              insertImageAtCaret(key);
+              picker.hidden = true;
+            });
+          }
+          frag.appendChild(btn);
+        });
+        existing.forEach((btn) => btn.remove());
+        picker.appendChild(frag);
+      }
+      buildPickerButtons();
+      PICKER_REBINDERS.add(buildPickerButtons);
       imgBtn.addEventListener('mousedown', (e) => e.preventDefault());
       imgBtn.addEventListener('click', () => {
         picker.hidden = !picker.hidden;
@@ -1030,4 +1103,8 @@
   }
 
   window.initForgeRichText = initAll;
+  window.forgeRichText = {
+    invalidateInlineImages: invalidateInlineImages,
+    rebindAllImagePickers: rebindAllImagePickers,
+  };
 })();

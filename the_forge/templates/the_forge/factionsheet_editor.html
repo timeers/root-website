@@ -295,6 +295,96 @@
   </form>
 </div>
 
+<!-- Custom Inline Icons (per-sheet uploads, picked from the rich-text image picker) -->
+<div class="card p-3 mb-3">
+  <h4 class="root-title mb-2">Custom Icons</h4>
+  <p class="text-muted small mb-2">
+    Upload up to {{ max_custom_inline_images }} small images and insert them inline in any text on this sheet using the icon picker.
+  </p>
+  <div id="custom-inline-image-list"
+       data-max="{{ max_custom_inline_images }}"
+       data-add-control="#custom-inline-image-add-toggle"
+       data-inline-images-refresh-url="{% url 'forge-sheet-inline-images-json' sheet_pk=sheet.pk %}">
+    {% for ci in custom_inline_images %}
+      {% include 'the_forge/partials/custom_inline_image_row.html' with ci=ci %}
+    {% endfor %}
+  </div>
+
+  <button type="button" id="custom-inline-image-add-toggle" class="btn btn-sm btn-primary mt-2"
+          {% if custom_inline_images|length >= max_custom_inline_images %}hidden{% endif %}>+ Add Custom Icon</button>
+  <small class="text-muted ms-2">Max {{ max_custom_inline_images }}</small>
+
+  <form id="custom-inline-image-add-form" class="mt-2" hidden enctype="multipart/form-data"
+        data-add-url="{% url 'forge-custom-inline-image-add' sheet_pk=sheet.pk %}">
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
+      {{ custom_inline_image_form.name }}
+      {{ custom_inline_image_form.image }}
+      <img class="forge-custom-inline-image-preview" alt="" hidden
+           style="max-height:32px;max-width:32px;">
+    </div>
+    <div class="d-flex gap-2 justify-content-end">
+      <button type="submit" class="btn btn-sm btn-warning">Save</button>
+      <button type="button" id="custom-inline-image-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  if (window.__forgeCustomInlineImageBound) return;
+  window.__forgeCustomInlineImageBound = true;
+
+  const toggle = document.getElementById('custom-inline-image-add-toggle');
+  const form = document.getElementById('custom-inline-image-add-form');
+  const cancel = document.getElementById('custom-inline-image-add-cancel');
+  if (toggle && form) {
+    toggle.addEventListener('click', () => { form.hidden = false; toggle.hidden = true; });
+  }
+  if (cancel && form && toggle) {
+    cancel.addEventListener('click', () => {
+      form.reset();
+      const preview = form.querySelector('.forge-custom-inline-image-preview');
+      if (preview) {
+        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+        preview.removeAttribute('src');
+        preview.setAttribute('hidden', '');
+      }
+      form.hidden = true;
+      toggle.hidden = false;
+    });
+  }
+
+  document.addEventListener('change', (ev) => {
+    const input = ev.target;
+    if (!input.matches || !input.matches('.forge-custom-inline-image-input')) return;
+    const preview = input.closest('form')?.querySelector('.forge-custom-inline-image-preview');
+    if (!preview) return;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+    const url = URL.createObjectURL(file);
+    preview.dataset.objectUrl = url;
+    preview.src = url;
+    preview.removeAttribute('hidden');
+  });
+
+  const list = document.getElementById('custom-inline-image-list');
+  if (list && form && toggle) {
+    list.addEventListener('forge:row-replaced', () => {
+      const preview = form.querySelector('.forge-custom-inline-image-preview');
+      if (preview) {
+        if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+        preview.removeAttribute('src');
+        preview.setAttribute('hidden', '');
+      }
+      form.hidden = true;
+      toggle.hidden = false;
+    });
+  }
+})();
+</script>
+
 <script>
 (function () {
   if (window.__forgeCharacterImageBound) return;
@@ -355,6 +445,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 {{ inline_images_map|json_script:"forge-inline-images" }}
+{{ inline_image_labels|json_script:"forge-inline-image-labels" }}
 <script src="{% static 'the_forge/forge_richtext.js' %}"></script>
 <script src="{% static 'the_forge/forge_editor.js' %}"></script>
 <script>

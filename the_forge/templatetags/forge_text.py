@@ -5,7 +5,7 @@ from django import template
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
 
-from the_forge.inline_images import FORGE_INLINE_IMAGES
+from the_forge.inline_images import FORGE_INLINE_IMAGES, sheet_inline_images
 
 register = template.Library()
 
@@ -105,9 +105,10 @@ class _ForgeHtmlSanitizer(HTMLParser):
     Anything else (attributes, tags, comments) is dropped silently.
     """
 
-    def __init__(self):
+    def __init__(self, sheet=None):
         super().__init__(convert_charrefs=True)
         self._out = []
+        self._inline_map = sheet_inline_images(sheet)
         # Stack of close strings to emit when matching tags close. None
         # entries mark dropped open tags so we can pair them with their
         # close events without emitting anything.
@@ -123,7 +124,7 @@ class _ForgeHtmlSanitizer(HTMLParser):
             key = attr_map.get('data-forge-image')
             if not key:
                 return
-            url = FORGE_INLINE_IMAGES.get(key)
+            url = self._inline_map.get(key)
             if not url:
                 return
             self._out.append(
@@ -184,7 +185,7 @@ class _ForgeHtmlSanitizer(HTMLParser):
 
 @register.filter
 def format_forge_text(value):
-    """Sanitize forge rich-text HTML for display.
+    """Sanitize forge rich-text HTML for display (globals only).
 
     Storage is a strict-allowlist HTML produced by the rich-text editor's
     serializer (see the_forge/static/the_forge/forge_richtext.js). This
@@ -192,10 +193,24 @@ def format_forge_text(value):
     final HTML to render: <strong>/<em> kept as-is, <span data-forge="…">
     rewritten to use CSS classes, and <img data-forge-image="KEY"> resolved
     against FORGE_INLINE_IMAGES at render time.
+
+    For per-sheet custom images use `{% forge_text value sheet=sheet %}`.
     """
     if not value:
         return ""
     parser = _ForgeHtmlSanitizer()
+    parser.feed(str(value))
+    parser.close()
+    return mark_safe(parser.result())
+
+
+@register.simple_tag
+def forge_text(value, sheet=None):
+    """Sanitize forge rich-text HTML, resolving custom_image_N tokens
+    against `sheet.custom_inline_images` when a sheet is supplied."""
+    if not value:
+        return ""
+    parser = _ForgeHtmlSanitizer(sheet=sheet)
     parser.feed(str(value))
     parser.close()
     return mark_safe(parser.result())

@@ -118,4 +118,9 @@ urlpatterns = [
     path('hx/forge/sheet/<int:sheet_pk>/character-image/add/', views.character_image_add, name='forge-character-image-add'),
     path('hx/forge/character-image/<int:pk>/edit/', views.character_image_edit, name='forge-character-image-edit'),
     path('hx/forge/character-image/<int:pk>/delete/', views.character_image_delete, name='forge-character-image-delete'),
+
+    # CustomInlineImage (child of FactionSheet)
+    path('hx/forge/sheet/<int:sheet_pk>/custom-inline-image/add/', views.custom_inline_image_add, name='forge-custom-inline-image-add'),
+    path('hx/forge/custom-inline-image/<int:pk>/edit/', views.custom_inline_image_edit, name='forge-custom-inline-image-edit'),
+    path('hx/forge/sheet/<int:sheet_pk>/inline-images.json', views.sheet_inline_images_json, name='forge-sheet-inline-images-json'),
 ]
