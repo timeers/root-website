@@ -290,7 +290,10 @@ def apply_discord_category(category):
         webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
         embed_title = "Post Edited"
         embed_color = 0x00FF00  # Green color for new
-        
+    elif category == "Forge":
+        webhook_url = config['DISCORD_FORGE_URL']
+        embed_title = "Forged Faction"
+        embed_color = 0xffa500  # Orange color for Forge
     # Automations
     elif category == 'automation':
         webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']
@@ -343,11 +346,8 @@ def send_discord_message(message, category=None):
     
     if response.status_code != 204:
         logger.error(
-            "Discord webhook failed",
-            extra={
-                'status_code': response.status_code,
-                'response': response.text,
-            }
+            "Discord webhook failed: status=%s body=%s url=%s",
+            response.status_code, response.text[:200], webhook_url,
         )
 
 def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):

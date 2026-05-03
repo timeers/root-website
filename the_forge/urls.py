@@ -6,6 +6,7 @@ urlpatterns = [
     # Forge Home (public landing page)
     path('forge/', views.forge_home, name='forge-home'),
     path('forge/style-guide/', views.forge_style_guide, name='forge-style-guide'),
+    path('forge/how-to/', views.forge_how_to, name='forge-how-to'),
 
     # ForgedFaction
     path('forge/faction/', views.forgedfaction_list, name='forge-faction-list'),

@@ -54,6 +54,9 @@ FORGE_INLINE_IMAGES = {
     'fox_icon': static('pdf/inline/fox_icon.png'),
     'mouse_icon': static('pdf/inline/mouse_icon.png'),
     'rabbit_icon': static('pdf/inline/rabbit_icon.png'),
+    'fox_outline': static('pdf/inline/fox_outline.png'),
+    'mouse_outline': static('pdf/inline/mouse_outline.png'),
+    'rabbit_outline': static('pdf/inline/rabbit_outline.png'),
     'fox_craft': static('pdf/inline/fox_craft.png'),
     'mouse_craft': static('pdf/inline/mouse_craft.png'),
     'rabbit_craft': static('pdf/inline/rabbit_craft.png'),
@@ -133,15 +136,26 @@ FORGE_PICKER_ORDER = [
     '+card',
     '-card',
 
+    # VP
+    'VP',
+    '0VP',
+    '1VP',
+    '2VP',
+    '3VP',
+    '4VP',
+    '5VP',
+    '-1VP',
+
     'cards',
+    'bird_card',
+    'bird_tilt',
     'fox_card',
     'fox_tilt',
     'mouse_card',
     'mouse_tilt',
     'rabbit_card',
     'rabbit_tilt',
-    'bird_card',
-    'bird_tilt',
+
 
     # More cards
     'card_vertical',
@@ -153,36 +167,20 @@ FORGE_PICKER_ORDER = [
     # Icons
     'meeple',
     'fox_icon',
-    'mouse_icon',
-    'rabbit_icon',
+    'fox_outline',
     'fox_craft',
+    'mouse_icon',
+    'mouse_outline',
     'mouse_craft',
+    'rabbit_icon',
+    'rabbit_outline',
     'rabbit_craft',
     # 'wild_craft',
 
 
 
-    # VP
-    'VP',
-    '0VP',
-    '1VP',
-    '2VP',
-    '3VP',
-    '4VP',
-    '5VP',
-    '6VP',
-    '7VP',
-    '8VP',
-    '9VP',
-    '-1VP',
-    '-2VP',
-    '-3VP',
-    '-4VP',
-    '-5VP',
-    '-6VP',
-    '-7VP',
-    '-8VP',
-    '-9VP',
+
+
 
     # # Animals
     # 'bunny',
@@ -210,6 +208,20 @@ FORGE_PICKER_ORDER = [
     'item_tea',
     'item_coin',
     'item_torch',
+
+
+    '9VP',
+    '8VP',
+    '7VP',
+    '6VP',
+    '-2VP',
+    '-3VP',
+    '-4VP',
+    '-5VP',
+    '-6VP',
+    '-7VP',
+    '-8VP',
+    '-9VP',
 
     'law_sword',
     'law_hammer',

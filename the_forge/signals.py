@@ -1,5 +1,6 @@
 from django.apps import apps
 from django.db.models.signals import post_save, post_delete
+from django.utils import timezone
 
 from the_keep.utils import resize_image_to_webp, resize_image
 
@@ -78,6 +79,165 @@ def _delete_image_preview(sender, instance, **kwargs):
             pass
 
 
+# ---------------------------------------------------------------------------
+# Timestamp bubble-up.
+#
+# The PDF cache fingerprint walks each Sheet/Back/SetupCard plus all child
+# rows. A change to any of those should bump:
+#   - the immediate parent (FactionSheet / FactionBack / SetupCard)
+#   - the grand-parent ForgedFaction
+# so the faction list can sort by "recently touched."
+#
+# We use Model.objects.filter(pk=...).update(...) instead of save() to
+# avoid running parent save() overrides and to skip signal recursion.
+# ---------------------------------------------------------------------------
+
+def _touch(model_class, pk):
+    if pk is None:
+        return
+    model_class.objects.filter(pk=pk).update(last_updated=timezone.now())
+
+
+def _touch_sheet_and_faction(sheet_id):
+    if sheet_id is None:
+        return
+    FactionSheet = apps.get_model('the_forge', 'FactionSheet')
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    faction_id = FactionSheet.objects.filter(pk=sheet_id).values_list('faction_id', flat=True).first()
+    _touch(FactionSheet, sheet_id)
+    _touch(ForgedFaction, faction_id)
+
+
+def _touch_back_and_faction(back_id):
+    if back_id is None:
+        return
+    FactionBack = apps.get_model('the_forge', 'FactionBack')
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    faction_id = FactionBack.objects.filter(pk=back_id).values_list('faction_id', flat=True).first()
+    _touch(FactionBack, back_id)
+    _touch(ForgedFaction, faction_id)
+
+
+def _touch_card_and_faction(card_id):
+    if card_id is None:
+        return
+    SetupCard = apps.get_model('the_forge', 'SetupCard')
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    faction_id = SetupCard.objects.filter(pk=card_id).values_list('faction_id', flat=True).first()
+    _touch(SetupCard, card_id)
+    _touch(ForgedFaction, faction_id)
+
+
+def _bubble_sheet_back_card(sender, instance, **kwargs):
+    """FactionSheet/FactionBack/SetupCard saved — bubble to ForgedFaction."""
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    _touch(ForgedFaction, getattr(instance, 'faction_id', None))
+
+
+def _bubble_sheet_child(sender, instance, **kwargs):
+    """Direct child of FactionSheet (FK 'sheet')."""
+    _touch_sheet_and_faction(getattr(instance, 'sheet_id', None))
+
+
+def _bubble_phasestep_grandchild(sender, instance, **kwargs):
+    """Grandchild via PhaseStep (FK 'step')."""
+    step_id = getattr(instance, 'step_id', None)
+    if step_id is None:
+        return
+    PhaseStep = apps.get_model('the_forge', 'PhaseStep')
+    sheet_id = PhaseStep.objects.filter(pk=step_id).values_list('sheet_id', flat=True).first()
+    _touch_sheet_and_faction(sheet_id)
+
+
+def _bubble_track_grandchild(sender, instance, **kwargs):
+    """Grandchild via CardboardTrack (FK 'track') -> PhaseStep -> FactionSheet."""
+    track_id = getattr(instance, 'track_id', None)
+    if track_id is None:
+        return
+    CardboardTrack = apps.get_model('the_forge', 'CardboardTrack')
+    step_id = CardboardTrack.objects.filter(pk=track_id).values_list('step_id', flat=True).first()
+    if step_id is None:
+        return
+    PhaseStep = apps.get_model('the_forge', 'PhaseStep')
+    sheet_id = PhaseStep.objects.filter(pk=step_id).values_list('sheet_id', flat=True).first()
+    _touch_sheet_and_faction(sheet_id)
+
+
+def _bubble_legend_grandchild(sender, instance, **kwargs):
+    """LegendRow (FK 'legend') -> Legend -> PhaseStep -> FactionSheet."""
+    legend_id = getattr(instance, 'legend_id', None)
+    if legend_id is None:
+        return
+    Legend = apps.get_model('the_forge', 'Legend')
+    step_id = Legend.objects.filter(pk=legend_id).values_list('step_id', flat=True).first()
+    if step_id is None:
+        return
+    PhaseStep = apps.get_model('the_forge', 'PhaseStep')
+    sheet_id = PhaseStep.objects.filter(pk=step_id).values_list('sheet_id', flat=True).first()
+    _touch_sheet_and_faction(sheet_id)
+
+
+def _bubble_scale_grandchild(sender, instance, **kwargs):
+    """ScaleRow (FK 'scale') -> Scale -> PhaseStep -> FactionSheet."""
+    scale_id = getattr(instance, 'scale_id', None)
+    if scale_id is None:
+        return
+    Scale = apps.get_model('the_forge', 'Scale')
+    step_id = Scale.objects.filter(pk=scale_id).values_list('step_id', flat=True).first()
+    if step_id is None:
+        return
+    PhaseStep = apps.get_model('the_forge', 'PhaseStep')
+    sheet_id = PhaseStep.objects.filter(pk=step_id).values_list('sheet_id', flat=True).first()
+    _touch_sheet_and_faction(sheet_id)
+
+
+def _bubble_decree_grandchild(sender, instance, **kwargs):
+    """CardSlot (FK 'decree') -> DecreeSection -> FactionSheet."""
+    decree_id = getattr(instance, 'decree_id', None)
+    if decree_id is None:
+        return
+    DecreeSection = apps.get_model('the_forge', 'DecreeSection')
+    sheet_id = DecreeSection.objects.filter(pk=decree_id).values_list('sheet_id', flat=True).first()
+    _touch_sheet_and_faction(sheet_id)
+
+
+def _bubble_piece(sender, instance, **kwargs):
+    """Piece (FK 'parent') -> FactionBack."""
+    _touch_back_and_faction(getattr(instance, 'parent_id', None))
+
+
+def _bubble_setupstep(sender, instance, **kwargs):
+    """SetupStep has nullable FKs to FactionBack ('faction_back') AND SetupCard ('card')."""
+    _touch_back_and_faction(getattr(instance, 'faction_back_id', None))
+    _touch_card_and_faction(getattr(instance, 'card_id', None))
+
+
+# Map: model name -> bubble handler. Each handler is connected to both
+# post_save and post_delete so adds/edits/removals all bump.
+TIMESTAMP_BUBBLES = {
+    'FactionSheet':    _bubble_sheet_back_card,
+    'FactionBack':     _bubble_sheet_back_card,
+    'SetupCard':       _bubble_sheet_back_card,
+    'CharacterImage':  _bubble_sheet_child,
+    'FactionAbility':  _bubble_sheet_child,
+    'ContentBox':      _bubble_sheet_child,
+    'CardPile':        _bubble_sheet_child,
+    'DecreeSection':   _bubble_sheet_child,
+    'PhaseStep':       _bubble_sheet_child,
+    'StepAction':      _bubble_phasestep_grandchild,
+    'BorderedBox':     _bubble_phasestep_grandchild,
+    'CardboardTrack':  _bubble_phasestep_grandchild,
+    'Legend':          _bubble_phasestep_grandchild,
+    'Scale':           _bubble_phasestep_grandchild,
+    'CardboardSlot':   _bubble_track_grandchild,
+    'LegendRow':       _bubble_legend_grandchild,
+    'ScaleRow':        _bubble_scale_grandchild,
+    'CardSlot':        _bubble_decree_grandchild,
+    'Piece':           _bubble_piece,
+    'SetupStep':       _bubble_setupstep,
+}
+
+
 def _connect():
     for model_name, cfg in IMAGE_FIELDS_CONFIG.items():
         Model = apps.get_model('the_forge', model_name)
@@ -86,3 +246,7 @@ def _connect():
     for model_name in PREVIEW_MODELS:
         Model = apps.get_model('the_forge', model_name)
         post_delete.connect(_delete_image_preview, sender=Model)
+    for model_name, handler in TIMESTAMP_BUBBLES.items():
+        Model = apps.get_model('the_forge', model_name)
+        post_save.connect(handler, sender=Model)
+        post_delete.connect(handler, sender=Model)

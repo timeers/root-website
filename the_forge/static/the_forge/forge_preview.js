@@ -9,6 +9,21 @@
 
   const EDITABLE_KINDS = new Set(['phase_box', 'content_box', 'card_pile', 'decree', 'character_image']);
 
+  // Inline SVG icons for the card-pile rotate buttons. Material Symbols
+  // "rotate-left" / "rotate-right" path data — battle-tested icons where
+  // the arrowhead is part of the same shape as the arc, so no alignment.
+  const SVG_ATTRS = 'viewBox="0 -960 960 960" width="14" height="14" fill="currentColor"';
+  // Counter-clockwise rotate (Material "rotate_left").
+  const ICON_ROTATE_CCW =
+    `<svg ${SVG_ATTRS}>` +
+      `<path d="M440-80q-50-5-96-24.5T256-156l56-58q29 21 61.5 34t66.5 18v82Zm80 0v-82q104-15 172-93.5T760-438q0-117-81.5-198.5T480-718h-8l64 64-56 56-160-160 160-160 56 58-62 62h6q150 0 255 105t105 255q0 137-91 238.5T520-80ZM198-214q-32-42-51.5-88T122-398h82q5 34 18 66.5t34 61.5l-58 56Zm-76-264q6-51 25-98t51-86l58 56q-21 29-34 61.5T204-478h-82Z"/>` +
+    `</svg>`;
+  // Clockwise rotate (Material "rotate_right").
+  const ICON_ROTATE_CW =
+    `<svg ${SVG_ATTRS}>` +
+      `<path d="M520-80v-82q34-5 66.5-18t61.5-34l56 58q-42 32-88 51.5T520-80Zm-80 0Q303-97 211.5-198.5T120-438q0-75 28.5-140.5t77-114q48.5-48.5 114-77T480-798h6l-62-62 56-58 160 160-160 160-56-56 64-64h-8q-117 0-198.5 81.5T200-438q0 109 68 187.5T440-162v82Zm322-134-58-56q21-29 34-61.5t18-66.5h82q-5 50-24.5 96T762-214Zm76-264h-82q-5-34-18-66.5T704-606l58-56q32 39 51 86t25 98Z"/>` +
+    `</svg>`;
+
   // Decorative kinds that visually belong to a parent and should follow it
   // when dragged. Map → the parent's element key.
   function decorativeParentKey(el) {
@@ -129,7 +144,12 @@
           div.appendChild(t);
         }
         break;
-      case 'decree':
+      case 'decree': {
+        // Center drag-handle marker so the user can see the decree is
+        // draggable even without the resize handles (decree drags y-only).
+        const handle = document.createElement('span');
+        handle.className = 'decree-drag-handle';
+        div.appendChild(handle);
         if (el.title) {
           const lbl = document.createElement('div');
           lbl.className = 'decree-label';
@@ -137,6 +157,7 @@
           div.appendChild(lbl);
         }
         break;
+      }
       case 'content_box':
         if (el.title) {
           const t = document.createElement('div');
@@ -148,11 +169,28 @@
         break;
       case 'card_pile': {
         const t = document.createElement('div');
+        t.className = 'card-pile-title';
         t.style.fontWeight = 'bold';
         t.style.fontSize = '11px';
         t.style.textAlign = 'center';
         t.textContent = el.title || `Pile ${el.number || ''}`;
         div.appendChild(t);
+        // Two rotation buttons in the top corners. Click handlers attach
+        // later (in wireDrag) since they need access to the key + editState.
+        // Top-left button (CCW) rotates the pile so its bottom faces the
+        // page's RIGHT. Top-right button (CW) rotates so the bottom faces LEFT.
+        const btnL = document.createElement('button');
+        btnL.type = 'button';
+        btnL.className = 'card-pile-rotate card-pile-rotate--left';
+        btnL.dataset.rotateTarget = 'right';
+        btnL.title = 'Rotate counter-clockwise';
+        div.appendChild(btnL);
+        const btnR = document.createElement('button');
+        btnR.type = 'button';
+        btnR.className = 'card-pile-rotate card-pile-rotate--right';
+        btnR.dataset.rotateTarget = 'left';
+        btnR.title = 'Rotate clockwise';
+        div.appendChild(btnR);
         break;
       }
       case 'character_image': {
@@ -324,6 +362,9 @@
         kind: el.kind,
         y_min: el.y_min,
         y_max: el.y_max,
+        x_min: el.x_min,
+        x_max: el.x_max,
+        orientation: el.orientation || 'bottom',
       };
     });
   }
@@ -331,7 +372,7 @@
   function buildHiddenInputs() {
     inputsContainer.innerHTML = '';
     Object.entries(editState).forEach(([key, st]) => {
-      const fields = (st.kind === 'card_pile') ? ['x', 'y']
+      const fields = (st.kind === 'card_pile') ? ['x', 'y', 'orientation']
         : (st.kind === 'decree') ? ['y']
         : (st.kind === 'character_image') ? ['x', 'y', 'w']
         : ['x', 'y', 'w', 'h'];
@@ -358,11 +399,109 @@
 
   function clamp(val, lo, hi) { return Math.max(lo, Math.min(hi, val)); }
 
+  function applyCardPileState(entry, st) {
+    const orient = st.orientation || 'bottom';
+    if (orient === 'left' || orient === 'right') {
+      // Rotated piles: anchor (x, y) is bottom-left of the rotated
+      // H-wide × W-tall world footprint. Swap w/h on the DOM box and
+      // rotate the inner title so it reads along the card's long axis.
+      placeDiv(entry.primary, st.x, st.y, st.h, st.w);
+    } else {
+      placeDiv(entry.primary, st.x, st.y, st.w, st.h);
+    }
+    const title = entry.primary.querySelector('.card-pile-title');
+    if (title) {
+      // The card's "top" (where the title naturally renders ~0.4" down from
+      // the top of the upright card) maps to a different side after rotation:
+      //   bottom → top of the box
+      //   left   (card bottom on page-left)  → right side of the rotated box
+      //   right  (card bottom on page-right) → left side of the rotated box
+      // Strategy: position a narrow strip pinned to the appropriate edge of
+      // the box, sized along the card's long axis. Text is rotated 90° and
+      // centered along that long axis via flexbox so it stays centered after
+      // the rotate transform.
+      const TITLE_STRIP_IN = 0.5;
+      const stripPx = TITLE_STRIP_IN * SCALE;
+      const longPx = st.w * SCALE; // long axis of the rotated strip = unrotated width
+      title.style.position = 'absolute';
+      title.style.display = 'flex';
+      title.style.alignItems = 'center';
+      title.style.justifyContent = 'center';
+      title.style.textAlign = 'center';
+      if (orient === 'left') {
+        // Strip on the right side of the rotated box.
+        title.style.top = '0';
+        title.style.right = '0';
+        title.style.left = '';
+        title.style.bottom = '';
+        title.style.width = stripPx + 'px';
+        title.style.height = longPx + 'px';
+        title.style.transform = 'rotate(90deg)';
+        title.style.transformOrigin = 'center center';
+      } else if (orient === 'right') {
+        // Strip on the left side of the rotated box.
+        title.style.top = '0';
+        title.style.left = '0';
+        title.style.right = '';
+        title.style.bottom = '';
+        title.style.width = stripPx + 'px';
+        title.style.height = longPx + 'px';
+        title.style.transform = 'rotate(-90deg)';
+        title.style.transformOrigin = 'center center';
+      } else {
+        // Upright: strip pinned to the top of the box.
+        title.style.top = '0';
+        title.style.left = '0';
+        title.style.right = '0';
+        title.style.bottom = '';
+        title.style.width = '';
+        title.style.height = stripPx + 'px';
+        title.style.transform = '';
+        title.style.transformOrigin = '';
+      }
+    }
+    // Buttons: in 'bottom' orientation, both rotate buttons are visible.
+    // In 'left' or 'right', the opposite-side button is hidden (you can
+    // only return to bottom from a rotated state), and the active-side
+    // button shows a ↓ icon meaning "rotate back to bottom".
+    const btnL = entry.primary.querySelector('.card-pile-rotate--left');
+    const btnR = entry.primary.querySelector('.card-pile-rotate--right');
+    if (btnL && btnR) {
+      // In 'bottom' orientation: left button shows CCW (rotates the pile
+      // CCW → 'right'), right button shows CW (rotates CW → 'left').
+      // In a rotated state: only the side-button that put the pile there
+      // remains visible, but its icon flips to show the *return* direction
+      // (CW from 'right', CCW from 'left') so the icon matches the action.
+      if (orient === 'right') {
+        btnL.innerHTML = ICON_ROTATE_CW;
+        btnL.hidden = false;
+        btnL.title = 'Rotate back to bottom';
+        btnR.hidden = true;
+      } else if (orient === 'left') {
+        btnR.innerHTML = ICON_ROTATE_CCW;
+        btnR.hidden = false;
+        btnR.title = 'Rotate back to bottom';
+        btnL.hidden = true;
+      } else {
+        btnL.innerHTML = ICON_ROTATE_CCW;
+        btnL.hidden = false;
+        btnL.title = 'Rotate counter-clockwise';
+        btnR.innerHTML = ICON_ROTATE_CW;
+        btnR.hidden = false;
+        btnR.title = 'Rotate clockwise';
+      }
+    }
+  }
+
   function applyState(key) {
     const entry = domIndex[key];
     if (!entry) return;
     const st = editState[key];
-    placeDiv(entry.primary, st.x, st.y, st.w, st.h);
+    if (st.kind === 'card_pile') {
+      applyCardPileState(entry, st);
+    } else {
+      placeDiv(entry.primary, st.x, st.y, st.w, st.h);
+    }
     entry.decorations.forEach((dec) => {
       const xIn = st.x + (dec._dxIn || 0);
       let yIn;
@@ -442,11 +581,23 @@
         }
         ny = clamp(ny, lo, hi);
       } else if (st.kind === 'card_pile') {
-        // Card piles can hang off the bottom edge — y can go negative until
-        // y_min (text zone still on-page).
-        const pileLo = (st.y_min != null) ? st.y_min : 0;
-        nx = clamp(nx, 0, Math.max(0, pageWIn - w));
-        ny = clamp(ny, pileLo, Math.max(pileLo, pageHIn - h));
+        // Overhang is allowed only along the axis matching the orientation.
+        // The rotated footprint is (h wide × w tall) — i.e. the unrotated
+        // CARD_SLOT_H is the rotated *width*. So for left/right orientation
+        // the on-page x-bound is (pageW - h), and the y-bound is (pageH - w).
+        const yLoBottom = (st.y_min != null) ? st.y_min : 0;
+        const xLoLeft = (st.x_min != null) ? st.x_min : 0;
+        const xHiRight = (st.x_max != null) ? st.x_max : (pageWIn - h);
+        if (st.orientation === 'left') {
+          nx = clamp(nx, xLoLeft, Math.max(xLoLeft, pageWIn - h));
+          ny = clamp(ny, 0, Math.max(0, pageHIn - w));
+        } else if (st.orientation === 'right') {
+          nx = clamp(nx, 0, Math.max(0, xHiRight));
+          ny = clamp(ny, 0, Math.max(0, pageHIn - w));
+        } else {
+          nx = clamp(nx, 0, Math.max(0, pageWIn - w));
+          ny = clamp(ny, yLoBottom, Math.max(yLoBottom, pageHIn - h));
+        }
       } else if (st.kind === 'phase_box') {
         // Phase box top can't overlap the header band.
         nx = clamp(nx, 0, Math.max(0, pageWIn - w));
@@ -499,12 +650,73 @@
     window.addEventListener('pointercancel', onUp);
   }
 
+  function rotateCardPile(key, target) {
+    // target ∈ {'left','right','bottom'}; called from rotate-button clicks.
+    // Rotates in place — the visual center is preserved across orientations
+    // by adjusting (x, y) (the world bottom-left anchor of the new footprint),
+    // then re-clamped to whatever the new orientation's bounds allow.
+    const st = editState[key];
+    if (!st || st.kind !== 'card_pile') return;
+    const pageWIn = pageW / SCALE;
+    const pageHIn = pageH / SCALE;
+    // Current footprint dims (rotated → h wide × w tall; bottom → w wide × h tall).
+    const oldOrient = st.orientation || 'bottom';
+    const oldFw = (oldOrient === 'bottom') ? st.w : st.h;
+    const oldFh = (oldOrient === 'bottom') ? st.h : st.w;
+    const cx = st.x + oldFw / 2;
+    const cy = st.y + oldFh / 2;
+    // New footprint dims after the orientation switch.
+    const newFw = (target === 'bottom') ? st.w : st.h;
+    const newFh = (target === 'bottom') ? st.h : st.w;
+    st.orientation = target;
+    st.x = cx - newFw / 2;
+    st.y = cy - newFh / 2;
+    // Re-clamp to the new orientation's allowed bounds.
+    const yLoBottom = (st.y_min != null) ? st.y_min : 0;
+    const xLoLeft = (st.x_min != null) ? st.x_min : 0;
+    const xHiRight = (st.x_max != null) ? st.x_max : (pageWIn - st.h);
+    if (target === 'left') {
+      st.x = clamp(st.x, xLoLeft, Math.max(xLoLeft, pageWIn - st.h));
+      st.y = clamp(st.y, 0, Math.max(0, pageHIn - st.w));
+    } else if (target === 'right') {
+      st.x = clamp(st.x, 0, Math.max(0, xHiRight));
+      st.y = clamp(st.y, 0, Math.max(0, pageHIn - st.w));
+    } else {
+      st.x = clamp(st.x, 0, Math.max(0, pageWIn - st.w));
+      st.y = clamp(st.y, yLoBottom, Math.max(yLoBottom, pageHIn - st.h));
+    }
+    applyState(key);
+    syncHiddenInputs(key);
+    markDirty();
+  }
+
   function wireDrag() {
     Object.entries(domIndex).forEach(([key, entry]) => {
       const div = entry.primary;
       div.classList.add('forge-preview-element--draggable');
       div.style.cursor = (editState[key] && editState[key].kind === 'decree') ? 'ns-resize' : 'move';
-      div.addEventListener('pointerdown', (ev) => startDrag(ev, key));
+      div.addEventListener('pointerdown', (ev) => {
+        // Rotate buttons on card piles intercept their own clicks.
+        const btn = ev.target.closest && ev.target.closest('.card-pile-rotate');
+        if (btn) {
+          ev.stopPropagation();
+          return;
+        }
+        startDrag(ev, key);
+      });
+      // Click handlers for the card-pile rotate buttons.
+      entry.primary.querySelectorAll('.card-pile-rotate').forEach((btn) => {
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const st = editState[key];
+          if (!st) return;
+          const target = btn.dataset.rotateTarget;
+          // If the pile is already in this orientation, the button means
+          // "rotate back to bottom"; otherwise it means "rotate to target".
+          const next = (st.orientation === target) ? 'bottom' : target;
+          rotateCardPile(key, next);
+        });
+      });
       // Decoratives belonging to this editable element should drag the
       // parent. Forward their pointer events.
       entry.decorations.forEach((dec) => {
@@ -670,6 +882,11 @@
     renderCanvas(payload);
     initEditState(payload);
     buildHiddenInputs();
+    // Re-apply state for every card pile so their rotation buttons get wired
+    // up and rotated piles get their CSS transform applied on initial load.
+    Object.entries(editState).forEach(([key, st]) => {
+      if (st.kind === 'card_pile') applyState(key);
+    });
     wireDrag();
     wireResize();
   }
@@ -705,10 +922,19 @@
   document.querySelectorAll('.forge-preview-download').forEach((link) => {
     link.addEventListener('click', (ev) => {
       if (!dirty) return;
-      const ok = confirm('You have unsaved layout changes. The download will not reflect them — continue anyway?');
+      const ok = confirm('You have unsaved layout changes. The download will not reflect them - continue anyway?');
       if (!ok) ev.preventDefault();
     });
   });
+
+  const editLink = document.getElementById('forge-preview-edit-link');
+  if (editLink) {
+    editLink.addEventListener('click', (ev) => {
+      if (!dirty) return;
+      const ok = confirm('You have unsaved layout changes. Leaving this page will discard them - continue anyway?');
+      if (!ok) ev.preventDefault();
+    });
+  }
 
   activate(activeMode);
 })();

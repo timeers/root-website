@@ -7,7 +7,7 @@
 {% block content %}
 <div class="my-2 d-flex justify-content-between align-items-center">
   <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   {{ faction.faction_name }}</a>
-  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit faction</a>
+  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" id="forge-preview-edit-link" class="btn btn-sm btn-outline-primary">Edit faction</a>
 </div>
 
 <form method="post" action="{% url 'forge-sheet-preview-save' pk=sheet.pk %}" id="forge-preview-form">
@@ -29,15 +29,35 @@
     </div>
   </div>
 
-  <div class="card p-3 mb-3">
-    <div class="forge-preview-scroll" style="overflow-x: auto; overflow-y: hidden;">
-      <div id="forge-preview-canvas"
-           class="forge-preview-grid-on"
-           data-payloads="{{ payloads_json|escape }}"
-           data-active-mode="{{ payload.layout_mode }}"
-           style="position: relative; background: #f5e9d0; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
+  <div class="forge-preview-layout mb-3">
+    <div class="card p-3 forge-preview-canvas-card">
+      <div class="forge-preview-scroll" style="overflow-x: auto; overflow-y: hidden;">
+        <div id="forge-preview-canvas"
+             class="forge-preview-grid-on"
+             data-payloads="{{ payloads_json|escape }}"
+             data-active-mode="{{ payload.layout_mode }}"
+             style="position: relative; background: #f5e9d0; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
+        </div>
       </div>
     </div>
+    <aside class="card p-3 forge-preview-legend-card small text-muted">
+      <h5 class="root-title mb-2">Tips</h5>
+      <ul class="mb-0 list-unstyled">
+        <li class="mb-1"><i class="bi bi-grid-1x2-fill"></i> <strong>Switch</strong> between Vertical and Horizontal layout to control the phase box layout.</li>
+        <li class="mb-1"><i class="bi bi-arrows-move"></i> <strong>Drag</strong> an element to reposition it.</li>
+        <li class="mb-1">
+          <svg viewBox="0 -960 960 960" width="14" height="14" fill="currentColor" style="vertical-align: -2px;">
+            <path d="M440-80q-50-5-96-24.5T256-156l56-58q29 21 61.5 34t66.5 18v82Zm80 0v-82q104-15 172-93.5T760-438q0-117-81.5-198.5T480-718h-8l64 64-56 56-160-160 160-160 56 58-62 62h6q150 0 255 105t105 255q0 137-91 238.5T520-80ZM198-214q-32-42-51.5-88T122-398h82q5 34 18 66.5t34 61.5l-58 56Zm-76-264q6-51 25-98t51-86l58 56q-21 29-34 61.5T204-478h-82Z"/>
+          </svg>
+          <strong>Rotate</strong> a card pile by clicking the rotation icons in its corners.
+        </li>
+        <li class="mb-1"><span class="forge-preview-legend-handle"></span> <strong>Resize </strong> by using the red handles on the edges of each element.</li>
+        <li class="mb-1"><i class="bi bi-rewind-circle-fill"></i> <strong>Reset</strong> to Auto to revert all overrides or reset to Saved to clear recent changes.</li>
+
+        <li><i class="bi bi-exclamation-diamond-fill"></i> <strong>Warning:</strong> An element's contents will not render if it is not large enough.</li>
+
+      </ul>
+    </aside>
   </div>
 
   <div id="forge-preview-inputs"></div>
@@ -104,6 +124,42 @@
     z-index: 20;
     box-sizing: border-box;
   }
+  .forge-preview-legend-handle {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    background: rgba(180, 90, 30, 0.95);
+    border: 1px solid #fff;
+    outline: 1px solid rgba(0, 0, 0, 0.2);
+    vertical-align: middle;
+    margin: 0 0.15rem;
+  }
+  .forge-preview-layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+  .forge-preview-canvas-card {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .forge-preview-legend-card {
+    flex: 0 1 280px;
+    min-width: 240px;
+    background: rgba(255, 248, 230, 0.85);
+    border-color: #aa885c;
+  }
+  .forge-preview-legend-card h5 {
+    color: #5a3a18;
+  }
+  /* When the viewport is too narrow to fit both side-by-side, the legend
+     wraps below and grows to full width. */
+  @media (max-width: 991.98px) {
+    .forge-preview-legend-card {
+      flex: 1 1 100%;
+    }
+  }
   .forge-resize-handle--n  { top: -5px; left: 50%; margin-left: -5px; cursor: ns-resize; }
   .forge-resize-handle--s  { bottom: -5px; left: 50%; margin-left: -5px; cursor: ns-resize; }
   .forge-resize-handle--w  { left: -5px; top: 50%; margin-top: -5px; cursor: ew-resize; }
@@ -168,6 +224,41 @@
   }
   .forge-preview-element--content_box { background: rgba(120, 170, 220, 0.45); z-index: 1; }
   .forge-preview-element--card_pile   { background: rgba(220, 200, 130, 0.55); z-index: 1; }
+  .card-pile-rotate {
+    position: absolute;
+    top: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(58, 42, 20, 0.78);
+    color: #f7eed8;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 3;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: background 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  }
+  .card-pile-rotate:hover {
+    background: rgba(58, 42, 20, 1);
+    transform: scale(1.08);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+  }
+  .card-pile-rotate:active {
+    transform: scale(0.96);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  }
+  .card-pile-rotate:focus-visible {
+    outline: 2px solid #e8c875;
+    outline-offset: 2px;
+  }
+  .card-pile-rotate--left  { left: 4px; }
+  .card-pile-rotate--right { right: 4px; }
   .forge-preview-element--bordered_box {
     background: rgba(255, 250, 235, 0.85);
     border: 1px solid rgba(80, 50, 20, 0.8);
@@ -262,6 +353,19 @@
        to drag them. While dragging, .forge-preview-element--dragging bumps
        z-index to 10, which still beats this. */
     z-index: 0;
+  }
+  .decree-drag-handle {
+    position: absolute;
+    bottom: -1px;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    margin-left: -6px;
+    background: rgba(180, 90, 30, 0.95);
+    border: 1px solid #fff;
+    outline: 1px solid rgba(0, 0, 0, 0.2);
+    box-sizing: border-box;
+    pointer-events: none;
   }
   .forge-preview-element--card_slot {
     background: rgba(245, 233, 208, 0.95);

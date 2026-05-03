@@ -1,17 +1,20 @@
 {% load static %}
 {% include 'the_forge/partials/decree_title_form.html' with decree=decree %}
-<div class="d-flex flex-wrap gap-2 align-items-stretch">
+<small class="text-muted">Max 5</small>
+<div class="decree-slots-wrap position-relative pb-5 mt-1">
   <div id="card-slot-list" class="d-flex flex-wrap gap-2 align-items-stretch"
-       data-reorder-url="{% url 'forge-cardslot-reorder' decree_pk=decree.pk %}">
+       data-reorder-url="{% url 'forge-cardslot-reorder' decree_pk=decree.pk %}"
+       data-max="5" data-add-control="#card-slot-add-form">
     {% for slot in decree.card_slots.all %}
       {% include 'the_forge/partials/card_slot_row.html' with slot=slot %}
     {% endfor %}
   </div>
   <form id="card-slot-add-form"
-        class="card-slot-add-tile d-flex align-items-center justify-content-center"
+        class="card-slot-add-tile"
         data-add-url="{% url 'forge-cardslot-add' decree_pk=decree.pk %}"
-        data-target="#card-slot-list">
+        data-target="#card-slot-list"
+        {% if decree.card_slots.all|length >= 5 %}hidden{% endif %}>
     {% csrf_token %}
-    <button type="submit" class="btn btn-outline-primary" title="Add column">+</button>
+    <button type="submit" class="btn btn-outline-primary text-nowrap" title="Add column">+ Add Slot</button>
   </form>
 </div>

@@ -266,6 +266,7 @@ CARD_PILE_TITLE_TO_BODY_GAP = 0.0 * inch       # vertical gap between bottom of 
 CARD_PILE_PADDING = 0.18 * inch                 # horizontal text padding inside card
 CARD_PILE_GAP = 0.20 * inch                     # horizontal margin between adjacent card piles
 CARD_PILE_TITLE_SIZE = 20                       # title font size (Luminari)
+CARD_PILE_NO_TEXT_OVERHANG = 3.25 * inch        # max edge overhang for piles with no title or body
 
 # Image height for inline images like card draw and VP
 INLINE_IMG_H = 14.5
@@ -4791,24 +4792,81 @@ class SheetLayoutEngine:
                                  order=img.order, x=x, y=y, w=w, h=h,
                                  image_url=image_url)
 
+    def _pile_orientation(self, pile):
+        """Active-layout orientation for a pile: 'bottom' | 'left' | 'right'."""
+        attr = 'orientation_h' if self.sheet.layout_mode == 'horizontal' else 'orientation_v'
+        return getattr(pile, attr, 'bottom') or 'bottom'
+
+    def _record_card_pile(self, pile, orientation, x, y):
+        """Record a card_pile element in the layout payload. Recorded w/h are
+        always the unrotated CARD_SLOT_W/H — the preview rotates visually.
+        x_max is the rightmost anchor.x for a 'right'-oriented pile, where
+        the rotated footprint is CARD_SLOT_H wide (not W)."""
+        slack_in = self._card_pile_edge_slack(pile) / inch
+        page_w_in = PAGE_W / inch
+        slot_h_in = CARD_SLOT_H / inch
+        self._record_element(
+            kind='card_pile', id=pile.id,
+            title=pile.title or '', number=pile.number,
+            x=x, y=y, w=CARD_SLOT_W, h=CARD_SLOT_H,
+            orientation=orientation,
+            y_min=-slack_in,
+            x_min=-slack_in,
+            x_max=(page_w_in - slot_h_in) + slack_in,
+        )
+
     def _draw_card_piles(self, c):
         if not self.card_piles:
             return
         rightmost_x = PAGE_W - X_MARGIN - CARD_SLOT_W
-        auto_index = 0
+        auto_index_bottom = 0
+        auto_index_left = 0
+        auto_index_right = 0
         for pile in self.card_piles:
+            orientation = self._pile_orientation(pile)
             ov_x = self._override(pile, 'x_h', 'x_v')
             ov_y = self._override(pile, 'y_h', 'y_v')
+
+            if orientation == 'left':
+                # Default-anchor at left edge, stacking upward if no override.
+                if ov_x is None:
+                    x = X_MARGIN
+                else:
+                    x = ov_x * inch
+                if ov_y is None:
+                    y = BOTTOM_MARGIN + auto_index_left * (CARD_SLOT_W + CARD_PILE_GAP)
+                    auto_index_left += 1
+                else:
+                    y = ov_y * inch
+                self._draw_card_pile_rotated_at(c, pile, x, y, direction='cw')
+                self._record_card_pile(pile, orientation, x, y)
+                continue
+
+            if orientation == 'right':
+                # Default-anchor at right edge so the rotated H-wide footprint
+                # ends flush with the page right edge minus margin.
+                if ov_x is None:
+                    x = PAGE_W - X_MARGIN - CARD_SLOT_H
+                else:
+                    x = ov_x * inch
+                if ov_y is None:
+                    y = BOTTOM_MARGIN + auto_index_right * (CARD_SLOT_W + CARD_PILE_GAP)
+                    auto_index_right += 1
+                else:
+                    y = ov_y * inch
+                self._draw_card_pile_rotated_at(c, pile, x, y, direction='ccw')
+                self._record_card_pile(pile, orientation, x, y)
+                continue
+
+            # 'bottom' — existing behavior.
             if ov_x is not None and ov_y is not None:
-                # Both coords overridden — draw upright at the chosen point,
-                # bypassing the obstruction sweep.
                 self._draw_card_pile_at(c, pile, ov_x * inch, ov_y * inch)
                 continue
             if ov_x is not None:
                 x = ov_x * inch
             else:
-                x = rightmost_x - auto_index * (CARD_SLOT_W + CARD_PILE_GAP)
-                auto_index += 1
+                x = rightmost_x - auto_index_bottom * (CARD_SLOT_W + CARD_PILE_GAP)
+                auto_index_bottom += 1
             self._place_and_draw_card_pile(c, pile, x)
 
     def _card_pile_body_paragraph(self, body_text, text_w):
@@ -4863,23 +4921,34 @@ class SheetLayoutEngine:
     def _rect_is_clear(self, rect, obstructions):
         return all(not self._rects_overlap(rect, obs) for obs in obstructions)
 
-    def _card_pile_min_y(self, pile):
-        """Lowest y at which the pile's tight text zone still fits on-page.
-        At this y, the bottom portion of the card image hangs below y=0."""
+    def _card_pile_edge_slack(self, pile):
+        """Maximum distance the pile's anchor can sit past a page edge while its
+        text zone (title+body block) stays fully on-page. Returns inches >= 0.
+        For 'bottom' orientation this is |y_min| (anchor below 0). For 'left'/
+        'right' it's the horizontal equivalent.
+
+        Measured from where the title/body text actually renders (using the
+        standard CARD_PILE_TITLE_TOP_OFFSET, not the squished overflow offset)
+        plus a BOTTOM_MARGIN buffer so text doesn't sit flush with the page
+        edge. Piles with neither title nor body fall back to
+        CARD_PILE_NO_TEXT_OVERHANG."""
+        if not (pile.title or pile.body):
+            return CARD_PILE_NO_TEXT_OVERHANG
         text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
-        title_h = 0.0
-        body_h = 0.0
+        title_h = body_h = 0.0
         title_para = body_para = None
         if pile.title:
             title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
         if pile.body:
             body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
-        if title_para is None and body_para is None:
-            zone_h_tight = 0.0
-        else:
-            gap = CARD_PILE_TITLE_TO_BODY_GAP if (title_para and body_para) else 0.0
-            zone_h_tight = CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW + title_h + gap + body_h
-        return zone_h_tight - CARD_SLOT_H
+        gap = CARD_PILE_TITLE_TO_BODY_GAP if (title_para and body_para) else 0.0
+        zone_h = CARD_PILE_TITLE_TOP_OFFSET + title_h + gap + body_h
+        return max(0.0, CARD_SLOT_H - zone_h - BOTTOM_MARGIN)
+
+    def _card_pile_min_y(self, pile):
+        """Lowest y at which the pile's tight text zone still fits on-page.
+        At this y, the bottom portion of the card image hangs below y=0."""
+        return -self._card_pile_edge_slack(pile)
 
     def _draw_card_pile_at(self, c, pile, x, y):
         """Draw a card pile upright at exactly (x, y), skipping collision search.
@@ -4898,10 +4967,25 @@ class SheetLayoutEngine:
         self._draw_card_pile_upright(c, pile, x, y,
                                      title_para, title_h, body_para, body_h,
                                      CARD_PILE_TITLE_TOP_OFFSET)
-        self._record_element(kind='card_pile', id=pile.id,
-                             title=pile.title or '', number=pile.number,
-                             x=x, y=y, w=CARD_SLOT_W, h=CARD_SLOT_H,
-                             y_min=self._card_pile_min_y(pile) / inch)
+        self._record_card_pile(pile, 'bottom', x, y)
+
+    def _draw_card_pile_rotated_at(self, c, pile, x, y, direction):
+        """Draw a rotated card pile at exactly (x, y) — for explicit left/right
+        orientation. Anchor is bottom-left of the rotated world footprint."""
+        text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
+        title_para = title_h = None
+        body_para = body_h = None
+        if pile.title:
+            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+        else:
+            title_h = 0.0
+        if pile.body:
+            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+        else:
+            body_h = 0.0
+        self._draw_card_pile_rotated(c, pile, x, y,
+                                     title_para, title_h, body_para, body_h,
+                                     CARD_PILE_TITLE_TOP_OFFSET, direction=direction)
 
     def _place_and_draw_card_pile(self, c, pile, x):
         text_w = CARD_SLOT_W - 2 * CARD_PILE_PADDING
@@ -4981,10 +5065,7 @@ class SheetLayoutEngine:
                 self._draw_card_pile_upright(c, pile, x, candidate_y,
                                              title_para, title_h, body_para, body_h,
                                              offset)
-                self._record_element(kind='card_pile', id=pile.id,
-                                     title=pile.title or '', number=pile.number,
-                                     x=x, y=candidate_y, w=CARD_SLOT_W, h=CARD_SLOT_H,
-                                     y_min=self._card_pile_min_y(pile) / inch)
+                self._record_card_pile(pile, 'bottom', x, candidate_y)
                 return
             candidate_y -= step
 
@@ -4996,11 +5077,7 @@ class SheetLayoutEngine:
             self._draw_card_pile_rotated(c, pile, x, rot_bottom,
                                          title_para, title_h, body_para, body_h,
                                          CARD_PILE_TITLE_TOP_OFFSET_OVERFLOW)
-            self._record_element(kind='card_pile', id=pile.id,
-                                 title=pile.title or '', number=pile.number,
-                                 x=x, y=rot_bottom, w=CARD_SLOT_W, h=CARD_SLOT_H,
-                                 rotated=True,
-                                 y_min=self._card_pile_min_y(pile) / inch)
+            self._record_card_pile(pile, 'right', x, rot_bottom)
             return
 
         # --- Final fallback — upright at BOTTOM_MARGIN, text possibly cut off. ---
@@ -5008,10 +5085,7 @@ class SheetLayoutEngine:
         self._draw_card_pile_upright(c, pile, x, default_y,
                                      title_para, title_h, body_para, body_h,
                                      CARD_PILE_TITLE_TOP_OFFSET)
-        self._record_element(kind='card_pile', id=pile.id,
-                             title=pile.title or '', number=pile.number,
-                             x=x, y=default_y, w=CARD_SLOT_W, h=CARD_SLOT_H,
-                             y_min=self._card_pile_min_y(pile) / inch)
+        self._record_card_pile(pile, 'bottom', x, default_y)
 
     def _draw_card_pile_upright(self, c, pile, x, y,
                                 title_para, title_h, body_para, body_h,
@@ -5025,12 +5099,21 @@ class SheetLayoutEngine:
 
     def _draw_card_pile_rotated(self, c, pile, x, y,
                                 title_para, title_h, body_para, body_h,
-                                title_top_offset):
+                                title_top_offset, direction='ccw'):
+        """Draw a rotated card pile. Anchor (x, y) is the bottom-left of the
+        rotated world-space footprint (H wide × W tall) regardless of direction.
+          'ccw' (90 CCW): card bottom faces page right  → 'right' orientation.
+          'cw'  (90 CW):  card bottom faces page left   → 'left' orientation."""
         c.saveState()
         c.translate(x, y)
-        c.rotate(90)
-        card_local_x = 0
-        card_local_y = -CARD_SLOT_H
+        if direction == 'cw':
+            c.rotate(-90)
+            card_local_x = -CARD_SLOT_W
+            card_local_y = 0
+        else:
+            c.rotate(90)
+            card_local_x = 0
+            card_local_y = -CARD_SLOT_H
         drawing = self._load_card_pile_svg(self.ink_on_faction_hex,
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:

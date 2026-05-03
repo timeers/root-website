@@ -13,11 +13,12 @@
 <!-- Faction header (name, image, title color) -->
 {% include 'the_forge/partials/sheet_header_form.html' with sheet=sheet faction=faction header_form=header_form %}
 
+<!-- Settings toggles (auto-save) -->
+{% include 'the_forge/partials/sheet_settings_toggles.html' with sheet=sheet %}
+
 <!-- Flavor text (inline save) -->
 {% include 'the_forge/partials/sheet_flavor_form.html' with sheet=sheet %}
 
-<!-- Settings toggles (auto-save) -->
-{% include 'the_forge/partials/sheet_settings_toggles.html' with sheet=sheet %}
 
 <!-- Abilities -->
 <div class="card p-3 mb-3">
@@ -56,7 +57,7 @@
   <div class="d-flex align-items-center justify-content-between mb-2">
     <h4 class="root-title m-0">Decree/Retinue</h4>
     <label class="d-flex align-items-center gap-2 m-0">
-      <span class="small">Include Card Columns</span>
+      <span class="small">Include Card Slots</span>
       <input type="checkbox" id="decree-toggle"
              data-decree-toggle-url="{% url 'forge-sheet-decree-toggle' pk=sheet.pk %}"
              {% if sheet.include_decree %}checked{% endif %}>
@@ -174,7 +175,7 @@
           <option value="action">Action</option>
           <option value="item">Item</option>
           <option value="card">Card</option>
-          <option value="other">Other (custom image)</option>
+          <option value="other">Other</option>
         </select>
         <button type="button" class="btn btn-sm btn-primary" data-section-action-type-confirm>Continue</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-section-action-type-cancel>Cancel</button>
@@ -232,13 +233,17 @@
 <!-- Card Piles -->
 <div class="card p-3 mb-3">
   <h4 class="root-title mb-2">Card Piles</h4>
-  <div id="card-pile-list" data-reorder-url="{% url 'forge-cardpile-reorder' sheet_pk=sheet.pk %}">
+  <div id="card-pile-list"
+       data-reorder-url="{% url 'forge-cardpile-reorder' sheet_pk=sheet.pk %}"
+       data-max="5" data-add-control="#card-pile-add-toggle">
     {% for pile in card_piles %}
       {% include 'the_forge/partials/card_pile_row.html' with pile=pile %}
     {% endfor %}
   </div>
 
-  <button type="button" id="card-pile-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Pile</button>
+  <button type="button" id="card-pile-add-toggle" class="btn btn-sm btn-primary mt-2"
+          {% if card_piles|length >= 5 %}hidden{% endif %}>+ Add Pile</button>
+  <small class="text-muted ms-2">Max 5</small>
 
   <form id="card-pile-add-form" class="mt-2" hidden data-add-url="{% url 'forge-cardpile-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
@@ -261,13 +266,16 @@
 <!-- Character Images (decorative background art) -->
 <div class="card p-3 mb-3">
   <h4 class="root-title mb-2">Character Images</h4>
-  <div id="character-image-list">
+  <div id="character-image-list"
+       data-max="5" data-add-control="#character-image-add-toggle">
     {% for ci in character_images %}
       {% include 'the_forge/partials/character_image_row.html' with ci=ci %}
     {% endfor %}
   </div>
 
-  <button type="button" id="character-image-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Image</button>
+  <button type="button" id="character-image-add-toggle" class="btn btn-sm btn-primary mt-2"
+          {% if character_images|length >= 5 %}hidden{% endif %}>+ Add Image</button>
+  <small class="text-muted ms-2">Max 5</small>
 
   <form id="character-image-add-form" class="mt-2" hidden enctype="multipart/form-data"
         data-add-url="{% url 'forge-character-image-add' sheet_pk=sheet.pk %}">

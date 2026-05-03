@@ -33,6 +33,38 @@
     return true;
   }
 
+  // Guard against duplicate submissions. While a form's request is in flight,
+  // tag it busy and disable its submit buttons. Re-enabled in the finally block
+  // so failures (network, validation, server 500) restore the UI.
+  async function withSubmitGuard(form, work) {
+    if (form._submitInFlight) return;
+    form._submitInFlight = true;
+    const submitBtns = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+    const originalLabels = new Map();
+    submitBtns.forEach((btn) => {
+      btn.disabled = true;
+      btn.setAttribute('aria-busy', 'true');
+      if (btn.tagName === 'BUTTON' && !btn.dataset.busyLabelSet) {
+        originalLabels.set(btn, btn.innerHTML);
+        btn.dataset.busyLabelSet = '1';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Saving…';
+      }
+    });
+    try {
+      return await work();
+    } finally {
+      submitBtns.forEach((btn) => {
+        btn.disabled = false;
+        btn.removeAttribute('aria-busy');
+        if (originalLabels.has(btn)) {
+          btn.innerHTML = originalLabels.get(btn);
+          delete btn.dataset.busyLabelSet;
+        }
+      });
+      form._submitInFlight = false;
+    }
+  }
+
   // Generic add-form handler — picks up any <form data-add-url="..."> and POSTs
   // it, then inserts the returned HTML into the target list.
   function bindAddForm(form) {
@@ -41,6 +73,7 @@
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       if (!validateRequiredFields(form)) return;
+      await withSubmitGuard(form, async () => {
       const url = form.dataset.addUrl;
       const targetSelector = form.dataset.target || '#' + form.id.replace('-add-form', '-list');
       const list = document.querySelector(targetSelector);
@@ -83,6 +116,9 @@
         const toggle = document.querySelector(`[data-phase-step-add-toggle="${phase}"]`);
         if (toggle) toggle.hidden = false;
       }
+      // Inputs are now cleared — drop the dirty marker so the banner re-counts.
+      form.classList.remove('is-dirty');
+      });
     });
   }
 
@@ -196,43 +232,45 @@
     if (!form) return;
     ev.preventDefault();
     if (!validateRequiredFields(form)) return;
-    const url = form.dataset.editUrl;
-    const fd = new FormData(form);
-    const resp = await fetch(url, {
-      method: 'POST',
-      body: fd,
-      headers: { 'X-CSRFToken': csrftoken },
-    });
-    if (!resp.ok) {
-      alert('Save failed: ' + await resp.text());
-      return;
-    }
-    const html = await resp.text();
-    const row = form.closest('[data-row]');
-    if (!row) return;
-    // If the row has children that are themselves rows (e.g. a content box
-    // containing phase-step rows), swap only the form so we don't blow away
-    // unsaved child edits. Otherwise replace the whole row as before.
-    const hasNestedRows = row.querySelector('[data-row]') !== null;
-    const parent = row.parentElement;
-    if (hasNestedRows) {
-      const tmp = document.createElement('div');
-      tmp.innerHTML = html;
-      const newForm = tmp.querySelector('form[data-edit-url="' + url + '"]');
-      if (newForm) {
-        form.replaceWith(newForm);
-        row.classList.remove('is-dirty');
-        if (window.initForgeRichText) window.initForgeRichText(newForm);
-        parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row } }));
+    await withSubmitGuard(form, async () => {
+      const url = form.dataset.editUrl;
+      const fd = new FormData(form);
+      const resp = await fetch(url, {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-CSRFToken': csrftoken },
+      });
+      if (!resp.ok) {
+        alert('Save failed: ' + await resp.text());
         return;
       }
-      // fall through to full-row replace if the response shape was unexpected
-    }
-    row.insertAdjacentHTML('afterend', html);
-    const newRow = row.nextElementSibling;
-    row.remove();
-    if (window.initForgeRichText) window.initForgeRichText(document);
-    parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: newRow } }));
+      const html = await resp.text();
+      const row = form.closest('[data-row]');
+      if (!row) return;
+      // If the row has children that are themselves rows (e.g. a content box
+      // containing phase-step rows), swap only the form so we don't blow away
+      // unsaved child edits. Otherwise replace the whole row as before.
+      const hasNestedRows = row.querySelector('[data-row]') !== null;
+      const parent = row.parentElement;
+      if (hasNestedRows) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        const newForm = tmp.querySelector('form[data-edit-url="' + url + '"]');
+        if (newForm) {
+          form.replaceWith(newForm);
+          row.classList.remove('is-dirty');
+          if (window.initForgeRichText) window.initForgeRichText(newForm);
+          parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row } }));
+          return;
+        }
+        // fall through to full-row replace if the response shape was unexpected
+      }
+      row.insertAdjacentHTML('afterend', html);
+      const newRow = row.nextElementSibling;
+      row.remove();
+      if (window.initForgeRichText) window.initForgeRichText(document);
+      parent?.dispatchEvent(new CustomEvent('forge:row-replaced', { bubbles: true, detail: { row: newRow } }));
+    });
   });
 
   // Generic dirty-form tracking — any input inside a [data-dirty-form] form
@@ -241,6 +279,57 @@
     const form = ev.target.closest('form[data-dirty-form]');
     if (!form) return;
     form.closest('[data-row]')?.classList.add('is-dirty');
+  });
+
+  // Add-form dirty tracking — any non-empty input inside a [data-add-url] form
+  // marks the form itself as dirty (it has no enclosing row yet — the row only
+  // exists after a successful submit). Bidirectional: clears when emptied,
+  // cancelled (inputs cleared by the cancel handler), or successfully submitted
+  // (inputs cleared by bindAddForm). Skip hidden inputs / hidden forms.
+  // Skip forms that have data-dirty-form: those are already tracked via the
+  // row-level listener above (and tagging both would double-count).
+  function isStandaloneAddForm(form) {
+    return !form.hasAttribute('data-dirty-form');
+  }
+  function addFormHasContent(form) {
+    if (form.hidden) return false;
+    for (const el of form.querySelectorAll('input, textarea, select')) {
+      if (el.type === 'hidden' || el.type === 'submit' || el.type === 'button') continue;
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        if (el.checked !== el.defaultChecked) return true;
+        continue;
+      }
+      if (el.type === 'file') {
+        if (el.files && el.files.length) return true;
+        continue;
+      }
+      if ((el.value || '').trim()) return true;
+    }
+    // Rich-text editors are contentEditable divs alongside their <textarea>.
+    for (const ed of form.querySelectorAll('.forge-rich-text-editor')) {
+      if ((ed.textContent || '').trim()) return true;
+    }
+    return false;
+  }
+  function refreshAddFormDirty(form) {
+    if (!form) return;
+    form.classList.toggle('is-dirty', addFormHasContent(form));
+  }
+  document.addEventListener('input', (ev) => {
+    const form = ev.target.closest('form[data-add-url]');
+    if (form && isStandaloneAddForm(form)) refreshAddFormDirty(form);
+  });
+  document.addEventListener('change', (ev) => {
+    const form = ev.target.closest('form[data-add-url]');
+    if (form && isStandaloneAddForm(form)) refreshAddFormDirty(form);
+  });
+  // Re-check after any cancel button click (handlers run sync and clear inputs)
+  // and after the add-form is hidden (toggled off by cancel/save handlers).
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button');
+    if (!btn) return;
+    const form = btn.closest('form[data-add-url]');
+    if (form && isStandaloneAddForm(form)) requestAnimationFrame(() => refreshAddFormDirty(form));
   });
 
   // Auto-save handler — fires on toggle/segmented inputs with [data-autosave-url].
@@ -621,6 +710,17 @@
     if (childStepPk && childList.classList?.contains('phase-step-children')) {
       setStepChildAddLock(childStepPk);
     }
+  });
+
+  // Cap enforcement: hide the add-control on lists that declare data-max once
+  // the row count reaches the cap; show it again after a delete drops below.
+  document.addEventListener('forge:row-replaced', (ev) => {
+    const list = ev.target.closest?.('[data-max]');
+    if (!list || !list.dataset.addControl) return;
+    const max = parseInt(list.dataset.max, 10);
+    const count = list.querySelectorAll('[data-row]').length;
+    const control = document.querySelector(list.dataset.addControl);
+    if (control) control.hidden = count >= max;
   });
 
   // Cost-image preview: when the user picks a file, show it next to the input.
@@ -1519,7 +1619,10 @@
     document.body.appendChild(banner);
 
     function dirtyRows() {
-      return document.querySelectorAll('[data-row].is-dirty');
+      // Includes both edited rows ([data-row].is-dirty) and unsaved add-forms
+      // (form[data-add-url].is-dirty). Returns DOM order so banner.click()
+      // jumps to whichever appears first on the page.
+      return document.querySelectorAll('[data-row].is-dirty, form[data-add-url].is-dirty');
     }
 
     function update() {
@@ -1531,8 +1634,8 @@
       }
       banner.hidden = false;
       banner.textContent = count === 1
-        ? '1 unsaved section — click to find it'
-        : count + ' unsaved sections — click to find them';
+        ? '1 unsaved change — click to find it'
+        : count + ' unsaved changes — click to find them';
     }
 
     banner.addEventListener('click', () => {
@@ -1556,7 +1659,14 @@
       requestAnimationFrame(() => { scheduled = false; update(); });
     }
     document.addEventListener('input', (ev) => {
-      if (ev.target.closest('form[data-dirty-form]')) scheduleUpdate();
+      if (ev.target.closest('form[data-dirty-form], form[data-add-url]')) scheduleUpdate();
+    });
+    document.addEventListener('change', (ev) => {
+      if (ev.target.closest('form[data-add-url]')) scheduleUpdate();
+    });
+    document.addEventListener('click', (ev) => {
+      // Cancel buttons clear inputs synchronously; refresh after that paints.
+      if (ev.target.closest('form[data-add-url] button')) scheduleUpdate();
     });
     document.addEventListener('forge:row-replaced', scheduleUpdate);
 
