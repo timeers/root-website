@@ -6,6 +6,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.forms.models import model_to_dict
 
 
+CACHE_PREFIX = 'forge_pdf:v1'
 PDF_CACHE_TTL = 60 * 60 * 24
 PDF_CACHE_MAX_BYTES = 25 * 1024 * 1024
 
@@ -117,7 +118,7 @@ def _back_payload(back):
 
 
 def cache_key(prefix, pk, fingerprint):
-    return f'forge_pdf:{prefix}:{pk}:{fingerprint}'
+    return f'{CACHE_PREFIX}:{prefix}:{pk}:{fingerprint}'
 
 
 def get_or_build(key, builder):
