@@ -443,10 +443,11 @@ class LegendForm(forms.ModelForm):
 class LegendRowForm(forms.ModelForm):
     class Meta:
         model = LegendRow
-        fields = ['title', 'image', 'body']
+        fields = ['title', 'image', 'icon', 'body']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control form-control-sm luminari'}),
             'image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
+            'icon': forms.HiddenInput(),
             'body': RichTextarea(attrs={'rows': 3}),
         }
 
@@ -454,6 +455,7 @@ class LegendRowForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['body'].required = False
         self.fields['image'].required = False
+        self.fields['icon'].required = False
 
 
 class CharacterImageForm(forms.ModelForm):

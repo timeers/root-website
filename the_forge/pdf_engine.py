@@ -227,6 +227,8 @@ LEGEND_IMAGE_MAX_W = 0.5 * inch            # image hard cap (width)
 LEGEND_IMAGE_MAX_H = 0.5 * inch            # image hard cap (height)
 LEGEND_IMAGE_BODY_GAP = 8                  # gap between image and body text
 LEGEND_LEFT_COL_W = 0.75 * inch            # left column width (room for centered title over 0.5" image)
+LEGEND_LEFT_TITLE_BREATHING = 4            # min space between a centered no-visual title and the column edge
+LEGEND_NOVISUAL_BODY_NUDGE = 3.2           # small upward bump so a no-visual body aligns visually with the title (math is baseline-exact, but the eye reads slightly low)
 LEGEND_ROW_GAP = 8                         # vertical gap between legend rows
 LEGEND_MIN_WIDTH = 3.0 * inch              # auto-width minimum for the legend container
 
@@ -1620,11 +1622,33 @@ class LegendFlowable(Flowable):
         self._block_title_h = 0
         self._height = 0
 
+    def _required_left_col_width(self):
+        """Left-column width needed to fit any no-visual title centered with breathing room.
+
+        Rows that have an image or icon are constrained by the visual width
+        (capped at LEGEND_IMAGE_MAX_W), so they never push the column wider.
+        Title-only rows can have arbitrary text, so we measure each and pick a
+        column wide enough to keep the centered title clear of the body gap.
+        """
+        widest = 0.0
+        for r in self.legend.rows.all():
+            title = (r.title or '').strip()
+            if not title:
+                continue
+            has_visual = bool(r.icon) or bool(r.image)
+            if has_visual:
+                continue
+            w = pdfmetrics.stringWidth(title, 'Luminari', LEGEND_ROW_TITLE_FONT_SIZE)
+            if w > widest:
+                widest = w
+        needed = widest + 2 * LEGEND_LEFT_TITLE_BREATHING
+        return max(LEGEND_LEFT_COL_W, needed)
+
     def _measure(self):
         if self._rows_data:
             return
         from reportlab.lib.styles import ParagraphStyle
-        left_w = LEGEND_LEFT_COL_W
+        left_w = self._required_left_col_width()
         right_w = self.total_width - left_w - LEGEND_IMAGE_BODY_GAP
         if right_w < 0.5 * inch:
             right_w = 0.5 * inch
@@ -1637,17 +1661,24 @@ class LegendFlowable(Flowable):
         )
 
         rows = list(self.legend.rows.all())
+        sheet = _sheet_of(self.legend)
         for r in rows:
             title = (r.title or '').strip()
-            # Resolve image path on disk
+            # Resolve a single left-column visual: icon takes priority over image.
             img_path = None
             img_w = img_h = 0
-            if r.image:
+            if r.icon:
+                candidate = _inline_image_path(r.icon, sheet=sheet)
+                if candidate and os.path.exists(candidate):
+                    img_path = candidate
+            elif r.image:
                 try:
-                    img_path = r.image.path
+                    candidate = r.image.path
+                    if os.path.exists(candidate):
+                        img_path = candidate
                 except Exception:
                     img_path = None
-            if img_path and os.path.exists(img_path):
+            if img_path:
                 try:
                     from PIL import Image as PILImage
                     pil = PILImage.open(img_path)
@@ -1659,16 +1690,26 @@ class LegendFlowable(Flowable):
                         img_h = img_w / aspect if aspect else LEGEND_IMAGE_MAX_H
                 except Exception:
                     img_path = None
+                    img_w = img_h = 0
 
-            body_markup = format_step_markup(r.body, sheet=_sheet_of(self.legend)) if r.body else ''
+            body_markup = format_step_markup(r.body, sheet=sheet) if r.body else ''
             body_para = Paragraph(body_markup or '&nbsp;', body_style)
             body_para.wrap(right_w, 9999)
             body_h = true_paragraph_height(body_para, right_w)
 
             title_h = LEGEND_ROW_TITLE_FONT_SIZE * 1.1 if title else 0
             title_block_h = title_h + (LEGEND_ROW_TITLE_GAP if title else 0)
-            row_h = title_block_h + max(img_h, body_h)
-            self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h))
+            has_left_visual = bool(img_path and img_h)
+            if has_left_visual:
+                row_h = title_block_h + max(img_h, body_h)
+            else:
+                # No visual: title and body's first line share a baseline.
+                # Vertical extent below row_top is title_cap_h plus body lines
+                # that fall below the first baseline.
+                title_cap_h = LEGEND_ROW_TITLE_FONT_SIZE * 0.70 if title else 0
+                body_cap_h = LEGEND_BODY_FONT_SIZE * 0.70
+                row_h = max(title_block_h, title_cap_h + body_h - body_cap_h)
+            self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h, has_left_visual))
 
         block_title = (self.legend.title or '').strip()
         self._block_title_h = (LEGEND_BLOCK_TITLE_SIZE * 1.1 + LEGEND_BLOCK_TITLE_GAP) if block_title else 0
@@ -1704,7 +1745,7 @@ class LegendFlowable(Flowable):
             c.drawCentredString(self.total_width / 2.0, y - cap_h, block_title)
             y -= self._block_title_h
 
-        for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h) in enumerate(self._rows_data):
+        for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h, has_left_visual) in enumerate(self._rows_data):
             row_top = y
             # Row title centered over the image (within left column)
             if title:
@@ -1713,22 +1754,34 @@ class LegendFlowable(Flowable):
                 cap_h = LEGEND_ROW_TITLE_FONT_SIZE * 0.70
                 c.drawCentredString(left_w / 2.0, row_top - cap_h, title)
 
-            # Image: centered horizontally in left column, below the title
+            # Image (or icon): centered horizontally in left column, below the title
             image_top_y = row_top - title_block_h
-            if img_path and img_h:
+            if has_left_visual:
                 image_x = (left_w - img_w) / 2.0
                 c.drawImage(img_path, image_x, image_top_y - img_h, width=img_w, height=img_h,
                             preserveAspectRatio=True, mask='auto')
 
-            # Body: top aligned with image top, fills the rest of the width.
-            # Paragraphs reserve leading space above the first cap-height; nudge
-            # up by (leading - cap_h) so the visible top of the first line
-            # lands flush with the image top.
+            # Body placement:
+            # - With a left visual: top of first body line aligns with image top.
+            # - Without: bottom of first body line sits on the title's baseline,
+            #   so the title and body's first line share a baseline.
             right_x = left_w + LEGEND_IMAGE_BODY_GAP
             body_leading = LEGEND_BODY_FONT_SIZE * 1.15
             body_cap_h = LEGEND_BODY_FONT_SIZE * 0.70
             body_top_offset = body_leading - body_cap_h
-            body_para.drawOn(c, right_x, image_top_y - body_h + body_top_offset)
+            if has_left_visual:
+                body_y = image_top_y - body_h + body_top_offset
+            else:
+                title_baseline_y = row_top - (LEGEND_ROW_TITLE_FONT_SIZE * 0.70)
+                # Paragraph.drawOn places the paragraph's bottom at y. The
+                # first line's baseline sits one line up from the bottom: at
+                # (y + body_h - body_cap_h) when the leading == cap_h plus
+                # descent. Solve for y so first-line baseline == title baseline,
+                # then nudge up slightly so the result reads as visually aligned
+                # (titles use Luminari, body uses Baskerville; their visual
+                # centers don't quite match even at identical baselines).
+                body_y = title_baseline_y - body_h + body_cap_h + LEGEND_NOVISUAL_BODY_NUDGE
+            body_para.drawOn(c, right_x, body_y)
 
             y = row_top - row_h
             if i < len(self._rows_data) - 1:
@@ -3043,9 +3096,12 @@ class SheetLayoutEngine:
     def _min_legend_width_for_content_box(self, content_box):
         """Return the minimum content width needed for any legend in a content box.
 
-        Each legend asks for at least LEGEND_MIN_WIDTH for its own column; the
-        content box must add its indent so the legend gets that width after
-        the icon/text indent is removed. Returns 0 if no legends.
+        Each legend asks for at least LEGEND_MIN_WIDTH for its own column. If a
+        legend has any no-visual rows whose centered title would exceed the
+        default LEGEND_LEFT_COL_W, we grow the request by the overflow so the
+        container is wide enough to fit the title without cramping the body.
+        The content box adds its indent so the legend gets that width after the
+        icon/text indent is removed. Returns 0 if no legends.
         """
         SINGLE_STEP_INDENT = PHASE_INTERNAL_MARGIN
         steps = list(content_box.steps.all())
@@ -3053,8 +3109,18 @@ class SheetLayoutEngine:
         indent = SINGLE_STEP_INDENT if single_step else (0.325 * inch + 0.015 * inch)
         max_needed = 0
         for step in steps:
-            for _ in step.legends.all():
-                w = LEGEND_MIN_WIDTH + indent
+            for legend in step.legends.all():
+                widest_no_visual = 0.0
+                for r in legend.rows.all():
+                    title = (r.title or '').strip()
+                    if not title or r.icon or r.image:
+                        continue
+                    tw = pdfmetrics.stringWidth(title, 'Luminari', LEGEND_ROW_TITLE_FONT_SIZE)
+                    if tw > widest_no_visual:
+                        widest_no_visual = tw
+                required_left = max(LEGEND_LEFT_COL_W, widest_no_visual + 2 * LEGEND_LEFT_TITLE_BREATHING)
+                extra = max(0, required_left - LEGEND_LEFT_COL_W)
+                w = LEGEND_MIN_WIDTH + extra + indent
                 if w > max_needed:
                     max_needed = w
         return max_needed

@@ -2,12 +2,35 @@
 <div class="forge-inline-form legend-entry" data-inline-form="legend-row">
   <form method="post" enctype="multipart/form-data"
         data-add-url="{% url 'forge-legend-row-add' legend_pk=legend_pk %}"
-        data-target="[data-legend-entries][data-legend-id='{{ legend_pk }}']">
+        data-target="[data-legend-entries][data-legend-id='{{ legend_pk }}']"
+        data-forge-icon-form
+        data-forge-icon-single="icon"
+        style="position:relative;">
     {% csrf_token %}
     <div class="d-flex flex-column flex-md-row gap-3 align-items-stretch align-items-md-start">
       <div class="legend-entry__left" style="flex:0 0 10rem;">
         <input type="text" name="title" class="form-control form-control-sm luminari mb-2" placeholder="Title" required>
-        <input type="file" name="image" accept="image/*" class="form-control form-control-sm">
+
+        <div class="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Visual type">
+          <input type="radio" class="btn-check" name="display_kind" id="kind-image-new-{{ legend_pk }}" value="image" checked data-legend-kind>
+          <label class="btn btn-outline-secondary" for="kind-image-new-{{ legend_pk }}">Image</label>
+          <input type="radio" class="btn-check" name="display_kind" id="kind-icon-new-{{ legend_pk }}" value="icon" data-legend-kind>
+          <label class="btn btn-outline-secondary" for="kind-icon-new-{{ legend_pk }}">Icon</label>
+        </div>
+
+        <div data-legend-image-slot>
+          <input type="file" name="image" accept="image/*" class="form-control form-control-sm">
+        </div>
+
+        <div data-legend-icon-slot hidden>
+          <div class="text-center mb-1">
+            <img data-forge-icon-preview src="" alt="" style="max-height:5rem;" hidden>
+          </div>
+          <input type="hidden" name="icon" value="">
+          <button type="button" class="btn btn-sm btn-outline-secondary w-100" data-forge-icon-toggle>
+            Choose icon
+          </button>
+        </div>
       </div>
       <div class="legend-entry__right flex-grow-1" style="min-width:0;">
         <div class="forge-rich-text">
@@ -20,6 +43,18 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="forge-icon-picker" data-forge-icon-picker hidden>
+      <div class="forge-icon-picker__panel">
+        {% for key in inline_keywords %}
+          {% with label=inline_image_labels|dict_get:key|default:key %}
+          <button type="button" class="forge-icon-picker__btn" data-icon-key="{{ key }}" title="{{ label }}">
+            <img src="{{ inline_images|dict_get:key }}" alt="{{ label }}">
+          </button>
+          {% endwith %}
+        {% endfor %}
       </div>
     </div>
   </form>

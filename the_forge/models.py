@@ -718,6 +718,7 @@ class LegendRow(models.Model):
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=100)
     image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
+    icon = models.CharField(max_length=64, blank=True, default='')
     body = models.TextField(blank=True, default='')
 
     class Meta:

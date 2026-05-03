@@ -526,6 +526,17 @@
     });
   }
 
+  // Hide the + Add Row button on a legend while its unsaved inline form is open.
+  // The button is a no-op until the new row is saved (the add endpoint requires
+  // the latest row to exist), so showing it would only mislead users.
+  function setLegendRowAddLock(legendPk) {
+    const container = document.querySelector(`[data-legend-entries][data-legend-id="${legendPk}"]`);
+    const formOpen = !!container?.querySelector('.forge-inline-form');
+    document.querySelectorAll(`[data-add-legend-row][data-legend-id="${legendPk}"]`).forEach(btn => {
+      btn.hidden = formOpen;
+    });
+  }
+
   function setActionTypeLock(stepPk) {
     const list = document.querySelector(`.phase-step-action-list[data-step-id="${stepPk}"]`);
     const formOpen = !!list?.querySelector('.forge-inline-form');
@@ -619,9 +630,11 @@
     }
     const legendRowBtn = ev.target.closest('[data-add-legend-row]');
     if (legendRowBtn) {
+      if (legendRowBtn.hidden) return;
       const legendPk = legendRowBtn.dataset.legendId;
       const container = document.querySelector(`[data-legend-entries][data-legend-id="${legendPk}"]`);
       insertNestedRowForm('forge-legend-row-form-template', container, 'legend', legendPk);
+      setLegendRowAddLock(legendPk);
       return;
     }
     const scaleRowBtn = ev.target.closest('[data-add-scale-row]');
@@ -709,6 +722,12 @@
     const childStepPk = childList?.dataset?.stepId;
     if (childStepPk && childList.classList?.contains('phase-step-children')) {
       setStepChildAddLock(childStepPk);
+    }
+    // Restore + Add Row on legend after a row save or cancel.
+    const legendList = ev.target.closest?.('[data-legend-entries]') || ev.target;
+    const legendPk = legendList?.dataset?.legendId;
+    if (legendPk && legendList.matches?.('[data-legend-entries]')) {
+      setLegendRowAddLock(legendPk);
     }
   });
 
@@ -1646,18 +1665,69 @@
     if (picker) ev.preventDefault();
   }, { passive: false });
 
+  // LegendRow image/icon radio toggle: swap slot visibility.
+  document.addEventListener('change', (ev) => {
+    const radio = ev.target.closest('[data-legend-kind]');
+    if (!radio) return;
+    const form = radio.closest('form');
+    if (!form) return;
+    const imageSlot = form.querySelector('[data-legend-image-slot]');
+    const iconSlot = form.querySelector('[data-legend-icon-slot]');
+    if (!imageSlot || !iconSlot) return;
+    const showIcon = radio.value === 'icon';
+    imageSlot.hidden = showIcon;
+    iconSlot.hidden = !showIcon;
+  });
+
+  // Single-icon picker toggle (e.g. LegendRow "Choose icon" button).
+  document.addEventListener('click', (ev) => {
+    const toggle = ev.target.closest('[data-forge-icon-toggle]');
+    if (!toggle) return;
+    ev.preventDefault();
+    const form = pickerFormFor(toggle);
+    if (!form) return;
+    const picker = form.querySelector('[data-forge-icon-picker]');
+    if (!picker) return;
+    if (picker.hidden) {
+      picker.hidden = false;
+      positionPicker(form, picker, toggle);
+    } else {
+      hidePicker(form);
+    }
+  });
+
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('.forge-icon-picker__btn');
     if (!btn) return;
     ev.preventDefault();
     const form = pickerFormFor(btn);
     if (!form) return;
-    const st = getPickerState(form);
-    const editor = st.activeEditor;
-    if (!editor) return;
     const key = btn.dataset.iconKey;
     const url = getInlineImagesMap()[key];
     if (!url) return;
+
+    // Single-icon forms (e.g. LegendRow): set the named hidden input to the
+    // chosen keyword, refresh the preview, dirty-mark, and close. No editor
+    // insert path.
+    const singleName = form.dataset.forgeIconSingle;
+    if (singleName) {
+      const input = form.querySelector(`input[name="${singleName}"]`);
+      const preview = form.querySelector('[data-forge-icon-preview]');
+      if (input) {
+        input.value = key;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (preview) {
+        preview.src = url;
+        preview.hidden = false;
+      }
+      hidePicker(form);
+      return;
+    }
+
+    const st = getPickerState(form);
+    const editor = st.activeEditor;
+    if (!editor) return;
 
     // Restore caret if it drifted out (focus was momentarily on the button).
     let range = st.savedRange;

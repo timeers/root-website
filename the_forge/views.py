@@ -18,6 +18,7 @@ from .inline_images import picker_image_map, picker_keywords, sheet_inline_image
 from .layout_autogrow import ensure_step_parent_fits
 
 from the_gatehouse.utils import build_absolute_uri
+from the_keep.utils import delete_old_image
 from the_gatehouse.tasks import send_discord_message_task, send_rich_discord_message_task
 
 from .forms import (
@@ -1306,6 +1307,7 @@ def legend_add(request, step_pk):
     return render(request, 'the_forge/partials/legend_row.html', {
         'legend': legend, 'inline_keywords': _inline_keywords(step.sheet),
         'inline_images': _inline_images_map(step.sheet),
+        'inline_image_labels': _inline_image_labels(step.sheet),
     })
 
 
@@ -1323,6 +1325,7 @@ def legend_edit(request, pk):
     return render(request, 'the_forge/partials/legend_row.html', {
         'legend': legend, 'inline_keywords': _inline_keywords(legend.step.sheet),
         'inline_images': _inline_images_map(legend.step.sheet),
+        'inline_image_labels': _inline_image_labels(legend.step.sheet),
     })
 
 
@@ -1348,11 +1351,14 @@ def legend_row_add(request, legend_pk):
     row = form.save(commit=False)
     row.legend = legend
     row.order = legend.rows.count() + 1
+    if request.POST.get('display_kind') == 'image':
+        row.icon = ''
     row.save()
     ensure_step_parent_fits(legend.step)
     return render(request, 'the_forge/partials/legend_row_entry.html', {
         'row': row, 'inline_keywords': _inline_keywords(legend.step.sheet),
         'inline_images': _inline_images_map(legend.step.sheet),
+        'inline_image_labels': _inline_image_labels(legend.step.sheet),
     })
 
 
@@ -1365,11 +1371,19 @@ def legend_row_edit(request, pk):
     form = LegendRowForm(request.POST, request.FILES, instance=row)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
-    form.save()
+    obj = form.save(commit=False)
+    kind = request.POST.get('display_kind', 'image')
+    if kind == 'icon' and obj.image:
+        delete_old_image(obj.image)
+        obj.image = None
+    elif kind == 'image':
+        obj.icon = ''
+    obj.save()
     ensure_step_parent_fits(row.legend.step)
     return render(request, 'the_forge/partials/legend_row_entry.html', {
-        'row': row, 'inline_keywords': _inline_keywords(row.legend.step.sheet),
+        'row': obj, 'inline_keywords': _inline_keywords(row.legend.step.sheet),
         'inline_images': _inline_images_map(row.legend.step.sheet),
+        'inline_image_labels': _inline_image_labels(row.legend.step.sheet),
     })
 
 
