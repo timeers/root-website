@@ -19,7 +19,7 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfmetrics import getFont
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.graphics import renderPDF, renderPM
+from reportlab.graphics import renderPDF
 from svglib.svglib import svg2rlg
 from itertools import groupby
 from django.templatetags.static import static
@@ -1481,7 +1481,7 @@ def _arrow_total_width_for_cost(cost):
 ACTION_PACK_MAX_LINES = 4  # max wrapped lines allowed when packing actions side-by-side
 
 
-def _measure_action_widths(action, icon_w, icon_h, icon_path, cost, action_body_style):
+def _measure_action_widths(action, icon_w, icon_h, icon_path, cost, action_body_style, icon_drawing=None):
     """Measure natural width/height + reusable metadata for a StepAction.
 
     Returns a dict with:
@@ -1492,14 +1492,15 @@ def _measure_action_widths(action, icon_w, icon_h, icon_path, cost, action_body_
       min_text_w:               narrowest the paragraph can render without breaking words
       text_natural_w:           text-only width when not wrapped
     """
+    has_icon = bool(icon_path or icon_drawing)
     if cost.startswith('card_'):
-        icon_space = MIN_CARD_ICON_W if icon_path else 0
+        icon_space = MIN_CARD_ICON_W if has_icon else 0
     else:
-        icon_space = icon_w if icon_path else 0
+        icon_space = icon_w if has_icon else 0
 
     arrow_w = _arrow_total_width_for_cost(cost)
     fixed_w = icon_space + arrow_w
-    icon_h_eff = icon_h if icon_path else 0
+    icon_h_eff = icon_h if has_icon else 0
 
     markup = format_step_markup(action.text)
     PROBE_W = 10000
@@ -1829,9 +1830,10 @@ class ScaleFlowable(Flowable):
 class StepActionFlowable(Flowable):
     """Renders a single StepAction row: [cost_icon] → [action_text]"""
 
-    def __init__(self, icon_path, text_paragraph, icon_w, icon_h, total_width, cost):
+    def __init__(self, icon_path, text_paragraph, icon_w, icon_h, total_width, cost, icon_drawing=None):
         super().__init__()
         self.icon_path = icon_path
+        self.icon_drawing = icon_drawing
         self.text_paragraph = text_paragraph
         self.icon_w = icon_w
         self.icon_h = icon_h
@@ -1857,14 +1859,15 @@ class StepActionFlowable(Flowable):
             self.head_size = 0
             self.head_spread = 0
         self.is_card = cost.startswith('card_')
+        has_icon = bool(icon_path or icon_drawing)
         # Calculate text area width
         # For card costs, use MIN_CARD_ICON_W as the icon column width so all
         # card actions share the same text x-position regardless of icon width.
         # Wider icons overflow left into the margin.
         if self.is_card:
-            icon_space = MIN_CARD_ICON_W if icon_path else 0
+            icon_space = MIN_CARD_ICON_W if has_icon else 0
         else:
-            icon_space = self.icon_w if icon_path else 0
+            icon_space = self.icon_w if has_icon else 0
         self.icon_space = icon_space
         self.text_w = total_width - icon_space - self.total_arrow_w
         _, self.wrap_h = text_paragraph.wrap(self.text_w, 9999)
@@ -1876,7 +1879,7 @@ class StepActionFlowable(Flowable):
 
         # If the icon is taller than the first line, we need extra padding above
         # so the text drops down to align its first line center with the icon center
-        icon_h_eff = self.icon_h if icon_path else 0
+        icon_h_eff = self.icon_h if has_icon else 0
         self.top_pad = max(0, (icon_h_eff - self.first_line_h) / 2)
 
         # Total height must fit both the text (with top padding) and the full icon + nudge
@@ -1928,7 +1931,7 @@ class StepActionFlowable(Flowable):
         first_line_center_y = self._height - self.top_pad - self.first_line_h / 2 - nudge
 
         # Draw cost icon (centered on first line)
-        if self.icon_path:
+        if self.icon_path or self.icon_drawing:
             if self.is_card:
                 # Center-align card icon on MIN_CARD_ICON_W midpoint;
                 # wider icons extend left (negative x) into margin
@@ -1937,8 +1940,11 @@ class StepActionFlowable(Flowable):
             else:
                 icon_x = (icon_space - self.icon_w) / 2
             icon_y = first_line_center_y - self.icon_h / 2
-            c.drawImage(self.icon_path, icon_x, icon_y,
-                        width=self.icon_w, height=self.icon_h, mask='auto')
+            if self.icon_drawing is not None:
+                renderPDF.draw(self.icon_drawing, c, icon_x, icon_y)
+            else:
+                c.drawImage(self.icon_path, icon_x, icon_y,
+                            width=self.icon_w, height=self.icon_h, mask='auto')
 
         # Draw arrow centered on first line (only for item and card costs)
         if self.draw_arrow:
@@ -1982,9 +1988,10 @@ class CardGroupFlowable(Flowable):
     One icon on the left with bracket-style arrows branching to each action's text.
     """
 
-    def __init__(self, icon_path, text_paragraphs, icon_w, icon_h, total_width, cost):
+    def __init__(self, icon_path, text_paragraphs, icon_w, icon_h, total_width, cost, icon_drawing=None):
         super().__init__()
         self.icon_path = icon_path
+        self.icon_drawing = icon_drawing
         self.icon_w = icon_w
         self.icon_h = icon_h
         self.total_width = total_width
@@ -2050,12 +2057,15 @@ class CardGroupFlowable(Flowable):
             icon_center_y = (first_line_centers[upper_idx] + first_line_centers[lower_idx]) / 2
 
         # Draw icon (centered horizontally on MIN_CARD_ICON_W midpoint)
-        if self.icon_path:
+        if self.icon_path or self.icon_drawing:
             center_x = MIN_CARD_ICON_W / 2
             icon_x = center_x - self.icon_w / 2
             icon_y = icon_center_y - self.icon_h / 2
-            c.drawImage(self.icon_path, icon_x, icon_y,
-                        width=self.icon_w, height=self.icon_h, mask='auto')
+            if self.icon_drawing is not None:
+                renderPDF.draw(self.icon_drawing, c, icon_x, icon_y)
+            else:
+                c.drawImage(self.icon_path, icon_x, icon_y,
+                            width=self.icon_w, height=self.icon_h, mask='auto')
 
         # Arrow geometry
         center_x = MIN_CARD_ICON_W / 2
@@ -2284,7 +2294,7 @@ class SheetLayoutEngine:
                       else '#000000')
         self._on_tan_hex = on_tan_hex
         self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, on_tan_hex, 0.5 * inch)
-        self._meeple_action_png_path = None
+        self._meeple_action_drawing = None
 
         # Preload numbered SVGs (0-9) for phase steps, at natural size
         self._phase_number_svgs = {}
@@ -2310,17 +2320,13 @@ class SheetLayoutEngine:
         return drawing
 
     def _get_meeple_action_icon(self):
-        """Rasterize meeple.svg recolored with self._on_tan_hex to a cached PNG.
-        Returns (png_path, draw_w, draw_h) sized to ACTION_DEFAULT_W width.
+        """Return a cached vector Drawing of meeple.svg recolored with
+        self._on_tan_hex, scaled uniformly to ACTION_DEFAULT_W width.
+        Returns (drawing, draw_w, draw_h) or (None, 0, 0) if SVG can't load.
         """
-        from PIL import Image as PILImage
-        if self._meeple_action_png_path and os.path.exists(self._meeple_action_png_path):
-            pil_img = PILImage.open(self._meeple_action_png_path)
-            iw, ih = pil_img.size
-            aspect = iw / ih
-            draw_w = ACTION_DEFAULT_W
-            draw_h = draw_w / aspect
-            return self._meeple_action_png_path, draw_w, draw_h
+        if self._meeple_action_drawing is not None:
+            d = self._meeple_action_drawing
+            return d, d.width, d.height
 
         with open(MEEPLE_SVG, 'r') as f:
             svg_content = f.read()
@@ -2333,17 +2339,12 @@ class SheetLayoutEngine:
         if drawing is None:
             return None, 0, 0
 
-        png_fd, png_path = tempfile.mkstemp(suffix='.png')
-        os.close(png_fd)
-        renderPM.drawToFile(drawing, png_path, fmt='PNG', dpi=300)
-        self._meeple_action_png_path = png_path
-
-        pil_img = PILImage.open(png_path)
-        iw, ih = pil_img.size
-        aspect = iw / ih
-        draw_w = ACTION_DEFAULT_W
-        draw_h = draw_w / aspect
-        return png_path, draw_w, draw_h
+        scale = ACTION_DEFAULT_W / drawing.width
+        drawing.width *= scale
+        drawing.height *= scale
+        drawing.scale(scale, scale)
+        self._meeple_action_drawing = drawing
+        return drawing, drawing.width, drawing.height
 
     def _load_phase_box_svg(self, target_w, target_h):
         """Load Phase_Box.svg stretched to target_w x target_h (non-uniform scaling)."""
@@ -2470,9 +2471,10 @@ class SheetLayoutEngine:
         )
 
     def _resolve_cost_icon(self, action):
-        """Resolve icon path and draw dimensions for a StepAction's cost type.
+        """Resolve icon source and draw dimensions for a StepAction's cost type.
 
-        Returns (icon_path, draw_w, draw_h) or (None, 0, 0) if no icon.
+        Returns (icon_path, icon_drawing, draw_w, draw_h). At most one of
+        icon_path / icon_drawing is non-None. Returns (None, None, 0, 0) if no icon.
         """
         from PIL import Image as PILImage
 
@@ -2484,12 +2486,13 @@ class SheetLayoutEngine:
             if step.step_cost_image:
                 icon_path = step.step_cost_image.path
             else:
-                return self._get_meeple_action_icon()
+                drawing, draw_w, draw_h = self._get_meeple_action_icon()
+                return None, drawing, draw_w, draw_h
         else:
             icon_path = _cost_icon_path(cost)
 
         if not icon_path or not os.path.exists(icon_path):
-            return None, 0, 0
+            return None, None, 0, 0
 
         pil_img = PILImage.open(icon_path)
         iw, ih = pil_img.size
@@ -2512,7 +2515,7 @@ class SheetLayoutEngine:
             draw_w = ACTION_DEFAULT_W
             draw_h = draw_w / aspect
 
-        return icon_path, draw_w, draw_h
+        return icon_path, None, draw_w, draw_h
 
     @staticmethod
     def _group_actions(actions):
@@ -2660,9 +2663,10 @@ class SheetLayoutEngine:
             else:
                 # Non-card single action — candidate for side-by-side
                 action = group_actions[0]
-                icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(action)
                 meta = _measure_action_widths(
-                    action, icon_w, icon_h, icon_path, action.cost, self.action_body_style
+                    action, icon_w, icon_h, icon_path, action.cost, self.action_body_style,
+                    icon_drawing=icon_drawing,
                 )
                 meta['action'] = action
                 pending.append(meta)
@@ -2693,11 +2697,11 @@ class SheetLayoutEngine:
         for row_info in packed_rows:
             if row_info[0] == 'single_card':
                 action = row_info[1]
-                icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(action)
                 markup = format_step_markup(action.text)
                 para = Paragraph(markup, self.action_body_style)
                 flowable = StepActionFlowable(
-                    icon_path=icon_path, text_paragraph=para,
+                    icon_path=icon_path, icon_drawing=icon_drawing, text_paragraph=para,
                     icon_w=icon_w, icon_h=icon_h,
                     total_width=action_w, cost=action.cost,
                 )
@@ -2705,14 +2709,14 @@ class SheetLayoutEngine:
             elif row_info[0] == 'card_group':
                 cost_type = row_info[1]
                 group_actions = row_info[2]
-                icon_path, icon_w, icon_h = self._resolve_cost_icon(group_actions[0])
+                icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(group_actions[0])
                 paragraphs = []
                 for action in group_actions:
                     markup = format_step_markup(action.text)
                     para = Paragraph(markup, self.action_body_style)
                     paragraphs.append(para)
                 flowable = CardGroupFlowable(
-                    icon_path=icon_path, text_paragraphs=paragraphs,
+                    icon_path=icon_path, icon_drawing=icon_drawing, text_paragraphs=paragraphs,
                     icon_w=icon_w, icon_h=icon_h,
                     total_width=action_w, cost=cost_type,
                 )
@@ -2723,11 +2727,11 @@ class SheetLayoutEngine:
                 if len(action_items) == 1:
                     # Single non-card action — full width
                     action, _ = action_items[0]
-                    icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                    icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(action)
                     markup = format_step_markup(action.text)
                     para = Paragraph(markup, self.action_body_style)
                     flowable = StepActionFlowable(
-                        icon_path=icon_path, text_paragraph=para,
+                        icon_path=icon_path, icon_drawing=icon_drawing, text_paragraph=para,
                         icon_w=icon_w, icon_h=icon_h,
                         total_width=action_w, cost=action.cost,
                     )
@@ -2739,11 +2743,11 @@ class SheetLayoutEngine:
                     sub_flowables = []
                     col_widths = []
                     for action, alloc_w in action_items:
-                        icon_path, icon_w, icon_h = self._resolve_cost_icon(action)
+                        icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(action)
                         markup = format_step_markup(action.text)
                         para = Paragraph(markup, self.action_body_style)
                         af = StepActionFlowable(
-                            icon_path=icon_path, text_paragraph=para,
+                            icon_path=icon_path, icon_drawing=icon_drawing, text_paragraph=para,
                             icon_w=icon_w, icon_h=icon_h,
                             total_width=alloc_w, cost=action.cost,
                         )
