@@ -64,11 +64,11 @@
 
   <div class="card p-3 mb-3 d-flex flex-row align-items-center gap-2">
     <button type="button" id="forge-preview-reset-saved" class="btn btn-outline-secondary">
-      Reset to Saved Layout
+      Clear Changes
     </button>
     <button type="submit" name="reset_to_auto" value="1" class="btn btn-outline-danger"
             onclick="return confirm('Reset all elements in this layout back to auto?');">
-      Reset to Auto Layout
+      Reset Layout
     </button>
     <label class="d-flex align-items-center gap-2 m-0 ms-2">
       <input type="checkbox" id="forge-grid-toggle" checked>
@@ -76,13 +76,13 @@
     </label>
     <div class="ms-auto d-flex flex-row gap-2">
       <div class="btn-group">
-        <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">Download</button>
+        <button type="button" class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span></button>
         <ul class="dropdown-menu">
           <li><a class="dropdown-item forge-preview-download forge-async-download" href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
           <li><a class="dropdown-item forge-preview-download forge-async-download" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
         </ul>
       </div>
-      <button type="submit" class="btn btn-primary">Save Layout</button>
+      <button type="submit" class="btn btn-primary"><i class="bi bi-floppy"></i><span class="d-none d-md-inline ms-1">Save Layout</span></button>
     </div>
   </div>
 </form>

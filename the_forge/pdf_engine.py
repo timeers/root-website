@@ -1,8 +1,15 @@
 # pdf_engine.py
 
+import logging
 import os
 import re
 import tempfile
+
+# svglib emits "Unable to find a suitable font for 'font-family:Luminari'..."
+# warnings every time it walks an SVG with a custom font. We register Luminari
+# at the ReportLab level so the actual rendering is correct; the warning is
+# noise, so silence svglib's own logger.
+logging.getLogger('svglib.svglib').setLevel(logging.ERROR)
 from html.parser import HTMLParser
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.colors import HexColor
