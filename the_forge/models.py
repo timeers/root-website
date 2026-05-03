@@ -67,6 +67,7 @@ class ForgedFaction(models.Model):
         return self.background_image.path
 
     def save(self, *args, **kwargs):
+        new = self.pk is None
         if self.pk:
             try:
                 old = ForgedFaction.objects.get(pk=self.pk)
@@ -75,6 +76,15 @@ class ForgedFaction(models.Model):
             except ForgedFaction.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        if new:
+            from the_gatehouse.tasks import send_rich_discord_message_task
+            from django.urls import reverse
+            url = reverse('forge-faction-detail', kwargs={'pk': self.pk})
+            fields = [{'name': 'By:', 'value': str(self.designer)}]
+            send_rich_discord_message_task.delay(
+                f'[{self.faction_name}](https://therootdatabase.com{url})',
+                category='Forge', title='New Faction', fields=fields,
+            )
 
 
 class FactionSheet(models.Model):
@@ -129,6 +139,7 @@ class FactionSheet(models.Model):
         return self.faction.get_background_path()
 
     def save(self, *args, **kwargs):
+        new = self.pk is None
         if self.pk:
             try:
                 old = FactionSheet.objects.get(pk=self.pk)
@@ -140,6 +151,15 @@ class FactionSheet(models.Model):
             except FactionSheet.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        if new:
+            from the_gatehouse.tasks import send_rich_discord_message_task
+            from django.urls import reverse
+            url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
+            fields = [{'name': 'By:', 'value': str(self.faction.designer)}]
+            send_rich_discord_message_task.delay(
+                f'[{self.faction.faction_name}](https://therootdatabase.com{url})',
+                category='Forge', title='New Faction Board', fields=fields,
+            )
 
 
 class CharacterImage(models.Model):
@@ -528,6 +548,7 @@ class FactionBack(models.Model):
     last_generated = models.DateTimeField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
+        new = self.pk is None
         if self.pk:
             try:
                 old = FactionBack.objects.get(pk=self.pk)
@@ -539,6 +560,15 @@ class FactionBack(models.Model):
             except FactionBack.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        if new:
+            from the_gatehouse.tasks import send_rich_discord_message_task
+            from django.urls import reverse
+            url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
+            fields = [{'name': 'By:', 'value': str(self.faction.designer)}]
+            send_rich_discord_message_task.delay(
+                f'[{self.faction.faction_name}](https://therootdatabase.com{url})',
+                category='Forge', title='New Faction Back', fields=fields,
+            )
 
 
 class Piece(models.Model):
@@ -582,6 +612,7 @@ class SetupCard(models.Model):
     last_generated = models.DateTimeField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
+        new = self.pk is None
         if self.pk:
             try:
                 old = SetupCard.objects.get(pk=self.pk)
@@ -593,6 +624,19 @@ class SetupCard(models.Model):
             except SetupCard.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        if new:
+            from the_gatehouse.tasks import send_rich_discord_message_task
+            from django.urls import reverse
+            url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
+            fields = [
+                {'name': 'By:', 'value': str(self.faction.designer)},
+                {'name': 'Type:', 'value': self.get_type_display()},
+                {'name': 'Reach:', 'value': str(self.reach)},
+            ]
+            send_rich_discord_message_task.delay(
+                f'[{self.faction.faction_name}](https://therootdatabase.com{url})',
+                category='Forge', title='New Adset Card', fields=fields,
+            )
 
 
 class SetupStep(models.Model):

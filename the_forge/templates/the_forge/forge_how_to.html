@@ -12,7 +12,7 @@
 {% endblock meta %}
 
 {% block content %}
-<div class="forge-how-to">
+<div class="forge-how-to mt-2">
 
   <a href="{% url 'forge-home' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>  The Forge</a>
 
@@ -71,7 +71,7 @@
             onboarding rules. After that, the editor is unlocked for you.
           </p>
           <div class="text-center mt-auto pt-3">
-            <i class="bi bi-book" style="font-size: 6rem; line-height: 1;" aria-label="Onboarding rules book"></i>
+            <i class="bi bi-clipboard2-check text-success" style="font-size: 6rem; line-height: 1;" aria-label="Onboarding rules book"></i>
           </div>
         </div>
       </div>
@@ -140,13 +140,33 @@
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Faction Editor</h4>
           <p class="text-muted small mb-2">
-            The Faction editor has a lot of fields to help you build your Faction. Don't get overwhelmed, we'll walk through each field. 
+            The Faction editor has a lot of fields to help you build your Faction. Don't get overwhelmed, we'll walk through each field.
+          </p>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Unsaved Changes</h4>
+          <p class="text-muted small mb-2">
             If you forget to save something as you go, you will see this message in the bottom right of your screen. Click the button to be brought to each field that needs to be saved.
           </p>
           <img src="{% static 'the_forge/img/how_to/save_reminder.png' %}"
-               alt="Save reminder" class="img-fluid mb-2">
+              alt="Save reminder" class="img-fluid mb-2">
         </div>
       </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Reorder Elements</h4>
+          <p class="text-muted small mb-2">
+            When you see this drag handler icon (6 dots) it means that the element can be reordered. Click and hold on the dots and drag the element to reorganize the section.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/drag_handler.png' %}"
+              alt="Drag and drop" class="img-fluid mb-2">
+        </div>
+      </div>
+
       <div class="col-md-6">
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Title</h4>
@@ -219,9 +239,9 @@
     <div class="row g-3 mb-4">
       <div class="col-md-6">
         <div class="card h-100 p-3">
-          <h4 class="root-title mb-2">Flavor Text</h4>
+          <h4 class="root-title mb-2">Flavor</h4>
           <p class="text-muted small mb-2">
-            Optional flavor text appears below the header. If your faction has a lot of abilities
+            Optional flavor text appears below the header. You can give your faction some personality or a bit of a backstory by writing a sentence or two here. If your faction has a lot of abilities
             you can skip this to save space.
           </p>
           <img src="{% static 'the_forge/img/how_to/flavor_text.png' %}"
@@ -233,6 +253,7 @@
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Abilities</h4>
           <p class="text-muted small mb-2">
+            Faction abilities are the special abilities that only your faction has. Like the Cat's Field Hospitals or the Bird's Lords of the Forest.
             Ability space is limited. Word your abilities clearly and carefully so the text fits
             without overflowing.
           </p>
@@ -285,7 +306,7 @@
       writing. You can reorder your steps by clicking and dragging on the drag handler.
     </p>
 
-    <h3 class="root-title mb-3">Steps & the Rich Text Editor</h3>
+    {% comment %} <h3 class="root-title mb-3">Steps & the Rich Text Editor</h3> {% endcomment %}
     <div class="row g-3 mb-4">
       <div class="col-md-6">
         <div class="card h-100 p-3">
@@ -514,7 +535,7 @@
   <section class="mb-5">
     <h2 class="root-title mb-3">8. Standalone Elements</h2>
     <p class="text-muted mb-4">
-      There are two standalone elements that are separate from sections or phases: Card Piles and Character Images.
+      There are two standalone elements that are separate from sections or phases: Card Piles and Character Images. Both are limited to 5 each.
     </p>
 
     <div class="row g-3 mb-4">
@@ -556,6 +577,19 @@
     </p>
 
     <div class="row g-3 mb-4">
+
+      <div class="col-md-12">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Vertical &amp; Horizontal</h4>
+          <p class="text-muted small mb-2">
+            Switch between vertical and horizontal layout to see which one fits your faction better.
+            Some factions only really fit in one orientation.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/layout_orientation.png' %}"
+               alt="Vertical vs horizontal layout toggle" class="img-fluid mb-2">
+        </div>
+      </div>
+
       <div class="col-md-6">
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Resize with Red Handles</h4>
@@ -570,15 +604,15 @@
 
       <div class="col-md-6">
         <div class="card h-100 p-3">
-          <h4 class="root-title mb-2">Vertical &amp; Horizontal</h4>
+          <h4 class="root-title mb-2">Rotate Card Piles</h4>
           <p class="text-muted small mb-2">
-            Switch between vertical and horizontal layout to see which one fits your faction better.
-            Some factions only really fit in one orientation.
+            Card piles have brown rotate buttons in the top left and right corners. Click these buttons to rotate the card pile 90 degrees. Once rotated you can partially slide the pile off the board to save space.
           </p>
-          <img src="{% static 'the_forge/img/how_to/layout_orientation.png' %}"
-               alt="Vertical vs horizontal layout toggle" class="img-fluid mb-2">
+          <img src="{% static 'the_forge/img/how_to/rotate_card.png' %}"
+               alt="Layout editor with red resize handles" class="img-fluid mb-2">
         </div>
       </div>
+
 
       <div class="col-md-6">
         <div class="card h-100 p-3">

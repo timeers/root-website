@@ -16,6 +16,9 @@ from the_gatehouse.views import forge_onboard_required, player_required
 from .inline_images import picker_image_map, picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
 
+from the_gatehouse.utils import build_absolute_uri
+from the_gatehouse.tasks import send_discord_message_task, send_rich_discord_message_task
+
 from .forms import (
     BorderedBoxForm,
     CardPileForm,
@@ -84,10 +87,12 @@ def _faction_for(obj):
 
 
 def user_can_edit_forge(request, obj):
-    """True if request.user is the faction's designer or an admin.
+    """True if request.user is the faction's designer.
 
     `obj` may be a ForgedFaction or any descendant (FactionSheet, PhaseStep,
     Legend, LegendRow, etc.). Returns False if obj has no resolvable faction.
+    Admins can view but not edit other designers' factions — see
+    user_can_view_forge for the view-only check.
     """
     if not request.user.is_authenticated:
         return False
@@ -97,9 +102,16 @@ def user_can_edit_forge(request, obj):
     faction = _faction_for(obj)
     if faction is None:
         return False
-    if getattr(profile, 'admin', False):
-        return True
     return faction.designer_id == profile.id
+
+
+def user_can_view_forge(request, obj):
+    """True if request.user is the faction's designer OR an admin.
+    Used to gate read-only access to detail pages."""
+    if user_can_edit_forge(request, obj):
+        return True
+    profile = getattr(request.user, 'profile', None)
+    return bool(profile and getattr(profile, 'admin', False))
 
 
 def _inline_keywords():
@@ -155,16 +167,25 @@ def forge_home(request):
         profile = getattr(request.user, 'profile', None)
         if profile is not None:
             has_factions = ForgedFaction.objects.filter(designer=profile).exists()
+
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed The Forge')
+
     return render(request, 'the_forge/forge_home.html', {
         'has_factions': has_factions,
     })
 
 
 def forge_style_guide(request):
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed The Forge Style Guide')
+
     return render(request, 'the_forge/forge_style_guide.html')
 
 
 def forge_how_to(request):
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed The Forge How-To')
+
     return render(request, 'the_forge/forge_how_to.html')
 
 
@@ -205,7 +226,7 @@ def forgedfaction_create(request):
 @forge_onboard_required
 def forgedfaction_detail(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
-    if not user_can_edit_forge(request, faction):
+    if not user_can_view_forge(request, faction):
         return redirect('forge-home')
     try:
         sheet = faction.faction_sheet
@@ -221,6 +242,7 @@ def forgedfaction_detail(request, pk):
         setup_card = None
     return render(request, 'the_forge/forgedfaction_detail.html', {
         'faction': faction,
+        'can_edit': user_can_edit_forge(request, faction),
         'sheet': sheet,
         'back': back,
         'setup_card': setup_card,
