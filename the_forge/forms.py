@@ -9,6 +9,7 @@ from .models import (
     CardSlot,
     CharacterImage,
     ContentBox,
+    CustomInlineImage,
     DecreeSection,
     FactionAbility,
     FactionBack,
@@ -474,6 +475,38 @@ class CharacterImageForm(forms.ModelForm):
         # On edit (instance has pk), keeping the existing image is allowed.
         if self.instance and self.instance.pk:
             self.fields['image'].required = False
+
+
+CUSTOM_INLINE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+
+
+class CustomInlineImageForm(forms.ModelForm):
+    class Meta:
+        model = CustomInlineImage
+        fields = ['name', 'image']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-control form-control-sm',
+                'placeholder': 'Label',
+                'maxlength': 40,
+                'required': True,
+            }),
+            'image': forms.ClearableFileInput(attrs={
+                'class': 'form-control form-control-sm',
+                'accept': 'image/png,image/jpeg,image/webp,image/gif',
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['image'].required = False
+
+    def clean_image(self):
+        f = self.cleaned_data.get('image')
+        if f and getattr(f, 'size', 0) > CUSTOM_INLINE_IMAGE_MAX_BYTES:
+            raise forms.ValidationError("Image must be 2 MB or smaller.")
+        return f
 
 
 class ScaleForm(forms.ModelForm):

@@ -42,9 +42,11 @@
     <div class="forge-icon-picker" data-forge-icon-picker hidden>
       <div class="forge-icon-picker__panel">
         {% for key in inline_keywords %}
-          <button type="button" class="forge-icon-picker__btn" data-icon-key="{{ key }}" title="{{ key }}">
-            <img src="{{ inline_images|dict_get:key }}" alt="{{ key }}">
+          {% with label=inline_image_labels|dict_get:key|default:key %}
+          <button type="button" class="forge-icon-picker__btn" data-icon-key="{{ key }}" title="{{ label }}">
+            <img src="{{ inline_images|dict_get:key }}" alt="{{ label }}">
           </button>
+          {% endwith %}
         {% endfor %}
       </div>
     </div>

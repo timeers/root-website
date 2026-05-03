@@ -189,6 +189,56 @@ class CharacterImage(models.Model):
         super().save(*args, **kwargs)
 
 
+class CustomInlineImage(models.Model):
+    SLOT_MIN = 0
+    SLOT_MAX = 9
+
+    sheet = models.ForeignKey(FactionSheet, related_name='custom_inline_images', on_delete=models.CASCADE)
+    slot = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(SLOT_MIN), MaxValueValidator(SLOT_MAX)],
+    )
+    name = models.CharField(max_length=40)
+    image = models.ImageField(upload_to='forge/custom_inline_images/')
+
+    class Meta:
+        ordering = ['slot']
+        constraints = [
+            models.UniqueConstraint(fields=['sheet', 'slot'], name='unique_custom_inline_image_slot'),
+        ]
+
+    @property
+    def keyword(self):
+        return f'custom_image_{self.slot}'
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old = CustomInlineImage.objects.get(pk=self.pk)
+                if old.image and old.image != self.image:
+                    delete_old_image(old.image)
+            except CustomInlineImage.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+        self._resize()
+
+    def _resize(self):
+        import os
+        from PIL import Image
+        if not (self.image and os.path.exists(self.image.path)):
+            return
+        try:
+            img = Image.open(self.image.path)
+            if img.width <= 256 and img.height <= 256:
+                return
+            if img.width >= img.height:
+                new_size = (256, int(img.height * 256 / img.width))
+            else:
+                new_size = (int(img.width * 256 / img.height), 256)
+            img.resize(new_size, Image.LANCZOS).save(self.image.path)
+        except Exception as e:
+            print(f"Error resizing custom inline image: {e}")
+
+
 class FactionAbility(models.Model):
     sheet = models.ForeignKey(FactionSheet, related_name='abilities', on_delete=models.CASCADE)
     order = models.PositiveIntegerField()

@@ -1,0 +1,25 @@
+{% load static %}
+<div class="border rounded p-2 mb-2 custom-inline-image-row" data-row data-id="{{ ci.pk }}">
+  <form method="post" enctype="multipart/form-data" class="m-0"
+        data-edit-url="{% url 'forge-custom-inline-image-edit' pk=ci.pk %}"
+        data-dirty-form>
+    {% csrf_token %}
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      {% if ci.image %}
+        <img src="{{ ci.image.url }}" alt="{{ ci.name }}" class="custom-inline-image-current-thumb"
+             style="max-height:32px;max-width:32px;">
+      {% endif %}
+      <input type="text" name="name" value="{{ ci.name }}" maxlength="40" required
+             placeholder="Label"
+             class="form-control form-control-sm" style="max-width:200px;">
+      <input type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif"
+             class="form-control form-control-sm forge-custom-inline-image-input"
+             style="max-width:220px;">
+      <img class="forge-custom-inline-image-preview" alt="" hidden
+           style="max-height:32px;max-width:32px;">
+      <div class="ms-auto d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+      </div>
+    </div>
+  </form>
+</div>

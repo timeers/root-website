@@ -242,6 +242,15 @@ FORGE_PICKER_ORDER = [
 ]
 
 
+# Reserved prefix for per-sheet user uploads (CustomInlineImage). Keywords
+# matching custom_image_0..custom_image_9 are resolved against the sheet's
+# uploaded images at render time, not against FORGE_INLINE_IMAGES.
+CUSTOM_IMAGE_PREFIX = 'custom_image_'
+
+assert not any(k.startswith(CUSTOM_IMAGE_PREFIX) for k in FORGE_INLINE_IMAGES), \
+    f"{CUSTOM_IMAGE_PREFIX}N is reserved for per-sheet user uploads"
+
+
 def picker_keywords():
     """Return the ordered list of keywords to display in the picker.
 
@@ -257,3 +266,28 @@ def picker_image_map():
     map so the editor can hydrate existing {{ keyword }} markers even when
     the keyword has been removed from the picker order."""
     return dict(FORGE_INLINE_IMAGES)
+
+
+def sheet_inline_images(sheet):
+    """Return FORGE_INLINE_IMAGES merged with the sheet's custom uploads.
+
+    When `sheet` is None this is identical to picker_image_map(). When a
+    sheet is given, each `custom_image_N` keyword in use is overlaid with
+    the URL of the corresponding CustomInlineImage upload.
+    """
+    if sheet is None:
+        return dict(FORGE_INLINE_IMAGES)
+    overrides = {ci.keyword: ci.image.url
+                 for ci in sheet.custom_inline_images.all()
+                 if ci.image}
+    return {**FORGE_INLINE_IMAGES, **overrides}
+
+
+def sheet_picker_keywords(sheet):
+    """Return picker keywords with the sheet's custom uploads prepended."""
+    base = picker_keywords()
+    if sheet is None:
+        return base
+    customs = [ci.keyword for ci in sheet.custom_inline_images.order_by('slot')
+               if ci.image]
+    return customs + base

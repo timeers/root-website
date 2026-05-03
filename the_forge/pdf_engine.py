@@ -481,9 +481,44 @@ def _resolve_static_url(url):
     return finders.find(rel)
 
 
-def _inline_image_path(keyword):
-    """Resolve an inline-image keyword (from FORGE_INLINE_IMAGES) to a path."""
-    from .inline_images import FORGE_INLINE_IMAGES
+def _sheet_of(obj):
+    """Walk the parent chain of a forge model object to find its FactionSheet.
+
+    Returns None if no sheet is reachable. Used to resolve `custom_image_N`
+    keywords during PDF render — those are scoped per-sheet, but the
+    Flowables operate on child objects (track, legend, action, etc.).
+    """
+    if obj is None:
+        return None
+    if hasattr(obj, 'sheet') and obj.sheet is not None:
+        return obj.sheet
+    for parent_attr in ('step', 'legend', 'scale', 'track', 'box'):
+        parent = getattr(obj, parent_attr, None)
+        if parent is not None:
+            sheet = _sheet_of(parent)
+            if sheet is not None:
+                return sheet
+    return None
+
+
+def _inline_image_path(keyword, sheet=None):
+    """Resolve an inline-image keyword to a filesystem path.
+
+    `custom_image_N` keywords resolve against `sheet.custom_inline_images`
+    (slot N) when a sheet is supplied. Everything else falls through to
+    FORGE_INLINE_IMAGES + the staticfiles finder.
+    """
+    from .inline_images import FORGE_INLINE_IMAGES, CUSTOM_IMAGE_PREFIX
+    if sheet is not None and keyword and keyword.startswith(CUSTOM_IMAGE_PREFIX):
+        slot_str = keyword[len(CUSTOM_IMAGE_PREFIX):]
+        if slot_str.isdigit():
+            ci = sheet.custom_inline_images.filter(slot=int(slot_str)).first()
+            if ci and ci.image:
+                try:
+                    return ci.image.path
+                except (ValueError, NotImplementedError):
+                    return None
+        return None
     return _resolve_static_url(FORGE_INLINE_IMAGES.get(keyword))
 
 
@@ -520,7 +555,7 @@ def _xml_escape(s):
     return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
-def _replace_inline_images(text, img_height=None):
+def _replace_inline_images(text, img_height=None, sheet=None):
     """Replace `{{ key }}` tokens with ReportLab <img/> tags.
 
     Used for fields edited via the token-based icon picker (forge_editor.js)
@@ -543,17 +578,17 @@ def _replace_inline_images(text, img_height=None):
         out.append(_xml_escape(text[i:start]))
         key = text[start + 2:end].strip()
         if key:
-            out.append(_inline_image_tag(key, img_height))
+            out.append(_inline_image_tag(key, img_height, sheet=sheet))
         i = end + 2
     return ''.join(out)
 
 
-def _inline_image_tag(key, img_height=None):
+def _inline_image_tag(key, img_height=None, sheet=None):
     """Render <img data-forge-image="KEY"> as a ReportLab Paragraph <img/> tag.
 
     Returns '' if the key has no entry or the resolved path doesn't exist.
     """
-    img_path = _inline_image_path(key)
+    img_path = _inline_image_path(key, sheet=sheet)
     if not img_path or not os.path.exists(img_path):
         return ''
     h = img_height or INLINE_IMG_H
@@ -587,11 +622,12 @@ class _ForgePdfSanitizer(HTMLParser):
         'i':      ('<i>', '</i>'),
     }
 
-    def __init__(self, img_height=None):
+    def __init__(self, img_height=None, sheet=None):
         super().__init__(convert_charrefs=True)
         self._out = []
         self._stack = []
         self._img_height = img_height
+        self._sheet = sheet
 
     def handle_starttag(self, tag, attrs):
         attr_map = dict(attrs)
@@ -603,7 +639,7 @@ class _ForgePdfSanitizer(HTMLParser):
             key = attr_map.get('data-forge-image')
             if not key:
                 return
-            rendered = _inline_image_tag(key, self._img_height)
+            rendered = _inline_image_tag(key, self._img_height, sheet=self._sheet)
             if rendered:
                 self._out.append(rendered)
             return
@@ -653,23 +689,26 @@ class _ForgePdfSanitizer(HTMLParser):
         return ''.join(self._out)
 
 
-def format_step_markup(text):
+def format_step_markup(text, sheet=None):
     """Translate forge rich-text storage HTML to ReportLab Paragraph XML.
 
     Storage is produced by the rich-text editor's serializer (see
     the_forge/static/the_forge/forge_richtext.js). This function parses
     the allowlisted HTML and emits the equivalent ReportLab markup
     (<b>/<i>/<font>/<img>/<br>) ready to be passed to a Paragraph.
+
+    `sheet` is forwarded to the inline-image resolver so per-sheet
+    `custom_image_N` keywords resolve to the user's uploads.
     """
     if not text:
         return ""
-    parser = _ForgePdfSanitizer()
+    parser = _ForgePdfSanitizer(sheet=sheet)
     parser.feed(str(text))
     parser.close()
     return parser.result()
 
 
-def format_inline_images(text, img_height=None):
+def format_inline_images(text, img_height=None, sheet=None):
     """Like format_step_markup but suppresses bold/italic/header/luminari.
 
     Used for fields whose toolbar exposes only the inline-image picker
@@ -680,7 +719,7 @@ def format_inline_images(text, img_height=None):
     """
     if not text:
         return ""
-    parser = _ForgePdfSanitizer(img_height=img_height)
+    parser = _ForgePdfSanitizer(img_height=img_height, sheet=sheet)
     parser.feed(str(text))
     parser.close()
     return parser.result()
@@ -1023,7 +1062,7 @@ class TrackFlowable(Flowable):
             from reportlab.lib.enums import TA_CENTER
             from reportlab.lib.styles import ParagraphStyle
             centered = ParagraphStyle('TrackBody', parent=self.body_style, alignment=TA_CENTER)
-            body_markup = format_step_markup(self.track.body)
+            body_markup = format_step_markup(self.track.body, sheet=_sheet_of(self.track))
             para = Paragraph(body_markup, centered)
             _, self._body_h = para.wrap(self.total_width, 9999)
             self._body_h += TRACK_BODY_GAP
@@ -1150,7 +1189,7 @@ class TrackFlowable(Flowable):
             from reportlab.lib.enums import TA_CENTER
             from reportlab.lib.styles import ParagraphStyle
             centered = ParagraphStyle('TrackBody', parent=self.body_style, alignment=TA_CENTER)
-            body_markup = format_step_markup(self.track.body)
+            body_markup = format_step_markup(self.track.body, sheet=_sheet_of(self.track))
             para = Paragraph(body_markup, centered)
             para_w, para_h = para.wrap(self._width, 9999)
             para.drawOn(c, 0, cursor_y - para_h)
@@ -1195,7 +1234,7 @@ class TrackFlowable(Flowable):
                 title = self.row_titles.get(row_idx, '')
                 if title:
                     slot_y = self._row_y(row_idx, grid_top_y)
-                    title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H)
+                    title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
                     para = Paragraph(title_markup, row_title_style)
                     # Wrap at slot height so text flows along the rotated axis
                     para_w, para_h = para.wrap(self._slot_size, 9999)
@@ -1219,7 +1258,7 @@ class TrackFlowable(Flowable):
                 title = self.row_titles.get(row_idx, '')
                 if title:
                     slot_y = self._row_y(row_idx, grid_top_y)
-                    title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H)
+                    title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
                     para = Paragraph(title_markup, row_title_style)
                     para_w, para_h = para.wrap(self._row_title_w - 4, 9999)
                     para_y = slot_y + self._slot_size / 2 - para_h / 2
@@ -1248,7 +1287,7 @@ class TrackFlowable(Flowable):
         # Draw header title in row-title column area
         header_title = getattr(self.track, 'header_title', '') or ''
         if header_title and self._row_title_w > 0:
-            title_markup = _replace_inline_images(header_title, img_height=TRACK_HEADER_ICON_H)
+            title_markup = _replace_inline_images(header_title, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
             if self._vertical_row_titles:
                 title_style = ParagraphStyle(
                     'TrackHeaderTitle', parent=self.body_style,
@@ -1308,7 +1347,7 @@ class TrackFlowable(Flowable):
                 center_x = (left + right) / 2
                 seg_w = right - left
 
-                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H)
+                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
                 if '<img' in processed:
                     header_style = ParagraphStyle(
                         'TrackHeader', parent=self.body_style,
@@ -1331,7 +1370,7 @@ class TrackFlowable(Flowable):
                 slot_center_x = x + self._slot_size / 2
                 label = header_at(col_idx)
 
-                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H)
+                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
                 if '<img' in processed:
                     header_style = ParagraphStyle(
                         'TrackHeader', parent=self.body_style,
@@ -1390,8 +1429,9 @@ class TrackFlowable(Flowable):
         if slot and slot.content:
             keywords = [k.strip() for k in slot.content.split('|') if k.strip()]
             images = []
+            slot_sheet = _sheet_of(slot)
             for kw in keywords:
-                img_path = _inline_image_path(kw)
+                img_path = _inline_image_path(kw, sheet=slot_sheet)
                 if img_path and os.path.exists(img_path):
                     images.append(img_path)
             if images:
@@ -1502,7 +1542,7 @@ def _measure_action_widths(action, icon_w, icon_h, icon_path, cost, action_body_
     fixed_w = icon_space + arrow_w
     icon_h_eff = icon_h if has_icon else 0
 
-    markup = format_step_markup(action.text)
+    markup = format_step_markup(action.text, sheet=_sheet_of(action))
     PROBE_W = 10000
     para = Paragraph(markup, action_body_style)
     para.wrap(PROBE_W, 9999)
@@ -1620,7 +1660,7 @@ class LegendFlowable(Flowable):
                 except Exception:
                     img_path = None
 
-            body_markup = format_step_markup(r.body) if r.body else ''
+            body_markup = format_step_markup(r.body, sheet=_sheet_of(self.legend)) if r.body else ''
             body_para = Paragraph(body_markup or '&nbsp;', body_style)
             body_para.wrap(right_w, 9999)
             body_h = true_paragraph_height(body_para, right_w)
@@ -1737,7 +1777,7 @@ class ScaleFlowable(Flowable):
         # Build paragraph for each entry: "<range>: <result_markup>"
         for r in rows:
             rng = (r.range or '').strip()
-            res_markup = _replace_inline_images(r.result, img_height=SCALE_INLINE_IMG_H) if r.result else ''
+            res_markup = _replace_inline_images(r.result, img_height=SCALE_INLINE_IMG_H, sheet=_sheet_of(self.scale)) if r.result else ''
             entry_markup = (
                 f'<font face="Baskerville">{_xml_escape(rng)}:</font>&nbsp;{res_markup}'
             )
@@ -2698,7 +2738,7 @@ class SheetLayoutEngine:
             if row_info[0] == 'single_card':
                 action = row_info[1]
                 icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(action)
-                markup = format_step_markup(action.text)
+                markup = format_step_markup(action.text, sheet=_sheet_of(action))
                 para = Paragraph(markup, self.action_body_style)
                 flowable = StepActionFlowable(
                     icon_path=icon_path, icon_drawing=icon_drawing, text_paragraph=para,
@@ -2712,7 +2752,7 @@ class SheetLayoutEngine:
                 icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(group_actions[0])
                 paragraphs = []
                 for action in group_actions:
-                    markup = format_step_markup(action.text)
+                    markup = format_step_markup(action.text, sheet=_sheet_of(action))
                     para = Paragraph(markup, self.action_body_style)
                     paragraphs.append(para)
                 flowable = CardGroupFlowable(
@@ -2728,7 +2768,7 @@ class SheetLayoutEngine:
                     # Single non-card action — full width
                     action, _ = action_items[0]
                     icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(action)
-                    markup = format_step_markup(action.text)
+                    markup = format_step_markup(action.text, sheet=_sheet_of(action))
                     para = Paragraph(markup, self.action_body_style)
                     flowable = StepActionFlowable(
                         icon_path=icon_path, icon_drawing=icon_drawing, text_paragraph=para,
@@ -2744,7 +2784,7 @@ class SheetLayoutEngine:
                     col_widths = []
                     for action, alloc_w in action_items:
                         icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(action)
-                        markup = format_step_markup(action.text)
+                        markup = format_step_markup(action.text, sheet=_sheet_of(action))
                         para = Paragraph(markup, self.action_body_style)
                         af = StepActionFlowable(
                             icon_path=icon_path, icon_drawing=icon_drawing, text_paragraph=para,
@@ -2807,7 +2847,7 @@ class SheetLayoutEngine:
             _, h = p.wrap(width, 9999)
             total += h + self.content_box_title_style.spaceAfter
         if content_box.text:
-            markup = format_step_markup(content_box.text)
+            markup = format_step_markup(content_box.text, sheet=self.sheet)
             p = Paragraph(markup, self.content_box_text_style)
             _, h = p.wrap(width, 9999)
             total += h + self.content_box_text_style.spaceAfter
@@ -3024,7 +3064,7 @@ class SheetLayoutEngine:
         PROBE_W = 10000
         max_needed = 0
         for step in steps:
-            markup = format_step_markup(step.text)
+            markup = format_step_markup(step.text, sheet=self.sheet)
             para = Paragraph(markup, self.step_body_style)
             para.wrap(PROBE_W, 9999)
             text_natural_w = 0
@@ -3080,7 +3120,7 @@ class SheetLayoutEngine:
         style = body_style or self.step_body_style
         text_col_w = 0 if single_step else TEXT_COL_X
         text_content_w = width - text_col_w
-        markup = format_step_markup(step.text)
+        markup = format_step_markup(step.text, sheet=self.sheet)
 
         # Extra padding to compensate for autoLeading underreporting (matches _build_phase_story)
         probe = Paragraph(markup, style)
@@ -3233,7 +3273,7 @@ class SheetLayoutEngine:
             _, h = p.wrap(content_w, 9999)
             cursor_top -= h + self.content_box_title_style.spaceAfter
         if content_box.text:
-            markup = format_step_markup(content_box.text)
+            markup = format_step_markup(content_box.text, sheet=self.sheet)
             p = Paragraph(markup, self.content_box_text_style)
             _, h = p.wrap(content_w, 9999)
             cursor_top -= h + self.content_box_text_style.spaceAfter
@@ -4111,7 +4151,7 @@ class SheetLayoutEngine:
             body_style = self.step_body_style
 
         for step in steps:
-            markup = format_step_markup(step.text)
+            markup = format_step_markup(step.text, sheet=self.sheet)
             para = Paragraph(markup, body_style)
 
             # Compute extra bottom padding to compensate for autoLeading underreporting
@@ -4159,7 +4199,7 @@ class SheetLayoutEngine:
                 obj = child['obj']
                 if child['kind'] == 'box':
                     box_h = BORDERED_BOX_HEIGHTS.get(obj.height, BORDERED_BOX_HEIGHTS['medium'])
-                    body_markup = format_step_markup(obj.body) if obj.body else ''
+                    body_markup = format_step_markup(obj.body, sheet=self.sheet) if obj.body else ''
                     bf = BorderedBoxFlowable(
                         title=obj.title,
                         body_markup=body_markup,
@@ -4274,7 +4314,7 @@ class SheetLayoutEngine:
         if content_box.title:
             story.append(Paragraph(content_box.title, self.content_box_title_style))
         if content_box.text:
-            markup = format_step_markup(content_box.text)
+            markup = format_step_markup(content_box.text, sheet=self.sheet)
             story.append(Paragraph(markup, self.content_box_text_style))
         steps = list(content_box.steps.all())
         story.extend(self._build_steps_story(steps, content_width, centered=True))
@@ -4394,7 +4434,7 @@ class SheetLayoutEngine:
             for a in abilities:
                 story = [
                     Paragraph(f"<b>{a.title}</b>", self.ability_title_style),
-                    Paragraph(format_inline_images(a.body), self.ability_body_style),
+                    Paragraph(format_inline_images(a.body, sheet=self.sheet), self.ability_body_style),
                 ]
                 used_h = 0
                 for flowable in story:
@@ -4571,7 +4611,7 @@ class SheetLayoutEngine:
                 # Flow title + body text to the right of the icon
                 story = [
                     Paragraph(f"<b>{ability.title}</b>", self.ability_title_style),
-                    Paragraph(format_inline_images(ability.body), self.ability_body_style),
+                    Paragraph(format_inline_images(ability.body, sheet=self.sheet), self.ability_body_style),
                 ]
                 frame = Frame(
                     x + icon_w, box_y,
@@ -4883,7 +4923,7 @@ class SheetLayoutEngine:
     def _card_pile_body_paragraph(self, body_text, text_w):
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.enums import TA_CENTER
-        html = format_step_markup(body_text)
+        html = format_step_markup(body_text, sheet=self.sheet)
         style = ParagraphStyle(
             name='CardPileBody',
             fontName='Baskerville',
