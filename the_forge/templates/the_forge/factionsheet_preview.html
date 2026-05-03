@@ -7,7 +7,7 @@
 {% block content %}
 <div class="my-2 d-flex justify-content-between align-items-center">
   <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   {{ faction.faction_name }}</a>
-  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Edit faction</a>
+  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" id="forge-preview-edit-link" class="btn btn-sm btn-outline-primary">Edit faction</a>
 </div>
 
 <form method="post" action="{% url 'forge-sheet-preview-save' pk=sheet.pk %}" id="forge-preview-form">
@@ -29,15 +29,27 @@
     </div>
   </div>
 
-  <div class="card p-3 mb-3">
-    <div class="forge-preview-scroll" style="overflow-x: auto; overflow-y: hidden;">
-      <div id="forge-preview-canvas"
-           class="forge-preview-grid-on"
-           data-payloads="{{ payloads_json|escape }}"
-           data-active-mode="{{ payload.layout_mode }}"
-           style="position: relative; background: #f5e9d0; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
+  <div class="forge-preview-layout mb-3">
+    <div class="card p-3 forge-preview-canvas-card">
+      <div class="forge-preview-scroll" style="overflow-x: auto; overflow-y: hidden;">
+        <div id="forge-preview-canvas"
+             class="forge-preview-grid-on"
+             data-payloads="{{ payloads_json|escape }}"
+             data-active-mode="{{ payload.layout_mode }}"
+             style="position: relative; background: #f5e9d0; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
+        </div>
       </div>
     </div>
+    <aside class="card p-3 forge-preview-legend-card small text-muted">
+      <h5 class="root-title mb-2">Tips</h5>
+      <ul class="mb-0 list-unstyled">
+        <li class="mb-1"><i class="bi bi-grid-1x2-fill"></i> <strong>Switch</strong> between Vertical and Horizontal layout to control the phase box layout.</li>
+        <li class="mb-1"><i class="bi bi-arrows-move"></i> <strong>Drag</strong> an element to reposition it.</li>
+        <li class="mb-1"><span class="forge-preview-legend-handle"></span> <strong>Resize </strong> by using the red handles on the edges of each element.</li>
+        <li class="mb-1"><i class="bi bi-rewind-circle-fill"></i> <strong>Reset</strong> to Auto to revert all overrides or reset to Saved to clear recent changes.</li>
+        <li><i class="bi bi-exclamation-diamond-fill"></i> <strong>Warning:</strong> An element's contents will not render if it is not large enough.</li>
+      </ul>
+    </aside>
   </div>
 
   <div id="forge-preview-inputs"></div>
@@ -103,6 +115,42 @@
     height: 10px;
     z-index: 20;
     box-sizing: border-box;
+  }
+  .forge-preview-legend-handle {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    background: rgba(180, 90, 30, 0.95);
+    border: 1px solid #fff;
+    outline: 1px solid rgba(0, 0, 0, 0.2);
+    vertical-align: middle;
+    margin: 0 0.15rem;
+  }
+  .forge-preview-layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+  .forge-preview-canvas-card {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .forge-preview-legend-card {
+    flex: 0 1 280px;
+    min-width: 240px;
+    background: rgba(255, 248, 230, 0.85);
+    border-color: #aa885c;
+  }
+  .forge-preview-legend-card h5 {
+    color: #5a3a18;
+  }
+  /* When the viewport is too narrow to fit both side-by-side, the legend
+     wraps below and grows to full width. */
+  @media (max-width: 991.98px) {
+    .forge-preview-legend-card {
+      flex: 1 1 100%;
+    }
   }
   .forge-resize-handle--n  { top: -5px; left: 50%; margin-left: -5px; cursor: ns-resize; }
   .forge-resize-handle--s  { bottom: -5px; left: 50%; margin-left: -5px; cursor: ns-resize; }

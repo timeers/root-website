@@ -705,10 +705,19 @@
   document.querySelectorAll('.forge-preview-download').forEach((link) => {
     link.addEventListener('click', (ev) => {
       if (!dirty) return;
-      const ok = confirm('You have unsaved layout changes. The download will not reflect them — continue anyway?');
+      const ok = confirm('You have unsaved layout changes. The download will not reflect them - continue anyway?');
       if (!ok) ev.preventDefault();
     });
   });
+
+  const editLink = document.getElementById('forge-preview-edit-link');
+  if (editLink) {
+    editLink.addEventListener('click', (ev) => {
+      if (!dirty) return;
+      const ok = confirm('You have unsaved layout changes. Leaving this page will discard them - continue anyway?');
+      if (!ok) ev.preventDefault();
+    });
+  }
 
   activate(activeMode);
 })();

@@ -13,11 +13,12 @@
 <!-- Faction header (name, image, title color) -->
 {% include 'the_forge/partials/sheet_header_form.html' with sheet=sheet faction=faction header_form=header_form %}
 
+<!-- Settings toggles (auto-save) -->
+{% include 'the_forge/partials/sheet_settings_toggles.html' with sheet=sheet %}
+
 <!-- Flavor text (inline save) -->
 {% include 'the_forge/partials/sheet_flavor_form.html' with sheet=sheet %}
 
-<!-- Settings toggles (auto-save) -->
-{% include 'the_forge/partials/sheet_settings_toggles.html' with sheet=sheet %}
 
 <!-- Abilities -->
 <div class="card p-3 mb-3">

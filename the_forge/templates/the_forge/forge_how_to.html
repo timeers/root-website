@@ -1,0 +1,653 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block meta %}    {# Open Graph tags #}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="How to Use the Forge">
+<meta property="og:description" content="A step-by-step walkthrough for designing and exporting a Root faction board in the Forge.">
+<meta name="description" content="A step-by-step walkthrough for designing and exporting a Root faction board in the Forge.">
+{% endblock meta %}
+
+{% block content %}
+<div class="forge-how-to">
+
+  <a href="{% url 'forge-home' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>  The Forge</a>
+
+  <section class="forge-how-to-hero text-center py-5 mb-4">
+    <h1 class="root-title display-4 mb-3">How to Use the Forge</h1>
+    <p class="lead mb-3">
+      A step-by-step walkthrough for designing and exporting a faction board.
+    </p>
+    <p class="text-muted mb-0">
+      Looking for visual reference instead? See the <a href="{% url 'forge-style-guide' %}">Style Guide</a>.
+    </p>
+  </section>
+
+  {# ==================== Section 1: Getting Started ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">1. Getting Started</h2>
+    <p class="text-muted mb-4">
+      The Forge is open to members of the Woodland Warriors community. Before you can build a faction
+      you need a Discord login and a one-time acknowledgement of the Forge onboarding rules.
+    </p>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-4">
+        <div class="card h-100 p-3 d-flex flex-column">
+          <h4 class="root-title mb-2">Log in with Discord</h4>
+          <p class="text-muted small mb-2">
+            Use the Discord login button on Root Database to authenticate. The Forge uses your Discord
+            identity to handle account creation without needing passwords.
+          </p>
+          <div class="text-center mt-auto pt-3">
+            <i class="bi bi-discord" style="font-size: 6rem; color: #5865F2; line-height: 1;" aria-label="Discord logo"></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-4">
+        <div class="card h-100 p-3 d-flex flex-column">
+          <h4 class="root-title mb-2">Join Woodland Warriors</h4>
+          <p class="text-muted small mb-2">
+            You need to be a member of the Woodland Warriors Discord server to access the Forge editor.
+            Once you've joined, log in again to confirm your membership.
+          </p>
+          <div class="text-center mt-auto pt-3">
+            <img src="{% static 'images/link_icons/WW.webp' %}"
+                 alt="Woodland Warriors Discord server"
+                 style="width: 6rem; height: 6rem; border-radius: 1rem; object-fit: cover;">
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-4">
+        <div class="card h-100 p-3 d-flex flex-column">
+          <h4 class="root-title mb-2">Acknowledge the Rules</h4>
+          <p class="text-muted small mb-2">
+            The first time you visit the Forge you'll be prompted to read and acknowledge the
+            onboarding rules. After that, the editor is unlocked for you.
+          </p>
+          <div class="text-center mt-auto pt-3">
+            <i class="bi bi-book" style="font-size: 6rem; line-height: 1;" aria-label="Onboarding rules book"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ==================== Section 2: Create a Faction ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">2. Create a Faction</h2>
+    <p class="text-muted mb-4">
+      From the Forge home page, click <strong>Create a Faction</strong>. You'll be asked for a few
+      core details that shape every page of your board.
+    </p>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Name & Color</h4>
+          <p class="text-muted small mb-2">
+            Give your faction a name and pick its color. The color is used as the default tint
+            behind meeples, header text fallbacks, and several background fills.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/faction_name_color.png' %}"
+               alt="Faction name and color picker form" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Front & Back Backgrounds</h4>
+          <p class="text-muted small mb-2">
+            Choose a background for the front and back of your board. You can leave
+            it as a solid color, pick one of the official faction backgrounds, or upload your own image.
+            The back of the board will have a white overlay to make text more visible ontop of your background.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/faction_background.png' %}"
+               alt="Background selector showing solid, official, and upload options" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Tiled vs. Cover Layout</h4>
+          <p class="text-muted small mb-2">
+            When you upload a custom background, choose between <strong>tiled</strong> (the image
+            repeats across the board) or <strong>cover</strong> (the image scales to fill the
+            whole board). Tiled works well for repeating patterns. If you want your pattern to repeat more, reduce the size of your uploaded image. Patterns will always tile in at least 3 rows and increase as the image size decreases.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/background_tile_vs_cover.png' %}"
+               alt="Tiled vs cover background comparison" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ==================== Section 3: Build the Front of the Board ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">3. Build the Front of the Board</h2>
+    <p class="text-muted mb-4">
+      With a faction created, head into the board editor. The front of the board is where the majority
+      of your faction's attributes are: title, header art, thematic text, abilities, phases, and other sections.
+    </p>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-12">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Faction Editor</h4>
+          <p class="text-muted small mb-2">
+            The Faction editor has a lot of fields to help you build your Faction. Don't get overwhelmed, we'll walk through each field. 
+            If you forget to save something as you go, you will see this message in the bottom right of your screen. Click the button to be brought to each field that needs to be saved.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/save_reminder.png' %}"
+               alt="Save reminder" class="img-fluid mb-2">
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Title</h4>
+          <p class="text-muted small mb-2">
+            You can edit the faction name here as well.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/title.png' %}"
+               alt="Title with auto/black/white color selector" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Title Color</h4>
+          <p class="text-muted small mb-2">
+            Pick a title font color: <strong>Auto</strong>,
+            <strong>Black</strong>, or <strong>White</strong>. Auto uses <strong>White</strong>
+            unless white isn't visible against your faction color, in which case it picks black. Auto is recommended unless you have a header image that makes the text unreadable.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/title_color.png' %}"
+               alt="Title with auto/black/white color selector" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Header Image (Optional)</h4>
+          <p class="text-muted small mb-2">
+            Choose an image to sit behind the title in the header. Use a <strong>PNG with
+            transparency</strong> so the image overlaps cleanly with your background. If you do not choose an image the header will display your Faction's color.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/header_image.png' %}"
+               alt="Header image example with transparent PNG" class="img-fluid mb-2">
+        </div>
+      </div>
+
+
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Crafted Items Box</h4>
+          <p class="text-muted small mb-2">
+            Most factions include a crafted items box. You can turn it off if your faction has
+            another use for crafted items (e.g. exhausting them for an action).
+          </p>
+          <img src="{% static 'the_forge/img/how_to/crafted_items.png' %}"
+               alt="Crafted items box toggle" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Phase Box Layout</h4>
+          <p class="text-muted small mb-2">
+            Choose a vertical or horizontal layout for the phase box. <strong>Vertical</strong> is
+            the standard and shows each phase in a vertical line. <strong>Horizontal</strong> has each phase side by side and works well when each of your phases is roughly
+            equal in length. Choose the layout that allows you to fit all your desired elements.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/phase_layout.png' %}"
+               alt="Vertical and horizontal phase layouts compared" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ==================== Section 4: Faction Abilities ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">4. Flavor Text & Faction Abilities</h2>
+    
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Flavor Text</h4>
+          <p class="text-muted small mb-2">
+            Optional flavor text appears below the header. If your faction has a lot of abilities
+            you can skip this to save space.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/flavor_text.png' %}"
+               alt="Flavor text below header" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Abilities</h4>
+          <p class="text-muted small mb-2">
+            Ability space is limited. Word your abilities clearly and carefully so the text fits
+            without overflowing.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/abilities.png' %}"
+               alt="Faction abilities list at the top of a board" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ==================== Section 5: Card Slot Sections ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">5. Card Slot Section (Decree / Retinue)</h2>
+    <p class="text-muted mb-4">
+      Some factions have a row of card slots at the top of the board like the Eyrie's Decree or the Keepers
+      Retinue. The Forge has space for up to 5 slots.
+    </p>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Title & Description</h4>
+          <p class="text-muted small mb-2">
+            The Decree has an optional title and description. Give it a name and short rule or description.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/decree_title.png' %}"
+               alt="Card slot section with title and description" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Adding Slots</h4>
+          <p class="text-muted small mb-2">
+            Each slot can be left blank or given its own title and body text. Both fields are
+            character-limited to keep slots from overlapping. Add up to 5 slots are available.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/decree_slots.png' %}"
+               alt="Card slots with optional title and body text" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ==================== Section 6: The Phases Box ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">6. Birdsong, Daylight & Evening</h2>
+    <p class="text-muted mb-4">
+      The phases box holds the heart of your turn structure. Add a step under any phase to start
+      writing.
+    </p>
+
+    <h3 class="root-title mb-3">Steps & the Rich Text Editor</h3>
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Step Text Formatting</h4>
+          <p class="text-muted small mb-2">
+            Use the rich text editor to make headers larger (typically the first word or two of a
+            step), key words bold, and helper text italicized to stand out.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/step_formatting.png' %}"
+               alt="Rich text editor showing header and italic helper text" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Inline Icons</h4>
+          <p class="text-muted small mb-2">
+            Click the icon button in the editor to add inline icons like 
+            <img src="{% static 'pdf/inline/+card.png' %}" alt="card draw"
+                 style="height: 1.2em; vertical-align: -0.25em;"> or 
+            <img src="{% static 'pdf/inline/1VP.png' %}" alt="+1 VP"
+                 style="height: 1.2em; vertical-align: -0.25em;">. You
+            can leave a step's text blank, but it is recommended that you write something.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/inline_icons.png' %}"
+               alt="Icon picker for inline icons" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+    <em>The two most common elements inside a phase step are <strong>actions</strong> and
+      <strong>scales</strong>.</em>
+    <h3 class="root-title mb-3">Action Types</h3>
+    <p class="text-muted mb-3">
+      Each action has a type and each step can only contain actions of one typeon. Pick the one that
+      fits the action's cost.
+    </p>
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Standard Action</h4>
+          <p class="text-muted small mb-2">
+            The default Faction action type. Upload your faction's icon if you want to use it, or fall back
+            to the default meeple icon in your faction's color. Put the action's name in the
+            header font style.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/action_standard.png' %}"
+               alt="Standard action with faction meeple icon" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Item Action</h4>
+          <p class="text-muted small mb-2">
+            Item actions are paid for by exhausting an item (used by the Vagabond and the Knaves).
+            Choose which item is the cost.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/action_item.png' %}"
+               alt="Item action with item cost selector" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Card Action</h4>
+          <p class="text-muted small mb-2">
+            Card actions are paid for with a specific card type (used by the Lizard Cult and the
+            Twilight Council). Actions with matching card costs will be grouped together on the board.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/action_card.png' %}"
+               alt="Card action with card type cost" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Custom Action</h4>
+          <p class="text-muted small mb-2">
+            A free-form action where each action can have its own unique icon. Useful when none of the other action
+            types fit your mechanic.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/action_custom.png' %}"
+               alt="Custom action with unique icon" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+
+    <h3 class="root-title mb-3">Scales</h3>
+    <div class="row g-3 mb-4">
+      <div class="col-12">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Range &amp; Result</h4>
+          <p class="text-muted small mb-2">
+            Scales are used for scoring or card draw (the Frogs' card draw and the Lord of the
+            Hundreds' Oppress step are both scales). Add a scale inside a step when you need a
+            range-to-result table.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/scale.png' %}"
+               alt="Scale element inside a phase step" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+
+    <p class="text-muted mb-0">
+      You can also add boxes, tracks, or legends inside a phase step. Those are less common in the
+      phases box itself (see the next section for full details).
+    </p>
+  </section>
+
+  {# ==================== Section 7: Sections (Outside the Phase Box) ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">7. Sections (Outside the Phase Box)</h2>
+    <p class="text-muted mb-4">
+      Sections make up the majority of the elements of your faction board that live outside the Phase box: cardboard
+      tracks, piece legends, other actions, boxes, and entirely custom phases. Add a section below the end of Evening.
+    </p>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-12">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Section Options</h4>
+          <p class="text-muted small mb-2">
+            Below evening you'll see a card labeled Sections. If you need to add anything to your board outside of the main Phases it'll probably be here.
+            If you need a single element click it's corresponding button: Box, Track, Scale, Legend or Actions. But if you want multiple elements in the same Section you'll choose Section.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_options.png' %}"
+               alt="Section option buttons" class="img-fluid mb-2">
+        </div>
+      </div>
+  
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Boxes</h4>
+          <p class="text-muted small mb-2">
+            Boxes hold meeples or items (the Vagabond's Satchel, the Warm Alliance's Officers,
+            and the Riverfolk's Funds). Choose from 3 heights and add a title and optional body
+            text. Body text is typically italicized.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_box.png' %}"
+               alt="Bordered box section with title and italic body" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Legends</h4>
+          <p class="text-muted small mb-2">
+            Legends define pieces or terms (similar to the Corvids' Plots section). Each row needs a title plus either an icon or a
+            description. Useful when your faction has a lot of distinct pieces the player needs to reference.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_legend.png' %}"
+               alt="Legend section with piece icons and descriptions" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-12">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Tracks</h4>
+          <p class="text-muted small mb-2">
+            Tracks store tokens, buildings, or items. Pick the type and give it a title plus
+            optional body text explaining how the track works. Save the track before customizing it.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_track_setup.png' %}"
+               alt="Track setup form" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Tracks: Headers &amp; Background</h4>
+          <p class="text-muted small mb-2">
+            Place column headers above or below the track. Choose a short title or icon. Row labels can be horizontal or vertical.
+            Pick a background icon for the track. If you do not choose an image, the track uses your faction
+            color as the background.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_track_headers.png' %}"
+               alt="Track header placement and background icon options" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Tracks: Slots, Dividers &amp; Resizing</h4>
+          <p class="text-muted small mb-2">
+            Click a slot to customize it, add a one-off background image and up to 4 icons.
+            Click the dashed lines to add dividers. If every column inside a divider shares the
+            same header, the header is centered instead of repeated. Use the +/- buttons to add
+            or remove rows and columns. Save the track before customizing newly-added slots.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_track_slots.png' %}"
+               alt="Track slots with dividers and slot customization" class="img-fluid mb-2">
+        </div>
+      </div>
+
+
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Scale or Actions as a Section</h4>
+          <p class="text-muted small mb-2">
+            Add a Scale or Actions directly as a section to create a floating element similar to
+            the Lizard Cult's Conspiracies or the Knaves' item actions.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_floating.png' %}"
+               alt="Floating actions section example" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Custom Section</h4>
+          <p class="text-muted small mb-2">
+            The most flexible option — essentially a custom phase that can contain anything we've
+            covered. Add steps like the Eyrie's turmoil or combine actions with a box like the
+            Lizard Cult's Acolytes. Title and body text are optional, and steps can have blank
+            text. If you get lost, the layout page is the easiest way to visualize what you've built.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_custom.png' %}"
+               alt="Custom section combining steps, actions, and a box" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="mb-5">
+    <h2 class="root-title mb-3">8. Standalone Elements</h2>
+    <p class="text-muted mb-4">
+      There are two standalone elements that are separate from sections or phases: Card Piles and Character Images.
+    </p>
+
+    <div class="row g-3 mb-4">
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Card Piles</h4>
+          <p class="text-muted small mb-2">
+            A simple card-shaped outline with a title and optional body text (used for the
+            Eyrie's Leaders or the Lizard Cult's Lost Souls). Card piles can be dragged off of the
+            faction board to leave only the top visible and save space.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_card_pile.png' %}"
+               alt="Card pile section" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Character Images</h4>
+          <p class="text-muted small mb-2">
+            Add character images for flavor or to drop in a custom illustration the Forge doesn't
+            otherwise cover. Choose whether the image sits behind or on top of the other elements.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/section_character.png' %}"
+               alt="Character image placed on a faction board" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  {# ==================== Section 9: Layout Editor ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">9. Layout Editor</h2>
+    <p class="text-muted mb-4">
+      Once your faction board is saved you can fine-tune its layout. Head to the layout page to
+      reorganize and resize elements.
+    </p>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Resize with Red Handles</h4>
+          <p class="text-muted small mb-2">
+            Drag the red handles on any element to resize it. Be careful: if an element is too
+            small its contents won't render. Leave enough room for the text and icons inside.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/layout_resize.png' %}"
+               alt="Layout editor with red resize handles" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Vertical &amp; Horizontal</h4>
+          <p class="text-muted small mb-2">
+            Switch between vertical and horizontal layout to see which one fits your faction better.
+            Some factions only really fit in one orientation.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/layout_orientation.png' %}"
+               alt="Vertical vs horizontal layout toggle" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Decree Drag</h4>
+          <p class="text-muted small mb-2">
+            If your faction has a Decree or Retinue, drag it up or down to show more or less of the
+            card slots underneath the header.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/layout_decree_drag.png' %}"
+               alt="Dragging the decree to reveal card slots" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Grid, Clear &amp; Auto Reset</h4>
+          <p class="text-muted small mb-2">
+            A background grid helps you line up elements. You can clear your changes or reset to
+            the auto layout at any time.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/layout_grid.png' %}"
+               alt="Layout grid with clear and reset controls" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ==================== Section 10: Download ==================== #}
+  <section class="mb-5">
+    <h2 class="root-title mb-3">10. Download Your Faction Board</h2>
+    <p class="text-muted mb-4">
+      When you're happy with the layout, download your board. The download generates the file on
+      the server and can take several seconds. Be patient. If it takes longer than 15 seconds,
+      submit feedback so we can look into it.
+    </p>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <div class="card h-100 p-3 d-flex flex-column">
+          <h4 class="root-title mb-2">PDF</h4>
+          <p class="text-muted small mb-2">
+            Full-resolution file with most layers intact. Edit it in a PDF editor if you need to
+            tweak something the Forge doesn't directly support.
+          </p>
+          <div class="text-center mt-auto pt-3">
+            <i class="bi bi-file-earmark-pdf" style="font-size: 6rem; line-height: 1;" aria-label="PDF file"></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card h-100 p-3 d-flex flex-column">
+          <h4 class="root-title mb-2">WebP</h4>
+          <p class="text-muted small mb-2">
+            An easily shareable image format. Lower resolution than the PDF but still clear and good
+            for posting your faction in Discord.
+          </p>
+          <div class="text-center mt-auto pt-3">
+            <i class="bi bi-file-earmark-image" style="font-size: 6rem; line-height: 1;" aria-label="WebP image file"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-center mt-4">
+      <a href="{% url 'forge-faction-create' %}" class="btn btn-primary btn-lg">
+        Start Building a Faction
+      </a>
+    </div>
+  </section>
+
+</div>
+{% endblock %}

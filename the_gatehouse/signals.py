@@ -246,7 +246,7 @@ def user_logged_in_handler(request, user, **kwargs):
         profile_updated = True
 
     # If user is a member of a Root Discord but in group O (add to group P)
-    if (current_group == 'O' and in_ww) or (current_group == 'O' and in_wr) or (current_group == 'O' and in_fr):
+    if (current_group == 'O' and in_ww):
         user_posts = Post.objects.filter(designer=profile)
         if user_posts:
             profile.group = 'E'

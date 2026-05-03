@@ -158,6 +158,10 @@ def forge_style_guide(request):
     return render(request, 'the_forge/forge_style_guide.html')
 
 
+def forge_how_to(request):
+    return render(request, 'the_forge/forge_how_to.html')
+
+
 # ---------- ForgedFaction CRUD ----------
 
 @forge_onboard_required

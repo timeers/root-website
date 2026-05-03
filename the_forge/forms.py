@@ -333,8 +333,8 @@ class FactionHeaderForm(forms.Form):
     )
     title_text_color = forms.ChoiceField(
         choices=FactionSheet.TitleTextColor.choices,
-        widget=forms.Select(attrs={
-            'class': 'form-select form-select-sm forge-header-title-color',
+        widget=forms.RadioSelect(attrs={
+            'class': 'btn-check forge-header-title-color',
         }),
     )
 

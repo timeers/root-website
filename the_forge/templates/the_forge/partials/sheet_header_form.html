@@ -23,8 +23,18 @@
         {{ header_form.faction_name }}
       </div>
       <div class="col-md-3">
-        <label class="form-label small mb-1" for="id_title_text_color">Title Color</label>
-        {{ header_form.title_text_color }}
+        <label class="form-label small mb-1 d-block">Title Color</label>
+        <div class="btn-group btn-group-sm w-100 forge-title-color-toggle" role="group" aria-label="Title color">
+          {% for radio in header_form.title_text_color %}
+            <input type="radio" class="btn-check" name="title_text_color"
+                   id="id_title_text_color_{{ forloop.counter0 }}"
+                   value="{{ radio.data.value }}"
+                   {% if radio.data.selected %}checked{% endif %}>
+            <label class="btn btn-outline-secondary" for="id_title_text_color_{{ forloop.counter0 }}">
+              {{ radio.choice_label }}
+            </label>
+          {% endfor %}
+        </div>
       </div>
       <div class="col-md-3">
         <label class="form-label small mb-1" for="id_header_image">Header Image</label>
@@ -54,9 +64,9 @@
     var preview = previewIn(root);
     if (!preview) return;
     var title = preview.querySelector('.forge-header-preview-title');
-    var select = root.querySelector('select[name="title_text_color"]');
-    if (!title || !select) return;
-    var mode = select.value;
+    var checked = root.querySelector('input[name="title_text_color"]:checked');
+    if (!title || !checked) return;
+    var mode = checked.value;
     var useBlack;
     if (mode === 'black') useBlack = true;
     else if (mode === 'white') useBlack = false;
@@ -78,7 +88,7 @@
     if (!t.matches) return;
     var root = rootFor(t);
     if (!root) return;
-    if (t.matches('select[name="title_text_color"]')) {
+    if (t.matches('input[name="title_text_color"]')) {
       applyTitleColor(root);
     } else if (t.matches('input[name="header_image"]')) {
       var img = root.querySelector('.forge-header-preview-image');
