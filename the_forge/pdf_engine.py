@@ -2007,6 +2007,13 @@ class StepActionFlowable(Flowable):
             descent = getattr(line, 'descent', None)
             if ascent is not None and descent is not None:
                 return ascent - descent
+            # Plain (kind=0) line: tuple (width, [words]). ReportLab collapses
+            # paragraphs with a single uniform style to this form even with
+            # autoLeading='max'. Use the paragraph's own fontSize so a header-
+            # only run reports its enlarged size, not the base style leading.
+            blp_size = getattr(para.blPara, 'fontSize', None)
+            if blp_size:
+                return blp_size
         return para.style.leading
 
     def wrap(self, availWidth, availHeight):
