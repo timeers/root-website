@@ -214,7 +214,7 @@ class PhaseStep(models.Model):
         ACTION = 'action', 'Action'
         ITEM = 'item', 'Item'
         CARD = 'card', 'Card'
-        OTHER = 'other', 'Other (custom image)'
+        OTHER = 'other', 'Other'
 
     sheet = models.ForeignKey(FactionSheet, related_name='phase_steps', on_delete=models.CASCADE)
     content_box = models.ForeignKey(ContentBox, related_name='steps', on_delete=models.CASCADE, blank=True, null=True)
@@ -344,6 +344,11 @@ class CardSlot(models.Model):
 
 
 class CardPile(models.Model):
+    class Orientation(models.TextChoices):
+        BOTTOM = 'bottom', 'Bottom'
+        LEFT = 'left', 'Left'
+        RIGHT = 'right', 'Right'
+
     sheet = models.ForeignKey(FactionSheet, related_name='card_piles', on_delete=models.CASCADE)
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=200, blank=True, null=True)
@@ -354,6 +359,11 @@ class CardPile(models.Model):
     y_h = models.FloatField(blank=True, null=True)
     x_v = models.FloatField(blank=True, null=True)
     y_v = models.FloatField(blank=True, null=True)
+
+    orientation_h = models.CharField(max_length=10, choices=Orientation.choices,
+                                     default=Orientation.BOTTOM)
+    orientation_v = models.CharField(max_length=10, choices=Orientation.choices,
+                                     default=Orientation.BOTTOM)
 
     class Meta:
         ordering = ['number']

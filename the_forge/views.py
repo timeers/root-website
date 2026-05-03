@@ -63,6 +63,12 @@ from .models import (
 )
 
 
+# Caps on per-sheet child collections that the printable layout can render.
+MAX_CARD_PILES = 5
+MAX_CARD_SLOTS = 5
+MAX_CHARACTER_IMAGES = 5
+
+
 # ---------- Helpers ----------
 
 def _faction_for(obj):
@@ -385,6 +391,7 @@ def factionsheet_preview_save(request, pk):
         for cp in sheet.card_piles.all():
             setattr(cp, f'x_{s}', None)
             setattr(cp, f'y_{s}', None)
+            setattr(cp, f'orientation_{s}', CardPile.Orientation.BOTTOM)
             cp.save()
         for ci in sheet.character_images.all():
             setattr(ci, f'x_{s}', None)
@@ -411,6 +418,9 @@ def factionsheet_preview_save(request, pk):
     for cp in sheet.card_piles.all():
         setattr(cp, f'x_{s}', parse(f'card_pile_{cp.id}_x'))
         setattr(cp, f'y_{s}', parse(f'card_pile_{cp.id}_y'))
+        raw_o = request.POST.get(f'card_pile_{cp.id}_orientation', '').strip()
+        if raw_o in CardPile.Orientation.values:
+            setattr(cp, f'orientation_{s}', raw_o)
         cp.save()
 
     for ci in sheet.character_images.all():
@@ -1454,6 +1464,8 @@ def cardslot_add(request, decree_pk):
     decree = get_object_or_404(DecreeSection, pk=decree_pk)
     if (resp := _forbid_if_not_editor(request, decree.sheet.faction)):
         return resp
+    if decree.card_slots.count() >= MAX_CARD_SLOTS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_CARD_SLOTS} card slots reached.")
     form = CardSlotForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1516,6 +1528,8 @@ def cardpile_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
+    if sheet.card_piles.count() >= MAX_CARD_PILES:
+        return HttpResponseBadRequest(f"Maximum of {MAX_CARD_PILES} card piles reached.")
     form = CardPileForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1578,6 +1592,8 @@ def character_image_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
+    if sheet.character_images.count() >= MAX_CHARACTER_IMAGES:
+        return HttpResponseBadRequest(f"Maximum of {MAX_CHARACTER_IMAGES} character images reached.")
     form = CharacterImageForm(request.POST, request.FILES)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))

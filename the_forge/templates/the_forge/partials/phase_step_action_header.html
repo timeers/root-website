@@ -29,10 +29,9 @@
     <div class="col-12 {% if step.action_type == 'action' %}col-md-6{% endif %}">
       <div class="d-flex align-items-center gap-2">
         <strong class="small text-muted">Action Type:</strong>
-        <select class="form-select form-select-sm phase-step-action-type"
+        <select class="form-select form-select-sm phase-step-action-type w-auto"
                 data-step-id="{{ step.pk }}"
-                {% if step.actions.exists %}disabled{% endif %}
-                style="max-width:11rem;">
+                {% if step.actions.exists %}disabled{% endif %}>
           {% for v,l in step.ActionType.choices %}
             <option value="{{ v }}" {% if step.action_type == v %}selected{% endif %}>{{ l }}</option>
           {% endfor %}
