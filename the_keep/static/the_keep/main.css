@@ -3650,18 +3650,17 @@ body.forge-modal-open { overflow: hidden; }
 .forge-detail-frame__box {
   position: relative;
   border: 24px solid transparent;
+  /* Default: tall/portrait container — upright Phase_Box.
+     A JS ResizeObserver on .forge-detail-frame swaps in a data-box-shape
+     attribute ("square" or "wide") to override based on the live aspect ratio. */
   border-image: url('/static/pdf/boxes/Phase_Box.svg') 30 fill / 24px / 0 stretch;
   padding: 1.25rem;
 }
-@media (min-width: 768px) {
-  .forge-detail-frame__box {
-    border-image: url('/static/pdf/boxes/Medium_Box.svg') 30 fill / 24px / 0 stretch;
-  }
+.forge-detail-frame[data-box-shape="square"] .forge-detail-frame__box {
+  border-image: url('/static/pdf/boxes/Medium_Box.svg') 30 fill / 24px / 0 stretch;
 }
-@media (min-width: 1200px) {
-  .forge-detail-frame__box {
-    border-image: url('/static/pdf/boxes/Faction_Top_Bar.svg') 30 fill / 24px / 0 stretch;
-  }
+.forge-detail-frame[data-box-shape="wide"] .forge-detail-frame__box {
+  border-image: url('/static/pdf/boxes/Phase_Box_Rotated.svg') 30 fill / 24px / 0 stretch;
 }
 .forge-detail-columns {
   display: grid;

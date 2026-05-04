@@ -35,7 +35,7 @@
       <ul class="dropdown-menu dropdown-menu-end">
         <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> Combined PDF</a></li>
         {% if sheet or back %}
-          <li><a class="dropdown-item" href="{% url 'forge-faction-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
+          <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
         {% endif %}
       </ul>
     </div>
@@ -214,6 +214,27 @@
       });
     };
     img.src = src;
+  })();
+
+  // Aspect-ratio-driven box-frame swap. Default CSS is upright Phase_Box;
+  // we set data-box-shape="square" or "wide" on the frame so CSS can pick the
+  // matching border-image. Thresholds: <0.85 portrait, 0.85–<2.0 ~square,
+  // ≥2.0 wide (rotated Phase_Box).
+  (() => {
+    const frame = document.querySelector('.forge-detail-frame');
+    if (!frame || typeof ResizeObserver === 'undefined') return;
+    const apply = () => {
+      const w = frame.clientWidth, h = frame.clientHeight;
+      if (!w || !h) return;
+      const ratio = w / h;
+      let shape = '';
+      if (ratio >= 2.0) shape = 'wide';
+      else if (ratio >= 0.85) shape = 'square';
+      if (shape) frame.dataset.boxShape = shape;
+      else delete frame.dataset.boxShape;
+    };
+    new ResizeObserver(apply).observe(frame);
+    apply();
   })();
 </script>
 <script src="{% static 'the_forge/forge_async_download.js' %}"></script>

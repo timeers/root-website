@@ -2022,7 +2022,8 @@ def forgedfaction_tts(request, pk):
         json.dumps(save_file, indent=2),
         content_type='application/json',
     )
-    filename = f'{faction.slug or faction.pk}.json'
+    safe_name = (faction.faction_name or faction.slug or str(faction.pk)).replace('"', '').replace('\\', '')
+    filename = f'{safe_name}.json'
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
 
