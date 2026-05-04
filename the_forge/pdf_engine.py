@@ -303,6 +303,7 @@ CARD_SLOT_W = 2.5 * inch
 CARD_SLOT_H = 3.46 * inch
 
 DECREE_MIN_OFFSET = 1.05 * inch  # minimum amount of decree visible on page
+DECREE_MIN_OFFSET_NO_TEXT = 0.65 * inch  # tighter minimum when section has no title/body — pulls slots up too
 DECREE_MAX_OFFSET = 4.25 * inch    # maximum amount of decree visible on page
 DECREE_TEXT_THRESHOLD = 30        # char count for small vs large text
 DECREE_TITLE_Y_OFFSET = 4.3 * inch
@@ -317,6 +318,7 @@ DECREE_SLOT_TITLE_OFFSET = 3.375 * inch  # distance from top of slot image to ti
 DECREE_TITLE_SIZE = 20                       # decree title font size
 DECREE_BODY_SIZE = 8                        # decree section body font size (italic)
 DECREE_BODY_GAP = 0.12 * inch                # vertical gap from title baseline to body baseline
+DECREE_TITLE_BODY_PAIR_LIFT = 2               # lift (pts) applied to both title and body when the section has both
 DECREE_SLOT_TITLE_SIZE = 18                  # slot title font size (Baskerville)
 DECREE_SLOT_BODY_OFFSET = 0.226 * inch        # vertical drop from slot title baseline to slot body baseline
 DECREE_SLOT_BODY_SIZE = 10                   # slot body font size (italic)
@@ -2422,7 +2424,32 @@ class SheetLayoutEngine:
                 if slot.body and len(self._wrap_slot_body(slot.body)) > 1:
                     self.decree_wrap_shift = DECREE_SLOT_WRAP_SHIFT
                     break
-        self.decree_min_offset = DECREE_MIN_OFFSET + self.decree_wrap_shift
+        # Tighten the minimum when the section has no title and no body — there's
+        # no text to keep visible, so the decree can hide further off-page.
+        # The slot row is anchored to the decree image's top (slot_y =
+        # decree_img_top - DECREE_SLOT_Y_OFFSET), so shrinking decree_slide pulls
+        # the slots up too. We don't want that — the slots should stay roughly
+        # where they'd be at the standard offset. _decree_slot_extra_drop carries
+        # the compensation: slot draw subtracts it so slots move back down.
+        self._decree_slot_extra_drop = 0.0
+        any_slot_body = bool(self.decree_section and any(
+            slot.body for slot in self.decree_section.card_slots.all()
+        ))
+        if self.decree_section and not (self.decree_section.title or self.decree_section.body):
+            base_min_offset = DECREE_MIN_OFFSET_NO_TEXT
+            full_drop = DECREE_MIN_OFFSET - DECREE_MIN_OFFSET_NO_TEXT
+            # If any slot has body text, give back vertical space below the slot
+            # so body lines don't clip past the page bottom. Wrapped bodies need
+            # an extra line-gap of headroom on top of that.
+            give_back = 0.0
+            if any_slot_body:
+                give_back += DECREE_SLOT_BODY_OFFSET
+                if self.decree_wrap_shift:
+                    give_back += DECREE_SLOT_BODY_LINE_GAP
+            self._decree_slot_extra_drop = max(0.0, full_drop - give_back)
+        else:
+            base_min_offset = DECREE_MIN_OFFSET
+        self.decree_min_offset = base_min_offset + self.decree_wrap_shift
 
         # decree_slide = how far the decree image slides down onto the page
         # (0 = fully hidden above page, draw_h = fully visible)
@@ -4796,10 +4823,8 @@ class SheetLayoutEngine:
 
     def _get_slot_image_path(self, slot, force_large_for_titled=False):
         title = slot.title or ''
-        if not title and not slot.body:
-            return os.path.join(DECREE_DIR, 'no-text.png')
         if not title:
-            return os.path.join(DECREE_DIR, 'small-text.png')
+            return os.path.join(DECREE_DIR, 'no-text.png')
         if force_large_for_titled:
             return os.path.join(DECREE_DIR, 'large-text.png')
         if len(title) < DECREE_TEXT_THRESHOLD:
@@ -4872,7 +4897,10 @@ class SheetLayoutEngine:
 
             # Decree section title + body text
             has_body = bool(self.decree_section.body)
-            base_title_y = decree_img_top - DECREE_TITLE_Y_OFFSET
+            # When both title and body are present, lift the pair slightly so
+            # they sit a bit higher in the decree band.
+            pair_lift = DECREE_TITLE_BODY_PAIR_LIFT if (self.decree_section.title and has_body) else 0
+            base_title_y = decree_img_top - DECREE_TITLE_Y_OFFSET + pair_lift
             if self.decree_section.title:
                 c.setFillColor(HexColor('#FFFFFF'))
                 c.setFont('Luminari', DECREE_TITLE_SIZE)
@@ -4890,7 +4918,7 @@ class SheetLayoutEngine:
                 gap = max((PAGE_W - n * DECREE_SLOT_W) / (n + 1), DECREE_SLOT_MIN_GAP)
                 total_w = n * DECREE_SLOT_W + (n - 1) * gap
                 start_x = (PAGE_W - total_w) / 2.0
-                slot_y = decree_img_top - DECREE_SLOT_Y_OFFSET + extra_h
+                slot_y = decree_img_top - DECREE_SLOT_Y_OFFSET + extra_h - self._decree_slot_extra_drop
 
                 any_wide_title = any(
                     slot.title and pdfmetrics.stringWidth(slot.title, 'Baskerville', DECREE_SLOT_TITLE_SIZE) > DECREE_SLOT_WIDE_TITLE_W

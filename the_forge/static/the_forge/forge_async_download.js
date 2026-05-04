@@ -83,15 +83,15 @@
         '60%{transform:translateY(0) translateX(0);}' +
         '100%{transform:translateY(34%) translateX(-6%);}' +
       '}' +
-      '.status{margin-top:1.25rem;font-size:1rem;color:#666;}' +
+      '.status{margin-bottom:1.25rem;font-size:1rem;color:#666;}' +
       '</style></head><body>' +
       '<div class="wrap">' +
+        '<p class="status">' + label + '</p>' +
         '<div class="image-container">' +
           (bg  ? '<img class="image back-image" src="' + bg  + '" alt="">' : '') +
           (vb  ? '<img class="image movement-image" src="' + vb  + '" alt="">' : '') +
           (top ? '<img class="image top-image" src="' + top + '" alt="">' : '') +
         '</div>' +
-        '<p class="status">' + label + '</p>' +
       '</div>' +
       '</body></html>'
     );

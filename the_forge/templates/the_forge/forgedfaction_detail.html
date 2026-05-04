@@ -92,7 +92,7 @@
             {% endif %}
           </div>
           {% if sheet.image_preview %}
-            <img src="{{ sheet.image_preview.url }}" alt="Front preview" class="forge-detail-preview mt-3">
+            <img src="{{ sheet.image_preview.url }}" alt="Front preview" class="forge-detail-preview zoomable mt-3" data-full="{{ sheet.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>
@@ -123,7 +123,7 @@
             {% endif %}
           </div>
           {% if back.image_preview %}
-            <img src="{{ back.image_preview.url }}" alt="Back preview" class="forge-detail-preview mt-3">
+            <img src="{{ back.image_preview.url }}" alt="Back preview" class="forge-detail-preview zoomable mt-3" data-full="{{ back.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>
@@ -154,7 +154,7 @@
             {% endif %}
           </div>
           {% if setup_card.image_preview %}
-            <img src="{{ setup_card.image_preview.url }}" alt="Adset preview" class="forge-detail-preview mt-3">
+            <img src="{{ setup_card.image_preview.url }}" alt="Adset preview" class="forge-detail-preview zoomable mt-3" data-full="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>
