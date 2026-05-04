@@ -1822,6 +1822,45 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     instance.save(update_fields=['image_preview', 'preview_fingerprint', 'last_generated'])
 
 
+def _ensure_sheet_preview(sheet):
+    """Refresh sheet.image_preview and sheet.snap_points if the fingerprint is stale.
+
+    Always runs the engine when the fingerprint is stale so that the latest
+    snap-point coordinates can be captured directly from the layout. Cached
+    PDF bytes wouldn't include snap points, so the cache is bypassed on this
+    path; the cache still serves the regular pdf-download view.
+    """
+    from io import BytesIO
+    from .pdf_engine import SheetLayoutEngine
+    from .pdf_cache import fingerprint_sheet
+    fp = fingerprint_sheet(sheet)
+    if sheet.preview_fingerprint == fp and sheet.image_preview:
+        return
+    engine = SheetLayoutEngine(sheet)
+    buffer = BytesIO()
+    engine.build(buffer)
+    data = buffer.getvalue()
+    _maybe_save_image_preview(sheet, data, fp, 'sheet')
+    sheet.snap_points = list(engine.collected_snap_points)
+    sheet.decree_slide_pts = float(engine.decree_slide or 0.0)
+    sheet.save(update_fields=['snap_points', 'decree_slide_pts'])
+
+
+def _ensure_back_preview(back):
+    from io import BytesIO
+    from .pdf_engine import FactionBackLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_back, get_or_build
+    fp = fingerprint_back(back)
+    if back.preview_fingerprint == fp and back.image_preview:
+        return
+    def build():
+        buffer = BytesIO()
+        FactionBackLayoutEngine(back).build(buffer)
+        return buffer.getvalue()
+    data = get_or_build(cache_key('back', back.pk, fp), build)
+    _maybe_save_image_preview(back, data, fp, 'back')
+
+
 @login_required
 def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
@@ -1908,18 +1947,8 @@ def factionsheet_webp(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
-    from io import BytesIO
-    from .pdf_engine import SheetLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
-    fp = fingerprint_sheet(sheet)
-    if sheet.preview_fingerprint != fp or not sheet.image_preview:
-        def build():
-            buffer = BytesIO()
-            SheetLayoutEngine(sheet).build(buffer)
-            return buffer.getvalue()
-        data = get_or_build(cache_key('sheet', sheet.pk, fp), build)
-        _maybe_save_image_preview(sheet, data, fp, 'sheet')
-        sheet.refresh_from_db()
+    _ensure_sheet_preview(sheet)
+    sheet.refresh_from_db()
     if not sheet.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
     return _webp_file_response(sheet.image_preview, f'{sheet.faction.faction_name} - Front.webp')
@@ -1949,21 +1978,53 @@ def factionback_webp(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
     if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
-    from io import BytesIO
-    from .pdf_engine import FactionBackLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_back, get_or_build
-    fp = fingerprint_back(back)
-    if back.preview_fingerprint != fp or not back.image_preview:
-        def build():
-            buffer = BytesIO()
-            FactionBackLayoutEngine(back).build(buffer)
-            return buffer.getvalue()
-        data = get_or_build(cache_key('back', back.pk, fp), build)
-        _maybe_save_image_preview(back, data, fp, 'back')
-        back.refresh_from_db()
+    _ensure_back_preview(back)
+    back.refresh_from_db()
     if not back.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
     return _webp_file_response(back.image_preview, f'{back.faction.faction_name} - Back.webp')
+
+
+@login_required
+def forgedfaction_tts(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+
+    sheet = getattr(faction, 'faction_sheet', None)
+    back = getattr(faction, 'faction_back', None)
+    if not sheet and not back:
+        return HttpResponse(
+            "No content yet — create a Front or Back first.",
+            status=404, content_type='text/plain',
+        )
+
+    if sheet:
+        _ensure_sheet_preview(sheet)
+        sheet.refresh_from_db()
+    if back:
+        _ensure_back_preview(back)
+        back.refresh_from_db()
+
+    if not (sheet and sheet.image_preview) and not (back and back.image_preview):
+        return HttpResponse(
+            "Preview unavailable.",
+            status=404, content_type='text/plain',
+        )
+
+    from .services.tts import TTSForgedFactionBoard
+    from the_keep.services.tts import wrap_tts_save
+
+    board = TTSForgedFactionBoard(faction, request=request)
+    save_file = wrap_tts_save([board.to_dict()], save_name=faction.faction_name)
+
+    response = HttpResponse(
+        json.dumps(save_file, indent=2),
+        content_type='application/json',
+    )
+    filename = f'{faction.slug or faction.pk}.json'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
 
 
 @login_required

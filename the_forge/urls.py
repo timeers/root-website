@@ -15,6 +15,7 @@ urlpatterns = [
     path('forge/faction/<int:pk>/edit/', views.forgedfaction_edit, name='forge-faction-edit'),
     path('forge/faction/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),
     path('forge/faction/<int:pk>/pdf/', views.forgedfaction_pdf, name='forge-faction-pdf'),
+    path('forge/faction/<int:pk>/tts/', views.forgedfaction_tts, name='forge-faction-tts'),
 
     # FactionSheet Front
     path('forge/faction/<int:faction_pk>/sheet/new/', views.factionsheet_create, name='forge-sheet-create'),

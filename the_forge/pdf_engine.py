@@ -35,6 +35,32 @@ pdfmetrics.registerFontFamily('Baskerville', normal='Baskerville', bold='Baskerv
 
 PAGE_W, PAGE_H = landscape(letter)  # 792 x 612 pts
 
+# TTS snap-point calibration. Maps PDF absolute coordinates (pts) to
+# Tabletop Simulator Custom_Tile local coordinates. Calibrated by hand
+# against a reference faction; tweak if the printed image's extent on
+# the rendered tile changes (e.g. tile transform / WidthScale changes).
+TTS_SNAP_SCALE = 2.59
+
+
+def pdf_to_tts_local(abs_x_pts, abs_y_pts):
+    """Convert absolute PDF coordinates (pts) to TTS Custom_Tile local (x, z).
+
+    Tile uses Transform.rotY = 180, so local-x is mirrored relative to the
+    printed image; local-z follows PDF y directly.
+    """
+    fx = abs_x_pts / PAGE_W - 0.5
+    fz_unit = 0.5 - abs_y_pts / PAGE_H
+    aspect_z = PAGE_H / PAGE_W
+    return -fx * TTS_SNAP_SCALE, fz_unit * aspect_z * TTS_SNAP_SCALE
+
+
+def pdf_y_delta_to_tts_z_delta(delta_pts):
+    """Convert a vertical PDF offset (pts, positive = downward on the printed
+    page) into the matching TTS local-z delta (positive = downward on the
+    printed face)."""
+    aspect_z = PAGE_H / PAGE_W
+    return (delta_pts / PAGE_H) * aspect_z * TTS_SNAP_SCALE
+
 
 def pdf_bytes_to_webp_bytes(pdf_bytes, dpi=150, quality=85):
     import fitz  # PyMuPDF
@@ -1019,12 +1045,13 @@ class TrackFlowable(Flowable):
     and per-slot content images with background fills.
     """
 
-    def __init__(self, track, slots, total_width, body_style, faction_color):
+    def __init__(self, track, slots, total_width, body_style, faction_color, engine=None):
         super().__init__()
         self.track = track
         self.total_width = total_width
         self.body_style = body_style
         self.faction_color = faction_color
+        self.engine = engine
 
         # Build grid: grid[row][col] = slot or None
         self.grid = {}
@@ -1304,6 +1331,11 @@ class TrackFlowable(Flowable):
                 x = self._col_x(col_idx)
                 y = self._row_y(row_idx, grid_top_y) - self._col_y_offset(col_idx)
                 self._draw_slot(c, x, y, slot)
+                if self.engine is not None:
+                    cx_local = x + self._slot_size / 2
+                    cy_local = y + self._slot_size / 2
+                    abs_x, abs_y = c.absolutePosition(cx_local, cy_local)
+                    self.engine.record_slot_snap_point(abs_x, abs_y)
 
         # --- Column headers (below) ---
         if headers_below:
@@ -2348,6 +2380,7 @@ class SheetLayoutEngine:
     def __init__(self, faction_sheet):
         self.sheet = faction_sheet
         self.faction_color = HexColor(self.sheet.faction.color or '#5B4A8A')
+        self.collected_snap_points = []
         from the_forge.models import CardboardTrack, FactionSheet, PhaseStep, StepAction
         from django.db.models import Prefetch
         if isinstance(faction_sheet, FactionSheet):
@@ -3430,7 +3463,8 @@ class SheetLayoutEngine:
                 slots = list(obj.slots.all())
                 tf = TrackFlowable(track=obj, slots=slots, total_width=avail_w,
                                    body_style=self.step_body_style,
-                                   faction_color=self.faction_color)
+                                   faction_color=self.faction_color,
+                                   engine=self)
                 _, track_h = tf.wrap(avail_w, 9999)
                 top_pad = TRACK_TITLE_GAP
                 bot_pad = TRACK_BOTTOM_PAD
@@ -3584,7 +3618,15 @@ class SheetLayoutEngine:
             'elements': elements,
         }
 
+    def record_slot_snap_point(self, abs_x_pts, abs_y_pts):
+        local_x, local_z = pdf_to_tts_local(abs_x_pts, abs_y_pts)
+        self.collected_snap_points.append({
+            "Position": {"x": local_x, "y": 0.1, "z": local_z},
+            "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+        })
+
     def build(self, output_path):
+        self.collected_snap_points = []
         if getattr(self, '_skip_drawing', False):
             c = _NoOpCanvas()
         else:
@@ -4334,6 +4376,7 @@ class SheetLayoutEngine:
                         total_width=avail_w - indent,
                         body_style=self.step_body_style,
                         faction_color=self.faction_color,
+                        engine=self,
                     )
                     if indent:
                         t = Table([['', tf]], colWidths=[indent, avail_w - indent])

@@ -149,6 +149,8 @@ class FactionSheet(models.Model):
 
     image_preview = models.ImageField(upload_to=sheet_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    snap_points = models.JSONField(default=list, blank=True)
+    decree_slide_pts = models.FloatField(default=0.0)
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
