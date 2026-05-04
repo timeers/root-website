@@ -6,7 +6,7 @@
 
 <div class="my-2 d-flex justify-content-between align-items-center">
   <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   {{ faction.faction_name }}</a>
-  <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Layout Preview</a>
+  <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Preview Layout</a>
 </div>
 
 
@@ -350,6 +350,11 @@
     </div>
   </div>
 </div>
+
+<div class="my-3 d-flex justify-content-end">
+  <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary">Preview Layout</a>
+</div>
+
 <script>
 (function () {
   if (window.__forgeCustomInlineImageBound) return;

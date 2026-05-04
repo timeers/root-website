@@ -16,11 +16,17 @@
 <div class="forge-home">
 
   <section class="forge-home-hero text-center py-5 mb-4">
-    <h1 class="root-title display-4 mb-3">The Forge</h1>
+    <h1 class="root-title display-4 mb-3">Faction Forge</h1>
+    <span class="forge-home-hero-logo d-block mx-auto mb-3"
+          style="width:5rem; height:4.5rem;
+                 background-color: currentColor;
+                 -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
+                 mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
+          aria-hidden="true"></span>
     <p class="lead mb-4">
       Design and create a custom Faction Board. 
       <br>
-      When you're ready, print your faction board as a PDF.
+      When you're ready, print your faction board as a PDF or TTS object.
     </p>
 
     {% if user.is_authenticated %}

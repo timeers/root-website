@@ -205,18 +205,20 @@ TOP_MARGIN = 0.2 * inch
 BOTTOM_MARGIN = 0.15 * inch
 
 # Bottom-right credits (pnp_version, art_by) padding from page edges.
-CREDITS_PAD_RIGHT = 0.18 * inch
+CREDITS_PAD_RIGHT = 0.6 * inch
 CREDITS_PAD_BOTTOM = 0.12 * inch
 CREDITS_FONT_SIZE = 8
 CREDITS_INTER_GAP = 0.18 * inch  # horizontal gap between art_by and pnp_version
 
 # Forge logo (bottom-right) sizing/padding. Drawn last on top of everything,
 # tinted with the faction color, then overlaid with the opposite of
-# title_text_color at FORGE_LOGO_OVERLAY_OPACITY for a softened tint.
-FORGE_LOGO_W = 0.45 * inch
+# title_text_color. Both passes are drawn at low opacity so the logo reads
+# as a soft watermark instead of an opaque stamp.
+FORGE_LOGO_W = 0.2 * inch
 FORGE_LOGO_PAD_RIGHT = 0.12 * inch
 FORGE_LOGO_PAD_BOTTOM = 0.08 * inch
-FORGE_LOGO_OVERLAY_OPACITY = 0.70  # mirrors BACK_BG_SCREEN_OPACITY
+FORGE_LOGO_BASE_OPACITY = 0.35     # alpha for the faction-color pass
+FORGE_LOGO_OVERLAY_OPACITY = 0.2  # alpha for the opposite-color overlay
 
 BODY_W = PAGE_W - (X_MARGIN * 2)
 
@@ -5012,11 +5014,30 @@ class SheetLayoutEngine:
                 text_color=self.ink_on_faction_hex,
             )
 
+    def _apply_drawing_opacity(self, drawing, alpha):
+        """Walk an svglib-parsed Drawing and stamp fillOpacity/strokeOpacity on
+        every shape. ReportLab's canvas-level setFillAlpha doesn't propagate
+        into renderPDF.draw because the Drawing emits its own paint-state
+        directives — baking opacity into shape attributes is what actually
+        affects the rendered output."""
+        from reportlab.graphics.shapes import Group
+        def walk(node):
+            if hasattr(node, 'fillOpacity'):
+                node.fillOpacity = alpha
+            if hasattr(node, 'strokeOpacity'):
+                node.strokeOpacity = alpha
+            contents = getattr(node, 'contents', None)
+            if contents:
+                for child in contents:
+                    walk(child)
+        walk(drawing)
+
     def _draw_forge_logo(self, c):
         """Stamp the Forge logo in the bottom-right corner. First pass uses the
         faction color; second pass overlays the same SVG in the opposite of the
-        title-text color at FORGE_LOGO_OVERLAY_OPACITY to soften/tint the
-        result. Called last in build() so the logo sits on top of everything."""
+        title-text color. Both passes are baked at low opacity so the logo
+        reads as a soft watermark. Called last in build() so the logo sits on
+        top of everything."""
         if not os.path.exists(FORGE_LOGO_SVG):
             return
         faction_hex = self.sheet.faction.color or '#5B4A8A'
@@ -5032,6 +5053,7 @@ class SheetLayoutEngine:
         base_drawing.width = FORGE_LOGO_W
         base_drawing.height = target_h
         base_drawing.scale(scale, scale)
+        self._apply_drawing_opacity(base_drawing, FORGE_LOGO_BASE_OPACITY)
 
         x = PAGE_W - FORGE_LOGO_PAD_RIGHT - FORGE_LOGO_W
         y = FORGE_LOGO_PAD_BOTTOM
@@ -5043,11 +5065,8 @@ class SheetLayoutEngine:
         overlay.width = FORGE_LOGO_W
         overlay.height = target_h
         overlay.scale(scale, scale)
-        c.saveState()
-        c.setFillAlpha(FORGE_LOGO_OVERLAY_OPACITY)
-        c.setStrokeAlpha(FORGE_LOGO_OVERLAY_OPACITY)
+        self._apply_drawing_opacity(overlay, FORGE_LOGO_OVERLAY_OPACITY)
         renderPDF.draw(overlay, c, x, y)
-        c.restoreState()
 
     def _draw_character_images(self, c, in_front=False):
         """Render decorative CharacterImages.
