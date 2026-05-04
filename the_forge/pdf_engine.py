@@ -1,5 +1,6 @@
 # pdf_engine.py
 
+import hashlib
 import logging
 import os
 import re
@@ -91,6 +92,31 @@ def _drawOn_skip_on_noop(self, canvas, x, y, _sW=0):
 Flowable.drawOn = _drawOn_skip_on_noop
 
 
+_TILE_DPI = 150  # px-per-inch the resized tile is rasterized at (150/72 ≈ 2.08 px/pt)
+
+
+def _prepare_tile_image(src_path, draw_w_pt, draw_h_pt):
+    """Resize src once to the target tile pixel size at _TILE_DPI and cache by
+    content hash + dims. ReportLab embeds an image asset once per file path and
+    references it elsewhere, so reusing a single small file across many drawImage
+    calls keeps the PDF small even when tiling densely."""
+    from PIL import Image as PILImage
+    target_px_w = max(1, int(round(draw_w_pt * _TILE_DPI / 72)))
+    target_px_h = max(1, int(round(draw_h_pt * _TILE_DPI / 72)))
+    with open(src_path, 'rb') as f:
+        digest = hashlib.md5(f.read()).hexdigest()[:12]
+    cache_dir = os.path.join(tempfile.gettempdir(), 'forge_tiles')
+    os.makedirs(cache_dir, exist_ok=True)
+    out_path = os.path.join(cache_dir, f'{digest}_{target_px_w}x{target_px_h}.png')
+    if not os.path.exists(out_path):
+        with PILImage.open(src_path) as im:
+            mode = 'RGBA' if im.mode in ('P', 'LA', 'RGBA') else 'RGB'
+            im = im.convert(mode)
+            im.thumbnail((target_px_w, target_px_h), PILImage.LANCZOS)
+            im.save(out_path, optimize=True)
+    return out_path
+
+
 def draw_faction_background(c, faction):
     """Fill the page with the faction's background.
 
@@ -116,7 +142,8 @@ def draw_faction_background(c, faction):
     iw, ih = img_reader.getSize()
 
     if getattr(faction, 'repeat_background_image', False):
-        max_h = PAGE_H / 3
+        pct = max(5, min(50, int(getattr(faction, 'background_tile_size', 33) or 33))) / 100.0
+        max_h = PAGE_H * pct
         if ih > max_h:
             scale = max_h / ih
             draw_w = iw * scale
@@ -124,13 +151,17 @@ def draw_faction_background(c, faction):
         else:
             draw_w = iw
             draw_h = ih
+        try:
+            tile_path = _prepare_tile_image(img_path, draw_w, draw_h)
+        except Exception:
+            tile_path = img_path
         row = 0
         y = PAGE_H - draw_h
         while y > -draw_h:
             x_offset = -(draw_w / 2) if row % 2 == 1 else 0
             x = x_offset
             while x < PAGE_W:
-                c.drawImage(img_path, x, y, width=draw_w, height=draw_h)
+                c.drawImage(tile_path, x, y, width=draw_w, height=draw_h)
                 x += draw_w
             y -= draw_h
             row += 1

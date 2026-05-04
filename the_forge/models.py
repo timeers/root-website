@@ -12,6 +12,10 @@ from .services.upload_paths import (
 )
 
 class ForgedFaction(models.Model):
+    BACKGROUND_TILE_SIZE_MIN = 10
+    BACKGROUND_TILE_SIZE_MAX = 33
+    BACKGROUND_TILE_SIZE_DEFAULT = 33
+
     class BackgroundPreset(models.TextChoices):
         NONE = '', '---'
         CATS = 'cats', 'Marquise de Cat'
@@ -63,6 +67,14 @@ class ForgedFaction(models.Model):
     )
     background_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
     repeat_background_image = models.BooleanField(default=False)
+    background_tile_size = models.PositiveSmallIntegerField(
+        default=BACKGROUND_TILE_SIZE_DEFAULT,
+        validators=[
+            MinValueValidator(BACKGROUND_TILE_SIZE_MIN),
+            MaxValueValidator(BACKGROUND_TILE_SIZE_MAX),
+        ],
+        help_text="Tile height as a percentage of page height (only used when repeating).",
+    )
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)

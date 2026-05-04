@@ -47,6 +47,19 @@ class ForgedFactionForm(forms.ModelForm):
     BG_MODE_CUSTOM = 'custom'
     BG_MODE_PRESET = 'preset'
 
+    background_tile_size = forms.IntegerField(
+        min_value=ForgedFaction.BACKGROUND_TILE_SIZE_MIN,
+        max_value=ForgedFaction.BACKGROUND_TILE_SIZE_MAX,
+        initial=ForgedFaction.BACKGROUND_TILE_SIZE_DEFAULT,
+        widget=forms.NumberInput(attrs={
+            'type': 'range',
+            'min': ForgedFaction.BACKGROUND_TILE_SIZE_MIN,
+            'max': ForgedFaction.BACKGROUND_TILE_SIZE_MAX,
+            'step': 1,
+            'class': 'form-range',
+        }),
+    )
+
     class Meta:
         model = ForgedFaction
         fields = [
@@ -55,6 +68,7 @@ class ForgedFactionForm(forms.ModelForm):
             'background_preset',
             'background_image',
             'repeat_background_image',
+            'background_tile_size',
         ]
         widgets = {
             'faction_name': forms.TextInput(attrs={
@@ -66,6 +80,15 @@ class ForgedFactionForm(forms.ModelForm):
                 'class': 'form-control form-control-color forge-color-swatch',
             }),
         }
+
+    def clean_background_tile_size(self):
+        raw = self.cleaned_data.get('background_tile_size')
+        if raw is None:
+            return ForgedFaction.BACKGROUND_TILE_SIZE_DEFAULT
+        return max(
+            ForgedFaction.BACKGROUND_TILE_SIZE_MIN,
+            min(ForgedFaction.BACKGROUND_TILE_SIZE_MAX, int(raw)),
+        )
 
     def clean(self):
         cleaned = super().clean()
