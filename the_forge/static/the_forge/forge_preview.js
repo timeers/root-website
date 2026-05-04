@@ -266,6 +266,10 @@
         }
         break;
       }
+      case 'credit':
+        if (el.label) div.textContent = el.label;
+        if (el.text_color) div.style.color = el.text_color;
+        break;
     }
   }
 

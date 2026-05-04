@@ -26,12 +26,14 @@ def _fingerprint(sheet, layout_mode):
                   sheet.include_crafted_items, sheet.include_decree,
                   sheet.flavor_text or '',
                   str(sheet.header_image) if sheet.header_image else '',
+                  sheet.title_text_color,
                   sheet.phase_box_x_h, sheet.phase_box_y_h, sheet.phase_box_w_h, sheet.phase_box_h_h,
                   sheet.phase_box_x_v, sheet.phase_box_y_v, sheet.phase_box_w_v, sheet.phase_box_h_v,
                   sheet.decree_y_h, sheet.decree_y_v))
 
     f = sheet.faction
-    parts.append(('faction', f.pk, f.faction_name or '', f.color or ''))
+    parts.append(('faction', f.pk, f.faction_name or '', f.color or '',
+                  f.pnp_version or '', f.art_by or ''))
 
     for a in sheet.abilities.order_by('order').values_list('id', 'order', 'title', 'body'):
         parts.append(('ability',) + a)

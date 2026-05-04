@@ -76,6 +76,9 @@ class ForgedFaction(models.Model):
         help_text="Tile height as a percentage of page height (only used when repeating).",
     )
 
+    pnp_version = models.CharField(max_length=100, null=True, blank=True)
+    art_by = models.CharField(max_length=100, null=True, blank=True)
+
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 

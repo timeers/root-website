@@ -204,6 +204,20 @@ X_MARGIN = 0.25 * inch
 TOP_MARGIN = 0.2 * inch
 BOTTOM_MARGIN = 0.15 * inch
 
+# Bottom-right credits (pnp_version, art_by) padding from page edges.
+CREDITS_PAD_RIGHT = 0.18 * inch
+CREDITS_PAD_BOTTOM = 0.12 * inch
+CREDITS_FONT_SIZE = 8
+CREDITS_INTER_GAP = 0.18 * inch  # horizontal gap between art_by and pnp_version
+
+# Forge logo (bottom-right) sizing/padding. Drawn last on top of everything,
+# tinted with the faction color, then overlaid with the opposite of
+# title_text_color at FORGE_LOGO_OVERLAY_OPACITY for a softened tint.
+FORGE_LOGO_W = 0.45 * inch
+FORGE_LOGO_PAD_RIGHT = 0.12 * inch
+FORGE_LOGO_PAD_BOTTOM = 0.08 * inch
+FORGE_LOGO_OVERLAY_OPACITY = 0.70  # mirrors BACK_BG_SCREEN_OPACITY
+
 BODY_W = PAGE_W - (X_MARGIN * 2)
 
 TITLE_BAR_H = 0.6 * inch
@@ -484,6 +498,8 @@ MAX_ACTIONS_PER_ROW = 4           # max actions packed on one line
 MIN_CARD_ICON_W = ACTION_CARD_H * (486 / 673)  # ~17.52 pts
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
+FORGE_STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static', 'the_forge')
+FORGE_LOGO_SVG = os.path.join(FORGE_STATIC_DIR, 'Forge_Logo.svg')
 
 ABILITY_BERRY_SVG = os.path.join(STATIC_DIR, 'pdf/svg/ability_berry.svg')
 PHASE_NUMBER_SVG_DIR = os.path.join(STATIC_DIR, 'pdf/svg')
@@ -3680,6 +3696,8 @@ class SheetLayoutEngine:
 
         self._draw_card_piles(c)
         self._draw_character_images(c, in_front=True)
+        self._draw_credits(c)
+        self._draw_forge_logo(c)
 
         c.save()
 
@@ -4952,6 +4970,84 @@ class SheetLayoutEngine:
                                          x=x, y=slot_y,
                                          w=DECREE_SLOT_W, h=DECREE_SLOT_H,
                                          title=slot.title or '')
+
+    def _draw_credits(self, c):
+        """Render PnP version and art-by credits in the bottom-right corner on a
+        single line: "Art by <name>   Version: <ver>" — art_by sits to the left
+        of pnp_version separated by a small gap. Font color matches the
+        title-text-color calculation (self.ink_on_faction). Skips silently when
+        both fields are empty.
+
+        Also records each credit string as a layout element ("credit") so the
+        preview canvas can show them at the same relative position. Records use
+        the right-edge-of-string anchor: x = right edge minus string width."""
+        faction = self.sheet.faction
+        pnp = (getattr(faction, 'pnp_version', '') or '').strip()
+        art = (getattr(faction, 'art_by', '') or '').strip()
+        if not pnp and not art:
+            return
+        c.setFillColor(self.ink_on_faction)
+        c.setFont('Baskerville', CREDITS_FONT_SIZE)
+        x_right = PAGE_W - CREDITS_PAD_RIGHT
+        y = CREDITS_PAD_BOTTOM
+        pnp_text = f'Version: {pnp}' if pnp else ''
+        art_text = f'Art by {art}' if art else ''
+        pnp_w = pdfmetrics.stringWidth(pnp_text, 'Baskerville', CREDITS_FONT_SIZE) if pnp_text else 0
+        art_w = pdfmetrics.stringWidth(art_text, 'Baskerville', CREDITS_FONT_SIZE) if art_text else 0
+        # Approximate text height for layout-record bounding box.
+        text_h = CREDITS_FONT_SIZE * 1.2
+        if pnp_text:
+            c.drawRightString(x_right, y, pnp_text)
+            self._record_element(
+                kind='credit', label=pnp_text,
+                x=x_right - pnp_w, y=y, w=pnp_w, h=text_h,
+                text_color=self.ink_on_faction_hex,
+            )
+        if art_text:
+            art_right = x_right - pnp_w - CREDITS_INTER_GAP if pnp_text else x_right
+            c.drawRightString(art_right, y, art_text)
+            self._record_element(
+                kind='credit', label=art_text,
+                x=art_right - art_w, y=y, w=art_w, h=text_h,
+                text_color=self.ink_on_faction_hex,
+            )
+
+    def _draw_forge_logo(self, c):
+        """Stamp the Forge logo in the bottom-right corner. First pass uses the
+        faction color; second pass overlays the same SVG in the opposite of the
+        title-text color at FORGE_LOGO_OVERLAY_OPACITY to soften/tint the
+        result. Called last in build() so the logo sits on top of everything."""
+        if not os.path.exists(FORGE_LOGO_SVG):
+            return
+        faction_hex = self.sheet.faction.color or '#5B4A8A'
+        # Opposite of the title-text color: white when ink is black, black
+        # when ink is white. Anything else falls back to white.
+        opposite_hex = '#FFFFFF' if self.ink_on_faction_hex.upper() == '#000000' else '#000000'
+
+        base_drawing = self._load_colored_svg(FORGE_LOGO_SVG, faction_hex)
+        if base_drawing is None:
+            return
+        scale = FORGE_LOGO_W / base_drawing.width
+        target_h = base_drawing.height * scale
+        base_drawing.width = FORGE_LOGO_W
+        base_drawing.height = target_h
+        base_drawing.scale(scale, scale)
+
+        x = PAGE_W - FORGE_LOGO_PAD_RIGHT - FORGE_LOGO_W
+        y = FORGE_LOGO_PAD_BOTTOM
+        renderPDF.draw(base_drawing, c, x, y)
+
+        overlay = self._load_colored_svg(FORGE_LOGO_SVG, opposite_hex)
+        if overlay is None:
+            return
+        overlay.width = FORGE_LOGO_W
+        overlay.height = target_h
+        overlay.scale(scale, scale)
+        c.saveState()
+        c.setFillAlpha(FORGE_LOGO_OVERLAY_OPACITY)
+        c.setStrokeAlpha(FORGE_LOGO_OVERLAY_OPACITY)
+        renderPDF.draw(overlay, c, x, y)
+        c.restoreState()
 
     def _draw_character_images(self, c, in_front=False):
         """Render decorative CharacterImages.

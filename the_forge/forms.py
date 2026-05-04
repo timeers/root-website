@@ -365,19 +365,40 @@ class FactionHeaderForm(forms.Form):
             'class': 'btn-check forge-header-title-color',
         }),
     )
+    pnp_version = forms.CharField(
+        required=False,
+        max_length=100,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Version #...',
+        }),
+    )
+    art_by = forms.CharField(
+        required=False,
+        max_length=100,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Artists...',
+        }),
+    )
 
     def __init__(self, *args, sheet=None, **kwargs):
         self.sheet = sheet
         super().__init__(*args, **kwargs)
         if sheet is not None and not self.is_bound:
-            self.fields['faction_name'].initial = sheet.faction.faction_name
+            faction = sheet.faction
+            self.fields['faction_name'].initial = faction.faction_name
             self.fields['title_text_color'].initial = sheet.title_text_color
+            self.fields['pnp_version'].initial = faction.pnp_version or ''
+            self.fields['art_by'].initial = faction.art_by or ''
 
     def save(self):
         sheet = self.sheet
         faction = sheet.faction
         faction.faction_name = self.cleaned_data['faction_name']
-        faction.save(update_fields=['faction_name'])
+        faction.pnp_version = self.cleaned_data.get('pnp_version') or None
+        faction.art_by = self.cleaned_data.get('art_by') or None
+        faction.save(update_fields=['faction_name', 'pnp_version', 'art_by'])
         sheet.title_text_color = self.cleaned_data['title_text_color']
         update_fields = ['title_text_color']
         new_img = self.cleaned_data.get('header_image')
