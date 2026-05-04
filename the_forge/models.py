@@ -79,6 +79,9 @@ class ForgedFaction(models.Model):
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 
+    def __str__(self):
+        return self.faction_name
+
     def get_background_path(self):
         if self.background_preset:
             import os
@@ -150,6 +153,9 @@ class FactionSheet(models.Model):
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 
+    def __str__(self):
+        return f'{self.faction.faction_name} Front'
+
     def clean(self):
         from django.core.exceptions import ValidationError
         if not self.faction.background_preset and not self.faction.background_image:
@@ -219,6 +225,7 @@ class CustomInlineImage(models.Model):
     )
     name = models.CharField(max_length=40)
     image = models.ImageField(upload_to=faction_upload_path)
+    card_icon = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['slot']
@@ -229,6 +236,10 @@ class CustomInlineImage(models.Model):
     @property
     def keyword(self):
         return f'custom_image_{self.slot}'
+
+    @property
+    def cost_keyword(self):
+        return f'card_custom_image_{self.slot}'
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -332,7 +343,11 @@ class PhaseStep(models.Model):
         if self.action_type == self.ActionType.ITEM:
             return [(c.value, c.label) for c in StepAction.CostChoices if c.value.startswith('item_')]
         if self.action_type == self.ActionType.CARD:
-            return [(c.value, c.label) for c in StepAction.CostChoices if c.value.startswith('card_')]
+            choices = [(c.value, c.label) for c in StepAction.CostChoices if c.value.startswith('card_')]
+            for ci in self.sheet.custom_inline_images.filter(card_icon=True).order_by('slot'):
+                if ci.image:
+                    choices.append((ci.cost_keyword, ci.name))
+            return choices
         return [(StepAction.CostChoices.OTHER.value, StepAction.CostChoices.OTHER.label)]
 
     def cost_choices_with(self, current_value):
@@ -341,8 +356,14 @@ class PhaseStep(models.Model):
         cost that doesn't match the step's current action_type."""
         choices = list(self.allowed_cost_choices())
         if current_value and not any(v == current_value for v, _ in choices):
-            label = dict(StepAction.CostChoices.choices).get(current_value, current_value)
-            choices.append((current_value, label))
+            label = dict(StepAction.CostChoices.choices).get(current_value)
+            if label is None and current_value.startswith('card_custom_image_'):
+                slot_str = current_value[len('card_custom_image_'):]
+                if slot_str.isdigit():
+                    ci = self.sheet.custom_inline_images.filter(slot=int(slot_str)).first()
+                    if ci:
+                        label = ci.name
+            choices.append((current_value, label or current_value))
         return choices
 
     def clean(self):
@@ -398,7 +419,7 @@ class StepAction(models.Model):
     step = models.ForeignKey(PhaseStep, related_name='actions', on_delete=models.CASCADE)
     order = models.PositiveIntegerField()
     text = models.TextField()
-    cost = models.CharField(max_length=20, choices=CostChoices.choices, default=CostChoices.ACTION)
+    cost = models.CharField(max_length=20, default=CostChoices.ACTION)
     cost_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 
     def clean(self):
@@ -617,6 +638,9 @@ class FactionBack(models.Model):
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 
+    def __str__(self):
+        return f'{self.faction.faction_name} Back'
+
     def save(self, *args, **kwargs):
         new = self.pk is None
         if self.pk:
@@ -680,6 +704,9 @@ class SetupCard(models.Model):
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f'{self.faction.faction_name} Adset'
 
     def save(self, *args, **kwargs):
         new = self.pk is None

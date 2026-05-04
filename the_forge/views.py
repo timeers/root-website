@@ -211,11 +211,11 @@ def forge_home(request):
     })
 
 
-def forge_style_guide(request):
+def forge_element_guide(request):
     if request.user.is_authenticated:
         send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed The Forge Style Guide')
 
-    return render(request, 'the_forge/forge_style_guide.html')
+    return render(request, 'the_forge/forge_element_guide.html')
 
 
 def forge_how_to(request):
@@ -1091,6 +1091,9 @@ def stepaction_edit(request, pk):
     form = StepActionForm(request.POST, request.FILES, instance=action)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
+    cost = form.cleaned_data.get('cost')
+    if cost not in {v for v, _ in action.step.cost_choices_with(action.cost)}:
+        return HttpResponseBadRequest(f"Cost '{cost}' is not allowed for this step's action_type.")
     form.save()
     ensure_step_parent_fits(action.step)
     return render(request, 'the_forge/partials/step_action_row.html', {

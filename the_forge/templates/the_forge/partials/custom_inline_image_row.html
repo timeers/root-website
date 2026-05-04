@@ -17,6 +17,11 @@
              style="max-width:220px;">
       <img class="forge-custom-inline-image-preview" alt="" hidden
            style="max-height:32px;max-width:32px;">
+      <div class="form-check m-0" title="Allow this icon to be selected as a card action cost.">
+        <input type="checkbox" name="card_icon" value="on" id="card_icon_{{ ci.pk }}"
+               class="form-check-input" {% if ci.card_icon %}checked{% endif %}>
+        <label class="form-check-label small" for="card_icon_{{ ci.pk }}">Action Card</label>
+      </div>
       <div class="ms-auto d-flex gap-2">
         <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
       </div>

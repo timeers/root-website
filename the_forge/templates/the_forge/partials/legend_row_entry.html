@@ -42,7 +42,7 @@
       </div>
       <div class="legend-entry__right flex-grow-1" style="min-width:0;">
         <div class="forge-rich-text">
-          <textarea name="body" class="form-control" rows="3" placeholder="Description…">{{ row.body }}</textarea>
+          <textarea name="body" class="form-control" rows="3" placeholder="Description…" data-required>{{ row.body }}</textarea>
           <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
             {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
             <div class="ms-auto d-flex gap-2">

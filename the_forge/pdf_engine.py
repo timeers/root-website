@@ -2619,6 +2619,9 @@ class SheetLayoutEngine:
             else:
                 drawing, draw_w, draw_h = self._get_meeple_action_icon()
                 return None, drawing, draw_w, draw_h
+        elif cost.startswith('card_custom_image_'):
+            inline_keyword = cost[len('card_'):]  # strip routing prefix → 'custom_image_<n>'
+            icon_path = _inline_image_path(inline_keyword, sheet=action.step.sheet)
         else:
             icon_path = _cost_icon_path(cost)
 

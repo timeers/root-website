@@ -6,20 +6,23 @@
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
 <meta property="og:image" content="{% static 'images/workshop-icon.png' %}">
 <meta property="og:site_name" content="Root Database">
-<meta property="og:title" content="Root Style Guide">
+<meta property="og:title" content="Root Element Guide">
 <meta property="og:description" content="Reference for the elements, fonts, and conventions used to build a Root faction board in the Forge.">
 <meta name="description" content="Reference for the elements, fonts, and conventions used to build a Root faction board in the Forge.">
 {% endblock meta %}
 
 {% block content %}
-<div class="forge-style-guide mt-2">
+<div class="forge-element-guide mt-2">
 
   <a href="{% url 'forge-home' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>  The Forge</a>
 
-  <section class="forge-style-guide-hero text-center py-5 mb-4">
-    <h1 class="root-title display-4 mb-3">Forge Style Guide</h1>
+  <section class="forge-element-guide-hero text-center py-5 mb-4">
+    <h1 class="root-title display-4 mb-3">Forge Element Guide</h1>
     <p class="lead mb-3">
       A reference for the elements, fonts, and conventions used to build a faction board.
+    </p>
+    <p class="text-muted mb-0">
+      Looking for a walkthrough of the Forge's features? See <a href="{% url 'forge-how-to' %}">How To Use the Forge</a>.
     </p>
   </section>
 
@@ -259,6 +262,16 @@
           {# Image: character_art.png #}
           <img src="{% static 'the_forge/img/style_guide/character_art.png' %}"
                alt="Character image example" class="img-fluid mb-2">
+        </div>
+      </div>
+      {# ---------- Inline Icons ---------- #}
+      <div class="col-md-6">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Inline Icons</h4>
+          <p class="text-muted small mb-2">Icons that can be inserted between words in most places.</p>
+
+          <img src="{% static 'the_forge/img/style_guide/inline_selector.png' %}"
+               alt="Icon selector" class="img-fluid mb-2">
         </div>
       </div>
     </div>

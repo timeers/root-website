@@ -5,6 +5,7 @@ from .models import (
     FactionSheet,
     FactionAbility,
     ContentBox,
+    CustomInlineImage,
     PhaseStep,
     StepAction,
     DecreeSection,
@@ -91,6 +92,13 @@ class ContentBoxInline(admin.TabularInline):
     show_change_link = True
 
 
+class CustomInlineImageInline(admin.TabularInline):
+    model = CustomInlineImage
+    extra = 0
+    fields = ('slot', 'name', 'image')
+    ordering = ('slot',)
+
+
 class PhaseStepInline(admin.TabularInline):
     model = PhaseStep
     extra = 0
@@ -144,7 +152,15 @@ class ForgedFactionAdmin(admin.ModelAdmin):
 class FactionSheetAdmin(admin.ModelAdmin):
     list_display = ('faction', 'layout_mode', 'include_crafted_items')
     list_filter = ('layout_mode',)
-    inlines = [FactionAbilityInline, ContentBoxInline, PhaseStepInline, CardPileInline]
+    inlines = [FactionAbilityInline, ContentBoxInline, PhaseStepInline, CardPileInline, CustomInlineImageInline]
+
+
+@admin.register(CustomInlineImage)
+class CustomInlineImageAdmin(admin.ModelAdmin):
+    list_display = ('sheet', 'slot', 'name', 'image')
+    list_filter = ('sheet',)
+    search_fields = ('name', 'sheet__faction__faction_name')
+    ordering = ('sheet', 'slot')
 
 
 @admin.register(PhaseStep)

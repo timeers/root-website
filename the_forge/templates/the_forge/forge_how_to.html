@@ -22,7 +22,7 @@
       A step-by-step walkthrough for designing and exporting a faction board.
     </p>
     <p class="text-muted mb-0">
-      Looking for visual reference instead? See the <a href="{% url 'forge-style-guide' %}">Style Guide</a>.
+      Looking for visual reference instead? See the <a href="{% url 'forge-element-guide' %}">Forge Element Guide</a>.
     </p>
   </section>
 
@@ -114,11 +114,10 @@
 
       <div class="col-12">
         <div class="card h-100 p-3">
-          <h4 class="root-title mb-2">Tiled vs. Cover Layout</h4>
+          <h4 class="root-title mb-2">Cover vs. Tile Layout</h4>
           <p class="text-muted small mb-2">
-            When you upload a custom background, choose between <strong>tiled</strong> (the image
-            repeats across the board) or <strong>cover</strong> (the image scales to fill the
-            whole board). Tiled works well for repeating patterns. If you want your pattern to repeat more, reduce the size of your uploaded image. Patterns will always tile in at least 3 rows and increase as the image size decreases.
+            When you upload a custom background, choose between <strong>cover</strong> (the image scales to fill the
+            whole board) or <strong>tiled</strong> (the image repeats across the board). Tiled works well for repeating patterns. Use the built in slider to adjust how much your background repeats. The minimum number of rows is 3 and the maximum is 10.
           </p>
           <img src="{% static 'the_forge/img/how_to/background_tile_vs_cover.png' %}"
                alt="Tiled vs cover background comparison" class="img-fluid mb-2">
@@ -442,7 +441,7 @@
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Boxes</h4>
           <p class="text-muted small mb-2">
-            Boxes hold meeples or items (the Vagabond's Satchel, the Warm Alliance's Officers,
+            Boxes hold meeples or items (the Vagabond's Satchel, the Woodland Alliance's Officers,
             and the Riverfolk's Funds). Choose from 3 heights and add a title and optional body
             text. Body text is typically italicized.
           </p>
@@ -455,8 +454,8 @@
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Legends</h4>
           <p class="text-muted small mb-2">
-            Legends define pieces or terms (similar to the Corvids' Plots section). Each row needs a title plus either an icon or a
-            description. Useful when your faction has a lot of distinct pieces the player needs to reference.
+            Legends define pieces or terms (similar to the Corvids' Plots section). Each row requires a title and description text with the option of adding an icon or image.
+            Choose an icon from the icon picker or upload your own image. Useful when your faction has many distinct pieces to reference.
           </p>
           <img src="{% static 'the_forge/img/how_to/section_legend.png' %}"
                alt="Legend section with piece icons and descriptions" class="img-fluid mb-2">
@@ -568,9 +567,29 @@
   </section>
 
 
-  {# ==================== Section 9: Layout Editor ==================== #}
+    <section class="mb-5">
+    <h2 class="root-title mb-3">9. Add Your Own Icons</h2>
+    <div class="row g-3 mb-4">
+
+      <div class="col-md-12">
+        <div class="card h-100 p-3">
+          {% comment %} <h4 class="root-title mb-2">Card Piles</h4> {% endcomment %}
+          <p class="text-muted small mb-2">
+            You can add up to 10 custom inline icons that can be used throughout the faciton board. 
+            If you have a faction specific icon that you want to include next to text you should register it here.
+            Choosing "Card Action" adds the icon to the Card Action list, allowing you to <em>Spend</em> or <em>Reveal</em> that card as an action cost.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/custom_icons.png' %}"
+               alt="Custom Icons" class="img-fluid mb-2">
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  {# ==================== Section 10: Layout Editor ==================== #}
   <section class="mb-5">
-    <h2 class="root-title mb-3">9. Layout Editor</h2>
+    <h2 class="root-title mb-3">10. Layout Editor</h2>
     <p class="text-muted mb-4">
       Once your faction board is saved you can fine-tune its layout. Head to the layout page to
       reorganize and resize elements.
@@ -640,9 +659,9 @@
     </div>
   </section>
 
-  {# ==================== Section 10: Download ==================== #}
+  {# ==================== Section 11: Download ==================== #}
   <section class="mb-5">
-    <h2 class="root-title mb-3">10. Download Your Faction Board</h2>
+    <h2 class="root-title mb-3">11. Download Your Faction Board</h2>
     <p class="text-muted mb-4">
       When you're happy with the layout, download your board. The download generates the file on
       the server and can take several seconds. Be patient. If it takes longer than 15 seconds,

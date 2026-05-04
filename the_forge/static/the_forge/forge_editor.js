@@ -1696,6 +1696,21 @@
     }
   });
 
+  // Close any open single-icon picker (LegendRow "Choose icon") when the user
+  // clicks outside the picker and its toggle button. Rich-text-editor pickers
+  // close via the focusout handler above instead.
+  document.addEventListener('click', (ev) => {
+    const target = ev.target;
+    if (target.closest('[data-forge-icon-picker]')) return;
+    if (target.closest('[data-forge-icon-toggle]')) return;
+    document.querySelectorAll(
+      'form[data-forge-icon-single] [data-forge-icon-picker]:not([hidden])'
+    ).forEach((picker) => {
+      const form = pickerFormFor(picker);
+      if (form) hidePicker(form);
+    });
+  });
+
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('.forge-icon-picker__btn');
     if (!btn) return;

@@ -221,12 +221,16 @@ class PhaseStepForm(forms.ModelForm):
 
 
 class StepActionForm(forms.ModelForm):
+    cost = forms.CharField(
+        max_length=20,
+        widget=forms.Select(attrs={'class': 'form-select form-select-sm'}),
+    )
+
     class Meta:
         model = StepAction
         fields = ['text', 'cost', 'cost_image']
         widgets = {
             'text': RichTextarea(attrs={'rows': 3}),
-            'cost': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'cost_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }
 
@@ -508,7 +512,7 @@ CUSTOM_INLINE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 class CustomInlineImageForm(forms.ModelForm):
     class Meta:
         model = CustomInlineImage
-        fields = ['name', 'image']
+        fields = ['name', 'image', 'card_icon']
         widgets = {
             'name': forms.TextInput(attrs={
                 'class': 'form-control form-control-sm',
@@ -519,6 +523,9 @@ class CustomInlineImageForm(forms.ModelForm):
             'image': forms.ClearableFileInput(attrs={
                 'class': 'form-control form-control-sm',
                 'accept': 'image/png,image/jpeg,image/webp,image/gif',
+            }),
+            'card_icon': forms.CheckboxInput(attrs={
+                'class': 'form-check-input',
             }),
         }
 
