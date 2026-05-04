@@ -5015,6 +5015,15 @@ class SheetLayoutEngine:
             x_min=-slack_in,
             x_max=(page_w_in - slot_h_in) + slack_in,
         )
+        # World footprint is rotated for left/right orientation (H wide × W tall);
+        # upright is W wide × H tall.
+        if orientation in ('left', 'right'):
+            cx = x + CARD_SLOT_H / 2
+            cy = y + CARD_SLOT_W / 2
+        else:
+            cx = x + CARD_SLOT_W / 2
+            cy = y + CARD_SLOT_H / 2
+        self.record_slot_snap_point(cx, cy)
 
     def _draw_card_piles(self, c):
         if not self.card_piles:
