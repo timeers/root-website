@@ -232,7 +232,10 @@
 
 <!-- Card Piles -->
 <div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Card Piles</h4>
+  <div class="d-flex align-items-baseline gap-2 mb-2">
+    <h4 class="root-title m-0">Card Piles</h4>
+    <small class="text-muted fst-italic">Such as the Lost Souls pile or the Lord of the Hundreds Moods</small>
+  </div>
   <div id="card-pile-list"
        data-reorder-url="{% url 'forge-cardpile-reorder' sheet_pk=sheet.pk %}"
        data-max="5" data-add-control="#card-pile-add-toggle">
@@ -240,10 +243,6 @@
       {% include 'the_forge/partials/card_pile_row.html' with pile=pile %}
     {% endfor %}
   </div>
-
-  <button type="button" id="card-pile-add-toggle" class="btn btn-sm btn-primary mt-2"
-          {% if card_piles|length >= 5 %}hidden{% endif %}>+ Add Pile</button>
-  <small class="text-muted ms-2">Max 5</small>
 
   <form id="card-pile-add-form" class="mt-2" hidden data-add-url="{% url 'forge-cardpile-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
@@ -261,21 +260,26 @@
       </div>
     </div>
   </form>
+
+  <button type="button" id="card-pile-add-toggle" class="btn btn-sm btn-primary mt-2"
+          {% if card_piles|length >= 5 %}hidden{% endif %}>+ Add Pile</button>
+  <small class="text-muted ms-2">Max 5</small>
 </div>
 
 <!-- Character Images (decorative background art) -->
-<div class="card p-3 mb-3">
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-6">
+<div class="card p-3 h-100 d-flex flex-column">
   <h4 class="root-title mb-2">Character Images</h4>
+    <p class="text-muted small mb-2">
+      Decorative art that can be scaled and placed on top of or behind other elements.
+    </p>
   <div id="character-image-list"
        data-max="5" data-add-control="#character-image-add-toggle">
     {% for ci in character_images %}
       {% include 'the_forge/partials/character_image_row.html' with ci=ci %}
     {% endfor %}
   </div>
-
-  <button type="button" id="character-image-add-toggle" class="btn btn-sm btn-primary mt-2"
-          {% if character_images|length >= 5 %}hidden{% endif %}>+ Add Image</button>
-  <small class="text-muted ms-2">Max 5</small>
 
   <form id="character-image-add-form" class="mt-2" hidden enctype="multipart/form-data"
         data-add-url="{% url 'forge-character-image-add' sheet_pk=sheet.pk %}">
@@ -293,43 +297,59 @@
       <button type="button" id="character-image-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
     </div>
   </form>
-</div>
 
-<!-- Custom Inline Icons (per-sheet uploads, picked from the rich-text image picker) -->
-<div class="card p-3 mb-3">
-  <h4 class="root-title mb-2">Custom Icons</h4>
-  <p class="text-muted small mb-2">
-    Upload up to {{ max_custom_inline_images }} small images and insert them inline in any text on this sheet using the icon picker.
-  </p>
-  <div id="custom-inline-image-list"
-       data-max="{{ max_custom_inline_images }}"
-       data-add-control="#custom-inline-image-add-toggle"
-       data-inline-images-refresh-url="{% url 'forge-sheet-inline-images-json' sheet_pk=sheet.pk %}">
-    {% for ci in custom_inline_images %}
-      {% include 'the_forge/partials/custom_inline_image_row.html' with ci=ci %}
-    {% endfor %}
+  <div class="mt-auto pt-2 d-flex align-items-center">
+    <button type="button" id="character-image-add-toggle" class="btn btn-sm btn-primary"
+            {% if character_images|length >= 5 %}hidden{% endif %}>+ Add Image</button>
+    <small class="text-muted ms-2">Max 5</small>
+  </div>
+</div>
   </div>
 
-  <button type="button" id="custom-inline-image-add-toggle" class="btn btn-sm btn-primary mt-2"
-          {% if custom_inline_images|length >= max_custom_inline_images %}hidden{% endif %}>+ Add Custom Icon</button>
-  <small class="text-muted ms-2">Max {{ max_custom_inline_images }}</small>
+  <!-- Custom Inline Icons (per-sheet uploads, picked from the rich-text image picker) -->
+  <div class="col-12 col-md-6">
+    <div class="card p-3 h-100 d-flex flex-column">
+      <h4 class="root-title mb-2">Custom Icons</h4>
+      
+      <p class="text-muted small mb-2">
+        Upload up to {{ max_custom_inline_images }} small images and insert them inline in any text on this sheet using the icon picker.
+      </p>
+      <div id="custom-inline-image-list"
+          data-max="{{ max_custom_inline_images }}"
+          data-add-control="#custom-inline-image-add-toggle"
+          data-inline-images-refresh-url="{% url 'forge-sheet-inline-images-json' sheet_pk=sheet.pk %}">
+        {% for ci in custom_inline_images %}
+          {% include 'the_forge/partials/custom_inline_image_row.html' with ci=ci %}
+        {% endfor %}
+      </div>
 
-  <form id="custom-inline-image-add-form" class="mt-2" hidden enctype="multipart/form-data"
-        data-add-url="{% url 'forge-custom-inline-image-add' sheet_pk=sheet.pk %}">
-    {% csrf_token %}
-    <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
-      {{ custom_inline_image_form.name }}
-      {{ custom_inline_image_form.image }}
-      <img class="forge-custom-inline-image-preview" alt="" hidden
-           style="max-height:32px;max-width:32px;">
+      <form id="custom-inline-image-add-form" class="mt-2" hidden enctype="multipart/form-data"
+            data-add-url="{% url 'forge-custom-inline-image-add' sheet_pk=sheet.pk %}">
+        {% csrf_token %}
+        <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
+          {{ custom_inline_image_form.name }}
+          {{ custom_inline_image_form.image }}
+          <img class="forge-custom-inline-image-preview" alt="" hidden
+              style="max-height:32px;max-width:32px;">
+          <div class="form-check m-0" title="Allow this icon to be selected as a card action cost.">
+            {{ custom_inline_image_form.card_icon }}
+            <label class="form-check-label small" for="{{ custom_inline_image_form.card_icon.id_for_label }}">Action Card</label>
+          </div>
+        </div>
+        <div class="d-flex gap-2 justify-content-end">
+          <button type="submit" class="btn btn-sm btn-warning">Save</button>
+          <button type="button" id="custom-inline-image-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
+        </div>
+      </form>
+
+      <div class="mt-auto pt-2 d-flex align-items-center">
+        <button type="button" id="custom-inline-image-add-toggle" class="btn btn-sm btn-primary"
+                {% if custom_inline_images|length >= max_custom_inline_images %}hidden{% endif %}>+ Add Custom Icon</button>
+        <small class="text-muted ms-2">Max {{ max_custom_inline_images }}</small>
+      </div>
     </div>
-    <div class="d-flex gap-2 justify-content-end">
-      <button type="submit" class="btn btn-sm btn-warning">Save</button>
-      <button type="button" id="custom-inline-image-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
-    </div>
-  </form>
+  </div>
 </div>
-
 <script>
 (function () {
   if (window.__forgeCustomInlineImageBound) return;
@@ -812,6 +832,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const cardChoices = [
       ['card_fox','Fox'], ['card_mouse','Mouse'], ['card_rabbit','Rabbit'],
       ['card_bird','Bird'], ['card_nonbird','Non-Bird'], ['card_vertical','Card'],
+      {% for ci in custom_inline_images %}{% if ci.card_icon and ci.image %}
+      ['{{ ci.cost_keyword }}', '{{ ci.name|escapejs }}'],{% endif %}{% endfor %}
     ];
     const choices = actionType === 'item' ? itemChoices : cardChoices;
     slot.className = 'd-flex flex-wrap gap-2 align-items-center mb-1';

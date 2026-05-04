@@ -35,6 +35,13 @@ DEFAULT_CARD_TRANSFORM = {
     "scaleZ": 2.3,
 }
 
+DEFAULT_TRACKER_SNAP_POINTS = [
+    {"Position": {"x": -0.64,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -0.79,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -1.09,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+]
+
 def generate_tts_guid():
     return "".join(random.choices("0123456789abcdef", k=6))
 
@@ -170,12 +177,15 @@ class TTSBoardBase:
     def get_description(self):
         return self.post.title or self.post.slug
 
+    def get_nickname(self):
+        return self.post.title or self.post.slug
+
     def to_dict(self):
         return {
             "GUID": generate_tts_guid(),
             "Name": self.NAME,
             "Transform": self.get_transform(),
-            "Nickname": self.post.title or self.post.slug,
+            "Nickname": self.get_nickname(),
             "Description": self.get_description(),
             "GMNotes": "",
             "AltLookAngle": {"x": 0, "y": 0, "z": 0},
@@ -216,12 +226,7 @@ class TTSFactionBoard(TTSBoardBase):
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
 
     def get_default_snap_points(self):
-        return [
-            {"Position": {"x": -0.64, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -0.79, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -1.09, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-        ]
+        return list(DEFAULT_TRACKER_SNAP_POINTS)
 
     def get_description(self):
         return f"{self.post.title} Faction Board"

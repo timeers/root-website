@@ -4,7 +4,18 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from the_gatehouse.models import Profile
 from the_keep.utils import validate_hex_color, delete_old_image
 
+from .services.upload_paths import (
+    sheet_preview_upload_path,
+    back_preview_upload_path,
+    card_preview_upload_path,
+    faction_upload_path,
+)
+
 class ForgedFaction(models.Model):
+    BACKGROUND_TILE_SIZE_MIN = 10
+    BACKGROUND_TILE_SIZE_MAX = 33
+    BACKGROUND_TILE_SIZE_DEFAULT = 33
+
     class BackgroundPreset(models.TextChoices):
         NONE = '', '---'
         CATS = 'cats', 'Marquise de Cat'
@@ -39,6 +50,7 @@ class ForgedFaction(models.Model):
 
     designer = models.ForeignKey(Profile, related_name='faction_sheets', on_delete=models.CASCADE)
     faction_name = models.CharField(max_length=100)
+    slug = models.SlugField(unique=True, null=True, blank=True)
     color = models.CharField(
         max_length=7,
         blank=True,
@@ -53,11 +65,22 @@ class ForgedFaction(models.Model):
         default='',
         help_text="Select a preset background, or upload your own below."
     )
-    background_image = models.ImageField(upload_to='forge/sheet_backgrounds/', blank=True, null=True)
+    background_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
     repeat_background_image = models.BooleanField(default=False)
+    background_tile_size = models.PositiveSmallIntegerField(
+        default=BACKGROUND_TILE_SIZE_DEFAULT,
+        validators=[
+            MinValueValidator(BACKGROUND_TILE_SIZE_MIN),
+            MaxValueValidator(BACKGROUND_TILE_SIZE_MAX),
+        ],
+        help_text="Tile height as a percentage of page height (only used when repeating).",
+    )
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return self.faction_name
 
     def get_background_path(self):
         if self.background_preset:
@@ -99,11 +122,11 @@ class FactionSheet(models.Model):
 
     faction = models.OneToOneField(ForgedFaction, related_name='faction_sheet', on_delete=models.CASCADE)
     flavor_text = models.TextField(blank=True, null=True)
-    action_image = models.ImageField(upload_to='forge/action_icons/', blank=True, null=True)
+    action_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
     include_crafted_items = models.BooleanField(default=True)
     include_decree = models.BooleanField(default=False)
     layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_VERTICAL)
-    header_image = models.ImageField(upload_to='forge/faction_headers/', null=True, blank=True)
+    header_image = models.ImageField(upload_to=faction_upload_path, null=True, blank=True)
     title_text_color = models.CharField(
         max_length=10,
         choices=TitleTextColor.choices,
@@ -124,11 +147,16 @@ class FactionSheet(models.Model):
     decree_y_h = models.FloatField(blank=True, null=True)
     decree_y_v = models.FloatField(blank=True, null=True)
 
-    image_preview = models.ImageField(upload_to='forge/sheet_previews/', blank=True, null=True)
+    image_preview = models.ImageField(upload_to=sheet_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    snap_points = models.JSONField(default=list, blank=True)
+    decree_slide_pts = models.FloatField(default=0.0)
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f'{self.faction.faction_name} Front'
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -164,7 +192,7 @@ class FactionSheet(models.Model):
 
 class CharacterImage(models.Model):
     sheet = models.ForeignKey(FactionSheet, related_name='character_images', on_delete=models.CASCADE)
-    image = models.ImageField(upload_to='forge/character_images/')
+    image = models.ImageField(upload_to=faction_upload_path)
     order = models.PositiveIntegerField(default=0)
     in_front = models.BooleanField(default=False)
 
@@ -198,7 +226,8 @@ class CustomInlineImage(models.Model):
         validators=[MinValueValidator(SLOT_MIN), MaxValueValidator(SLOT_MAX)],
     )
     name = models.CharField(max_length=40)
-    image = models.ImageField(upload_to='forge/custom_inline_images/')
+    image = models.ImageField(upload_to=faction_upload_path)
+    card_icon = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['slot']
@@ -209,6 +238,10 @@ class CustomInlineImage(models.Model):
     @property
     def keyword(self):
         return f'custom_image_{self.slot}'
+
+    @property
+    def cost_keyword(self):
+        return f'card_custom_image_{self.slot}'
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -292,7 +325,7 @@ class PhaseStep(models.Model):
     number = models.PositiveIntegerField()
     text = models.TextField(blank=True, default='')
     action_type = models.CharField(max_length=10, choices=ActionType.choices, default=ActionType.ACTION)
-    step_cost_image = models.ImageField(upload_to='forge/cost_icons/', blank=True, null=True)
+    step_cost_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -312,7 +345,11 @@ class PhaseStep(models.Model):
         if self.action_type == self.ActionType.ITEM:
             return [(c.value, c.label) for c in StepAction.CostChoices if c.value.startswith('item_')]
         if self.action_type == self.ActionType.CARD:
-            return [(c.value, c.label) for c in StepAction.CostChoices if c.value.startswith('card_')]
+            choices = [(c.value, c.label) for c in StepAction.CostChoices if c.value.startswith('card_')]
+            for ci in self.sheet.custom_inline_images.filter(card_icon=True).order_by('slot'):
+                if ci.image:
+                    choices.append((ci.cost_keyword, ci.name))
+            return choices
         return [(StepAction.CostChoices.OTHER.value, StepAction.CostChoices.OTHER.label)]
 
     def cost_choices_with(self, current_value):
@@ -321,8 +358,14 @@ class PhaseStep(models.Model):
         cost that doesn't match the step's current action_type."""
         choices = list(self.allowed_cost_choices())
         if current_value and not any(v == current_value for v, _ in choices):
-            label = dict(StepAction.CostChoices.choices).get(current_value, current_value)
-            choices.append((current_value, label))
+            label = dict(StepAction.CostChoices.choices).get(current_value)
+            if label is None and current_value.startswith('card_custom_image_'):
+                slot_str = current_value[len('card_custom_image_'):]
+                if slot_str.isdigit():
+                    ci = self.sheet.custom_inline_images.filter(slot=int(slot_str)).first()
+                    if ci:
+                        label = ci.name
+            choices.append((current_value, label or current_value))
         return choices
 
     def clean(self):
@@ -378,8 +421,8 @@ class StepAction(models.Model):
     step = models.ForeignKey(PhaseStep, related_name='actions', on_delete=models.CASCADE)
     order = models.PositiveIntegerField()
     text = models.TextField()
-    cost = models.CharField(max_length=20, choices=CostChoices.choices, default=CostChoices.ACTION)
-    cost_image = models.ImageField(upload_to='forge/cost_icons/', blank=True, null=True)
+    cost = models.CharField(max_length=20, default=CostChoices.ACTION)
+    cost_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -499,7 +542,7 @@ class CardboardTrack(models.Model):
         max_length=12, choices=RowTitleOrientation.choices, default=RowTitleOrientation.HORIZONTAL,
         help_text='Display row titles horizontally (default) or vertically (rotated 90°)'
     )
-    background_image = models.ImageField(upload_to='forge/track_backgrounds/', blank=True, null=True)
+    background_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -552,7 +595,7 @@ class CardboardSlot(models.Model):
         max_length=200, blank=True, default='',
         help_text='Pipe-delimited image keywords, e.g. "1VP" or "fox|1VP"'
     )
-    background_image = models.ImageField(upload_to='forge/slot_backgrounds/', blank=True, null=True)
+    background_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 
     class Meta:
         ordering = ['row', 'column']
@@ -589,13 +632,16 @@ class FactionBack(models.Model):
 
     how_to_play_title = models.TextField(default='Faction')
     how_to_play_text = models.TextField(blank=True, null=True)
-    back_image = models.ImageField(upload_to='forge/faction_back/', blank=True, null=True)
+    back_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 
-    image_preview = models.ImageField(upload_to='forge/back_previews/', blank=True, null=True)
+    image_preview = models.ImageField(upload_to=back_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f'{self.faction.faction_name} Back'
 
     def save(self, *args, **kwargs):
         new = self.pk is None
@@ -633,7 +679,7 @@ class Piece(models.Model):
     name = models.CharField(max_length=30)
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
-    small_icon = models.ImageField(upload_to='forge/sheet_backgrounds/', null=True, blank=True)
+    small_icon = models.ImageField(upload_to=faction_upload_path, null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -653,13 +699,16 @@ class SetupCard(models.Model):
     faction = models.OneToOneField(ForgedFaction, related_name='setup_card', on_delete=models.CASCADE)
     type = models.CharField(max_length=10, choices=TypeChoices.choices, default=TypeChoices.INSURGENT)
     reach = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], default=4)
-    header_image = models.ImageField(upload_to='forge/adset/', null=True, blank=True)
+    header_image = models.ImageField(upload_to=faction_upload_path, null=True, blank=True)
 
-    image_preview = models.ImageField(upload_to='forge/card_previews/', blank=True, null=True)
+    image_preview = models.ImageField(upload_to=card_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f'{self.faction.faction_name} Adset'
 
     def save(self, *args, **kwargs):
         new = self.pk is None
@@ -709,7 +758,8 @@ class LegendRow(models.Model):
     legend = models.ForeignKey(Legend, related_name='rows', on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=100)
-    image = models.ImageField(upload_to='forge/legend_images/', blank=True, null=True)
+    image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
+    icon = models.CharField(max_length=64, blank=True, default='')
     body = models.TextField(blank=True, default='')
 
     class Meta:

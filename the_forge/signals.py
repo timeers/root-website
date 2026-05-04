@@ -1,8 +1,10 @@
 from django.apps import apps
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save, post_delete, pre_save
 from django.utils import timezone
 
 from the_keep.utils import resize_image_to_webp, resize_image
+
+from .services.slugify_titles import slugify_forged_faction_name
 
 
 FORGE_MAX = 1600     # full-page backgrounds
@@ -238,6 +240,16 @@ TIMESTAMP_BUBBLES = {
 }
 
 
+def _forged_faction_pre_save(sender, instance, **kwargs):
+    if instance.slug is None:
+        slugify_forged_faction_name(instance, save=False)
+
+
+def _forged_faction_post_save(sender, instance, created, **kwargs):
+    if created:
+        slugify_forged_faction_name(instance, save=True)
+
+
 def _connect():
     for model_name, cfg in IMAGE_FIELDS_CONFIG.items():
         Model = apps.get_model('the_forge', model_name)
@@ -250,3 +262,7 @@ def _connect():
         Model = apps.get_model('the_forge', model_name)
         post_save.connect(handler, sender=Model)
         post_delete.connect(handler, sender=Model)
+
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    pre_save.connect(_forged_faction_pre_save, sender=ForgedFaction)
+    post_save.connect(_forged_faction_post_save, sender=ForgedFaction)

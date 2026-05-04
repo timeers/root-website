@@ -47,6 +47,19 @@ class ForgedFactionForm(forms.ModelForm):
     BG_MODE_CUSTOM = 'custom'
     BG_MODE_PRESET = 'preset'
 
+    background_tile_size = forms.IntegerField(
+        min_value=ForgedFaction.BACKGROUND_TILE_SIZE_MIN,
+        max_value=ForgedFaction.BACKGROUND_TILE_SIZE_MAX,
+        initial=ForgedFaction.BACKGROUND_TILE_SIZE_DEFAULT,
+        widget=forms.NumberInput(attrs={
+            'type': 'range',
+            'min': ForgedFaction.BACKGROUND_TILE_SIZE_MIN,
+            'max': ForgedFaction.BACKGROUND_TILE_SIZE_MAX,
+            'step': 1,
+            'class': 'form-range',
+        }),
+    )
+
     class Meta:
         model = ForgedFaction
         fields = [
@@ -55,6 +68,7 @@ class ForgedFactionForm(forms.ModelForm):
             'background_preset',
             'background_image',
             'repeat_background_image',
+            'background_tile_size',
         ]
         widgets = {
             'faction_name': forms.TextInput(attrs={
@@ -66,6 +80,15 @@ class ForgedFactionForm(forms.ModelForm):
                 'class': 'form-control form-control-color forge-color-swatch',
             }),
         }
+
+    def clean_background_tile_size(self):
+        raw = self.cleaned_data.get('background_tile_size')
+        if raw is None:
+            return ForgedFaction.BACKGROUND_TILE_SIZE_DEFAULT
+        return max(
+            ForgedFaction.BACKGROUND_TILE_SIZE_MIN,
+            min(ForgedFaction.BACKGROUND_TILE_SIZE_MAX, int(raw)),
+        )
 
     def clean(self):
         cleaned = super().clean()
@@ -198,12 +221,16 @@ class PhaseStepForm(forms.ModelForm):
 
 
 class StepActionForm(forms.ModelForm):
+    cost = forms.CharField(
+        max_length=20,
+        widget=forms.Select(attrs={'class': 'form-select form-select-sm'}),
+    )
+
     class Meta:
         model = StepAction
         fields = ['text', 'cost', 'cost_image']
         widgets = {
             'text': RichTextarea(attrs={'rows': 3}),
-            'cost': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'cost_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }
 
@@ -443,10 +470,11 @@ class LegendForm(forms.ModelForm):
 class LegendRowForm(forms.ModelForm):
     class Meta:
         model = LegendRow
-        fields = ['title', 'image', 'body']
+        fields = ['title', 'image', 'icon', 'body']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control form-control-sm luminari'}),
             'image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
+            'icon': forms.HiddenInput(),
             'body': RichTextarea(attrs={'rows': 3}),
         }
 
@@ -454,6 +482,7 @@ class LegendRowForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['body'].required = False
         self.fields['image'].required = False
+        self.fields['icon'].required = False
 
 
 class CharacterImageForm(forms.ModelForm):
@@ -483,7 +512,7 @@ CUSTOM_INLINE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 class CustomInlineImageForm(forms.ModelForm):
     class Meta:
         model = CustomInlineImage
-        fields = ['name', 'image']
+        fields = ['name', 'image', 'card_icon']
         widgets = {
             'name': forms.TextInput(attrs={
                 'class': 'form-control form-control-sm',
@@ -494,6 +523,9 @@ class CustomInlineImageForm(forms.ModelForm):
             'image': forms.ClearableFileInput(attrs={
                 'class': 'form-control form-control-sm',
                 'accept': 'image/png,image/jpeg,image/webp,image/gif',
+            }),
+            'card_icon': forms.CheckboxInput(attrs={
+                'class': 'form-check-input',
             }),
         }
 

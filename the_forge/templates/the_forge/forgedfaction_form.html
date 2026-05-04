@@ -76,12 +76,13 @@
       <div class="mb-2">
         {{ form.background_image }}
       </div>
-      <div class="form-check mb-3">
+      <div class="form-check mb-2">
         {{ form.repeat_background_image }}
         <label class="form-check-label" for="{{ form.repeat_background_image.id_for_label }}">
           Repeat background image
         </label>
       </div>
+
       <div class="forge-bg-pair">
         <figure class="forge-bg-pair-item">
           <div class="forge-bg-rect forge-bg-rect-image" id="forge-bg-custom-front"
@@ -94,7 +95,18 @@
           <figcaption>Back</figcaption>
         </figure>
       </div>
+      
     </div>
+
+      <div class="mt-3" id="tile-size-control"{% if not form.repeat_background_image.value %} hidden{% endif %}>
+        <label for="{{ form.background_tile_size.id_for_label }}" class="visually-hidden">
+          Tile size
+        </label>
+        {{ form.background_tile_size }}
+        <div class="d-flex justify-content-between small text-muted">
+          <span>Small</span><span>Large</span>
+        </div>
+      </div>
 
     <div class="forge-bg-panel" data-bg-panel="preset" hidden>
       <div class="forge-preset-grid">
@@ -207,10 +219,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Custom image live preview (Front + Back) with optional brick-tile repeat.
-  // Mirrors draw_faction_background() in pdf_engine.py: tile height = 1/3 of page,
-  // preserves aspect ratio, every other row offset by -tileW/2.
+  // Mirrors draw_faction_background() in pdf_engine.py: tile height = page_h * tile_pct
+  // (capped at the image's natural height), preserves aspect ratio, every other row
+  // offset by -tileW/2.
   const imageInput = document.getElementById('{{ form.background_image.id_for_label }}');
   const repeatInput = document.getElementById('{{ form.repeat_background_image.id_for_label }}');
+  const tileSizeInput = document.getElementById('{{ form.background_tile_size.id_for_label }}');
+  const tileSizeWrap = document.getElementById('tile-size-control');
   const customRects = [customFront, customBack].filter(Boolean);
   let customImageUrl = '';
   let customImageW = 0;
@@ -245,11 +260,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const previewH = rect.clientHeight;
     if (!previewH) return;
     // Mirrors pdf_engine.draw_faction_background():
-    //   max_h = PAGE_H / 3; if ih > max_h: scale to max_h, else use natural ih.
+    //   max_h = PAGE_H * tile_pct; if ih > max_h: scale to max_h, else use natural ih.
     // PAGE_H = 612pt (8.5in landscape). Convert image px→preview units via previewH/612.
     const PAGE_H_PT = 612;
     const previewPerPt = previewH / PAGE_H_PT;
-    const tileH = Math.min(customImageH * previewPerPt, previewH / 3);
+    const tilePct = (parseInt(tileSizeInput && tileSizeInput.value, 10) || 33) / 100;
+    const tileH = Math.min(customImageH * previewPerPt, previewH * tilePct);
     const tileW = customImageW * (tileH / customImageH);
     const img = await ensureLoadedImage();
     if (!img) return;
@@ -305,7 +321,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   if (repeatInput) {
-    repeatInput.addEventListener('change', renderCustomPreview);
+    repeatInput.addEventListener('change', () => {
+      if (tileSizeWrap) tileSizeWrap.hidden = !repeatInput.checked;
+      renderCustomPreview();
+    });
+  }
+  if (tileSizeInput) {
+    tileSizeInput.addEventListener('input', renderCustomPreview);
   }
   if (typeof ResizeObserver !== 'undefined') {
     const ro = new ResizeObserver(() => {

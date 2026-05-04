@@ -5,7 +5,12 @@
 {% block content %}
 {% if faction.background_image %}
   <div class="forge-detail-page-bg"
-       style="background-image:url('{{ faction.background_image.url }}');"></div>
+       {% if faction.repeat_background_image %}
+       data-tile-src="{{ faction.background_image.url }}"
+       data-tile-pct="{{ faction.background_tile_size }}"
+       {% else %}
+       style="background-image:url('{{ faction.background_image.url }}');"
+       {% endif %}></div>
 {% else %}
   {% with preset_path=faction.BACKGROUND_PRESET_FILES|dict_get:faction.background_preset %}
     {% if preset_path %}
@@ -22,7 +27,18 @@
 <div class="d-flex justify-content-between align-items-center my-2 position-relative">
   <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   All Factions</a>
   {% if can_edit %}{% if sheet or back or setup_card %}
-    <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download"><i class="bi bi-file-earmark-pdf"></i> Download All</a>
+    <div class="btn-group">
+      <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download"><i class="bi bi-file-earmark-pdf"></i> Download All</a>
+      <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+        <span class="visually-hidden">Toggle Dropdown</span>
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> Combined PDF</a></li>
+        {% if sheet or back %}
+          <li><a class="dropdown-item" href="{% url 'forge-faction-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
+        {% endif %}
+      </ul>
+    </div>
   {% endif %}{% endif %}
 </div>
 
@@ -57,7 +73,7 @@
               {% if sheet %}
                 <div class="d-flex gap-2">
                   <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-grid-1x2"></i><span class="d-none d-md-inline ms-1">Layout</span></a>
-                  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit Front</span></a>
+                  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span></a>
                   <div class="btn-group">
                     <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span></button>
                     <ul class="dropdown-menu">
@@ -88,7 +104,7 @@
             {% if can_edit %}
               {% if back %}
                 <div class="d-flex gap-2">
-                  <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit Back</span></a>
+                  <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span></a>
                   <div class="btn-group">
                     <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span></button>
                     <ul class="dropdown-menu">
@@ -119,7 +135,7 @@
             {% if can_edit %}
               {% if setup_card %}
                 <div class="d-flex gap-2">
-                  <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit Card</span></a>
+                  <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span></a>
                   <div class="btn-group">
                     <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span></button>
                     <ul class="dropdown-menu">
@@ -152,6 +168,53 @@
     top: "{% static 'images/smallbush.webp' %}",
     vb:  "{% static 'images/searchingvb.webp' %}"
   };
+
+  // Mirrors draw_faction_background() in pdf_engine.py for the detail page bg
+  // layer when repeat_background_image is on. Tile height is keyed off the
+  // viewport width treated as PDF landscape width (792pt) so the brick pattern
+  // visually matches the PDF (and the editor preview).
+  (() => {
+    const layer = document.querySelector('.forge-detail-page-bg[data-tile-src]');
+    if (!layer) return;
+    const src = layer.dataset.tileSrc;
+    const pct = (parseInt(layer.dataset.tilePct, 10) || 33) / 100;
+    const PAGE_W_PT = 792, PAGE_H_PT = 612;
+
+    const img = new Image();
+    img.onload = () => {
+      const render = () => {
+        const vw = window.innerWidth;
+        if (!vw) return;
+        const ptPerPx = PAGE_W_PT / vw;
+        const maxTileH_px = (PAGE_H_PT * pct) / ptPerPx;
+        const naturalH_px = img.naturalHeight / ptPerPx;
+        const tileH = Math.min(naturalH_px, maxTileH_px);
+        const tileW = img.naturalWidth * (tileH / img.naturalHeight);
+        if (tileW < 1 || tileH < 1) return;
+        const dpr = window.devicePixelRatio || 1;
+        const cw = Math.max(1, Math.round(tileW * dpr));
+        const ch = Math.max(1, Math.round(2 * tileH * dpr));
+        const canvas = document.createElement('canvas');
+        canvas.width = cw; canvas.height = ch;
+        const ctx = canvas.getContext('2d');
+        const dw = tileW * dpr, dh = tileH * dpr;
+        ctx.drawImage(img, 0, 0, dw, dh);
+        ctx.drawImage(img, -dw / 2, dh, dw, dh);
+        ctx.drawImage(img, dw / 2, dh, dw, dh);
+        layer.style.backgroundImage = `url('${canvas.toDataURL()}')`;
+        layer.style.backgroundSize = `${tileW}px ${2 * tileH}px`;
+        layer.style.backgroundPosition = '0 0';
+        layer.style.backgroundRepeat = 'repeat';
+      };
+      render();
+      let resizeTimer;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(render, 150);
+      });
+    };
+    img.src = src;
+  })();
 </script>
 <script src="{% static 'the_forge/forge_async_download.js' %}"></script>
 {% endblock %}

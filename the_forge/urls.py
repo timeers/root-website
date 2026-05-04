@@ -5,7 +5,7 @@ from . import views
 urlpatterns = [
     # Forge Home (public landing page)
     path('forge/', views.forge_home, name='forge-home'),
-    path('forge/style-guide/', views.forge_style_guide, name='forge-style-guide'),
+    path('forge/guide/', views.forge_element_guide, name='forge-element-guide'),
     path('forge/how-to/', views.forge_how_to, name='forge-how-to'),
 
     # ForgedFaction
@@ -15,6 +15,7 @@ urlpatterns = [
     path('forge/faction/<int:pk>/edit/', views.forgedfaction_edit, name='forge-faction-edit'),
     path('forge/faction/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),
     path('forge/faction/<int:pk>/pdf/', views.forgedfaction_pdf, name='forge-faction-pdf'),
+    path('forge/faction/<int:pk>/tts/', views.forgedfaction_tts, name='forge-faction-tts'),
 
     # FactionSheet Front
     path('forge/faction/<int:faction_pk>/sheet/new/', views.factionsheet_create, name='forge-sheet-create'),

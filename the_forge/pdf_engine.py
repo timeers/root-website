@@ -1,5 +1,6 @@
 # pdf_engine.py
 
+import hashlib
 import logging
 import os
 import re
@@ -33,6 +34,32 @@ pdfmetrics.registerFont(TTFont('Baskerville-BoldItalic', os.path.join(FONT_DIR, 
 pdfmetrics.registerFontFamily('Baskerville', normal='Baskerville', bold='Baskerville-Bold', italic='Baskerville-Italic', boldItalic='Baskerville-BoldItalic')
 
 PAGE_W, PAGE_H = landscape(letter)  # 792 x 612 pts
+
+# TTS snap-point calibration. Maps PDF absolute coordinates (pts) to
+# Tabletop Simulator Custom_Tile local coordinates. Calibrated by hand
+# against a reference faction; tweak if the printed image's extent on
+# the rendered tile changes (e.g. tile transform / WidthScale changes).
+TTS_SNAP_SCALE = 2.59
+
+
+def pdf_to_tts_local(abs_x_pts, abs_y_pts):
+    """Convert absolute PDF coordinates (pts) to TTS Custom_Tile local (x, z).
+
+    Tile uses Transform.rotY = 180, so local-x is mirrored relative to the
+    printed image; local-z follows PDF y directly.
+    """
+    fx = abs_x_pts / PAGE_W - 0.5
+    fz_unit = 0.5 - abs_y_pts / PAGE_H
+    aspect_z = PAGE_H / PAGE_W
+    return -fx * TTS_SNAP_SCALE, fz_unit * aspect_z * TTS_SNAP_SCALE
+
+
+def pdf_y_delta_to_tts_z_delta(delta_pts):
+    """Convert a vertical PDF offset (pts, positive = downward on the printed
+    page) into the matching TTS local-z delta (positive = downward on the
+    printed face)."""
+    aspect_z = PAGE_H / PAGE_W
+    return (delta_pts / PAGE_H) * aspect_z * TTS_SNAP_SCALE
 
 
 def pdf_bytes_to_webp_bytes(pdf_bytes, dpi=150, quality=85):
@@ -91,6 +118,31 @@ def _drawOn_skip_on_noop(self, canvas, x, y, _sW=0):
 Flowable.drawOn = _drawOn_skip_on_noop
 
 
+_TILE_DPI = 150  # px-per-inch the resized tile is rasterized at (150/72 ≈ 2.08 px/pt)
+
+
+def _prepare_tile_image(src_path, draw_w_pt, draw_h_pt):
+    """Resize src once to the target tile pixel size at _TILE_DPI and cache by
+    content hash + dims. ReportLab embeds an image asset once per file path and
+    references it elsewhere, so reusing a single small file across many drawImage
+    calls keeps the PDF small even when tiling densely."""
+    from PIL import Image as PILImage
+    target_px_w = max(1, int(round(draw_w_pt * _TILE_DPI / 72)))
+    target_px_h = max(1, int(round(draw_h_pt * _TILE_DPI / 72)))
+    with open(src_path, 'rb') as f:
+        digest = hashlib.md5(f.read()).hexdigest()[:12]
+    cache_dir = os.path.join(tempfile.gettempdir(), 'forge_tiles')
+    os.makedirs(cache_dir, exist_ok=True)
+    out_path = os.path.join(cache_dir, f'{digest}_{target_px_w}x{target_px_h}.png')
+    if not os.path.exists(out_path):
+        with PILImage.open(src_path) as im:
+            mode = 'RGBA' if im.mode in ('P', 'LA', 'RGBA') else 'RGB'
+            im = im.convert(mode)
+            im.thumbnail((target_px_w, target_px_h), PILImage.LANCZOS)
+            im.save(out_path, optimize=True)
+    return out_path
+
+
 def draw_faction_background(c, faction):
     """Fill the page with the faction's background.
 
@@ -116,7 +168,8 @@ def draw_faction_background(c, faction):
     iw, ih = img_reader.getSize()
 
     if getattr(faction, 'repeat_background_image', False):
-        max_h = PAGE_H / 3
+        pct = max(5, min(50, int(getattr(faction, 'background_tile_size', 33) or 33))) / 100.0
+        max_h = PAGE_H * pct
         if ih > max_h:
             scale = max_h / ih
             draw_w = iw * scale
@@ -124,13 +177,17 @@ def draw_faction_background(c, faction):
         else:
             draw_w = iw
             draw_h = ih
+        try:
+            tile_path = _prepare_tile_image(img_path, draw_w, draw_h)
+        except Exception:
+            tile_path = img_path
         row = 0
         y = PAGE_H - draw_h
         while y > -draw_h:
             x_offset = -(draw_w / 2) if row % 2 == 1 else 0
             x = x_offset
             while x < PAGE_W:
-                c.drawImage(img_path, x, y, width=draw_w, height=draw_h)
+                c.drawImage(tile_path, x, y, width=draw_w, height=draw_h)
                 x += draw_w
             y -= draw_h
             row += 1
@@ -227,6 +284,8 @@ LEGEND_IMAGE_MAX_W = 0.5 * inch            # image hard cap (width)
 LEGEND_IMAGE_MAX_H = 0.5 * inch            # image hard cap (height)
 LEGEND_IMAGE_BODY_GAP = 8                  # gap between image and body text
 LEGEND_LEFT_COL_W = 0.75 * inch            # left column width (room for centered title over 0.5" image)
+LEGEND_LEFT_TITLE_BREATHING = 4            # min space between a centered no-visual title and the column edge
+LEGEND_NOVISUAL_BODY_NUDGE = 3.2           # small upward bump so a no-visual body aligns visually with the title (math is baseline-exact, but the eye reads slightly low)
 LEGEND_ROW_GAP = 8                         # vertical gap between legend rows
 LEGEND_MIN_WIDTH = 3.0 * inch              # auto-width minimum for the legend container
 
@@ -986,12 +1045,13 @@ class TrackFlowable(Flowable):
     and per-slot content images with background fills.
     """
 
-    def __init__(self, track, slots, total_width, body_style, faction_color):
+    def __init__(self, track, slots, total_width, body_style, faction_color, engine=None):
         super().__init__()
         self.track = track
         self.total_width = total_width
         self.body_style = body_style
         self.faction_color = faction_color
+        self.engine = engine
 
         # Build grid: grid[row][col] = slot or None
         self.grid = {}
@@ -1271,6 +1331,11 @@ class TrackFlowable(Flowable):
                 x = self._col_x(col_idx)
                 y = self._row_y(row_idx, grid_top_y) - self._col_y_offset(col_idx)
                 self._draw_slot(c, x, y, slot)
+                if self.engine is not None:
+                    cx_local = x + self._slot_size / 2
+                    cy_local = y + self._slot_size / 2
+                    abs_x, abs_y = c.absolutePosition(cx_local, cy_local)
+                    self.engine.record_slot_snap_point(abs_x, abs_y)
 
         # --- Column headers (below) ---
         if headers_below:
@@ -1620,11 +1685,33 @@ class LegendFlowable(Flowable):
         self._block_title_h = 0
         self._height = 0
 
+    def _required_left_col_width(self):
+        """Left-column width needed to fit any no-visual title centered with breathing room.
+
+        Rows that have an image or icon are constrained by the visual width
+        (capped at LEGEND_IMAGE_MAX_W), so they never push the column wider.
+        Title-only rows can have arbitrary text, so we measure each and pick a
+        column wide enough to keep the centered title clear of the body gap.
+        """
+        widest = 0.0
+        for r in self.legend.rows.all():
+            title = (r.title or '').strip()
+            if not title:
+                continue
+            has_visual = bool(r.icon) or bool(r.image)
+            if has_visual:
+                continue
+            w = pdfmetrics.stringWidth(title, 'Luminari', LEGEND_ROW_TITLE_FONT_SIZE)
+            if w > widest:
+                widest = w
+        needed = widest + 2 * LEGEND_LEFT_TITLE_BREATHING
+        return max(LEGEND_LEFT_COL_W, needed)
+
     def _measure(self):
         if self._rows_data:
             return
         from reportlab.lib.styles import ParagraphStyle
-        left_w = LEGEND_LEFT_COL_W
+        left_w = self._required_left_col_width()
         right_w = self.total_width - left_w - LEGEND_IMAGE_BODY_GAP
         if right_w < 0.5 * inch:
             right_w = 0.5 * inch
@@ -1637,17 +1724,24 @@ class LegendFlowable(Flowable):
         )
 
         rows = list(self.legend.rows.all())
+        sheet = _sheet_of(self.legend)
         for r in rows:
             title = (r.title or '').strip()
-            # Resolve image path on disk
+            # Resolve a single left-column visual: icon takes priority over image.
             img_path = None
             img_w = img_h = 0
-            if r.image:
+            if r.icon:
+                candidate = _inline_image_path(r.icon, sheet=sheet)
+                if candidate and os.path.exists(candidate):
+                    img_path = candidate
+            elif r.image:
                 try:
-                    img_path = r.image.path
+                    candidate = r.image.path
+                    if os.path.exists(candidate):
+                        img_path = candidate
                 except Exception:
                     img_path = None
-            if img_path and os.path.exists(img_path):
+            if img_path:
                 try:
                     from PIL import Image as PILImage
                     pil = PILImage.open(img_path)
@@ -1659,16 +1753,26 @@ class LegendFlowable(Flowable):
                         img_h = img_w / aspect if aspect else LEGEND_IMAGE_MAX_H
                 except Exception:
                     img_path = None
+                    img_w = img_h = 0
 
-            body_markup = format_step_markup(r.body, sheet=_sheet_of(self.legend)) if r.body else ''
+            body_markup = format_step_markup(r.body, sheet=sheet) if r.body else ''
             body_para = Paragraph(body_markup or '&nbsp;', body_style)
             body_para.wrap(right_w, 9999)
             body_h = true_paragraph_height(body_para, right_w)
 
             title_h = LEGEND_ROW_TITLE_FONT_SIZE * 1.1 if title else 0
             title_block_h = title_h + (LEGEND_ROW_TITLE_GAP if title else 0)
-            row_h = title_block_h + max(img_h, body_h)
-            self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h))
+            has_left_visual = bool(img_path and img_h)
+            if has_left_visual:
+                row_h = title_block_h + max(img_h, body_h)
+            else:
+                # No visual: title and body's first line share a baseline.
+                # Vertical extent below row_top is title_cap_h plus body lines
+                # that fall below the first baseline.
+                title_cap_h = LEGEND_ROW_TITLE_FONT_SIZE * 0.70 if title else 0
+                body_cap_h = LEGEND_BODY_FONT_SIZE * 0.70
+                row_h = max(title_block_h, title_cap_h + body_h - body_cap_h)
+            self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h, has_left_visual))
 
         block_title = (self.legend.title or '').strip()
         self._block_title_h = (LEGEND_BLOCK_TITLE_SIZE * 1.1 + LEGEND_BLOCK_TITLE_GAP) if block_title else 0
@@ -1704,7 +1808,7 @@ class LegendFlowable(Flowable):
             c.drawCentredString(self.total_width / 2.0, y - cap_h, block_title)
             y -= self._block_title_h
 
-        for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h) in enumerate(self._rows_data):
+        for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h, has_left_visual) in enumerate(self._rows_data):
             row_top = y
             # Row title centered over the image (within left column)
             if title:
@@ -1713,22 +1817,34 @@ class LegendFlowable(Flowable):
                 cap_h = LEGEND_ROW_TITLE_FONT_SIZE * 0.70
                 c.drawCentredString(left_w / 2.0, row_top - cap_h, title)
 
-            # Image: centered horizontally in left column, below the title
+            # Image (or icon): centered horizontally in left column, below the title
             image_top_y = row_top - title_block_h
-            if img_path and img_h:
+            if has_left_visual:
                 image_x = (left_w - img_w) / 2.0
                 c.drawImage(img_path, image_x, image_top_y - img_h, width=img_w, height=img_h,
                             preserveAspectRatio=True, mask='auto')
 
-            # Body: top aligned with image top, fills the rest of the width.
-            # Paragraphs reserve leading space above the first cap-height; nudge
-            # up by (leading - cap_h) so the visible top of the first line
-            # lands flush with the image top.
+            # Body placement:
+            # - With a left visual: top of first body line aligns with image top.
+            # - Without: bottom of first body line sits on the title's baseline,
+            #   so the title and body's first line share a baseline.
             right_x = left_w + LEGEND_IMAGE_BODY_GAP
             body_leading = LEGEND_BODY_FONT_SIZE * 1.15
             body_cap_h = LEGEND_BODY_FONT_SIZE * 0.70
             body_top_offset = body_leading - body_cap_h
-            body_para.drawOn(c, right_x, image_top_y - body_h + body_top_offset)
+            if has_left_visual:
+                body_y = image_top_y - body_h + body_top_offset
+            else:
+                title_baseline_y = row_top - (LEGEND_ROW_TITLE_FONT_SIZE * 0.70)
+                # Paragraph.drawOn places the paragraph's bottom at y. The
+                # first line's baseline sits one line up from the bottom: at
+                # (y + body_h - body_cap_h) when the leading == cap_h plus
+                # descent. Solve for y so first-line baseline == title baseline,
+                # then nudge up slightly so the result reads as visually aligned
+                # (titles use Luminari, body uses Baskerville; their visual
+                # centers don't quite match even at identical baselines).
+                body_y = title_baseline_y - body_h + body_cap_h + LEGEND_NOVISUAL_BODY_NUDGE
+            body_para.drawOn(c, right_x, body_y)
 
             y = row_top - row_h
             if i < len(self._rows_data) - 1:
@@ -1954,6 +2070,13 @@ class StepActionFlowable(Flowable):
             descent = getattr(line, 'descent', None)
             if ascent is not None and descent is not None:
                 return ascent - descent
+            # Plain (kind=0) line: tuple (width, [words]). ReportLab collapses
+            # paragraphs with a single uniform style to this form even with
+            # autoLeading='max'. Use the paragraph's own fontSize so a header-
+            # only run reports its enlarged size, not the base style leading.
+            blp_size = getattr(para.blPara, 'fontSize', None)
+            if blp_size:
+                return blp_size
         return para.style.leading
 
     def wrap(self, availWidth, availHeight):
@@ -2257,6 +2380,7 @@ class SheetLayoutEngine:
     def __init__(self, faction_sheet):
         self.sheet = faction_sheet
         self.faction_color = HexColor(self.sheet.faction.color or '#5B4A8A')
+        self.collected_snap_points = []
         from the_forge.models import CardboardTrack, FactionSheet, PhaseStep, StepAction
         from django.db.models import Prefetch
         if isinstance(faction_sheet, FactionSheet):
@@ -2528,6 +2652,9 @@ class SheetLayoutEngine:
             else:
                 drawing, draw_w, draw_h = self._get_meeple_action_icon()
                 return None, drawing, draw_w, draw_h
+        elif cost.startswith('card_custom_image_'):
+            inline_keyword = cost[len('card_'):]  # strip routing prefix → 'custom_image_<n>'
+            icon_path = _inline_image_path(inline_keyword, sheet=action.step.sheet)
         else:
             icon_path = _cost_icon_path(cost)
 
@@ -3043,9 +3170,12 @@ class SheetLayoutEngine:
     def _min_legend_width_for_content_box(self, content_box):
         """Return the minimum content width needed for any legend in a content box.
 
-        Each legend asks for at least LEGEND_MIN_WIDTH for its own column; the
-        content box must add its indent so the legend gets that width after
-        the icon/text indent is removed. Returns 0 if no legends.
+        Each legend asks for at least LEGEND_MIN_WIDTH for its own column. If a
+        legend has any no-visual rows whose centered title would exceed the
+        default LEGEND_LEFT_COL_W, we grow the request by the overflow so the
+        container is wide enough to fit the title without cramping the body.
+        The content box adds its indent so the legend gets that width after the
+        icon/text indent is removed. Returns 0 if no legends.
         """
         SINGLE_STEP_INDENT = PHASE_INTERNAL_MARGIN
         steps = list(content_box.steps.all())
@@ -3053,8 +3183,18 @@ class SheetLayoutEngine:
         indent = SINGLE_STEP_INDENT if single_step else (0.325 * inch + 0.015 * inch)
         max_needed = 0
         for step in steps:
-            for _ in step.legends.all():
-                w = LEGEND_MIN_WIDTH + indent
+            for legend in step.legends.all():
+                widest_no_visual = 0.0
+                for r in legend.rows.all():
+                    title = (r.title or '').strip()
+                    if not title or r.icon or r.image:
+                        continue
+                    tw = pdfmetrics.stringWidth(title, 'Luminari', LEGEND_ROW_TITLE_FONT_SIZE)
+                    if tw > widest_no_visual:
+                        widest_no_visual = tw
+                required_left = max(LEGEND_LEFT_COL_W, widest_no_visual + 2 * LEGEND_LEFT_TITLE_BREATHING)
+                extra = max(0, required_left - LEGEND_LEFT_COL_W)
+                w = LEGEND_MIN_WIDTH + extra + indent
                 if w > max_needed:
                     max_needed = w
         return max_needed
@@ -3323,7 +3463,8 @@ class SheetLayoutEngine:
                 slots = list(obj.slots.all())
                 tf = TrackFlowable(track=obj, slots=slots, total_width=avail_w,
                                    body_style=self.step_body_style,
-                                   faction_color=self.faction_color)
+                                   faction_color=self.faction_color,
+                                   engine=self)
                 _, track_h = tf.wrap(avail_w, 9999)
                 top_pad = TRACK_TITLE_GAP
                 bot_pad = TRACK_BOTTOM_PAD
@@ -3477,7 +3618,15 @@ class SheetLayoutEngine:
             'elements': elements,
         }
 
+    def record_slot_snap_point(self, abs_x_pts, abs_y_pts):
+        local_x, local_z = pdf_to_tts_local(abs_x_pts, abs_y_pts)
+        self.collected_snap_points.append({
+            "Position": {"x": local_x, "y": 0.1, "z": local_z},
+            "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+        })
+
     def build(self, output_path):
+        self.collected_snap_points = []
         if getattr(self, '_skip_drawing', False):
             c = _NoOpCanvas()
         else:
@@ -4227,6 +4376,7 @@ class SheetLayoutEngine:
                         total_width=avail_w - indent,
                         body_style=self.step_body_style,
                         faction_color=self.faction_color,
+                        engine=self,
                     )
                     if indent:
                         t = Table([['', tf]], colWidths=[indent, avail_w - indent])

@@ -10,7 +10,7 @@
 </div>
 
 {% if factions %}
-  <div class="row g-3 forge-faction-grid">
+  <div class="row g-3 forge-faction-grid mb-2">
     {% for faction in factions %}
       <div class="col-12 col-sm-6 col-lg-4">
         <a href="{% url 'forge-faction-detail' pk=faction.pk %}"
@@ -18,7 +18,12 @@
            style="--faction-color: {{ faction.color|default:'#888888' }};">
           {% if faction.background_image %}
             <div class="forge-faction-card__bg"
-                 style="background-image:url('{{ faction.background_image.url }}');"></div>
+                 {% if faction.repeat_background_image %}
+                 data-tile-src="{{ faction.background_image.url }}"
+                 data-tile-pct="{{ faction.background_tile_size }}"
+                 {% else %}
+                 style="background-image:url('{{ faction.background_image.url }}');"
+                 {% endif %}></div>
           {% else %}
             {% with preset_path=faction.BACKGROUND_PRESET_FILES|dict_get:faction.background_preset %}
               {% if preset_path %}
@@ -65,4 +70,64 @@
     <p class="text-muted mb-0">You haven't created any forged factions yet.</p>
   </div>
 {% endif %}
+
+<script>
+  // Mirrors draw_faction_background() for repeating-bg faction cards.
+  // Each card's width represents PDF landscape width (792pt), so the brick
+  // pattern reads at the same visual rhythm as the PDF and detail page.
+  (() => {
+    const layers = document.querySelectorAll('.forge-faction-card__bg[data-tile-src]');
+    if (!layers.length) return;
+    const PAGE_W_PT = 792, PAGE_H_PT = 612;
+    const imgCache = new Map();
+    const loadImg = (src) => {
+      if (imgCache.has(src)) return imgCache.get(src);
+      const p = new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = reject;
+        im.src = src;
+      });
+      imgCache.set(src, p);
+      return p;
+    };
+    const renderLayer = async (layer) => {
+      const src = layer.dataset.tileSrc;
+      const pct = (parseInt(layer.dataset.tilePct, 10) || 33) / 100;
+      const img = await loadImg(src);
+      const w = layer.clientWidth;
+      if (!w) return;
+      const ptPerPx = PAGE_W_PT / w;
+      const maxTileH_px = (PAGE_H_PT * pct) / ptPerPx;
+      const naturalH_px = img.naturalHeight / ptPerPx;
+      const tileH = Math.min(naturalH_px, maxTileH_px);
+      const tileW = img.naturalWidth * (tileH / img.naturalHeight);
+      if (tileW < 1 || tileH < 1) return;
+      const dpr = window.devicePixelRatio || 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(tileW * dpr));
+      canvas.height = Math.max(1, Math.round(2 * tileH * dpr));
+      const ctx = canvas.getContext('2d');
+      const dw = tileW * dpr, dh = tileH * dpr;
+      ctx.drawImage(img, 0, 0, dw, dh);
+      ctx.drawImage(img, -dw / 2, dh, dw, dh);
+      ctx.drawImage(img, dw / 2, dh, dw, dh);
+      layer.style.backgroundImage = `url('${canvas.toDataURL()}')`;
+      layer.style.backgroundSize = `${tileW}px ${2 * tileH}px`;
+      layer.style.backgroundPosition = '0 0';
+      layer.style.backgroundRepeat = 'repeat';
+    };
+    layers.forEach(renderLayer);
+    if (typeof ResizeObserver !== 'undefined') {
+      const debounced = new Map();
+      const ro = new ResizeObserver((entries) => {
+        for (const e of entries) {
+          clearTimeout(debounced.get(e.target));
+          debounced.set(e.target, setTimeout(() => renderLayer(e.target), 150));
+        }
+      });
+      layers.forEach((l) => ro.observe(l));
+    }
+  })();
+</script>
 {% endblock %}
