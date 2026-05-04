@@ -552,11 +552,14 @@ PHASE_DISPLAY_NAMES = {
 
 
 def _resolve_static_url(url):
-    """Resolve a `static()` URL back to a filesystem path for ReportLab."""
+    """Resolve a `static()` URL back to a filesystem path for ReportLab.
+    `static()` URL-encodes special characters (e.g. '+' → '%2B'), so we
+    decode before handing the relative path to staticfiles finders."""
     if not url:
         return None
     from django.contrib.staticfiles import finders
-    rel = url.split('/static/', 1)[-1]
+    from urllib.parse import unquote
+    rel = unquote(url.split('/static/', 1)[-1])
     return finders.find(rel)
 
 
