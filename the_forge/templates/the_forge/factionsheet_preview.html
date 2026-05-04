@@ -7,7 +7,7 @@
 {% block content %}
 <div class="my-2 d-flex justify-content-between align-items-center">
   <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   {{ faction.faction_name }}</a>
-  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" id="forge-preview-edit-link" class="btn btn-sm btn-outline-primary">Edit faction</a>
+  <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" id="forge-preview-edit-link" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i> Edit Faction</a>
 </div>
 
 <form method="post" action="{% url 'forge-sheet-preview-save' pk=sheet.pk %}" id="forge-preview-form">
@@ -453,8 +453,9 @@
   }
   .forge-preview-element--credit {
     /* Read-only PnP version / Art By labels in the bottom-right corner. The
-       engine records bounding boxes sized to the actual string width so we
-       just paint plain text — no background, no border, no pointer events. */
+       engine records bounding boxes sized to the actual string width. Inline
+       background-color is set by JS to the opposite of the text color so the
+       credits stay legible against any preview backdrop. */
     border: none;
     padding: 0;
     font-family: 'Baskerville', Georgia, serif;

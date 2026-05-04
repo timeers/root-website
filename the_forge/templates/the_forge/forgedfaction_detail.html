@@ -58,7 +58,7 @@
       </div>
       {% if can_edit %}
       <a href="{% url 'forge-faction-edit' pk=faction.pk %}"
-         class="btn btn-sm btn-outline-light position-absolute"
+         class="btn btn-sm btn-outline-light position-absolute forge-header-edit-btn"
          style="top: 0.5rem; right: 0.5rem; z-index: 3;"><i class="bi bi-pencil-square"></i> Edit</a>
       {% endif %}
     </div>
@@ -227,6 +227,13 @@
     const color = title.dataset.factionColor || '#888888';
     if (!window.isWhiteTextLegible(color)) {
       title.classList.add('is-text-black');
+      // Header edit button shares the title's color, so flip it from the
+      // default outline-light to outline-dark to match.
+      const editBtn = document.querySelector('.forge-header-edit-btn');
+      if (editBtn) {
+        editBtn.classList.remove('btn-outline-light');
+        editBtn.classList.add('btn-outline-dark');
+      }
     }
   })();
 
