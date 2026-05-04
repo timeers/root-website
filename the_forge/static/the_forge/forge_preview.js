@@ -266,6 +266,17 @@
         }
         break;
       }
+      case 'credit':
+        if (el.label) div.textContent = el.label;
+        if (el.text_color) {
+          div.style.color = el.text_color;
+          // Background flips opposite of the text color so credits stay
+          // legible in the preview (PDF rendering keeps the page background
+          // visible). White text → black bg; otherwise → white bg.
+          div.style.backgroundColor =
+            el.text_color.toUpperCase() === '#FFFFFF' ? '#000000' : '#FFFFFF';
+        }
+        break;
     }
   }
 

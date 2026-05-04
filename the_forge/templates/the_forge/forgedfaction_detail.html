@@ -35,7 +35,7 @@
       <ul class="dropdown-menu dropdown-menu-end">
         <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> Combined PDF</a></li>
         {% if sheet or back %}
-          <li><a class="dropdown-item" href="{% url 'forge-faction-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
+          <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
         {% endif %}
       </ul>
     </div>
@@ -51,13 +51,14 @@
         {% if sheet.header_image %}
           <img class="forge-header-preview-image" src="{{ sheet.header_image.url }}" alt="">
         {% endif %}
-        <div class="forge-header-preview-title luminari{% if sheet.title_text_color == 'black' %} is-text-black{% endif %}">
+        <div class="forge-header-preview-title luminari"
+             data-faction-color="{{ faction.color|default:'#888888' }}">
           {{ faction.faction_name }}
         </div>
       </div>
       {% if can_edit %}
       <a href="{% url 'forge-faction-edit' pk=faction.pk %}"
-         class="btn btn-sm btn-outline-light position-absolute"
+         class="btn btn-sm btn-outline-light position-absolute forge-header-edit-btn"
          style="top: 0.5rem; right: 0.5rem; z-index: 3;"><i class="bi bi-pencil-square"></i> Edit</a>
       {% endif %}
     </div>
@@ -91,7 +92,7 @@
             {% endif %}
           </div>
           {% if sheet.image_preview %}
-            <img src="{{ sheet.image_preview.url }}" alt="Front preview" class="forge-detail-preview mt-3">
+            <img src="{{ sheet.image_preview.url }}" alt="Front preview" class="forge-detail-preview zoomable mt-3" data-full="{{ sheet.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>
@@ -122,7 +123,7 @@
             {% endif %}
           </div>
           {% if back.image_preview %}
-            <img src="{{ back.image_preview.url }}" alt="Back preview" class="forge-detail-preview mt-3">
+            <img src="{{ back.image_preview.url }}" alt="Back preview" class="forge-detail-preview zoomable mt-3" data-full="{{ back.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>
@@ -153,7 +154,7 @@
             {% endif %}
           </div>
           {% if setup_card.image_preview %}
-            <img src="{{ setup_card.image_preview.url }}" alt="Adset preview" class="forge-detail-preview mt-3">
+            <img src="{{ setup_card.image_preview.url }}" alt="Adset preview" class="forge-detail-preview zoomable mt-3" data-full="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>
@@ -162,6 +163,7 @@
   </div>
 </div>
 
+<script src="{% static 'the_keep/legibility.js' %}"></script>
 <script>
   window.FORGE_SPINNER_URLS = {
     bg:  "{% static 'images/backgroundbushes.webp' %}",
@@ -214,6 +216,46 @@
       });
     };
     img.src = src;
+  })();
+
+  // Faction title legibility: flip to black when white isn't legible on the
+  // faction color. Always auto on this page — independent of any stored
+  // FactionSheet title-color preference.
+  (() => {
+    const title = document.querySelector('.forge-header-preview-title');
+    if (!title || !window.isWhiteTextLegible) return;
+    const color = title.dataset.factionColor || '#888888';
+    if (!window.isWhiteTextLegible(color)) {
+      title.classList.add('is-text-black');
+      // Header edit button shares the title's color, so flip it from the
+      // default outline-light to outline-dark to match.
+      const editBtn = document.querySelector('.forge-header-edit-btn');
+      if (editBtn) {
+        editBtn.classList.remove('btn-outline-light');
+        editBtn.classList.add('btn-outline-dark');
+      }
+    }
+  })();
+
+  // Aspect-ratio-driven box-frame swap. Default CSS is upright Phase_Box;
+  // we set data-box-shape="square" or "wide" on the frame so CSS can pick the
+  // matching border-image. Thresholds: <0.85 portrait, 0.85–<2.0 ~square,
+  // ≥2.0 wide (rotated Phase_Box).
+  (() => {
+    const frame = document.querySelector('.forge-detail-frame');
+    if (!frame || typeof ResizeObserver === 'undefined') return;
+    const apply = () => {
+      const w = frame.clientWidth, h = frame.clientHeight;
+      if (!w || !h) return;
+      const ratio = w / h;
+      let shape = '';
+      if (ratio >= 2.0) shape = 'wide';
+      else if (ratio >= 0.85) shape = 'square';
+      if (shape) frame.dataset.boxShape = shape;
+      else delete frame.dataset.boxShape;
+    };
+    new ResizeObserver(apply).observe(frame);
+    apply();
   })();
 </script>
 <script src="{% static 'the_forge/forge_async_download.js' %}"></script>

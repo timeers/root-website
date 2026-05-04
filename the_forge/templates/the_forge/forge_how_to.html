@@ -190,6 +190,18 @@
         </div>
       </div>
 
+      <div class="col-md-12">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Version & Artists</h4>
+          <p class="text-muted small mb-2">
+            You can add credits for the art you used as well as a version number for tracking. 
+            This text will appear in the bottom right of your faction board.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/art_and_version.png' %}"
+               alt="Artists and version fields" class="img-fluid mb-2">
+        </div>
+      </div>
+
       <div class="col-md-6">
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Header Image (Optional)</h4>
@@ -697,11 +709,12 @@
 
       <div class="col-md-12">
         <div class="card h-100 p-3 d-flex flex-column">
-          <h4 class="root-title mb-2">Tabletop Simulator JSON</h4>
+          <h4 class="root-title mb-2">Tabletop Simulator .json</h4>
           <p class="text-muted small mb-2">
-            Tabletop Simulator stores objects as json files. 
+            Tabletop Simulator stores objects as .json files. 
             Once you're ready to test your faction, drop this file in your Saved Objects folder to access it in TTS.
-            Any visual changes you make in the Forge will show up when you open TTS. But if you change any cardboard tracks or shift the Decree you will need a new file to reflect the updated snap-points.
+            Any visual changes you make in the Forge will show up when you reopen TTS. 
+            But if you change any cardboard tracks, card piles or shift the Decree you will need a new file to reflect the updated snap-points.
           </p>
           <div class="text-center mt-auto pt-3">
             <i class="bi bi-pc-display" style="font-size: 6rem; line-height: 1;" aria-label="WebP image file"></i>

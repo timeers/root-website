@@ -204,6 +204,22 @@ X_MARGIN = 0.25 * inch
 TOP_MARGIN = 0.2 * inch
 BOTTOM_MARGIN = 0.15 * inch
 
+# Bottom-right credits (pnp_version, art_by) padding from page edges.
+CREDITS_PAD_RIGHT = 0.6 * inch
+CREDITS_PAD_BOTTOM = 0.12 * inch
+CREDITS_FONT_SIZE = 8
+CREDITS_INTER_GAP = 0.18 * inch  # horizontal gap between art_by and pnp_version
+
+# Forge logo (bottom-right) sizing/padding. Drawn last on top of everything,
+# tinted with the faction color, then overlaid with the opposite of
+# title_text_color. Both passes are drawn at low opacity so the logo reads
+# as a soft watermark instead of an opaque stamp.
+FORGE_LOGO_W = 0.2 * inch
+FORGE_LOGO_PAD_RIGHT = 0.12 * inch
+FORGE_LOGO_PAD_BOTTOM = 0.08 * inch
+FORGE_LOGO_BASE_OPACITY = 0.35     # alpha for the faction-color pass
+FORGE_LOGO_OVERLAY_OPACITY = 0.2  # alpha for the opposite-color overlay
+
 BODY_W = PAGE_W - (X_MARGIN * 2)
 
 TITLE_BAR_H = 0.6 * inch
@@ -303,6 +319,7 @@ CARD_SLOT_W = 2.5 * inch
 CARD_SLOT_H = 3.46 * inch
 
 DECREE_MIN_OFFSET = 1.05 * inch  # minimum amount of decree visible on page
+DECREE_MIN_OFFSET_NO_TEXT = 0.65 * inch  # tighter minimum when section has no title/body — pulls slots up too
 DECREE_MAX_OFFSET = 4.25 * inch    # maximum amount of decree visible on page
 DECREE_TEXT_THRESHOLD = 30        # char count for small vs large text
 DECREE_TITLE_Y_OFFSET = 4.3 * inch
@@ -317,6 +334,7 @@ DECREE_SLOT_TITLE_OFFSET = 3.375 * inch  # distance from top of slot image to ti
 DECREE_TITLE_SIZE = 20                       # decree title font size
 DECREE_BODY_SIZE = 8                        # decree section body font size (italic)
 DECREE_BODY_GAP = 0.12 * inch                # vertical gap from title baseline to body baseline
+DECREE_TITLE_BODY_PAIR_LIFT = 2               # lift (pts) applied to both title and body when the section has both
 DECREE_SLOT_TITLE_SIZE = 18                  # slot title font size (Baskerville)
 DECREE_SLOT_BODY_OFFSET = 0.226 * inch        # vertical drop from slot title baseline to slot body baseline
 DECREE_SLOT_BODY_SIZE = 10                   # slot body font size (italic)
@@ -482,6 +500,8 @@ MAX_ACTIONS_PER_ROW = 4           # max actions packed on one line
 MIN_CARD_ICON_W = ACTION_CARD_H * (486 / 673)  # ~17.52 pts
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
+FORGE_STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static', 'the_forge')
+FORGE_LOGO_SVG = os.path.join(FORGE_STATIC_DIR, 'Forge_Logo.svg')
 
 ABILITY_BERRY_SVG = os.path.join(STATIC_DIR, 'pdf/svg/ability_berry.svg')
 PHASE_NUMBER_SVG_DIR = os.path.join(STATIC_DIR, 'pdf/svg')
@@ -2422,7 +2442,32 @@ class SheetLayoutEngine:
                 if slot.body and len(self._wrap_slot_body(slot.body)) > 1:
                     self.decree_wrap_shift = DECREE_SLOT_WRAP_SHIFT
                     break
-        self.decree_min_offset = DECREE_MIN_OFFSET + self.decree_wrap_shift
+        # Tighten the minimum when the section has no title and no body — there's
+        # no text to keep visible, so the decree can hide further off-page.
+        # The slot row is anchored to the decree image's top (slot_y =
+        # decree_img_top - DECREE_SLOT_Y_OFFSET), so shrinking decree_slide pulls
+        # the slots up too. We don't want that — the slots should stay roughly
+        # where they'd be at the standard offset. _decree_slot_extra_drop carries
+        # the compensation: slot draw subtracts it so slots move back down.
+        self._decree_slot_extra_drop = 0.0
+        any_slot_body = bool(self.decree_section and any(
+            slot.body for slot in self.decree_section.card_slots.all()
+        ))
+        if self.decree_section and not (self.decree_section.title or self.decree_section.body):
+            base_min_offset = DECREE_MIN_OFFSET_NO_TEXT
+            full_drop = DECREE_MIN_OFFSET - DECREE_MIN_OFFSET_NO_TEXT
+            # If any slot has body text, give back vertical space below the slot
+            # so body lines don't clip past the page bottom. Wrapped bodies need
+            # an extra line-gap of headroom on top of that.
+            give_back = 0.0
+            if any_slot_body:
+                give_back += DECREE_SLOT_BODY_OFFSET
+                if self.decree_wrap_shift:
+                    give_back += DECREE_SLOT_BODY_LINE_GAP
+            self._decree_slot_extra_drop = max(0.0, full_drop - give_back)
+        else:
+            base_min_offset = DECREE_MIN_OFFSET
+        self.decree_min_offset = base_min_offset + self.decree_wrap_shift
 
         # decree_slide = how far the decree image slides down onto the page
         # (0 = fully hidden above page, draw_h = fully visible)
@@ -3653,6 +3698,8 @@ class SheetLayoutEngine:
 
         self._draw_card_piles(c)
         self._draw_character_images(c, in_front=True)
+        self._draw_credits(c)
+        self._draw_forge_logo(c)
 
         c.save()
 
@@ -4796,10 +4843,8 @@ class SheetLayoutEngine:
 
     def _get_slot_image_path(self, slot, force_large_for_titled=False):
         title = slot.title or ''
-        if not title and not slot.body:
-            return os.path.join(DECREE_DIR, 'no-text.png')
         if not title:
-            return os.path.join(DECREE_DIR, 'small-text.png')
+            return os.path.join(DECREE_DIR, 'no-text.png')
         if force_large_for_titled:
             return os.path.join(DECREE_DIR, 'large-text.png')
         if len(title) < DECREE_TEXT_THRESHOLD:
@@ -4872,7 +4917,10 @@ class SheetLayoutEngine:
 
             # Decree section title + body text
             has_body = bool(self.decree_section.body)
-            base_title_y = decree_img_top - DECREE_TITLE_Y_OFFSET
+            # When both title and body are present, lift the pair slightly so
+            # they sit a bit higher in the decree band.
+            pair_lift = DECREE_TITLE_BODY_PAIR_LIFT if (self.decree_section.title and has_body) else 0
+            base_title_y = decree_img_top - DECREE_TITLE_Y_OFFSET + pair_lift
             if self.decree_section.title:
                 c.setFillColor(HexColor('#FFFFFF'))
                 c.setFont('Luminari', DECREE_TITLE_SIZE)
@@ -4890,7 +4938,7 @@ class SheetLayoutEngine:
                 gap = max((PAGE_W - n * DECREE_SLOT_W) / (n + 1), DECREE_SLOT_MIN_GAP)
                 total_w = n * DECREE_SLOT_W + (n - 1) * gap
                 start_x = (PAGE_W - total_w) / 2.0
-                slot_y = decree_img_top - DECREE_SLOT_Y_OFFSET + extra_h
+                slot_y = decree_img_top - DECREE_SLOT_Y_OFFSET + extra_h - self._decree_slot_extra_drop
 
                 any_wide_title = any(
                     slot.title and pdfmetrics.stringWidth(slot.title, 'Baskerville', DECREE_SLOT_TITLE_SIZE) > DECREE_SLOT_WIDE_TITLE_W
@@ -4924,6 +4972,101 @@ class SheetLayoutEngine:
                                          x=x, y=slot_y,
                                          w=DECREE_SLOT_W, h=DECREE_SLOT_H,
                                          title=slot.title or '')
+
+    def _draw_credits(self, c):
+        """Render PnP version and art-by credits in the bottom-right corner on a
+        single line: "Art by <name>   Version: <ver>" — art_by sits to the left
+        of pnp_version separated by a small gap. Font color matches the
+        title-text-color calculation (self.ink_on_faction). Skips silently when
+        both fields are empty.
+
+        Also records each credit string as a layout element ("credit") so the
+        preview canvas can show them at the same relative position. Records use
+        the right-edge-of-string anchor: x = right edge minus string width."""
+        faction = self.sheet.faction
+        pnp = (getattr(faction, 'pnp_version', '') or '').strip()
+        art = (getattr(faction, 'art_by', '') or '').strip()
+        if not pnp and not art:
+            return
+        c.setFillColor(self.ink_on_faction)
+        c.setFont('Baskerville', CREDITS_FONT_SIZE)
+        x_right = PAGE_W - CREDITS_PAD_RIGHT
+        y = CREDITS_PAD_BOTTOM
+        pnp_text = f'Version: {pnp}' if pnp else ''
+        art_text = f'Art by {art}' if art else ''
+        pnp_w = pdfmetrics.stringWidth(pnp_text, 'Baskerville', CREDITS_FONT_SIZE) if pnp_text else 0
+        art_w = pdfmetrics.stringWidth(art_text, 'Baskerville', CREDITS_FONT_SIZE) if art_text else 0
+        # Approximate text height for layout-record bounding box.
+        text_h = CREDITS_FONT_SIZE * 1.2
+        if pnp_text:
+            c.drawRightString(x_right, y, pnp_text)
+            self._record_element(
+                kind='credit', label=pnp_text,
+                x=x_right - pnp_w, y=y, w=pnp_w, h=text_h,
+                text_color=self.ink_on_faction_hex,
+            )
+        if art_text:
+            art_right = x_right - pnp_w - CREDITS_INTER_GAP if pnp_text else x_right
+            c.drawRightString(art_right, y, art_text)
+            self._record_element(
+                kind='credit', label=art_text,
+                x=art_right - art_w, y=y, w=art_w, h=text_h,
+                text_color=self.ink_on_faction_hex,
+            )
+
+    def _apply_drawing_opacity(self, drawing, alpha):
+        """Walk an svglib-parsed Drawing and stamp fillOpacity/strokeOpacity on
+        every shape. ReportLab's canvas-level setFillAlpha doesn't propagate
+        into renderPDF.draw because the Drawing emits its own paint-state
+        directives — baking opacity into shape attributes is what actually
+        affects the rendered output."""
+        from reportlab.graphics.shapes import Group
+        def walk(node):
+            if hasattr(node, 'fillOpacity'):
+                node.fillOpacity = alpha
+            if hasattr(node, 'strokeOpacity'):
+                node.strokeOpacity = alpha
+            contents = getattr(node, 'contents', None)
+            if contents:
+                for child in contents:
+                    walk(child)
+        walk(drawing)
+
+    def _draw_forge_logo(self, c):
+        """Stamp the Forge logo in the bottom-right corner. First pass uses the
+        faction color; second pass overlays the same SVG in the opposite of the
+        title-text color. Both passes are baked at low opacity so the logo
+        reads as a soft watermark. Called last in build() so the logo sits on
+        top of everything."""
+        if not os.path.exists(FORGE_LOGO_SVG):
+            return
+        faction_hex = self.sheet.faction.color or '#5B4A8A'
+        # Opposite of the title-text color: white when ink is black, black
+        # when ink is white. Anything else falls back to white.
+        opposite_hex = '#FFFFFF' if self.ink_on_faction_hex.upper() == '#000000' else '#000000'
+
+        base_drawing = self._load_colored_svg(FORGE_LOGO_SVG, faction_hex)
+        if base_drawing is None:
+            return
+        scale = FORGE_LOGO_W / base_drawing.width
+        target_h = base_drawing.height * scale
+        base_drawing.width = FORGE_LOGO_W
+        base_drawing.height = target_h
+        base_drawing.scale(scale, scale)
+        self._apply_drawing_opacity(base_drawing, FORGE_LOGO_BASE_OPACITY)
+
+        x = PAGE_W - FORGE_LOGO_PAD_RIGHT - FORGE_LOGO_W
+        y = FORGE_LOGO_PAD_BOTTOM
+        renderPDF.draw(base_drawing, c, x, y)
+
+        overlay = self._load_colored_svg(FORGE_LOGO_SVG, opposite_hex)
+        if overlay is None:
+            return
+        overlay.width = FORGE_LOGO_W
+        overlay.height = target_h
+        overlay.scale(scale, scale)
+        self._apply_drawing_opacity(overlay, FORGE_LOGO_OVERLAY_OPACITY)
+        renderPDF.draw(overlay, c, x, y)
 
     def _draw_character_images(self, c, in_front=False):
         """Render decorative CharacterImages.
@@ -5015,6 +5158,15 @@ class SheetLayoutEngine:
             x_min=-slack_in,
             x_max=(page_w_in - slot_h_in) + slack_in,
         )
+        # World footprint is rotated for left/right orientation (H wide × W tall);
+        # upright is W wide × H tall.
+        if orientation in ('left', 'right'):
+            cx = x + CARD_SLOT_H / 2
+            cy = y + CARD_SLOT_W / 2
+        else:
+            cx = x + CARD_SLOT_W / 2
+            cy = y + CARD_SLOT_H / 2
+        self.record_slot_snap_point(cx, cy)
 
     def _draw_card_piles(self, c):
         if not self.card_piles:

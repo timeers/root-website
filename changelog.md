@@ -1,14 +1,15 @@
 # Changelog
 
 ## [1.12.0] - 2026-5-01 Faction Forge
-The Faction Forge is a new addition to the Root Database. It allows users to build their own faction boards from scratch. Write in your abilities, actions and turn steps to create the board. Fine tune the layout with the layout editor. Then download as an image file or high res PDF.
+The Faction Forge is a new addition to the Root Database. It allows users to build their own faction boards from scratch. Write in your abilities, actions and turn steps to create the board. Fine tune the layout with the layout editor. Then download as an image file, high res PDF or TTS object. Thank you to my beta testers KingLuigiNL, verti and davee_39 who helped me work out some issues and gave great suggestions.
 
 ### New Features
 - Create Forged Factions in the Forge
-- Build Faction Board Front and Back as well as Adset Cards
+- Build Faction Board Front and Back as well as Adset Card
 - Layout Editor for Faction Board
 - Print to PDF
-- Print to WebP
+- Print to WebP Image
+- Download as .json TTS File
 - How to Page
 - Style Guide
 
