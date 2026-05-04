@@ -19,38 +19,71 @@
 <form id="setup-card-form" method="post" enctype="multipart/form-data" class="card p-3 mb-3">
   {% csrf_token %}
 
-  <div class="forge-adset-header mb-3 text-center">
-    <img class="forge-adset-preview-image img-fluid rounded"
-         {% if card.header_image %}src="{{ card.header_image.url }}"{% else %}hidden{% endif %}
-         alt="" style="max-height: 160px;">
-  </div>
+  <div class="row g-3 mb-3 align-items-center">
+    <div class="col-md-5">
+      <div class="forge-adset-card-preview"
+           data-faction-color="{{ faction.color|default:'#5B4A8A' }}"
+           data-default-name="{{ faction.faction_name }}"
+           data-bg-url="{% static 'pdf/adset/background.png' %}"
+           data-militant-url="{% static 'pdf/adset/militant2.png' %}"
+           data-insurgent-url="{% static 'pdf/adset/insurgent2.png' %}"
+           data-marker-url-template="{% static 'pdf/svg/adset/0.svg' %}"
+           style="--faction-color: {{ faction.color|default:'#5B4A8A' }};">
+        <div class="forge-adset-card-bg"></div>
+        <div class="forge-adset-card-type-overlay" data-type="{{ card.type }}"></div>
+        <div class="forge-adset-card-title">ADVANCED SETUP</div>
+        <div class="forge-adset-card-reach">{{ card.reach }}</div>
+        <div class="forge-adset-card-band">
+          <img class="forge-adset-card-header-image"
+               {% if card.header_image %}src="{{ card.header_image.url }}"{% else %}hidden{% endif %}
+               alt="">
+          <div class="forge-adset-card-name luminari">{{ faction.faction_name }}</div>
+        </div>
+        <ol class="forge-adset-card-steps">
+          {% for step in setup_steps %}
+            <li class="forge-adset-card-step" data-step-id="{{ step.pk }}">
+              <div class="forge-adset-card-step-marker-cell">
+                <img class="forge-adset-card-step-marker" src="{% static 'pdf/svg/adset/0.svg' %}" alt="">
+              </div>
+              <div class="forge-adset-card-step-body">{% forge_text step.text %}</div>
+            </li>
+          {% endfor %}
+        </ol>
+      </div>
+      <p class="text-muted small text-center mt-2 mb-0">
+        Preview is a rough estimate &ndash; the printed PDF is the source of truth.
+      </p>
+    </div>
 
-  <div class="mb-2">
-    {{ form.faction_name.label_tag }}
-    {{ form.faction_name }}
-  </div>
-  <div class="row">
-    <div class="col-md-4 mb-2">
-      {{ form.type.label_tag }}
-      {{ form.type }}
-    </div>
-    <div class="col-md-4 mb-2">
-      {{ form.reach.label_tag }}
-      {{ form.reach }}
-    </div>
-    <div class="col-md-4 mb-2">
-      {{ form.header_image.label_tag }}
-      <div class="d-flex align-items-center gap-2">
-        {{ form.header_image }}
-        {{ form.clear_header_image }}
-        <button type="button"
-                id="header-image-clear-btn"
-                class="btn btn-sm btn-outline-danger"
-                title="Clear header image"
-                aria-label="Clear header image"
-                {% if not card.header_image %}hidden{% endif %}>
-          &times;
-        </button>
+    <div class="col-md-7">
+      <div class="mb-2">
+        {{ form.faction_name.label_tag }}
+        {{ form.faction_name }}
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-2">
+          {{ form.type.label_tag }}
+          {{ form.type }}
+        </div>
+        <div class="col-md-6 mb-2">
+          {{ form.reach.label_tag }}
+          {{ form.reach }}
+        </div>
+        <div class="col-12 mb-2">
+          {{ form.header_image.label_tag }}
+          <div class="d-flex align-items-center gap-2">
+            {{ form.header_image }}
+            {{ form.clear_header_image }}
+            <button type="button"
+                    id="header-image-clear-btn"
+                    class="btn btn-sm btn-outline-danger"
+                    title="Clear header image"
+                    aria-label="Clear header image"
+                    {% if not card.header_image %}hidden{% endif %}>
+              &times;
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -60,6 +93,8 @@
   <button type="submit" class="btn btn-success mt-3">Save Adset Card</button>
 </form>
 
+<script src="{% static 'the_keep/legibility.js' %}"></script>
+
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('setup-card-form');
@@ -68,13 +103,47 @@ document.addEventListener('DOMContentLoaded', () => {
   const list = document.getElementById('setup-step-list-bulk');
   const addBtn = document.getElementById('setup-step-add-btn');
   const tpl = document.getElementById('setup-step-row-template');
-  const previewImg = form.querySelector('.forge-adset-preview-image');
+  const preview = form.querySelector('.forge-adset-card-preview');
+  const previewImg = preview && preview.querySelector('.forge-adset-card-header-image');
+  const previewName = preview && preview.querySelector('.forge-adset-card-name');
+  const previewReach = preview && preview.querySelector('.forge-adset-card-reach');
+  const previewBg = preview && preview.querySelector('.forge-adset-card-bg');
+  const previewTypeOverlay = preview && preview.querySelector('.forge-adset-card-type-overlay');
+  const previewStepsList = preview && preview.querySelector('.forge-adset-card-steps');
   const fileInput = form.querySelector('input[name="header_image"]');
   const clearInput = form.querySelector('input[name="clear_header_image"]');
   const clearBtn = document.getElementById('header-image-clear-btn');
+  const factionNameInput = form.querySelector('input[name="faction_name"]');
+  const reachInput = form.querySelector('input[name="reach"]');
+  const typeSelect = form.querySelector('[name="type"]');
+
+  // Marker URL helper: turns ".../pdf/svg/adset/0.svg" into ".../pdf/svg/adset/N.svg"
+  const markerUrlTemplate = preview ? preview.dataset.markerUrlTemplate : '';
+  function markerUrlFor(n) {
+    return markerUrlTemplate.replace(/\d+\.svg$/, `${n % 10}.svg`);
+  }
+
+  // Title color: white if header image present OR white legible on faction color, else black.
+  function applyTitleColor() {
+    if (!preview || !previewName) return;
+    const hasImage = previewImg && !previewImg.hasAttribute('hidden');
+    const color = preview.dataset.factionColor || '#5B4A8A';
+    const useBlack = !hasImage && window.isWhiteTextLegible && !window.isWhiteTextLegible(color);
+    previewName.classList.toggle('is-text-black', !!useBlack);
+  }
+
+  function setTypeOverlay(typeVal) {
+    if (!previewTypeOverlay || !preview) return;
+    const url = (typeVal === 'I')
+      ? preview.dataset.insurgentUrl
+      : preview.dataset.militantUrl;
+    previewTypeOverlay.style.backgroundImage = url ? `url("${url}")` : '';
+  }
 
   function renumberMarkers() {
-    list.querySelectorAll('[data-row]').forEach((row, idx) => {
+    const rows = list ? list.querySelectorAll('[data-row]') : [];
+    const previewSteps = previewStepsList ? previewStepsList.querySelectorAll('.forge-adset-card-step') : [];
+    rows.forEach((row, idx) => {
       const n = idx + 1;
       const img = row.querySelector('.setup-step-marker');
       if (img) {
@@ -82,6 +151,51 @@ document.addEventListener('DOMContentLoaded', () => {
         img.alt = String(n);
       }
     });
+    previewSteps.forEach((li, idx) => {
+      const n = idx + 1;
+      const img = li.querySelector('.forge-adset-card-step-marker');
+      if (img) {
+        img.src = markerUrlFor(n);
+        img.alt = String(n);
+      }
+    });
+  }
+
+  function syncPreviewStepBody(row) {
+    if (!previewStepsList) return;
+    const rows = list ? [...list.querySelectorAll('[data-row]')] : [];
+    const idx = rows.indexOf(row);
+    if (idx < 0) return;
+    const li = previewStepsList.children[idx];
+    if (!li) return;
+    const body = li.querySelector('.forge-adset-card-step-body');
+    if (!body) return;
+    const ta = row.querySelector('textarea[name="step_text"]');
+    body.innerHTML = ta ? (ta.value || '') : '';
+  }
+
+  function appendPreviewStep() {
+    if (!previewStepsList) return;
+    const li = document.createElement('li');
+    li.className = 'forge-adset-card-step';
+    const cell = document.createElement('div');
+    cell.className = 'forge-adset-card-step-marker-cell';
+    const img = document.createElement('img');
+    img.className = 'forge-adset-card-step-marker';
+    img.src = markerUrlFor(0);
+    img.alt = '';
+    cell.appendChild(img);
+    const body = document.createElement('div');
+    body.className = 'forge-adset-card-step-body';
+    li.appendChild(cell);
+    li.appendChild(body);
+    previewStepsList.appendChild(li);
+  }
+
+  function removePreviewStepAt(idx) {
+    if (!previewStepsList) return;
+    const li = previewStepsList.children[idx];
+    if (li) li.remove();
   }
 
   if (list) {
@@ -100,6 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (window.initForgeRichText) window.initForgeRichText(newRow);
       const ta = newRow.querySelector('textarea[name="step_text"]');
       if (ta) ta.focus();
+      appendPreviewStep();
       renumberMarkers();
       markDirty();
     });
@@ -110,10 +225,36 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!btn) return;
     const row = btn.closest('[data-row]');
     if (!row) return;
+    const idx = [...list.querySelectorAll('[data-row]')].indexOf(row);
     row.remove();
+    if (idx >= 0) removePreviewStepAt(idx);
     renumberMarkers();
     markDirty();
   });
+
+  // Live preview: step text body.
+  list?.addEventListener('input', (ev) => {
+    const ta = ev.target.closest('textarea[name="step_text"]');
+    if (!ta) return;
+    const row = ta.closest('[data-row]');
+    if (row) syncPreviewStepBody(row);
+  });
+
+  // Live preview: faction name.
+  factionNameInput?.addEventListener('input', () => {
+    if (!previewName) return;
+    const v = factionNameInput.value;
+    previewName.textContent = v || (preview && preview.dataset.defaultName) || '';
+  });
+
+  // Live preview: reach.
+  reachInput?.addEventListener('input', () => {
+    if (!previewReach) return;
+    previewReach.textContent = reachInput.value || '';
+  });
+
+  // Live preview: type overlay.
+  typeSelect?.addEventListener('change', () => setTypeOverlay(typeSelect.value));
 
   // Header image preview.
   let objectUrl = null;
@@ -127,6 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Picking a new file cancels a pending clear.
     if (clearInput) clearInput.value = '';
     if (clearBtn) clearBtn.removeAttribute('hidden');
+    applyTitleColor();
   });
   clearBtn?.addEventListener('click', () => {
     if (clearInput) clearInput.value = 'true';
@@ -137,8 +279,19 @@ document.addEventListener('DOMContentLoaded', () => {
       previewImg.setAttribute('hidden', '');
     }
     clearBtn.setAttribute('hidden', '');
+    applyTitleColor();
     markDirty();
   });
+
+  // Initial preview wiring.
+  if (preview) {
+    if (previewBg && preview.dataset.bgUrl) {
+      previewBg.style.backgroundImage = `url("${preview.dataset.bgUrl}")`;
+    }
+    setTypeOverlay(previewTypeOverlay && previewTypeOverlay.dataset.type);
+    applyTitleColor();
+    renumberMarkers();
+  }
 
   // Dirty tracking + beforeunload guard.
   let dirty = false;

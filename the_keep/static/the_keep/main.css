@@ -3401,6 +3401,155 @@ body.forge-modal-open { overflow: hidden; }
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.4);
 }
 
+/* Setup-card live preview ----------------------------------------------
+   Mirrors SetupCardLayoutEngine in the_forge/pdf_engine.py.
+   Card is 2.5" × 3.46". Render at 96 px/in => 240 × 332 px.
+   All offsets/sizes are % of the card so the layout stays consistent
+   if the size changes. */
+.forge-adset-card-preview {
+  position: relative;
+  width: 240px;
+  height: 332px;
+  margin: 0 auto;
+  background: #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: Baskerville, 'Baskerville Old Face', serif;
+  user-select: none;
+  container-type: size;
+}
+.forge-adset-card-bg,
+.forge-adset-card-type-overlay {
+  position: absolute;
+  inset: 0;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+/* "ADVANCED SETUP" — Baskerville-Bold 9.5pt centered, baseline ~0.833"
+   from the top of a 3.46" card. We approximate top-relative position. */
+.forge-adset-card-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 19.95%;
+  text-align: center;
+  font-family: Baskerville, serif;
+  font-weight: bold;
+  font-size: 5.28cqi;       /* 9.5pt / (2.5*72) */
+  letter-spacing: 0.4px;
+  color: #fff;
+  pointer-events: none;
+}
+
+/* Reach: white Luminari 18pt, drawn centered on a point that's
+   0.35" from the right and 0.3" from the bottom of the card. */
+.forge-adset-card-reach {
+  position: absolute;
+  right: 14%;               /* 0.35" / 2.5" */
+  bottom: 8.67%;            /* 0.3"  / 3.46" */
+  transform: translate(50%, 25%);
+  font-family: Luminari, fantasy;
+  font-size: 10cqi;         /* 18pt / (2.5*72) */
+  color: #fff;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* Faction-color band */
+.forge-adset-card-band {
+  position: absolute;
+  left: 8.68%;              /* 0.217" / 2.5" */
+  right: 8.68%;
+  top: 9.71%;               /* 0.336" / 3.46" */
+  height: 10.09%;           /* 0.3491" / 3.46" */
+  background: var(--faction-color, #5B4A8A);
+  overflow: visible;        /* image is allowed to overhang upward */
+}
+.forge-adset-card-header-image {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: auto;
+  max-height: 401%;         /* 1.4" / 0.3491" ≈ 4.01× band height */
+  max-width: 100%;
+  object-fit: contain;
+  object-position: left bottom;
+  pointer-events: none;
+  z-index: 1;
+}
+.forge-adset-card-header-image[hidden] { display: none; }
+.forge-adset-card-name {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;     /* left-aligned, matches PDF */
+  padding-left: 2.9%;              /* 0.06" / 2.066" */
+  padding-right: 2.9%;
+  font-family: Luminari, fantasy;
+  font-size: 6.67cqi;              /* 12pt / (2.5*72) */
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.forge-adset-card-name.is-text-black {
+  color: #000;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.4);
+}
+
+/* Setup steps inside the white usable area */
+.forge-adset-card-steps {
+  position: absolute;
+  left: 12.8%;              /* 0.32" / 2.5" */
+  right: 12.8%;
+  top: 28.9%;               /* 1" / 3.46" */
+  bottom: 7.23%;            /* 0.25" / 3.46" */
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: Baskerville, serif;
+  font-size: 4.5cqi;       
+  line-height: 1.2;
+  color: #000;
+  overflow: hidden;
+}
+.forge-adset-card-step {
+  display: flex;
+  gap: 0.8em;
+  margin-bottom: 0.86%;     /* 0.06" / 3.46" */
+  align-items: flex-start;
+}
+.forge-adset-card-step-marker-cell {
+  flex: 0 0 2.5em;          /* fixed marker column so step text aligns */
+  width: 2.5em;
+  height: 2.5em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.forge-adset-card-step-marker {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  display: block;
+}
+.forge-adset-card-step-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.forge-adset-card-step-body p {
+  margin: 0;
+}
+
 /* Forge faction list cards */
 .forge-faction-card {
   color: inherit;
