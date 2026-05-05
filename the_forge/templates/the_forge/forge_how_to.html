@@ -68,7 +68,7 @@
           <h4 class="root-title mb-2">Acknowledge the Rules</h4>
           <p class="text-muted small mb-2">
             The first time you visit the Forge you'll be prompted to read and acknowledge the
-            onboarding rules. After that, the editor is unlocked for you.
+            onboarding rules. After that, the Forge is open to you.
           </p>
           <div class="text-center mt-auto pt-3">
             <i class="bi bi-clipboard2-check text-success" style="font-size: 6rem; line-height: 1;" aria-label="Onboarding rules book"></i>
@@ -83,7 +83,7 @@
     <h2 class="root-title mb-3">2. Create a Faction</h2>
     <p class="text-muted mb-4">
       From the Forge home page, click <strong>Create a Faction</strong>. You'll be asked for a few
-      core details that shape every page of your board.
+      core details that shape both sides of your board.
     </p>
 
     <div class="row g-3 mb-4">
@@ -351,7 +351,7 @@
       <strong>scales</strong>.</em>
     <h3 class="root-title mb-3">Action Types</h3>
     <p class="text-muted mb-3">
-      Each action has a type and each step can only contain actions of one typeon. Pick the one that
+      Each action has a type and each step can only contain actions of one type. Pick the one that
       fits the action's cost. You can rearrange the order of the actions by clicking and dragging on the drag handler. This affects the layout.
     </p>
     <div class="row g-3 mb-4">
@@ -531,7 +531,7 @@
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Custom Section</h4>
           <p class="text-muted small mb-2">
-            The most flexible option — essentially a custom phase that can contain anything we've
+            The most flexible option &ndash; essentially a custom phase that can contain anything we've
             covered. Add steps like the Eyrie's turmoil or combine actions with a box like the
             Lizard Cult's Acolytes. Title and body text are optional, and steps can have blank
             text. If you get lost, the layout page is the easiest way to visualize what you've built.
@@ -614,7 +614,8 @@
           <h4 class="root-title mb-2">Vertical &amp; Horizontal</h4>
           <p class="text-muted small mb-2">
             Switch between vertical and horizontal layout to see which one fits your faction better.
-            Some factions only really fit in one orientation.
+            Some factions only really fit in one orientation. 
+            Both layouts are saved independently so you won't lose your vertical layout if you try out horizontal.
           </p>
           <img src="{% static 'the_forge/img/how_to/layout_orientation.png' %}"
                alt="Vertical vs horizontal layout toggle" class="img-fluid mb-2">
@@ -726,6 +727,12 @@
 
     <div class="text-center mt-4">
       <a href="{% url 'forge-faction-create' %}" class="btn btn-primary btn-lg">
+        <span style="display:inline-block; width:1em; height:1em;
+                     vertical-align:-0.15em;
+                     background-color:#fff;
+                     -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
+                     mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
+              aria-hidden="true"></span>
         Start Building a Faction
       </a>
     </div>
