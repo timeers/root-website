@@ -1819,7 +1819,8 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     instance.image_preview.save(filename, ContentFile(webp), save=False)
     instance.preview_fingerprint = fingerprint
     instance.last_generated = timezone.now()
-    instance.save(update_fields=['image_preview', 'preview_fingerprint', 'last_generated'])
+    instance.preview_version = (instance.preview_version or 0) + 1
+    instance.save(update_fields=['image_preview', 'preview_fingerprint', 'last_generated', 'preview_version'])
 
 
 def _ensure_sheet_preview(sheet):

@@ -152,6 +152,7 @@ class FactionSheet(models.Model):
 
     image_preview = models.ImageField(upload_to=sheet_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    preview_version = models.PositiveIntegerField(default=0)
     snap_points = models.JSONField(default=list, blank=True)
     decree_slide_pts = models.FloatField(default=0.0)
 
@@ -639,6 +640,7 @@ class FactionBack(models.Model):
 
     image_preview = models.ImageField(upload_to=back_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    preview_version = models.PositiveIntegerField(default=0)
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
@@ -706,6 +708,7 @@ class SetupCard(models.Model):
 
     image_preview = models.ImageField(upload_to=card_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    preview_version = models.PositiveIntegerField(default=0)
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)

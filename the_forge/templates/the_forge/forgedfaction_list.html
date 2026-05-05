@@ -45,17 +45,17 @@
             </div>
             <div class="mt-auto d-flex flex-wrap gap-1 align-items-center">
               {% if faction.faction_sheet.image_preview %}
-                <img src="{{ faction.faction_sheet.image_preview.url }}" alt="Front preview" class="forge-faction-card__preview">
+                <img src="{{ faction.faction_sheet.image_preview.url }}?v={{ faction.faction_sheet.preview_version }}" alt="Front preview" class="forge-faction-card__preview">
               {% elif faction.faction_sheet %}
                 <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--landscape">Front</span>
               {% endif %}
               {% if faction.faction_back.image_preview %}
-                <img src="{{ faction.faction_back.image_preview.url }}" alt="Back preview" class="forge-faction-card__preview">
+                <img src="{{ faction.faction_back.image_preview.url }}?v={{ faction.faction_back.preview_version }}" alt="Back preview" class="forge-faction-card__preview">
               {% elif faction.faction_back %}
                 <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--landscape">Back</span>
               {% endif %}
               {% if faction.setup_card.image_preview %}
-                <img src="{{ faction.setup_card.image_preview.url }}" alt="Adset preview" class="forge-faction-card__preview">
+                <img src="{{ faction.setup_card.image_preview.url }}?v={{ faction.setup_card.preview_version }}" alt="Adset preview" class="forge-faction-card__preview">
               {% elif faction.setup_card %}
                 <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--portrait">A</span>
               {% endif %}
