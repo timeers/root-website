@@ -528,6 +528,7 @@ class CardPile(models.Model):
         choices=ElementColor.choices,
         default=ElementColor.WHITE,
     )
+    background_screen = models.BooleanField(default=False)
 
     # Per-layout coordinate overrides (inches). Size is fixed; only x/y can be overridden.
     x_h = models.FloatField(blank=True, null=True)

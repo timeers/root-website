@@ -219,7 +219,7 @@ CREDITS_INTER_GAP = 0.18 * inch  # horizontal gap between art_by and pnp_version
 # title_text_color. Both passes are drawn at low opacity so the logo reads
 # as a soft watermark instead of an opaque stamp.
 FORGE_LOGO_W = 0.2 * inch
-FORGE_LOGO_PAD_RIGHT = 0.12 * inch
+FORGE_LOGO_PAD_X = 0.12 * inch
 FORGE_LOGO_PAD_BOTTOM = 0.08 * inch
 FORGE_LOGO_BASE_OPACITY = 0.35     # alpha for the faction-color pass
 FORGE_LOGO_OVERLAY_OPACITY = 0.2  # alpha for the opposite-color overlay
@@ -2604,6 +2604,13 @@ class SheetLayoutEngine:
         if choice == ElementColor.SECONDARY:
             return self.sheet.faction.secondary_color or '#000000'
         return '#000000'
+
+    def _resolve_card_pile_screen_color(self, pile):
+        """Hex color for a CardPile background screen, picked to contrast
+        with the resolved element_color: dark text → white screen, pale
+        text → black screen."""
+        text_hex = self._resolve_element_color(pile.element_color)
+        return '#FFFFFF' if _is_color_legible_on(text_hex, '#FFFFFF') else '#000000'
 
     def _load_colored_svg(self, svg_path, color_hex, fit_size=None):
         with open(svg_path, 'r') as f:
@@ -5157,7 +5164,7 @@ class SheetLayoutEngine:
         base_drawing.scale(scale, scale)
         self._apply_drawing_opacity(base_drawing, FORGE_LOGO_BASE_OPACITY)
 
-        x = PAGE_W - FORGE_LOGO_PAD_RIGHT - FORGE_LOGO_W
+        x = PAGE_W - FORGE_LOGO_PAD_X - FORGE_LOGO_W
         y = FORGE_LOGO_PAD_BOTTOM
         renderPDF.draw(base_drawing, c, x, y)
 
@@ -5542,9 +5549,27 @@ class SheetLayoutEngine:
                                      CARD_PILE_TITLE_TOP_OFFSET)
         self._record_card_pile(pile, 'bottom', x, default_y)
 
+    def _draw_card_pile_screen(self, c, pile, x, y):
+        """Draw a contrast screen behind a card pile's text. Drawn before the
+        SVG border so the rounded border covers any corner overdraw."""
+        if not pile.background_screen:
+            return
+        h = self._resolve_card_pile_screen_color(pile).lstrip('#')
+        r, g, b = int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0
+        inset = 4.0
+        radius = 8.0
+        c.saveState()
+        c.setFillColorRGB(r, g, b, alpha=BACK_BG_SCREEN_OPACITY)
+        c.setStrokeColorRGB(r, g, b, alpha=0)
+        c.roundRect(x + inset, y + inset,
+                    CARD_SLOT_W - 2 * inset, CARD_SLOT_H - 2 * inset,
+                    radius, stroke=0, fill=1)
+        c.restoreState()
+
     def _draw_card_pile_upright(self, c, pile, x, y,
                                 title_para, title_h, body_para, body_h,
                                 title_top_offset):
+        self._draw_card_pile_screen(c, pile, x, y)
         drawing = self._load_card_pile_svg(self._resolve_element_color(pile.element_color),
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:
@@ -5569,6 +5594,7 @@ class SheetLayoutEngine:
             c.rotate(90)
             card_local_x = 0
             card_local_y = -CARD_SLOT_H
+        self._draw_card_pile_screen(c, pile, card_local_x, card_local_y)
         drawing = self._load_card_pile_svg(self._resolve_element_color(pile.element_color),
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:
@@ -5776,7 +5802,55 @@ class FactionBackLayoutEngine:
 
         self._draw_how_to_play(c, right_x, columns_top, right_w, columns_h)
 
+        self._draw_forge_logo(c)
+
         c.save()
+
+    def _apply_drawing_opacity(self, drawing, alpha):
+        """Mirror of SheetLayoutEngine._apply_drawing_opacity."""
+        from reportlab.graphics.shapes import Group
+        def walk(node):
+            if hasattr(node, 'fillOpacity'):
+                node.fillOpacity = alpha
+            if hasattr(node, 'strokeOpacity'):
+                node.strokeOpacity = alpha
+            contents = getattr(node, 'contents', None)
+            if contents:
+                for child in contents:
+                    walk(child)
+        walk(drawing)
+
+    def _draw_forge_logo(self, c):
+        """Stamp the Forge logo in the bottom-LEFT corner of the FactionBack.
+        Two-pass watermark: faction color underneath, opposite of the
+        faction-readable ink color overlaid on top, both at low opacity."""
+        if not os.path.exists(FORGE_LOGO_SVG):
+            return
+        ink_on_faction_hex = '#FFFFFF' if _is_white_text_legible(self.color_hex) else '#000000'
+        opposite_hex = '#FFFFFF' # if ink_on_faction_hex == '#000000' else '#000000'
+
+        base_drawing = self._load_colored_svg(FORGE_LOGO_SVG, self.color_hex)
+        if base_drawing is None:
+            return
+        scale = FORGE_LOGO_W / base_drawing.width
+        target_h = base_drawing.height * scale
+        base_drawing.width = FORGE_LOGO_W
+        base_drawing.height = target_h
+        base_drawing.scale(scale, scale)
+        self._apply_drawing_opacity(base_drawing, FORGE_LOGO_BASE_OPACITY)
+
+        x = FORGE_LOGO_PAD_X
+        y = FORGE_LOGO_PAD_BOTTOM
+        renderPDF.draw(base_drawing, c, x, y)
+
+        overlay = self._load_colored_svg(FORGE_LOGO_SVG, opposite_hex)
+        if overlay is None:
+            return
+        overlay.width = FORGE_LOGO_W
+        overlay.height = target_h
+        overlay.scale(scale, scale)
+        self._apply_drawing_opacity(overlay, FORGE_LOGO_OVERLAY_OPACITY)
+        renderPDF.draw(overlay, c, x, y)
 
     # ---------- Background (mirrors SheetLayoutEngine._draw_background) ----------
 

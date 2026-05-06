@@ -644,6 +644,34 @@
 .forge-color-swatch--white { background: #ffffff; }
 .forge-color-swatch--black { background: #000000; }
 
+.forge-screen-toggle-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 2px solid #ced4da;
+  background: #f8f9fa;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  line-height: 1;
+  transition: transform 0.1s, border-color 0.1s, box-shadow 0.1s, background 0.1s, color 0.1s;
+  margin: 0;
+  margin-left: 0.25rem;
+}
+.forge-screen-toggle-btn:hover {
+  transform: scale(1.1);
+}
+.forge-screen-toggle-btn.is-active {
+  background: #0d6efd;
+  color: #ffffff;
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.25);
+}
+
 .forge-bg-pair {
   display: flex;
   justify-content: center;

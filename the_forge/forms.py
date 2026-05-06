@@ -328,7 +328,7 @@ class CardSlotForm(forms.ModelForm):
 class CardPileForm(forms.ModelForm):
     class Meta:
         model = CardPile
-        fields = ['number', 'title', 'body', 'element_color']
+        fields = ['number', 'title', 'body', 'element_color', 'background_screen']
         widgets = {
             'body': RichTextarea(),
         }

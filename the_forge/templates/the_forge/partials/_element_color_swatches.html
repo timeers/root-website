@@ -11,4 +11,17 @@
               {% if value == 'secondary' %}style="background: {{ faction.secondary_color|default:'#000000' }};"{% endif %}></button>
     {% endif %}
   {% endfor %}
+  {% if show_screen_toggle %}
+    <input type="hidden" name="background_screen"
+           value="{% if selected_screen %}on{% endif %}"
+           data-screen-toggle-value>
+    <button type="button"
+            class="forge-screen-toggle-btn{% if selected_screen %} is-active{% endif %}"
+            data-screen-toggle
+            title="Background screen for legibility"
+            aria-label="Toggle background screen"
+            aria-pressed="{% if selected_screen %}true{% else %}false{% endif %}">
+      <i class="bi bi-highlighter"></i>
+    </button>
+  {% endif %}
 </div>
