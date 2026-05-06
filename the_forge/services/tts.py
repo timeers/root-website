@@ -60,7 +60,12 @@ class TTSForgedFactionBoard(TTSBoardBase):
         if not (sheet and sheet.include_crafted_items):
             return []
         from the_forge.pdf_engine import pdf_y_delta_to_tts_z_delta
-        z_shift = pdf_y_delta_to_tts_z_delta(sheet.decree_slide_pts or 0.0)
+        # Decree pushes the whole header down; ability-bar extension only shifts
+        # the crafted items by half the delta (they re-center in the new band).
+        ability_shift_pts = (sheet.ability_bar_extra_h_pts or 0.0) / 2.0
+        z_shift = pdf_y_delta_to_tts_z_delta(
+            (sheet.decree_slide_pts or 0.0) + ability_shift_pts
+        )
         if not z_shift:
             return list(DEFAULT_TRACKER_SNAP_POINTS)
         shifted = []

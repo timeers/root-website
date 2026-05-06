@@ -13,6 +13,7 @@
 - Added secondary faction color for when primary is not legible against white or tan
 - Background color layered behind background image when image is partially translucent
 - Color options for boxes and card piles
+- Theme text and ability text dynamic sizing improvements
 
 
 ## [1.12.0] - 2026-5-01 Faction Forge

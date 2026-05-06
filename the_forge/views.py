@@ -1815,6 +1815,27 @@ def _webp_file_response(image_field, filename):
     return response
 
 
+def _attach_preview_versions(response, **objects):
+    """Stamp the response with current preview_version values so the page can
+    refresh its <img> tags after an async download. Pass keyword args like
+    sheet=..., back=..., card=... — None values are skipped.
+    """
+    import json
+    versions = {}
+    for kind, obj in objects.items():
+        if obj is None:
+            continue
+        versions[kind] = {
+            'pk': obj.pk,
+            'version': obj.preview_version or 0,
+        }
+    if versions:
+        response['X-Forge-Preview-Versions'] = json.dumps(versions)
+        # Allow the custom header to be read by fetch() in case CORS ever applies.
+        response['Access-Control-Expose-Headers'] = 'X-Forge-Preview-Versions'
+    return response
+
+
 def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     if instance.preview_fingerprint == fingerprint and instance.image_preview:
         return
@@ -1856,7 +1877,8 @@ def _ensure_sheet_preview(sheet):
     _maybe_save_image_preview(sheet, data, fp, 'sheet')
     sheet.snap_points = list(engine.collected_snap_points)
     sheet.decree_slide_pts = float(engine.decree_slide or 0.0)
-    sheet.save(update_fields=['snap_points', 'decree_slide_pts'])
+    sheet.ability_bar_extra_h_pts = float(getattr(engine, 'ability_bar_extra_h', 0.0) or 0.0)
+    sheet.save(update_fields=['snap_points', 'decree_slide_pts', 'ability_bar_extra_h_pts'])
 
 
 def _ensure_back_preview(back):
@@ -1933,7 +1955,8 @@ def forgedfaction_pdf(request, pk):
             writer.add_page(page)
     out = BytesIO()
     writer.write(out)
-    return _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
+    response = _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
+    return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
 
 
 @login_required
@@ -1952,7 +1975,8 @@ def factionsheet_pdf(request, pk):
         return buffer.getvalue()
     data = get_or_build(key, build)
     _maybe_save_image_preview(sheet, data, fp, 'sheet')
-    return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
+    response = _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
+    return _attach_preview_versions(response, sheet=sheet)
 
 
 @login_required
@@ -1964,7 +1988,8 @@ def factionsheet_webp(request, pk):
     sheet.refresh_from_db()
     if not sheet.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(sheet.image_preview, f'{sheet.faction.faction_name} - Front.webp')
+    response = _webp_file_response(sheet.image_preview, f'{sheet.faction.faction_name} - Front.webp')
+    return _attach_preview_versions(response, sheet=sheet)
 
 
 @login_required
@@ -1983,7 +2008,8 @@ def factionback_pdf(request, pk):
         return buffer.getvalue()
     data = get_or_build(key, build)
     _maybe_save_image_preview(back, data, fp, 'back')
-    return _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
+    response = _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
+    return _attach_preview_versions(response, back=back)
 
 
 @login_required
@@ -1995,7 +2021,8 @@ def factionback_webp(request, pk):
     back.refresh_from_db()
     if not back.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(back.image_preview, f'{back.faction.faction_name} - Back.webp')
+    response = _webp_file_response(back.image_preview, f'{back.faction.faction_name} - Back.webp')
+    return _attach_preview_versions(response, back=back)
 
 
 @login_required
@@ -2038,7 +2065,7 @@ def forgedfaction_tts(request, pk):
     safe_name = (faction.faction_name or faction.slug or str(faction.pk)).replace('"', '').replace('\\', '')
     filename = f'{safe_name}.json'
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    return response
+    return _attach_preview_versions(response, sheet=sheet, back=back)
 
 
 @login_required
@@ -2057,7 +2084,8 @@ def setup_card_pdf(request, pk):
         return buffer.getvalue()
     data = get_or_build(key, build)
     _maybe_save_image_preview(card, data, fp, 'card')
-    return _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
+    response = _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
+    return _attach_preview_versions(response, card=card)
 
 
 @login_required
@@ -2079,4 +2107,5 @@ def setup_card_webp(request, pk):
         card.refresh_from_db()
     if not card.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')
+    response = _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')
+    return _attach_preview_versions(response, card=card)

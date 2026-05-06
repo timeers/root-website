@@ -61,6 +61,38 @@
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
   }
 
+  function refreshPreviewsFromHeader(headerValue) {
+    // Server sends X-Forge-Preview-Versions as JSON: {sheet:{pk,version},...}.
+    // For each entry, find matching <img data-preview-kind=K data-preview-pk=PK>
+    // and update its src/data-full only if the version changed.
+    if (!headerValue) return;
+    let payload;
+    try {
+      payload = JSON.parse(headerValue);
+    } catch (e) {
+      return;
+    }
+    Object.keys(payload).forEach((kind) => {
+      const info = payload[kind];
+      if (!info || info.version == null || info.pk == null) return;
+      const sel = `img[data-preview-kind="${kind}"][data-preview-pk="${info.pk}"]`;
+      document.querySelectorAll(sel).forEach((img) => {
+        const base = img.dataset.previewBase;
+        if (!base) return;
+        const newUrl = `${base}?v=${info.version}`;
+        // Compare against the version embedded in the current src to avoid
+        // pointless reloads (and the flicker that comes with them).
+        const currentMatch = /[?&]v=([^&]+)/.exec(img.getAttribute('src') || '');
+        const currentVersion = currentMatch ? currentMatch[1] : '';
+        if (currentVersion === String(info.version)) return;
+        img.src = newUrl;
+        if (img.dataset.full !== undefined) {
+          img.dataset.full = newUrl;
+        }
+      });
+    });
+  }
+
   function spinnerHtml(label) {
     const urls = window.FORGE_SPINNER_URLS || {};
     const bg = urls.bg || '';
@@ -118,6 +150,7 @@
       try {
         const res = await fetch(el.href, { credentials: 'same-origin' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
+        refreshPreviewsFromHeader(res.headers.get('X-Forge-Preview-Versions'));
         const blob = await res.blob();
         const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
         const disposition = res.headers.get('Content-Disposition') || '';

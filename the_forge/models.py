@@ -184,6 +184,7 @@ class FactionSheet(models.Model):
     preview_version = models.PositiveIntegerField(default=0)
     snap_points = models.JSONField(default=list, blank=True)
     decree_slide_pts = models.FloatField(default=0.0)
+    ability_bar_extra_h_pts = models.FloatField(default=0.0)
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)

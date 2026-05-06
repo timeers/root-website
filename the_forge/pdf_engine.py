@@ -218,7 +218,7 @@ CREDITS_INTER_GAP = 0.18 * inch  # horizontal gap between art_by and pnp_version
 # tinted with the faction color, then overlaid with the opposite of
 # title_text_color. Both passes are drawn at low opacity so the logo reads
 # as a soft watermark instead of an opaque stamp.
-FORGE_LOGO_W = 0.2 * inch
+FORGE_LOGO_W = 0.174 * inch
 FORGE_LOGO_PAD_X = 0.12 * inch
 FORGE_LOGO_PAD_BOTTOM = 0.08 * inch
 FORGE_LOGO_BASE_OPACITY = 0.35     # alpha for the faction-color pass
@@ -229,11 +229,21 @@ BODY_W = PAGE_W - (X_MARGIN * 2)
 TITLE_BAR_H = 0.6 * inch
 ABILITY_BAR_H = 0.9 * inch
 ABILITY_GAP = 0.05 * inch
-MIN_ABILITY_BOX_W = 1.5 * inch
+MIN_ABILITY_BOX_W = 1.3 * inch
 MIN_FLAVOR_TEXT_W = 0.90 * inch
 FLAVOR_TEXT_PADDING = 0.05 * inch
 FLAVOR_TEXT_BASE_SIZE = 6
-FLAVOR_TEXT_MAX_SIZE = 9
+FLAVOR_TEXT_MAX_SIZE = 11
+
+ABILITY_BODY_MAX_SIZE = 11
+ABILITY_BODY_MIN_SIZE = 6
+ABILITY_BODY_HARD_FLOOR = 5
+ABILITY_TITLE_MAX_SIZE = 14
+ABILITY_TITLE_MIN_SIZE = 8
+ABILITY_OUTLIER_RATIO = 1.1
+ABILITY_BAR_MAX_H = 1.5 * inch
+ABILITY_BAR_MIN_PAD = 0.06 * inch
+ABILITY_BAR_BOTTOM_EXTRA = 0.16 * inch  # extra usable height extending below box_y, no impact on top of bar or downstream elements
 
 COLOR_BAR_W_RATIO = 0.95 # Controls width of content inside top bar in relation to top bar border
 FACTION_TOP_BAR_NUDGE = 0.1 * inch
@@ -2571,6 +2581,11 @@ class SheetLayoutEngine:
         self.phases_top_y = self.faction_top_bar_top - self.faction_top_bar_h
         self.phases_bottom_y = BOTTOM_MARGIN
 
+        # Ability-bar dynamic height delta (set by _draw_ability_boxes).
+        # Positive: bar grew; negative: bar shrank. Shifts phases_top_y in lockstep.
+        self.ability_bar_extra_h = 0.0
+        self.ability_bar_h_actual = ABILITY_BAR_H
+
         self._placed_boxes = []
         self._phases_rect = None
 
@@ -4631,20 +4646,83 @@ class SheetLayoutEngine:
 
 
     def _draw_top_band(self, c):
+        # Resolve ability-bar layout before drawing anything so the title bar
+        # SVG can stretch to match the (possibly grown or shrunk) ability bar.
+        self._prepare_ability_bar_layout()
         self._draw_title_bar(c)
         self._draw_ability_boxes(c)
         # Record the whole header region as a non-editable container for the preview.
         header_top = self.faction_top_bar_top
-        header_bottom = self.title_bar_y - FACTION_TOP_BAR_NUDGE - (ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE)
+        header_bottom = self.title_bar_y - FACTION_TOP_BAR_NUDGE - (self.ability_bar_h_actual - FACTION_TOP_BAR_NUDGE)
         header_h = header_top - header_bottom
         self._record_element(kind='header_bar',
                              x=X_MARGIN, y=header_bottom,
                              w=BODY_W, h=header_h,
                              label=self.sheet.faction.faction_name)
 
+    def _prepare_ability_bar_layout(self):
+        """Resolve ability widths/sizes/box_h and apply downstream Y shifts.
+
+        Sets self._ability_layout (consumed by _draw_ability_boxes), updates
+        self.ability_bar_extra_h / self.ability_bar_h_actual, and shifts
+        self.phases_top_y so the phases area moves with the bar.
+        """
+        abilities = list(self.sheet.abilities.order_by('order'))
+        bar_w = BODY_W * COLOR_BAR_W_RATIO
+        crafted_h = 0.767 * inch
+        crafted_w = 0
+        has_crafted = self.sheet.include_crafted_items and os.path.exists(CRAFTED_ITEMS_SVG)
+        if has_crafted:
+            crafted_w = crafted_h * (64.93 / 19.46)
+
+        # Match the resolver's default so delta_h is 0 when no extension is
+        # needed — ABILITY_BAR_BOTTOM_EXTRA is "free" usable space that doesn't
+        # count as bar growth.
+        default_box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE + ABILITY_BAR_BOTTOM_EXTRA
+        flavor_text = (self.sheet.flavor_text or '').strip()
+        icon_w = (self._ability_icon.width + 4) if self._ability_icon else 0
+
+        layout = self._resolve_ability_layout(
+            abilities, bar_w, crafted_w, icon_w,
+            has_crafted=has_crafted, flavor_text=flavor_text,
+        )
+        widths = layout['widths']
+        sizes = layout['sizes']
+        box_h = layout['box_h']
+        flavor_w = layout['flavor_w']
+        flavor_style = layout['flavor_style'] or self.flavor_text_style
+        title_size = layout.get('title_size')
+
+        delta_h = box_h - default_box_h
+        # ability_bar_h_actual is the bar's "tracked" height — what downstream
+        # geometry (header_bottom, title bar SVG stretch) follows. The bottom
+        # extra is invisible to those callers; only growth past the default
+        # counts.
+        self.ability_bar_h_actual = (box_h - ABILITY_BAR_BOTTOM_EXTRA) + FACTION_TOP_BAR_NUDGE
+        self.ability_bar_extra_h = delta_h
+        self.phases_top_y -= delta_h
+
+        self._ability_layout = {
+            'abilities': abilities,
+            'widths': widths,
+            'sizes': sizes,
+            'title_size': title_size,
+            'box_h': box_h,
+            'bar_w': bar_w,
+            'icon_w': icon_w,
+            'crafted_w': crafted_w,
+            'crafted_h': crafted_h,
+            'flavor_w': flavor_w,
+            'flavor_style': flavor_style,
+            'flavor_text': flavor_text,
+            'delta_h': delta_h,
+        }
+
     def _draw_title_bar(self, c):
         img_w = self.faction_top_bar_w
-        img_h = self.faction_top_bar_h
+        # Stretch the top bar SVG by the ability-bar delta so its bottom edge
+        # follows the (possibly grown or shrunk) ability bar.
+        img_h = self.faction_top_bar_h + self.ability_bar_extra_h
         img_x = (PAGE_W - img_w) / 2
         bar_w = BODY_W * COLOR_BAR_W_RATIO
         bar_x = (PAGE_W - bar_w) / 2
@@ -4707,8 +4785,13 @@ class SheetLayoutEngine:
                              fill=faction_hex,
                              text_color=self.ink_on_faction_hex)
 
-    def _calculate_ability_widths(self, abilities, available_w, icon_w):
-        """Calculate proportional box widths based on body text length."""
+    def _calculate_ability_widths(self, abilities, available_w, icon_w, size_weights=None):
+        """Calculate proportional box widths based on body text length.
+
+        size_weights: optional list of multipliers (one per ability) applied to
+        char count. Pass body_size/MAX_BODY to give shrunk abilities less width
+        so neighbors get more room.
+        """
         n = len(abilities)
         total_gap = ABILITY_GAP * (n - 1)
         distributable_w = available_w - total_gap
@@ -4716,8 +4799,11 @@ class SheetLayoutEngine:
         if n == 1:
             return [distributable_w]
 
-        # Body character counts as proxy for space needs
-        char_counts = [len(a.body) for a in abilities]
+        if size_weights is None:
+            size_weights = [1.0] * n
+
+        # Body character counts as proxy for space needs, weighted by size
+        char_counts = [len(a.body) * size_weights[i] for i, a in enumerate(abilities)]
         total_chars = sum(char_counts)
 
         # Per-ability minimum: max of global minimum or title rendered width
@@ -4731,11 +4817,12 @@ class SheetLayoutEngine:
             return [max(distributable_w / n, mw) for mw in min_widths]
 
         # Equal-width default: if every ability's title+body fits comfortably at
-        # equal width, just split evenly. Skips the proportional allocation when
-        # nothing actually needs extra room.
+        # equal width, just split evenly. Only valid for unweighted calls — when
+        # weights are non-uniform, the caller wants proportional allocation.
+        uniform_weights = all(w == size_weights[0] for w in size_weights)
         equal_w = distributable_w / n
         box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE
-        if all(equal_w >= mw for mw in min_widths):
+        if uniform_weights and all(equal_w >= mw for mw in min_widths):
             all_fit = True
             for a in abilities:
                 story = [
@@ -4813,13 +4900,11 @@ class SheetLayoutEngine:
                 textColor=colors.black,
                 alignment=TA_LEFT,
             )
-            # Only use a larger size if it fits at minimum width
             p = Paragraph(text, style)
             _, h = p.wrap(MIN_FLAVOR_TEXT_W - pad, 9999)
             if h <= usable_h:
                 return MIN_FLAVOR_TEXT_W, style
 
-        # Base size: binary search for narrowest width
         style = self.flavor_text_style
         p = Paragraph(text, style)
         _, h = p.wrap(max_w - pad, 9999)
@@ -4839,31 +4924,355 @@ class SheetLayoutEngine:
 
         return hi, style
 
-    def _draw_ability_boxes(self, c):
-        abilities = list(self.sheet.abilities.order_by('order'))
+    def _flavor_style_at_size(self, size):
+        """Build a flavor ParagraphStyle for the given size."""
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+        return ParagraphStyle(
+            f'FlavorText_{size}',
+            fontName='Baskerville-Italic',
+            fontSize=size,
+            leading=size + 2,
+            textColor=colors.black,
+            alignment=TA_LEFT,
+        )
 
-        box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE
-        box_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - box_h
+    def _flavor_layout_at_size(self, text, size, max_w, box_h):
+        """Layout flavor text at a fixed size. Returns (width, style, used_h).
 
-        # Ability area aligns with the color bar edges
-        bar_w = BODY_W * COLOR_BAR_W_RATIO
-        bar_x = (PAGE_W - bar_w) / 2
+        Width is the narrowest column at which the text fits in box_h, capped
+        at max_w. If the text doesn't fit in box_h even at max_w, the returned
+        width is max_w and used_h reports the actual (overflowing) height.
+        """
+        pad = FLAVOR_TEXT_PADDING * 2
+        usable_h = box_h - pad
+        style = self._flavor_style_at_size(size)
 
-        # Reserve space for crafted items SVG on the right
-        # Crafted_Items_Box.svg is 64.93mm x 19.46mm (~3.34:1 aspect ratio)
-        crafted_h = 0.767 * inch
-        crafted_w = 0
-        if self.sheet.include_crafted_items and os.path.exists(CRAFTED_ITEMS_SVG):
-            crafted_w = crafted_h * (64.93 / 19.46)
+        # Try at MIN_FLAVOR_TEXT_W first — most compact.
+        p = Paragraph(text, style)
+        _, h_min = p.wrap(MIN_FLAVOR_TEXT_W - pad, 9999)
+        if h_min <= usable_h:
+            return MIN_FLAVOR_TEXT_W, style, h_min
 
-        # Reserve space for flavor text on the left
-        flavor_w = 0
-        flavor_style = self.flavor_text_style
-        flavor_text = self.sheet.flavor_text
-        if flavor_text and flavor_text.strip():
-            flavor_text = flavor_text.strip()
+        # Doesn't fit at minimum width — search for narrowest fitting width.
+        p = Paragraph(text, style)
+        _, h_max = p.wrap(max_w - pad, 9999)
+        if h_max > usable_h:
+            return max_w, style, h_max
+
+        lo = MIN_FLAVOR_TEXT_W
+        hi = max_w
+        h_at_hi = h_max
+        while hi - lo > 0.5:
+            mid = (lo + hi) / 2
+            p = Paragraph(text, style)
+            _, h = p.wrap(mid - pad, 9999)
+            if h <= usable_h:
+                hi = mid
+                h_at_hi = h
+            else:
+                lo = mid
+        return hi, style, h_at_hi
+
+    def _ability_title_size_for_body(self, body_size):
+        """Map a body size to the matching title size, clamped to title bounds."""
+        title_size = ABILITY_TITLE_MAX_SIZE - (ABILITY_BODY_MAX_SIZE - body_size)
+        return max(ABILITY_TITLE_MIN_SIZE, min(ABILITY_TITLE_MAX_SIZE, title_size))
+
+    def _make_ability_styles(self, body_size, title_size=None):
+        """Build (title_style, body_style). title_size defaults to the size
+        derived from body_size; pass an explicit value to keep all titles
+        in a row uniform when body sizes differ."""
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+
+        if title_size is None:
+            title_size = self._ability_title_size_for_body(body_size)
+        title_style = ParagraphStyle(
+            f'AbilityTitle_{title_size}',
+            fontName='Baskerville',
+            fontSize=title_size,
+            leading=title_size,
+            spaceAfter=2,
+        )
+        body_style = ParagraphStyle(
+            f'AbilityBody_{body_size}',
+            fontName='Baskerville',
+            fontSize=body_size,
+            leading=body_size + 2,
+            textColor=colors.black,
+            alignment=TA_LEFT,
+        )
+        return title_style, body_style
+
+    def _measure_ability(self, ability, width, title_style, body_style):
+        """Return total rendered height of title + body at the given width."""
+        title_p = Paragraph(f"<b>{ability.title}</b>", title_style)
+        body_p = Paragraph(format_inline_images(ability.body, sheet=self.sheet), body_style)
+        _, th = title_p.wrap(width, 9999)
+        _, bh = body_p.wrap(width, 9999)
+        return th + bh
+
+    def _all_fit(self, abilities, widths, icon_w, box_h, sizes):
+        """Check whether every ability fits at its assigned size."""
+        for i, a in enumerate(abilities):
+            ts, bs = self._make_ability_styles(sizes[i])
+            h = self._measure_ability(a, widths[i] - icon_w, ts, bs)
+            if h > box_h:
+                return False
+        return True
+
+    def _resolve_ability_layout(self, abilities, bar_w, crafted_w, icon_w,
+                                has_crafted, flavor_text):
+        """Joint flavor + ability layout solver.
+
+        Returns dict with keys: widths, sizes, box_h, flavor_w, flavor_style,
+        flavor_size. Walks strategies 0-4 in order. Body and flavor sizes
+        shrink together with intermediate flavor-only half-steps.
+        """
+        n = len(abilities)
+        # Add ABILITY_BAR_BOTTOM_EXTRA to give abilities more usable height.
+        # This extends the bar's bottom edge down into the otherwise-unused
+        # gap above the phases area; phases_top_y is unaffected because
+        # delta_h (the downstream shift) is computed against the same default.
+        default_box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE + ABILITY_BAR_BOTTOM_EXTRA
+        max_box_h = ABILITY_BAR_MAX_H - FACTION_TOP_BAR_NUDGE + ABILITY_BAR_BOTTOM_EXTRA
+        has_flavor = bool(flavor_text and flavor_text.strip())
+        flavor_text_clean = flavor_text.strip() if has_flavor else ''
+
+        def reserve_flavor(flavor_size, box_h):
+            """Return (flavor_w, flavor_style, available_w_for_abilities,
+            flavor_used_h) for the given flavor size and bar height."""
+            if not has_flavor:
+                avail = bar_w
+                if crafted_w:
+                    avail -= (crafted_w + ABILITY_GAP)
+                return 0, None, avail, 0
             max_flavor_w = max((bar_w - crafted_w) * 0.4, MIN_FLAVOR_TEXT_W)
-            flavor_w, flavor_style = self._calculate_flavor_text_layout(flavor_text, max_flavor_w, box_h)
+            fw, fs, fh = self._flavor_layout_at_size(
+                flavor_text_clean, flavor_size, max_flavor_w, box_h
+            )
+            avail = bar_w - (fw + ABILITY_GAP)
+            if crafted_w:
+                avail -= (crafted_w + ABILITY_GAP)
+            return fw, fs, avail, fh
+
+        # Build the joint walk: same-level body+flavor with half-step where
+        # flavor is one size below body. Stop when both at floor.
+        # E.g. body MAX=11, flavor MAX=11, body MIN=5, flavor MIN=6:
+        # (11,11), (11,10), (10,10), (10,9), ..., (6,6), (5,6)
+        walk = []
+        for body_size in range(ABILITY_BODY_MAX_SIZE, ABILITY_BODY_MIN_SIZE - 1, -1):
+            flavor_full = max(min(body_size, FLAVOR_TEXT_MAX_SIZE), FLAVOR_TEXT_BASE_SIZE)
+            walk.append((body_size, flavor_full))
+            flavor_half = max(flavor_full - 1, FLAVOR_TEXT_BASE_SIZE)
+            if flavor_half < flavor_full:
+                walk.append((body_size, flavor_half))
+
+        def try_step(body_size, flavor_size, box_h):
+            """Test one walk step. Returns (widths, sizes, flavor_w, flavor_style,
+            flavor_used_h, fits) at default box_h."""
+            fw, fs, avail, fh = reserve_flavor(flavor_size, box_h)
+            sizes = [body_size] * n if n else []
+            widths = (
+                self._calculate_ability_widths(abilities, avail, icon_w)
+                if n else []
+            )
+            ability_fit = (n == 0) or self._all_fit(
+                abilities, widths, icon_w, box_h, sizes
+            )
+            flavor_fit = (not has_flavor) or fh <= (box_h - 2 * FLAVOR_TEXT_PADDING)
+            return widths, sizes, fw, fs, fh, ability_fit and flavor_fit
+
+        def bump_up_sizes(widths, sizes, box_h):
+            """For each ability, find the largest size up to MAX that still
+            fits at its assigned width and box_h. Returns a new list."""
+            bumped = list(sizes)
+            for i, a in enumerate(abilities):
+                cur = bumped[i]
+                avail_w = widths[i] - icon_w
+                # Title size will be unified after bump-up, so measure with
+                # the eventual unified title size derived from the row max.
+                # Use per-trial title size here; titles will be re-measured
+                # below if the row max changes during the pass.
+                for trial in range(ABILITY_BODY_MAX_SIZE, cur, -1):
+                    ts, bs = self._make_ability_styles(trial)
+                    if self._measure_ability(a, avail_w, ts, bs) <= box_h:
+                        bumped[i] = trial
+                        break
+            return bumped
+
+        def pack(widths, sizes, box_h, flavor_w, flavor_style, flavor_size):
+            # When the global solver landed at or below MIN, short abilities
+            # may have headroom. Bump each one up individually to the largest
+            # size that still fits. Titles stay in lockstep at the row max.
+            if sizes and min(sizes) <= ABILITY_BODY_MIN_SIZE:
+                sizes = bump_up_sizes(widths, sizes, box_h)
+                # After bump-up, re-validate with the unified title size
+                # (titles all match the largest body in the row). A larger
+                # unified title may push a previously-fitting ability over —
+                # walk back individually until each fits with that title.
+                while sizes:
+                    row_max = max(sizes)
+                    unified_title = self._ability_title_size_for_body(row_max)
+                    overflow = False
+                    for i, a in enumerate(abilities):
+                        ts, bs = self._make_ability_styles(sizes[i], title_size=unified_title)
+                        if self._measure_ability(a, widths[i] - icon_w, ts, bs) > box_h:
+                            if sizes[i] > ABILITY_BODY_HARD_FLOOR:
+                                sizes[i] -= 1
+                                overflow = True
+                                break
+                    if not overflow:
+                        break
+            title_size = (
+                self._ability_title_size_for_body(max(sizes)) if sizes else None
+            )
+            return {
+                'widths': widths,
+                'sizes': sizes,
+                'box_h': box_h,
+                'flavor_w': flavor_w,
+                'flavor_style': flavor_style,
+                'flavor_size': flavor_size,
+                'title_size': title_size,
+            }
+
+        if n == 0 and not has_flavor:
+            return pack([], [], default_box_h, 0, None, FLAVOR_TEXT_MAX_SIZE)
+
+        # Strategy 1 — joint walk at default box_h.
+        for step_idx, (body_size, flavor_size) in enumerate(walk):
+            widths, sizes, fw, fs, fh, fits = try_step(body_size, flavor_size, default_box_h)
+            if fits:
+                # Strategy 0 — only at the very first (max,max) step, with no
+                # crafted items: try one flavor-shrink to reclaim vertical space.
+                if step_idx == 0 and not has_crafted:
+                    used_abil = max(
+                        (self._measure_ability(
+                            a, widths[i] - icon_w, *self._make_ability_styles(body_size)
+                        ) for i, a in enumerate(abilities)),
+                        default=0,
+                    )
+                    used = max(used_abil, fh)
+                    needed = used + 2 * ABILITY_BAR_MIN_PAD
+                    # Try the half-step (flavor 1 smaller) — only if it
+                    # measurably reduces the box_h needed.
+                    if has_flavor and flavor_size > FLAVOR_TEXT_BASE_SIZE:
+                        f2_size = flavor_size - 1
+                        w2, s2, fw2, fs2, fh2, f2_fits = try_step(
+                            body_size, f2_size, default_box_h
+                        )
+                        if f2_fits:
+                            used2 = max(
+                                max(
+                                    (self._measure_ability(
+                                        a, w2[i] - icon_w,
+                                        *self._make_ability_styles(body_size)
+                                    ) for i, a in enumerate(abilities)),
+                                    default=0,
+                                ),
+                                fh2,
+                            )
+                            needed2 = used2 + 2 * ABILITY_BAR_MIN_PAD
+                            if needed2 < needed:
+                                if needed2 < default_box_h:
+                                    return pack(w2, s2, needed2, fw2, fs2, f2_size)
+                                return pack(w2, s2, default_box_h, fw2, fs2, f2_size)
+                    if needed < default_box_h:
+                        return pack(widths, sizes, needed, fw, fs, flavor_size)
+                return pack(widths, sizes, default_box_h, fw, fs, flavor_size)
+
+        # Strategy 2 — outlier shrink. Flavor pinned at non_outlier_size - 1
+        # (clamped to FLAVOR_TEXT_BASE_SIZE).
+        char_counts = [len(a.body) for a in abilities]
+        sorted_counts = sorted(char_counts)
+        median_chars = sorted_counts[n // 2] if n % 2 == 1 else (
+            (sorted_counts[n // 2 - 1] + sorted_counts[n // 2]) / 2
+        )
+        outlier_idx = {i for i, c in enumerate(char_counts)
+                       if median_chars > 0 and c > ABILITY_OUTLIER_RATIO * median_chars}
+
+        def try_outlier(min_outlier_size):
+            """Search outlier-shrink combinations with outlier floor = min_outlier_size.
+            Returns a packed result if a fit is found, else None."""
+            for non_size in range(ABILITY_BODY_MAX_SIZE, ABILITY_BODY_MIN_SIZE - 1, -1):
+                for out_size in range(non_size - 1, min_outlier_size - 1, -1):
+                    flavor_size = max(
+                        min(non_size - 1, FLAVOR_TEXT_MAX_SIZE),
+                        FLAVOR_TEXT_BASE_SIZE,
+                    )
+                    fw_, fs_, avail_, fh_ = reserve_flavor(flavor_size, default_box_h)
+                    sizes_ = [out_size if i in outlier_idx else non_size for i in range(n)]
+                    weights = [s / ABILITY_BODY_MAX_SIZE for s in sizes_]
+                    new_widths = self._calculate_ability_widths(
+                        abilities, avail_, icon_w, size_weights=weights
+                    )
+                    flavor_fit = (not has_flavor) or fh_ <= (default_box_h - 2 * FLAVOR_TEXT_PADDING)
+                    if flavor_fit and self._all_fit(
+                        abilities, new_widths, icon_w, default_box_h, sizes_
+                    ):
+                        return pack(new_widths, sizes_, default_box_h, fw_, fs_, flavor_size)
+            return None
+
+        # Strategy 2a — outlier shrink, but never below MIN (readable floor).
+        if outlier_idx:
+            result = try_outlier(ABILITY_BODY_MIN_SIZE)
+            if result is not None:
+                return result
+
+        # Strategy 3 — extend box_h. Flavor at its floor since we're spending
+        # vertical real estate already.
+        flavor_size = FLAVOR_TEXT_BASE_SIZE
+        sizes = [ABILITY_BODY_MIN_SIZE] * n
+        # Use max_box_h for the flavor reservation so the layout function
+        # doesn't reject sizes that need taller boxes.
+        fw, fs, avail, fh = reserve_flavor(flavor_size, max_box_h)
+        widths = self._calculate_ability_widths(abilities, avail, icon_w)
+        ts, bs = self._make_ability_styles(ABILITY_BODY_MIN_SIZE)
+        used_abil = max(
+            (self._measure_ability(a, widths[i] - icon_w, ts, bs)
+             for i, a in enumerate(abilities)),
+            default=0,
+        )
+        needed = max(used_abil, fh) + 2 * ABILITY_BAR_MIN_PAD
+        new_box_h = min(needed, max_box_h)
+        if self._all_fit(abilities, widths, icon_w, new_box_h, sizes):
+            return pack(widths, sizes, new_box_h, fw, fs, flavor_size)
+
+        # Strategy 2b — last resort: outlier below MIN, down to HARD_FLOOR.
+        # Even with the bar extended, MIN didn't fit; try aggressive outlier
+        # shrink at default box_h before accepting overflow at the cap.
+        if outlier_idx:
+            result = try_outlier(ABILITY_BODY_HARD_FLOOR)
+            if result is not None:
+                return result
+
+        # Strategy 4 — accept overflow at the cap.
+        return pack(widths, sizes, max_box_h, fw, fs, flavor_size)
+
+    def _draw_ability_boxes(self, c):
+        # Layout was resolved by _prepare_ability_bar_layout (called from
+        # _draw_top_band). Pull the precomputed values here.
+        layout = self._ability_layout
+        abilities = layout['abilities']
+        widths = layout['widths']
+        sizes = layout['sizes']
+        title_size = layout.get('title_size')
+        box_h = layout['box_h']
+        bar_w = layout['bar_w']
+        icon_w = layout['icon_w']
+        crafted_w = layout['crafted_w']
+        crafted_h = layout['crafted_h']
+        flavor_w = layout['flavor_w']
+        flavor_style = layout['flavor_style']
+        flavor_text = layout['flavor_text']
+        delta_h = layout['delta_h']
+
+        bar_x = (PAGE_W - bar_w) / 2
+        box_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - box_h
 
         # Draw flavor text box left-aligned with the color bar
         if flavor_w:
@@ -4885,23 +5294,11 @@ class SheetLayoutEngine:
                                  w=flavor_w, h=box_h,
                                  text=flavor_text)
 
-        # Calculate available width for abilities
-        available_w = bar_w
-        if crafted_w:
-            available_w -= (crafted_w + ABILITY_GAP)
-        if flavor_w:
-            available_w -= (flavor_w + ABILITY_GAP)
-
         if abilities:
-            # Calculate icon width for width estimation
-            icon_w = (self._ability_icon.width + 4) if self._ability_icon else 0
-
-            # Proportional widths based on body text length, with per-ability minimums
-            widths = self._calculate_ability_widths(abilities, available_w, icon_w)
-
             x = bar_x + (flavor_w + ABILITY_GAP if flavor_w else 0)
             for i, ability in enumerate(abilities):
                 box_w = widths[i]
+                title_style, body_style = self._make_ability_styles(sizes[i], title_size=title_size)
 
                 self._record_element(kind='header_ability',
                                      x=x, y=box_y, w=box_w, h=box_h,
@@ -4916,8 +5313,8 @@ class SheetLayoutEngine:
 
                 # Flow title + body text to the right of the icon
                 story = [
-                    Paragraph(f"<b>{ability.title}</b>", self.ability_title_style),
-                    Paragraph(format_inline_images(ability.body, sheet=self.sheet), self.ability_body_style),
+                    Paragraph(f"<b>{ability.title}</b>", title_style),
+                    Paragraph(format_inline_images(ability.body, sheet=self.sheet), body_style),
                 ]
                 frame = Frame(
                     x + icon_w, box_y,
@@ -4930,10 +5327,13 @@ class SheetLayoutEngine:
 
                 x += box_w + ABILITY_GAP
 
-        # Draw crafted items SVG right-aligned with the color bar, below it by NUDGE
+        # Draw crafted items SVG right-aligned with the color bar, vertically
+        # centered in the (possibly extended) ability bar.
         if crafted_w:
             crafted_x = bar_x + bar_w - crafted_w
-            crafted_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - crafted_h
+            # When the bar grows, shift crafted items down by delta_h/2 so they
+            # stay vertically centered in the new band.
+            crafted_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - crafted_h - (delta_h / 2)
             drawing = svg2rlg(CRAFTED_ITEMS_SVG)
             if drawing:
                 sx = crafted_w / drawing.width
