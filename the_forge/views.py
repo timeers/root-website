@@ -67,6 +67,8 @@ from .models import (
     SetupCard,
     SetupStep,
     StepAction,
+    faction_has_background,
+    faction_secondary_in_use,
 )
 
 
@@ -355,6 +357,10 @@ def factionsheet_edit(request, pk):
         'inline_images': _inline_images_map(sheet),
         'inline_image_labels': _inline_image_labels(sheet),
         'box_height_choices': BorderedBox.BoxSize.choices,
+        'box_color_choices': BorderedBox.ElementColor.choices,
+        'pile_color_choices': CardPile.ElementColor.choices,
+        'secondary_visible': faction_secondary_in_use(sheet.faction),
+        'pile_hide_faction': not faction_has_background(sheet.faction),
         'ability_form': FactionAbilityForm(),
         'content_box_form': ContentBoxForm(),
         'phase_step_form': PhaseStepForm(sheet=sheet),
@@ -1183,6 +1189,7 @@ def borderedbox_add(request, step_pk):
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(step.sheet),
+        'secondary_visible': faction_secondary_in_use(step.sheet.faction),
     })
 
 
@@ -1199,6 +1206,7 @@ def borderedbox_edit(request, pk):
     ensure_step_parent_fits(box.step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(box.step.sheet),
+        'secondary_visible': faction_secondary_in_use(box.step.sheet.faction),
     })
 
 
@@ -1623,6 +1631,8 @@ def cardpile_add(request, sheet_pk):
     pile.save()
     return render(request, 'the_forge/partials/card_pile_row.html', {
         'pile': pile, 'inline_keywords': _inline_keywords(sheet),
+        'secondary_visible': faction_secondary_in_use(sheet.faction),
+        'pile_hide_faction': not faction_has_background(sheet.faction),
     })
 
 
@@ -1638,6 +1648,8 @@ def cardpile_edit(request, pk):
     form.save()
     return render(request, 'the_forge/partials/card_pile_row.html', {
         'pile': pile, 'inline_keywords': _inline_keywords(pile.sheet),
+        'secondary_visible': faction_secondary_in_use(pile.sheet.faction),
+        'pile_hide_faction': not faction_has_background(pile.sheet.faction),
     })
 
 
@@ -1803,6 +1815,27 @@ def _webp_file_response(image_field, filename):
     return response
 
 
+def _attach_preview_versions(response, **objects):
+    """Stamp the response with current preview_version values so the page can
+    refresh its <img> tags after an async download. Pass keyword args like
+    sheet=..., back=..., card=... — None values are skipped.
+    """
+    import json
+    versions = {}
+    for kind, obj in objects.items():
+        if obj is None:
+            continue
+        versions[kind] = {
+            'pk': obj.pk,
+            'version': obj.preview_version or 0,
+        }
+    if versions:
+        response['X-Forge-Preview-Versions'] = json.dumps(versions)
+        # Allow the custom header to be read by fetch() in case CORS ever applies.
+        response['Access-Control-Expose-Headers'] = 'X-Forge-Preview-Versions'
+    return response
+
+
 def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     if instance.preview_fingerprint == fingerprint and instance.image_preview:
         return
@@ -1819,7 +1852,8 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     instance.image_preview.save(filename, ContentFile(webp), save=False)
     instance.preview_fingerprint = fingerprint
     instance.last_generated = timezone.now()
-    instance.save(update_fields=['image_preview', 'preview_fingerprint', 'last_generated'])
+    instance.preview_version = (instance.preview_version or 0) + 1
+    instance.save(update_fields=['image_preview', 'preview_fingerprint', 'last_generated', 'preview_version'])
 
 
 def _ensure_sheet_preview(sheet):
@@ -1843,7 +1877,8 @@ def _ensure_sheet_preview(sheet):
     _maybe_save_image_preview(sheet, data, fp, 'sheet')
     sheet.snap_points = list(engine.collected_snap_points)
     sheet.decree_slide_pts = float(engine.decree_slide or 0.0)
-    sheet.save(update_fields=['snap_points', 'decree_slide_pts'])
+    sheet.ability_bar_extra_h_pts = float(getattr(engine, 'ability_bar_extra_h', 0.0) or 0.0)
+    sheet.save(update_fields=['snap_points', 'decree_slide_pts', 'ability_bar_extra_h_pts'])
 
 
 def _ensure_back_preview(back):
@@ -1920,7 +1955,8 @@ def forgedfaction_pdf(request, pk):
             writer.add_page(page)
     out = BytesIO()
     writer.write(out)
-    return _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
+    response = _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
+    return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
 
 
 @login_required
@@ -1939,7 +1975,26 @@ def factionsheet_pdf(request, pk):
         return buffer.getvalue()
     data = get_or_build(key, build)
     _maybe_save_image_preview(sheet, data, fp, 'sheet')
-    return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
+    response = _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
+    return _attach_preview_versions(response, sheet=sheet)
+
+
+@login_required
+def factionsheet_pdf_layered(request, pk):
+    sheet = get_object_or_404(FactionSheet, pk=pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SheetLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
+    fp = fingerprint_sheet(sheet)
+    key = cache_key('sheet-layered', sheet.pk, fp)
+    def build():
+        buffer = BytesIO()
+        SheetLayoutEngine(sheet).build(buffer, layered=True)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front (Layers).pdf')
 
 
 @login_required
@@ -1951,7 +2006,8 @@ def factionsheet_webp(request, pk):
     sheet.refresh_from_db()
     if not sheet.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(sheet.image_preview, f'{sheet.faction.faction_name} - Front.webp')
+    response = _webp_file_response(sheet.image_preview, f'{sheet.faction.faction_name} - Front.webp')
+    return _attach_preview_versions(response, sheet=sheet)
 
 
 @login_required
@@ -1970,7 +2026,26 @@ def factionback_pdf(request, pk):
         return buffer.getvalue()
     data = get_or_build(key, build)
     _maybe_save_image_preview(back, data, fp, 'back')
-    return _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
+    response = _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
+    return _attach_preview_versions(response, back=back)
+
+
+@login_required
+def factionback_pdf_layered(request, pk):
+    back = get_object_or_404(FactionBack, pk=pk)
+    if (resp := _forbid_if_not_editor(request, back.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import FactionBackLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_back, get_or_build
+    fp = fingerprint_back(back)
+    key = cache_key('back-layered', back.pk, fp)
+    def build():
+        buffer = BytesIO()
+        FactionBackLayoutEngine(back).build(buffer, layered=True)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{back.faction.faction_name} - Back (Layers).pdf')
 
 
 @login_required
@@ -1982,7 +2057,8 @@ def factionback_webp(request, pk):
     back.refresh_from_db()
     if not back.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(back.image_preview, f'{back.faction.faction_name} - Back.webp')
+    response = _webp_file_response(back.image_preview, f'{back.faction.faction_name} - Back.webp')
+    return _attach_preview_versions(response, back=back)
 
 
 @login_required
@@ -2025,7 +2101,7 @@ def forgedfaction_tts(request, pk):
     safe_name = (faction.faction_name or faction.slug or str(faction.pk)).replace('"', '').replace('\\', '')
     filename = f'{safe_name}.json'
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    return response
+    return _attach_preview_versions(response, sheet=sheet, back=back)
 
 
 @login_required
@@ -2044,7 +2120,26 @@ def setup_card_pdf(request, pk):
         return buffer.getvalue()
     data = get_or_build(key, build)
     _maybe_save_image_preview(card, data, fp, 'card')
-    return _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
+    response = _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
+    return _attach_preview_versions(response, card=card)
+
+
+@login_required
+def setup_card_pdf_layered(request, pk):
+    card = get_object_or_404(SetupCard, pk=pk)
+    if (resp := _forbid_if_not_editor(request, card.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SetupCardLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    fp = fingerprint_setup_card(card)
+    key = cache_key('setup_card-layered', card.pk, fp)
+    def build():
+        buffer = BytesIO()
+        SetupCardLayoutEngine(card).build(buffer, layered=True)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{card.faction.faction_name} - Adset (Layers).pdf')
 
 
 @login_required
@@ -2066,4 +2161,5 @@ def setup_card_webp(request, pk):
         card.refresh_from_db()
     if not card.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
-    return _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')
+    response = _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')
+    return _attach_preview_versions(response, card=card)

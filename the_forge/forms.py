@@ -65,6 +65,7 @@ class ForgedFactionForm(forms.ModelForm):
         fields = [
             'faction_name',
             'color',
+            'secondary_color',
             'background_preset',
             'background_image',
             'repeat_background_image',
@@ -78,6 +79,10 @@ class ForgedFactionForm(forms.ModelForm):
             'color': forms.TextInput(attrs={
                 'type': 'color',
                 'class': 'form-control form-control-color forge-color-swatch',
+            }),
+            'secondary_color': forms.TextInput(attrs={
+                'type': 'color',
+                'class': 'form-control form-control-color forge-color-swatch forge-secondary-color-swatch',
             }),
         }
 
@@ -247,7 +252,7 @@ class PhaseStepCostImageForm(forms.ModelForm):
 class BorderedBoxForm(forms.ModelForm):
     class Meta:
         model = BorderedBox
-        fields = ['title', 'body', 'height']
+        fields = ['title', 'body', 'height', 'element_color']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
             'body': RichTextarea(),
@@ -294,7 +299,7 @@ class CardboardTrackForm(forms.ModelForm):
 class CardboardSlotForm(forms.ModelForm):
     class Meta:
         model = CardboardSlot
-        fields = ['content', 'background_image']
+        fields = ['content', 'centered_text', 'background_image']
 
 
 class DecreeSectionForm(forms.ModelForm):
@@ -323,7 +328,7 @@ class CardSlotForm(forms.ModelForm):
 class CardPileForm(forms.ModelForm):
     class Meta:
         model = CardPile
-        fields = ['number', 'title', 'body']
+        fields = ['number', 'title', 'body', 'element_color', 'background_screen']
         widgets = {
             'body': RichTextarea(),
         }

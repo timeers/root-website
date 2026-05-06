@@ -15,7 +15,7 @@
 {% block content %}
 <div class="forge-home">
 
-  <section class="forge-home-hero text-center py-5 mb-4">
+  <section class="forge-home-hero text-center mt-5 mb-4">
     <h1 class="root-title display-4 mb-3">Faction Forge</h1>
     <span class="forge-home-hero-logo d-block mx-auto mb-3"
           style="width:5rem; height:4.5rem;
@@ -29,21 +29,6 @@
       When you're ready, print your faction board as a PDF or TTS object.
     </p>
 
-    {% if user.is_authenticated %}
-      {% if has_factions %}
-        <a href="{% url 'forge-faction-list' %}" class="btn btn-primary btn-lg">
-          View My Factions
-        </a>
-      {% else %}
-        <a href="{% url 'forge-faction-create' %}" class="btn btn-primary btn-lg">
-          Create a Faction
-        </a>
-      {% endif %}
-    {% else %}
-      <a href="{% url 'forge-faction-create' %}" class="btn btn-primary btn-lg">
-        Log In to Get Started
-      </a>
-    {% endif %}
   </section>
 
   <section class="forge-home-features mb-4 text-center">
@@ -113,5 +98,40 @@
     </a>
   </section>
 
+  <section class="forge-call-to-action text-center mb-5">
+      {% if user.is_authenticated %}
+        {% if has_factions %}
+          <a href="{% url 'forge-faction-list' %}" class="btn btn-primary btn-lg">
+            <span style="display:inline-block; width:1em; height:1em;
+                vertical-align:-0.15em;
+                background-color:#fff;
+                -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
+                mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
+        aria-hidden="true"></span>
+            View My Factions
+          </a>
+        {% else %}
+          <a href="{% url 'forge-faction-create' %}" class="btn btn-primary btn-lg">
+            <span style="display:inline-block; width:1em; height:1em;
+                vertical-align:-0.15em;
+                background-color:#fff;
+                -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
+                mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
+        aria-hidden="true"></span>
+            Create a Faction
+          </a>
+        {% endif %}
+      {% else %}
+        <a href="{% url 'forge-faction-create' %}" class="btn btn-primary btn-lg">
+            <span style="display:inline-block; width:1em; height:1em;
+                  vertical-align:-0.15em;
+                  background-color:#fff;
+                  -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
+                  mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
+          aria-hidden="true"></span>
+          Log In to Get Started
+        </a>
+      {% endif %}
+    </section>
 </div>
 {% endblock %}

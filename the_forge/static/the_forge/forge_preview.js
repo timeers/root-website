@@ -238,12 +238,12 @@
           t.textContent = el.title;
           div.appendChild(t);
         }
-        const isToken = el.track_type === 'token';
+        const trackType = el.track_type || 'building';
         // Absolute-position slots using engine-computed coords (in inches,
         // top-left origin within the track flowable).
         (el.slots || []).forEach((s) => {
           const slot = document.createElement('div');
-          slot.className = 'track-slot' + (isToken ? ' track-slot--token' : ' track-slot--building');
+          slot.className = 'track-slot track-slot--' + trackType;
           slot.style.position = 'absolute';
           slot.style.left = (s.x * SCALE) + 'px';
           slot.style.top = (s.y * SCALE) + 'px';

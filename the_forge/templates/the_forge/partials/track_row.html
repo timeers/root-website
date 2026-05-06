@@ -29,6 +29,9 @@
           <input type="radio" class="btn-check" name="type" id="track-{{ track.pk }}-type-building"
                  value="building" {% if track.type == 'building' %}checked{% endif %}>
           <label class="btn btn-outline-secondary" for="track-{{ track.pk }}-type-building" title="Building"><i class="bi bi-square"></i></label>
+          <input type="radio" class="btn-check" name="type" id="track-{{ track.pk }}-type-counter"
+                 value="counter" {% if track.type == 'counter' %}checked{% endif %}>
+          <label class="btn btn-outline-secondary" for="track-{{ track.pk }}-type-counter" title="Counter"><i class="bi bi-123"></i></label>
         </div>
       </div>
       <div class="track-editor__toggle-group">

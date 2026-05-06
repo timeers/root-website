@@ -3,25 +3,28 @@
 {% load forge_text %}
 
 {% block content %}
+{% with bg_color=faction.color|default:'#888888' %}
 {% if faction.background_image %}
   <div class="forge-detail-page-bg"
        {% if faction.repeat_background_image %}
        data-tile-src="{{ faction.background_image.url }}"
        data-tile-pct="{{ faction.background_tile_size }}"
+       style="background-color:{{ bg_color }};"
        {% else %}
-       style="background-image:url('{{ faction.background_image.url }}');"
+       style="background-color:{{ bg_color }};background-image:url('{{ faction.background_image.url }}');"
        {% endif %}></div>
 {% else %}
   {% with preset_path=faction.BACKGROUND_PRESET_FILES|dict_get:faction.background_preset %}
     {% if preset_path %}
       <div class="forge-detail-page-bg"
-           style="background-image:url('{% static preset_path %}');"></div>
+           style="background-color:{{ bg_color }};background-image:url('{% static preset_path %}');"></div>
     {% else %}
       <div class="forge-detail-page-bg"
-           style="background:{{ faction.color|default:'#888888' }};"></div>
+           style="background:{{ bg_color }};"></div>
     {% endif %}
   {% endwith %}
 {% endif %}
+{% endwith %}
 <div class="forge-detail-page-overlay"></div>
 
 <div class="d-flex justify-content-between align-items-center my-2 position-relative">
@@ -80,6 +83,7 @@
                     <ul class="dropdown-menu">
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                      <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-pdf-layered' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-layers"></i> Layers as PDF</a></li>
                     </ul>
                   </div>
                 </div>
@@ -92,7 +96,7 @@
             {% endif %}
           </div>
           {% if sheet.image_preview %}
-            <img src="{{ sheet.image_preview.url }}" alt="Front preview" class="forge-detail-preview zoomable mt-3" data-full="{{ sheet.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            <img src="{{ sheet.image_preview.url }}?v={{ sheet.preview_version }}" alt="Front preview" class="forge-detail-preview zoomable mt-3" data-full="{{ sheet.image_preview.url }}?v={{ sheet.preview_version }}" data-preview-kind="sheet" data-preview-pk="{{ sheet.pk }}" data-preview-base="{{ sheet.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>
@@ -111,6 +115,7 @@
                     <ul class="dropdown-menu">
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-webp' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                      <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-pdf-layered' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-layers"></i> Layers as PDF</a></li>
                     </ul>
                   </div>
                 </div>
@@ -123,7 +128,7 @@
             {% endif %}
           </div>
           {% if back.image_preview %}
-            <img src="{{ back.image_preview.url }}" alt="Back preview" class="forge-detail-preview zoomable mt-3" data-full="{{ back.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            <img src="{{ back.image_preview.url }}?v={{ back.preview_version }}" alt="Back preview" class="forge-detail-preview zoomable mt-3" data-full="{{ back.image_preview.url }}?v={{ back.preview_version }}" data-preview-kind="back" data-preview-pk="{{ back.pk }}" data-preview-base="{{ back.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>
@@ -142,6 +147,7 @@
                     <ul class="dropdown-menu">
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-pdf' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-webp' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+                      <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-pdf-layered' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-layers"></i> Layers as PDF</a></li>
                     </ul>
                   </div>
                 </div>
@@ -154,7 +160,7 @@
             {% endif %}
           </div>
           {% if setup_card.image_preview %}
-            <img src="{{ setup_card.image_preview.url }}" alt="Adset preview" class="forge-detail-preview zoomable mt-3" data-full="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            <img src="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" alt="Adset preview" class="forge-detail-preview zoomable mt-3" data-full="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" data-preview-kind="card" data-preview-pk="{{ setup_card.pk }}" data-preview-base="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
           {% endif %}
         </div>
       </div>

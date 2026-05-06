@@ -6,7 +6,8 @@
     <input type="hidden" name="number" value="{{ pile.number }}">
     <div class="d-flex gap-2 align-items-center mb-1">
       <span class="card-pile-number luminari text-muted">{{ pile.number }}</span>
-      <input type="text" name="title" value="{{ pile.title|default_if_none:'' }}" class="form-control luminari" style="font-size: 1.25rem;" placeholder="Title">
+      <input type="text" name="title" value="{{ pile.title|default_if_none:'' }}" class="form-control luminari flex-grow-1" style="font-size: 1.25rem; min-width: 0;" placeholder="Title">
+      {% include 'the_forge/partials/_element_color_swatches.html' with id_prefix='pile-'|add:pile.pk|stringformat:'s' selected=pile.element_color faction=pile.sheet.faction secondary_visible=secondary_visible hide_faction=pile_hide_faction choices=pile.ElementColor.choices show_screen_toggle=True selected_screen=pile.background_screen %}
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="2">{{ pile.body|default_if_none:'' }}</textarea>

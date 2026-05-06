@@ -2919,6 +2919,20 @@ tr.clickable-row:hover {
 
 .phase-step-actions { flex-wrap: wrap; }
 
+.forge-segmented.btn-group-sm > .btn,
+.forge-segmented .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding-top: 0.9375rem;
+  padding-bottom: 0.375rem;
+}
+.forge-segmented .btn > .bi {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
 .forge-segmented .btn-check:checked + .btn {
   background: #6c757d;
   color: #fff;
@@ -3188,6 +3202,7 @@ form[data-forge-icon-form] {
 }
 .track-cell--ghost.track-cell--token    { border-radius: 50%; }
 .track-cell--ghost.track-cell--building { border-radius: 4px; }
+.track-cell--ghost.track-cell--counter  { border-radius: 50%; width: 2.25rem; height: 2.25rem; }
 .track-cell {
   position: relative;
   width: 3rem;
@@ -3204,6 +3219,7 @@ form[data-forge-icon-form] {
 }
 .track-cell--token    { border-radius: 50%; }
 .track-cell--building { border-radius: 4px; }
+.track-cell--counter  { border-radius: 50%; width: 2.25rem; height: 2.25rem; background-color: transparent; }
 .track-cell::before {
   content: '';
   position: absolute;
@@ -3238,6 +3254,27 @@ form[data-forge-icon-form] {
 .track-cell--token .track-cell__icons img {
   max-width: 0.85rem;
   max-height: 0.85rem;
+}
+.track-cell--counter .track-cell__icons {
+  max-width: 70%;
+  max-height: 70%;
+}
+.track-cell--counter .track-cell__icons img {
+  max-width: 0.6rem;
+  max-height: 0.6rem;
+}
+.track-cell__centered-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Baskerville', serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #3a2a14;
+  pointer-events: none;
+  z-index: 2;
 }
 /* ---------- Slot modal ---------- */
 .forge-slot-modal {
@@ -3660,7 +3697,7 @@ body.forge-modal-open { overflow: hidden; }
   border-image: url('/static/pdf/boxes/Medium_Box.svg') 30 fill / 24px / 0 stretch;
 }
 .forge-detail-frame[data-box-shape="wide"] .forge-detail-frame__box {
-  border-image: url('/static/pdf/boxes/Phase_Box_Rotated.svg') 30 fill / 24px / 0 stretch;
+  border-image: url('/static/pdf/boxes/Phase_Rotated_Box.svg') 30 fill / 24px / 0 stretch;
 }
 .forge-detail-columns {
   display: grid;

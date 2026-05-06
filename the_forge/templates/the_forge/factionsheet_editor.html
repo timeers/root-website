@@ -108,7 +108,7 @@
 
 
 <template id="forge-box-form-template">
-  {% include 'the_forge/partials/bordered_box_form.html' with step_pk=0 box_height_choices=box_height_choices %}
+  {% include 'the_forge/partials/bordered_box_form.html' with step_pk=0 box_height_choices=box_height_choices box_color_choices=box_color_choices secondary_visible=secondary_visible faction=faction %}
 </template>
 <template id="forge-track-form-template">
   {% include 'the_forge/partials/cardboard_track_form.html' with step_pk=0 %}
@@ -247,7 +247,8 @@
   <form id="card-pile-add-form" class="mt-2" hidden data-add-url="{% url 'forge-cardpile-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
     <div class="d-flex gap-2 align-items-center mb-1">
-      <input type="text" name="title" class="form-control luminari" style="font-size: 1.25rem;" placeholder="Title">
+      <input type="text" name="title" class="form-control luminari flex-grow-1" style="font-size: 1.25rem; min-width: 0;" placeholder="Title">
+      {% include 'the_forge/partials/_element_color_swatches.html' with id_prefix='newpile' selected='white' faction=sheet.faction secondary_visible=secondary_visible hide_faction=pile_hide_faction choices=pile_color_choices show_screen_toggle=True selected_screen=False %}
     </div>
     <div class="forge-rich-text">
       <textarea name="body" class="form-control" rows="2"></textarea>
@@ -404,7 +405,9 @@
         preview.setAttribute('hidden', '');
       }
       form.hidden = true;
-      toggle.hidden = false;
+      const max = parseInt(list.dataset.max, 10);
+      const count = list.querySelectorAll('[data-row]').length;
+      toggle.hidden = count >= max;
     });
   }
 })();
@@ -462,7 +465,9 @@
         preview.setAttribute('hidden', '');
       }
       form.hidden = true;
-      toggle.hidden = false;
+      const max = parseInt(list.dataset.max, 10);
+      const count = list.querySelectorAll('[data-row]').length;
+      toggle.hidden = count >= max;
     });
   }
 })();
@@ -606,7 +611,9 @@ document.addEventListener('DOMContentLoaded', () => {
     cardPileAddForm.addEventListener('submit', () => {
       const observer = new MutationObserver(() => {
         cardPileAddForm.hidden = true;
-        cardPileAddToggle.hidden = false;
+        const max = parseInt(cardPileList.dataset.max, 10);
+        const count = cardPileList.querySelectorAll('[data-row]').length;
+        cardPileAddToggle.hidden = count >= max;
         renumberCardPiles(cardPileList);
         observer.disconnect();
       });
@@ -929,5 +936,46 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+</script>
+
+<script>
+(function () {
+  if (window.__forgeElementColorPickerBound) return;
+  window.__forgeElementColorPickerBound = true;
+
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.forge-element-color-picker .forge-color-swatch-btn');
+    if (!btn) return;
+    const picker = btn.closest('.forge-element-color-picker');
+    if (!picker) return;
+    const value = btn.dataset.colorValue;
+    const hidden = picker.querySelector('[data-element-color-value]');
+    if (hidden) {
+      const oldValue = hidden.value;
+      hidden.value = value;
+      if (oldValue !== value) {
+        hidden.dispatchEvent(new Event('input', { bubbles: true }));
+        hidden.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+    picker.querySelectorAll('.forge-color-swatch-btn').forEach((el) => {
+      el.classList.toggle('is-selected', el === btn);
+    });
+  });
+
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-screen-toggle]');
+    if (!btn) return;
+    const picker = btn.closest('.forge-element-color-picker');
+    const hidden = picker && picker.querySelector('[data-screen-toggle-value]');
+    if (!hidden) return;
+    const active = hidden.value === 'on';
+    hidden.value = active ? '' : 'on';
+    btn.classList.toggle('is-active', !active);
+    btn.setAttribute('aria-pressed', String(!active));
+    hidden.dispatchEvent(new Event('input', { bubbles: true }));
+    hidden.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+})();
 </script>
 {% endblock %}

@@ -164,23 +164,23 @@ FORGE_PICKER_ORDER = [
     'card3',
     'card4',
 
-    # Icons
-    'meeple',
-    'fox_icon',
+    #  Oulines
     'fox_outline',
-    'fox_craft',
-    'mouse_icon',
     'mouse_outline',
-    'mouse_craft',
-    'rabbit_icon',
     'rabbit_outline',
+
+    # Crafting
+    'fox_craft',
+    'mouse_craft',
     'rabbit_craft',
     # 'wild_craft',
 
 
-
-
-
+    # Icons
+    'meeple',
+    'fox_icon',
+    'mouse_icon',
+    'rabbit_icon',
 
     # # Animals
     # 'bunny',

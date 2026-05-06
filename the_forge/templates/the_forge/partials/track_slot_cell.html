@@ -7,6 +7,7 @@
         data-num-rows="{{ track.num_rows }}"
         data-num-cols="{{ track.num_columns }}"
         data-content="{% if slot %}{{ slot.content }}{% endif %}"
+        data-centered-text="{% if slot %}{{ slot.centered_text }}{% endif %}"
         data-bg-url="{% if slot and slot.background_image %}{{ slot.background_image.url }}{% endif %}"
         title="Edit slot{% if track.num_rows == 1 and track.num_columns == 1 %}{% elif track.num_rows == 1 %} {{ col|add:1 }}{% elif track.num_columns == 1 %} {{ row|add:1 }}{% else %} ({{ row|add:1 }}, {{ col|add:1 }}){% endif %}"
         {% if slot and slot.background_image %}style="--slot-bg: url('{{ slot.background_image.url }}');"{% endif %}>
@@ -18,5 +19,8 @@
         {% endwith %}
       {% endfor %}
     </span>
+  {% endif %}
+  {% if slot and slot.centered_text %}
+    <span class="track-cell__centered-text">{{ slot.centered_text }}</span>
   {% endif %}
 </button>

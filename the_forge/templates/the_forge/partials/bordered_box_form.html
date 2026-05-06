@@ -7,6 +7,9 @@
     <div class="d-flex flex-nowrap gap-2 align-items-center mb-1">
       <strong class="me-1 small text-muted flex-shrink-0">New box:</strong>
       <input type="text" name="title" class="form-control form-control-sm flex-grow-1 luminari" placeholder="Title" required style="min-width:0;">
+      {% include 'the_forge/partials/_element_color_swatches.html' with id_prefix='newbox-'|add:step_pk|stringformat:'s' selected='black' faction=faction secondary_visible=secondary_visible choices=box_color_choices %}
+    </div>
+    <div class="d-flex flex-nowrap gap-2 align-items-center mb-1">
       <div class="btn-group btn-group-sm forge-segmented flex-shrink-0" role="group" aria-label="Height">
         {% for value, label in box_height_choices %}
           <input type="radio" class="btn-check" name="height" id="newbox-{{ step_pk }}-{{ value }}"

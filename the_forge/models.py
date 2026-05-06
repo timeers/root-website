@@ -55,8 +55,17 @@ class ForgedFaction(models.Model):
         max_length=7,
         blank=True,
         null=True,
+        default='#5f788a',
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
+    secondary_color = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        default='#000000',
+        validators=[validate_hex_color],
+        help_text="Used when the primary color isn't legible against tan."
     )
     background_preset = models.CharField(
         max_length=20,
@@ -102,6 +111,26 @@ class ForgedFaction(models.Model):
             except ForgedFaction.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        # If the primary color is legible on tan, the secondary color is no
+        # longer surfaced in the editor — reset any boxes/piles still using it
+        # so the saved choice doesn't drift from what the UI shows.
+        if not new and not faction_secondary_in_use(self):
+            BorderedBox.objects.filter(
+                step__sheet__faction=self,
+                element_color=ElementColor.SECONDARY,
+            ).update(element_color=BorderedBox._meta.get_field('element_color').default)
+            CardPile.objects.filter(
+                sheet__faction=self,
+                element_color=ElementColor.SECONDARY,
+            ).update(element_color=CardPile._meta.get_field('element_color').default)
+        # If there's no background, card piles render on the page color, so
+        # the 'Faction' ink choice would be invisible. Reset any pile still
+        # using it to the default.
+        if not new and not faction_has_background(self):
+            CardPile.objects.filter(
+                sheet__faction=self,
+                element_color=ElementColor.FACTION,
+            ).update(element_color=CardPile._meta.get_field('element_color').default)
         if new:
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
@@ -152,8 +181,10 @@ class FactionSheet(models.Model):
 
     image_preview = models.ImageField(upload_to=sheet_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    preview_version = models.PositiveIntegerField(default=0)
     snap_points = models.JSONField(default=list, blank=True)
     decree_slide_pts = models.FloatField(default=0.0)
+    ability_bar_extra_h_pts = models.FloatField(default=0.0)
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
@@ -459,16 +490,46 @@ class CardSlot(models.Model):
         ordering = ['number']
 
 
+class ElementColor(models.TextChoices):
+    WHITE = 'white', 'White'
+    BLACK = 'black', 'Black'
+    FACTION = 'faction', 'Faction'
+    SECONDARY = 'secondary', 'Secondary'
+
+
+def faction_secondary_in_use(faction):
+    """True if the faction's primary color isn't legible on the phase-box tan,
+    meaning the secondary color is actually used in the rendered output."""
+    from the_forge.pdf_engine import _is_color_legible_on, PHASE_BOX_TAN
+    primary = faction.color or '#5B4A8A'
+    return not _is_color_legible_on(primary, PHASE_BOX_TAN)
+
+
+def faction_has_background(faction):
+    """True if the faction has any visual background (preset or uploaded image).
+    When False, card piles render directly on the page color, so 'Faction' as
+    an ink choice would be invisible."""
+    return bool(faction.background_preset or faction.background_image)
+
+
 class CardPile(models.Model):
     class Orientation(models.TextChoices):
         BOTTOM = 'bottom', 'Bottom'
         LEFT = 'left', 'Left'
         RIGHT = 'right', 'Right'
 
+    ElementColor = ElementColor
+
     sheet = models.ForeignKey(FactionSheet, related_name='card_piles', on_delete=models.CASCADE)
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=200, blank=True, null=True)
     body = models.TextField(blank=True, null=True)
+    element_color = models.CharField(
+        max_length=10,
+        choices=ElementColor.choices,
+        default=ElementColor.WHITE,
+    )
+    background_screen = models.BooleanField(default=False)
 
     # Per-layout coordinate overrides (inches). Size is fixed; only x/y can be overridden.
     x_h = models.FloatField(blank=True, null=True)
@@ -489,16 +550,25 @@ class BorderedBox(models.Model):
         SMALL = 'small'
         MEDIUM = 'medium'
         LARGE = 'large'
+
+    ElementColor = ElementColor
+
     step = models.ForeignKey(PhaseStep, related_name='boxes', on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=200)
     body = models.TextField(blank=True, null=True)
     height = models.CharField(max_length=15, choices=BoxSize.choices)
+    element_color = models.CharField(
+        max_length=10,
+        choices=ElementColor.choices,
+        default=ElementColor.BLACK,
+    )
 
 class CardboardTrack(models.Model):
     class TrackChoices(models.TextChoices):
         TOKEN = 'token'
         BUILDING = 'building'
+        COUNTER = 'counter'
     step = models.ForeignKey(PhaseStep, related_name='tracks', on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=200)
@@ -598,6 +668,10 @@ class CardboardSlot(models.Model):
         max_length=200, blank=True, default='',
         help_text='Pipe-delimited image keywords, e.g. "1VP" or "fox|1VP"'
     )
+    centered_text = models.CharField(
+        max_length=5, blank=True, default='',
+        help_text='Text centered in the slot written in Baskerville'
+    )
     background_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 
     class Meta:
@@ -639,6 +713,7 @@ class FactionBack(models.Model):
 
     image_preview = models.ImageField(upload_to=back_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    preview_version = models.PositiveIntegerField(default=0)
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
@@ -706,6 +781,7 @@ class SetupCard(models.Model):
 
     image_preview = models.ImageField(upload_to=card_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    preview_version = models.PositiveIntegerField(default=0)
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)

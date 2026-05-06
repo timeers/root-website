@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import math
 import os
 import re
 import tempfile
@@ -105,17 +106,76 @@ class _NoOpCanvas:
     def getPageNumber(self): return 1
 
 
-# Patch Flowable.drawOn so it skips painting when handed a _NoOpCanvas.
-# Frame.addFromList still runs wrap() (which is what we need for measurement);
-# only the actual draw step is skipped.
+class LayerFilterCanvas:
+    """A canvas proxy that forwards drawing primitives only when the current
+    layer tag is in the active layer set. Used to render the same draw pipeline
+    multiple times onto different pages of one PDF, with each page showing only
+    a subset of the content (background / boxes / foreground).
+
+    State methods (saveState, transforms, color/font setters) always forward —
+    they are cheap and harmless on filtered draws. Drawing primitives forward
+    only when self._current_tag is in self._active_layers.
+
+    Callers tag intent by calling c.set_layer_tag('background' | 'box' | 'fg')
+    immediately before the draws they want grouped. Default tag is 'fg'.
+    """
+    _is_layer_filter = True
+
+    _DRAW_METHODS = frozenset({
+        'drawImage', 'drawInlineImage', 'rect', 'roundRect',
+        'drawString', 'drawCentredString', 'drawCenteredString',
+        'drawRightString', 'drawText', 'line', 'lines',
+        'bezier', 'circle', 'ellipse', 'wedge', 'arc', 'drawPath',
+    })
+
+    def __init__(self, real_canvas):
+        self._real = real_canvas
+        self._active_layers = frozenset({'background', 'box', 'fg'})
+        self._current_tag = 'fg'
+
+    def set_layer_tag(self, tag):
+        self._current_tag = tag
+
+    def _is_active(self):
+        return self._current_tag in self._active_layers
+
+    def __getattr__(self, name):
+        attr = getattr(self._real, name)
+        if name in self._DRAW_METHODS and callable(attr):
+            def _gated(*args, **kwargs):
+                if self._is_active():
+                    return attr(*args, **kwargs)
+                return None
+            return _gated
+        return attr
+
+
+# Patch Flowable.drawOn so it skips painting when handed a _NoOpCanvas, or when
+# handed a LayerFilterCanvas whose active layer set excludes 'fg' (Paragraphs
+# and other Flowables always belong on the foreground layer). In both cases
+# Frame.addFromList still runs wrap() so measurement stays consistent; only the
+# actual draw step is skipped.
 _orig_drawOn = Flowable.drawOn
 
 def _drawOn_skip_on_noop(self, canvas, x, y, _sW=0):
     if getattr(canvas, '_is_noop', False):
         return None
+    if getattr(canvas, '_is_layer_filter', False):
+        if 'fg' not in canvas._active_layers:
+            return None
+        return _orig_drawOn(self, canvas._real, x, y, _sW=_sW)
     return _orig_drawOn(self, canvas, x, y, _sW=_sW)
 
 Flowable.drawOn = _drawOn_skip_on_noop
+
+
+# Add a no-op set_layer_tag to the real ReportLab Canvas so draw functions can
+# call c.set_layer_tag(...) unconditionally without an attribute check. The
+# LayerFilterCanvas overrides this with a real implementation.
+def _canvas_set_layer_tag_noop(self, tag):
+    return None
+
+rl_canvas.Canvas.set_layer_tag = _canvas_set_layer_tag_noop
 
 
 _TILE_DPI = 150  # px-per-inch the resized tile is rasterized at (150/72 ≈ 2.08 px/pt)
@@ -146,21 +206,26 @@ def _prepare_tile_image(src_path, draw_w_pt, draw_h_pt):
 def draw_faction_background(c, faction):
     """Fill the page with the faction's background.
 
-    - No preset and no uploaded image  -> solid faction color fill.
-    - Image + repeat_background_image  -> brick-tiled pattern.
-    - Image + not repeating            -> cover-fill the page.
+    Always paint the faction color first so any translucent areas of an
+    overlaid image let the brand color show through.
+
+    - Image + repeat_background_image  -> brick-tiled pattern over color fill.
+    - Image + not repeating            -> cover-fill image over color fill.
+    - No image                         -> just the color fill.
     """
+    color_hex = getattr(faction, 'color', None) or '#5B4A8A'
+    c.set_layer_tag('background')
+    c.saveState()
+    c.setFillColor(HexColor(color_hex))
+    c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
+    c.restoreState()
+
     try:
         img_path = faction.get_background_path()
     except Exception:
         img_path = None
 
     if not img_path or not os.path.exists(img_path):
-        color_hex = getattr(faction, 'color', None) or '#5B4A8A'
-        c.saveState()
-        c.setFillColor(HexColor(color_hex))
-        c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
-        c.restoreState()
         return
 
     from reportlab.lib.utils import ImageReader
@@ -187,7 +252,7 @@ def draw_faction_background(c, faction):
             x_offset = -(draw_w / 2) if row % 2 == 1 else 0
             x = x_offset
             while x < PAGE_W:
-                c.drawImage(tile_path, x, y, width=draw_w, height=draw_h)
+                c.drawImage(tile_path, x, y, width=draw_w, height=draw_h, mask='auto')
                 x += draw_w
             y -= draw_h
             row += 1
@@ -197,7 +262,7 @@ def draw_faction_background(c, faction):
         draw_h = ih * scale
         draw_x = (PAGE_W - draw_w) / 2
         draw_y = (PAGE_H - draw_h) / 2
-        c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h)
+        c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h, mask='auto')
 
 
 X_MARGIN = 0.25 * inch
@@ -214,8 +279,8 @@ CREDITS_INTER_GAP = 0.18 * inch  # horizontal gap between art_by and pnp_version
 # tinted with the faction color, then overlaid with the opposite of
 # title_text_color. Both passes are drawn at low opacity so the logo reads
 # as a soft watermark instead of an opaque stamp.
-FORGE_LOGO_W = 0.2 * inch
-FORGE_LOGO_PAD_RIGHT = 0.12 * inch
+FORGE_LOGO_W = 0.174 * inch
+FORGE_LOGO_PAD_X = 0.12 * inch
 FORGE_LOGO_PAD_BOTTOM = 0.08 * inch
 FORGE_LOGO_BASE_OPACITY = 0.35     # alpha for the faction-color pass
 FORGE_LOGO_OVERLAY_OPACITY = 0.2  # alpha for the opposite-color overlay
@@ -225,11 +290,21 @@ BODY_W = PAGE_W - (X_MARGIN * 2)
 TITLE_BAR_H = 0.6 * inch
 ABILITY_BAR_H = 0.9 * inch
 ABILITY_GAP = 0.05 * inch
-MIN_ABILITY_BOX_W = 1.5 * inch
+MIN_ABILITY_BOX_W = 1.3 * inch
 MIN_FLAVOR_TEXT_W = 0.90 * inch
 FLAVOR_TEXT_PADDING = 0.05 * inch
 FLAVOR_TEXT_BASE_SIZE = 6
-FLAVOR_TEXT_MAX_SIZE = 9
+FLAVOR_TEXT_MAX_SIZE = 11
+
+ABILITY_BODY_MAX_SIZE = 11
+ABILITY_BODY_MIN_SIZE = 6
+ABILITY_BODY_HARD_FLOOR = 5
+ABILITY_TITLE_MAX_SIZE = 14
+ABILITY_TITLE_MIN_SIZE = 8
+ABILITY_OUTLIER_RATIO = 1.1
+ABILITY_BAR_MAX_H = 1.5 * inch
+ABILITY_BAR_MIN_PAD = 0.06 * inch
+ABILITY_BAR_BOTTOM_EXTRA = 0.16 * inch  # extra usable height extending below box_y, no impact on top of bar or downstream elements
 
 COLOR_BAR_W_RATIO = 0.95 # Controls width of content inside top bar in relation to top bar border
 FACTION_TOP_BAR_NUDGE = 0.1 * inch
@@ -245,6 +320,10 @@ PHASE_HEADER_LOCK_W = 4.25 * inch         # width at which banner height stops s
 PHASE_BOX_V_GAP = 0.01 * inch             # spacing between stacked phases in vertical box
 PHASE_BOX_PAD_TOP = 0.12 * inch          # padding above phase content in phase box
 PHASE_BOX_PAD_BOTTOM = 0.06 * inch     # padding below phase content in phase box
+# Extra top pad applied to a single-step phase/content-box when its first line
+# is base-font-only and contains an inline icon. Without this, the icon sits
+# higher than the cap-height of the small text and overlaps the header above.
+SINGLE_STEP_INLINE_ICON_PAD_TOP = 4
 
 # ContentBox layout
 CONTENT_BOX_GAP = 0.10 * inch              # gap between adjacent content boxes
@@ -275,8 +354,8 @@ TRACK_SLOT_GAP = 0.06 * inch
 TRACK_ROW_TITLE_W = 0.75 * inch
 TRACK_ROW_TITLE_VERTICAL_W = 0.22 * inch  # narrower column for vertically rotated row titles
 TRACK_COL_HEADER_H = 0.30 * inch # Controls the header height for below and above track
-TRACK_TITLE_SIZE = 11
-TRACK_TITLE_GAP = 4
+TRACK_TITLE_SIZE = 16 # Was 11
+TRACK_TITLE_GAP = 6 # Was 4
 TRACK_BODY_GAP = 4
 TRACK_HEADER_FONT_SIZE = 16 # Controls the font size of the track headers 1VP, 2 etc.
 TRACK_ROW_TITLE_FONT_SIZE = 7
@@ -289,6 +368,8 @@ TRACK_OVERLAP_MAX_V_OFFSET = 0.65 * inch   # Max vertical zigzag shift for non-t
 TRACK_OVERLAP_MIN_H_STEP = 0.30 * inch     # Minimum horizontal step (below this = warning)
 TRACK_OVERLAP_DIVIDER_W = 0.02 * inch      # Reduced divider width when overlapping
 TRACK_OVERLAP_CLEARANCE = 0.03 * inch      # Minimum gap between circle edges when zigzagging
+TRACK_COUNTER_SIZE = 0.45 * inch           # Counter slot diameter
+TRACK_COUNTER_STROKE_W = 1             # Counter outline stroke width (pts)
 
 # Legend rendering — title-over-image left column, body right column
 LEGEND_BLOCK_TITLE_SIZE = 16               # centered Luminari header above the rows (large)
@@ -516,6 +597,91 @@ BUILDING_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/BuildingSlot.png')
 DECREE_DIR = os.path.join(STATIC_DIR, 'pdf/decree')
 PHASE_BOX_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Phase_Box.svg')
 PHASE_BOX_TAN = '#f9e3b3'                 # tan fill color inside Phase_Box.svg
+
+# Candidate tan-box SVGs. The picker chooses the one whose natural aspect
+# (or 90°-rotated aspect) is closest to a target rect, minimizing visible
+# stretch when the asset is non-uniformly scaled to fit.
+#
+# Each tuple is (path, is_large_asset, is_shape_specialized). Large-asset
+# SVGs (Phase_Box, Faction_Top_Bar) carry detail tuned for big footprints —
+# texture and torn-edge motifs that compress unattractively when shrunk to
+# small boxes. The small-target filter excludes them by default. However,
+# shape-specialized assets like Faction_Top_Bar exist *because* of their
+# extreme aspect; for very long-thin targets the asset's shape is the whole
+# point, so the filter spares them.
+_BOX_SVG_CANDIDATES = [
+    (os.path.join(STATIC_DIR, 'pdf/boxes/Phase_Box.svg'),       True,  False),
+    (os.path.join(STATIC_DIR, 'pdf/boxes/Medium_Box.svg'),      False, False),
+    (os.path.join(STATIC_DIR, 'pdf/boxes/Small_Box.svg'),       False, False),
+    (os.path.join(STATIC_DIR, 'pdf/boxes/Faction_Top_Bar.svg'), True,  True),
+]
+SMALL_BOX_PREFER_THRESHOLD = 2.5 * inch
+# Targets whose aspect (in either orientation) exceeds this ratio are treated
+# as "long-thin" — shape-specialized large assets stay in the pool for them
+# even when the target is below SMALL_BOX_PREFER_THRESHOLD.
+LONG_THIN_ASPECT = 4.0
+
+
+def _box_svg_aspects():
+    """Return [(path, natural_aspect_w_over_h, is_large, is_shape_specialized)]
+    for available candidate boxes. Cached on first call; svg2rlg parses are
+    cheap but not free, and this list is consulted on every box draw.
+    """
+    cache = getattr(_box_svg_aspects, '_cache', None)
+    if cache is not None:
+        return cache
+    cache = []
+    for p, is_large, is_shape_specialized in _BOX_SVG_CANDIDATES:
+        if not os.path.exists(p):
+            continue
+        try:
+            d = svg2rlg(p)
+        except Exception:
+            d = None
+        if d is None or d.width <= 0 or d.height <= 0:
+            continue
+        cache.append((p, d.width / d.height, is_large, is_shape_specialized))
+    _box_svg_aspects._cache = cache
+    return cache
+
+
+def _pick_box_svg(target_w, target_h):
+    """Pick the candidate _Box.svg whose aspect (or 90°-rotated aspect) most
+    closely matches target_w / target_h. Returns (path, rotated_bool).
+
+    Score is |log(target_aspect) - log(candidate_aspect)| so a 2x mismatch on
+    either side counts the same. Rotation is considered for every candidate.
+
+    Small-target filter: when min(target_w, target_h) < SMALL_BOX_PREFER_THRESHOLD,
+    large assets are excluded — their detail compresses badly into small
+    footprints. Shape-specialized large assets (Faction_Top_Bar) are spared
+    when the target is also long-thin (aspect >= LONG_THIN_ASPECT in either
+    orientation), because for those shapes the asset's silhouette is the
+    whole point regardless of total size. Returns (PHASE_BOX_SVG, False) if
+    no candidates are usable at all.
+    """
+    candidates = _box_svg_aspects()
+    if not candidates or target_w <= 0 or target_h <= 0:
+        return PHASE_BOX_SVG, False
+    if min(target_w, target_h) < SMALL_BOX_PREFER_THRESHOLD:
+        target_aspect = target_w / target_h
+        long_thin = (target_aspect >= LONG_THIN_ASPECT
+                     or target_aspect <= 1.0 / LONG_THIN_ASPECT)
+        filtered = [c for c in candidates
+                    if not c[2] or (long_thin and c[3])]
+        if filtered:
+            candidates = filtered
+    target = math.log(target_w / target_h)
+    best = None
+    best_score = None
+    for path, aspect, _is_large, _is_shape in candidates:
+        for rotated in (False, True):
+            cand_aspect = (1.0 / aspect) if rotated else aspect
+            score = abs(target - math.log(cand_aspect))
+            if best_score is None or score < best_score:
+                best_score = score
+                best = (path, rotated)
+    return best
 MEEPLE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/meeple.svg')
 
 ADSET_DIR = os.path.join(STATIC_DIR, 'pdf/adset')
@@ -843,6 +1009,51 @@ def tighten_large_font_lines(para):
         para.height = sum(max(l.ascent - l.descent, leading) for l in lines)
 
 
+def first_line_has_inline_image(para):
+    """True if the paragraph's first wrapped line contains any inline image
+    fragment. Must be called after wrap()."""
+    if not hasattr(para, 'blPara') or not hasattr(para.blPara, 'lines'):
+        return False
+    lines = para.blPara.lines
+    if not lines or not hasattr(lines[0], 'words'):
+        return False
+    for frag in lines[0].words:
+        cb = getattr(frag, 'cbDefn', None)
+        if cb and getattr(cb, 'kind', None) == 'img':
+            return True
+    return False
+
+
+def first_line_has_inline_icon_only_base_font(para):
+    """True if the paragraph's first wrapped line contains an inline image
+    fragment AND no fragment exceeds the style's base font size.
+
+    Used to detect the case where a single-step phase paragraph would otherwise
+    place an icon above the cap-height of small text, overlapping the header
+    band above. Must be called after wrap().
+    """
+    if not hasattr(para, 'blPara') or not hasattr(para.blPara, 'lines'):
+        return False
+    lines = para.blPara.lines
+    if not lines:
+        return False
+    first = lines[0]
+    if not hasattr(first, 'words'):
+        return False
+    base_size = para.style.fontSize
+    has_img = False
+    max_text_fs = 0
+    for frag in first.words:
+        cb = getattr(frag, 'cbDefn', None)
+        if cb and getattr(cb, 'kind', None) == 'img':
+            has_img = True
+            continue
+        fs = getattr(frag, 'fontSize', 0)
+        if fs > max_text_fs:
+            max_text_fs = fs
+    return has_img and max_text_fs <= base_size
+
+
 def true_paragraph_height(para, width):
     """Wrap a Paragraph and return its true rendered height.
 
@@ -960,13 +1171,14 @@ class BorderedBoxFlowable(Flowable):
     is drawn at the bottom.
     """
 
-    def __init__(self, title, body_markup, total_width, box_height, body_style):
+    def __init__(self, title, body_markup, total_width, box_height, body_style, element_color_hex='#000000'):
         super().__init__()
         self._width = total_width
         self._height = box_height
         self.title = title
         self.body_markup = body_markup
         self.body_style = body_style
+        self.element_color_hex = element_color_hex
 
     def wrap(self, availWidth, availHeight):
         return self._width, self._height
@@ -993,10 +1205,12 @@ class BorderedBoxFlowable(Flowable):
         # Top border y (ReportLab origin is bottom-left, so top = h)
         top_y = h
 
+        element_color = HexColor(self.element_color_hex)
+
         # --- Draw border ---
         # Lines are extended by half_bw at each end so the stroke overlaps
         # at corners, producing clean mitered joints.
-        c.setStrokeColorRGB(0, 0, 0)
+        c.setStrokeColor(element_color)
         c.setLineWidth(bw)
 
         # Bottom border (extend left and right by half_bw)
@@ -1015,7 +1229,7 @@ class BorderedBoxFlowable(Flowable):
         cap_h = title_font_size * 0.70
         title_y = top_y - cap_h / 2
         c.setFont('Luminari', title_font_size)
-        c.setFillColorRGB(0, 0, 0)
+        c.setFillColor(element_color)
         c.drawCentredString(w / 2, title_y, self.title)
 
         # --- Draw body text (if any) ---
@@ -1036,6 +1250,7 @@ class BorderedBoxFlowable(Flowable):
                 'BorderedBoxBody',
                 parent=self.body_style,
                 alignment=TA_CENTER,
+                textColor=element_color,
             )
 
             para = Paragraph(self.body_markup, centered_style)
@@ -1160,8 +1375,8 @@ class TrackFlowable(Flowable):
         else:
             self._row_title_w = 0
 
-        # Slot size — fixed at design size
-        self._slot_size = TRACK_SLOT_SIZE
+        # Slot size — counter tracks use a smaller diameter
+        self._slot_size = TRACK_COUNTER_SIZE if self.track.type == 'counter' else TRACK_SLOT_SIZE
         self._slot_gap = TRACK_SLOT_GAP
         self._divider_w = TRACK_DIVIDER_W
 
@@ -1344,7 +1559,18 @@ class TrackFlowable(Flowable):
                     title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
                     para = Paragraph(title_markup, row_title_style)
                     para_w, para_h = para.wrap(self._row_title_w - 4, 9999)
+                    # When the line contains an inline image with valign="middle",
+                    # the image is anchored to the text baseline midpoint (low
+                    # within the inflated line box), so geometric centering of
+                    # the para makes the visible content sit too high. Nudge it
+                    # down by the offset between baseline-mid and box-mid.
                     para_y = slot_y + self._slot_size / 2 - para_h / 2
+                    if first_line_has_inline_image(para):
+                        # The inline image with valign="middle" anchors below the
+                        # geometric line center, so the visible content sits
+                        # high in the para box. Shift down by half the gap
+                        # between image height and the nominal text leading.
+                        para_y -= (TRACK_HEADER_ICON_H - row_title_style.leading) / 2
                     para.drawOn(c, 0, para_y)
 
         # --- Slots ---
@@ -1480,7 +1706,8 @@ class TrackFlowable(Flowable):
     def _draw_slot(self, c, x, y, slot):
         """Draw a single slot at position (x, y) bottom-left."""
         s = self._slot_size
-        is_token = self.track.type == 'token'
+        ttype = self.track.type
+        is_circle = ttype in ('token', 'counter')
 
         # --- Background fill ---
         c.saveState()
@@ -1489,7 +1716,7 @@ class TrackFlowable(Flowable):
         # Try slot background image
         if slot and slot.background_image:
             try:
-                self._draw_bg_image(c, slot.background_image.path, x, y, s, is_token)
+                self._draw_bg_image(c, slot.background_image.path, x, y, s, is_circle)
                 bg_drawn = True
             except (ValueError, FileNotFoundError):
                 pass
@@ -1497,19 +1724,24 @@ class TrackFlowable(Flowable):
         # Try track background image
         if not bg_drawn and self.track.background_image:
             try:
-                self._draw_bg_image(c, self.track.background_image.path, x, y, s, is_token)
+                self._draw_bg_image(c, self.track.background_image.path, x, y, s, is_circle)
                 bg_drawn = True
             except (ValueError, FileNotFoundError):
                 pass
 
-        # Fallback: faction color at reduced opacity
+        # Fallback: counter draws a black outline; others fill with faction color
         if not bg_drawn:
-            c.setFillColor(self.faction_color)
-            c.setFillAlpha(TRACK_SLOT_BG_OPACITY)
-            if is_token:
-                c.circle(x + s / 2, y + s / 2, s / 2, fill=1, stroke=0)
+            if ttype == 'counter':
+                c.setStrokeColorRGB(0, 0, 0)
+                c.setLineWidth(TRACK_COUNTER_STROKE_W)
+                c.circle(x + s / 2, y + s / 2, s / 2, fill=0, stroke=1)
             else:
-                c.roundRect(x, y, s, s, s * 0.15, fill=1, stroke=0)
+                c.setFillColor(self.faction_color)
+                c.setFillAlpha(TRACK_SLOT_BG_OPACITY)
+                if is_circle:
+                    c.circle(x + s / 2, y + s / 2, s / 2, fill=1, stroke=0)
+                else:
+                    c.roundRect(x, y, s, s, s * 0.15, fill=1, stroke=0)
 
         c.restoreState()
 
@@ -1523,14 +1755,33 @@ class TrackFlowable(Flowable):
                 if img_path and os.path.exists(img_path):
                     images.append(img_path)
             if images:
-                self._draw_content_images(c, x, y, s, images, is_token)
+                self._draw_content_images(c, x, y, s, images, is_circle)
 
-    def _draw_bg_image(self, c, img_path, x, y, s, is_token):
+        # --- Centered text ---
+        text = (getattr(slot, 'centered_text', '') or '').strip() if slot else ''
+        if text:
+            font_name = 'Baskerville'
+            max_w = s * 0.80
+            font_size = s * 0.5
+            text_w = c.stringWidth(text, font_name, font_size)
+            if text_w > max_w:
+                font_size *= max_w / text_w
+            c.saveState()
+            c.setFillColorRGB(0, 0, 0)
+            c.setFillAlpha(1.0)
+            c.setFont(font_name, font_size)
+            # Visual-midline shim: cap height is ~0.7 of font size,
+            # so dropping the baseline by ~0.35× font size centers it.
+            text_y = y + s / 2 - font_size * 0.35
+            c.drawCentredString(x + s / 2, text_y, text)
+            c.restoreState()
+
+    def _draw_bg_image(self, c, img_path, x, y, s, is_circle):
         """Draw a background image at reduced opacity, clipped to slot shape."""
         c.saveState()
         # Clip to slot shape
         p = c.beginPath()
-        if is_token:
+        if is_circle:
             cx, cy = x + s / 2, y + s / 2
             p.circle(cx, cy, s / 2)
         else:
@@ -1541,7 +1792,7 @@ class TrackFlowable(Flowable):
                     preserveAspectRatio=True, anchor='c')
         c.restoreState()
 
-    def _draw_content_images(self, c, x, y, s, images, is_token):
+    def _draw_content_images(self, c, x, y, s, images, is_circle):
         """Draw 1-4 content images positioned within the slot."""
         from PIL import Image as PILImage
         n = len(images)
@@ -2385,6 +2636,15 @@ def _is_color_legible_on(fg_hex, bg_hex, min_ratio=1.9):
     return _contrast_ratio(fg_hex, bg_hex) >= min_ratio
 
 
+def _pick_legible_on(primary_hex, secondary_hex, bg_hex, min_ratio=1.9, fallback='#000000'):
+    """Return primary if legible on bg; else secondary if legible; else fallback."""
+    if primary_hex and _is_color_legible_on(primary_hex, bg_hex, min_ratio):
+        return primary_hex
+    if secondary_hex and _is_color_legible_on(secondary_hex, bg_hex, min_ratio):
+        return secondary_hex
+    return fallback
+
+
 def _is_white_text_legible(hex_color, min_ratio=1.9):
     """Mirror of the JS isWhiteTextLegible() in faction_attributes.html.
 
@@ -2494,16 +2754,21 @@ class SheetLayoutEngine:
         self.phases_top_y = self.faction_top_bar_top - self.faction_top_bar_h
         self.phases_bottom_y = BOTTOM_MARGIN
 
+        # Ability-bar dynamic height delta (set by _draw_ability_boxes).
+        # Positive: bar grew; negative: bar shrank. Shifts phases_top_y in lockstep.
+        self.ability_bar_extra_h = 0.0
+        self.ability_bar_h_actual = ABILITY_BAR_H
+
         self._placed_boxes = []
         self._phases_rect = None
 
         self._init_styles()
         # Step numbers and ability berries sit on the Phase_Box.svg tan fill;
-        # if the faction color fails contrast against that tan, use black.
+        # if the faction color fails contrast against that tan, fall back to the
+        # secondary_color, then to black.
         faction_color_hex = self.sheet.faction.color or '#5B4A8A'
-        on_tan_hex = (faction_color_hex
-                      if _is_color_legible_on(faction_color_hex, PHASE_BOX_TAN)
-                      else '#000000')
+        secondary_hex = self.sheet.faction.secondary_color or None
+        on_tan_hex = _pick_legible_on(faction_color_hex, secondary_hex, PHASE_BOX_TAN)
         self._on_tan_hex = on_tan_hex
         self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, on_tan_hex, 0.5 * inch)
         self._meeple_action_drawing = None
@@ -2514,6 +2779,26 @@ class SheetLayoutEngine:
             svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
             if os.path.exists(svg_path):
                 self._phase_number_svgs[n] = self._load_colored_svg(svg_path, on_tan_hex)
+
+    def _resolve_element_color(self, choice):
+        """Map an ElementColor choice value to a hex string."""
+        from the_forge.models import ElementColor
+        if choice == ElementColor.WHITE:
+            return '#FFFFFF'
+        if choice == ElementColor.BLACK:
+            return '#000000'
+        if choice == ElementColor.FACTION:
+            return self.sheet.faction.color or '#5B4A8A'
+        if choice == ElementColor.SECONDARY:
+            return self.sheet.faction.secondary_color or '#000000'
+        return '#000000'
+
+    def _resolve_card_pile_screen_color(self, pile):
+        """Hex color for a CardPile background screen, picked to contrast
+        with the resolved element_color: dark text → white screen, pale
+        text → black screen."""
+        text_hex = self._resolve_element_color(pile.element_color)
+        return '#FFFFFF' if _is_color_legible_on(text_hex, '#FFFFFF') else '#000000'
 
     def _load_colored_svg(self, svg_path, color_hex, fit_size=None):
         with open(svg_path, 'r') as f:
@@ -2558,9 +2843,13 @@ class SheetLayoutEngine:
         self._meeple_action_drawing = drawing
         return drawing, drawing.width, drawing.height
 
-    def _load_phase_box_svg(self, target_w, target_h):
-        """Load Phase_Box.svg stretched to target_w x target_h (non-uniform scaling)."""
-        drawing = svg2rlg(PHASE_BOX_SVG)
+    def _load_phase_box_svg(self, target_w, target_h, path=None):
+        """Load a tan-box SVG stretched to target_w x target_h (non-uniform scaling).
+
+        path defaults to PHASE_BOX_SVG; pass an alternate candidate to load it
+        instead (used by the aspect-matching picker).
+        """
+        drawing = svg2rlg(path or PHASE_BOX_SVG)
         if drawing is None:
             return None
         sx = target_w / drawing.width
@@ -2582,18 +2871,25 @@ class SheetLayoutEngine:
         drawing.scale(sx, sy)
         return drawing
 
-    def _draw_phase_box(self, c, x, y, target_w, target_h, rotated=False):
+    def _draw_phase_box(self, c, x, y, target_w, target_h, rotated=None):
+        """Draw a tan-box background at (x, y) bottom-left filling target_w x
+        target_h. The candidate _Box.svg whose natural (or 90°-rotated) aspect
+        is closest to target_w/target_h is chosen automatically to minimize
+        visible stretch from non-uniform scaling.
+
+        The legacy `rotated` keyword is accepted but ignored — orientation is
+        now picked from aspect.
         """
-        Draw Phase_Box.svg background at (x, y) bottom-left with given dimensions.
-        If rotated=True, the SVG is rotated 90° clockwise (for horizontal layout).
-        """
-        if not rotated:
-            drawing = self._load_phase_box_svg(target_w, target_h)
+        c.set_layer_tag('box')
+        path, use_rotated = _pick_box_svg(target_w, target_h)
+        if not use_rotated:
+            drawing = self._load_phase_box_svg(target_w, target_h, path=path)
             if drawing:
                 renderPDF.draw(drawing, c, x, y)
         else:
-            # Load in portrait orientation (swap w/h), then rotate on canvas
-            drawing = self._load_phase_box_svg(target_h, target_w)
+            # Load in the SVG's natural orientation (target dims swapped),
+            # then rotate 90° CW on the canvas so it lands as target_w x target_h.
+            drawing = self._load_phase_box_svg(target_h, target_w, path=path)
             if drawing:
                 c.saveState()
                 c.translate(x, y + target_h)
@@ -3119,9 +3415,10 @@ class SheetLayoutEngine:
                                   + total_dividers * TRACK_OVERLAP_DIVIDER_W)
                     track_w = min_grid_w + row_title_w + indent
                 else:
-                    # Building track: needs full natural width
+                    # Building / counter track: needs full natural width (no overlap)
+                    slot_size = TRACK_COUNTER_SIZE if track.type == 'counter' else TRACK_SLOT_SIZE
                     divider_space = total_dividers * TRACK_DIVIDER_W
-                    natural_grid_w = (num_cols * TRACK_SLOT_SIZE
+                    natural_grid_w = (num_cols * slot_size
                                       + (num_cols - 1) * TRACK_SLOT_GAP
                                       + divider_space)
                     track_w = natural_grid_w + row_title_w + indent
@@ -3183,8 +3480,9 @@ class SheetLayoutEngine:
                 else:
                     row_title_w = 0
 
+                slot_size = TRACK_COUNTER_SIZE if track.type == 'counter' else TRACK_SLOT_SIZE
                 divider_space = total_dividers * TRACK_DIVIDER_W
-                natural_grid_w = (num_cols * TRACK_SLOT_SIZE
+                natural_grid_w = (num_cols * slot_size
                                   + (num_cols - 1) * TRACK_SLOT_GAP
                                   + divider_space)
                 track_w = natural_grid_w + row_title_w + indent
@@ -3322,6 +3620,8 @@ class SheetLayoutEngine:
         if single_step:
             _, table_h = para.wrap(width, 9999)
             table_h += extra_h
+            if first_line_has_inline_icon_only_base_font(para):
+                table_h += SINGLE_STEP_INLINE_ICON_PAD_TOP
         else:
             svg_drawing = self._phase_number_svgs.get(step.number % 10)
             first_col = svg_drawing if svg_drawing else ''
@@ -3673,12 +3973,43 @@ class SheetLayoutEngine:
             "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
         })
 
-    def build(self, output_path):
+    LAYER_GROUPS = (
+        frozenset({'background'}),
+        frozenset({'box'}),
+        frozenset({'fg'}),
+    )
+
+    def build(self, output_path, layered=False):
         self.collected_snap_points = []
         if getattr(self, '_skip_drawing', False):
             c = _NoOpCanvas()
-        else:
+            self._run_draw_pipeline(c)
+            c.save()
+            return
+
+        if not layered:
             c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+            self._run_draw_pipeline(c)
+            c.save()
+            return
+
+        real = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+        proxy = LayerFilterCanvas(real)
+        # _prepare_ability_bar_layout (called from _draw_top_band) mutates
+        # self.phases_top_y in place. Snapshot it so each layered pass starts
+        # from identical geometry; otherwise the mutation compounds and box
+        # vs. fg layers drift out of registration.
+        snap_phases_top_y = self.phases_top_y
+        for i, group in enumerate(self.LAYER_GROUPS):
+            if i > 0:
+                self.phases_top_y = snap_phases_top_y
+                self.collected_snap_points = []
+            proxy._active_layers = group
+            self._run_draw_pipeline(proxy)
+            real.showPage()
+        real.save()
+
+    def _run_draw_pipeline(self, c):
         layout = self.sheet.layout_mode
 
         self._draw_background(c)
@@ -3703,8 +4034,6 @@ class SheetLayoutEngine:
         self._draw_character_images(c, in_front=True)
         self._draw_credits(c)
         self._draw_forge_logo(c)
-
-        c.save()
 
     def _draw_horizontal_phases(self, c):
         phase_order = ['birdsong', 'daylight', 'evening']
@@ -3769,7 +4098,7 @@ class SheetLayoutEngine:
         max_h = self.phases_top_y - BOTTOM_MARGIN
 
         # If all four override fields are set, skip the auto-sizing search and
-        # use the user-chosen rect directly.
+        # use the rect directly.
         ov_x = self.sheet.phase_box_x_v
         ov_y = self.sheet.phase_box_y_v
         ov_w = self.sheet.phase_box_w_v
@@ -4365,7 +4694,13 @@ class SheetLayoutEngine:
             tighten_large_font_lines(para)
 
             if single_step:
-                # No number icon — text takes full width
+                # No number icon — text takes full width.
+                # If the first line is base-font-only AND has an inline icon,
+                # the icon would sit above the cap-height of the small text and
+                # overlap the header band above. Pad it down a few points.
+                if first_line_has_inline_icon_only_base_font(para):
+                    from reportlab.platypus import Spacer
+                    story.append(Spacer(1, SINGLE_STEP_INLINE_ICON_PAD_TOP))
                 story.append(para)
             else:
                 svg_drawing = self._phase_number_svgs.get(step.number % 10)
@@ -4405,6 +4740,7 @@ class SheetLayoutEngine:
                         total_width=avail_w - indent,
                         box_height=box_h,
                         body_style=self.step_body_style,
+                        element_color_hex=self._resolve_element_color(obj.element_color),
                     )
                     if indent:
                         t = Table([['', bf]], colWidths=[indent, avail_w - indent])
@@ -4525,25 +4861,89 @@ class SheetLayoutEngine:
 
 
     def _draw_top_band(self, c):
+        # Resolve ability-bar layout before drawing anything so the title bar
+        # SVG can stretch to match the (possibly grown or shrunk) ability bar.
+        self._prepare_ability_bar_layout()
         self._draw_title_bar(c)
         self._draw_ability_boxes(c)
         # Record the whole header region as a non-editable container for the preview.
         header_top = self.faction_top_bar_top
-        header_bottom = self.title_bar_y - FACTION_TOP_BAR_NUDGE - (ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE)
+        header_bottom = self.title_bar_y - FACTION_TOP_BAR_NUDGE - (self.ability_bar_h_actual - FACTION_TOP_BAR_NUDGE)
         header_h = header_top - header_bottom
         self._record_element(kind='header_bar',
                              x=X_MARGIN, y=header_bottom,
                              w=BODY_W, h=header_h,
                              label=self.sheet.faction.faction_name)
 
+    def _prepare_ability_bar_layout(self):
+        """Resolve ability widths/sizes/box_h and apply downstream Y shifts.
+
+        Sets self._ability_layout (consumed by _draw_ability_boxes), updates
+        self.ability_bar_extra_h / self.ability_bar_h_actual, and shifts
+        self.phases_top_y so the phases area moves with the bar.
+        """
+        abilities = list(self.sheet.abilities.order_by('order'))
+        bar_w = BODY_W * COLOR_BAR_W_RATIO
+        crafted_h = 0.767 * inch
+        crafted_w = 0
+        has_crafted = self.sheet.include_crafted_items and os.path.exists(CRAFTED_ITEMS_SVG)
+        if has_crafted:
+            crafted_w = crafted_h * (64.93 / 19.46)
+
+        # Match the resolver's default so delta_h is 0 when no extension is
+        # needed — ABILITY_BAR_BOTTOM_EXTRA is "free" usable space that doesn't
+        # count as bar growth.
+        default_box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE + ABILITY_BAR_BOTTOM_EXTRA
+        flavor_text = (self.sheet.flavor_text or '').strip()
+        icon_w = (self._ability_icon.width + 4) if self._ability_icon else 0
+
+        layout = self._resolve_ability_layout(
+            abilities, bar_w, crafted_w, icon_w,
+            has_crafted=has_crafted, flavor_text=flavor_text,
+        )
+        widths = layout['widths']
+        sizes = layout['sizes']
+        box_h = layout['box_h']
+        flavor_w = layout['flavor_w']
+        flavor_style = layout['flavor_style'] or self.flavor_text_style
+        title_size = layout.get('title_size')
+
+        delta_h = box_h - default_box_h
+        # ability_bar_h_actual is the bar's "tracked" height — what downstream
+        # geometry (header_bottom, title bar SVG stretch) follows. The bottom
+        # extra is invisible to those callers; only growth past the default
+        # counts.
+        self.ability_bar_h_actual = (box_h - ABILITY_BAR_BOTTOM_EXTRA) + FACTION_TOP_BAR_NUDGE
+        self.ability_bar_extra_h = delta_h
+        self.phases_top_y -= delta_h
+
+        self._ability_layout = {
+            'abilities': abilities,
+            'widths': widths,
+            'sizes': sizes,
+            'title_size': title_size,
+            'box_h': box_h,
+            'bar_w': bar_w,
+            'icon_w': icon_w,
+            'crafted_w': crafted_w,
+            'crafted_h': crafted_h,
+            'flavor_w': flavor_w,
+            'flavor_style': flavor_style,
+            'flavor_text': flavor_text,
+            'delta_h': delta_h,
+        }
+
     def _draw_title_bar(self, c):
         img_w = self.faction_top_bar_w
-        img_h = self.faction_top_bar_h
+        # Stretch the top bar SVG by the ability-bar delta so its bottom edge
+        # follows the (possibly grown or shrunk) ability bar.
+        img_h = self.faction_top_bar_h + self.ability_bar_extra_h
         img_x = (PAGE_W - img_w) / 2
         bar_w = BODY_W * COLOR_BAR_W_RATIO
         bar_x = (PAGE_W - bar_w) / 2
 
         # Faction top bar SVG — top edge at self.faction_top_bar_top
+        c.set_layer_tag('box')
         if os.path.exists(FACTION_TOP_BAR_SVG):
             drawing = svg2rlg(FACTION_TOP_BAR_SVG)
             if drawing:
@@ -4562,6 +4962,7 @@ class SheetLayoutEngine:
         # Optional header image — same width as the color bar, bottom-aligned with
         # the bar bottom, allowed to overflow upward. Drawn before the faction
         # name so the text sits on top.
+        c.set_layer_tag('box')
         if self.sheet.header_image:
             try:
                 hdr_path = self.sheet.header_image.path
@@ -4588,6 +4989,7 @@ class SheetLayoutEngine:
                     pass
 
         # Draw faction name centered
+        c.set_layer_tag('fg')
         c.setFillColor(self.faction_name_color)
         c.setFont(self.faction_name_font, self.faction_name_font_size)
         c.drawCentredString(PAGE_W / 2, self.title_bar_y + FACTION_NAME_Y_OFFSET, self.sheet.faction.faction_name)
@@ -4601,8 +5003,13 @@ class SheetLayoutEngine:
                              fill=faction_hex,
                              text_color=self.ink_on_faction_hex)
 
-    def _calculate_ability_widths(self, abilities, available_w, icon_w):
-        """Calculate proportional box widths based on body text length."""
+    def _calculate_ability_widths(self, abilities, available_w, icon_w, size_weights=None):
+        """Calculate proportional box widths based on body text length.
+
+        size_weights: optional list of multipliers (one per ability) applied to
+        char count. Pass body_size/MAX_BODY to give shrunk abilities less width
+        so neighbors get more room.
+        """
         n = len(abilities)
         total_gap = ABILITY_GAP * (n - 1)
         distributable_w = available_w - total_gap
@@ -4610,8 +5017,11 @@ class SheetLayoutEngine:
         if n == 1:
             return [distributable_w]
 
-        # Body character counts as proxy for space needs
-        char_counts = [len(a.body) for a in abilities]
+        if size_weights is None:
+            size_weights = [1.0] * n
+
+        # Body character counts as proxy for space needs, weighted by size
+        char_counts = [len(a.body) * size_weights[i] for i, a in enumerate(abilities)]
         total_chars = sum(char_counts)
 
         # Per-ability minimum: max of global minimum or title rendered width
@@ -4625,11 +5035,12 @@ class SheetLayoutEngine:
             return [max(distributable_w / n, mw) for mw in min_widths]
 
         # Equal-width default: if every ability's title+body fits comfortably at
-        # equal width, just split evenly. Skips the proportional allocation when
-        # nothing actually needs extra room.
+        # equal width, just split evenly. Only valid for unweighted calls — when
+        # weights are non-uniform, the caller wants proportional allocation.
+        uniform_weights = all(w == size_weights[0] for w in size_weights)
         equal_w = distributable_w / n
         box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE
-        if all(equal_w >= mw for mw in min_widths):
+        if uniform_weights and all(equal_w >= mw for mw in min_widths):
             all_fit = True
             for a in abilities:
                 story = [
@@ -4707,13 +5118,11 @@ class SheetLayoutEngine:
                 textColor=colors.black,
                 alignment=TA_LEFT,
             )
-            # Only use a larger size if it fits at minimum width
             p = Paragraph(text, style)
             _, h = p.wrap(MIN_FLAVOR_TEXT_W - pad, 9999)
             if h <= usable_h:
                 return MIN_FLAVOR_TEXT_W, style
 
-        # Base size: binary search for narrowest width
         style = self.flavor_text_style
         p = Paragraph(text, style)
         _, h = p.wrap(max_w - pad, 9999)
@@ -4733,31 +5142,355 @@ class SheetLayoutEngine:
 
         return hi, style
 
-    def _draw_ability_boxes(self, c):
-        abilities = list(self.sheet.abilities.order_by('order'))
+    def _flavor_style_at_size(self, size):
+        """Build a flavor ParagraphStyle for the given size."""
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+        return ParagraphStyle(
+            f'FlavorText_{size}',
+            fontName='Baskerville-Italic',
+            fontSize=size,
+            leading=size + 2,
+            textColor=colors.black,
+            alignment=TA_LEFT,
+        )
 
-        box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE
-        box_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - box_h
+    def _flavor_layout_at_size(self, text, size, max_w, box_h):
+        """Layout flavor text at a fixed size. Returns (width, style, used_h).
 
-        # Ability area aligns with the color bar edges
-        bar_w = BODY_W * COLOR_BAR_W_RATIO
-        bar_x = (PAGE_W - bar_w) / 2
+        Width is the narrowest column at which the text fits in box_h, capped
+        at max_w. If the text doesn't fit in box_h even at max_w, the returned
+        width is max_w and used_h reports the actual (overflowing) height.
+        """
+        pad = FLAVOR_TEXT_PADDING * 2
+        usable_h = box_h - pad
+        style = self._flavor_style_at_size(size)
 
-        # Reserve space for crafted items SVG on the right
-        # Crafted_Items_Box.svg is 64.93mm x 19.46mm (~3.34:1 aspect ratio)
-        crafted_h = 0.767 * inch
-        crafted_w = 0
-        if self.sheet.include_crafted_items and os.path.exists(CRAFTED_ITEMS_SVG):
-            crafted_w = crafted_h * (64.93 / 19.46)
+        # Try at MIN_FLAVOR_TEXT_W first — most compact.
+        p = Paragraph(text, style)
+        _, h_min = p.wrap(MIN_FLAVOR_TEXT_W - pad, 9999)
+        if h_min <= usable_h:
+            return MIN_FLAVOR_TEXT_W, style, h_min
 
-        # Reserve space for flavor text on the left
-        flavor_w = 0
-        flavor_style = self.flavor_text_style
-        flavor_text = self.sheet.flavor_text
-        if flavor_text and flavor_text.strip():
-            flavor_text = flavor_text.strip()
+        # Doesn't fit at minimum width — search for narrowest fitting width.
+        p = Paragraph(text, style)
+        _, h_max = p.wrap(max_w - pad, 9999)
+        if h_max > usable_h:
+            return max_w, style, h_max
+
+        lo = MIN_FLAVOR_TEXT_W
+        hi = max_w
+        h_at_hi = h_max
+        while hi - lo > 0.5:
+            mid = (lo + hi) / 2
+            p = Paragraph(text, style)
+            _, h = p.wrap(mid - pad, 9999)
+            if h <= usable_h:
+                hi = mid
+                h_at_hi = h
+            else:
+                lo = mid
+        return hi, style, h_at_hi
+
+    def _ability_title_size_for_body(self, body_size):
+        """Map a body size to the matching title size, clamped to title bounds."""
+        title_size = ABILITY_TITLE_MAX_SIZE - (ABILITY_BODY_MAX_SIZE - body_size)
+        return max(ABILITY_TITLE_MIN_SIZE, min(ABILITY_TITLE_MAX_SIZE, title_size))
+
+    def _make_ability_styles(self, body_size, title_size=None):
+        """Build (title_style, body_style). title_size defaults to the size
+        derived from body_size; pass an explicit value to keep all titles
+        in a row uniform when body sizes differ."""
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+
+        if title_size is None:
+            title_size = self._ability_title_size_for_body(body_size)
+        title_style = ParagraphStyle(
+            f'AbilityTitle_{title_size}',
+            fontName='Baskerville',
+            fontSize=title_size,
+            leading=title_size,
+            spaceAfter=2,
+        )
+        body_style = ParagraphStyle(
+            f'AbilityBody_{body_size}',
+            fontName='Baskerville',
+            fontSize=body_size,
+            leading=body_size + 2,
+            textColor=colors.black,
+            alignment=TA_LEFT,
+        )
+        return title_style, body_style
+
+    def _measure_ability(self, ability, width, title_style, body_style):
+        """Return total rendered height of title + body at the given width."""
+        title_p = Paragraph(f"<b>{ability.title}</b>", title_style)
+        body_p = Paragraph(format_inline_images(ability.body, sheet=self.sheet), body_style)
+        _, th = title_p.wrap(width, 9999)
+        _, bh = body_p.wrap(width, 9999)
+        return th + bh
+
+    def _all_fit(self, abilities, widths, icon_w, box_h, sizes):
+        """Check whether every ability fits at its assigned size."""
+        for i, a in enumerate(abilities):
+            ts, bs = self._make_ability_styles(sizes[i])
+            h = self._measure_ability(a, widths[i] - icon_w, ts, bs)
+            if h > box_h:
+                return False
+        return True
+
+    def _resolve_ability_layout(self, abilities, bar_w, crafted_w, icon_w,
+                                has_crafted, flavor_text):
+        """Joint flavor + ability layout solver.
+
+        Returns dict with keys: widths, sizes, box_h, flavor_w, flavor_style,
+        flavor_size. Walks strategies 0-4 in order. Body and flavor sizes
+        shrink together with intermediate flavor-only half-steps.
+        """
+        n = len(abilities)
+        # Add ABILITY_BAR_BOTTOM_EXTRA to give abilities more usable height.
+        # This extends the bar's bottom edge down into the otherwise-unused
+        # gap above the phases area; phases_top_y is unaffected because
+        # delta_h (the downstream shift) is computed against the same default.
+        default_box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE + ABILITY_BAR_BOTTOM_EXTRA
+        max_box_h = ABILITY_BAR_MAX_H - FACTION_TOP_BAR_NUDGE + ABILITY_BAR_BOTTOM_EXTRA
+        has_flavor = bool(flavor_text and flavor_text.strip())
+        flavor_text_clean = flavor_text.strip() if has_flavor else ''
+
+        def reserve_flavor(flavor_size, box_h):
+            """Return (flavor_w, flavor_style, available_w_for_abilities,
+            flavor_used_h) for the given flavor size and bar height."""
+            if not has_flavor:
+                avail = bar_w
+                if crafted_w:
+                    avail -= (crafted_w + ABILITY_GAP)
+                return 0, None, avail, 0
             max_flavor_w = max((bar_w - crafted_w) * 0.4, MIN_FLAVOR_TEXT_W)
-            flavor_w, flavor_style = self._calculate_flavor_text_layout(flavor_text, max_flavor_w, box_h)
+            fw, fs, fh = self._flavor_layout_at_size(
+                flavor_text_clean, flavor_size, max_flavor_w, box_h
+            )
+            avail = bar_w - (fw + ABILITY_GAP)
+            if crafted_w:
+                avail -= (crafted_w + ABILITY_GAP)
+            return fw, fs, avail, fh
+
+        # Build the joint walk: same-level body+flavor with half-step where
+        # flavor is one size below body. Stop when both at floor.
+        # E.g. body MAX=11, flavor MAX=11, body MIN=5, flavor MIN=6:
+        # (11,11), (11,10), (10,10), (10,9), ..., (6,6), (5,6)
+        walk = []
+        for body_size in range(ABILITY_BODY_MAX_SIZE, ABILITY_BODY_MIN_SIZE - 1, -1):
+            flavor_full = max(min(body_size, FLAVOR_TEXT_MAX_SIZE), FLAVOR_TEXT_BASE_SIZE)
+            walk.append((body_size, flavor_full))
+            flavor_half = max(flavor_full - 1, FLAVOR_TEXT_BASE_SIZE)
+            if flavor_half < flavor_full:
+                walk.append((body_size, flavor_half))
+
+        def try_step(body_size, flavor_size, box_h):
+            """Test one walk step. Returns (widths, sizes, flavor_w, flavor_style,
+            flavor_used_h, fits) at default box_h."""
+            fw, fs, avail, fh = reserve_flavor(flavor_size, box_h)
+            sizes = [body_size] * n if n else []
+            widths = (
+                self._calculate_ability_widths(abilities, avail, icon_w)
+                if n else []
+            )
+            ability_fit = (n == 0) or self._all_fit(
+                abilities, widths, icon_w, box_h, sizes
+            )
+            flavor_fit = (not has_flavor) or fh <= (box_h - 2 * FLAVOR_TEXT_PADDING)
+            return widths, sizes, fw, fs, fh, ability_fit and flavor_fit
+
+        def bump_up_sizes(widths, sizes, box_h):
+            """For each ability, find the largest size up to MAX that still
+            fits at its assigned width and box_h. Returns a new list."""
+            bumped = list(sizes)
+            for i, a in enumerate(abilities):
+                cur = bumped[i]
+                avail_w = widths[i] - icon_w
+                # Title size will be unified after bump-up, so measure with
+                # the eventual unified title size derived from the row max.
+                # Use per-trial title size here; titles will be re-measured
+                # below if the row max changes during the pass.
+                for trial in range(ABILITY_BODY_MAX_SIZE, cur, -1):
+                    ts, bs = self._make_ability_styles(trial)
+                    if self._measure_ability(a, avail_w, ts, bs) <= box_h:
+                        bumped[i] = trial
+                        break
+            return bumped
+
+        def pack(widths, sizes, box_h, flavor_w, flavor_style, flavor_size):
+            # When the global solver landed at or below MIN, short abilities
+            # may have headroom. Bump each one up individually to the largest
+            # size that still fits. Titles stay in lockstep at the row max.
+            if sizes and min(sizes) <= ABILITY_BODY_MIN_SIZE:
+                sizes = bump_up_sizes(widths, sizes, box_h)
+                # After bump-up, re-validate with the unified title size
+                # (titles all match the largest body in the row). A larger
+                # unified title may push a previously-fitting ability over —
+                # walk back individually until each fits with that title.
+                while sizes:
+                    row_max = max(sizes)
+                    unified_title = self._ability_title_size_for_body(row_max)
+                    overflow = False
+                    for i, a in enumerate(abilities):
+                        ts, bs = self._make_ability_styles(sizes[i], title_size=unified_title)
+                        if self._measure_ability(a, widths[i] - icon_w, ts, bs) > box_h:
+                            if sizes[i] > ABILITY_BODY_HARD_FLOOR:
+                                sizes[i] -= 1
+                                overflow = True
+                                break
+                    if not overflow:
+                        break
+            title_size = (
+                self._ability_title_size_for_body(max(sizes)) if sizes else None
+            )
+            return {
+                'widths': widths,
+                'sizes': sizes,
+                'box_h': box_h,
+                'flavor_w': flavor_w,
+                'flavor_style': flavor_style,
+                'flavor_size': flavor_size,
+                'title_size': title_size,
+            }
+
+        if n == 0 and not has_flavor:
+            return pack([], [], default_box_h, 0, None, FLAVOR_TEXT_MAX_SIZE)
+
+        # Strategy 1 — joint walk at default box_h.
+        for step_idx, (body_size, flavor_size) in enumerate(walk):
+            widths, sizes, fw, fs, fh, fits = try_step(body_size, flavor_size, default_box_h)
+            if fits:
+                # Strategy 0 — only at the very first (max,max) step, with no
+                # crafted items: try one flavor-shrink to reclaim vertical space.
+                if step_idx == 0 and not has_crafted:
+                    used_abil = max(
+                        (self._measure_ability(
+                            a, widths[i] - icon_w, *self._make_ability_styles(body_size)
+                        ) for i, a in enumerate(abilities)),
+                        default=0,
+                    )
+                    used = max(used_abil, fh)
+                    needed = used + 2 * ABILITY_BAR_MIN_PAD
+                    # Try the half-step (flavor 1 smaller) — only if it
+                    # measurably reduces the box_h needed.
+                    if has_flavor and flavor_size > FLAVOR_TEXT_BASE_SIZE:
+                        f2_size = flavor_size - 1
+                        w2, s2, fw2, fs2, fh2, f2_fits = try_step(
+                            body_size, f2_size, default_box_h
+                        )
+                        if f2_fits:
+                            used2 = max(
+                                max(
+                                    (self._measure_ability(
+                                        a, w2[i] - icon_w,
+                                        *self._make_ability_styles(body_size)
+                                    ) for i, a in enumerate(abilities)),
+                                    default=0,
+                                ),
+                                fh2,
+                            )
+                            needed2 = used2 + 2 * ABILITY_BAR_MIN_PAD
+                            if needed2 < needed:
+                                if needed2 < default_box_h:
+                                    return pack(w2, s2, needed2, fw2, fs2, f2_size)
+                                return pack(w2, s2, default_box_h, fw2, fs2, f2_size)
+                    if needed < default_box_h:
+                        return pack(widths, sizes, needed, fw, fs, flavor_size)
+                return pack(widths, sizes, default_box_h, fw, fs, flavor_size)
+
+        # Strategy 2 — outlier shrink. Flavor pinned at non_outlier_size - 1
+        # (clamped to FLAVOR_TEXT_BASE_SIZE).
+        char_counts = [len(a.body) for a in abilities]
+        sorted_counts = sorted(char_counts)
+        median_chars = sorted_counts[n // 2] if n % 2 == 1 else (
+            (sorted_counts[n // 2 - 1] + sorted_counts[n // 2]) / 2
+        )
+        outlier_idx = {i for i, c in enumerate(char_counts)
+                       if median_chars > 0 and c > ABILITY_OUTLIER_RATIO * median_chars}
+
+        def try_outlier(min_outlier_size):
+            """Search outlier-shrink combinations with outlier floor = min_outlier_size.
+            Returns a packed result if a fit is found, else None."""
+            for non_size in range(ABILITY_BODY_MAX_SIZE, ABILITY_BODY_MIN_SIZE - 1, -1):
+                for out_size in range(non_size - 1, min_outlier_size - 1, -1):
+                    flavor_size = max(
+                        min(non_size - 1, FLAVOR_TEXT_MAX_SIZE),
+                        FLAVOR_TEXT_BASE_SIZE,
+                    )
+                    fw_, fs_, avail_, fh_ = reserve_flavor(flavor_size, default_box_h)
+                    sizes_ = [out_size if i in outlier_idx else non_size for i in range(n)]
+                    weights = [s / ABILITY_BODY_MAX_SIZE for s in sizes_]
+                    new_widths = self._calculate_ability_widths(
+                        abilities, avail_, icon_w, size_weights=weights
+                    )
+                    flavor_fit = (not has_flavor) or fh_ <= (default_box_h - 2 * FLAVOR_TEXT_PADDING)
+                    if flavor_fit and self._all_fit(
+                        abilities, new_widths, icon_w, default_box_h, sizes_
+                    ):
+                        return pack(new_widths, sizes_, default_box_h, fw_, fs_, flavor_size)
+            return None
+
+        # Strategy 2a — outlier shrink, but never below MIN (readable floor).
+        if outlier_idx:
+            result = try_outlier(ABILITY_BODY_MIN_SIZE)
+            if result is not None:
+                return result
+
+        # Strategy 3 — extend box_h. Flavor at its floor since we're spending
+        # vertical real estate already.
+        flavor_size = FLAVOR_TEXT_BASE_SIZE
+        sizes = [ABILITY_BODY_MIN_SIZE] * n
+        # Use max_box_h for the flavor reservation so the layout function
+        # doesn't reject sizes that need taller boxes.
+        fw, fs, avail, fh = reserve_flavor(flavor_size, max_box_h)
+        widths = self._calculate_ability_widths(abilities, avail, icon_w)
+        ts, bs = self._make_ability_styles(ABILITY_BODY_MIN_SIZE)
+        used_abil = max(
+            (self._measure_ability(a, widths[i] - icon_w, ts, bs)
+             for i, a in enumerate(abilities)),
+            default=0,
+        )
+        needed = max(used_abil, fh) + 2 * ABILITY_BAR_MIN_PAD
+        new_box_h = min(needed, max_box_h)
+        if self._all_fit(abilities, widths, icon_w, new_box_h, sizes):
+            return pack(widths, sizes, new_box_h, fw, fs, flavor_size)
+
+        # Strategy 2b — last resort: outlier below MIN, down to HARD_FLOOR.
+        # Even with the bar extended, MIN didn't fit; try aggressive outlier
+        # shrink at default box_h before accepting overflow at the cap.
+        if outlier_idx:
+            result = try_outlier(ABILITY_BODY_HARD_FLOOR)
+            if result is not None:
+                return result
+
+        # Strategy 4 — accept overflow at the cap.
+        return pack(widths, sizes, max_box_h, fw, fs, flavor_size)
+
+    def _draw_ability_boxes(self, c):
+        # Layout was resolved by _prepare_ability_bar_layout (called from
+        # _draw_top_band). Pull the precomputed values here.
+        layout = self._ability_layout
+        abilities = layout['abilities']
+        widths = layout['widths']
+        sizes = layout['sizes']
+        title_size = layout.get('title_size')
+        box_h = layout['box_h']
+        bar_w = layout['bar_w']
+        icon_w = layout['icon_w']
+        crafted_w = layout['crafted_w']
+        crafted_h = layout['crafted_h']
+        flavor_w = layout['flavor_w']
+        flavor_style = layout['flavor_style']
+        flavor_text = layout['flavor_text']
+        delta_h = layout['delta_h']
+
+        bar_x = (PAGE_W - bar_w) / 2
+        box_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - box_h
 
         # Draw flavor text box left-aligned with the color bar
         if flavor_w:
@@ -4779,23 +5512,11 @@ class SheetLayoutEngine:
                                  w=flavor_w, h=box_h,
                                  text=flavor_text)
 
-        # Calculate available width for abilities
-        available_w = bar_w
-        if crafted_w:
-            available_w -= (crafted_w + ABILITY_GAP)
-        if flavor_w:
-            available_w -= (flavor_w + ABILITY_GAP)
-
         if abilities:
-            # Calculate icon width for width estimation
-            icon_w = (self._ability_icon.width + 4) if self._ability_icon else 0
-
-            # Proportional widths based on body text length, with per-ability minimums
-            widths = self._calculate_ability_widths(abilities, available_w, icon_w)
-
             x = bar_x + (flavor_w + ABILITY_GAP if flavor_w else 0)
             for i, ability in enumerate(abilities):
                 box_w = widths[i]
+                title_style, body_style = self._make_ability_styles(sizes[i], title_size=title_size)
 
                 self._record_element(kind='header_ability',
                                      x=x, y=box_y, w=box_w, h=box_h,
@@ -4806,12 +5527,13 @@ class SheetLayoutEngine:
                 if self._ability_icon:
                     icon_x = x + 2
                     icon_y = box_y + box_h - self._ability_icon.height - 2
+                    c.set_layer_tag('fg')
                     renderPDF.draw(self._ability_icon, c, icon_x, icon_y)
 
                 # Flow title + body text to the right of the icon
                 story = [
-                    Paragraph(f"<b>{ability.title}</b>", self.ability_title_style),
-                    Paragraph(format_inline_images(ability.body, sheet=self.sheet), self.ability_body_style),
+                    Paragraph(f"<b>{ability.title}</b>", title_style),
+                    Paragraph(format_inline_images(ability.body, sheet=self.sheet), body_style),
                 ]
                 frame = Frame(
                     x + icon_w, box_y,
@@ -4824,10 +5546,13 @@ class SheetLayoutEngine:
 
                 x += box_w + ABILITY_GAP
 
-        # Draw crafted items SVG right-aligned with the color bar, below it by NUDGE
+        # Draw crafted items SVG right-aligned with the color bar, vertically
+        # centered in the (possibly extended) ability bar.
         if crafted_w:
             crafted_x = bar_x + bar_w - crafted_w
-            crafted_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - crafted_h
+            # When the bar grows, shift crafted items down by delta_h/2 so they
+            # stay vertically centered in the new band.
+            crafted_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - crafted_h - (delta_h / 2)
             drawing = svg2rlg(CRAFTED_ITEMS_SVG)
             if drawing:
                 sx = crafted_w / drawing.width
@@ -4835,6 +5560,7 @@ class SheetLayoutEngine:
                 drawing.width = crafted_w
                 drawing.height = crafted_h
                 drawing.scale(sx, sy)
+                c.set_layer_tag('fg')
                 renderPDF.draw(drawing, c, crafted_x, crafted_y)
             self._record_element(kind='header_crafted',
                                  x=crafted_x, y=crafted_y,
@@ -4912,6 +5638,7 @@ class SheetLayoutEngine:
                                      title=self.decree_section.title or '',
                                      y_min=(PAGE_H - DECREE_MAX_OFFSET) / inch,
                                      y_max=(PAGE_H - self.decree_min_offset) / inch)
+                c.set_layer_tag('box')
                 c.drawImage(bg_img, 0, draw_y,
                             width=PAGE_W, height=draw_h, mask='auto')
             else:
@@ -4924,6 +5651,7 @@ class SheetLayoutEngine:
             # they sit a bit higher in the decree band.
             pair_lift = DECREE_TITLE_BODY_PAIR_LIFT if (self.decree_section.title and has_body) else 0
             base_title_y = decree_img_top - DECREE_TITLE_Y_OFFSET + pair_lift
+            c.set_layer_tag('fg')
             if self.decree_section.title:
                 c.setFillColor(HexColor('#FFFFFF'))
                 c.setFont('Luminari', DECREE_TITLE_SIZE)
@@ -4952,10 +5680,12 @@ class SheetLayoutEngine:
                     x = start_x + i * (DECREE_SLOT_W + gap)
                     slot_img = self._get_slot_image_path(slot, force_large_for_titled=any_wide_title)
                     if os.path.exists(slot_img):
+                        c.set_layer_tag('box')
                         c.drawImage(slot_img, x, slot_y,
                                     width=DECREE_SLOT_W, height=DECREE_SLOT_H, mask='auto')
 
                     title_y = slot_y + DECREE_SLOT_H - DECREE_SLOT_TITLE_OFFSET
+                    c.set_layer_tag('fg')
                     if slot.title:
                         c.setFillColor(HexColor('#FFFFFF'))
                         c.setFont('Baskerville', DECREE_SLOT_TITLE_SIZE)
@@ -4991,6 +5721,7 @@ class SheetLayoutEngine:
         art = (getattr(faction, 'art_by', '') or '').strip()
         if not pnp and not art:
             return
+        c.set_layer_tag('fg')
         c.setFillColor(self.ink_on_faction)
         c.setFont('Baskerville', CREDITS_FONT_SIZE)
         x_right = PAGE_W - CREDITS_PAD_RIGHT
@@ -5058,8 +5789,9 @@ class SheetLayoutEngine:
         base_drawing.scale(scale, scale)
         self._apply_drawing_opacity(base_drawing, FORGE_LOGO_BASE_OPACITY)
 
-        x = PAGE_W - FORGE_LOGO_PAD_RIGHT - FORGE_LOGO_W
+        x = PAGE_W - FORGE_LOGO_PAD_X - FORGE_LOGO_W
         y = FORGE_LOGO_PAD_BOTTOM
+        c.set_layer_tag('fg')
         renderPDF.draw(base_drawing, c, x, y)
 
         overlay = self._load_colored_svg(FORGE_LOGO_SVG, opposite_hex)
@@ -5087,6 +5819,7 @@ class SheetLayoutEngine:
                   if bool(img.in_front) == in_front]
         if not images:
             return
+        c.set_layer_tag('fg')
         from reportlab.lib.utils import ImageReader
         gap = 0.15 * inch
         cursor_x = PAGE_W - gap
@@ -5225,7 +5958,7 @@ class SheetLayoutEngine:
                 auto_index_bottom += 1
             self._place_and_draw_card_pile(c, pile, x)
 
-    def _card_pile_body_paragraph(self, body_text, text_w):
+    def _card_pile_body_paragraph(self, pile, body_text, text_w):
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.enums import TA_CENTER
         html = format_step_markup(body_text, sheet=self.sheet)
@@ -5235,13 +5968,13 @@ class SheetLayoutEngine:
             fontSize=9,
             leading=9 * 1.2,
             alignment=TA_CENTER,
-            textColor=self.ink_on_faction,
+            textColor=HexColor(self._resolve_element_color(pile.element_color)),
         )
         para = Paragraph(html, style)
         text_h = true_paragraph_height(para, text_w)
         return para, text_h
 
-    def _card_pile_title_paragraph(self, title_text, text_w):
+    def _card_pile_title_paragraph(self, pile, title_text, text_w):
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.enums import TA_CENTER
         # Escape XML special chars in the raw input (no markup support for titles)
@@ -5254,7 +5987,7 @@ class SheetLayoutEngine:
             fontSize=CARD_PILE_TITLE_SIZE,
             leading=CARD_PILE_TITLE_SIZE * 1.1,
             alignment=TA_CENTER,
-            textColor=self.ink_on_faction,
+            textColor=HexColor(self._resolve_element_color(pile.element_color)),
         )
         para = Paragraph(html, style)
         text_h = true_paragraph_height(para, text_w)
@@ -5294,9 +6027,9 @@ class SheetLayoutEngine:
         title_h = body_h = 0.0
         title_para = body_para = None
         if pile.title:
-            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+            title_para, title_h = self._card_pile_title_paragraph(pile, pile.title, text_w)
         if pile.body:
-            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+            body_para, body_h = self._card_pile_body_paragraph(pile, pile.body, text_w)
         gap = CARD_PILE_TITLE_TO_BODY_GAP if (title_para and body_para) else 0.0
         zone_h = CARD_PILE_TITLE_TOP_OFFSET + title_h + gap + body_h
         return max(0.0, CARD_SLOT_H - zone_h - BOTTOM_MARGIN)
@@ -5313,11 +6046,11 @@ class SheetLayoutEngine:
         title_para = title_h = None
         body_para = body_h = None
         if pile.title:
-            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+            title_para, title_h = self._card_pile_title_paragraph(pile, pile.title, text_w)
         else:
             title_h = 0.0
         if pile.body:
-            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+            body_para, body_h = self._card_pile_body_paragraph(pile, pile.body, text_w)
         else:
             body_h = 0.0
         self._draw_card_pile_upright(c, pile, x, y,
@@ -5332,11 +6065,11 @@ class SheetLayoutEngine:
         title_para = title_h = None
         body_para = body_h = None
         if pile.title:
-            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+            title_para, title_h = self._card_pile_title_paragraph(pile, pile.title, text_w)
         else:
             title_h = 0.0
         if pile.body:
-            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+            body_para, body_h = self._card_pile_body_paragraph(pile, pile.body, text_w)
         else:
             body_h = 0.0
         self._draw_card_pile_rotated(c, pile, x, y,
@@ -5349,12 +6082,12 @@ class SheetLayoutEngine:
         title_para = None
         title_h = 0.0
         if pile.title:
-            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+            title_para, title_h = self._card_pile_title_paragraph(pile, pile.title, text_w)
 
         body_para = None
         body_h = 0.0
         if pile.body:
-            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+            body_para, body_h = self._card_pile_body_paragraph(pile, pile.body, text_w)
 
         # Text zone height as a function of title-top offset. The body-start offset
         # scales 1:1 with the title-top offset (title/body block is a rigid unit).
@@ -5443,12 +6176,32 @@ class SheetLayoutEngine:
                                      CARD_PILE_TITLE_TOP_OFFSET)
         self._record_card_pile(pile, 'bottom', x, default_y)
 
+    def _draw_card_pile_screen(self, c, pile, x, y):
+        """Draw a contrast screen behind a card pile's text. Drawn before the
+        SVG border so the rounded border covers any corner overdraw."""
+        if not pile.background_screen:
+            return
+        h = self._resolve_card_pile_screen_color(pile).lstrip('#')
+        r, g, b = int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0
+        inset = 4.0
+        radius = 8.0
+        c.set_layer_tag('box')
+        c.saveState()
+        c.setFillColorRGB(r, g, b, alpha=BACK_BG_SCREEN_OPACITY)
+        c.setStrokeColorRGB(r, g, b, alpha=0)
+        c.roundRect(x + inset, y + inset,
+                    CARD_SLOT_W - 2 * inset, CARD_SLOT_H - 2 * inset,
+                    radius, stroke=0, fill=1)
+        c.restoreState()
+
     def _draw_card_pile_upright(self, c, pile, x, y,
                                 title_para, title_h, body_para, body_h,
                                 title_top_offset):
-        drawing = self._load_card_pile_svg(self.ink_on_faction_hex,
+        self._draw_card_pile_screen(c, pile, x, y)
+        drawing = self._load_card_pile_svg(self._resolve_element_color(pile.element_color),
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:
+            c.set_layer_tag('box')
             renderPDF.draw(drawing, c, x, y)
         self._draw_card_pile_text(c, x, y, title_para, title_h, body_para, body_h,
                                   title_top_offset)
@@ -5470,9 +6223,11 @@ class SheetLayoutEngine:
             c.rotate(90)
             card_local_x = 0
             card_local_y = -CARD_SLOT_H
-        drawing = self._load_card_pile_svg(self.ink_on_faction_hex,
+        self._draw_card_pile_screen(c, pile, card_local_x, card_local_y)
+        drawing = self._load_card_pile_svg(self._resolve_element_color(pile.element_color),
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:
+            c.set_layer_tag('box')
             renderPDF.draw(drawing, c, card_local_x, card_local_y)
         self._draw_card_pile_text(c, card_local_x, card_local_y,
                                   title_para, title_h, body_para, body_h,
@@ -5645,13 +6400,32 @@ class FactionBackLayoutEngine:
 
     # ---------- Entry point ----------
 
-    def build(self, output_path):
-        c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+    LAYER_GROUPS = (
+        frozenset({'background'}),
+        frozenset({'box', 'fg'}),
+    )
 
+    def build(self, output_path, layered=False):
+        if not layered:
+            c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+            self._run_draw_pipeline(c)
+            c.save()
+            return
+
+        real = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+        proxy = LayerFilterCanvas(real)
+        for group in self.LAYER_GROUPS:
+            proxy._active_layers = group
+            self._run_draw_pipeline(proxy)
+            real.showPage()
+        real.save()
+
+    def _run_draw_pipeline(self, c):
         self._draw_background(c)
 
         # Lighten the background with a white screen at configured opacity.
         if BACK_BG_SCREEN_OPACITY > 0:
+            c.set_layer_tag('background')
             c.saveState()
             c.setFillColorRGB(1, 1, 1, alpha=BACK_BG_SCREEN_OPACITY)
             c.setStrokeColorRGB(1, 1, 1, alpha=0)
@@ -5659,6 +6433,11 @@ class FactionBackLayoutEngine:
             c.restoreState()
 
         back_body_w = PAGE_W - (BACK_X_MARGIN * 2)
+
+        # All remaining content (manifest, attribute bars, setup, how-to-play,
+        # logo) is foreground for layered output — boxes and text are combined
+        # into the same page on the back engine.
+        c.set_layer_tag('fg')
 
         manifest_y = PAGE_H - BACK_TOP_MARGIN - MANIFEST_BOX_H
         self._draw_component_manifest(c, BACK_X_MARGIN, manifest_y, back_body_w, MANIFEST_BOX_H)
@@ -5677,7 +6456,53 @@ class FactionBackLayoutEngine:
 
         self._draw_how_to_play(c, right_x, columns_top, right_w, columns_h)
 
-        c.save()
+        self._draw_forge_logo(c)
+
+    def _apply_drawing_opacity(self, drawing, alpha):
+        """Mirror of SheetLayoutEngine._apply_drawing_opacity."""
+        from reportlab.graphics.shapes import Group
+        def walk(node):
+            if hasattr(node, 'fillOpacity'):
+                node.fillOpacity = alpha
+            if hasattr(node, 'strokeOpacity'):
+                node.strokeOpacity = alpha
+            contents = getattr(node, 'contents', None)
+            if contents:
+                for child in contents:
+                    walk(child)
+        walk(drawing)
+
+    def _draw_forge_logo(self, c):
+        """Stamp the Forge logo in the bottom-LEFT corner of the FactionBack.
+        Two-pass watermark: faction color underneath, opposite of the
+        faction-readable ink color overlaid on top, both at low opacity."""
+        if not os.path.exists(FORGE_LOGO_SVG):
+            return
+        ink_on_faction_hex = '#FFFFFF' if _is_white_text_legible(self.color_hex) else '#000000'
+        opposite_hex = '#FFFFFF' # if ink_on_faction_hex == '#000000' else '#000000'
+
+        base_drawing = self._load_colored_svg(FORGE_LOGO_SVG, self.color_hex)
+        if base_drawing is None:
+            return
+        scale = FORGE_LOGO_W / base_drawing.width
+        target_h = base_drawing.height * scale
+        base_drawing.width = FORGE_LOGO_W
+        base_drawing.height = target_h
+        base_drawing.scale(scale, scale)
+        self._apply_drawing_opacity(base_drawing, FORGE_LOGO_BASE_OPACITY)
+
+        x = FORGE_LOGO_PAD_X
+        y = FORGE_LOGO_PAD_BOTTOM
+        renderPDF.draw(base_drawing, c, x, y)
+
+        overlay = self._load_colored_svg(FORGE_LOGO_SVG, opposite_hex)
+        if overlay is None:
+            return
+        overlay.width = FORGE_LOGO_W
+        overlay.height = target_h
+        overlay.scale(scale, scale)
+        self._apply_drawing_opacity(overlay, FORGE_LOGO_OVERLAY_OPACITY)
+        renderPDF.draw(overlay, c, x, y)
 
     # ---------- Background (mirrors SheetLayoutEngine._draw_background) ----------
 
@@ -6343,10 +7168,30 @@ class SetupCardLayoutEngine:
 
     # ---------- Entry point ----------
 
-    def build(self, output_path):
-        c = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+    LAYER_GROUPS = (
+        frozenset({'background', 'box'}),
+        frozenset({'fg'}),
+    )
 
+    def build(self, output_path, layered=False):
+        if not layered:
+            c = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+            self._run_draw_pipeline(c)
+            c.showPage()
+            c.save()
+            return
+
+        real = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+        proxy = LayerFilterCanvas(real)
+        for group in self.LAYER_GROUPS:
+            proxy._active_layers = group
+            self._run_draw_pipeline(proxy)
+            real.showPage()
+        real.save()
+
+    def _run_draw_pipeline(self, c):
         # Layers 1-2: backgrounds
+        c.set_layer_tag('background')
         if os.path.exists(SETUP_CARD_BG_PNG):
             c.drawImage(SETUP_CARD_BG_PNG, 0, 0, CARD_SLOT_W, CARD_SLOT_H,
                         preserveAspectRatio=False, mask='auto')
@@ -6356,6 +7201,7 @@ class SetupCardLayoutEngine:
                         preserveAspectRatio=False, mask='auto')
 
         # Layer 3: reach (white Luminari, bottom-right)
+        c.set_layer_tag('fg')
         self._draw_reach(c)
 
         # Title: "ADVANCED SETUP" centered near top
@@ -6377,6 +7223,7 @@ class SetupCardLayoutEngine:
         band_y = CARD_SLOT_H - SETUP_CARD_BAND_TOP_INSET - SETUP_CARD_BAND_HEIGHT
         band_w = CARD_SLOT_W - 2 * SETUP_CARD_BAND_X_INSET
         band_h = SETUP_CARD_BAND_HEIGHT
+        c.set_layer_tag('box')
         c.saveState()
         c.setFillColor(self.faction_color)
         c.setStrokeColorRGB(0, 0, 0, alpha=0)
@@ -6384,17 +7231,16 @@ class SetupCardLayoutEngine:
         c.restoreState()
 
         # Layer 5: header image (optional)
+        c.set_layer_tag('box')
         header_path = self._header_image_path()
         has_header = self._draw_header_image(c, header_path, band_x, band_y, band_w)
 
         # Layer 6: faction name
+        c.set_layer_tag('fg')
         self._draw_faction_name(c, band_x, band_y, band_w, band_h, has_header)
 
         # Layer 7: setup steps inside the white usable area
         self._draw_setup_steps(c)
-
-        c.showPage()
-        c.save()
 
     # ---------- Drawing helpers ----------
 
