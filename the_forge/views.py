@@ -67,6 +67,7 @@ from .models import (
     SetupCard,
     SetupStep,
     StepAction,
+    faction_has_background,
     faction_secondary_in_use,
 )
 
@@ -359,6 +360,7 @@ def factionsheet_edit(request, pk):
         'box_color_choices': BorderedBox.ElementColor.choices,
         'pile_color_choices': CardPile.ElementColor.choices,
         'secondary_visible': faction_secondary_in_use(sheet.faction),
+        'pile_hide_faction': not faction_has_background(sheet.faction),
         'ability_form': FactionAbilityForm(),
         'content_box_form': ContentBoxForm(),
         'phase_step_form': PhaseStepForm(sheet=sheet),
@@ -1630,6 +1632,7 @@ def cardpile_add(request, sheet_pk):
     return render(request, 'the_forge/partials/card_pile_row.html', {
         'pile': pile, 'inline_keywords': _inline_keywords(sheet),
         'secondary_visible': faction_secondary_in_use(sheet.faction),
+        'pile_hide_faction': not faction_has_background(sheet.faction),
     })
 
 
@@ -1646,6 +1649,7 @@ def cardpile_edit(request, pk):
     return render(request, 'the_forge/partials/card_pile_row.html', {
         'pile': pile, 'inline_keywords': _inline_keywords(pile.sheet),
         'secondary_visible': faction_secondary_in_use(pile.sheet.faction),
+        'pile_hide_faction': not faction_has_background(pile.sheet.faction),
     })
 
 

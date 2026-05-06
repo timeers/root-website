@@ -111,6 +111,26 @@ class ForgedFaction(models.Model):
             except ForgedFaction.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        # If the primary color is legible on tan, the secondary color is no
+        # longer surfaced in the editor — reset any boxes/piles still using it
+        # so the saved choice doesn't drift from what the UI shows.
+        if not new and not faction_secondary_in_use(self):
+            BorderedBox.objects.filter(
+                step__sheet__faction=self,
+                element_color=ElementColor.SECONDARY,
+            ).update(element_color=BorderedBox._meta.get_field('element_color').default)
+            CardPile.objects.filter(
+                sheet__faction=self,
+                element_color=ElementColor.SECONDARY,
+            ).update(element_color=CardPile._meta.get_field('element_color').default)
+        # If there's no background, card piles render on the page color, so
+        # the 'Faction' ink choice would be invisible. Reset any pile still
+        # using it to the default.
+        if not new and not faction_has_background(self):
+            CardPile.objects.filter(
+                sheet__faction=self,
+                element_color=ElementColor.FACTION,
+            ).update(element_color=CardPile._meta.get_field('element_color').default)
         if new:
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
@@ -482,6 +502,13 @@ def faction_secondary_in_use(faction):
     from the_forge.pdf_engine import _is_color_legible_on, PHASE_BOX_TAN
     primary = faction.color or '#5B4A8A'
     return not _is_color_legible_on(primary, PHASE_BOX_TAN)
+
+
+def faction_has_background(faction):
+    """True if the faction has any visual background (preset or uploaded image).
+    When False, card piles render directly on the page color, so 'Faction' as
+    an ink choice would be invisible."""
+    return bool(faction.background_preset or faction.background_image)
 
 
 class CardPile(models.Model):

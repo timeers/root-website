@@ -204,6 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const c = color || '#ffffff';
     if (noneFront) noneFront.style.backgroundColor = c;
     if (noneBack) noneBack.style.backgroundColor = c;
+    if (customFront) customFront.style.backgroundColor = c;
+    if (customBack) customBack.style.backgroundColor = c;
   };
   if (swatch && hex) {
     swatch.addEventListener('input', () => {

@@ -2,7 +2,7 @@
      data-element-color-picker>
   <input type="hidden" name="element_color" value="{{ selected }}" data-element-color-value>
   {% for value, label in choices %}
-    {% if value != 'secondary' or secondary_visible %}
+    {% if value == 'secondary' and not secondary_visible %}{% elif value == 'faction' and hide_faction %}{% else %}
       <button type="button"
               class="forge-color-swatch-btn forge-color-swatch--{{ value }}{% if value == selected %} is-selected{% endif %}"
               data-color-value="{{ value }}"

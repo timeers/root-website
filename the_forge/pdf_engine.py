@@ -146,21 +146,25 @@ def _prepare_tile_image(src_path, draw_w_pt, draw_h_pt):
 def draw_faction_background(c, faction):
     """Fill the page with the faction's background.
 
-    - No preset and no uploaded image  -> solid faction color fill.
-    - Image + repeat_background_image  -> brick-tiled pattern.
-    - Image + not repeating            -> cover-fill the page.
+    Always paint the faction color first so any translucent areas of an
+    overlaid image let the brand color show through.
+
+    - Image + repeat_background_image  -> brick-tiled pattern over color fill.
+    - Image + not repeating            -> cover-fill image over color fill.
+    - No image                         -> just the color fill.
     """
+    color_hex = getattr(faction, 'color', None) or '#5B4A8A'
+    c.saveState()
+    c.setFillColor(HexColor(color_hex))
+    c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
+    c.restoreState()
+
     try:
         img_path = faction.get_background_path()
     except Exception:
         img_path = None
 
     if not img_path or not os.path.exists(img_path):
-        color_hex = getattr(faction, 'color', None) or '#5B4A8A'
-        c.saveState()
-        c.setFillColor(HexColor(color_hex))
-        c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
-        c.restoreState()
         return
 
     from reportlab.lib.utils import ImageReader
@@ -187,7 +191,7 @@ def draw_faction_background(c, faction):
             x_offset = -(draw_w / 2) if row % 2 == 1 else 0
             x = x_offset
             while x < PAGE_W:
-                c.drawImage(tile_path, x, y, width=draw_w, height=draw_h)
+                c.drawImage(tile_path, x, y, width=draw_w, height=draw_h, mask='auto')
                 x += draw_w
             y -= draw_h
             row += 1
@@ -197,7 +201,7 @@ def draw_faction_background(c, faction):
         draw_h = ih * scale
         draw_x = (PAGE_W - draw_w) / 2
         draw_y = (PAGE_H - draw_h) / 2
-        c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h)
+        c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h, mask='auto')
 
 
 X_MARGIN = 0.25 * inch
@@ -245,6 +249,10 @@ PHASE_HEADER_LOCK_W = 4.25 * inch         # width at which banner height stops s
 PHASE_BOX_V_GAP = 0.01 * inch             # spacing between stacked phases in vertical box
 PHASE_BOX_PAD_TOP = 0.12 * inch          # padding above phase content in phase box
 PHASE_BOX_PAD_BOTTOM = 0.06 * inch     # padding below phase content in phase box
+# Extra top pad applied to a single-step phase/content-box when its first line
+# is base-font-only and contains an inline icon. Without this, the icon sits
+# higher than the cap-height of the small text and overlaps the header above.
+SINGLE_STEP_INLINE_ICON_PAD_TOP = 4
 
 # ContentBox layout
 CONTENT_BOX_GAP = 0.10 * inch              # gap between adjacent content boxes
@@ -843,6 +851,51 @@ def tighten_large_font_lines(para):
         para.height = sum(max(l.ascent - l.descent, leading) for l in lines)
 
 
+def first_line_has_inline_image(para):
+    """True if the paragraph's first wrapped line contains any inline image
+    fragment. Must be called after wrap()."""
+    if not hasattr(para, 'blPara') or not hasattr(para.blPara, 'lines'):
+        return False
+    lines = para.blPara.lines
+    if not lines or not hasattr(lines[0], 'words'):
+        return False
+    for frag in lines[0].words:
+        cb = getattr(frag, 'cbDefn', None)
+        if cb and getattr(cb, 'kind', None) == 'img':
+            return True
+    return False
+
+
+def first_line_has_inline_icon_only_base_font(para):
+    """True if the paragraph's first wrapped line contains an inline image
+    fragment AND no fragment exceeds the style's base font size.
+
+    Used to detect the case where a single-step phase paragraph would otherwise
+    place an icon above the cap-height of small text, overlapping the header
+    band above. Must be called after wrap().
+    """
+    if not hasattr(para, 'blPara') or not hasattr(para.blPara, 'lines'):
+        return False
+    lines = para.blPara.lines
+    if not lines:
+        return False
+    first = lines[0]
+    if not hasattr(first, 'words'):
+        return False
+    base_size = para.style.fontSize
+    has_img = False
+    max_text_fs = 0
+    for frag in first.words:
+        cb = getattr(frag, 'cbDefn', None)
+        if cb and getattr(cb, 'kind', None) == 'img':
+            has_img = True
+            continue
+        fs = getattr(frag, 'fontSize', 0)
+        if fs > max_text_fs:
+            max_text_fs = fs
+    return has_img and max_text_fs <= base_size
+
+
 def true_paragraph_height(para, width):
     """Wrap a Paragraph and return its true rendered height.
 
@@ -1348,7 +1401,18 @@ class TrackFlowable(Flowable):
                     title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
                     para = Paragraph(title_markup, row_title_style)
                     para_w, para_h = para.wrap(self._row_title_w - 4, 9999)
+                    # When the line contains an inline image with valign="middle",
+                    # the image is anchored to the text baseline midpoint (low
+                    # within the inflated line box), so geometric centering of
+                    # the para makes the visible content sit too high. Nudge it
+                    # down by the offset between baseline-mid and box-mid.
                     para_y = slot_y + self._slot_size / 2 - para_h / 2
+                    if first_line_has_inline_image(para):
+                        # The inline image with valign="middle" anchors below the
+                        # geometric line center, so the visible content sits
+                        # high in the para box. Shift down by half the gap
+                        # between image height and the nominal text leading.
+                        para_y -= (TRACK_HEADER_ICON_H - row_title_style.leading) / 2
                     para.drawOn(c, 0, para_y)
 
         # --- Slots ---
@@ -3348,6 +3412,8 @@ class SheetLayoutEngine:
         if single_step:
             _, table_h = para.wrap(width, 9999)
             table_h += extra_h
+            if first_line_has_inline_icon_only_base_font(para):
+                table_h += SINGLE_STEP_INLINE_ICON_PAD_TOP
         else:
             svg_drawing = self._phase_number_svgs.get(step.number % 10)
             first_col = svg_drawing if svg_drawing else ''
@@ -4391,7 +4457,13 @@ class SheetLayoutEngine:
             tighten_large_font_lines(para)
 
             if single_step:
-                # No number icon — text takes full width
+                # No number icon — text takes full width.
+                # If the first line is base-font-only AND has an inline icon,
+                # the icon would sit above the cap-height of the small text and
+                # overlap the header band above. Pad it down a few points.
+                if first_line_has_inline_icon_only_base_font(para):
+                    from reportlab.platypus import Spacer
+                    story.append(Spacer(1, SINGLE_STEP_INLINE_ICON_PAD_TOP))
                 story.append(para)
             else:
                 svg_drawing = self._phase_number_svgs.get(step.number % 10)
