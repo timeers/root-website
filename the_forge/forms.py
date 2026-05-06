@@ -299,7 +299,7 @@ class CardboardTrackForm(forms.ModelForm):
 class CardboardSlotForm(forms.ModelForm):
     class Meta:
         model = CardboardSlot
-        fields = ['content', 'background_image']
+        fields = ['content', 'centered_text', 'background_image']
 
 
 class DecreeSectionForm(forms.ModelForm):

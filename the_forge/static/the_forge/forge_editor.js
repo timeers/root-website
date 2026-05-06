@@ -842,7 +842,7 @@
   const slotModal = document.getElementById('forge-slot-modal');
   let slotModalState = null;
 
-  function openSlotModal({ trackId, row, col, content, bgUrl, numRows, numCols }) {
+  function openSlotModal({ trackId, row, col, content, centeredText, bgUrl, numRows, numCols }) {
     if (!slotModal) return;
     slotModalState = { trackId, row, col };
     const r = parseInt(row, 10);
@@ -864,6 +864,8 @@
     tray.innerHTML = '';
     const keywords = (content || '').split('|').map(k => k.trim()).filter(Boolean);
     keywords.forEach(k => addTrayItem(k));
+    const centeredInput = slotModal.querySelector('[data-slot-centered-text-input]');
+    if (centeredInput) centeredInput.value = centeredText || '';
     const bgInput = slotModal.querySelector('[data-slot-bg-input]');
     if (bgInput) bgInput.value = '';
     const bgClear = slotModal.querySelector('[data-slot-bg-clear]');
@@ -929,6 +931,7 @@
         row: cell.dataset.row,
         col: cell.dataset.col,
         content: cell.dataset.content,
+        centeredText: cell.dataset.centeredText,
         bgUrl: cell.dataset.bgUrl,
         numRows: cell.dataset.numRows,
         numCols: cell.dataset.numCols,
@@ -1066,7 +1069,9 @@
     headerCells.appendChild(headerInput);
 
     const grid = form.querySelector('.track-editor__grid');
-    const trackType = grid.classList.contains('track-grid--token') ? 'token' : 'building';
+    const trackType = grid.classList.contains('track-grid--token') ? 'token'
+                    : grid.classList.contains('track-grid--counter') ? 'counter'
+                    : 'building';
     grid.querySelectorAll('[data-grid-row]').forEach(rowEl => {
       const r = rowEl.dataset.gridRow;
       // If row already has a divider before the new column position, leave it.
@@ -1133,7 +1138,9 @@
     rowTitleCol.appendChild(rtInput);
 
     const grid = form.querySelector('.track-editor__grid');
-    const trackType = grid.classList.contains('track-grid--token') ? 'token' : 'building';
+    const trackType = grid.classList.contains('track-grid--token') ? 'token'
+                    : grid.classList.contains('track-grid--counter') ? 'counter'
+                    : 'building';
     const rowEl = document.createElement('div');
     rowEl.className = 'track-editor__grid-row';
     rowEl.dataset.gridRow = newIdx;

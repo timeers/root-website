@@ -568,6 +568,7 @@ class CardboardTrack(models.Model):
     class TrackChoices(models.TextChoices):
         TOKEN = 'token'
         BUILDING = 'building'
+        COUNTER = 'counter'
     step = models.ForeignKey(PhaseStep, related_name='tracks', on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=200)
@@ -666,6 +667,10 @@ class CardboardSlot(models.Model):
     content = models.CharField(
         max_length=200, blank=True, default='',
         help_text='Pipe-delimited image keywords, e.g. "1VP" or "fox|1VP"'
+    )
+    centered_text = models.CharField(
+        max_length=5, blank=True, default='',
+        help_text='Text centered in the slot written in Baskerville'
     )
     background_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 

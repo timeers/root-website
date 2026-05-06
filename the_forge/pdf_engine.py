@@ -307,6 +307,8 @@ TRACK_OVERLAP_MAX_V_OFFSET = 0.65 * inch   # Max vertical zigzag shift for non-t
 TRACK_OVERLAP_MIN_H_STEP = 0.30 * inch     # Minimum horizontal step (below this = warning)
 TRACK_OVERLAP_DIVIDER_W = 0.02 * inch      # Reduced divider width when overlapping
 TRACK_OVERLAP_CLEARANCE = 0.03 * inch      # Minimum gap between circle edges when zigzagging
+TRACK_COUNTER_SIZE = 0.45 * inch           # Counter slot diameter
+TRACK_COUNTER_STROKE_W = 1             # Counter outline stroke width (pts)
 
 # Legend rendering — title-over-image left column, body right column
 LEGEND_BLOCK_TITLE_SIZE = 16               # centered Luminari header above the rows (large)
@@ -1227,8 +1229,8 @@ class TrackFlowable(Flowable):
         else:
             self._row_title_w = 0
 
-        # Slot size — fixed at design size
-        self._slot_size = TRACK_SLOT_SIZE
+        # Slot size — counter tracks use a smaller diameter
+        self._slot_size = TRACK_COUNTER_SIZE if self.track.type == 'counter' else TRACK_SLOT_SIZE
         self._slot_gap = TRACK_SLOT_GAP
         self._divider_w = TRACK_DIVIDER_W
 
@@ -1558,7 +1560,8 @@ class TrackFlowable(Flowable):
     def _draw_slot(self, c, x, y, slot):
         """Draw a single slot at position (x, y) bottom-left."""
         s = self._slot_size
-        is_token = self.track.type == 'token'
+        ttype = self.track.type
+        is_circle = ttype in ('token', 'counter')
 
         # --- Background fill ---
         c.saveState()
@@ -1567,7 +1570,7 @@ class TrackFlowable(Flowable):
         # Try slot background image
         if slot and slot.background_image:
             try:
-                self._draw_bg_image(c, slot.background_image.path, x, y, s, is_token)
+                self._draw_bg_image(c, slot.background_image.path, x, y, s, is_circle)
                 bg_drawn = True
             except (ValueError, FileNotFoundError):
                 pass
@@ -1575,19 +1578,24 @@ class TrackFlowable(Flowable):
         # Try track background image
         if not bg_drawn and self.track.background_image:
             try:
-                self._draw_bg_image(c, self.track.background_image.path, x, y, s, is_token)
+                self._draw_bg_image(c, self.track.background_image.path, x, y, s, is_circle)
                 bg_drawn = True
             except (ValueError, FileNotFoundError):
                 pass
 
-        # Fallback: faction color at reduced opacity
+        # Fallback: counter draws a black outline; others fill with faction color
         if not bg_drawn:
-            c.setFillColor(self.faction_color)
-            c.setFillAlpha(TRACK_SLOT_BG_OPACITY)
-            if is_token:
-                c.circle(x + s / 2, y + s / 2, s / 2, fill=1, stroke=0)
+            if ttype == 'counter':
+                c.setStrokeColorRGB(0, 0, 0)
+                c.setLineWidth(TRACK_COUNTER_STROKE_W)
+                c.circle(x + s / 2, y + s / 2, s / 2, fill=0, stroke=1)
             else:
-                c.roundRect(x, y, s, s, s * 0.15, fill=1, stroke=0)
+                c.setFillColor(self.faction_color)
+                c.setFillAlpha(TRACK_SLOT_BG_OPACITY)
+                if is_circle:
+                    c.circle(x + s / 2, y + s / 2, s / 2, fill=1, stroke=0)
+                else:
+                    c.roundRect(x, y, s, s, s * 0.15, fill=1, stroke=0)
 
         c.restoreState()
 
@@ -1601,14 +1609,33 @@ class TrackFlowable(Flowable):
                 if img_path and os.path.exists(img_path):
                     images.append(img_path)
             if images:
-                self._draw_content_images(c, x, y, s, images, is_token)
+                self._draw_content_images(c, x, y, s, images, is_circle)
 
-    def _draw_bg_image(self, c, img_path, x, y, s, is_token):
+        # --- Centered text ---
+        text = (getattr(slot, 'centered_text', '') or '').strip() if slot else ''
+        if text:
+            font_name = 'Baskerville'
+            max_w = s * 0.80
+            font_size = s * 0.5
+            text_w = c.stringWidth(text, font_name, font_size)
+            if text_w > max_w:
+                font_size *= max_w / text_w
+            c.saveState()
+            c.setFillColorRGB(0, 0, 0)
+            c.setFillAlpha(1.0)
+            c.setFont(font_name, font_size)
+            # Visual-midline shim: cap height is ~0.7 of font size,
+            # so dropping the baseline by ~0.35× font size centers it.
+            text_y = y + s / 2 - font_size * 0.35
+            c.drawCentredString(x + s / 2, text_y, text)
+            c.restoreState()
+
+    def _draw_bg_image(self, c, img_path, x, y, s, is_circle):
         """Draw a background image at reduced opacity, clipped to slot shape."""
         c.saveState()
         # Clip to slot shape
         p = c.beginPath()
-        if is_token:
+        if is_circle:
             cx, cy = x + s / 2, y + s / 2
             p.circle(cx, cy, s / 2)
         else:
@@ -1619,7 +1646,7 @@ class TrackFlowable(Flowable):
                     preserveAspectRatio=True, anchor='c')
         c.restoreState()
 
-    def _draw_content_images(self, c, x, y, s, images, is_token):
+    def _draw_content_images(self, c, x, y, s, images, is_circle):
         """Draw 1-4 content images positioned within the slot."""
         from PIL import Image as PILImage
         n = len(images)
@@ -3231,9 +3258,10 @@ class SheetLayoutEngine:
                                   + total_dividers * TRACK_OVERLAP_DIVIDER_W)
                     track_w = min_grid_w + row_title_w + indent
                 else:
-                    # Building track: needs full natural width
+                    # Building / counter track: needs full natural width (no overlap)
+                    slot_size = TRACK_COUNTER_SIZE if track.type == 'counter' else TRACK_SLOT_SIZE
                     divider_space = total_dividers * TRACK_DIVIDER_W
-                    natural_grid_w = (num_cols * TRACK_SLOT_SIZE
+                    natural_grid_w = (num_cols * slot_size
                                       + (num_cols - 1) * TRACK_SLOT_GAP
                                       + divider_space)
                     track_w = natural_grid_w + row_title_w + indent
@@ -3295,8 +3323,9 @@ class SheetLayoutEngine:
                 else:
                     row_title_w = 0
 
+                slot_size = TRACK_COUNTER_SIZE if track.type == 'counter' else TRACK_SLOT_SIZE
                 divider_space = total_dividers * TRACK_DIVIDER_W
-                natural_grid_w = (num_cols * TRACK_SLOT_SIZE
+                natural_grid_w = (num_cols * slot_size
                                   + (num_cols - 1) * TRACK_SLOT_GAP
                                   + divider_space)
                 track_w = natural_grid_w + row_title_w + indent
