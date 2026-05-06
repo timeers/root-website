@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import math
 import os
 import re
 import tempfile
@@ -105,17 +106,76 @@ class _NoOpCanvas:
     def getPageNumber(self): return 1
 
 
-# Patch Flowable.drawOn so it skips painting when handed a _NoOpCanvas.
-# Frame.addFromList still runs wrap() (which is what we need for measurement);
-# only the actual draw step is skipped.
+class LayerFilterCanvas:
+    """A canvas proxy that forwards drawing primitives only when the current
+    layer tag is in the active layer set. Used to render the same draw pipeline
+    multiple times onto different pages of one PDF, with each page showing only
+    a subset of the content (background / boxes / foreground).
+
+    State methods (saveState, transforms, color/font setters) always forward —
+    they are cheap and harmless on filtered draws. Drawing primitives forward
+    only when self._current_tag is in self._active_layers.
+
+    Callers tag intent by calling c.set_layer_tag('background' | 'box' | 'fg')
+    immediately before the draws they want grouped. Default tag is 'fg'.
+    """
+    _is_layer_filter = True
+
+    _DRAW_METHODS = frozenset({
+        'drawImage', 'drawInlineImage', 'rect', 'roundRect',
+        'drawString', 'drawCentredString', 'drawCenteredString',
+        'drawRightString', 'drawText', 'line', 'lines',
+        'bezier', 'circle', 'ellipse', 'wedge', 'arc', 'drawPath',
+    })
+
+    def __init__(self, real_canvas):
+        self._real = real_canvas
+        self._active_layers = frozenset({'background', 'box', 'fg'})
+        self._current_tag = 'fg'
+
+    def set_layer_tag(self, tag):
+        self._current_tag = tag
+
+    def _is_active(self):
+        return self._current_tag in self._active_layers
+
+    def __getattr__(self, name):
+        attr = getattr(self._real, name)
+        if name in self._DRAW_METHODS and callable(attr):
+            def _gated(*args, **kwargs):
+                if self._is_active():
+                    return attr(*args, **kwargs)
+                return None
+            return _gated
+        return attr
+
+
+# Patch Flowable.drawOn so it skips painting when handed a _NoOpCanvas, or when
+# handed a LayerFilterCanvas whose active layer set excludes 'fg' (Paragraphs
+# and other Flowables always belong on the foreground layer). In both cases
+# Frame.addFromList still runs wrap() so measurement stays consistent; only the
+# actual draw step is skipped.
 _orig_drawOn = Flowable.drawOn
 
 def _drawOn_skip_on_noop(self, canvas, x, y, _sW=0):
     if getattr(canvas, '_is_noop', False):
         return None
+    if getattr(canvas, '_is_layer_filter', False):
+        if 'fg' not in canvas._active_layers:
+            return None
+        return _orig_drawOn(self, canvas._real, x, y, _sW=_sW)
     return _orig_drawOn(self, canvas, x, y, _sW=_sW)
 
 Flowable.drawOn = _drawOn_skip_on_noop
+
+
+# Add a no-op set_layer_tag to the real ReportLab Canvas so draw functions can
+# call c.set_layer_tag(...) unconditionally without an attribute check. The
+# LayerFilterCanvas overrides this with a real implementation.
+def _canvas_set_layer_tag_noop(self, tag):
+    return None
+
+rl_canvas.Canvas.set_layer_tag = _canvas_set_layer_tag_noop
 
 
 _TILE_DPI = 150  # px-per-inch the resized tile is rasterized at (150/72 ≈ 2.08 px/pt)
@@ -154,6 +214,7 @@ def draw_faction_background(c, faction):
     - No image                         -> just the color fill.
     """
     color_hex = getattr(faction, 'color', None) or '#5B4A8A'
+    c.set_layer_tag('background')
     c.saveState()
     c.setFillColor(HexColor(color_hex))
     c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
@@ -536,6 +597,91 @@ BUILDING_SLOT_IMG = os.path.join(STATIC_DIR, 'pdf/images/BuildingSlot.png')
 DECREE_DIR = os.path.join(STATIC_DIR, 'pdf/decree')
 PHASE_BOX_SVG = os.path.join(STATIC_DIR, 'pdf/boxes/Phase_Box.svg')
 PHASE_BOX_TAN = '#f9e3b3'                 # tan fill color inside Phase_Box.svg
+
+# Candidate tan-box SVGs. The picker chooses the one whose natural aspect
+# (or 90°-rotated aspect) is closest to a target rect, minimizing visible
+# stretch when the asset is non-uniformly scaled to fit.
+#
+# Each tuple is (path, is_large_asset, is_shape_specialized). Large-asset
+# SVGs (Phase_Box, Faction_Top_Bar) carry detail tuned for big footprints —
+# texture and torn-edge motifs that compress unattractively when shrunk to
+# small boxes. The small-target filter excludes them by default. However,
+# shape-specialized assets like Faction_Top_Bar exist *because* of their
+# extreme aspect; for very long-thin targets the asset's shape is the whole
+# point, so the filter spares them.
+_BOX_SVG_CANDIDATES = [
+    (os.path.join(STATIC_DIR, 'pdf/boxes/Phase_Box.svg'),       True,  False),
+    (os.path.join(STATIC_DIR, 'pdf/boxes/Medium_Box.svg'),      False, False),
+    (os.path.join(STATIC_DIR, 'pdf/boxes/Small_Box.svg'),       False, False),
+    (os.path.join(STATIC_DIR, 'pdf/boxes/Faction_Top_Bar.svg'), True,  True),
+]
+SMALL_BOX_PREFER_THRESHOLD = 2.5 * inch
+# Targets whose aspect (in either orientation) exceeds this ratio are treated
+# as "long-thin" — shape-specialized large assets stay in the pool for them
+# even when the target is below SMALL_BOX_PREFER_THRESHOLD.
+LONG_THIN_ASPECT = 4.0
+
+
+def _box_svg_aspects():
+    """Return [(path, natural_aspect_w_over_h, is_large, is_shape_specialized)]
+    for available candidate boxes. Cached on first call; svg2rlg parses are
+    cheap but not free, and this list is consulted on every box draw.
+    """
+    cache = getattr(_box_svg_aspects, '_cache', None)
+    if cache is not None:
+        return cache
+    cache = []
+    for p, is_large, is_shape_specialized in _BOX_SVG_CANDIDATES:
+        if not os.path.exists(p):
+            continue
+        try:
+            d = svg2rlg(p)
+        except Exception:
+            d = None
+        if d is None or d.width <= 0 or d.height <= 0:
+            continue
+        cache.append((p, d.width / d.height, is_large, is_shape_specialized))
+    _box_svg_aspects._cache = cache
+    return cache
+
+
+def _pick_box_svg(target_w, target_h):
+    """Pick the candidate _Box.svg whose aspect (or 90°-rotated aspect) most
+    closely matches target_w / target_h. Returns (path, rotated_bool).
+
+    Score is |log(target_aspect) - log(candidate_aspect)| so a 2x mismatch on
+    either side counts the same. Rotation is considered for every candidate.
+
+    Small-target filter: when min(target_w, target_h) < SMALL_BOX_PREFER_THRESHOLD,
+    large assets are excluded — their detail compresses badly into small
+    footprints. Shape-specialized large assets (Faction_Top_Bar) are spared
+    when the target is also long-thin (aspect >= LONG_THIN_ASPECT in either
+    orientation), because for those shapes the asset's silhouette is the
+    whole point regardless of total size. Returns (PHASE_BOX_SVG, False) if
+    no candidates are usable at all.
+    """
+    candidates = _box_svg_aspects()
+    if not candidates or target_w <= 0 or target_h <= 0:
+        return PHASE_BOX_SVG, False
+    if min(target_w, target_h) < SMALL_BOX_PREFER_THRESHOLD:
+        target_aspect = target_w / target_h
+        long_thin = (target_aspect >= LONG_THIN_ASPECT
+                     or target_aspect <= 1.0 / LONG_THIN_ASPECT)
+        filtered = [c for c in candidates
+                    if not c[2] or (long_thin and c[3])]
+        if filtered:
+            candidates = filtered
+    target = math.log(target_w / target_h)
+    best = None
+    best_score = None
+    for path, aspect, _is_large, _is_shape in candidates:
+        for rotated in (False, True):
+            cand_aspect = (1.0 / aspect) if rotated else aspect
+            score = abs(target - math.log(cand_aspect))
+            if best_score is None or score < best_score:
+                best_score = score
+                best = (path, rotated)
+    return best
 MEEPLE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/meeple.svg')
 
 ADSET_DIR = os.path.join(STATIC_DIR, 'pdf/adset')
@@ -2697,9 +2843,13 @@ class SheetLayoutEngine:
         self._meeple_action_drawing = drawing
         return drawing, drawing.width, drawing.height
 
-    def _load_phase_box_svg(self, target_w, target_h):
-        """Load Phase_Box.svg stretched to target_w x target_h (non-uniform scaling)."""
-        drawing = svg2rlg(PHASE_BOX_SVG)
+    def _load_phase_box_svg(self, target_w, target_h, path=None):
+        """Load a tan-box SVG stretched to target_w x target_h (non-uniform scaling).
+
+        path defaults to PHASE_BOX_SVG; pass an alternate candidate to load it
+        instead (used by the aspect-matching picker).
+        """
+        drawing = svg2rlg(path or PHASE_BOX_SVG)
         if drawing is None:
             return None
         sx = target_w / drawing.width
@@ -2721,18 +2871,25 @@ class SheetLayoutEngine:
         drawing.scale(sx, sy)
         return drawing
 
-    def _draw_phase_box(self, c, x, y, target_w, target_h, rotated=False):
+    def _draw_phase_box(self, c, x, y, target_w, target_h, rotated=None):
+        """Draw a tan-box background at (x, y) bottom-left filling target_w x
+        target_h. The candidate _Box.svg whose natural (or 90°-rotated) aspect
+        is closest to target_w/target_h is chosen automatically to minimize
+        visible stretch from non-uniform scaling.
+
+        The legacy `rotated` keyword is accepted but ignored — orientation is
+        now picked from aspect.
         """
-        Draw Phase_Box.svg background at (x, y) bottom-left with given dimensions.
-        If rotated=True, the SVG is rotated 90° clockwise (for horizontal layout).
-        """
-        if not rotated:
-            drawing = self._load_phase_box_svg(target_w, target_h)
+        c.set_layer_tag('box')
+        path, use_rotated = _pick_box_svg(target_w, target_h)
+        if not use_rotated:
+            drawing = self._load_phase_box_svg(target_w, target_h, path=path)
             if drawing:
                 renderPDF.draw(drawing, c, x, y)
         else:
-            # Load in portrait orientation (swap w/h), then rotate on canvas
-            drawing = self._load_phase_box_svg(target_h, target_w)
+            # Load in the SVG's natural orientation (target dims swapped),
+            # then rotate 90° CW on the canvas so it lands as target_w x target_h.
+            drawing = self._load_phase_box_svg(target_h, target_w, path=path)
             if drawing:
                 c.saveState()
                 c.translate(x, y + target_h)
@@ -3816,12 +3973,43 @@ class SheetLayoutEngine:
             "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
         })
 
-    def build(self, output_path):
+    LAYER_GROUPS = (
+        frozenset({'background'}),
+        frozenset({'box'}),
+        frozenset({'fg'}),
+    )
+
+    def build(self, output_path, layered=False):
         self.collected_snap_points = []
         if getattr(self, '_skip_drawing', False):
             c = _NoOpCanvas()
-        else:
+            self._run_draw_pipeline(c)
+            c.save()
+            return
+
+        if not layered:
             c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+            self._run_draw_pipeline(c)
+            c.save()
+            return
+
+        real = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+        proxy = LayerFilterCanvas(real)
+        # _prepare_ability_bar_layout (called from _draw_top_band) mutates
+        # self.phases_top_y in place. Snapshot it so each layered pass starts
+        # from identical geometry; otherwise the mutation compounds and box
+        # vs. fg layers drift out of registration.
+        snap_phases_top_y = self.phases_top_y
+        for i, group in enumerate(self.LAYER_GROUPS):
+            if i > 0:
+                self.phases_top_y = snap_phases_top_y
+                self.collected_snap_points = []
+            proxy._active_layers = group
+            self._run_draw_pipeline(proxy)
+            real.showPage()
+        real.save()
+
+    def _run_draw_pipeline(self, c):
         layout = self.sheet.layout_mode
 
         self._draw_background(c)
@@ -3846,8 +4034,6 @@ class SheetLayoutEngine:
         self._draw_character_images(c, in_front=True)
         self._draw_credits(c)
         self._draw_forge_logo(c)
-
-        c.save()
 
     def _draw_horizontal_phases(self, c):
         phase_order = ['birdsong', 'daylight', 'evening']
@@ -3912,7 +4098,7 @@ class SheetLayoutEngine:
         max_h = self.phases_top_y - BOTTOM_MARGIN
 
         # If all four override fields are set, skip the auto-sizing search and
-        # use the user-chosen rect directly.
+        # use the rect directly.
         ov_x = self.sheet.phase_box_x_v
         ov_y = self.sheet.phase_box_y_v
         ov_w = self.sheet.phase_box_w_v
@@ -4757,6 +4943,7 @@ class SheetLayoutEngine:
         bar_x = (PAGE_W - bar_w) / 2
 
         # Faction top bar SVG — top edge at self.faction_top_bar_top
+        c.set_layer_tag('box')
         if os.path.exists(FACTION_TOP_BAR_SVG):
             drawing = svg2rlg(FACTION_TOP_BAR_SVG)
             if drawing:
@@ -4775,6 +4962,7 @@ class SheetLayoutEngine:
         # Optional header image — same width as the color bar, bottom-aligned with
         # the bar bottom, allowed to overflow upward. Drawn before the faction
         # name so the text sits on top.
+        c.set_layer_tag('box')
         if self.sheet.header_image:
             try:
                 hdr_path = self.sheet.header_image.path
@@ -4801,6 +4989,7 @@ class SheetLayoutEngine:
                     pass
 
         # Draw faction name centered
+        c.set_layer_tag('fg')
         c.setFillColor(self.faction_name_color)
         c.setFont(self.faction_name_font, self.faction_name_font_size)
         c.drawCentredString(PAGE_W / 2, self.title_bar_y + FACTION_NAME_Y_OFFSET, self.sheet.faction.faction_name)
@@ -5338,6 +5527,7 @@ class SheetLayoutEngine:
                 if self._ability_icon:
                     icon_x = x + 2
                     icon_y = box_y + box_h - self._ability_icon.height - 2
+                    c.set_layer_tag('fg')
                     renderPDF.draw(self._ability_icon, c, icon_x, icon_y)
 
                 # Flow title + body text to the right of the icon
@@ -5370,6 +5560,7 @@ class SheetLayoutEngine:
                 drawing.width = crafted_w
                 drawing.height = crafted_h
                 drawing.scale(sx, sy)
+                c.set_layer_tag('fg')
                 renderPDF.draw(drawing, c, crafted_x, crafted_y)
             self._record_element(kind='header_crafted',
                                  x=crafted_x, y=crafted_y,
@@ -5447,6 +5638,7 @@ class SheetLayoutEngine:
                                      title=self.decree_section.title or '',
                                      y_min=(PAGE_H - DECREE_MAX_OFFSET) / inch,
                                      y_max=(PAGE_H - self.decree_min_offset) / inch)
+                c.set_layer_tag('box')
                 c.drawImage(bg_img, 0, draw_y,
                             width=PAGE_W, height=draw_h, mask='auto')
             else:
@@ -5459,6 +5651,7 @@ class SheetLayoutEngine:
             # they sit a bit higher in the decree band.
             pair_lift = DECREE_TITLE_BODY_PAIR_LIFT if (self.decree_section.title and has_body) else 0
             base_title_y = decree_img_top - DECREE_TITLE_Y_OFFSET + pair_lift
+            c.set_layer_tag('fg')
             if self.decree_section.title:
                 c.setFillColor(HexColor('#FFFFFF'))
                 c.setFont('Luminari', DECREE_TITLE_SIZE)
@@ -5487,10 +5680,12 @@ class SheetLayoutEngine:
                     x = start_x + i * (DECREE_SLOT_W + gap)
                     slot_img = self._get_slot_image_path(slot, force_large_for_titled=any_wide_title)
                     if os.path.exists(slot_img):
+                        c.set_layer_tag('box')
                         c.drawImage(slot_img, x, slot_y,
                                     width=DECREE_SLOT_W, height=DECREE_SLOT_H, mask='auto')
 
                     title_y = slot_y + DECREE_SLOT_H - DECREE_SLOT_TITLE_OFFSET
+                    c.set_layer_tag('fg')
                     if slot.title:
                         c.setFillColor(HexColor('#FFFFFF'))
                         c.setFont('Baskerville', DECREE_SLOT_TITLE_SIZE)
@@ -5526,6 +5721,7 @@ class SheetLayoutEngine:
         art = (getattr(faction, 'art_by', '') or '').strip()
         if not pnp and not art:
             return
+        c.set_layer_tag('fg')
         c.setFillColor(self.ink_on_faction)
         c.setFont('Baskerville', CREDITS_FONT_SIZE)
         x_right = PAGE_W - CREDITS_PAD_RIGHT
@@ -5595,6 +5791,7 @@ class SheetLayoutEngine:
 
         x = PAGE_W - FORGE_LOGO_PAD_X - FORGE_LOGO_W
         y = FORGE_LOGO_PAD_BOTTOM
+        c.set_layer_tag('fg')
         renderPDF.draw(base_drawing, c, x, y)
 
         overlay = self._load_colored_svg(FORGE_LOGO_SVG, opposite_hex)
@@ -5622,6 +5819,7 @@ class SheetLayoutEngine:
                   if bool(img.in_front) == in_front]
         if not images:
             return
+        c.set_layer_tag('fg')
         from reportlab.lib.utils import ImageReader
         gap = 0.15 * inch
         cursor_x = PAGE_W - gap
@@ -5987,6 +6185,7 @@ class SheetLayoutEngine:
         r, g, b = int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0
         inset = 4.0
         radius = 8.0
+        c.set_layer_tag('box')
         c.saveState()
         c.setFillColorRGB(r, g, b, alpha=BACK_BG_SCREEN_OPACITY)
         c.setStrokeColorRGB(r, g, b, alpha=0)
@@ -6002,6 +6201,7 @@ class SheetLayoutEngine:
         drawing = self._load_card_pile_svg(self._resolve_element_color(pile.element_color),
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:
+            c.set_layer_tag('box')
             renderPDF.draw(drawing, c, x, y)
         self._draw_card_pile_text(c, x, y, title_para, title_h, body_para, body_h,
                                   title_top_offset)
@@ -6027,6 +6227,7 @@ class SheetLayoutEngine:
         drawing = self._load_card_pile_svg(self._resolve_element_color(pile.element_color),
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:
+            c.set_layer_tag('box')
             renderPDF.draw(drawing, c, card_local_x, card_local_y)
         self._draw_card_pile_text(c, card_local_x, card_local_y,
                                   title_para, title_h, body_para, body_h,
@@ -6199,13 +6400,32 @@ class FactionBackLayoutEngine:
 
     # ---------- Entry point ----------
 
-    def build(self, output_path):
-        c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+    LAYER_GROUPS = (
+        frozenset({'background'}),
+        frozenset({'box', 'fg'}),
+    )
 
+    def build(self, output_path, layered=False):
+        if not layered:
+            c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+            self._run_draw_pipeline(c)
+            c.save()
+            return
+
+        real = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+        proxy = LayerFilterCanvas(real)
+        for group in self.LAYER_GROUPS:
+            proxy._active_layers = group
+            self._run_draw_pipeline(proxy)
+            real.showPage()
+        real.save()
+
+    def _run_draw_pipeline(self, c):
         self._draw_background(c)
 
         # Lighten the background with a white screen at configured opacity.
         if BACK_BG_SCREEN_OPACITY > 0:
+            c.set_layer_tag('background')
             c.saveState()
             c.setFillColorRGB(1, 1, 1, alpha=BACK_BG_SCREEN_OPACITY)
             c.setStrokeColorRGB(1, 1, 1, alpha=0)
@@ -6213,6 +6433,11 @@ class FactionBackLayoutEngine:
             c.restoreState()
 
         back_body_w = PAGE_W - (BACK_X_MARGIN * 2)
+
+        # All remaining content (manifest, attribute bars, setup, how-to-play,
+        # logo) is foreground for layered output — boxes and text are combined
+        # into the same page on the back engine.
+        c.set_layer_tag('fg')
 
         manifest_y = PAGE_H - BACK_TOP_MARGIN - MANIFEST_BOX_H
         self._draw_component_manifest(c, BACK_X_MARGIN, manifest_y, back_body_w, MANIFEST_BOX_H)
@@ -6232,8 +6457,6 @@ class FactionBackLayoutEngine:
         self._draw_how_to_play(c, right_x, columns_top, right_w, columns_h)
 
         self._draw_forge_logo(c)
-
-        c.save()
 
     def _apply_drawing_opacity(self, drawing, alpha):
         """Mirror of SheetLayoutEngine._apply_drawing_opacity."""
@@ -6945,10 +7168,30 @@ class SetupCardLayoutEngine:
 
     # ---------- Entry point ----------
 
-    def build(self, output_path):
-        c = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+    LAYER_GROUPS = (
+        frozenset({'background', 'box'}),
+        frozenset({'fg'}),
+    )
 
+    def build(self, output_path, layered=False):
+        if not layered:
+            c = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+            self._run_draw_pipeline(c)
+            c.showPage()
+            c.save()
+            return
+
+        real = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+        proxy = LayerFilterCanvas(real)
+        for group in self.LAYER_GROUPS:
+            proxy._active_layers = group
+            self._run_draw_pipeline(proxy)
+            real.showPage()
+        real.save()
+
+    def _run_draw_pipeline(self, c):
         # Layers 1-2: backgrounds
+        c.set_layer_tag('background')
         if os.path.exists(SETUP_CARD_BG_PNG):
             c.drawImage(SETUP_CARD_BG_PNG, 0, 0, CARD_SLOT_W, CARD_SLOT_H,
                         preserveAspectRatio=False, mask='auto')
@@ -6958,6 +7201,7 @@ class SetupCardLayoutEngine:
                         preserveAspectRatio=False, mask='auto')
 
         # Layer 3: reach (white Luminari, bottom-right)
+        c.set_layer_tag('fg')
         self._draw_reach(c)
 
         # Title: "ADVANCED SETUP" centered near top
@@ -6979,6 +7223,7 @@ class SetupCardLayoutEngine:
         band_y = CARD_SLOT_H - SETUP_CARD_BAND_TOP_INSET - SETUP_CARD_BAND_HEIGHT
         band_w = CARD_SLOT_W - 2 * SETUP_CARD_BAND_X_INSET
         band_h = SETUP_CARD_BAND_HEIGHT
+        c.set_layer_tag('box')
         c.saveState()
         c.setFillColor(self.faction_color)
         c.setStrokeColorRGB(0, 0, 0, alpha=0)
@@ -6986,17 +7231,16 @@ class SetupCardLayoutEngine:
         c.restoreState()
 
         # Layer 5: header image (optional)
+        c.set_layer_tag('box')
         header_path = self._header_image_path()
         has_header = self._draw_header_image(c, header_path, band_x, band_y, band_w)
 
         # Layer 6: faction name
+        c.set_layer_tag('fg')
         self._draw_faction_name(c, band_x, band_y, band_w, band_h, has_header)
 
         # Layer 7: setup steps inside the white usable area
         self._draw_setup_steps(c)
-
-        c.showPage()
-        c.save()
 
     # ---------- Drawing helpers ----------
 

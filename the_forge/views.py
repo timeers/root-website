@@ -1980,6 +1980,24 @@ def factionsheet_pdf(request, pk):
 
 
 @login_required
+def factionsheet_pdf_layered(request, pk):
+    sheet = get_object_or_404(FactionSheet, pk=pk)
+    if (resp := _forbid_if_not_editor(request, sheet.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SheetLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
+    fp = fingerprint_sheet(sheet)
+    key = cache_key('sheet-layered', sheet.pk, fp)
+    def build():
+        buffer = BytesIO()
+        SheetLayoutEngine(sheet).build(buffer, layered=True)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front (Layers).pdf')
+
+
+@login_required
 def factionsheet_webp(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
@@ -2010,6 +2028,24 @@ def factionback_pdf(request, pk):
     _maybe_save_image_preview(back, data, fp, 'back')
     response = _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
     return _attach_preview_versions(response, back=back)
+
+
+@login_required
+def factionback_pdf_layered(request, pk):
+    back = get_object_or_404(FactionBack, pk=pk)
+    if (resp := _forbid_if_not_editor(request, back.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import FactionBackLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_back, get_or_build
+    fp = fingerprint_back(back)
+    key = cache_key('back-layered', back.pk, fp)
+    def build():
+        buffer = BytesIO()
+        FactionBackLayoutEngine(back).build(buffer, layered=True)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{back.faction.faction_name} - Back (Layers).pdf')
 
 
 @login_required
@@ -2086,6 +2122,24 @@ def setup_card_pdf(request, pk):
     _maybe_save_image_preview(card, data, fp, 'card')
     response = _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
     return _attach_preview_versions(response, card=card)
+
+
+@login_required
+def setup_card_pdf_layered(request, pk):
+    card = get_object_or_404(SetupCard, pk=pk)
+    if (resp := _forbid_if_not_editor(request, card.faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SetupCardLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    fp = fingerprint_setup_card(card)
+    key = cache_key('setup_card-layered', card.pk, fp)
+    def build():
+        buffer = BytesIO()
+        SetupCardLayoutEngine(card).build(buffer, layered=True)
+        return buffer.getvalue()
+    data = get_or_build(key, build)
+    return _pdf_file_response(data, f'{card.faction.faction_name} - Adset (Layers).pdf')
 
 
 @login_required

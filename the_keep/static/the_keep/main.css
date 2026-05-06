@@ -3697,7 +3697,7 @@ body.forge-modal-open { overflow: hidden; }
   border-image: url('/static/pdf/boxes/Medium_Box.svg') 30 fill / 24px / 0 stretch;
 }
 .forge-detail-frame[data-box-shape="wide"] .forge-detail-frame__box {
-  border-image: url('/static/pdf/boxes/Phase_Box_Rotated.svg') 30 fill / 24px / 0 stretch;
+  border-image: url('/static/pdf/boxes/Phase_Rotated_Box.svg') 30 fill / 24px / 0 stretch;
 }
 .forge-detail-columns {
   display: grid;

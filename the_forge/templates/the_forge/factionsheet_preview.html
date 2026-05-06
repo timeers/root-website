@@ -80,6 +80,7 @@
         <ul class="dropdown-menu">
           <li><a class="dropdown-item forge-preview-download forge-async-download" href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
           <li><a class="dropdown-item forge-preview-download forge-async-download" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+          <li><a class="dropdown-item forge-preview-download forge-async-download" href="{% url 'forge-sheet-pdf-layered' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-layers"></i> Layers as PDF</a></li>
         </ul>
       </div>
       <button type="submit" id="forge-preview-save-btn" class="btn btn-primary"><i class="bi bi-floppy"></i><span class="d-none d-md-inline ms-1">Save Layout</span></button>

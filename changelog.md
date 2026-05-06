@@ -2,6 +2,9 @@
 
 ## [1.12.1] - 2026-5-05 Forge-Tuning
 
+### New Features
+- Download Front, Back or Adset Card as PDF layers to easily edit in gimp or other programs
+
 ### Improvements
 - Added optional visibility screen behind card piles for better text legibility
 - Added secondary faction color for when primary is not legible against white or tan
@@ -10,6 +13,7 @@
 - Theme text and ability text dynamic sizing improvements
 - Added counter option to Cardboard Track
 - Added text overlay option for Tracks
+- Boxes are more dynamically chosen to reduce stretching
 
 ### Bug Fixes
 - Padding above single step with small text and icon increased
