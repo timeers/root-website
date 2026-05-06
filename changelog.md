@@ -4,6 +4,7 @@
 
 ### New Features
 - Download Front, Back or Adset Card as PDF layers to easily edit in gimp or other programs
+- Added counter option to Cardboard Track
 
 ### Improvements
 - Added optional visibility screen behind card piles for better text legibility
@@ -11,7 +12,6 @@
 - Background color layered behind background image when image is partially translucent
 - Color options for boxes and card piles
 - Theme text and ability text dynamic sizing improvements
-- Added counter option to Cardboard Track
 - Added text overlay option for Tracks
 - Boxes are more dynamically chosen to reduce stretching
 

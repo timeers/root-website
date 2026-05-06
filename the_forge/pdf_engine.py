@@ -304,7 +304,7 @@ ABILITY_TITLE_MIN_SIZE = 8
 ABILITY_OUTLIER_RATIO = 1.1
 ABILITY_BAR_MAX_H = 1.5 * inch
 ABILITY_BAR_MIN_PAD = 0.06 * inch
-ABILITY_BAR_BOTTOM_EXTRA = 0.16 * inch  # extra usable height extending below box_y, no impact on top of bar or downstream elements
+ABILITY_BAR_BOTTOM_EXTRA = 0.08 * inch  # extra usable height extending below box_y, no impact on top of bar or downstream elements
 
 COLOR_BAR_W_RATIO = 0.95 # Controls width of content inside top bar in relation to top bar border
 FACTION_TOP_BAR_NUDGE = 0.1 * inch
@@ -356,7 +356,7 @@ TRACK_ROW_TITLE_VERTICAL_W = 0.22 * inch  # narrower column for vertically rotat
 TRACK_COL_HEADER_H = 0.30 * inch # Controls the header height for below and above track
 TRACK_TITLE_SIZE = 16 # Was 11
 TRACK_TITLE_GAP = 6 # Was 4
-TRACK_BODY_GAP = 4
+TRACK_BODY_GAP = 6
 TRACK_HEADER_FONT_SIZE = 16 # Controls the font size of the track headers 1VP, 2 etc.
 TRACK_ROW_TITLE_FONT_SIZE = 7
 TRACK_SLOT_BG_OPACITY = 0.20          # Opacity for slot backgrounds (faction color & images). Adjust to taste.
@@ -1443,6 +1443,13 @@ class TrackFlowable(Flowable):
 
         # Headers stay at a fixed height (no zigzag), no extra padding needed
 
+        # Center the track horizontally when its natural footprint (row titles
+        # + grid) is narrower than total_width. Title, headers, dividers, row
+        # titles, and slots all shift right by this amount; the body Paragraph
+        # already centers itself in self._width and is unaffected.
+        natural_track_w = self._row_title_w + self._grid_w
+        self._left_pad = max(0, (self.total_width - natural_track_w) / 2)
+
         self._width = self.total_width
         self._height = self._title_h + self._body_h + self._header_h + self._grid_h
 
@@ -1478,7 +1485,7 @@ class TrackFlowable(Flowable):
         cursor_y -= TRACK_TITLE_SIZE
         c.setFont('Luminari', TRACK_TITLE_SIZE)
         c.setFillColorRGB(0, 0, 0)
-        grid_center_x = self._row_title_w + self._grid_w / 2
+        grid_center_x = self._left_pad + self._row_title_w + self._grid_w / 2
         c.drawCentredString(grid_center_x, cursor_y, self.track.title)
         cursor_y -= TRACK_TITLE_GAP
 
@@ -1492,6 +1499,14 @@ class TrackFlowable(Flowable):
             para_w, para_h = para.wrap(self._width, 9999)
             para.drawOn(c, 0, cursor_y - para_h)
             cursor_y -= para_h + TRACK_BODY_GAP
+
+        # Center the grid (and everything that uses grid-local x) when the
+        # track's natural footprint is narrower than the available width.
+        # Title and body are not affected — they're already centered in
+        # self._width via their own draw paths above.
+        c.saveState()
+        if self._left_pad:
+            c.translate(self._left_pad, 0)
 
         # --- Column headers (above) ---
         headers_above = self.has_headers and getattr(self.track, 'header_position', 'above') == 'above'
@@ -1590,6 +1605,8 @@ class TrackFlowable(Flowable):
         if headers_below:
             below_y = grid_top_y - self._grid_h - TRACK_HEADER_BELOW_PAD
             self._draw_column_headers(c, below_y)
+
+        c.restoreState()  # close grid-centering translate
 
         c.restoreState()
 
