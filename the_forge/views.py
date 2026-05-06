@@ -67,6 +67,7 @@ from .models import (
     SetupCard,
     SetupStep,
     StepAction,
+    faction_secondary_in_use,
 )
 
 
@@ -355,6 +356,9 @@ def factionsheet_edit(request, pk):
         'inline_images': _inline_images_map(sheet),
         'inline_image_labels': _inline_image_labels(sheet),
         'box_height_choices': BorderedBox.BoxSize.choices,
+        'box_color_choices': BorderedBox.ElementColor.choices,
+        'pile_color_choices': CardPile.ElementColor.choices,
+        'secondary_visible': faction_secondary_in_use(sheet.faction),
         'ability_form': FactionAbilityForm(),
         'content_box_form': ContentBoxForm(),
         'phase_step_form': PhaseStepForm(sheet=sheet),
@@ -1183,6 +1187,7 @@ def borderedbox_add(request, step_pk):
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(step.sheet),
+        'secondary_visible': faction_secondary_in_use(step.sheet.faction),
     })
 
 
@@ -1199,6 +1204,7 @@ def borderedbox_edit(request, pk):
     ensure_step_parent_fits(box.step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(box.step.sheet),
+        'secondary_visible': faction_secondary_in_use(box.step.sheet.faction),
     })
 
 
@@ -1623,6 +1629,7 @@ def cardpile_add(request, sheet_pk):
     pile.save()
     return render(request, 'the_forge/partials/card_pile_row.html', {
         'pile': pile, 'inline_keywords': _inline_keywords(sheet),
+        'secondary_visible': faction_secondary_in_use(sheet.faction),
     })
 
 
@@ -1638,6 +1645,7 @@ def cardpile_edit(request, pk):
     form.save()
     return render(request, 'the_forge/partials/card_pile_row.html', {
         'pile': pile, 'inline_keywords': _inline_keywords(pile.sheet),
+        'secondary_visible': faction_secondary_in_use(pile.sheet.faction),
     })
 
 

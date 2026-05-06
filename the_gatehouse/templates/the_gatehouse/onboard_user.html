@@ -154,10 +154,15 @@
                     <div class="onboard-content">
                         <div class="mb-4">
                             <h3 class="h4 fw-semibold mb-3 text-center">
-                                <img src="{% static 'items/law/hammer.png' %}" alt="" style="height: 1em; width: auto; vertical-align: -0.125em;">
-                                The Forge (beta)
+                                {% comment %} <img src="{% static 'items/law/hammer.png' %}" alt="" style="height: 1em; width: auto; vertical-align: -0.125em;"> {% endcomment %}
+                                    <span class="forge-home-hero-logo d-inline-block align-middle me-2"
+                                        style="height:1em; width:1em; vertical-align:-0.125em;
+                                                background-color: currentColor;
+                                                -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
+                                                mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
+                                        aria-hidden="true"></span>The Forge
                             </h3>
-                            <p class="mb-2">Welcome to the Forge - a tool for designing your own Root content.</p>
+                            <p class="mb-2 text-center">Welcome to the Forge - a tool for designing your own Root content.</p>
                         </div>
 
                         <div class="alert alert-light border mb-4">
@@ -166,6 +171,7 @@
                                 <li>Keep content respectful. No offensive material</li>
                                 <li>Generated PDFs are for personal and community playtesting</li>
                                 <li>Respect Leder Games' trademarks when sharing your designs</li>
+                                <li>Remember that this is a sandbox feature and some layouts might be impossible</li>
                             </ul>
                         </div>
 
@@ -173,8 +179,9 @@
                             <h5 class="alert-heading h6 fw-semibold mb-3">Your Permissions:</h5>
                             <ul class="mb-0 ps-3">
                                 <li>Create and Edit Root templates for your Fan Content</li>
-                                <li>Download templates as PDF files</li>
-                                <li>Remember that this is a beta feature and some bugs are expected</li>
+                                <li>Download your faction as a high res PDF file</li>
+                                <li>Download webp images for easy sharing</li>
+                                <li>Download .json files to use in Tabletop Simulator</li>
                                 <li>To fine tune your designs it is recommended to finish your designs in a program like Inkscape or Afinity Designer</li>
                             </ul>
                         </div>

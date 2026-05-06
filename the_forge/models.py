@@ -55,8 +55,17 @@ class ForgedFaction(models.Model):
         max_length=7,
         blank=True,
         null=True,
+        default='#5f788a',
         validators=[validate_hex_color],
         help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
+    secondary_color = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        default='#000000',
+        validators=[validate_hex_color],
+        help_text="Used when the primary color isn't legible against tan."
     )
     background_preset = models.CharField(
         max_length=20,
@@ -460,16 +469,38 @@ class CardSlot(models.Model):
         ordering = ['number']
 
 
+class ElementColor(models.TextChoices):
+    WHITE = 'white', 'White'
+    BLACK = 'black', 'Black'
+    FACTION = 'faction', 'Faction'
+    SECONDARY = 'secondary', 'Secondary'
+
+
+def faction_secondary_in_use(faction):
+    """True if the faction's primary color isn't legible on the phase-box tan,
+    meaning the secondary color is actually used in the rendered output."""
+    from the_forge.pdf_engine import _is_color_legible_on, PHASE_BOX_TAN
+    primary = faction.color or '#5B4A8A'
+    return not _is_color_legible_on(primary, PHASE_BOX_TAN)
+
+
 class CardPile(models.Model):
     class Orientation(models.TextChoices):
         BOTTOM = 'bottom', 'Bottom'
         LEFT = 'left', 'Left'
         RIGHT = 'right', 'Right'
 
+    ElementColor = ElementColor
+
     sheet = models.ForeignKey(FactionSheet, related_name='card_piles', on_delete=models.CASCADE)
     number = models.PositiveIntegerField()
     title = models.CharField(max_length=200, blank=True, null=True)
     body = models.TextField(blank=True, null=True)
+    element_color = models.CharField(
+        max_length=10,
+        choices=ElementColor.choices,
+        default=ElementColor.WHITE,
+    )
 
     # Per-layout coordinate overrides (inches). Size is fixed; only x/y can be overridden.
     x_h = models.FloatField(blank=True, null=True)
@@ -490,11 +521,19 @@ class BorderedBox(models.Model):
         SMALL = 'small'
         MEDIUM = 'medium'
         LARGE = 'large'
+
+    ElementColor = ElementColor
+
     step = models.ForeignKey(PhaseStep, related_name='boxes', on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=200)
     body = models.TextField(blank=True, null=True)
     height = models.CharField(max_length=15, choices=BoxSize.choices)
+    element_color = models.CharField(
+        max_length=10,
+        choices=ElementColor.choices,
+        default=ElementColor.BLACK,
+    )
 
 class CardboardTrack(models.Model):
     class TrackChoices(models.TextChoices):

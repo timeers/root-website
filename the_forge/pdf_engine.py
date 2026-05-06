@@ -960,13 +960,14 @@ class BorderedBoxFlowable(Flowable):
     is drawn at the bottom.
     """
 
-    def __init__(self, title, body_markup, total_width, box_height, body_style):
+    def __init__(self, title, body_markup, total_width, box_height, body_style, element_color_hex='#000000'):
         super().__init__()
         self._width = total_width
         self._height = box_height
         self.title = title
         self.body_markup = body_markup
         self.body_style = body_style
+        self.element_color_hex = element_color_hex
 
     def wrap(self, availWidth, availHeight):
         return self._width, self._height
@@ -993,10 +994,12 @@ class BorderedBoxFlowable(Flowable):
         # Top border y (ReportLab origin is bottom-left, so top = h)
         top_y = h
 
+        element_color = HexColor(self.element_color_hex)
+
         # --- Draw border ---
         # Lines are extended by half_bw at each end so the stroke overlaps
         # at corners, producing clean mitered joints.
-        c.setStrokeColorRGB(0, 0, 0)
+        c.setStrokeColor(element_color)
         c.setLineWidth(bw)
 
         # Bottom border (extend left and right by half_bw)
@@ -1015,7 +1018,7 @@ class BorderedBoxFlowable(Flowable):
         cap_h = title_font_size * 0.70
         title_y = top_y - cap_h / 2
         c.setFont('Luminari', title_font_size)
-        c.setFillColorRGB(0, 0, 0)
+        c.setFillColor(element_color)
         c.drawCentredString(w / 2, title_y, self.title)
 
         # --- Draw body text (if any) ---
@@ -1036,6 +1039,7 @@ class BorderedBoxFlowable(Flowable):
                 'BorderedBoxBody',
                 parent=self.body_style,
                 alignment=TA_CENTER,
+                textColor=element_color,
             )
 
             para = Paragraph(self.body_markup, centered_style)
@@ -2385,6 +2389,15 @@ def _is_color_legible_on(fg_hex, bg_hex, min_ratio=1.9):
     return _contrast_ratio(fg_hex, bg_hex) >= min_ratio
 
 
+def _pick_legible_on(primary_hex, secondary_hex, bg_hex, min_ratio=1.9, fallback='#000000'):
+    """Return primary if legible on bg; else secondary if legible; else fallback."""
+    if primary_hex and _is_color_legible_on(primary_hex, bg_hex, min_ratio):
+        return primary_hex
+    if secondary_hex and _is_color_legible_on(secondary_hex, bg_hex, min_ratio):
+        return secondary_hex
+    return fallback
+
+
 def _is_white_text_legible(hex_color, min_ratio=1.9):
     """Mirror of the JS isWhiteTextLegible() in faction_attributes.html.
 
@@ -2499,11 +2512,11 @@ class SheetLayoutEngine:
 
         self._init_styles()
         # Step numbers and ability berries sit on the Phase_Box.svg tan fill;
-        # if the faction color fails contrast against that tan, use black.
+        # if the faction color fails contrast against that tan, fall back to the
+        # secondary_color, then to black.
         faction_color_hex = self.sheet.faction.color or '#5B4A8A'
-        on_tan_hex = (faction_color_hex
-                      if _is_color_legible_on(faction_color_hex, PHASE_BOX_TAN)
-                      else '#000000')
+        secondary_hex = self.sheet.faction.secondary_color or None
+        on_tan_hex = _pick_legible_on(faction_color_hex, secondary_hex, PHASE_BOX_TAN)
         self._on_tan_hex = on_tan_hex
         self._ability_icon = self._load_colored_svg(ABILITY_BERRY_SVG, on_tan_hex, 0.5 * inch)
         self._meeple_action_drawing = None
@@ -2514,6 +2527,19 @@ class SheetLayoutEngine:
             svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
             if os.path.exists(svg_path):
                 self._phase_number_svgs[n] = self._load_colored_svg(svg_path, on_tan_hex)
+
+    def _resolve_element_color(self, choice):
+        """Map an ElementColor choice value to a hex string."""
+        from the_forge.models import ElementColor
+        if choice == ElementColor.WHITE:
+            return '#FFFFFF'
+        if choice == ElementColor.BLACK:
+            return '#000000'
+        if choice == ElementColor.FACTION:
+            return self.sheet.faction.color or '#5B4A8A'
+        if choice == ElementColor.SECONDARY:
+            return self.sheet.faction.secondary_color or '#000000'
+        return '#000000'
 
     def _load_colored_svg(self, svg_path, color_hex, fit_size=None):
         with open(svg_path, 'r') as f:
@@ -4405,6 +4431,7 @@ class SheetLayoutEngine:
                         total_width=avail_w - indent,
                         box_height=box_h,
                         body_style=self.step_body_style,
+                        element_color_hex=self._resolve_element_color(obj.element_color),
                     )
                     if indent:
                         t = Table([['', bf]], colWidths=[indent, avail_w - indent])
@@ -5225,7 +5252,7 @@ class SheetLayoutEngine:
                 auto_index_bottom += 1
             self._place_and_draw_card_pile(c, pile, x)
 
-    def _card_pile_body_paragraph(self, body_text, text_w):
+    def _card_pile_body_paragraph(self, pile, body_text, text_w):
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.enums import TA_CENTER
         html = format_step_markup(body_text, sheet=self.sheet)
@@ -5235,13 +5262,13 @@ class SheetLayoutEngine:
             fontSize=9,
             leading=9 * 1.2,
             alignment=TA_CENTER,
-            textColor=self.ink_on_faction,
+            textColor=HexColor(self._resolve_element_color(pile.element_color)),
         )
         para = Paragraph(html, style)
         text_h = true_paragraph_height(para, text_w)
         return para, text_h
 
-    def _card_pile_title_paragraph(self, title_text, text_w):
+    def _card_pile_title_paragraph(self, pile, title_text, text_w):
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.enums import TA_CENTER
         # Escape XML special chars in the raw input (no markup support for titles)
@@ -5254,7 +5281,7 @@ class SheetLayoutEngine:
             fontSize=CARD_PILE_TITLE_SIZE,
             leading=CARD_PILE_TITLE_SIZE * 1.1,
             alignment=TA_CENTER,
-            textColor=self.ink_on_faction,
+            textColor=HexColor(self._resolve_element_color(pile.element_color)),
         )
         para = Paragraph(html, style)
         text_h = true_paragraph_height(para, text_w)
@@ -5294,9 +5321,9 @@ class SheetLayoutEngine:
         title_h = body_h = 0.0
         title_para = body_para = None
         if pile.title:
-            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+            title_para, title_h = self._card_pile_title_paragraph(pile, pile.title, text_w)
         if pile.body:
-            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+            body_para, body_h = self._card_pile_body_paragraph(pile, pile.body, text_w)
         gap = CARD_PILE_TITLE_TO_BODY_GAP if (title_para and body_para) else 0.0
         zone_h = CARD_PILE_TITLE_TOP_OFFSET + title_h + gap + body_h
         return max(0.0, CARD_SLOT_H - zone_h - BOTTOM_MARGIN)
@@ -5313,11 +5340,11 @@ class SheetLayoutEngine:
         title_para = title_h = None
         body_para = body_h = None
         if pile.title:
-            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+            title_para, title_h = self._card_pile_title_paragraph(pile, pile.title, text_w)
         else:
             title_h = 0.0
         if pile.body:
-            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+            body_para, body_h = self._card_pile_body_paragraph(pile, pile.body, text_w)
         else:
             body_h = 0.0
         self._draw_card_pile_upright(c, pile, x, y,
@@ -5332,11 +5359,11 @@ class SheetLayoutEngine:
         title_para = title_h = None
         body_para = body_h = None
         if pile.title:
-            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+            title_para, title_h = self._card_pile_title_paragraph(pile, pile.title, text_w)
         else:
             title_h = 0.0
         if pile.body:
-            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+            body_para, body_h = self._card_pile_body_paragraph(pile, pile.body, text_w)
         else:
             body_h = 0.0
         self._draw_card_pile_rotated(c, pile, x, y,
@@ -5349,12 +5376,12 @@ class SheetLayoutEngine:
         title_para = None
         title_h = 0.0
         if pile.title:
-            title_para, title_h = self._card_pile_title_paragraph(pile.title, text_w)
+            title_para, title_h = self._card_pile_title_paragraph(pile, pile.title, text_w)
 
         body_para = None
         body_h = 0.0
         if pile.body:
-            body_para, body_h = self._card_pile_body_paragraph(pile.body, text_w)
+            body_para, body_h = self._card_pile_body_paragraph(pile, pile.body, text_w)
 
         # Text zone height as a function of title-top offset. The body-start offset
         # scales 1:1 with the title-top offset (title/body block is a rigid unit).
@@ -5446,7 +5473,7 @@ class SheetLayoutEngine:
     def _draw_card_pile_upright(self, c, pile, x, y,
                                 title_para, title_h, body_para, body_h,
                                 title_top_offset):
-        drawing = self._load_card_pile_svg(self.ink_on_faction_hex,
+        drawing = self._load_card_pile_svg(self._resolve_element_color(pile.element_color),
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:
             renderPDF.draw(drawing, c, x, y)
@@ -5470,7 +5497,7 @@ class SheetLayoutEngine:
             c.rotate(90)
             card_local_x = 0
             card_local_y = -CARD_SLOT_H
-        drawing = self._load_card_pile_svg(self.ink_on_faction_hex,
+        drawing = self._load_card_pile_svg(self._resolve_element_color(pile.element_color),
                                            CARD_SLOT_W, CARD_SLOT_H)
         if drawing:
             renderPDF.draw(drawing, c, card_local_x, card_local_y)

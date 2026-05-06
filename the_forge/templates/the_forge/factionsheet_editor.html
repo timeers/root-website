@@ -108,7 +108,7 @@
 
 
 <template id="forge-box-form-template">
-  {% include 'the_forge/partials/bordered_box_form.html' with step_pk=0 box_height_choices=box_height_choices %}
+  {% include 'the_forge/partials/bordered_box_form.html' with step_pk=0 box_height_choices=box_height_choices box_color_choices=box_color_choices secondary_visible=secondary_visible faction=faction %}
 </template>
 <template id="forge-track-form-template">
   {% include 'the_forge/partials/cardboard_track_form.html' with step_pk=0 %}
@@ -929,5 +929,32 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+</script>
+
+<script>
+(function () {
+  if (window.__forgeElementColorPickerBound) return;
+  window.__forgeElementColorPickerBound = true;
+
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.forge-element-color-picker .forge-color-swatch-btn');
+    if (!btn) return;
+    const picker = btn.closest('.forge-element-color-picker');
+    if (!picker) return;
+    const value = btn.dataset.colorValue;
+    const hidden = picker.querySelector('[data-element-color-value]');
+    if (hidden) {
+      const oldValue = hidden.value;
+      hidden.value = value;
+      if (oldValue !== value) {
+        hidden.dispatchEvent(new Event('input', { bubbles: true }));
+        hidden.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+    picker.querySelectorAll('.forge-color-swatch-btn').forEach((el) => {
+      el.classList.toggle('is-selected', el === btn);
+    });
+  });
+})();
 </script>
 {% endblock %}

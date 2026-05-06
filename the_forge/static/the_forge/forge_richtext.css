@@ -617,6 +617,33 @@
   min-width: 7rem;
 }
 
+.forge-element-color-picker {
+  gap: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+}
+.forge-color-swatch-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 2px solid #ced4da;
+  cursor: pointer;
+  padding: 0;
+  display: inline-block;
+  transition: transform 0.1s, border-color 0.1s, box-shadow 0.1s;
+  margin: 0;
+}
+.forge-color-swatch-btn:hover {
+  transform: scale(1.1);
+}
+.forge-color-swatch-btn.is-selected,
+.btn-check:checked + .forge-color-swatch-btn {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.25);
+}
+.forge-color-swatch--white { background: #ffffff; }
+.forge-color-swatch--black { background: #000000; }
+
 .forge-bg-pair {
   display: flex;
   justify-content: center;
