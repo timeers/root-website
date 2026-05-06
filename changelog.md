@@ -2,19 +2,20 @@
 
 ## [1.12.1] - 2026-5-05 Forge-Tuning
 
+### Improvements
+- Added optional visibility screen behind card piles for better text legibility
+- Added secondary faction color for when primary is not legible against white or tan
+- Background color layered behind background image when image is partially translucent
+- Color options for boxes and card piles
+- Theme text and ability text dynamic sizing improvements
+- Added counter option to Cardboard Track
+- Added text overlay option for Tracks
+
 ### Bug Fixes
 - Padding above single step with small text and icon increased
 - Vertically center icons on header rows
 - Enforce Card Pile, Custom Icon and Character image limits
 - Image previews update after download
-
-### Improvements
-- Added optional screen behind card piles for better text legibility
-- Added secondary faction color for when primary is not legible against white or tan
-- Background color layered behind background image when image is partially translucent
-- Color options for boxes and card piles
-- Theme text and ability text dynamic sizing improvements
-
 
 ## [1.12.0] - 2026-5-01 Faction Forge
 The Faction Forge is a new addition to the Root Database. It allows users to build their own faction boards from scratch. Write in your abilities, actions and turn steps to create the board. Fine tune the layout with the layout editor. Then download as an image file, high res PDF or TTS object. Thank you to my beta testers KingLuigiNL, verti and davee_39 who helped me work out some issues and gave great suggestions.
