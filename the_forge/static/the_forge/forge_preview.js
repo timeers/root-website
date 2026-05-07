@@ -264,6 +264,19 @@
             div.appendChild(sep);
           });
         }
+        // Horizontal row divider lines (spans row-title col + grid width).
+        if (el.row_divider_lines && el.row_divider_width != null) {
+          el.row_divider_lines.forEach((dy) => {
+            const sep = document.createElement('div');
+            sep.className = 'track-divider';
+            sep.style.position = 'absolute';
+            sep.style.left = ((el.row_divider_left || 0) * SCALE) + 'px';
+            sep.style.top = (dy * SCALE) + 'px';
+            sep.style.width = (el.row_divider_width * SCALE) + 'px';
+            sep.style.height = '1px';
+            div.appendChild(sep);
+          });
+        }
         break;
       }
       case 'credit':

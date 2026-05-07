@@ -72,6 +72,19 @@ def divider_index_set(value):
 
 
 @register.filter
+def json_list_attr(value):
+    """JSON-encode a list/tuple for embedding in an HTML attribute. Django's
+    template auto-escape will then HTML-escape the resulting string.
+    """
+    import json
+    if not value:
+        return '[]'
+    if not isinstance(value, (list, tuple)):
+        return '[]'
+    return json.dumps(list(value))
+
+
+@register.filter
 def make_range(value):
     """Return range(int(value)) — for `{% for i in track.num_columns|make_range %}`."""
     try:

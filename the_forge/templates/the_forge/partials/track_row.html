@@ -1,5 +1,5 @@
 {% load static forge_text %}
-{% with cols=track.num_columns rows=track.num_rows col_indices=track.num_columns|make_range row_indices=track.num_rows|make_range column_headers_list=track.column_headers|padded_pipe_split:track.num_columns row_titles_list=track.row_titles|padded_pipe_split:track.num_rows divider_cols=track.column_dividers|divider_index_set %}
+{% with cols=track.num_columns rows=track.num_rows col_indices=track.num_columns|make_range row_indices=track.num_rows|make_range column_headers_list=track.get_column_headers_list row_titles_list=track.get_row_titles_list divider_cols=track.column_dividers|divider_index_set divider_rows=track.row_dividers|divider_index_set %}
 <div class="forge-card-row track-row" data-row data-id="{{ track.pk }}" data-kind="track">
   <form method="post" enctype="multipart/form-data"
         data-edit-url="{% url 'forge-track-edit' pk=track.pk %}"
@@ -77,9 +77,10 @@
     {# Hidden fields — JS serialises the visible per-column / per-row inputs into these on submit. #}
     <input type="hidden" name="num_columns" value="{{ cols }}" data-track-num-columns>
     <input type="hidden" name="num_rows" value="{{ rows }}" data-track-num-rows>
-    <input type="hidden" name="column_headers" value="{{ track.column_headers }}" data-track-column-headers>
-    <input type="hidden" name="row_titles" value="{{ track.row_titles }}" data-track-row-titles>
+    <input type="hidden" name="column_headers_json" value="{{ column_headers_list|json_list_attr }}" data-track-column-headers>
+    <input type="hidden" name="row_titles_json" value="{{ row_titles_list|json_list_attr }}" data-track-row-titles>
     <input type="hidden" name="column_dividers" value="{{ track.column_dividers }}" data-track-column-dividers>
+    <input type="hidden" name="row_dividers" value="{{ track.row_dividers }}" data-track-row-dividers>
     <input type="hidden" name="header_position" value="{{ track.header_position }}" data-track-header-position>
     <input type="hidden" name="row_title_orientation" value="{{ track.row_title_orientation }}" data-track-row-title-orientation>
 
@@ -121,6 +122,12 @@
               <input type="text" value="{{ row_titles_list|dict_get:row }}"
                      class="form-control form-control-sm track-editor__row-title"
                      data-row-title="{{ row }}" data-track-image-input>
+              {% if not forloop.last %}
+                <button type="button" class="track-editor__row-divider-spacer{% if forloop.counter0 in divider_rows %} is-active{% endif %}"
+                        data-row-divider-spacer="{{ forloop.counter0 }}"
+                        title="Toggle divider after row {{ forloop.counter0 }}"
+                        aria-label="Toggle divider after row {{ forloop.counter0 }}"></button>
+              {% endif %}
             {% endfor %}
           </div>
 
@@ -141,6 +148,12 @@
                     {% endif %}
                   {% endfor %}
                 </div>
+                {% if not forloop.last %}
+                  <button type="button" class="track-editor__row-divider{% if forloop.counter0 in divider_rows %} is-active{% endif %}"
+                          data-row-divider="{{ forloop.counter0 }}"
+                          title="Toggle divider after row {{ forloop.counter0 }}"
+                          aria-label="Toggle divider after row {{ forloop.counter0 }}"></button>
+                {% endif %}
               {% endfor %}
             </div>
           </div>

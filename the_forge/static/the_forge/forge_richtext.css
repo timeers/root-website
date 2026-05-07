@@ -93,11 +93,15 @@
 }
 
 /* Mirror display-side marker styles inside the editor so users see
-   the same look they'd see on the rendered page / PDF. */
-.forge-rich-text-editor [data-forge="luminari"] {
+   the same look they'd see on the rendered page / PDF. Applies to both
+   the full-textarea editor and the single-line .forge-icon-input
+   used by row-title / header-title inputs. */
+.forge-rich-text-editor [data-forge="luminari"],
+.forge-icon-input [data-forge="luminari"] {
   font-family: 'Luminari', serif;
 }
-.forge-rich-text-editor [data-forge="header"] {
+.forge-rich-text-editor [data-forge="header"],
+.forge-icon-input [data-forge="header"] {
   font-family: 'Baskerville', 'Libre Baskerville', serif;
   font-size: 1.5em;
 }

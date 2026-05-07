@@ -1102,9 +1102,425 @@
     initAll();
   }
 
+  // =====================================================================
+  // Single-line / shared API for embedded mini rich-text use (e.g. track
+  // row-title editors). The full editor's pending-ZWSP collapsed-caret
+  // pipeline is multi-line-friendly; for single-line editors we use a
+  // simpler toggle that wraps the current selection (or unwraps it if
+  // already inside the matched style).
+  // =====================================================================
+
+  // HTML stored format -> sanitized HTML for a contenteditable. Used to
+  // hydrate the JSON list values into each per-cell editor. Preserves
+  // <br> so row-title / column-header / track-header-title fields can
+  // contain explicit line breaks. Function name is historical — these
+  // are short multi-line fields, not strict single-line.
+  function htmlToEditorSingleLine(value) {
+    if (!value) return '';
+    return htmlToEditorHtml(value);
+  }
+
+  // Editor DOM -> storage HTML, single-line (no DIV/P/BR block handling
+  // beyond what serialize already does — Enter is blocked in single-line
+  // editors so blocks shouldn't appear, but stripping a trailing <br> is
+  // the same cleanup the multi-line serialize() already performs).
+  function editorHtmlToStorageSingleLine(editor) {
+    return serialize(editor);
+  }
+
+  // Per-editor pending-mark state for collapsed-caret styling. Mirrors the
+  // full editor's pendingStyles / pendingMarkerOuter mechanism but as a
+  // module-level WeakMap so single-line editors share the implementation.
+  const SINGLE_LINE_PENDING = new WeakMap(); // editor -> { styles:Set, marker:Element|null }
+
+  function _getPendingState(editor) {
+    let st = SINGLE_LINE_PENDING.get(editor);
+    if (!st) { st = { styles: new Set(), marker: null }; SINGLE_LINE_PENDING.set(editor, st); }
+    return st;
+  }
+
+  function _clearPendingMarker(st) {
+    if (st.marker && st.marker.parentNode) st.marker.parentNode.removeChild(st.marker);
+    st.marker = null;
+  }
+
+  // Split `ancestor` at `range`, placing the caret between the two halves
+  // (with a ZWSP so the caret has somewhere to land). Module-level
+  // counterpart to the full editor's closure-scoped helper.
+  function splitOutOfAncestorAt(ancestor, range) {
+    const splitRange = range.cloneRange();
+    splitRange.setEndAfter(ancestor.lastChild || ancestor);
+    const tail = splitRange.extractContents();
+    ancestor.parentNode.insertBefore(tail, ancestor.nextSibling);
+    const caret = document.createTextNode(ZWSP);
+    ancestor.parentNode.insertBefore(caret, ancestor.nextSibling);
+    const newRange = document.createRange();
+    newRange.setStart(caret, 1);
+    newRange.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  }
+
+  function _rebuildPendingMarker(editor, st) {
+    const sel = window.getSelection();
+    if (st.marker && st.marker.parentNode) {
+      // Anchor the caret outside the old marker so removing it doesn't
+      // orphan the selection.
+      const anchorRange = document.createRange();
+      anchorRange.setStartBefore(st.marker);
+      anchorRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(anchorRange);
+    }
+    _clearPendingMarker(st);
+
+    if (st.styles.size === 0) return;
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.startContainer)) return;
+    if (!range.collapsed) return;
+
+    // Build nested wrappers (bold outermost). Order kept stable so
+    // serialiser-friendly nesting is preserved.
+    const order = ['bold', 'italic', 'header', 'luminari'].filter((s) => st.styles.has(s));
+    let outer = null;
+    let innermost = null;
+    order.forEach((s) => {
+      const el = STYLE_DEFS[s].build();
+      if (innermost) innermost.appendChild(el);
+      else outer = el;
+      innermost = el;
+    });
+    const zwsp = document.createTextNode(ZWSP);
+    innermost.appendChild(zwsp);
+    range.insertNode(outer);
+    st.marker = outer;
+    const newRange = document.createRange();
+    newRange.setStart(zwsp, 1);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  }
+
+  // Cleanup hook called when the caret moves. Tracks whether the marker
+  // has detached or the caret has left it, and drops pending state in
+  // those cases.
+  //
+  // We intentionally do NOT strip ZWSPs by mutating text-node nodeValue
+  // here. That would collapse the caret to offset 0 mid-typing and
+  // visually move the cursor in front of the just-typed character. The
+  // serialiser already strips ZWSP at save time, so storage stays clean.
+  // Consumption of the marker on first typed character lives in the
+  // beforeinput/input handler in forge_editor.js, mirroring the full
+  // editor's pattern at forge_richtext.js:957-1001.
+  function _maintainPendingMarker(editor) {
+    const st = SINGLE_LINE_PENDING.get(editor);
+    if (!st || !st.marker) return;
+    if (!editor.contains(st.marker)) {
+      st.marker = null;
+      st.styles.clear();
+      return;
+    }
+    // If the caret has moved out of the marker, drop pending state.
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount) {
+      const range = sel.getRangeAt(0);
+      if (!st.marker.contains(range.startContainer)) {
+        // Caret left the marker; if it's empty, remove it. Otherwise it
+        // already holds typed content and can stay.
+        const text = (st.marker.textContent || '').replace(/​/g, '');
+        if (!text) _clearPendingMarker(st);
+        st.styles.clear();
+        st.marker = null;
+      }
+    }
+  }
+
+  // Called from forge_editor.js's per-editor `input` handler after a
+  // character has been inserted into the pending marker. The wrappers
+  // are now real formatting around the typed text — clear the styles
+  // set and null out the marker pointer so further typing extends the
+  // style naturally (the browser keeps typing inside the same wrapper).
+  // Mirrors the full editor's behaviour at forge_richtext.js:997-1000.
+  function consumeSingleLinePending(editor) {
+    const st = SINGLE_LINE_PENDING.get(editor);
+    if (!st) return;
+    st.marker = null;
+    st.styles.clear();
+  }
+
+  // Called from forge_editor.js's per-editor `beforeinput` handler when
+  // the user presses Backspace/Delete with the pending marker armed but
+  // not yet typed into. Removes the empty wrapper and clears state.
+  function clearSingleLinePending(editor) {
+    const st = SINGLE_LINE_PENDING.get(editor);
+    if (!st) return;
+    _clearPendingMarker(st);
+    st.styles.clear();
+  }
+
+  // Whether the editor currently has a pending marker armed (collapsed
+  // caret styled-but-not-typed-into). Used by the beforeinput handler
+  // to decide whether to swallow Backspace.
+  function hasSingleLinePending(editor) {
+    const st = SINGLE_LINE_PENDING.get(editor);
+    return !!(st && st.marker);
+  }
+
+  // Apply (or toggle) a style at the current selection inside `editor`.
+  // - Selection: wraps/unwraps the range like the full editor.
+  // - Collapsed caret: arms a pending mark; the next character typed
+  //   lands inside the styled wrapper. Re-clicking removes the pending
+  //   mark; clicking a different style (mutual-exclusivity) swaps it.
+  function applyStyleAt(editor, name) {
+    const def = STYLE_DEFS[name];
+    if (!def) return;
+    editor.focus();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) return;
+
+    const st = _getPendingState(editor);
+    const insideAncestor = findAncestor(range.startContainer, editor, def.match);
+    const turningOn = !insideAncestor && !st.styles.has(name);
+
+    // Bold↔Italic transition: when the caret/selection is bold-italic and
+    // the user clicks plain B (or plain I), the intent is "switch to that
+    // single style," not "toggle this off and leave the partner active."
+    // Strip the partner and leave `name` in place. Mirrors the full editor's
+    // logic at forge_richtext.js:651-690.
+    if (!turningOn && (name === 'bold' || name === 'italic')) {
+      const partner = name === 'bold' ? 'italic' : 'bold';
+      const partnerDef = STYLE_DEFS[partner];
+      const partnerAncestor = findAncestor(range.startContainer, editor, partnerDef.match);
+      const inPartnerDom = !!partnerAncestor;
+      const inPartnerPending = st.styles.has(partner);
+      if (inPartnerDom || inPartnerPending) {
+        if (range.collapsed) {
+          if (partnerAncestor) {
+            splitOutOfAncestorAt(partnerAncestor, range);
+          }
+          // After splitOutOfAncestorAt the caret sits OUTSIDE both wrappers
+          // (between the split halves). Rebuild the pending marker with
+          // `name` alone so the caret lands inside a fresh single-style
+          // wrapper.
+          st.styles.clear();
+          st.styles.add(name);
+          _rebuildPendingMarker(editor, st);
+        } else {
+          // Non-collapsed BI -> single style. Unwrapping just one of the
+          // two nested tags is structurally fragile (extractContents can
+          // destroy the inner wrapper around the selected text). Strip
+          // BOTH bold and italic and re-wrap with `name`.
+          unwrapRange(editor, range, STYLE_DEFS.bold.match);
+          let live = sel.rangeCount ? sel.getRangeAt(0) : range;
+          if (live && !live.collapsed) {
+            unwrapRange(editor, live, STYLE_DEFS.italic.match);
+            live = sel.rangeCount ? sel.getRangeAt(0) : live;
+            if (live && !live.collapsed) {
+              const wrapper = wrapRange(live, def.build);
+              const r2 = document.createRange();
+              r2.selectNodeContents(wrapper);
+              sel.removeAllRanges();
+              sel.addRange(r2);
+            }
+          }
+          st.styles.clear();
+          _clearPendingMarker(st);
+        }
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+      }
+    }
+
+    if (range.collapsed) {
+      if (turningOn) {
+        // Mutual-exclusivity: split out of any existing DOM ancestor for a
+        // conflicting style (so the new pending marker isn't nested inside
+        // it), and drop conflicting pending styles. All five buttons
+        // (B/I/BI/H/L) are mutually exclusive — exactly one at a time.
+        Object.keys(STYLE_DEFS).forEach((other) => {
+          if (other === name) return;
+          const liveRange = sel.rangeCount ? sel.getRangeAt(0) : range;
+          if (!liveRange) return;
+          const otherAnc = findAncestor(liveRange.startContainer, editor, STYLE_DEFS[other].match);
+          if (otherAnc) splitOutOfAncestorAt(otherAnc, liveRange);
+        });
+        st.styles.clear();
+        st.styles.add(name);
+        _rebuildPendingMarker(editor, st);
+      } else {
+        st.styles.delete(name);
+        if (insideAncestor) {
+          splitOutOfAncestorAt(insideAncestor, range);
+          _clearPendingMarker(st);
+        } else {
+          _rebuildPendingMarker(editor, st);
+        }
+      }
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+
+    // Non-collapsed: act on the actual selection.
+    const startInside = findAncestor(range.startContainer, editor, def.match);
+    const endInside = findAncestor(range.endContainer, editor, def.match);
+    const fullyStyled = startInside && startInside === endInside;
+
+    if (fullyStyled) {
+      unwrapRange(editor, range, def.match);
+    } else {
+      // Strip other styles in the range (mutual-exclusivity), then wrap.
+      Object.keys(STYLE_DEFS).forEach((other) => {
+        if (other === name) return;
+        const live = sel.rangeCount ? sel.getRangeAt(0) : range;
+        if (live && !live.collapsed) {
+          unwrapRange(editor, live, STYLE_DEFS[other].match);
+        }
+      });
+      const finalRange = sel.rangeCount ? sel.getRangeAt(0) : range;
+      if (!finalRange.collapsed) {
+        const wrapper = wrapRange(finalRange, def.build);
+        const r2 = document.createRange();
+        r2.selectNodeContents(wrapper);
+        sel.removeAllRanges();
+        sel.addRange(r2);
+      }
+    }
+    st.styles.clear();
+    _clearPendingMarker(st);
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // Compound action: apply bold + italic together at the current selection
+  // inside `editor`. Self-contained — does not call into the full editor's
+  // applyBoldItalic. Mirrors applyStyleAt's structure.
+  function applyBoldItalicAt(editor) {
+    editor.focus();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.startContainer) || !editor.contains(range.endContainer)) return;
+
+    const st = _getPendingState(editor);
+    const inBold = !!findAncestor(range.startContainer, editor, STYLE_DEFS.bold.match);
+    const inItalic = !!findAncestor(range.startContainer, editor, STYLE_DEFS.italic.match);
+    const pendingBI = st.styles.has('bold') && st.styles.has('italic');
+    const isBI = (inBold && inItalic) || pendingBI;
+
+    if (range.collapsed) {
+      if (isBI) {
+        // Toggle off: split out of whichever ancestors exist; clear pending.
+        const boldAnc = findAncestor(range.startContainer, editor, STYLE_DEFS.bold.match);
+        const italicAnc = findAncestor(range.startContainer, editor, STYLE_DEFS.italic.match);
+        // Split out of the outer wrapper first so we land cleanly outside both.
+        const outer = (boldAnc && boldAnc.contains(italicAnc)) ? boldAnc
+                    : (italicAnc && italicAnc.contains(boldAnc)) ? italicAnc
+                    : (boldAnc || italicAnc);
+        if (outer) splitOutOfAncestorAt(outer, range);
+        st.styles.clear();
+        _clearPendingMarker(st);
+      } else {
+        // Mutual-exclusivity: split out of any existing header/luminari
+        // ancestor (and any single-style bold or italic wrapper) so the new
+        // BI marker isn't nested inside an incompatible style. B/I/BI/H/L
+        // are all mutually exclusive.
+        ['header', 'luminari', 'bold', 'italic'].forEach((other) => {
+          const liveRange = sel.rangeCount ? sel.getRangeAt(0) : range;
+          if (!liveRange) return;
+          const otherAnc = findAncestor(liveRange.startContainer, editor, STYLE_DEFS[other].match);
+          if (otherAnc) splitOutOfAncestorAt(otherAnc, liveRange);
+        });
+        // Arm both styles as pending; the next typed character lands inside
+        // a nested <strong><em>...</em></strong> wrapper.
+        st.styles.clear();
+        st.styles.add('bold');
+        st.styles.add('italic');
+        _rebuildPendingMarker(editor, st);
+      }
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+
+    // Non-collapsed range.
+    if (isBI) {
+      // Strip both marks from the range.
+      unwrapRange(editor, range, STYLE_DEFS.bold.match);
+      const live = sel.rangeCount ? sel.getRangeAt(0) : range;
+      if (live && !live.collapsed) {
+        unwrapRange(editor, live, STYLE_DEFS.italic.match);
+      }
+    } else {
+      // Strip conflicting styles (header/luminari) and any partial existing
+      // bold/italic instances inside the range, then wrap in <strong><em>.
+      ['header', 'luminari', 'bold', 'italic'].forEach((other) => {
+        const live = sel.rangeCount ? sel.getRangeAt(0) : range;
+        if (live && !live.collapsed) {
+          unwrapRange(editor, live, STYLE_DEFS[other].match);
+        }
+      });
+      let live = sel.rangeCount ? sel.getRangeAt(0) : range;
+      if (live && !live.collapsed) {
+        const boldWrapper = wrapRange(live, STYLE_DEFS.bold.build);
+        const inner = document.createRange();
+        inner.selectNodeContents(boldWrapper);
+        sel.removeAllRanges();
+        sel.addRange(inner);
+        live = sel.getRangeAt(0);
+        const italicWrapper = wrapRange(live, STYLE_DEFS.italic.build);
+        const r2 = document.createRange();
+        r2.selectNodeContents(italicWrapper);
+        sel.removeAllRanges();
+        sel.addRange(r2);
+      }
+    }
+    st.styles.clear();
+    _clearPendingMarker(st);
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // Public hook so forge_editor.js's per-editor input/selectionchange
+  // handlers can keep the pending marker tidy as the user types or moves
+  // the caret.
+  function maintainPendingMark(editor) {
+    _maintainPendingMarker(editor);
+  }
+
+  // Report which styles are active at the current selection (for toolbar
+  // button state). Returns { bold, italic, header, luminari } booleans.
+  // Includes pending-marker styles so a clicked-but-not-yet-typed style
+  // shows as active.
+  function activeStylesAt(editor) {
+    const out = { bold: false, italic: false, header: false, luminari: false };
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return out;
+    const range = sel.getRangeAt(0);
+    if (!editor.contains(range.startContainer)) return out;
+    Object.keys(STYLE_DEFS).forEach((name) => {
+      const def = STYLE_DEFS[name];
+      if (findAncestor(range.startContainer, editor, def.match)) out[name] = true;
+    });
+    const st = SINGLE_LINE_PENDING.get(editor);
+    if (st) {
+      st.styles.forEach((name) => { out[name] = true; });
+    }
+    return out;
+  }
+
   window.initForgeRichText = initAll;
   window.forgeRichText = {
     invalidateInlineImages: invalidateInlineImages,
     rebindAllImagePickers: rebindAllImagePickers,
+    htmlToEditorSingleLine: htmlToEditorSingleLine,
+    editorHtmlToStorageSingleLine: editorHtmlToStorageSingleLine,
+    applyStyleAt: applyStyleAt,
+    applyBoldItalicAt: applyBoldItalicAt,
+    activeStylesAt: activeStylesAt,
+    maintainPendingMark: maintainPendingMark,
+    consumeSingleLinePending: consumeSingleLinePending,
+    clearSingleLinePending: clearSingleLinePending,
+    hasSingleLinePending: hasSingleLinePending,
   };
 })();

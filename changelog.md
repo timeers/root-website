@@ -14,6 +14,7 @@
 - Theme text and ability text dynamic sizing improvements
 - Added text overlay option for Tracks
 - Boxes are more dynamically chosen to reduce stretching
+- Rich text editor for Track Row headers
 
 ### Bug Fixes
 - Padding above single step with small text and icon increased

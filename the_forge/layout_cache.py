@@ -59,7 +59,10 @@ def _fingerprint(sheet, layout_mode):
 
     for tr in CardboardTrack.objects.filter(step__sheet=sheet).order_by('step_id', 'order').values_list(
             'id', 'step_id', 'order', 'title', 'body', 'type',
-            'num_rows', 'num_columns', 'column_headers', 'row_titles', 'column_dividers',
+            'num_rows', 'num_columns',
+            'column_headers', 'row_titles',
+            'column_headers_json', 'row_titles_json',
+            'column_dividers', 'row_dividers',
             'header_position', 'header_title', 'row_title_orientation'):
         parts.append(('track',) + tr)
 
