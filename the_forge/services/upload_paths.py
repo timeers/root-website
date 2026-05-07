@@ -34,6 +34,11 @@ def sheet_preview_upload_path(instance, filename):
         filename='front.webp',
     )
 
+def decree_preview_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.faction.slug, 'board'],
+        filename='decree.webp',
+    )
 
 def back_preview_upload_path(instance, filename):
     return upload_path(

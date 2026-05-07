@@ -1,9 +1,11 @@
 # Changelog
 
-## [1.12.1] - 2026-5-05 Forge-Tuning
+## [1.12.1] - 2026-5-06 Forge-Tuning
 
 ### New Features
 - Download Front, Back or Adset Card as PDF layers to easily edit in gimp or other programs
+- Added counter option to Cardboard Track
+- Included Decree Board for TTS json
 
 ### Improvements
 - Added optional visibility screen behind card piles for better text legibility
@@ -11,9 +13,9 @@
 - Background color layered behind background image when image is partially translucent
 - Color options for boxes and card piles
 - Theme text and ability text dynamic sizing improvements
-- Added counter option to Cardboard Track
 - Added text overlay option for Tracks
 - Boxes are more dynamically chosen to reduce stretching
+- Rich text editor for Track Row headers
 
 ### Bug Fixes
 - Padding above single step with small text and icon increased

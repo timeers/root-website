@@ -304,7 +304,7 @@ ABILITY_TITLE_MIN_SIZE = 8
 ABILITY_OUTLIER_RATIO = 1.1
 ABILITY_BAR_MAX_H = 1.5 * inch
 ABILITY_BAR_MIN_PAD = 0.06 * inch
-ABILITY_BAR_BOTTOM_EXTRA = 0.16 * inch  # extra usable height extending below box_y, no impact on top of bar or downstream elements
+ABILITY_BAR_BOTTOM_EXTRA = 0.08 * inch  # extra usable height extending below box_y, no impact on top of bar or downstream elements
 
 COLOR_BAR_W_RATIO = 0.95 # Controls width of content inside top bar in relation to top bar border
 FACTION_TOP_BAR_NUDGE = 0.1 * inch
@@ -352,11 +352,13 @@ BORDERED_BOX_TITLE_GAP = 4            # gap between border line and title text o
 TRACK_SLOT_SIZE = 0.67 * inch
 TRACK_SLOT_GAP = 0.06 * inch
 TRACK_ROW_TITLE_W = 0.75 * inch
+TRACK_ROW_TITLE_MAX_W = 1.5 * inch  # cap for horizontal row-title growth
 TRACK_ROW_TITLE_VERTICAL_W = 0.22 * inch  # narrower column for vertically rotated row titles
+TRACK_ROW_TITLE_VERTICAL_MAX_W = 0.6 * inch  # cap for vertical row-title (rotated thickness)
 TRACK_COL_HEADER_H = 0.30 * inch # Controls the header height for below and above track
 TRACK_TITLE_SIZE = 16 # Was 11
 TRACK_TITLE_GAP = 6 # Was 4
-TRACK_BODY_GAP = 4
+TRACK_BODY_GAP = 6
 TRACK_HEADER_FONT_SIZE = 16 # Controls the font size of the track headers 1VP, 2 etc.
 TRACK_ROW_TITLE_FONT_SIZE = 7
 TRACK_SLOT_BG_OPACITY = 0.20          # Opacity for slot backgrounds (faction color & images). Adjust to taste.
@@ -1309,19 +1311,21 @@ class TrackFlowable(Flowable):
         self.num_rows = max(explicit_rows, max_slot_row, 1)
 
         self.num_cols = track.num_columns
-        self.has_headers = bool(track.column_headers)
+        # Read column headers via the model helper (JSONField, falling back
+        # to the legacy pipe-delimited CharField for unmigrated records).
+        self._column_headers = list(track.get_column_headers_list()) if hasattr(track, 'get_column_headers_list') else []
+        self.has_headers = any(bool(h) for h in self._column_headers)
 
-        # Row titles now live on the track as a pipe-delimited string.
+        # Row titles via the model helper (JSONField; legacy pipe-split fallback).
         self.row_titles = {}
-        raw_row_titles = getattr(track, 'row_titles', '') or ''
-        if raw_row_titles:
-            for idx, title in enumerate(raw_row_titles.split('|')):
-                if title:
-                    self.row_titles[idx] = title
+        row_titles_list = list(track.get_row_titles_list()) if hasattr(track, 'get_row_titles_list') else []
+        for idx, title in enumerate(row_titles_list):
+            if title:
+                self.row_titles[idx] = title
         self.has_row_titles = bool(self.row_titles) or bool(getattr(track, 'header_title', ''))
 
-        # Parse dividers: stored values represent "divider AFTER column N"
-        # (set by the editor's spacer buttons, between column N and N+1).
+        # Parse column dividers: stored values represent "divider AFTER column
+        # N" (set by the editor's spacer buttons, between column N and N+1).
         # Convert to "divider BEFORE column N+1" for our placement loop.
         self.dividers = set()
         if track.column_dividers:
@@ -1331,6 +1335,18 @@ class TrackFlowable(Flowable):
                     n = int(col_str)
                     if 0 <= n < self.num_cols - 1:
                         self.dividers.add(n + 1)
+
+        # Parse row dividers: same convention as column dividers — "AFTER
+        # row N", converted to "BEFORE row N+1" for the draw loop.
+        self.row_divider_indices = set()
+        raw_row_dividers = getattr(track, 'row_dividers', '') or ''
+        if raw_row_dividers:
+            for row_str in raw_row_dividers.split(','):
+                row_str = row_str.strip()
+                if row_str:
+                    n = int(row_str)
+                    if 0 <= n < self.num_rows - 1:
+                        self.row_divider_indices.add(n + 1)
 
         # Count dividers that appear before each column to calculate offset
         self._divider_offsets = {}
@@ -1368,10 +1384,18 @@ class TrackFlowable(Flowable):
         # Header height
         self._header_h = TRACK_COL_HEADER_H if self.has_headers else 0
 
-        # Row title width
+        # Row title width — start from the per-orientation default, then grow
+        # to fit the actual content so titles don't overlap the grid.
+        # Horizontal: measure the natural single-line width of each title
+        #   (and the in-grid header_title) and bump _row_title_w to fit the
+        #   widest, capped at TRACK_ROW_TITLE_MAX_W. Wrapping kicks in only
+        #   when text exceeds the cap.
+        # Vertical: rotated text's perpendicular thickness equals para_h from
+        #   wrap(slot_size, ...). Bump _row_title_w to fit the largest such
+        #   thickness, capped at TRACK_ROW_TITLE_VERTICAL_MAX_W.
         self._vertical_row_titles = (getattr(self.track, 'row_title_orientation', 'horizontal') == 'vertical')
         if self.has_row_titles:
-            self._row_title_w = TRACK_ROW_TITLE_VERTICAL_W if self._vertical_row_titles else TRACK_ROW_TITLE_W
+            self._row_title_w = self._measure_row_title_width()
         else:
             self._row_title_w = 0
 
@@ -1443,8 +1467,108 @@ class TrackFlowable(Flowable):
 
         # Headers stay at a fixed height (no zigzag), no extra padding needed
 
+        # Center the track horizontally when its natural footprint (row titles
+        # + grid) is narrower than total_width. Title, headers, dividers, row
+        # titles, and slots all shift right by this amount; the body Paragraph
+        # already centers itself in self._width and is unaffected.
+        natural_track_w = self._row_title_w + self._grid_w
+        self._left_pad = max(0, (self.total_width - natural_track_w) / 2)
+
         self._width = self.total_width
         self._height = self._title_h + self._body_h + self._header_h + self._grid_h
+
+    def _measure_row_title_width(self):
+        """Compute the row-title column width needed so titles don't overlap
+        the grid. Mirrors the wrap call in `draw()` / `_draw_column_headers()`
+        so the measurement matches what gets rendered.
+
+        Horizontal: the natural single-line width of the widest title.
+        Vertical: the largest rotated-thickness (perpendicular to reading
+        direction) over all rows.
+
+        Includes the in-grid `header_title`, which lives in the same column.
+        """
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+
+        slot_size = TRACK_COUNTER_SIZE if self.track.type == 'counter' else TRACK_SLOT_SIZE
+        sheet = _sheet_of(self.track)
+
+        titles = list(self.row_titles.values())
+        header_title = getattr(self.track, 'header_title', '') or ''
+        if header_title:
+            titles.append(header_title)
+        if not titles:
+            return TRACK_ROW_TITLE_VERTICAL_W if self._vertical_row_titles else TRACK_ROW_TITLE_W
+
+        if self._vertical_row_titles:
+            style = ParagraphStyle(
+                'TrackRowTitleMeasure', parent=self.body_style,
+                fontName='Baskerville',
+                fontSize=TRACK_ROW_TITLE_FONT_SIZE,
+                leading=TRACK_ROW_TITLE_FONT_SIZE + 2,
+                alignment=TA_CENTER,
+            )
+            # The header_title (when vertical) wraps at _header_h instead of
+            # slot_size — see _draw_column_headers. Measure it separately.
+            row_wrap_w = slot_size
+            header_wrap_w = self._header_h
+            max_thickness = TRACK_ROW_TITLE_VERTICAL_W
+            for t in self.row_titles.values():
+                markup = format_step_markup(t, sheet=sheet)
+                _, h = Paragraph(markup, style).wrap(row_wrap_w, 9999)
+                if h > max_thickness:
+                    max_thickness = h
+            if header_title:
+                markup = format_step_markup(header_title, sheet=sheet)
+                _, h = Paragraph(markup, style).wrap(header_wrap_w, 9999)
+                if h > max_thickness:
+                    max_thickness = h
+            return min(max_thickness, TRACK_ROW_TITLE_VERTICAL_MAX_W)
+
+        # Horizontal orientation. Measure each title's natural single-line
+        # width (no wrapping) and cap at TRACK_ROW_TITLE_MAX_W. Beyond the
+        # cap, draw() will wrap inside the column — but the column has been
+        # sized so titles never overflow into the grid for typical content.
+        style = ParagraphStyle(
+            'TrackRowTitleMeasure', parent=self.body_style,
+            fontName='Baskerville',
+            fontSize=TRACK_ROW_TITLE_FONT_SIZE,
+            leading=TRACK_ROW_TITLE_FONT_SIZE + 2,
+            alignment=TA_RIGHT,
+        )
+        widest = TRACK_ROW_TITLE_W
+        # +4 mirrors the inner padding draw() reserves (para.wrap(_row_title_w - 4, ...)).
+        budget = 4
+        # Probe at a very wide width so the paragraph collapses to one line,
+        # then read the line's used width via (maxWidth - extraSpace). This
+        # matches the natural-width pattern used elsewhere in this engine
+        # (see legend entry sizing around line 2310). For multi-token text,
+        # this gives the *whole title's* single-line width — which is what
+        # the column needs to reserve to avoid overflow.
+        PROBE = TRACK_ROW_TITLE_MAX_W * 8
+        for t in titles:
+            markup = format_step_markup(t, sheet=sheet)
+            probe = Paragraph(markup, style)
+            try:
+                probe.wrap(PROBE, 9999)
+            except Exception:
+                continue
+            line_widths = []
+            if hasattr(probe, 'blPara') and hasattr(probe.blPara, 'lines'):
+                for ln in probe.blPara.lines:
+                    extra = getattr(ln, 'extraSpace', None)
+                    max_w = getattr(ln, 'maxWidth', PROBE)
+                    if extra is not None:
+                        line_widths.append(max_w - extra)
+            try:
+                min_w = probe.minWidth()
+            except Exception:
+                min_w = 0
+            natural = max(line_widths) if line_widths else min_w
+            if natural + budget > widest:
+                widest = min(natural + budget, TRACK_ROW_TITLE_MAX_W)
+        return widest
 
     def wrap(self, availWidth, availHeight):
         return self._width, self._height
@@ -1478,7 +1602,7 @@ class TrackFlowable(Flowable):
         cursor_y -= TRACK_TITLE_SIZE
         c.setFont('Luminari', TRACK_TITLE_SIZE)
         c.setFillColorRGB(0, 0, 0)
-        grid_center_x = self._row_title_w + self._grid_w / 2
+        grid_center_x = self._left_pad + self._row_title_w + self._grid_w / 2
         c.drawCentredString(grid_center_x, cursor_y, self.track.title)
         cursor_y -= TRACK_TITLE_GAP
 
@@ -1493,6 +1617,14 @@ class TrackFlowable(Flowable):
             para.drawOn(c, 0, cursor_y - para_h)
             cursor_y -= para_h + TRACK_BODY_GAP
 
+        # Center the grid (and everything that uses grid-local x) when the
+        # track's natural footprint is narrower than the available width.
+        # Title and body are not affected — they're already centered in
+        # self._width via their own draw paths above.
+        c.saveState()
+        if self._left_pad:
+            c.translate(self._left_pad, 0)
+
         # --- Column headers (above) ---
         headers_above = self.has_headers and getattr(self.track, 'header_position', 'above') == 'above'
         if headers_above:
@@ -1503,7 +1635,7 @@ class TrackFlowable(Flowable):
         grid_top_y = cursor_y
         headers_below = self.has_headers and getattr(self.track, 'header_position', 'above') == 'below'
 
-        # --- Section dividers ---
+        # --- Section dividers (vertical) ---
         for col_idx in self.dividers:
             if self._is_overlapping:
                 prev_right = self._col_x(col_idx - 1) + self._slot_size
@@ -1516,6 +1648,20 @@ class TrackFlowable(Flowable):
             c.setStrokeColorRGB(0, 0, 0)
             c.setLineWidth(1.0)
             c.line(div_x, div_top, div_x, div_bottom)
+
+        # --- Section dividers (horizontal). Index `n` means "BEFORE row n",
+        # i.e. between row n-1 and row n. Span from the left of the row-title
+        # column to the right of the grid. Y is the midpoint of the gap
+        # between bottom of row n-1 and top of row n.
+        for row_idx in self.row_divider_indices:
+            bottom_of_upper = self._row_y(row_idx - 1, grid_top_y)
+            top_of_lower = self._row_y(row_idx, grid_top_y) + self._slot_size
+            div_y = (bottom_of_upper + top_of_lower) / 2
+            div_x_left = 0
+            div_x_right = self._row_title_w + self._grid_w
+            c.setStrokeColorRGB(0, 0, 0)
+            c.setLineWidth(1.0)
+            c.line(div_x_left, div_y, div_x_right, div_y)
 
         # --- Row titles ---
         from reportlab.lib.styles import ParagraphStyle
@@ -1532,7 +1678,7 @@ class TrackFlowable(Flowable):
                 title = self.row_titles.get(row_idx, '')
                 if title:
                     slot_y = self._row_y(row_idx, grid_top_y)
-                    title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
+                    title_markup = format_step_markup(title, sheet=_sheet_of(self.track))
                     para = Paragraph(title_markup, row_title_style)
                     # Wrap at slot height so text flows along the rotated axis
                     para_w, para_h = para.wrap(self._slot_size, 9999)
@@ -1556,7 +1702,7 @@ class TrackFlowable(Flowable):
                 title = self.row_titles.get(row_idx, '')
                 if title:
                     slot_y = self._row_y(row_idx, grid_top_y)
-                    title_markup = _replace_inline_images(title, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
+                    title_markup = format_step_markup(title, sheet=_sheet_of(self.track))
                     para = Paragraph(title_markup, row_title_style)
                     para_w, para_h = para.wrap(self._row_title_w - 4, 9999)
                     # When the line contains an inline image with valign="middle",
@@ -1591,6 +1737,8 @@ class TrackFlowable(Flowable):
             below_y = grid_top_y - self._grid_h - TRACK_HEADER_BELOW_PAD
             self._draw_column_headers(c, below_y)
 
+        c.restoreState()  # close grid-centering translate
+
         c.restoreState()
 
     def _draw_column_headers(self, c, top_y):
@@ -1601,7 +1749,7 @@ class TrackFlowable(Flowable):
         # Draw header title in row-title column area
         header_title = getattr(self.track, 'header_title', '') or ''
         if header_title and self._row_title_w > 0:
-            title_markup = _replace_inline_images(header_title, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
+            title_markup = format_step_markup(header_title, sheet=_sheet_of(self.track))
             if self._vertical_row_titles:
                 title_style = ParagraphStyle(
                     'TrackHeaderTitle', parent=self.body_style,
@@ -1632,7 +1780,7 @@ class TrackFlowable(Flowable):
                 para_y = top_y - self._header_h / 2 - para_h / 2
                 para.drawOn(c, 0, para_y)
 
-        headers = self.track.column_headers.split('|')
+        headers = self._column_headers
 
         def header_at(idx):
             return headers[idx] if idx < len(headers) else ''
@@ -1661,8 +1809,8 @@ class TrackFlowable(Flowable):
                 center_x = (left + right) / 2
                 seg_w = right - left
 
-                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
-                if '<img' in processed:
+                processed = format_step_markup(label, sheet=_sheet_of(self.track))
+                if '<' in processed:
                     header_style = ParagraphStyle(
                         'TrackHeader', parent=self.body_style,
                         fontName='Baskerville-Bold',
@@ -1684,8 +1832,8 @@ class TrackFlowable(Flowable):
                 slot_center_x = x + self._slot_size / 2
                 label = header_at(col_idx)
 
-                processed = _replace_inline_images(label, img_height=TRACK_HEADER_ICON_H, sheet=_sheet_of(self.track))
-                if '<img' in processed:
+                processed = format_step_markup(label, sheet=_sheet_of(self.track))
+                if '<' in processed:
                     header_style = ParagraphStyle(
                         'TrackHeader', parent=self.body_style,
                         fontName='Baskerville-Bold',
@@ -3396,7 +3544,8 @@ class SheetLayoutEngine:
                 total_dividers = len(dividers)
 
                 # Row title width
-                has_row_titles = any(t.strip() for t in (track.row_titles or '').split('|'))
+                row_titles_list = track.get_row_titles_list() if hasattr(track, 'get_row_titles_list') else []
+                has_row_titles = any(t.strip() for t in row_titles_list)
                 if getattr(track, 'header_title', '') and track.header_title:
                     has_row_titles = True
                 vertical_titles = getattr(track, 'row_title_orientation', 'horizontal') == 'vertical'
@@ -3471,7 +3620,8 @@ class SheetLayoutEngine:
                 total_dividers = len(dividers)
 
                 # Row title width
-                has_row_titles = any(t.strip() for t in (track.row_titles or '').split('|'))
+                row_titles_list = track.get_row_titles_list() if hasattr(track, 'get_row_titles_list') else []
+                has_row_titles = any(t.strip() for t in row_titles_list)
                 if getattr(track, 'header_title', '') and track.header_title:
                     has_row_titles = True
                 vertical_titles = getattr(track, 'row_title_orientation', 'horizontal') == 'vertical'
@@ -3908,17 +4058,32 @@ class SheetLayoutEngine:
                     else:
                         div_x = tf._col_x(col_idx) - tf._divider_w / 2 - tf._slot_gap / 2
                     divider_lines.append(div_x / inch)
+                # Row divider line y-positions (top-left origin, in inches),
+                # spanning the row-title column + full grid width — matches
+                # the PDF render path.
+                row_divider_lines = []
+                for row_idx in sorted(tf.row_divider_indices):
+                    bottom_of_upper = tf._row_y(row_idx - 1, grid_top_y)
+                    top_of_lower = tf._row_y(row_idx, grid_top_y) + slot_size
+                    div_y = (bottom_of_upper + top_of_lower) / 2
+                    top_offset = (tf._height - div_y) / inch
+                    row_divider_lines.append(top_offset)
+                row_divider_left = 0.0
+                row_divider_width = (tf._row_title_w + tf._grid_w) / inch
                 grid_top_offset = (tf._height - grid_top_y) / inch
                 grid_h_in = tf._grid_h / inch
                 self._record_element(kind='track', id=obj.id,
                                      x=step_x + indent, y=child_y,
                                      w=avail_w, h=child_h,
-                                     title=obj.header_title or obj.title or '',
+                                     title=obj.title or '',
                                      track_type=obj.type,
                                      num_rows=obj.num_rows,
                                      num_columns=obj.num_columns,
                                      slots=slot_rects,
                                      divider_lines=divider_lines,
+                                     row_divider_lines=row_divider_lines,
+                                     row_divider_left=row_divider_left,
+                                     row_divider_width=row_divider_width,
                                      grid_top=grid_top_offset,
                                      grid_h=grid_h_in,
                                      step_id=step.id,

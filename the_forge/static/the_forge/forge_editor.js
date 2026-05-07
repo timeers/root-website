@@ -1013,6 +1013,24 @@
   // DOM — they get serialised into the track form's hidden fields on submit.
   function trackEditorMarkDirty(form) {
     form.closest('[data-row]')?.classList.add('is-dirty');
+    // Divider toggles and other non-input mutations don't bubble an `input`
+    // event on their own, so the dirty banner never re-counts after them.
+    // Fire a synthetic input event from the form so the existing banner
+    // listener (and any other generic dirty-form trackers) pick it up.
+    form.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // Read a per-cell value from the editor. Track per-cell editors all
+  // store their content as forge rich-text HTML so inserted <img> icons
+  // round-trip through format_step_markup at render time. Fall back to
+  // input.value for non-upgraded inputs.
+  function readCellValue(el) {
+    if (!el) return '';
+    if (el.dataset && el.dataset.forgeIconEditor === '1' && window.forgeRichText
+        && window.forgeRichText.editorHtmlToStorageSingleLine) {
+      return window.forgeRichText.editorHtmlToStorageSingleLine(el);
+    }
+    return el.value !== undefined ? el.value : '';
   }
 
   function trackEditorSerialise(form) {
@@ -1020,27 +1038,33 @@
     const rows = parseInt(form.querySelector('[data-track-num-rows]').value, 10) || 1;
 
     const headerVals = Array.from({ length: cols }, (_, i) => {
-      const el = form.querySelector(`input[data-col-header="${i}"]`)
-        || form.querySelector(`[data-col-header="${i}"]`);
-      return el ? (el.value !== undefined ? el.value : '') : '';
+      const el = form.querySelector(`[data-col-header="${i}"]`);
+      return readCellValue(el);
     });
     const anyHeader = headerVals.some(v => v !== '');
-    form.querySelector('[data-track-column-headers]').value = anyHeader ? headerVals.join('|') : '';
+    form.querySelector('[data-track-column-headers]').value = anyHeader ? JSON.stringify(headerVals) : '';
 
     const titleVals = Array.from({ length: rows }, (_, i) => {
-      const el = form.querySelector(`input[data-row-title="${i}"]`)
-        || form.querySelector(`[data-row-title="${i}"]`);
-      return el ? (el.value !== undefined ? el.value : '') : '';
+      const el = form.querySelector(`[data-row-title="${i}"]`);
+      return readCellValue(el);
     });
     const anyTitle = titleVals.some(v => v !== '');
-    form.querySelector('[data-track-row-titles]').value = anyTitle ? titleVals.join('|') : '';
+    form.querySelector('[data-track-row-titles]').value = anyTitle ? JSON.stringify(titleVals) : '';
 
     const dividerCols = [];
     form.querySelectorAll('.track-editor__divider.is-active').forEach(d => {
       const c = parseInt(d.dataset.dividerCol, 10);
-      if (!Number.isNaN(c) && c < cols - 1) dividerCols.push(c);
+      if (!Number.isNaN(c) && c < cols - 1 && !dividerCols.includes(c)) dividerCols.push(c);
     });
     form.querySelector('[data-track-column-dividers]').value = dividerCols.join(',');
+
+    const dividerRows = [];
+    form.querySelectorAll('.track-editor__row-divider.is-active').forEach(d => {
+      const r = parseInt(d.dataset.rowDivider, 10);
+      if (!Number.isNaN(r) && r < rows - 1 && !dividerRows.includes(r)) dividerRows.push(r);
+    });
+    const rowDividerInput = form.querySelector('[data-track-row-dividers]');
+    if (rowDividerInput) rowDividerInput.value = dividerRows.join(',');
   }
 
   function trackEditorAddColumn(form) {
@@ -1128,6 +1152,15 @@
     const cols = parseInt(form.querySelector('[data-track-num-columns]').value, 10) || 1;
 
     const rowTitleCol = form.querySelector('[data-track-row-title-col]');
+    if (oldCount > 0) {
+      const spacer = document.createElement('button');
+      spacer.type = 'button';
+      spacer.className = 'track-editor__row-divider-spacer';
+      spacer.dataset.rowDividerSpacer = String(newIdx - 1);
+      spacer.title = `Toggle divider after row ${newIdx - 1}`;
+      spacer.setAttribute('aria-label', `Toggle divider after row ${newIdx - 1}`);
+      rowTitleCol.appendChild(spacer);
+    }
     const rtInput = document.createElement('input');
     rtInput.type = 'text';
     rtInput.className = 'form-control form-control-sm track-editor__row-title track-editor__row-title--ghost';
@@ -1141,6 +1174,15 @@
     const trackType = grid.classList.contains('track-grid--token') ? 'token'
                     : grid.classList.contains('track-grid--counter') ? 'counter'
                     : 'building';
+    if (oldCount > 0) {
+      const rowDiv = document.createElement('button');
+      rowDiv.type = 'button';
+      rowDiv.className = 'track-editor__row-divider track-editor__row-divider--ghost';
+      rowDiv.dataset.rowDivider = String(newIdx - 1);
+      rowDiv.dataset.ghost = '1';
+      rowDiv.disabled = true;
+      grid.appendChild(rowDiv);
+    }
     const rowEl = document.createElement('div');
     rowEl.className = 'track-editor__grid-row';
     rowEl.dataset.gridRow = newIdx;
@@ -1179,7 +1221,11 @@
     const removeIdx = oldCount - 1;
     numRowInput.value = oldCount - 1;
     form.querySelector(`[data-row-title="${removeIdx}"]`)?.remove();
+    form.querySelectorAll(`[data-track-row-title-col] [data-row-divider-spacer="${removeIdx - 1}"]`)
+      .forEach(s => s.remove());
     form.querySelector(`.track-editor__grid [data-grid-row="${removeIdx}"]`)?.remove();
+    form.querySelectorAll(`.track-editor__grid > [data-row-divider="${removeIdx - 1}"]`)
+      .forEach(d => d.remove());
   }
 
   document.addEventListener('click', (ev) => {
@@ -1235,6 +1281,34 @@
         d.classList.toggle('is-active', target);
       });
       editor.querySelectorAll(`.track-editor__divider-spacer[data-divider-spacer="${colIdx}"]`).forEach(s => {
+        s.classList.toggle('is-active', target);
+      });
+      trackEditorMarkDirty(editor);
+      return;
+    }
+    const rowSpacerBtn = ev.target.closest('.track-editor__row-divider-spacer');
+    if (rowSpacerBtn && !rowSpacerBtn.disabled) {
+      ev.preventDefault();
+      const rowIdx = rowSpacerBtn.dataset.rowDividerSpacer;
+      const target = !rowSpacerBtn.classList.contains('is-active');
+      editor.querySelectorAll(`.track-editor__row-divider[data-row-divider="${rowIdx}"]`).forEach(d => {
+        d.classList.toggle('is-active', target);
+      });
+      editor.querySelectorAll(`.track-editor__row-divider-spacer[data-row-divider-spacer="${rowIdx}"]`).forEach(s => {
+        s.classList.toggle('is-active', target);
+      });
+      trackEditorMarkDirty(editor);
+      return;
+    }
+    const rowDividerBtn = ev.target.closest('.track-editor__row-divider');
+    if (rowDividerBtn && !rowDividerBtn.disabled) {
+      ev.preventDefault();
+      const rowIdx = rowDividerBtn.dataset.rowDivider;
+      const target = !rowDividerBtn.classList.contains('is-active');
+      editor.querySelectorAll(`.track-editor__row-divider[data-row-divider="${rowIdx}"]`).forEach(d => {
+        d.classList.toggle('is-active', target);
+      });
+      editor.querySelectorAll(`.track-editor__row-divider-spacer[data-row-divider-spacer="${rowIdx}"]`).forEach(s => {
         s.classList.toggle('is-active', target);
       });
       trackEditorMarkDirty(editor);
@@ -1433,6 +1507,23 @@
     });
   }
 
+  // Return true if `value` looks like rich-text storage HTML (any tag present)
+  // rather than a legacy `{{ key }}` token string.
+  function looksLikeStorageHtml(value) {
+    return typeof value === 'string' && value.indexOf('<') !== -1;
+  }
+
+  // Hydrate an opted-in single-line input value into editor HTML. Falls back
+  // to the legacy token path for values that pre-date the storage change.
+  function hydrateForRichInput(value) {
+    if (!value) return '';
+    if (looksLikeStorageHtml(value) && window.forgeRichText
+        && window.forgeRichText.htmlToEditorSingleLine) {
+      return window.forgeRichText.htmlToEditorSingleLine(value);
+    }
+    return tokensToHtml(value);
+  }
+
   function htmlToTokens(root) {
     let out = '';
     function walk(node) {
@@ -1463,6 +1554,57 @@
     range.insertNode(node);
     const after = document.createRange();
     after.setStartAfter(node);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+  }
+
+  // Insert a single <br> at the caret. Used by Enter / pasted-newline
+  // handling for the multi-line row-header editors. Browsers vary on what
+  // the default Enter key inserts (Chrome <div>, Firefox <br>); we always
+  // insert <br> so storage stays uniform and ReportLab's Paragraph
+  // renderer breaks the line correctly.
+  function insertBrAtCaret() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    const br = document.createElement('br');
+    range.insertNode(br);
+    // Trailing <br> is needed so the caret has somewhere to land on the
+    // new line — without a sibling after it, the visual line break can be
+    // ignored. Insert a zero-width text node after the <br> as a caret
+    // anchor; if real text follows it, no harm.
+    const anchor = document.createTextNode('​');
+    if (br.parentNode) br.parentNode.insertBefore(anchor, br.nextSibling);
+    const after = document.createRange();
+    after.setStart(anchor, 1);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+  }
+
+  // Insert plain text containing newlines as a series of text nodes
+  // separated by <br> elements. Used for paste in multi-line editors.
+  function insertMultilineTextAtCaret(text) {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    const lines = String(text).split(/\r?\n/);
+    const frag = document.createDocumentFragment();
+    lines.forEach((line, idx) => {
+      if (line) frag.appendChild(document.createTextNode(line));
+      if (idx < lines.length - 1) frag.appendChild(document.createElement('br'));
+    });
+    const lastChild = frag.lastChild;
+    range.insertNode(frag);
+    const after = document.createRange();
+    if (lastChild) {
+      after.setStartAfter(lastChild);
+    } else {
+      after.setStart(range.startContainer, range.startOffset);
+    }
     after.collapse(true);
     sel.removeAllRanges();
     sel.addRange(after);
@@ -1558,8 +1700,125 @@
     st.savedRange = null;
   }
 
+  // Inputs that store their content as forge rich-text HTML (with
+  // <strong>/<em>/<span data-forge=...>/<img data-forge-image>) rather than
+  // legacy `{{ key }}` tokens. All track per-cell editors round-trip
+  // through this format so inserted icons render via format_step_markup.
+  function isRichInput(input) {
+    return input && (
+      input.dataset.rowTitle !== undefined
+      || input.dataset.colHeader !== undefined
+      || input.dataset.trackHeaderTitle !== undefined
+      || input.dataset.forgeRichMiniToolbar !== undefined
+    );
+  }
+
+  // Subset of rich-text inputs that also expose the mini font toolbar
+  // (header / bold / italic / luminari). Column headers are excluded —
+  // they render at a fixed size in the PDF, so font controls would be
+  // misleading.
+  function showsMiniToolbar(input) {
+    return input && (
+      input.dataset.rowTitle !== undefined
+      || input.dataset.trackHeaderTitle !== undefined
+      || input.dataset.forgeRichMiniToolbar !== undefined
+    );
+  }
+
+  // ---------- Mini rich-text toolbar (single-line editors) ----------
+  // Floats above an opted-in [data-forge-rich-mini-toolbar] contenteditable
+  // and exposes header / bold / italic / luminari buttons. Wraps the
+  // existing icon-picker pattern: same pickerState, same form discovery,
+  // but positioned ABOVE the field instead of below.
+  const MINI_TOOLBAR_STYLES = ['bold', 'italic', 'bolditalic', 'header', 'luminari'];
+  const MINI_TOOLBAR_LABELS = {
+    bold:       { html: '<b>B</b>',          title: 'Bold' },
+    italic:     { html: '<i>i</i>',          title: 'Italic' },
+    bolditalic: { html: '<b><i>Bi</i></b>',  title: 'Bold Italic' },
+    header:     { html: 'H',                 title: 'Header' },
+    luminari:   { html: 'L',                 title: 'Luminari', cls: 'rt-luminari' },
+  };
+
+  function ensureMiniToolbar(form) {
+    let toolbar = form.querySelector('[data-forge-mini-toolbar]');
+    if (toolbar) return toolbar;
+    toolbar = document.createElement('div');
+    toolbar.className = 'forge-mini-toolbar';
+    toolbar.dataset.forgeMiniToolbar = '1';
+    toolbar.hidden = true;
+    MINI_TOOLBAR_STYLES.forEach((name) => {
+      const meta = MINI_TOOLBAR_LABELS[name];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.style = name;
+      btn.title = meta.title;
+      if (meta.cls) btn.className = meta.cls;
+      btn.innerHTML = meta.html;
+      toolbar.appendChild(btn);
+    });
+    form.appendChild(toolbar);
+    return toolbar;
+  }
+
+  function positionMiniToolbar(form, toolbar, editor) {
+    const rect = editor.getBoundingClientRect();
+    const formRect = form.getBoundingClientRect();
+    // Sit above the editor, offset slightly so the toolbar's drop-shadow
+    // doesn't overlap the field.
+    const top = (rect.top - formRect.top) - toolbar.offsetHeight - 4;
+    let left = rect.left - formRect.left;
+    const tbW = toolbar.offsetWidth || 160;
+    const maxLeft = formRect.width - tbW - 4;
+    if (left > maxLeft) left = Math.max(4, maxLeft);
+    if (left < 4) left = 4;
+    toolbar.style.top = (top < 0 ? (rect.bottom - formRect.top) + 4 : top) + 'px';
+    toolbar.style.left = left + 'px';
+  }
+
+  function showMiniToolbar(form, editor) {
+    const toolbar = ensureMiniToolbar(form);
+    toolbar.hidden = false;
+    // Width/height aren't measured until visible — reposition after layout.
+    positionMiniToolbar(form, toolbar, editor);
+    refreshMiniToolbarActiveState(toolbar, editor);
+  }
+
+  function hideMiniToolbar(form) {
+    const toolbar = form.querySelector('[data-forge-mini-toolbar]');
+    if (toolbar) toolbar.hidden = true;
+  }
+
+  function refreshMiniToolbarActiveState(toolbar, editor) {
+    if (!window.forgeRichText || !window.forgeRichText.activeStylesAt) return;
+    const active = window.forgeRichText.activeStylesAt(editor);
+    // Mutual-exclusivity display: B/I/BI/H/L are all mutually exclusive,
+    // so at most one button lights up. H and L take priority over B/I/BI
+    // (they're "stronger" font marks); within B/I, both-active means BI.
+    const inHeader = !!active.header;
+    const inLuminari = !!active.luminari;
+    const isBI = !!(active.bold && active.italic) && !inHeader && !inLuminari;
+    const display = {
+      bold: !!active.bold && !isBI && !inHeader && !inLuminari,
+      italic: !!active.italic && !isBI && !inHeader && !inLuminari,
+      bolditalic: isBI,
+      header: inHeader && !inLuminari,
+      luminari: inLuminari && !inHeader,
+    };
+    toolbar.querySelectorAll('button[data-style]').forEach((btn) => {
+      const on = !!display[btn.dataset.style];
+      if (on) btn.setAttribute('data-active', 'true');
+      else btn.removeAttribute('data-active');
+    });
+  }
+
   function syncEditorToInput(editor, input) {
-    const next = htmlToTokens(editor);
+    let next;
+    if (isRichInput(input) && window.forgeRichText
+        && window.forgeRichText.editorHtmlToStorageSingleLine) {
+      next = window.forgeRichText.editorHtmlToStorageSingleLine(editor);
+    } else {
+      next = htmlToTokens(editor);
+    }
     if (input.value !== next) {
       input.value = next;
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1571,6 +1830,9 @@
     if (input.disabled || input.dataset.ghost) return;
     input.dataset.forgeIconInit = '1';
 
+    const richInput = isRichInput(input);
+    const wantsMiniToolbar = showsMiniToolbar(input);
+
     const editor = document.createElement('div');
     editor.contentEditable = 'true';
     editor.className = input.className + ' forge-icon-input';
@@ -1581,13 +1843,14 @@
     editor.setAttribute('role', 'textbox');
     editor.setAttribute('aria-label', input.getAttribute('aria-label') || input.name || '');
     editor.dataset.forgeIconEditor = '1';
+    if (wantsMiniToolbar) editor.dataset.forgeRichMiniToolbar = '1';
     // Mirror the data-* attributes that other JS (e.g. trackEditorSerialise)
     // queries — col-header, row-title, track-header-title, track-image-input.
     if (input.dataset.colHeader !== undefined) editor.dataset.colHeader = input.dataset.colHeader;
     if (input.dataset.rowTitle !== undefined) editor.dataset.rowTitle = input.dataset.rowTitle;
     if (input.dataset.trackHeaderTitle !== undefined) editor.dataset.trackHeaderTitle = input.dataset.trackHeaderTitle;
     editor.dataset.trackImageInput = '';
-    editor.innerHTML = tokensToHtml(input.value);
+    editor.innerHTML = richInput ? hydrateForRichInput(input.value) : tokensToHtml(input.value);
 
     input.parentNode.insertBefore(editor, input);
     input.type = 'hidden';
@@ -1595,12 +1858,21 @@
     // Keep a back-pointer so the editor's input handler can find its hidden input.
     editor._forgeHiddenInput = input;
 
-    // Block Enter — these are single-line fields. Allow form submit on Enter
-    // by blurring; the existing dirty-form save flow takes over from there.
+    // Enter handling. For mini-toolbar (multi-line) editors, insert an
+    // explicit <br> rather than trusting the browser default (which varies:
+    // Chrome inserts <div>, Firefox <br>). For non-rich legacy inputs
+    // (col headers without mini toolbar, etc.), keep the original
+    // single-line behaviour: blur to allow form submit.
     editor.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') {
-        ev.preventDefault();
-        editor.blur();
+        if (wantsMiniToolbar) {
+          ev.preventDefault();
+          insertBrAtCaret();
+          editor.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          ev.preventDefault();
+          editor.blur();
+        }
       } else if (ev.key === 'Escape') {
         const form = pickerFormFor(editor);
         if (form) hidePicker(form);
@@ -1611,12 +1883,55 @@
     editor.addEventListener('paste', (ev) => {
       ev.preventDefault();
       const text = (ev.clipboardData || window.clipboardData).getData('text/plain') || '';
-      // Single-line: collapse newlines to spaces.
-      insertPlainTextAtCaret(text.replace(/\r?\n/g, ' '));
+      if (wantsMiniToolbar) {
+        // Multi-line: preserve newlines as <br>.
+        insertMultilineTextAtCaret(text);
+      } else {
+        // Single-line: collapse newlines to spaces.
+        insertPlainTextAtCaret(text.replace(/\r?\n/g, ' '));
+      }
       editor.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
+    // Per-instance beforeinput: when a pending mark is armed and the user
+    // types, flag for cleanup on the next `input` event. When the user
+    // hits Backspace inside an empty pending wrapper, swallow the keystroke
+    // and clear the wrapper instead of letting the browser delete content
+    // around the marker. Mirrors the full editor's pattern at
+    // forge_richtext.js:957-979 — kept per-instance so the cleanup flag
+    // doesn't crosstalk between concurrently edited fields.
+    if (wantsMiniToolbar) {
+      editor.addEventListener('beforeinput', (ev) => {
+        if (!window.forgeRichText || !window.forgeRichText.hasSingleLinePending) return;
+        if (!window.forgeRichText.hasSingleLinePending(editor)) return;
+        if (ev.inputType === 'insertText' || ev.inputType === 'insertCompositionText') {
+          editor._forgePendingCleanup = true;
+        } else if (ev.inputType === 'deleteContentBackward'
+                   || ev.inputType === 'deleteContentForward') {
+          ev.preventDefault();
+          if (window.forgeRichText.clearSingleLinePending) {
+            window.forgeRichText.clearSingleLinePending(editor);
+          }
+        }
+      });
+    }
+
     editor.addEventListener('input', () => {
+      if (editor.dataset.forgeRichMiniToolbar === '1' && window.forgeRichText) {
+        // Consume the pending marker WITHOUT mutating the text node — the
+        // typed character has already landed at offset 1 of the ZWSP text
+        // node; we just clear the styles set and null the marker pointer
+        // so further typing extends the wrapper naturally. The serialiser
+        // strips ZWSP at save time.
+        if (editor._forgePendingCleanup) {
+          editor._forgePendingCleanup = false;
+          if (window.forgeRichText.consumeSingleLinePending) {
+            window.forgeRichText.consumeSingleLinePending(editor);
+          }
+        } else if (window.forgeRichText.maintainPendingMark) {
+          window.forgeRichText.maintainPendingMark(editor);
+        }
+      }
       syncEditorToInput(editor, input);
     });
   }
@@ -1643,6 +1958,11 @@
     const form = pickerFormFor(editor);
     if (!form) return;
     showPicker(form, editor);
+    if (editor.dataset.forgeRichMiniToolbar === '1') {
+      showMiniToolbar(form, editor);
+    } else {
+      hideMiniToolbar(form);
+    }
   });
 
   document.addEventListener('focusout', (ev) => {
@@ -1656,10 +1976,79 @@
     setTimeout(() => {
       const active = document.activeElement;
       if (active && active.closest && active.closest('[data-forge-icon-picker]')) return;
+      if (active && active.closest && active.closest('[data-forge-mini-toolbar]')) return;
       const otherEditor = active && active.closest && active.closest('[data-forge-icon-editor="1"]');
       if (otherEditor && pickerFormFor(otherEditor) === form) return;
       hidePicker(form);
+      hideMiniToolbar(form);
     }, 0);
+  });
+
+  // Selection inside an opted-in editor — refresh the toolbar's active-button
+  // state so users see which marks apply at the cursor, and let the
+  // pending-mark machinery prune the ZWSP marker when the caret leaves it.
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    let node = sel.getRangeAt(0).startContainer;
+    while (node && node.nodeType !== Node.ELEMENT_NODE) node = node.parentNode;
+    const editor = node && node.closest && node.closest('[data-forge-rich-mini-toolbar="1"]');
+    if (!editor) return;
+    const form = pickerFormFor(editor);
+    if (!form) return;
+    if (window.forgeRichText && window.forgeRichText.maintainPendingMark) {
+      window.forgeRichText.maintainPendingMark(editor);
+    }
+    const toolbar = form.querySelector('[data-forge-mini-toolbar]');
+    if (toolbar && !toolbar.hidden) refreshMiniToolbarActiveState(toolbar, editor);
+  });
+
+  // Mini-toolbar buttons: keep selection on the editor (preventDefault on
+  // mousedown), apply style on click, sync back to the input.
+  document.addEventListener('mousedown', (ev) => {
+    const tb = ev.target.closest('[data-forge-mini-toolbar]');
+    if (tb) ev.preventDefault();
+  });
+  document.addEventListener('touchstart', (ev) => {
+    const tb = ev.target.closest('[data-forge-mini-toolbar]');
+    if (tb) ev.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-forge-mini-toolbar] button[data-style]');
+    if (!btn) return;
+    ev.preventDefault();
+    const form = pickerFormFor(btn);
+    if (!form) return;
+    const st = getPickerState(form);
+    const editor = st && st.activeEditor;
+    if (!editor || editor.dataset.forgeRichMiniToolbar !== '1') return;
+    if (window.forgeRichText && window.forgeRichText.applyStyleAt) {
+      // Restore the caret/range that was live before the toolbar click
+      // stole focus. Without this, applyStyleAt reads a default selection
+      // (often spanning the whole editor) and wipes the text out.
+      const sel = window.getSelection();
+      let range = st && st.savedRange;
+      if (!range || !editor.contains(range.startContainer) || !editor.contains(range.endContainer)) {
+        range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+      }
+      sel.removeAllRanges();
+      sel.addRange(range);
+      if (btn.dataset.style === 'bolditalic'
+          && window.forgeRichText.applyBoldItalicAt) {
+        window.forgeRichText.applyBoldItalicAt(editor);
+      } else {
+        window.forgeRichText.applyStyleAt(editor, btn.dataset.style);
+      }
+      const input = editor._forgeHiddenInput;
+      if (input) syncEditorToInput(editor, input);
+      const trackForm = editor.closest('[data-track-editor]');
+      if (trackForm) trackEditorMarkDirty(trackForm);
+      const toolbar = form.querySelector('[data-forge-mini-toolbar]');
+      if (toolbar) refreshMiniToolbarActiveState(toolbar, editor);
+    }
   });
 
   // Picker buttons: keep focus on the editor (no blur), insert at savedRange.

@@ -267,8 +267,10 @@ class CardboardTrackForm(forms.ModelForm):
         model = CardboardTrack
         fields = [
             'title', 'body', 'type',
-            'num_columns', 'num_rows', 'column_headers', 'row_titles',
-            'column_dividers', 'header_position', 'header_title',
+            'num_columns', 'num_rows',
+            'column_headers_json', 'row_titles_json',
+            'column_dividers', 'row_dividers',
+            'header_position', 'header_title',
             'row_title_orientation', 'background_image',
         ]
         widgets = {
@@ -277,11 +279,12 @@ class CardboardTrackForm(forms.ModelForm):
             'type': forms.Select(attrs={'class': 'form-select form-select-sm'}),
             'num_columns': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': 1}),
             'num_rows': forms.NumberInput(attrs={'class': 'form-control form-control-sm', 'min': 1}),
-            'column_headers': forms.HiddenInput(),
-            'row_titles': forms.HiddenInput(),
+            'column_headers_json': forms.HiddenInput(),
+            'row_titles_json': forms.HiddenInput(),
             'column_dividers': forms.HiddenInput(),
+            'row_dividers': forms.HiddenInput(),
             'header_position': forms.HiddenInput(),
-            'header_title': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'header_title': forms.HiddenInput(),
             'row_title_orientation': forms.HiddenInput(),
             'background_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }
@@ -291,9 +294,32 @@ class CardboardTrackForm(forms.ModelForm):
         self.fields['header_position'].required = False
         self.fields['row_title_orientation'].required = False
         self.fields['body'].required = False
-        self.fields['row_titles'].required = False
-        self.fields['column_headers'].required = False
+        self.fields['row_titles_json'].required = False
+        self.fields['column_headers_json'].required = False
         self.fields['column_dividers'].required = False
+        self.fields['row_dividers'].required = False
+        self.fields['header_title'].required = False
+
+    def _parse_json_list(self, field_name):
+        import json
+        raw = self.data.get(field_name, '')
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return raw
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            raise forms.ValidationError(f'{field_name}: invalid JSON.')
+        if not isinstance(data, list):
+            raise forms.ValidationError(f'{field_name}: must be a list.')
+        return [str(x) for x in data]
+
+    def clean_row_titles_json(self):
+        return self._parse_json_list('row_titles_json')
+
+    def clean_column_headers_json(self):
+        return self._parse_json_list('column_headers_json')
 
 
 class CardboardSlotForm(forms.ModelForm):

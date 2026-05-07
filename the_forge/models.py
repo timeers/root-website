@@ -6,6 +6,7 @@ from the_keep.utils import validate_hex_color, delete_old_image
 
 from .services.upload_paths import (
     sheet_preview_upload_path,
+    decree_preview_upload_path,
     back_preview_upload_path,
     card_preview_upload_path,
     faction_upload_path,
@@ -185,6 +186,8 @@ class FactionSheet(models.Model):
     snap_points = models.JSONField(default=list, blank=True)
     decree_slide_pts = models.FloatField(default=0.0)
     ability_bar_extra_h_pts = models.FloatField(default=0.0)
+    decree_preview = models.ImageField(upload_to=decree_preview_upload_path, blank=True, null=True)
+    decree_fingerprint = models.CharField(max_length=32, blank=True, default='')
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
@@ -585,17 +588,50 @@ class CardboardTrack(models.Model):
             if slot.row < self.num_rows and slot.column < self.num_columns:
                 cells[slot.row][slot.column] = slot
         return cells
+
+    def get_row_titles_list(self):
+        """Per-row HTML strings, one per row. Reads `row_titles_json`; falls
+        back to legacy pipe-split `row_titles` for unmigrated records."""
+        data = self.row_titles_json or []
+        if not data and self.row_titles:
+            data = self.row_titles.split('|')
+        return [data[i] if i < len(data) else '' for i in range(self.num_rows)]
+
+    def get_column_headers_list(self):
+        """Per-column HTML strings, one per column. Reads
+        `column_headers_json`; falls back to legacy pipe-split
+        `column_headers` for unmigrated records."""
+        data = self.column_headers_json or []
+        if not data and self.column_headers:
+            data = self.column_headers.split('|')
+        return [data[i] if i < len(data) else '' for i in range(self.num_columns)]
+
+    # Legacy pipe-delimited fields. Kept for one release as the migration
+    # source for `*_json`; remove after migrate_track_text_to_json has run on
+    # prod and any saves have flushed the JSONFields.
     column_headers = models.CharField(
         max_length=500, blank=True, default='',
-        help_text='Pipe-delimited column labels, e.g. "0|1|2|3|4"'
+        help_text='Deprecated. Use column_headers_json.'
     )
     row_titles = models.CharField(
         max_length=2000, blank=True, default='',
-        help_text='Pipe-delimited per-row titles, e.g. "Phase 1|Phase 2|Phase 3"'
+        help_text='Deprecated. Use row_titles_json.'
+    )
+    column_headers_json = models.JSONField(
+        default=list, blank=True,
+        help_text='Per-column header HTML strings, one per column.'
+    )
+    row_titles_json = models.JSONField(
+        default=list, blank=True,
+        help_text='Per-row title HTML strings, one per row.'
     )
     column_dividers = models.CharField(
         max_length=200, blank=True, default='',
         help_text='Comma-separated column indices for dividers, e.g. "2,5,7"'
+    )
+    row_dividers = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text='Comma-separated row indices for horizontal dividers, e.g. "0,2"'
     )
     class HeaderPosition(models.TextChoices):
         ABOVE = 'above'
@@ -605,7 +641,7 @@ class CardboardTrack(models.Model):
         help_text='Display column headers above or below the slots'
     )
     header_title = models.CharField(
-        max_length=200, blank=True, default='',
+        max_length=500, blank=True, default='',
         help_text='Title displayed in the row-title area of the header row'
     )
     class RowTitleOrientation(models.TextChoices):
@@ -619,21 +655,29 @@ class CardboardTrack(models.Model):
 
     def clean(self):
         from django.core.exceptions import ValidationError
-        if self.column_headers:
-            headers = self.column_headers.split('|')
-            if len(headers) != self.num_columns:
+        if self.column_headers_json:
+            if not isinstance(self.column_headers_json, list):
                 raise ValidationError({
-                    'column_headers': f'Expected {self.num_columns} headers, got {len(headers)}.'
+                    'column_headers_json': 'Must be a list.'
                 })
-        if self.row_titles:
-            titles = self.row_titles.split('|')
-            if len(titles) != self.num_rows:
+            if len(self.column_headers_json) != self.num_columns:
                 raise ValidationError({
-                    'row_titles': f'Expected {self.num_rows} row titles, got {len(titles)}.'
+                    'column_headers_json': f'Expected {self.num_columns} headers, got {len(self.column_headers_json)}.'
+                })
+        if self.row_titles_json:
+            if not isinstance(self.row_titles_json, list):
+                raise ValidationError({
+                    'row_titles_json': 'Must be a list.'
+                })
+            if len(self.row_titles_json) != self.num_rows:
+                raise ValidationError({
+                    'row_titles_json': f'Expected {self.num_rows} row titles, got {len(self.row_titles_json)}.'
                 })
         if self.column_dividers:
             for col_str in self.column_dividers.split(','):
                 col_str = col_str.strip()
+                if not col_str:
+                    continue
                 try:
                     col = int(col_str)
                 except ValueError:
@@ -643,6 +687,21 @@ class CardboardTrack(models.Model):
                 if col >= self.num_columns:
                     raise ValidationError({
                         'column_dividers': f'Column index {col} exceeds num_columns ({self.num_columns}).'
+                    })
+        if self.row_dividers:
+            for row_str in self.row_dividers.split(','):
+                row_str = row_str.strip()
+                if not row_str:
+                    continue
+                try:
+                    row = int(row_str)
+                except ValueError:
+                    raise ValidationError({
+                        'row_dividers': f'"{row_str}" is not a number.'
+                    })
+                if row >= self.num_rows:
+                    raise ValidationError({
+                        'row_dividers': f'Row index {row} exceeds num_rows ({self.num_rows}).'
                     })
 
     class Meta:
