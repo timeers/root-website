@@ -1881,6 +1881,33 @@ def _ensure_sheet_preview(sheet):
     sheet.save(update_fields=['snap_points', 'decree_slide_pts', 'ability_bar_extra_h_pts'])
 
 
+def _ensure_decree_preview(sheet):
+    from .pdf_cache import fingerprint_decree
+    from django.core.files.base import ContentFile
+    fp = fingerprint_decree(sheet)
+    if sheet.decree_fingerprint == fp and (sheet.decree_preview or not sheet.include_decree):
+        return
+    if not sheet.include_decree:
+        if sheet.decree_preview:
+            sheet.decree_preview.delete(save=False)
+        sheet.decree_fingerprint = fp
+        sheet.save(update_fields=['decree_preview', 'decree_fingerprint'])
+        return
+    from .decree_preview import render_decree_preview
+    webp = render_decree_preview(sheet)
+    if not webp:
+        if sheet.decree_preview:
+            sheet.decree_preview.delete(save=False)
+        sheet.decree_fingerprint = fp
+        sheet.save(update_fields=['decree_preview', 'decree_fingerprint'])
+        return
+    if sheet.decree_preview:
+        sheet.decree_preview.delete(save=False)
+    sheet.decree_preview.save(f'decree_{sheet.pk}.webp', ContentFile(webp), save=False)
+    sheet.decree_fingerprint = fp
+    sheet.save(update_fields=['decree_preview', 'decree_fingerprint'])
+
+
 def _ensure_back_preview(back):
     from io import BytesIO
     from .pdf_engine import FactionBackLayoutEngine
@@ -2077,6 +2104,7 @@ def forgedfaction_tts(request, pk):
 
     if sheet:
         _ensure_sheet_preview(sheet)
+        _ensure_decree_preview(sheet)
         sheet.refresh_from_db()
     if back:
         _ensure_back_preview(back)
@@ -2088,11 +2116,14 @@ def forgedfaction_tts(request, pk):
             status=404, content_type='text/plain',
         )
 
-    from .services.tts import TTSForgedFactionBoard
+    from .services.tts import TTSForgedFactionBoard, TTSForgedFactionDecree
     from the_keep.services.tts import wrap_tts_save
 
     board = TTSForgedFactionBoard(faction, request=request)
-    save_file = wrap_tts_save([board.to_dict()], save_name=faction.faction_name)
+    boards = [board.to_dict()]
+    if sheet and sheet.decree_preview:
+        boards.append(TTSForgedFactionDecree(faction, request=request).to_dict())
+    save_file = wrap_tts_save(boards, save_name=faction.faction_name)
 
     response = HttpResponse(
         json.dumps(save_file, indent=2),

@@ -6,7 +6,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.forms.models import model_to_dict
 
 
-CACHE_PREFIX = 'forge_pdf:v4'
+CACHE_PREFIX = 'forge_pdf:v7'
 PDF_CACHE_TTL = 60 * 60 * 24
 PDF_CACHE_MAX_BYTES = 25 * 1024 * 1024
 
@@ -47,6 +47,22 @@ def fingerprint_sheet(sheet):
 
 def fingerprint_back(back):
     return _digest(_back_payload(back))
+
+
+def fingerprint_decree(sheet):
+    faction = sheet.faction
+    decree = sheet.decrees.first()
+    slot_count = decree.card_slots.count() if decree else 0
+    payload = {
+        'include_decree': sheet.include_decree,
+        'slot_count': slot_count,
+        'background_preset': faction.background_preset,
+        'background_image': faction.background_image.name if faction.background_image else '',
+        'repeat_background_image': faction.repeat_background_image,
+        'background_tile_size': faction.background_tile_size,
+        'color': faction.color,
+    }
+    return _digest(payload)
 
 
 def fingerprint_setup_card(card):

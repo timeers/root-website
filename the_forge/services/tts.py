@@ -82,3 +82,81 @@ class TTSForgedFactionBoard(TTSBoardBase):
         sheet = getattr(self.faction, 'faction_sheet', None)
         sheet_points = list(sheet.snap_points) if sheet and sheet.snap_points else []
         return sheet_points + self.get_default_snap_points()
+
+
+class TTSForgedFactionDecree(TTSBoardBase):
+    DECREE_TRANSFORM = {
+        "posX": 0.0,
+        "posY": 1.0,
+        "posZ": -7.5,
+        "rotX": 0.0,
+        "rotY": 180.0,
+        "rotZ": 0.0,
+        "scaleX": 9.035468,
+        "scaleY": 1.0,
+        "scaleZ": 9.035468,
+    }
+    DEFAULT_TRANSFORM = DECREE_TRANSFORM
+
+    def __init__(self, faction, request=None):
+        super().__init__(post=faction, request=request)
+        self.faction = faction
+
+    def get_nickname(self):
+        return f"{self.faction.faction_name or self.faction.slug or self.faction.pk} Decree"
+
+    def get_description(self):
+        return f"{self.faction.faction_name} Decree"
+
+    def get_color_diffuse(self):
+        return _hex_to_rgb_floats(self.faction.color)
+
+    def get_front_image(self):
+        sheet = getattr(self.faction, 'faction_sheet', None)
+        if sheet and sheet.decree_preview:
+            return tts_image_url(sheet.decree_preview, request=self.request)
+        return ""
+
+    def get_back_image(self):
+        return self.get_front_image()
+
+    def get_transform(self):
+        # Width is fixed by the renderer (canvas spans PAGE_W). The saved
+        # decree.webp's height encodes how tall the cropped stack image is at
+        # 150 DPI, so converting back to points and dividing by PAGE_H gives
+        # the fraction of a faction sheet's height. Multiply by 9.035468 (the
+        # FactionSheet TTS scale) so the decree tile sits next to the faction
+        # sheet at matching units-per-inch.
+        transform = dict(self.DEFAULT_TRANSFORM)
+        sheet = getattr(self.faction, 'faction_sheet', None)
+        if sheet and sheet.decree_preview:
+            try:
+                from PIL import Image as PILImage
+                from .. decree_preview import DECREE_PREVIEW_DPI
+                from ..pdf_engine import PAGE_H
+                with PILImage.open(sheet.decree_preview.path) as im:
+                    image_h_px = im.height
+                image_h_pts = image_h_px * 72.0 / DECREE_PREVIEW_DPI
+                scale = (image_h_pts / PAGE_H) * 9.035468
+                transform['scaleX'] = scale
+                transform['scaleZ'] = scale
+            except Exception:
+                pass
+        return transform
+
+    def get_default_snap_points(self):
+        return []
+
+    def get_snap_points(self):
+        sheet = getattr(self.faction, 'faction_sheet', None)
+        decree = sheet.decrees.first() if sheet else None
+        n = decree.card_slots.count() if decree else 0
+        if not n:
+            return []
+        from the_forge.decree_preview import decree_snap_points
+        transform = self.get_transform()
+        return decree_snap_points(
+            n,
+            decree_scale_x=transform['scaleX'],
+            decree_scale_z=transform['scaleZ'],
+        )
