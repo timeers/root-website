@@ -590,33 +590,15 @@ class CardboardTrack(models.Model):
         return cells
 
     def get_row_titles_list(self):
-        """Per-row HTML strings, one per row. Reads `row_titles_json`; falls
-        back to legacy pipe-split `row_titles` for unmigrated records."""
+        """Per-row HTML strings, one per row."""
         data = self.row_titles_json or []
-        if not data and self.row_titles:
-            data = self.row_titles.split('|')
         return [data[i] if i < len(data) else '' for i in range(self.num_rows)]
 
     def get_column_headers_list(self):
-        """Per-column HTML strings, one per column. Reads
-        `column_headers_json`; falls back to legacy pipe-split
-        `column_headers` for unmigrated records."""
+        """Per-column HTML strings, one per column."""
         data = self.column_headers_json or []
-        if not data and self.column_headers:
-            data = self.column_headers.split('|')
         return [data[i] if i < len(data) else '' for i in range(self.num_columns)]
 
-    # Legacy pipe-delimited fields. Kept for one release as the migration
-    # source for `*_json`; remove after migrate_track_text_to_json has run on
-    # prod and any saves have flushed the JSONFields.
-    column_headers = models.CharField(
-        max_length=500, blank=True, default='',
-        help_text='Deprecated. Use column_headers_json.'
-    )
-    row_titles = models.CharField(
-        max_length=2000, blank=True, default='',
-        help_text='Deprecated. Use row_titles_json.'
-    )
     column_headers_json = models.JSONField(
         default=list, blank=True,
         help_text='Per-column header HTML strings, one per column.'
