@@ -1,10 +1,11 @@
 # Changelog
 
-## [1.12.1] - 2026-5-05 Forge-Tuning
+## [1.12.1] - 2026-5-06 Forge-Tuning
 
 ### New Features
 - Download Front, Back or Adset Card as PDF layers to easily edit in gimp or other programs
 - Added counter option to Cardboard Track
+- Included Decree Board for TTS json
 
 ### Improvements
 - Added optional visibility screen behind card piles for better text legibility
