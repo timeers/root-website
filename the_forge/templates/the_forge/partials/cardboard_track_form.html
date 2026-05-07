@@ -4,16 +4,21 @@
         data-add-url="{% url 'forge-track-add' step_pk=step_pk %}"
         data-target=".phase-step-children[data-step-id='{{ step_pk }}']">
     {% csrf_token %}
-    <div class="d-flex flex-wrap gap-2 align-items-center">
-      <strong class="me-1 small text-muted">New track:</strong>
-      <input type="text" name="title" class="form-control form-control-sm luminari" placeholder="Title" required style="max-width:18rem;">
-      <div class="btn-group btn-group-sm forge-segmented" role="group" aria-label="Type">
-        <input type="radio" class="btn-check" name="type" id="newtrack-{{ step_pk }}-token" value="token" checked>
-        <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-token" title="Token"><i class="bi bi-circle"></i></label>
-        <input type="radio" class="btn-check" name="type" id="newtrack-{{ step_pk }}-building" value="building">
-        <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-building" title="Building"><i class="bi bi-square"></i></label>
-        <input type="radio" class="btn-check" name="type" id="newtrack-{{ step_pk }}-counter" value="counter">
-        <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-counter" title="Counter"><i class="bi bi-123"></i></label>
+    <div class="track-editor__toggles d-flex flex-wrap gap-3 align-items-end">
+      <div class="track-editor__toggle-group flex-grow-1">
+        <div class="small text-muted track-editor__toggle-label">New track</div>
+        <input type="text" name="title" class="form-control form-control-sm luminari" placeholder="Title" required style="max-width:18rem;">
+      </div>
+      <div class="track-editor__toggle-group">
+        <div class="small text-muted track-editor__toggle-label">Type</div>
+        <div class="btn-group btn-group-sm forge-segmented" role="group" aria-label="Type">
+          <input type="radio" class="btn-check" name="type" id="newtrack-{{ step_pk }}-token" value="token" checked>
+          <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-token" title="Token"><i class="bi bi-circle"></i></label>
+          <input type="radio" class="btn-check" name="type" id="newtrack-{{ step_pk }}-building" value="building">
+          <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-building" title="Building"><i class="bi bi-square"></i></label>
+          <input type="radio" class="btn-check" name="type" id="newtrack-{{ step_pk }}-counter" value="counter">
+          <label class="btn btn-outline-secondary" for="newtrack-{{ step_pk }}-counter" title="Counter"><i class="bi bi-123"></i></label>
+        </div>
       </div>
     </div>
     <div class="forge-rich-text mt-2">
