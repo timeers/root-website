@@ -294,6 +294,10 @@ def apply_discord_category(category):
         webhook_url = config['DISCORD_FORGE_URL']
         embed_title = "Forged Faction"
         embed_color = 0xffa500  # Orange color for Forge
+    elif category == 'forge':
+        webhook_url = config['DISCORD_FORGE_URL']
+        embed_title = "Forge Feedback"
+        embed_color = 0xffa500  # Orange, matches existing Forge category
     # Automations
     elif category == 'automation':
         webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']

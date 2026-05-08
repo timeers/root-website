@@ -318,7 +318,9 @@ class MessageForm(forms.Form):
         ('other', _('Other')),
         ('weird-root', _('Weird Root')),
         ('french-root', _('French Root')),
-        ('translation', _('Existing Translation Missing'))
+        ('translation', _('Existing Translation Missing')),
+        ('forge-feature', _('Forge Feature Request')),
+        ('forge-bug', _('Layout Bug'))
     ]
     
     title = forms.ChoiceField(choices=TITLE_CHOICES, label=_("Select Category"))
@@ -411,6 +413,13 @@ class MessageForm(forms.Form):
             self.fields['message'].widget.attrs.update({
             'placeholder': _('Please provide any relevant information. If information is incorrect or out of date please provide a link to the updated information.')
                 })
+
+        elif message_category == 'forge':
+            self.fields['title'].choices = [
+                ('forge-feature', _('Forge Feature Request')),
+                ('forge-bug', _('Layout Bug')),
+            ]
+            self.fields['message'].help_text = _("For Layout Bugs, please describe what you saw versus what you expected, and which part of the faction board (front, back, adset, specific element) is affected. Please note that some visual bugs might only be fixable in an image or pdf editing program. For Feature Requests, describe the capability you'd like to see.")
 
 class GuildJoinRequestForm(forms.Form):
     request_message = forms.CharField(
