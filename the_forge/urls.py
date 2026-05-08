@@ -9,6 +9,7 @@ urlpatterns = [
     path('forge/how-to/', views.forge_how_to, name='forge-how-to'),
 
     # ForgedFaction
+    path('forge/factions/', views.forgedfaction_admin_list, name='forge-faction-admin-list'),
     path('forge/faction/', views.forgedfaction_list, name='forge-faction-list'),
     path('forge/faction/new/', views.forgedfaction_create, name='forge-faction-create'),
     path('forge/faction/<int:pk>/', views.forgedfaction_detail, name='forge-faction-detail'),
@@ -38,6 +39,7 @@ urlpatterns = [
     path('forge/faction/back/<int:pk>/pdf/', views.factionback_pdf, name='forge-back-pdf'),
     path('forge/faction/back/<int:pk>/pdf/layered/', views.factionback_pdf_layered, name='forge-back-pdf-layered'),
     path('forge/faction/back/<int:pk>/webp/', views.factionback_webp, name='forge-back-webp'),
+    path('forge/faction/back/<int:pk>/delete/', views.factionback_delete, name='forge-back-delete'),
 
     # SetupCard (child of ForgedFaction)
     path('forge/faction/<int:faction_pk>/setup-card/new/', views.setup_card_create, name='forge-setup-card-create'),
@@ -45,6 +47,7 @@ urlpatterns = [
     path('forge/faction/setup-card/<int:pk>/pdf/', views.setup_card_pdf, name='forge-setup-card-pdf'),
     path('forge/faction/setup-card/<int:pk>/pdf/layered/', views.setup_card_pdf_layered, name='forge-setup-card-pdf-layered'),
     path('forge/faction/setup-card/<int:pk>/webp/', views.setup_card_webp, name='forge-setup-card-webp'),
+    path('forge/faction/setup-card/<int:pk>/delete/', views.setup_card_delete, name='forge-setup-card-delete'),
 
     # FactionAbility (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/ability/add/', views.ability_add, name='forge-ability-add'),

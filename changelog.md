@@ -1,6 +1,15 @@
 # Changelog
 
-## [1.12.1] - 2026-5-06 Forge-Tuning
+## [1.12.2] - 2026-5-07 Forge-Tuning
+
+### New Features
+- Adset card added to TTS json download
+
+### Improvements
+
+### Bug Fixes
+
+## [1.12.1] - 2026-5-05 Forge-Tuning
 
 ### New Features
 - Download Front, Back or Adset Card as PDF layers to easily edit in gimp or other programs

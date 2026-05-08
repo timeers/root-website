@@ -5,19 +5,19 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center my-2">
   <a href="{% url 'forge-home' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>  The Forge</a>
-  <h2 class="root-title m-0 text-center flex-grow-1">Factions</h2>
-  <a href="{% url 'forge-faction-create' %}" class="btn btn-primary">+ New Faction</a>
+  <h2 class="root-title m-0 text-center flex-grow-1">All Forged Factions</h2>
+  <span class="text-muted small">{{ factions|length }} faction{{ factions|length|pluralize }}</span>
 </div>
 
 {% if factions %}
   <div class="row g-3 forge-faction-grid mb-2">
     {% for faction in factions %}
-      {% include 'the_forge/partials/_forgedfaction_card.html' with faction=faction admin_view=False %}
+      {% include 'the_forge/partials/_forgedfaction_card.html' with faction=faction admin_view=True %}
     {% endfor %}
   </div>
 {% else %}
   <div class="card p-3">
-    <p class="text-muted mb-0">You haven't created any forged factions yet.</p>
+    <p class="text-muted mb-0">No forged factions have been created yet.</p>
   </div>
 {% endif %}
 

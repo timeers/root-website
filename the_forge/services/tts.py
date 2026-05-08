@@ -1,10 +1,39 @@
+import json
+import os
+from functools import lru_cache
+
 from the_keep.services.tts import (
     tts_image_url,
     wrap_tts_save,
     TTSBoardBase,
     FACTION_BOARD_TRANSFORM,
     DEFAULT_TRACKER_SNAP_POINTS,
+    generate_tts_guid,
 )
+
+
+TTS_OBJECTS_DIR = os.path.join(os.path.dirname(__file__), 'tts_objects')
+
+
+@lru_cache(maxsize=8)
+def _load_tts_object_template(filename):
+    """Reads a saved-object JSON and returns its first ObjectState dict.
+    Cached — file contents change rarely. Restart the worker to pick up edits."""
+    path = os.path.join(TTS_OBJECTS_DIR, filename)
+    with open(path) as f:
+        save = json.load(f)
+    return save['ObjectStates'][0]
+
+
+def load_tts_object(filename, transform=None):
+    """Returns a fresh copy of a saved-object template with a new GUID and
+    optionally an overridden Transform."""
+    template = _load_tts_object_template(filename)
+    obj = json.loads(json.dumps(template))  # deep copy
+    obj['GUID'] = generate_tts_guid()
+    if transform is not None:
+        obj['Transform'] = dict(transform)
+    return obj
 
 
 def _hex_to_rgb_floats(hex_color):
@@ -88,7 +117,7 @@ class TTSForgedFactionDecree(TTSBoardBase):
     DECREE_TRANSFORM = {
         "posX": 0.0,
         "posY": 1.0,
-        "posZ": -7.5,
+        "posZ": 18.8,
         "rotX": 0.0,
         "rotY": 180.0,
         "rotZ": 0.0,

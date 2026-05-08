@@ -28,21 +28,37 @@
 <div class="forge-detail-page-overlay"></div>
 
 <div class="d-flex justify-content-between align-items-center my-2 position-relative">
-  <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   All Factions</a>
-  {% if can_edit %}{% if sheet or back or setup_card %}
-    <div class="btn-group">
-      <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download"><i class="bi bi-file-earmark-pdf"></i> Download All</a>
-      <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-        <span class="visually-hidden">Toggle Dropdown</span>
+  <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   My Factions</a>
+  <div class="d-flex align-items-center gap-2 ms-auto">
+    {% if user.profile.admin %}
+      <a href="{% url 'forge-faction-admin-list' %}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-shield-lock me-1"></i>All Forged Factions
+      </a>
+    {% endif %}
+    {% if can_edit %}
+      <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteFactionModal">
+        <i class="bi bi-trash"></i><span class="d-none d-md-inline ms-1">Delete</span>
       </button>
-      <ul class="dropdown-menu dropdown-menu-end">
-        <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> Combined PDF</a></li>
-        {% if sheet or back %}
-          <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
-        {% endif %}
-      </ul>
-    </div>
-  {% endif %}{% endif %}
+
+      <a href="{% url 'forge-faction-edit' pk=faction.pk %}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span>
+      </a>
+    {% endif %}
+    {% if can_edit %}{% if sheet or back or setup_card %}
+      <div class="btn-group">
+        <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download">Download All</a>
+        <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+          <span class="visually-hidden">Toggle Dropdown</span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> Combined PDF</a></li>
+          {% if sheet or back or setup_card %}
+            <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
+          {% endif %}
+        </ul>
+      </div>
+    {% endif %}{% endif %}
+  </div>
 </div>
 
 <div class="forge-detail-frame position-relative"
@@ -59,28 +75,35 @@
           {{ faction.faction_name }}
         </div>
       </div>
-      {% if can_edit %}
-      <a href="{% url 'forge-faction-edit' pk=faction.pk %}"
-         class="btn btn-sm btn-outline-light position-absolute forge-header-edit-btn"
-         style="top: 0.5rem; right: 0.5rem; z-index: 3;"><i class="bi bi-pencil-square"></i> Edit</a>
-      {% endif %}
+
     </div>
 
     <div class="forge-detail-columns">
 
       <!-- Front (Faction Sheet) -->
       <div class="forge-detail-col">
-        <div class="card p-3 h-100">
-          <div class="d-flex justify-content-between align-items-center">
-            <h4 class="root-title mb-0">Front</h4>
-            {% if can_edit %}
+        <div class="card p-3 h-100 d-flex flex-column">
+          <h4 class="root-title text-center mb-0">Front</h4>
+          {% if sheet.image_preview %}
+            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3">
+              <img src="{{ sheet.image_preview.url }}?v={{ sheet.preview_version }}" alt="Front preview" class="forge-detail-preview zoomable" data-full="{{ sheet.image_preview.url }}?v={{ sheet.preview_version }}" data-preview-kind="sheet" data-preview-pk="{{ sheet.pk }}" data-preview-base="{{ sheet.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            </div>
+          {% endif %}
+          {% if can_edit %}
+            <div class="d-flex justify-content-between align-items-center mt-auto gap-2">
               {% if sheet %}
-                <div class="d-flex gap-2">
+                <button type="button"
+                        class="btn btn-sm btn-outline-danger"
+                        data-bs-toggle="modal" data-bs-target="#deleteSheetModal"
+                        aria-label="Delete Front">
+                  <i class="bi bi-trash"></i>
+                </button>
+                <div class="d-flex gap-2 ms-auto">
                   <a href="{% url 'forge-sheet-preview' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-grid-1x2"></i><span class="d-none d-md-inline ms-1">Layout</span></a>
                   <a href="{% url 'forge-sheet-edit' pk=sheet.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span></a>
                   <div class="btn-group">
                     <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span></button>
-                    <ul class="dropdown-menu">
+                    <ul class="dropdown-menu dropdown-menu-end">
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-pdf' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-webp' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-sheet-pdf-layered' pk=sheet.pk %}" target="_blank" rel="noopener"><i class="bi bi-layers"></i> Layers as PDF</a></li>
@@ -88,31 +111,39 @@
                   </div>
                 </div>
               {% else %}
-                <form method="post" action="{% url 'forge-sheet-create' faction_pk=faction.pk %}" class="m-0">
+                <form method="post" action="{% url 'forge-sheet-create' faction_pk=faction.pk %}" class="m-0 ms-auto">
                   {% csrf_token %}
                   <button type="submit" class="btn btn-sm btn-primary">+ Create Front</button>
                 </form>
               {% endif %}
-            {% endif %}
-          </div>
-          {% if sheet.image_preview %}
-            <img src="{{ sheet.image_preview.url }}?v={{ sheet.preview_version }}" alt="Front preview" class="forge-detail-preview zoomable mt-3" data-full="{{ sheet.image_preview.url }}?v={{ sheet.preview_version }}" data-preview-kind="sheet" data-preview-pk="{{ sheet.pk }}" data-preview-base="{{ sheet.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            </div>
           {% endif %}
         </div>
       </div>
 
       <!-- Back (Faction Back) -->
       <div class="forge-detail-col">
-        <div class="card p-3 h-100">
-          <div class="d-flex justify-content-between align-items-center">
-            <h4 class="root-title mb-0">Back</h4>
-            {% if can_edit %}
+        <div class="card p-3 h-100 d-flex flex-column">
+          <h4 class="root-title text-center mb-0">Back</h4>
+          {% if back.image_preview %}
+            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3">
+              <img src="{{ back.image_preview.url }}?v={{ back.preview_version }}" alt="Back preview" class="forge-detail-preview zoomable" data-full="{{ back.image_preview.url }}?v={{ back.preview_version }}" data-preview-kind="back" data-preview-pk="{{ back.pk }}" data-preview-base="{{ back.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            </div>
+          {% endif %}
+          {% if can_edit %}
+            <div class="d-flex justify-content-between align-items-center mt-auto gap-2">
               {% if back %}
-                <div class="d-flex gap-2">
+                <button type="button"
+                        class="btn btn-sm btn-outline-danger"
+                        data-bs-toggle="modal" data-bs-target="#deleteBackModal"
+                        aria-label="Delete Back">
+                  <i class="bi bi-trash"></i>
+                </button>
+                <div class="d-flex gap-2 ms-auto">
                   <a href="{% url 'forge-back-edit' pk=back.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span></a>
                   <div class="btn-group">
                     <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span></button>
-                    <ul class="dropdown-menu">
+                    <ul class="dropdown-menu dropdown-menu-end">
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-pdf' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-webp' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-back-pdf-layered' pk=back.pk %}" target="_blank" rel="noopener"><i class="bi bi-layers"></i> Layers as PDF</a></li>
@@ -120,31 +151,39 @@
                   </div>
                 </div>
               {% else %}
-                <form method="post" action="{% url 'forge-back-create' faction_pk=faction.pk %}" class="m-0">
+                <form method="post" action="{% url 'forge-back-create' faction_pk=faction.pk %}" class="m-0 ms-auto">
                   {% csrf_token %}
                   <button type="submit" class="btn btn-sm btn-primary">+ Create Back</button>
                 </form>
               {% endif %}
-            {% endif %}
-          </div>
-          {% if back.image_preview %}
-            <img src="{{ back.image_preview.url }}?v={{ back.preview_version }}" alt="Back preview" class="forge-detail-preview zoomable mt-3" data-full="{{ back.image_preview.url }}?v={{ back.preview_version }}" data-preview-kind="back" data-preview-pk="{{ back.pk }}" data-preview-base="{{ back.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            </div>
           {% endif %}
         </div>
       </div>
 
       <!-- Setup Card -->
       <div class="forge-detail-col">
-        <div class="card p-3 h-100">
-          <div class="d-flex justify-content-between align-items-center">
-            <h4 class="root-title mb-0">Adset Card</h4>
-            {% if can_edit %}
+        <div class="card p-3 h-100 d-flex flex-column">
+          <h4 class="root-title text-center mb-0">Adset Card</h4>
+          {% if setup_card.image_preview %}
+            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3">
+              <img src="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" alt="Adset preview" class="forge-detail-preview zoomable" data-full="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" data-preview-kind="card" data-preview-pk="{{ setup_card.pk }}" data-preview-base="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            </div>
+          {% endif %}
+          {% if can_edit %}
+            <div class="d-flex justify-content-between align-items-center mt-auto gap-2">
               {% if setup_card %}
-                <div class="d-flex gap-2">
+                <button type="button"
+                        class="btn btn-sm btn-outline-danger"
+                        data-bs-toggle="modal" data-bs-target="#deleteSetupCardModal"
+                        aria-label="Delete Adset Card">
+                  <i class="bi bi-trash"></i>
+                </button>
+                <div class="d-flex gap-2 ms-auto">
                   <a href="{% url 'forge-setup-card-edit' pk=setup_card.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span></a>
                   <div class="btn-group">
                     <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span></button>
-                    <ul class="dropdown-menu">
+                    <ul class="dropdown-menu dropdown-menu-end">
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-pdf' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-webp' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
                       <li><a class="dropdown-item forge-async-download" href="{% url 'forge-setup-card-pdf-layered' pk=setup_card.pk %}" target="_blank" rel="noopener"><i class="bi bi-layers"></i> Layers as PDF</a></li>
@@ -152,15 +191,12 @@
                   </div>
                 </div>
               {% else %}
-                <form method="post" action="{% url 'forge-setup-card-create' faction_pk=faction.pk %}" class="m-0">
+                <form method="post" action="{% url 'forge-setup-card-create' faction_pk=faction.pk %}" class="m-0 ms-auto">
                   {% csrf_token %}
                   <button type="submit" class="btn btn-sm btn-primary">+ Create Adset Card</button>
                 </form>
               {% endif %}
-            {% endif %}
-          </div>
-          {% if setup_card.image_preview %}
-            <img src="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" alt="Adset preview" class="forge-detail-preview zoomable mt-3" data-full="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" data-preview-kind="card" data-preview-pk="{{ setup_card.pk }}" data-preview-base="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+            </div>
           {% endif %}
         </div>
       </div>
@@ -233,13 +269,6 @@
     const color = title.dataset.factionColor || '#888888';
     if (!window.isWhiteTextLegible(color)) {
       title.classList.add('is-text-black');
-      // Header edit button shares the title's color, so flip it from the
-      // default outline-light to outline-dark to match.
-      const editBtn = document.querySelector('.forge-header-edit-btn');
-      if (editBtn) {
-        editBtn.classList.remove('btn-outline-light');
-        editBtn.classList.add('btn-outline-dark');
-      }
     }
   })();
 
@@ -265,4 +294,20 @@
   })();
 </script>
 <script src="{% static 'the_forge/forge_async_download.js' %}"></script>
+
+{% if can_edit %}
+  {% include 'the_forge/partials/_delete_faction_modal.html' %}
+  {% if sheet %}
+    {% url 'forge-sheet-delete' pk=sheet.pk as sheet_delete_url %}
+    {% include 'the_forge/partials/_delete_child_modal.html' with modal_id='deleteSheetModal' child_label='Faction Board' delete_url=sheet_delete_url %}
+  {% endif %}
+  {% if back %}
+    {% url 'forge-back-delete' pk=back.pk as back_delete_url %}
+    {% include 'the_forge/partials/_delete_child_modal.html' with modal_id='deleteBackModal' child_label='Back' delete_url=back_delete_url %}
+  {% endif %}
+  {% if setup_card %}
+    {% url 'forge-setup-card-delete' pk=setup_card.pk as setup_card_delete_url %}
+    {% include 'the_forge/partials/_delete_child_modal.html' with modal_id='deleteSetupCardModal' child_label='Adset Card' delete_url=setup_card_delete_url %}
+  {% endif %}
+{% endif %}
 {% endblock %}

@@ -1,0 +1,40 @@
+<div class="modal fade" id="deleteFactionModal" tabindex="-1" aria-labelledby="deleteFactionModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="deleteFactionModalLabel">
+          <i class="bi bi-exclamation-triangle"></i> Delete Faction
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning">
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          <strong>Warning:</strong> This action cannot be undone.
+        </div>
+        {% if sheet or back or setup_card %}
+          <div class="alert alert-danger">
+            <i class="bi bi-exclamation-octagon-fill"></i>
+            <strong>This faction has saved content!</strong>
+            <ul class="mb-0 mt-2">
+              {% if sheet %}<li>Faction Board</li>{% endif %}
+              {% if back %}<li>Board Back</li>{% endif %}
+              {% if setup_card %}<li>Adset Card</li>{% endif %}
+            </ul>
+            <p class="mb-0 mt-2">Deleting this faction will permanently remove all of the above.</p>
+          </div>
+        {% endif %}
+        <p>Are you sure you want to permanently delete <strong>{{ faction.faction_name }}</strong>?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form method="POST" action="{% url 'forge-faction-delete' pk=faction.pk %}" class="d-inline">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash"></i> Delete Permanently
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>

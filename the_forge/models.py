@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 
 from the_gatehouse.models import Profile
 from the_keep.utils import validate_hex_color, delete_old_image
@@ -216,6 +217,7 @@ class FactionSheet(models.Model):
             except FactionSheet.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new:
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
@@ -775,6 +777,7 @@ class FactionBack(models.Model):
             except FactionBack.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new:
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
@@ -843,6 +846,7 @@ class SetupCard(models.Model):
             except SetupCard.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new:
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse

@@ -13,7 +13,7 @@ from django.templatetags.static import static
 from django.views.decorators.http import require_http_methods
 
 from django.contrib.auth.decorators import login_required
-from the_gatehouse.views import forge_onboard_required, player_required
+from the_gatehouse.views import admin_onboard_required, forge_onboard_required, player_required
 from .inline_images import picker_image_map, picker_keywords, sheet_inline_images, sheet_picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
 
@@ -237,11 +237,21 @@ def forgedfaction_list(request):
             ForgedFaction.objects
             .filter(designer=profile)
             .select_related('faction_sheet', 'faction_back', 'setup_card')
-            .order_by('faction_name')
+            .order_by('-last_updated')
         )
     else:
         factions = []
     return render(request, 'the_forge/forgedfaction_list.html', {'factions': factions})
+
+
+@admin_onboard_required
+def forgedfaction_admin_list(request):
+    factions = (
+        ForgedFaction.objects
+        .select_related('designer', 'faction_sheet', 'faction_back', 'setup_card')
+        .order_by('-last_updated')
+    )
+    return render(request, 'the_forge/forgedfaction_admin_list.html', {'factions': factions})
 
 
 @forge_onboard_required
@@ -511,6 +521,28 @@ def factionsheet_delete(request, pk):
     return redirect('forge-faction-detail', pk=faction_pk)
 
 
+@login_required
+@require_http_methods(["POST"])
+def factionback_delete(request, pk):
+    back = get_object_or_404(FactionBack, pk=pk)
+    if (resp := _forbid_if_not_editor(request, back.faction)):
+        return resp
+    faction_pk = back.faction_id
+    back.delete()
+    return redirect('forge-faction-detail', pk=faction_pk)
+
+
+@login_required
+@require_http_methods(["POST"])
+def setup_card_delete(request, pk):
+    card = get_object_or_404(SetupCard, pk=pk)
+    if (resp := _forbid_if_not_editor(request, card.faction)):
+        return resp
+    faction_pk = card.faction_id
+    card.delete()
+    return redirect('forge-faction-detail', pk=faction_pk)
+
+
 @player_required
 @require_http_methods(["POST"])
 def sheet_flavor_edit(request, pk):
@@ -687,7 +719,7 @@ def factionback_edit(request, pk):
                     SetupStep.objects.bulk_update(steps_to_update, ['text', 'number'])
                 if steps_to_create:
                     SetupStep.objects.bulk_create(steps_to_create)
-            return redirect('forge-back-edit', pk=back.pk)
+            return redirect('forge-faction-detail', pk=back.faction.pk)
     else:
         form = FactionBackForm(back=back)
     pieces_qs = list(back.pieces.order_by('id'))
@@ -760,7 +792,7 @@ def setup_card_edit(request, pk):
                     SetupStep.objects.bulk_update(to_update, ['text', 'number'])
                 if to_create:
                     SetupStep.objects.bulk_create(to_create)
-            return redirect('forge-setup-card-edit', pk=card.pk)
+            return redirect('forge-faction-detail', pk=card.faction.pk)
     else:
         form = SetupCardForm(card=card)
     return render(request, 'the_forge/setup_card_editor.html', {
@@ -2096,9 +2128,10 @@ def forgedfaction_tts(request, pk):
 
     sheet = getattr(faction, 'faction_sheet', None)
     back = getattr(faction, 'faction_back', None)
-    if not sheet and not back:
+    card = getattr(faction, 'setup_card', None)
+    if not sheet and not back and not card:
         return HttpResponse(
-            "No content yet — create a Front or Back first.",
+            "No content yet — create a Front, Back, or Setup Card first.",
             status=404, content_type='text/plain',
         )
 
@@ -2109,20 +2142,64 @@ def forgedfaction_tts(request, pk):
     if back:
         _ensure_back_preview(back)
         back.refresh_from_db()
+    if card:
+        from io import BytesIO
+        from .pdf_engine import SetupCardLayoutEngine
+        from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+        fp = fingerprint_setup_card(card)
+        if card.preview_fingerprint != fp or not card.image_preview:
+            def _build_card():
+                buffer = BytesIO()
+                SetupCardLayoutEngine(card).build(buffer)
+                return buffer.getvalue()
+            data = get_or_build(cache_key('setup_card', card.pk, fp), _build_card)
+            _maybe_save_image_preview(card, data, fp, 'card')
+            card.refresh_from_db()
 
-    if not (sheet and sheet.image_preview) and not (back and back.image_preview):
+    sheet_ready = bool(sheet and sheet.image_preview)
+    back_ready = bool(back and back.image_preview)
+    card_ready = bool(card and card.image_preview)
+    if not (sheet_ready or back_ready or card_ready):
         return HttpResponse(
             "Preview unavailable.",
             status=404, content_type='text/plain',
         )
 
-    from .services.tts import TTSForgedFactionBoard, TTSForgedFactionDecree
-    from the_keep.services.tts import wrap_tts_save
+    from .services.tts import TTSForgedFactionBoard, TTSForgedFactionDecree, load_tts_object
+    from the_keep.services.tts import wrap_tts_save, TTSSingleCardDeck
 
-    board = TTSForgedFactionBoard(faction, request=request)
-    boards = [board.to_dict()]
-    if sheet and sheet.decree_preview:
-        boards.append(TTSForgedFactionDecree(faction, request=request).to_dict())
+    boards = []
+    if sheet_ready or back_ready:
+        boards.append(TTSForgedFactionBoard(faction, request=request).to_dict())
+        if sheet and sheet.decree_preview:
+            boards.append(TTSForgedFactionDecree(faction, request=request).to_dict())
+        improvements_transform = {
+            "posX": -16.0, "posY": -0.113604546, "posZ": 0.0,
+            "rotX": 0.0, "rotY": 180.0, "rotZ": 0.0,
+            "scaleX": 9.516764, "scaleY": 1.0, "scaleZ": 9.516764,
+        }
+        boards.append(load_tts_object('Improved Crafted Improvements.json', transform=improvements_transform))
+    if card_ready:
+        from the_keep.services.tts import DEFAULT_CARD_TRANSFORM
+        adset_transform = dict(DEFAULT_CARD_TRANSFORM)
+        if sheet_ready or back_ready:
+            # Center on the southernmost snap point of the Improved Crafted
+            # Improvements tile. The tile sits at (-16, 0) and is rotated 180°
+            # around Y, so its local +Z snap points map to world -Z. The
+            # southernmost (largest world-negative Z) snap point is the one
+            # with local z=+0.518260956.
+            adset_transform["posX"] = -16.0 + (-0.00133301085 * 9.516764)
+            adset_transform["posZ"] = 0.0 + (-0.518260956 * 9.516764)
+            adset_transform["posY"] = 2.0
+        adset = TTSSingleCardDeck(
+            card.image_preview,
+            static("images/adset.png"),
+            deck_id=1,
+            request=request,
+            card_name="Adset Card",
+            transform=adset_transform,
+        )
+        boards.append(adset.to_object())
     save_file = wrap_tts_save(boards, save_name=faction.faction_name)
 
     response = HttpResponse(
@@ -2132,7 +2209,7 @@ def forgedfaction_tts(request, pk):
     safe_name = (faction.faction_name or faction.slug or str(faction.pk)).replace('"', '').replace('\\', '')
     filename = f'{safe_name}.json'
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    return _attach_preview_versions(response, sheet=sheet, back=back)
+    return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
 
 
 @login_required

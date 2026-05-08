@@ -7407,7 +7407,45 @@ class SetupCardLayoutEngine:
         # Layer 7: setup steps inside the white usable area
         self._draw_setup_steps(c)
 
+        # Forge logo watermark (bottom-left, drawn last so it sits on top)
+        self._draw_forge_logo(c)
+
     # ---------- Drawing helpers ----------
+
+    def _apply_drawing_opacity(self, drawing, alpha):
+        from reportlab.graphics.shapes import Group
+        def walk(node):
+            if hasattr(node, 'fillOpacity'):
+                node.fillOpacity = alpha
+            if hasattr(node, 'strokeOpacity'):
+                node.strokeOpacity = alpha
+            contents = getattr(node, 'contents', None)
+            if contents:
+                for child in contents:
+                    walk(child)
+        walk(drawing)
+
+    def _draw_forge_logo(self, c):
+        """Soft Forge-logo watermark in the bottom-left corner. Single pass in
+        a cool neutral grey (midpoint of #C0C5CC and #EAEEF6)."""
+        if not os.path.exists(FORGE_LOGO_SVG):
+            return
+
+        drawing = self._load_colored_svg(FORGE_LOGO_SVG, '#bfc3cb') #D5D9E1
+        if drawing is None:
+            return
+        logo_w = 0.08 * inch
+        scale = logo_w / drawing.width
+        target_h = drawing.height * scale
+        drawing.width = logo_w
+        drawing.height = target_h
+        drawing.scale(scale, scale)
+        self._apply_drawing_opacity(drawing, 0.15)
+
+        x = CARD_SLOT_W - 0.03 * inch - logo_w
+        y = 0.02 * inch
+        c.set_layer_tag('fg')
+        renderPDF.draw(drawing, c, x, y)
 
     def _draw_reach(self, c):
         c.saveState()

@@ -234,12 +234,17 @@ class TTSFactionBoard(TTSBoardBase):
 
 
 class TTSDeckBase:
+    DEFAULT_TRANSFORM = DEFAULT_CARD_TRANSFORM
+
     def __init__(self, deck_id, request=None):
         self.deck_id = deck_id
         self.request = request
 
     def card_id(self, index):
         return self.deck_id * 100 + index
+
+    def get_transform(self):
+        return dict(self.DEFAULT_TRANSFORM)
 
 class TTSSpriteDeck(TTSDeckBase):
     def __init__(self, carddeck, deck_id, request=None):
@@ -263,6 +268,7 @@ class TTSSpriteDeck(TTSDeckBase):
         }
 
     def to_object(self):
+        transform = self.get_transform()
         cards = []
         for i, card in enumerate(self.carddeck.cards_in_deck):
             card_name = getattr(card, "name", None)
@@ -270,6 +276,7 @@ class TTSSpriteDeck(TTSDeckBase):
             cards.append({
                 "GUID": generate_tts_guid(),
                 "Name": "Card",
+                "Transform": dict(transform),
                 "Nickname": card_name,
                 "Description": card_tags,
                 "CardID": self.card_id(i),
@@ -277,21 +284,28 @@ class TTSSpriteDeck(TTSDeckBase):
                 "HideWhenFaceDown": True,
                 "Hands": True,
             })
-        
+
         return {
             "GUID": generate_tts_guid(),
             "Name": self.carddeck_name or "Deck",
+            "Transform": transform,
             "DeckIDs": [self.card_id(i) for i in range(len(cards))],
             "ContainedObjects": cards,
             "CustomDeck": self.custom_deck(),
         }
 
 class TTSSingleCardDeck(TTSDeckBase):
-    def __init__(self, face_image, back_image, deck_id, request=None, card_name="Card"):
+    def __init__(self, face_image, back_image, deck_id, request=None, card_name="Card", transform=None):
         super().__init__(deck_id, request)
         self.face_image = face_image
         self.back_image = back_image
         self.card_name = card_name
+        self.transform_override = transform
+
+    def get_transform(self):
+        if self.transform_override is not None:
+            return dict(self.transform_override)
+        return dict(self.DEFAULT_TRANSFORM)
 
     def custom_deck(self):
         return {
@@ -307,22 +321,16 @@ class TTSSingleCardDeck(TTSDeckBase):
         }
 
     def to_object(self):
+        transform = self.get_transform()
         return {
             "GUID": generate_tts_guid(),
-            "Name": "Deck",
-            "DeckIDs": [self.card_id(0)],
-            "ContainedObjects": [
-                {
-                    "GUID": generate_tts_guid(),
-                    "Name": "Card",
-                    "Nickname": self.card_name,
-                    "CardID": self.card_id(0),
-                    "CustomDeck": self.custom_deck(),
-                    "HideWhenFaceDown": True,
-                    "Hands": True,
-                }
-            ],
+            "Name": "Card",
+            "Transform": transform,
+            "Nickname": self.card_name,
+            "CardID": self.card_id(0),
             "CustomDeck": self.custom_deck(),
+            "HideWhenFaceDown": True,
+            "Hands": True,
         }
     
 
