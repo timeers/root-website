@@ -78,3 +78,22 @@ def faction_upload_path(instance, filename):
         filename=uuid.uuid4().hex,
         force_ext=ext.lstrip('.'),
     )
+
+
+def _piece_upload_path(instance, face):
+    faction = _resolve_faction(instance)
+    slug = faction.slug if faction else None
+    piece_type = instance.get_type_display().lower()
+    return upload_path(
+        slug_parts=[slug, 'pieces', f'{piece_type}s'],
+        filename=f'{instance.pk}-{face}',
+        force_ext='webp',
+    )
+
+
+def piece_front_upload_path(instance, filename):
+    return _piece_upload_path(instance, 'front')
+
+
+def piece_back_upload_path(instance, filename):
+    return _piece_upload_path(instance, 'back')

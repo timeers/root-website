@@ -553,6 +553,7 @@ SETUP_CARD_MARKER_TEXT_GAP = 0.1 * inch      # horizontal gap between number mar
 SETUP_CARD_STEP_GAP = 0.06 * inch             # vertical gap between consecutive steps
 SETUP_CARD_STEP_BODY_SIZE = 7.5               # font size (pt) of step description text
 SETUP_CARD_STEP_INDENT = 0.0 * inch           # left indent applied to each step block
+SETUP_CARD_STEP_TEXT_Y_OFFSET = 2.5            # pts to nudge text up so its visual top aligns with the number marker (compensates for font line-box padding)
 
 # StepAction layout
 ACTION_ITEM_H = 0.26 * inch       # item icon height (width scales proportionally)
@@ -7560,6 +7561,6 @@ class SetupCardLayoutEngine:
             c.drawCentredString(marker_x + marker_w / 2, marker_center_y - marker_h * 0.2, str(number))
             c.restoreState()
 
-        para.drawOn(c, text_x, top_y - para_h)
+        para.drawOn(c, text_x, top_y - para_h + SETUP_CARD_STEP_TEXT_Y_OFFSET)
 
         return block_bottom

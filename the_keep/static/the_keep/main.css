@@ -3807,6 +3807,15 @@ body.forge-modal-open { overflow: hidden; }
 }
 .forge-detail-col { display: flex; }
 .forge-detail-col > .card { width: 100%; }
+.forge-detail-preview-wrap { position: relative; }
+.forge-detail-preview-stale {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  pointer-events: none;
+}
 .forge-detail-preview {
   display: block;
   width: 100%;

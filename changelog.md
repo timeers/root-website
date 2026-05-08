@@ -4,8 +4,12 @@
 
 ### New Features
 - Adset card added to TTS json download
+- Crafted improvements tile added to json
+- Double sided Tokens and Buildings
 
 ### Improvements
+- Delete button for Forged Factions
+- Stable piece images 
 
 ### Bug Fixes
 

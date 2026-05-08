@@ -86,8 +86,11 @@
         <div class="card p-3 h-100 d-flex flex-column">
           <h4 class="root-title text-center mb-0">Front</h4>
           {% if sheet.image_preview %}
-            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3">
+            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3 forge-detail-preview-wrap">
               <img src="{{ sheet.image_preview.url }}?v={{ sheet.preview_version }}" alt="Front preview" class="forge-detail-preview zoomable" data-full="{{ sheet.image_preview.url }}?v={{ sheet.preview_version }}" data-preview-kind="sheet" data-preview-pk="{{ sheet.pk }}" data-preview-base="{{ sheet.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+              {% if not sheet.last_generated or sheet.last_updated > sheet.last_generated %}
+                <p class="text-muted small text-center forge-detail-preview-stale">Image refreshes after download</p>
+              {% endif %}
             </div>
           {% endif %}
           {% if can_edit %}
@@ -127,8 +130,11 @@
         <div class="card p-3 h-100 d-flex flex-column">
           <h4 class="root-title text-center mb-0">Back</h4>
           {% if back.image_preview %}
-            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3">
+            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3 forge-detail-preview-wrap">
               <img src="{{ back.image_preview.url }}?v={{ back.preview_version }}" alt="Back preview" class="forge-detail-preview zoomable" data-full="{{ back.image_preview.url }}?v={{ back.preview_version }}" data-preview-kind="back" data-preview-pk="{{ back.pk }}" data-preview-base="{{ back.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+              {% if not back.last_generated or back.last_updated > back.last_generated %}
+                <p class="text-muted small text-center forge-detail-preview-stale">Image refreshes after download</p>
+              {% endif %}
             </div>
           {% endif %}
           {% if can_edit %}
@@ -167,8 +173,11 @@
         <div class="card p-3 h-100 d-flex flex-column">
           <h4 class="root-title text-center mb-0">Adset Card</h4>
           {% if setup_card.image_preview %}
-            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3">
+            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3 forge-detail-preview-wrap">
               <img src="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" alt="Adset preview" class="forge-detail-preview zoomable" data-full="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" data-preview-kind="card" data-preview-pk="{{ setup_card.pk }}" data-preview-base="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+              {% if not setup_card.last_generated or setup_card.last_updated > setup_card.last_generated %}
+                <p class="text-muted small text-center forge-detail-preview-stale">Image refreshes after download</p>
+              {% endif %}
             </div>
           {% endif %}
           {% if can_edit %}

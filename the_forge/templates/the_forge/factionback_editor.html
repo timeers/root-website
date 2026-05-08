@@ -180,6 +180,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const row = frag.querySelector('[data-row]');
       if (row) {
         row.querySelector('input[name="piece_type"]').value = type;
+        if (type === 'W') {
+          row.querySelector('[data-back-row]')?.remove();
+        }
       }
       list.appendChild(frag);
       const nameInput = list.lastElementChild?.querySelector('input[name="piece_name"]');
@@ -191,14 +194,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Piece row delegation: file input preview, clear-icon checkbox, remove button.
   document.querySelectorAll('[data-piece-list]').forEach(list => {
     list.addEventListener('change', (ev) => {
-      const fileInput = ev.target.closest('input[data-piece-icon]');
-      if (fileInput) {
-        const row = fileInput.closest('[data-row]');
+      const frontInput = ev.target.closest('input[data-piece-icon]');
+      if (frontInput) {
+        const row = frontInput.closest('[data-row]');
         if (!row) return;
         const thumb = row.querySelector('.piece-icon-thumb');
         const clearFlag = row.querySelector('input[data-clear-flag]');
         const clearCheckbox = row.querySelector('input[data-clear-icon]');
-        const file = fileInput.files && fileInput.files[0];
+        const file = frontInput.files && frontInput.files[0];
         if (!file) return;
         if (thumb) {
           thumb.src = URL.createObjectURL(file);
@@ -209,14 +212,49 @@ document.addEventListener('DOMContentLoaded', () => {
         markDirty();
         return;
       }
-      const clearCheckbox = ev.target.closest('input[data-clear-icon]');
-      if (clearCheckbox) {
-        const row = clearCheckbox.closest('[data-row]');
+      const backInput = ev.target.closest('input[data-piece-back]');
+      if (backInput) {
+        const row = backInput.closest('[data-row]');
+        if (!row) return;
+        const thumb = row.querySelector('.piece-back-thumb');
+        const clearFlag = row.querySelector('input[data-clear-back-flag]');
+        const clearCheckbox = row.querySelector('input[data-clear-back]');
+        const file = backInput.files && backInput.files[0];
+        if (!file) return;
+        if (thumb) {
+          thumb.src = URL.createObjectURL(file);
+          thumb.removeAttribute('hidden');
+        }
+        if (clearFlag) clearFlag.value = '0';
+        if (clearCheckbox) clearCheckbox.checked = false;
+        markDirty();
+        return;
+      }
+      const clearFrontCheckbox = ev.target.closest('input[data-clear-icon]');
+      if (clearFrontCheckbox) {
+        const row = clearFrontCheckbox.closest('[data-row]');
         if (!row) return;
         const thumb = row.querySelector('.piece-icon-thumb');
         const clearFlag = row.querySelector('input[data-clear-flag]');
         const fileInput = row.querySelector('input[data-piece-icon]');
-        if (clearCheckbox.checked) {
+        if (clearFrontCheckbox.checked) {
+          if (thumb) { thumb.setAttribute('hidden', ''); thumb.removeAttribute('src'); }
+          if (fileInput) fileInput.value = '';
+          if (clearFlag) clearFlag.value = '1';
+        } else {
+          if (clearFlag) clearFlag.value = '0';
+        }
+        markDirty();
+        return;
+      }
+      const clearBackCheckbox = ev.target.closest('input[data-clear-back]');
+      if (clearBackCheckbox) {
+        const row = clearBackCheckbox.closest('[data-row]');
+        if (!row) return;
+        const thumb = row.querySelector('.piece-back-thumb');
+        const clearFlag = row.querySelector('input[data-clear-back-flag]');
+        const fileInput = row.querySelector('input[data-piece-back]');
+        if (clearBackCheckbox.checked) {
           if (thumb) { thumb.setAttribute('hidden', ''); thumb.removeAttribute('src'); }
           if (fileInput) fileInput.value = '';
           if (clearFlag) clearFlag.value = '1';
@@ -272,8 +310,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // uploads back to their row by index across all sections.
     let pieceRowIndex = 0;
     document.querySelectorAll('[data-piece-list] [data-row]').forEach(row => {
-      const fileInput = row.querySelector('input[data-piece-icon]');
-      if (fileInput) fileInput.name = `piece_icon_${pieceRowIndex}`;
+      const frontInput = row.querySelector('input[data-piece-icon]');
+      if (frontInput) frontInput.name = `piece_icon_${pieceRowIndex}`;
+      const backInput = row.querySelector('input[data-piece-back]');
+      if (backInput) backInput.name = `piece_back_${pieceRowIndex}`;
       pieceRowIndex += 1;
     });
 

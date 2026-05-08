@@ -170,6 +170,7 @@ class FactionBackForm(forms.Form):
         update_fields = [
             'complexity', 'card_wealth', 'aggression', 'crafting_ability',
             'setup_order', 'how_to_play_title', 'how_to_play_text',
+            'last_updated',
         ]
         new_img = self.cleaned_data.get('back_image')
         if new_img:
@@ -431,7 +432,7 @@ class FactionHeaderForm(forms.Form):
         faction.art_by = self.cleaned_data.get('art_by') or None
         faction.save(update_fields=['faction_name', 'pnp_version', 'art_by'])
         sheet.title_text_color = self.cleaned_data['title_text_color']
-        update_fields = ['title_text_color']
+        update_fields = ['title_text_color', 'last_updated']
         new_img = self.cleaned_data.get('header_image')
         if new_img:
             sheet.header_image = new_img
@@ -485,7 +486,7 @@ class SetupCardForm(forms.Form):
         card.faction.save(update_fields=['faction_name'])
         card.type = self.cleaned_data['type']
         card.reach = self.cleaned_data['reach']
-        update_fields = ['type', 'reach']
+        update_fields = ['type', 'reach', 'last_updated']
         new_img = self.cleaned_data.get('header_image')
         if new_img:
             card.header_image = new_img

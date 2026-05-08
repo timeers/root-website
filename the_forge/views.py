@@ -642,6 +642,7 @@ def factionback_edit(request, pk):
         piece_names = request.POST.getlist('piece_name')
         piece_quantities = request.POST.getlist('piece_quantity')
         piece_clear_flags = request.POST.getlist('piece_clear_icon')
+        piece_clear_back_flags = request.POST.getlist('piece_clear_back')
         step_ids = request.POST.getlist('step_id')
         step_texts = request.POST.getlist('step_text')
         if form.is_valid():
@@ -652,10 +653,11 @@ def factionback_edit(request, pk):
                 kept_piece_ids = set()
                 rows = list(zip(
                     piece_ids, piece_types, piece_names, piece_quantities,
-                    piece_clear_flags,
+                    piece_clear_flags, piece_clear_back_flags,
                 ))
-                for index, (sid, ptype, name, qty, clear) in enumerate(rows):
-                    upload = request.FILES.get(f'piece_icon_{index}')
+                for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
+                    front_upload = request.FILES.get(f'piece_icon_{index}')
+                    back_upload = request.FILES.get(f'piece_back_{index}')
                     name = (name or '').strip()
                     if not name:
                         continue
@@ -665,18 +667,24 @@ def factionback_edit(request, pk):
                         quantity = max(1, min(99, int(qty or 1)))
                     except (TypeError, ValueError):
                         quantity = 1
-                    has_new_file = bool(upload)
-                    should_clear = (clear == '1') and not has_new_file
+                    has_new_front = bool(front_upload)
+                    has_new_back = bool(back_upload)
+                    should_clear_front = (clear_front == '1') and not has_new_front
+                    should_clear_back = (clear_back == '1') and not has_new_back
                     if sid and sid.isdigit() and int(sid) in existing_pieces:
                         piece = existing_pieces[int(sid)]
                         kept_piece_ids.add(piece.pk)
                         piece.name = name
                         piece.quantity = quantity
                         piece.type = ptype
-                        if has_new_file:
-                            piece.small_icon = upload
-                        elif should_clear:
+                        if has_new_front:
+                            piece.small_icon = front_upload
+                        elif should_clear_front:
                             piece.small_icon = None
+                        if has_new_back:
+                            piece.back_image = back_upload
+                        elif should_clear_back:
+                            piece.back_image = None
                         piece.save()
                     else:
                         new_piece = Piece(
@@ -685,9 +693,13 @@ def factionback_edit(request, pk):
                             quantity=quantity,
                             type=ptype,
                         )
-                        if has_new_file:
-                            new_piece.small_icon = upload
                         new_piece.save()
+                        if has_new_front or has_new_back:
+                            if has_new_front:
+                                new_piece.small_icon = front_upload
+                            if has_new_back:
+                                new_piece.back_image = back_upload
+                            new_piece.save()
                 stale_piece_ids = set(existing_pieces) - kept_piece_ids
                 if stale_piece_ids:
                     Piece.objects.filter(pk__in=stale_piece_ids).delete()

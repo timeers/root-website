@@ -24,7 +24,7 @@ IMAGE_FIELDS_CONFIG = {
     'LegendRow':       {'fields': {'image': ICON_MAX}},
     'FactionBack':     {'fields': {'back_image': MEDIUM_MAX}},
     'SetupCard':       {'fields': {'header_image': SMALL_MAX}},
-    'Piece':           {'fields': {'small_icon': ICON_MAX}},
+    'Piece':           {'fields': {'small_icon': ICON_MAX, 'back_image': ICON_MAX}},
 }
 
 

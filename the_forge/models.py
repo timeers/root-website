@@ -11,6 +11,8 @@ from .services.upload_paths import (
     back_preview_upload_path,
     card_preview_upload_path,
     faction_upload_path,
+    piece_front_upload_path,
+    piece_back_upload_path,
 )
 
 class ForgedFaction(models.Model):
@@ -801,16 +803,31 @@ class Piece(models.Model):
     name = models.CharField(max_length=30)
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
-    small_icon = models.ImageField(upload_to=faction_upload_path, null=True, blank=True)
+    small_icon = models.ImageField(upload_to=piece_front_upload_path, null=True, blank=True)
+    back_image = models.ImageField(upload_to=piece_back_upload_path, null=True, blank=True)
+    front_version = models.PositiveIntegerField(default=0)
+    back_version = models.PositiveIntegerField(default=0)
 
     def save(self, *args, **kwargs):
         if self.pk:
             try:
                 old = Piece.objects.get(pk=self.pk)
-                if old.small_icon and old.small_icon != self.small_icon:
-                    delete_old_image(old.small_icon)
             except Piece.DoesNotExist:
-                pass
+                old = None
+            if old is not None:
+                type_changed = old.type != self.type
+                for field_name, version_attr in (
+                    ('small_icon', 'front_version'),
+                    ('back_image', 'back_version'),
+                ):
+                    old_file = getattr(old, field_name)
+                    new_file = getattr(self, field_name)
+                    file_replaced = old_file and old_file != new_file
+                    if file_replaced or (type_changed and old_file):
+                        delete_old_image(old_file)
+                    if file_replaced:
+                        setattr(self, version_attr,
+                                (getattr(self, version_attr) or 0) + 1)
         super().save(*args, **kwargs)
 
 
