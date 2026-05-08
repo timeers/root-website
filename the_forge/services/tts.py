@@ -192,3 +192,205 @@ class TTSForgedFactionDecree(TTSBoardBase):
             decree_scale_x=transform['scaleX'],
             decree_scale_z=transform['scaleZ'],
         )
+
+
+# ---------------------------------------------------------------------------
+# Buildings & tokens — Piece export
+# ---------------------------------------------------------------------------
+
+PIECE_BASE_Y = 1.5
+PIECE_STACK_Y_STEP = 0.12
+PIECE_GROUP_X_STEP = 1.5
+# Fallback origin: just NW of the faction board. The board sits at world
+# origin with scale 9.035, so its NW corner is roughly (-4.5, +4.5) on (X, Z).
+# Step the X out a bit further so stacks don't overhang the board edge.
+PIECE_FALLBACK_ORIGIN_X = -13.0
+PIECE_FALLBACK_ORIGIN_Z = 12.0
+PIECE_ROT_Y = 180.0
+BUILDING_SCALE = 0.70858
+TOKEN_SCALE = 0.703911364
+
+PIECE_TYPE_TO_TRACK_TYPE = {'B': 'building', 'T': 'token'}
+
+
+class TTSForgedPiece:
+    """Builds TTS Custom_Token / Custom_Tile dicts for a Piece.
+
+    Buildings (`type='B'`) → Custom_Token (the Mouse Base shape).
+    Tokens   (`type='T'`) → Custom_Tile with CustomTile.Type=2 (the Sympathy shape).
+    """
+
+    def __init__(self, piece, request=None):
+        self.piece = piece
+        self.request = request
+
+    def _is_token(self):
+        return self.piece.type == 'T'
+
+    def _scale(self):
+        return TOKEN_SCALE if self._is_token() else BUILDING_SCALE
+
+    def _color_diffuse(self):
+        faction_color = getattr(self.piece.parent.faction, 'color', None)
+        return _hex_to_rgb_floats(faction_color)
+
+    def _custom_image(self):
+        front = tts_image_url(self.piece.small_icon, request=self.request)
+        back = (tts_image_url(self.piece.back_image, request=self.request)
+                if self.piece.back_image else "")
+        # Tokens use CustomTile.Type=2 (hex/circle, e.g. Sympathy);
+        # buildings use CustomTile.Type=3 (square, e.g. Recruiter).
+        return {
+            "ImageURL": front,
+            "ImageSecondaryURL": back,
+            "ImageScalar": 1.0,
+            "WidthScale": 0.0,
+            "CustomTile": {
+                "Type": 2 if self._is_token() else 3,
+                "Thickness": 0.1,
+                "Stackable": False,
+                "Stretch": True,
+            },
+        }
+
+    def _base_dict(self, transform):
+        return {
+            "GUID": generate_tts_guid(),
+            "Name": "Custom_Tile",
+            "Transform": transform,
+            "Nickname": self.piece.name or self.piece.get_type_display(),
+            "Description": "",
+            "GMNotes": "",
+            "AltLookAngle": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "ColorDiffuse": self._color_diffuse(),
+            "LayoutGroupSortIndex": 0,
+            "Value": 0,
+            "Locked": False,
+            "Grid": True,
+            "Snap": True,
+            "IgnoreFoW": False,
+            "MeasureMovement": False,
+            "DragSelectable": True,
+            "Autoraise": True,
+            "Sticky": True,
+            "Tooltip": True,
+            "GridProjection": False,
+            "HideWhenFaceDown": False,
+            "Hands": False,
+            "CustomImage": self._custom_image(),
+            "LuaScript": "",
+            "LuaScriptState": "",
+            "XmlUI": "",
+        }
+
+    def at_world_point(self, world_x, world_z, world_y=None):
+        scale = self._scale()
+        return self._base_dict({
+            "posX": world_x,
+            "posY": PIECE_BASE_Y if world_y is None else world_y,
+            "posZ": world_z,
+            "rotX": 0.0, "rotY": PIECE_ROT_Y, "rotZ": 0.0,
+            "scaleX": scale, "scaleY": 1.0, "scaleZ": scale,
+        })
+
+    def at_fallback_stack(self, group_index, copy_index):
+        scale = self._scale()
+        return self._base_dict({
+            "posX": PIECE_FALLBACK_ORIGIN_X - group_index * PIECE_GROUP_X_STEP,
+            "posY": PIECE_BASE_Y + copy_index * PIECE_STACK_Y_STEP,
+            "posZ": PIECE_FALLBACK_ORIGIN_Z,
+            "rotX": 0.0, "rotY": PIECE_ROT_Y, "rotZ": 0.0,
+            "scaleX": scale, "scaleY": 1.0, "scaleZ": scale,
+        })
+
+
+def _norm_name(s):
+    """HTML-stripped, whitespace-trimmed, lowercased — matching key."""
+    if not s:
+        return ""
+    from django.utils.html import strip_tags
+    return strip_tags(s).strip().lower()
+
+
+def _snap_to_world(sp):
+    """Convert a snap point's local Position (TTS Custom_Tile local coords on
+    the faction board) to world coords. The faction board sits at world origin
+    with rotY=180, so X and Z are mirrored when projected to world."""
+    pos = sp.get("Position", {}) or {}
+    local_x = pos.get("x", 0.0)
+    local_z = pos.get("z", 0.0)
+    local_y = pos.get("y", 0.1)
+    scale = FACTION_BOARD_TRANSFORM["scaleX"]
+    world_x = -local_x * scale + FACTION_BOARD_TRANSFORM["posX"]
+    world_z = -local_z * scale + FACTION_BOARD_TRANSFORM["posZ"]
+    world_y = local_y + 0.5  # spawn slightly above so it settles onto the slot
+    return world_x, world_z, world_y
+
+
+def place_pieces_for_back(back, sheet, request):
+    """Return TTS object dicts for all buildings/tokens on `back`.
+
+    Pieces whose names match a CardboardTrack title (or row title) on `sheet`
+    get placed at that track's snap points; everything else falls back to an
+    offset stack next to the board.
+    """
+    pieces = list(back.pieces.filter(type__in=['B', 'T']).order_by('type', 'pk'))
+    if not pieces:
+        return []
+
+    # Build the snap-point indices, keyed by (track_type, normalized_name).
+    track_buckets = {}
+    row_buckets = {}
+    if sheet and sheet.snap_points:
+        for sp in sheet.snap_points:
+            ttype = sp.get('track_type')
+            if ttype not in ('building', 'token'):
+                continue
+            t_key = (ttype, _norm_name(sp.get('track_title')))
+            track_buckets.setdefault(t_key, []).append(sp)
+            r_norm = _norm_name(sp.get('row_title'))
+            if r_norm:
+                row_buckets.setdefault((ttype, r_norm), []).append(sp)
+
+    consumed_ids = set()  # id(snap_dict): same dict appears in both buckets
+
+    def _take(key, n, source):
+        out = []
+        for sp in source.get(key, []):
+            if id(sp) in consumed_ids:
+                continue
+            consumed_ids.add(id(sp))
+            out.append(sp)
+            if len(out) >= n:
+                break
+        return out
+
+    objects = []
+    fallback_queue = []  # list of (piece, remaining_quantity)
+
+    for piece in pieces:
+        if not piece.small_icon:
+            continue
+        ttype = PIECE_TYPE_TO_TRACK_TYPE[piece.type]
+        name_key = _norm_name(piece.name)
+        builder = TTSForgedPiece(piece, request=request)
+        remaining = piece.quantity
+
+        matched = _take((ttype, name_key), remaining, track_buckets) if name_key else []
+        if name_key and len(matched) < remaining:
+            matched.extend(_take((ttype, name_key), remaining - len(matched), row_buckets))
+
+        for sp in matched:
+            world_x, world_z, world_y = _snap_to_world(sp)
+            objects.append(builder.at_world_point(world_x, world_z, world_y))
+
+        remaining -= len(matched)
+        if remaining > 0:
+            fallback_queue.append((piece, remaining))
+
+    for fallback_index, (piece, remaining) in enumerate(fallback_queue):
+        builder = TTSForgedPiece(piece, request=request)
+        for copy_index in range(remaining):
+            objects.append(builder.at_fallback_stack(fallback_index, copy_index))
+
+    return objects

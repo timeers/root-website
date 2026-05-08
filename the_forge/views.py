@@ -2184,7 +2184,10 @@ def forgedfaction_tts(request, pk):
             status=404, content_type='text/plain',
         )
 
-    from .services.tts import TTSForgedFactionBoard, TTSForgedFactionDecree, load_tts_object
+    from .services.tts import (
+        TTSForgedFactionBoard, TTSForgedFactionDecree, load_tts_object,
+        place_pieces_for_back,
+    )
     from the_keep.services.tts import wrap_tts_save, TTSSingleCardDeck
 
     boards = []
@@ -2198,6 +2201,8 @@ def forgedfaction_tts(request, pk):
             "scaleX": 9.516764, "scaleY": 1.0, "scaleZ": 9.516764,
         }
         boards.append(load_tts_object('Improved Crafted Improvements.json', transform=improvements_transform))
+        if back_ready:
+            boards.extend(place_pieces_for_back(back, sheet=sheet, request=request))
     if card_ready:
         from the_keep.services.tts import DEFAULT_CARD_TRANSFORM
         adset_transform = dict(DEFAULT_CARD_TRANSFORM)

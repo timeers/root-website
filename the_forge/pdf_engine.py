@@ -1910,7 +1910,12 @@ class TrackFlowable(Flowable):
                     cx_local = x + self._slot_size / 2
                     cy_local = y + self._slot_size / 2
                     abs_x, abs_y = c.absolutePosition(cx_local, cy_local)
-                    self.engine.record_slot_snap_point(abs_x, abs_y)
+                    self.engine.record_slot_snap_point(
+                        abs_x, abs_y,
+                        track=self.track,
+                        row_idx=row_idx,
+                        row_title=self.row_titles.get(row_idx),
+                    )
 
         # --- Column headers (below) ---
         if headers_below:
@@ -4311,12 +4316,23 @@ class SheetLayoutEngine:
             'elements': elements,
         }
 
-    def record_slot_snap_point(self, abs_x_pts, abs_y_pts):
+    def record_slot_snap_point(self, abs_x_pts, abs_y_pts,
+                                track=None, row_idx=None, row_title=None):
         local_x, local_z = pdf_to_tts_local(abs_x_pts, abs_y_pts)
-        self.collected_snap_points.append({
+        entry = {
             "Position": {"x": local_x, "y": 0.1, "z": local_z},
             "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
-        })
+        }
+        if track is not None:
+            from django.utils.html import strip_tags
+            entry["track_id"] = track.pk
+            entry["track_title"] = strip_tags(track.title or "").strip()
+            entry["track_type"] = track.type
+            if row_idx is not None:
+                entry["row_index"] = row_idx
+            if row_title:
+                entry["row_title"] = strip_tags(row_title).strip()
+        self.collected_snap_points.append(entry)
 
     LAYER_GROUPS = (
         frozenset({'background'}),
