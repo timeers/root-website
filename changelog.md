@@ -1,11 +1,11 @@
 # Changelog
 
-## [1.12.2] - 2026-5-07 Forge-Tuning
+## [1.12.2] - 2026-5-08 More Forge-Tuning
 
 ### New Features
 - Adset card added to TTS json download
-- Crafted improvements tile added to json
-- Double sided Tokens and Buildings
+- Crafted improvements tile added to TTS json
+- Double sided Pieces on Board Back
 
 ### Improvements
 - Delete button for Forged Factions
@@ -16,6 +16,7 @@
 ### Bug Fixes
 - Piece name field is now optional
 - Fixed (none) text to be black and standard font
+- Adset number and text alignment adjusted
 
 ## [1.12.1] - 2026-5-05 Forge-Tuning
 

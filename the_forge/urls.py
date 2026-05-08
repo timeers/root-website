@@ -12,6 +12,7 @@ urlpatterns = [
     path('forge/factions/', views.forgedfaction_admin_list, name='forge-faction-admin-list'),
     path('forge/faction/', views.forgedfaction_list, name='forge-faction-list'),
     path('forge/faction/new/', views.forgedfaction_create, name='forge-faction-create'),
+    path('forge/faction/name-check/', views.forgedfaction_name_check, name='forge-faction-name-check'),
     path('forge/faction/<int:pk>/', views.forgedfaction_detail, name='forge-faction-detail'),
     path('forge/faction/<int:pk>/edit/', views.forgedfaction_edit, name='forge-faction-edit'),
     path('forge/faction/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),

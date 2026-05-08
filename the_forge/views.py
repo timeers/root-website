@@ -255,6 +255,15 @@ def forgedfaction_admin_list(request):
 
 
 @forge_onboard_required
+def forgedfaction_name_check(request):
+    from .services.name_conflicts import find_faction_name_conflicts
+    name = request.GET.get('faction_name', '')
+    conflicts = find_faction_name_conflicts(name, request.user.profile)
+    return render(request, 'the_forge/partials/faction_name_check.html',
+                  {'conflicts': conflicts})
+
+
+@forge_onboard_required
 def forgedfaction_create(request):
     if request.method == 'POST':
         form = ForgedFactionForm(request.POST, request.FILES)
