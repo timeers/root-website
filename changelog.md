@@ -12,11 +12,13 @@
 - Stable piece images 
 - Replaced crafted items svg with dynamicly created box
 - Dynamic min width for attribute bars
+- Soft warning if name in Forge conflicts with existing faction
 
 ### Bug Fixes
 - Piece name field is now optional
 - Fixed (none) text to be black and standard font
 - Adset number and text alignment adjusted
+- Lock faction board after 1 sec in TTS to work around floating boards
 
 ## [1.12.1] - 2026-5-05 Forge-Tuning
 

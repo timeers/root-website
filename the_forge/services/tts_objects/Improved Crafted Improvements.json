@@ -69,7 +69,7 @@
           "Stretch": true
         }
       },
-      "LuaScript": "",
+      "LuaScript": "function onLoad()\n    Wait.time(function() self.setLock(true) end, 1.5)\nend\n",
       "LuaScriptState": "",
       "XmlUI": "",
       "AttachedSnapPoints": [

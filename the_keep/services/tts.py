@@ -13,7 +13,7 @@ from .upload_paths import deck_sheet_upload_path
 
 FACTION_BOARD_TRANSFORM = {
     "posX": 0.0,
-    "posY": 1.0,
+    "posY": -0.113604546,
     "posZ": 0.0,
     "rotX": 0.0,
     "rotY": 180.0,
@@ -25,7 +25,7 @@ FACTION_BOARD_TRANSFORM = {
 
 DEFAULT_CARD_TRANSFORM = {
     "posX": 0.0,
-    "posY": 1.0,
+    "posY": 2.0,
     "posZ": 0.0,
     "rotX": 0.0,
     "rotY": 180.0,
@@ -133,9 +133,17 @@ class TTSBoard:
             "AttachedSnapPoints": all_snap_points,
         }
 
+LOCK_ON_REST_LUA = (
+    "function onLoad()\n"
+    "    Wait.time(function() self.setLock(true) end, 1.5)\n"
+    "end\n"
+)
+
+
 class TTSBoardBase:
     NAME = "Custom_Tile"
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
+    LUA_SCRIPT = ""
 
     def __init__(self, post, request=None):
         self.post = post
@@ -216,7 +224,7 @@ class TTSBoardBase:
                     "Stretch": True,
                 },
             },
-            "LuaScript": "",
+            "LuaScript": self.LUA_SCRIPT,
             "LuaScriptState": "",
             "XmlUI": "",
             "AttachedSnapPoints": self.get_snap_points(),

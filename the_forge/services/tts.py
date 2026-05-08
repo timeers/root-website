@@ -9,6 +9,7 @@ from the_keep.services.tts import (
     FACTION_BOARD_TRANSFORM,
     DEFAULT_TRACKER_SNAP_POINTS,
     generate_tts_guid,
+    LOCK_ON_REST_LUA,
 )
 
 
@@ -55,6 +56,7 @@ def _hex_to_rgb_floats(hex_color):
 
 class TTSForgedFactionBoard(TTSBoardBase):
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
+    LUA_SCRIPT = LOCK_ON_REST_LUA
 
     def __init__(self, faction, request=None):
         super().__init__(post=faction, request=request)
@@ -114,9 +116,10 @@ class TTSForgedFactionBoard(TTSBoardBase):
 
 
 class TTSForgedFactionDecree(TTSBoardBase):
+    LUA_SCRIPT = LOCK_ON_REST_LUA
     DECREE_TRANSFORM = {
         "posX": 0.0,
-        "posY": 1.0,
+        "posY": -0.113604546,
         "posZ": 18.8,
         "rotX": 0.0,
         "rotY": 180.0,
