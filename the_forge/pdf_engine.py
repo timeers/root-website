@@ -348,6 +348,112 @@ BORDERED_BOX_TITLE_SIZE = 13           # Luminari title font size (pts)
 BORDERED_BOX_BODY_PAD = 6             # padding inside box for body text (pts)
 BORDERED_BOX_TITLE_GAP = 4            # gap between border line and title text on each side (pts)
 
+# Crafted Items dynamic overlay (drawn on top of CRAFTED_ITEMS_SVG for fine-tuning).
+# Mirrors the SVG bounds at default nudges so visual alignment is the baseline;
+# tune *_NUDGE / W / H / *_SIZE to refine before retiring the SVG.
+CRAFTED_OVERLAY_ENABLED = True
+CRAFTED_OVERLAY_W = 2.545 * inch   # mirrors current SVG width
+CRAFTED_OVERLAY_H = 0.657 * inch                    # mirrors current SVG height
+CRAFTED_OVERLAY_X_NUDGE = 0.0
+CRAFTED_OVERLAY_Y_NUDGE = -3.52
+CRAFTED_OVERLAY_BORDER_W = 1.0
+CRAFTED_OVERLAY_TITLE_SIZE = 16
+CRAFTED_OVERLAY_TITLE_GAP = 8.02
+CRAFTED_OVERLAY_BODY_SIZE = 9
+CRAFTED_OVERLAY_BODY_PAD = 0
+CRAFTED_OVERLAY_BODY_LEADING_RATIO = 1.1
+CRAFTED_OVERLAY_COLOR_HEX = '#000000'  # red while iterating, so the overlay is easy to compare against the SVG
+
+# All translatable PDF text, keyed first by language code, then by element key.
+# Drop new element keys (e.g. 'decree', 'setup_card') into each language entry
+# as new dynamic boxes are added — no need for a separate top-level map per
+# element. Use _pdf_text(element_key, lang_code) to look up; missing language
+# falls back to PDF_TEXT_FALLBACK, missing element returns {}.
+PDF_TEXT_FALLBACK = 'en'
+PDF_TEXT = {
+    'en': {
+        'crafted_items': {
+            'title': 'Crafted Items',
+            'body': 'Vagabond can give you cards to take these items.',
+        },
+        'phases': {
+            'birdsong': 'Birdsong',
+            'daylight': 'Daylight',
+            'evening': 'Evening',
+        },
+        'back': {
+            'manifest': 'Faction Component Manifest',
+            'warriors': 'Warriors',
+            'tokens': 'Tokens',
+            'buildings': 'Buildings',
+            'other': 'Other Pieces',
+            'complexity': 'Complexity',
+            'aggression': 'Aggression',
+            'card_wealth': 'Card Wealth',
+            'crafting_ability': 'Crafting Ability',
+            'setup': 'Setup',
+            'playing': 'Playing the',
+            'none': 'none',
+        },
+        'attr_levels': {
+            'N': 'NONE',
+            'L': 'LOW',
+            'M': 'MODERATE',
+            'H': 'HIGH',
+        },
+    },
+    'fr': {
+        'crafted_items': {
+            'title': 'Objets Fabriqués',
+            'body': 'Un Vagabond peut vous donner des <br/> cartes pour prendre ces objets.',
+        },
+        'phases': {
+            'birdsong': 'Aurore',
+            'daylight': 'Jour',
+            'evening': 'Crépuscule',
+        },
+        'back': {
+            'manifest': 'Liste des pièces de la Faction',
+            'warriors': 'Guerriers',
+            'tokens': 'Jetons',
+            'buildings': 'Bâtiments',
+            'other': 'Autres Pièces',
+            'complexity': 'Difficulté',
+            'aggression': 'Agressivité',
+            'card_wealth': 'Main de cartes',
+            'crafting_ability': 'Fabrication',
+            'setup': 'Mise en place',
+            'playing': 'Jouer le',
+            'none': 'aucun',
+        },
+        'attr_levels': {
+            'N': 'AUCUN',
+            'L': 'FAIBLE',
+            'M': 'MODÉRÉE',
+            'H': 'ÉLEVÉE',
+        },
+    },
+    # 'es', 'nl', 'pl', 'ru', 'de', 'pt' to be filled in later.
+}
+
+def _pdf_text(element_key, lang_code):
+    lang = PDF_TEXT.get(lang_code) or PDF_TEXT[PDF_TEXT_FALLBACK]
+    if element_key in lang:
+        return lang[element_key]
+    return PDF_TEXT[PDF_TEXT_FALLBACK].get(element_key, {})
+
+
+def _lang_code_for(obj):
+    """Resolve the language code for any object that has (or whose .faction has) a `language`."""
+    faction = getattr(obj, 'faction', obj)
+    lang = getattr(faction, 'language', None)
+    return lang.code if lang else PDF_TEXT_FALLBACK
+
+
+def _pdf_label(element_key, label_key, obj, default=''):
+    """One-shot lookup: resolve language from `obj`, fetch element block, return label."""
+    return _pdf_text(element_key, _lang_code_for(obj)).get(label_key, default)
+
 # Track slot rendering
 TRACK_SLOT_SIZE = 0.67 * inch
 TRACK_SLOT_GAP = 0.06 * inch
@@ -457,6 +563,11 @@ MANIFEST_PIECE_LABEL_H_PAD = 4                # horizontal padding on each side 
 MANIFEST_PIECE_V_PAD = 3                      # vertical padding on top/bottom of each piece within its slot
 MANIFEST_PIECE_COL_H_PAD = 5                  # horizontal gap between pieces and the manifest border/dividers
 MANIFEST_PIECE_NAME_LEADING = 1.05            # line-height multiplier when piece name wraps
+# When a piece has both front and back images, render them as an offset stack.
+# Each image scales to STACK_SHRINK of the icon envelope; the diagonal offset
+# spans the remaining (1 - STACK_SHRINK) span so the stack still fills the box.
+MANIFEST_PIECE_STACK_SHRINK = 0.78
+MANIFEST_PIECE_STACK_OFFSET_FRAC = 0.38        # offset = STACK_OFFSET_FRAC * shrunk image size
 
 ATTR_BLOCK_TOP_PAD = 0.08 * inch       # padding above first attribute row
 ATTR_LABEL_SIZE = 13                    # italic label ("Complexity") font size
@@ -473,12 +584,6 @@ ATTR_BAR_FILL_RATIOS = {                # matches CSS .bar-background-{low/moder
     'L': 0.28,
     'M': 0.55,
     'H': 0.8,
-}
-ATTR_BAR_LEVEL_LABELS = {
-    'N': 'NONE',
-    'L': 'LOW',
-    'M': 'MODERATE',
-    'H': 'HIGH',
 }
 ATTR_BAR_LEVEL_FONT_SIZE = 9.5            # font size of "HIGH"/"MODERATE" text inside bar
 ATTR_BAR_LEVEL_CHAR_SPACE = 0.45         # extra spacing (pts) between letters of the level label
@@ -712,13 +817,6 @@ PHASE_HEADERS = {
         'color': '#7B6EA8',
     },
 }
-
-PHASE_DISPLAY_NAMES = {
-    'birdsong': 'Birdsong',
-    'daylight': 'Daylight',
-    'evening': 'Evening',
-}
-
 
 def _resolve_static_url(url):
     """Resolve a `static()` URL back to a filesystem path for ReportLab.
@@ -1277,6 +1375,87 @@ class BorderedBoxFlowable(Flowable):
                 para.drawOn(c, body_x, body_top_y - para_h)
 
         c.restoreState()
+
+
+def draw_crafted_items_overlay(c, x, y, w, h, title, body, color_hex='#000000'):
+    """Bordered box with title-on-top-border + centered body, drawn directly on canvas.
+
+    Mirrors BorderedBoxFlowable's stroke/title math but at absolute canvas coords
+    (x, y = bottom-left). Used to overlay the Crafted Items SVG for fine-tuning.
+    """
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+
+    c.saveState()
+    c.set_layer_tag('fg')
+
+    bw = CRAFTED_OVERLAY_BORDER_W
+    half_bw = bw / 2
+    color = HexColor(color_hex)
+
+    title_font_size = CRAFTED_OVERLAY_TITLE_SIZE
+    title_w = pdfmetrics.stringWidth(title, 'Luminari', title_font_size)
+    gap = CRAFTED_OVERLAY_TITLE_GAP
+    title_block_w = title_w + gap * 2
+
+    # Box edges in absolute canvas coords
+    left = x
+    right = x + w
+    bottom = y
+    top = y + h
+
+    title_x_start = left + (w - title_block_w) / 2
+    title_x_end = title_x_start + title_block_w
+
+    c.setStrokeColor(color)
+    c.setLineWidth(bw)
+    # Bottom
+    c.line(left - half_bw, bottom, right + half_bw, bottom)
+    # Left
+    c.line(left, bottom - half_bw, left, top + half_bw)
+    # Right
+    c.line(right, bottom - half_bw, right, top + half_bw)
+    # Top — two segments with gap for title
+    c.line(left - half_bw, top, title_x_start, top)
+    c.line(title_x_end, top, right + half_bw, top)
+
+    # Title centered on the top border (cap-height midpoint sits on the line)
+    cap_h = title_font_size * 0.70
+    title_y = top - cap_h / 2
+    c.setFont('Luminari', title_font_size)
+    c.setFillColor(color)
+    c.drawCentredString(left + w / 2, title_y, title)
+
+    # Body — vertically centered in the full interior between the two
+    # horizontal borders (pad applied symmetrically top and bottom).
+    if body:
+        pad = CRAFTED_OVERLAY_BODY_PAD
+        body_size = CRAFTED_OVERLAY_BODY_SIZE
+        body_x = left + pad
+        body_w = w - pad * 2
+        body_available_h = (top - bottom) - pad * 2
+
+        style = ParagraphStyle(
+            'CraftedItemsOverlayBody',
+            fontName='Baskerville-Italic',
+            fontSize=body_size,
+            leading=body_size * CRAFTED_OVERLAY_BODY_LEADING_RATIO,
+            alignment=TA_CENTER,
+            textColor=color,
+        )
+        para = Paragraph(body, style)
+        para.wrap(body_w, 9999)
+        para_h = para.height
+
+        if para_h > body_available_h:
+            print(f"WARNING: CraftedItemsOverlay '{title}' body text overflows "
+                  f"(needs {para_h:.1f}pt, available {body_available_h:.1f}pt)")
+
+        # Centered: split leftover vertical space evenly above and below.
+        body_y = bottom + pad + (body_available_h - para_h) / 2
+        para.drawOn(c, body_x, body_y)
+
+    c.restoreState()
 
 
 class TrackFlowable(Flowable):
@@ -3876,7 +4055,7 @@ class SheetLayoutEngine:
         self._record_element(kind='phase_header_bar',
                              x=content_x, y=banner_y, w=content_w, h=header_h,
                              phase=phase_key,
-                             label=PHASE_DISPLAY_NAMES.get(phase_key, phase_key.title()),
+                             label=_pdf_label('phases', phase_key, self.sheet, default=phase_key.title()),
                              fill=cfg.get('color', '#888888'))
         if not steps:
             return
@@ -5002,7 +5181,7 @@ class SheetLayoutEngine:
                 target_h = max(target_w / aspect, PHASE_HEADER_MIN_H)
             else:
                 target_h = PHASE_HEADER_LOCK_W / aspect
-            phase_name = PHASE_DISPLAY_NAMES.get(phase_key, phase_key.title())
+            phase_name = _pdf_label('phases', phase_key, self.sheet, default=phase_key.title())
             banner = BannerWithText(header_path, target_w, target_h, phase_name)
             banner.hAlign = 'LEFT'
             story.append(banner)
@@ -5719,15 +5898,33 @@ class SheetLayoutEngine:
             # When the bar grows, shift crafted items down by delta_h/2 so they
             # stay vertically centered in the new band.
             crafted_y = self.title_bar_y - FACTION_TOP_BAR_NUDGE - crafted_h - (delta_h / 2)
-            drawing = svg2rlg(CRAFTED_ITEMS_SVG)
-            if drawing:
-                sx = crafted_w / drawing.width
-                sy = crafted_h / drawing.height
-                drawing.width = crafted_w
-                drawing.height = crafted_h
-                drawing.scale(sx, sy)
-                c.set_layer_tag('fg')
-                renderPDF.draw(drawing, c, crafted_x, crafted_y)
+
+            # Dynamic overlay drawn first so the SVG paints over it (handy for
+            # checking which features the SVG is masking versus revealing).
+            if CRAFTED_OVERLAY_ENABLED:
+                txt = _pdf_text('crafted_items', _lang_code_for(self.sheet))
+                overlay_w = CRAFTED_OVERLAY_W
+                overlay_h = CRAFTED_OVERLAY_H
+                overlay_x = crafted_x + (crafted_w - overlay_w) / 2 + CRAFTED_OVERLAY_X_NUDGE
+                overlay_y = crafted_y + (crafted_h - overlay_h) / 2 + CRAFTED_OVERLAY_Y_NUDGE
+                draw_crafted_items_overlay(
+                    c, overlay_x, overlay_y, overlay_w, overlay_h,
+                    txt['title'], txt['body'],
+                    color_hex=CRAFTED_OVERLAY_COLOR_HEX,
+                )
+
+            # Legacy SVG draw — kept for reference while iterating on the
+            # dynamic overlay above. Flip to True to render the SVG again.
+            if False:
+                drawing = svg2rlg(CRAFTED_ITEMS_SVG)
+                if drawing:
+                    sx = crafted_w / drawing.width
+                    sy = crafted_h / drawing.height
+                    drawing.width = crafted_w
+                    drawing.height = crafted_h
+                    drawing.scale(sx, sy)
+                    c.set_layer_tag('fg')
+                    renderPDF.draw(drawing, c, crafted_x, crafted_y)
             self._record_element(kind='header_crafted',
                                  x=crafted_x, y=crafted_y,
                                  w=crafted_w, h=crafted_h)
@@ -6443,10 +6640,10 @@ class FactionBackLayoutEngine:
     """
 
     PIECE_COLUMNS = [
-        ('Warriors', ('W',)),
-        ('Buildings', ('B',)),
-        ('Tokens', ('T',)),
-        ('Other Pieces', ('C', 'O')),
+        ('warriors', ('W',)),
+        ('buildings', ('B',)),
+        ('tokens', ('T',)),
+        ('other', ('C', 'O')),
     ]
 
     def __init__(self, faction_back):
@@ -6454,10 +6651,12 @@ class FactionBackLayoutEngine:
         self.faction = faction_back.faction
         self.color_hex = self.faction.color or '#5B4A8A'
         self.faction_color = HexColor(self.color_hex)
+        self._lang_code = _lang_code_for(self.faction)
 
         pieces = self._resolve_pieces(faction_back)
         self._pieces_by_col = []
-        for title, types in self.PIECE_COLUMNS:
+        for label_key, types in self.PIECE_COLUMNS:
+            title = self._label(label_key, label_key.title())
             col_pieces = [p for p in pieces if p.type in types]
             self._pieces_by_col.append((title, col_pieces))
 
@@ -6484,6 +6683,9 @@ class FactionBackLayoutEngine:
                 self._warrior_fallback_svg = None
 
         self._init_styles()
+
+    def _label(self, key, default=''):
+        return _pdf_text('back', self._lang_code).get(key, default)
 
     # ---------- Data resolution (works with real models or SimpleNamespace) ----------
 
@@ -6685,7 +6887,7 @@ class FactionBackLayoutEngine:
         c.setLineWidth(border_w)
         half_bw = border_w / 2  # extend lines by half stroke width so corners meet flush
 
-        title = 'Faction Component Manifest'
+        title = self._label('manifest', 'Faction Component Manifest')
         title_size = MANIFEST_TITLE_SIZE
         # Tracked width = base width + (n-1) * charSpace extra
         title_w = (pdfmetrics.stringWidth(title, 'Luminari', title_size)
@@ -6760,9 +6962,9 @@ class FactionBackLayoutEngine:
     def _draw_manifest_column_pieces(self, c, x, y, w, h, pieces):
         if not pieces:
             c.saveState()
-            c.setFont('Baskerville-Italic', MANIFEST_PIECE_LABEL_SIZE)
-            c.setFillColorRGB(0.45, 0.45, 0.45)
-            c.drawCentredString(x + w / 2, y + h / 2, '(none)')
+            c.setFont('Baskerville', MANIFEST_PIECE_LABEL_SIZE)
+            c.setFillColorRGB(0, 0, 0)
+            c.drawCentredString(x + w / 2, y + h / 2, f"({self._label('none', 'none')})")
             c.restoreState()
             return
         n = len(pieces)
@@ -6773,14 +6975,24 @@ class FactionBackLayoutEngine:
             self._draw_piece(c, piece, x, slot_bottom, w, slot_h)
 
     def _draw_piece(self, c, piece, x, y, w, h):
-        icon_path = None
-        icon_attr = getattr(piece, 'small_icon', None)
-        if icon_attr:
-            path_val = getattr(icon_attr, 'path', None)
+        def _resolve_image(attr):
+            if not attr:
+                return None
+            path_val = getattr(attr, 'path', None)
             if path_val and os.path.exists(path_val):
-                icon_path = path_val
-            elif isinstance(icon_attr, str) and os.path.exists(icon_attr):
-                icon_path = icon_attr
+                return path_val
+            if isinstance(attr, str) and os.path.exists(attr):
+                return attr
+            return None
+
+        icon_path = _resolve_image(getattr(piece, 'small_icon', None))
+        back_path = _resolve_image(getattr(piece, 'back_image', None))
+        # Back image only stacks when there's also a front; on its own it falls
+        # through into the existing single-image path.
+        if back_path and not icon_path:
+            icon_path = back_path
+            back_path = None
+        stacked = bool(icon_path and back_path)
 
         quantity = getattr(piece, 'quantity', 1) or 1
         name = getattr(piece, 'name', '') or ''
@@ -6798,17 +7010,50 @@ class FactionBackLayoutEngine:
         draw_h = 0
         svg_fallback = None
         shape_fallback = None  # 'building' | 'token' | 'card'
+        # Per-image draw sizes when stacked (front overlaps back). When not
+        # stacked, front_*/back_* mirror draw_*/(0,0) so the draw block below
+        # stays uniform.
+        front_w = front_h = 0
+        back_w = back_h = 0
+        stack_off_x = stack_off_y = 0
         if icon_path:
             from reportlab.lib.utils import ImageReader
             try:
-                iw, ih = ImageReader(icon_path).getSize()
-                scale = min(icon_max_w / iw, icon_max_h / ih)
-                draw_w = iw * scale
-                draw_h = ih * scale
+                if stacked:
+                    shrink = MANIFEST_PIECE_STACK_SHRINK
+                    img_max_w = icon_max_w * shrink
+                    img_max_h = icon_max_h * shrink
+                    iw, ih = ImageReader(icon_path).getSize()
+                    fscale = min(img_max_w / iw, img_max_h / ih)
+                    front_w = iw * fscale
+                    front_h = ih * fscale
+                    bw, bh = ImageReader(back_path).getSize()
+                    bscale = min(img_max_w / bw, img_max_h / bh)
+                    back_w = bw * bscale
+                    back_h = bh * bscale
+                    # Offset is a fraction of the larger image's size, so the
+                    # back image always peeks out by a consistent amount.
+                    ref_w = max(front_w, back_w)
+                    ref_h = max(front_h, back_h)
+                    stack_off_x = ref_w * MANIFEST_PIECE_STACK_OFFSET_FRAC
+                    stack_off_y = ref_h * MANIFEST_PIECE_STACK_OFFSET_FRAC
+                    # Envelope = bounding box of the offset stack.
+                    draw_w = max(front_w, back_w) + stack_off_x
+                    draw_h = max(front_h, back_h) + stack_off_y
+                else:
+                    iw, ih = ImageReader(icon_path).getSize()
+                    scale = min(icon_max_w / iw, icon_max_h / ih)
+                    draw_w = iw * scale
+                    draw_h = ih * scale
+                    front_w, front_h = draw_w, draw_h
             except Exception:
                 icon_path = None
+                stacked = False
                 draw_w = 0
                 draw_h = 0
+                front_w = front_h = 0
+                back_w = back_h = 0
+                stack_off_x = stack_off_y = 0
 
         # Fallbacks: if no icon was supplied, dispatch on piece type.
         if not icon_path:
@@ -6863,9 +7108,12 @@ class FactionBackLayoutEngine:
             spaceAfter=0,
         )
         # Quantity in upright Baskerville, name in italic.
-        safe_name = name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        markup = (f'<font name="Baskerville" size="{qty_size}">{qty_text}</font>'
-                  f'&nbsp;{safe_name}')
+        qty_markup = f'<font name="Baskerville" size="{qty_size}">{qty_text}</font>'
+        if name:
+            safe_name = name.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            markup = f'{qty_markup}&nbsp;{safe_name}'
+        else:
+            markup = qty_markup
         para = Paragraph(markup, style)
         para.wrap(available_w, 9999)
         tighten_large_font_lines(para)
@@ -6894,8 +7142,20 @@ class FactionBackLayoutEngine:
         if icon_path:
             icon_x = start_x
             icon_y = mid_y - draw_h / 2
-            c.drawImage(icon_path, icon_x, icon_y, width=draw_w, height=draw_h,
-                        preserveAspectRatio=True, mask='auto')
+            if stacked:
+                # Back image at bottom-right, front image at top-left so the
+                # front (small_icon) covers the lower-right corner of the back.
+                back_x = icon_x + draw_w - back_w
+                back_y = icon_y
+                c.drawImage(back_path, back_x, back_y, width=back_w, height=back_h,
+                            preserveAspectRatio=True, mask='auto')
+                front_x = icon_x
+                front_y = icon_y + draw_h - front_h
+                c.drawImage(icon_path, front_x, front_y, width=front_w, height=front_h,
+                            preserveAspectRatio=True, mask='auto')
+            else:
+                c.drawImage(icon_path, icon_x, icon_y, width=draw_w, height=draw_h,
+                            preserveAspectRatio=True, mask='auto')
             label_x = icon_x + draw_w + icon_text_gap
         elif svg_fallback is not None:
             icon_x = start_x
@@ -6936,10 +7196,10 @@ class FactionBackLayoutEngine:
     # ---------- Attribute bars ----------
 
     ATTR_FIELDS = [
-        ('complexity', 'Complexity'),
-        ('card_wealth', 'Card Wealth'),
-        ('aggression', 'Aggression'),
-        ('crafting_ability', 'Crafting Ability'),
+        ('complexity', 'complexity'),
+        ('card_wealth', 'card_wealth'),
+        ('aggression', 'aggression'),
+        ('crafting_ability', 'crafting_ability'),
     ]
 
     def _draw_attribute_bars(self, c, x, top_y, w):
@@ -6976,7 +7236,7 @@ class FactionBackLayoutEngine:
 
         return cursor_y + ATTR_ROW_GAP
 
-    def _draw_attribute_row(self, c, x, top_y, w, field, label):
+    def _draw_attribute_row(self, c, x, top_y, w, field, label_key):
         """Draw a single attribute row (italic label + filled bar with level text).
 
         Mirrors the web partial: left black border, grey track, faction-color fill
@@ -6984,6 +7244,7 @@ class FactionBackLayoutEngine:
         not legible on the faction color).
         """
         value = getattr(self.back, field, 'N') or 'N'
+        label = self._label(label_key, label_key.replace('_', ' ').title())
 
         c.saveState()
 
@@ -7003,16 +7264,26 @@ class FactionBackLayoutEngine:
         bar_x = x + ATTR_BAR_BORDER_LEFT_PAD
         bar_w = w - ATTR_BAR_BORDER_LEFT_PAD
 
-        # Faction-color fill sized by level (no track — empty portion is transparent)
+        # Resolve the level label up front so the fill can grow to keep it inside.
+        # 'N' keeps its tiny sliver fill (text renders in black outside the color).
+        level_label = _pdf_text('attr_levels', self._lang_code).get(value, '')
+
+        # Faction-color fill sized by level (no track — empty portion is transparent).
+        # For L/M/H, expand fill to fit the level text + padding when the translated
+        # label is wider than the geometric ratio would allow.
         fill_ratio = ATTR_BAR_FILL_RATIOS.get(value, 0.0)
         fill_w = bar_w * fill_ratio
+        if level_label and value != 'N':
+            text_w = (pdfmetrics.stringWidth(level_label, 'Baskerville-Bold', ATTR_BAR_LEVEL_FONT_SIZE)
+                      + max(len(level_label) - 1, 0) * ATTR_BAR_LEVEL_CHAR_SPACE)
+            min_fill_w = text_w + ATTR_BAR_LEVEL_TEXT_X_PAD * 2
+            fill_w = min(max(fill_w, min_fill_w), bar_w)
         if fill_w > 0:
             c.setFillColor(self.faction_color)
             c.rect(bar_x, bar_y, fill_w, ATTR_BAR_H, stroke=0, fill=1)
 
         # Level text inside bar — white when legible on faction color, else black.
         # 'N' always uses black since the fill is barely visible.
-        level_label = ATTR_BAR_LEVEL_LABELS.get(value, '')
         if level_label:
             if value == 'N':
                 text_color = ATTR_BAR_LEVEL_N_TEXT_COLOR
@@ -7034,7 +7305,8 @@ class FactionBackLayoutEngine:
 
     def _draw_setup_section(self, c, x, top_y, w, bottom_y):
         setup_order = getattr(self.back, 'setup_order', '') or ''
-        title = f'Setup ({setup_order})' if setup_order else 'Setup'
+        setup_word = self._label('setup', 'Setup')
+        title = f'{setup_word} ({setup_order})' if setup_order else setup_word
         c.saveState()
         c.setFont('Baskerville', SETUP_TITLE_SIZE)
         c.setFillColorRGB(0, 0, 0)
@@ -7100,7 +7372,7 @@ class FactionBackLayoutEngine:
 
     def _draw_how_to_play(self, c, x, top_y, w, h):
         suffix = getattr(self.back, 'how_to_play_title', '') or 'Faction'
-        title = f'Playing the {suffix}'
+        title = f"{self._label('playing', 'Playing the')} {suffix}"
         body = getattr(self.back, 'how_to_play_text', '') or ''
 
         c.saveState()

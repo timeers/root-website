@@ -15,6 +15,16 @@ from .services.upload_paths import (
     piece_back_upload_path,
 )
 
+
+def _default_language():
+    # Deferred to avoid a top-of-file import of another app's models during
+    # app loading; also tolerates a fresh DB where Language hasn't been
+    # populated yet (returns None, FK is nullable).
+    from the_gatehouse.models import Language
+    lang = Language.objects.filter(code='en').first()
+    return lang.pk if lang else None
+
+
 class ForgedFaction(models.Model):
     BACKGROUND_TILE_SIZE_MIN = 10
     BACKGROUND_TILE_SIZE_MAX = 33
@@ -53,6 +63,14 @@ class ForgedFaction(models.Model):
     }
 
     designer = models.ForeignKey(Profile, related_name='faction_sheets', on_delete=models.CASCADE)
+    language = models.ForeignKey(
+        'the_gatehouse.Language',
+        related_name='forged_factions',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        default=_default_language,
+        help_text="Language used for built-in faction text (e.g. Crafted Items label). Defaults to English.",
+    )
     faction_name = models.CharField(max_length=100)
     slug = models.SlugField(unique=True, null=True, blank=True)
     color = models.CharField(
@@ -750,7 +768,7 @@ class FactionBack(models.Model):
     aggression = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
 
-    setup_order = models.CharField(max_length=1, default="X")
+    setup_order = models.CharField(max_length=1, blank=True, null=True, default='')
 
     how_to_play_title = models.TextField(default='Faction')
     how_to_play_text = models.TextField(blank=True, null=True)
@@ -800,7 +818,7 @@ class Piece(models.Model):
         OTHER = 'O'
 
     parent = models.ForeignKey(FactionBack, on_delete=models.CASCADE, related_name='pieces')
-    name = models.CharField(max_length=30)
+    name = models.CharField(max_length=30, blank=True, null=True, default='')
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
     small_icon = models.ImageField(upload_to=piece_front_upload_path, null=True, blank=True)

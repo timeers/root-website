@@ -10,8 +10,12 @@
 ### Improvements
 - Delete button for Forged Factions
 - Stable piece images 
+- Replaced crafted items svg with dynamicly created box
+- Dynamic min width for attribute bars
 
 ### Bug Fixes
+- Piece name field is now optional
+- Fixed (none) text to be black and standard font
 
 ## [1.12.1] - 2026-5-05 Forge-Tuning
 

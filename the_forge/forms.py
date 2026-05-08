@@ -164,7 +164,7 @@ class FactionBackForm(forms.Form):
         back.card_wealth = self.cleaned_data['card_wealth']
         back.aggression = self.cleaned_data['aggression']
         back.crafting_ability = self.cleaned_data['crafting_ability']
-        back.setup_order = self.cleaned_data.get('setup_order') or 'X'
+        back.setup_order = self.cleaned_data.get('setup_order') or ''
         back.how_to_play_title = self.cleaned_data['how_to_play_title']
         back.how_to_play_text = self.cleaned_data.get('how_to_play_text') or ''
         update_fields = [

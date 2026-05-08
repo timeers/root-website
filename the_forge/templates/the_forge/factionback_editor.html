@@ -330,21 +330,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    document.querySelectorAll('[data-piece-list] [data-row]').forEach(row => {
-      const nameInput = row.querySelector('input[name="piece_name"]');
-      const value = (nameInput?.value || '').trim();
-      if (!value) {
-        row.classList.add('is-error');
-        if (!firstBad) firstBad = row;
-      } else {
-        row.classList.remove('is-error');
-      }
-    });
-
     if (firstBad) {
       ev.preventDefault();
       firstBad.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const focusable = firstBad.querySelector('input[name="piece_name"], textarea[name="step_text"]');
+      const focusable = firstBad.querySelector('textarea[name="step_text"]');
       if (focusable) focusable.focus();
       return;
     }

@@ -659,8 +659,6 @@ def factionback_edit(request, pk):
                     front_upload = request.FILES.get(f'piece_icon_{index}')
                     back_upload = request.FILES.get(f'piece_back_{index}')
                     name = (name or '').strip()
-                    if not name:
-                        continue
                     if ptype not in valid_piece_types:
                         continue
                     try:
