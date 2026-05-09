@@ -2,7 +2,7 @@ from django.apps import apps
 from django.db.models.signals import post_save, post_delete, pre_save
 from django.utils import timezone
 
-from the_keep.utils import resize_image_to_webp, resize_image
+from the_keep.utils import resize_image_to_webp, resize_image, center_square_crop_in_place
 
 from .services.slugify_titles import slugify_forged_faction_name
 
@@ -31,10 +31,22 @@ IMAGE_FIELDS_CONFIG = {
 def _make_resize_handler(field_max_dims):
     def handler(sender, instance, created, **kwargs):
         changed_fields = []
+        # Building & token piece icons are square-cropped at source resolution
+        # before the WebP downscale, so the crop happens before any quality
+        # loss from scaling.
+        is_square_piece = (
+            sender.__name__ == 'Piece'
+            and getattr(instance, 'type', None) in ('B', 'T')
+        )
         for field_name, max_dim in field_max_dims.items():
             field = getattr(instance, field_name, None)
             if not field:
                 continue
+            if is_square_piece:
+                try:
+                    center_square_crop_in_place(field)
+                except Exception:
+                    pass
             new_relpath = None
             try:
                 new_relpath = resize_image_to_webp(field, max_size=max_dim)

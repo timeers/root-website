@@ -744,6 +744,13 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
 FORGE_STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static', 'the_forge')
 FORGE_LOGO_SVG = os.path.join(FORGE_STATIC_DIR, 'Forge_Logo.svg')
 
+# Components sheet (Combined PDF print-out page) geometry — landscape letter
+# to match the Front (FactionSheet) and Back (FactionBack) page orientation.
+COMPONENTS_PAGE_W, COMPONENTS_PAGE_H = landscape(letter)  # 792 x 612 pts
+COMPONENTS_PAGE_MARGIN = 0.5 * inch
+COMPONENTS_GRID_GAP = 0.25 * inch                  # horizontal & vertical gap between cells
+COMPONENTS_ADSET_STATIC = os.path.join(STATIC_DIR, 'images', 'ADSET.png')
+
 ABILITY_BERRY_SVG = os.path.join(STATIC_DIR, 'pdf/svg/ability_berry.svg')
 PHASE_NUMBER_SVG_DIR = os.path.join(STATIC_DIR, 'pdf/svg')
 SETUP_CARD_NUMBER_SVG_DIR = os.path.join(STATIC_DIR, 'pdf/svg/adset')
@@ -7216,20 +7223,49 @@ class FactionBackLayoutEngine:
         if icon_path:
             icon_x = start_x
             icon_y = mid_y - draw_h / 2
+            ptype = getattr(piece, 'type', None)
+            is_building = ptype == 'B'
+            is_token = ptype == 'T'
+
+            def _draw_rounded(img, ix, iy, iw_, ih_):
+                """Buildings clip to a 15%-radius rounded rect; tokens clip to a
+                circle inscribed in the image bounds. Other piece types draw
+                unclipped."""
+                if is_building:
+                    radius = min(iw_, ih_) * 0.15
+                    c.saveState()
+                    p = c.beginPath()
+                    p.roundRect(ix, iy, iw_, ih_, radius)
+                    c.clipPath(p, stroke=0, fill=0)
+                    c.drawImage(img, ix, iy, width=iw_, height=ih_,
+                                preserveAspectRatio=True, mask='auto')
+                    c.restoreState()
+                elif is_token:
+                    side = min(iw_, ih_)
+                    cx = ix + iw_ / 2
+                    cy = iy + ih_ / 2
+                    c.saveState()
+                    p = c.beginPath()
+                    p.circle(cx, cy, side / 2)
+                    c.clipPath(p, stroke=0, fill=0)
+                    c.drawImage(img, ix, iy, width=iw_, height=ih_,
+                                preserveAspectRatio=True, mask='auto')
+                    c.restoreState()
+                else:
+                    c.drawImage(img, ix, iy, width=iw_, height=ih_,
+                                preserveAspectRatio=True, mask='auto')
+
             if stacked:
                 # Back image at bottom-right, front image at top-left so the
                 # front (small_icon) covers the lower-right corner of the back.
                 back_x = icon_x + draw_w - back_w
                 back_y = icon_y
-                c.drawImage(back_path, back_x, back_y, width=back_w, height=back_h,
-                            preserveAspectRatio=True, mask='auto')
+                _draw_rounded(back_path, back_x, back_y, back_w, back_h)
                 front_x = icon_x
                 front_y = icon_y + draw_h - front_h
-                c.drawImage(icon_path, front_x, front_y, width=front_w, height=front_h,
-                            preserveAspectRatio=True, mask='auto')
+                _draw_rounded(icon_path, front_x, front_y, front_w, front_h)
             else:
-                c.drawImage(icon_path, icon_x, icon_y, width=draw_w, height=draw_h,
-                            preserveAspectRatio=True, mask='auto')
+                _draw_rounded(icon_path, icon_x, icon_y, draw_w, draw_h)
             label_x = icon_x + draw_w + icon_text_gap
         elif svg_fallback is not None:
             icon_x = start_x
@@ -7971,3 +8007,211 @@ class SetupCardLayoutEngine:
         para.drawOn(c, text_x, top_y - para_h + SETUP_CARD_STEP_TEXT_Y_OFFSET)
 
         return block_bottom
+
+
+def _resolve_image_path(attr):
+    if not attr:
+        return None
+    path_val = getattr(attr, 'path', None)
+    if path_val and os.path.exists(path_val):
+        return path_val
+    if isinstance(attr, str) and os.path.exists(attr):
+        return attr
+    return None
+
+
+class ComponentsSheetLayoutEngine:
+    """Letter-portrait print-out page combining the setup card, faction
+    markers, and every individual building/token slot. Optionally emits
+    interleaved back pages with mirrored x positions for duplex printing."""
+
+    def __init__(self, faction, card_preview_path=None):
+        self.faction = faction
+        self.card = getattr(faction, 'setup_card', None)
+        self.back = getattr(faction, 'faction_back', None)
+        self.print_backs = bool(getattr(faction, 'print_component_backs', False))
+        self.card_preview_path = card_preview_path
+
+    def _build_grid_slots(self):
+        """Slot order: VP marker, relationship marker, then each B/T piece
+        repeated `quantity` times. The setup card is placed separately and
+        is not part of the grid list."""
+        slots = []
+        vp_path = _resolve_image_path(getattr(self.faction, 'vp_marker', None))
+        if vp_path:
+            slots.append({'kind': 'marker', 'front': vp_path, 'back': vp_path})
+        rel_path = _resolve_image_path(getattr(self.faction, 'relationship_marker', None))
+        if rel_path:
+            slots.append({'kind': 'marker', 'front': rel_path, 'back': rel_path})
+        if self.back is not None:
+            for piece in self.back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
+                front = _resolve_image_path(getattr(piece, 'small_icon', None))
+                back = _resolve_image_path(getattr(piece, 'back_image', None)) or front
+                qty = getattr(piece, 'quantity', 1) or 1
+                for _ in range(qty):
+                    slots.append({
+                        'kind': 'piece',
+                        'piece_type': piece.type,
+                        'front': front,
+                        'back': back,
+                    })
+        return slots
+
+    def _paginate(self, slots):
+        """Return a list of page layouts. Each layout is a list of (slot, x, y).
+        Page 0 also reserves the top-left card region; remaining pages use the
+        full body for a uniform grid."""
+        page_w = COMPONENTS_PAGE_W
+        page_h = COMPONENTS_PAGE_H
+        margin = COMPONENTS_PAGE_MARGIN
+        gap = COMPONENTS_GRID_GAP
+        cell = TRACK_SLOT_SIZE
+        pitch = cell + gap
+
+        card_x = margin
+        card_y = page_h - margin - CARD_SLOT_H
+        has_card = self.card is not None and self.card_preview_path is not None
+
+        def grid_positions(x0, x1, y_top, y_bottom):
+            """Yield (x, y) positions for cells in left-to-right, top-to-bottom
+            order inside the rectangle [x0..x1] x [y_bottom..y_top]. Cells are
+            anchored at their bottom-left."""
+            width = x1 - x0
+            height = y_top - y_bottom
+            if width < cell or height < cell:
+                return
+            cols = int((width + gap) // pitch)
+            rows = int((height + gap) // pitch)
+            for r in range(rows):
+                for c in range(cols):
+                    yield (x0 + c * pitch, y_top - cell - r * pitch)
+
+        pages = []
+        idx = 0
+        while idx < len(slots):
+            page_items = []
+            if not pages and has_card:
+                # Region A: right of card, vertically aligned with card
+                a_x0 = card_x + CARD_SLOT_W + gap
+                a_x1 = page_w - margin
+                a_top = card_y + CARD_SLOT_H
+                a_bot = card_y
+                positions = list(grid_positions(a_x0, a_x1, a_top, a_bot))
+                # Region B: full body width below the card
+                b_x0 = margin
+                b_x1 = page_w - margin
+                b_top = card_y - gap
+                b_bot = margin
+                positions += list(grid_positions(b_x0, b_x1, b_top, b_bot))
+            else:
+                # Continuation page (or page 1 with no card): full body
+                c_x0 = margin
+                c_x1 = page_w - margin
+                c_top = page_h - margin
+                c_bot = margin
+                positions = list(grid_positions(c_x0, c_x1, c_top, c_bot))
+
+            if not positions:
+                break  # no room for cells — stop to avoid infinite loop
+
+            for x, y in positions:
+                if idx >= len(slots):
+                    break
+                page_items.append((slots[idx], x, y))
+                idx += 1
+            pages.append(page_items)
+
+        # Edge case: only setup card, no grid slots — still need page 1.
+        if not pages and has_card:
+            pages.append([])
+
+        return pages, has_card, card_x, card_y
+
+    def _draw_card_with_rounded_corners(self, c, path, x, y):
+        """Draw a 2.5"×3.46" card image clipped to a 15%-of-shorter-side
+        rounded rect. Matches the building rounding used in the grid."""
+        try:
+            radius = min(CARD_SLOT_W, CARD_SLOT_H) * 0.15
+            c.saveState()
+            p = c.beginPath()
+            p.roundRect(x, y, CARD_SLOT_W, CARD_SLOT_H, radius)
+            c.clipPath(p, stroke=0, fill=0)
+            c.drawImage(path, x, y, width=CARD_SLOT_W, height=CARD_SLOT_H,
+                        preserveAspectRatio=True, mask='auto')
+            c.restoreState()
+        except Exception:
+            try:
+                c.restoreState()
+            except Exception:
+                pass
+
+    def _draw_image_in_cell(self, c, path, x, y, circular=False):
+        """Draw `path` centered inside a TRACK_SLOT_SIZE cell anchored at (x, y),
+        preserving aspect ratio. Tokens (`circular=True`) clip to a circle;
+        everything else clips to a 15%-radius rounded rect."""
+        if not path:
+            return
+        from reportlab.lib.utils import ImageReader
+        try:
+            iw, ih = ImageReader(path).getSize()
+        except Exception:
+            return
+        if iw <= 0 or ih <= 0:
+            return
+        cell = TRACK_SLOT_SIZE
+        scale = min(cell / iw, cell / ih)
+        dw = iw * scale
+        dh = ih * scale
+        dx = x + (cell - dw) / 2
+        dy = y + (cell - dh) / 2
+        c.saveState()
+        p = c.beginPath()
+        if circular:
+            side = min(dw, dh)
+            p.circle(dx + dw / 2, dy + dh / 2, side / 2)
+        else:
+            radius = min(dw, dh) * 0.15
+            p.roundRect(dx, dy, dw, dh, radius)
+        c.clipPath(p, stroke=0, fill=0)
+        c.drawImage(path, dx, dy, width=dw, height=dh,
+                    preserveAspectRatio=True, mask='auto')
+        c.restoreState()
+
+    def build(self, output_path):
+        slots = self._build_grid_slots()
+        pages, has_card, card_x, card_y = self._paginate(slots)
+
+        # If literally nothing to draw, still emit a blank page so the caller's
+        # PDF concat doesn't break — but the view-side guard already prevents
+        # this case in practice.
+        if not pages:
+            pages = [[]]
+
+        c = rl_canvas.Canvas(output_path, pagesize=(COMPONENTS_PAGE_W, COMPONENTS_PAGE_H))
+        page_w = COMPONENTS_PAGE_W
+
+        adset_path = COMPONENTS_ADSET_STATIC if os.path.exists(COMPONENTS_ADSET_STATIC) else None
+
+        for i, page_items in enumerate(pages):
+            # Front page i
+            if i == 0 and has_card:
+                self._draw_card_with_rounded_corners(c, self.card_preview_path, card_x, card_y)
+            for slot, x, y in page_items:
+                circular = slot.get('piece_type') == 'T'
+                self._draw_image_in_cell(c, slot['front'], x, y, circular=circular)
+            c.showPage()
+
+            if not self.print_backs:
+                continue
+
+            # Back page i — mirrored horizontally
+            if i == 0 and has_card and adset_path:
+                xb = page_w - COMPONENTS_PAGE_MARGIN - CARD_SLOT_W
+                self._draw_card_with_rounded_corners(c, adset_path, xb, card_y)
+            for slot, x, y in page_items:
+                xb = page_w - x - TRACK_SLOT_SIZE
+                circular = slot.get('piece_type') == 'T'
+                self._draw_image_in_cell(c, slot['back'], xb, y, circular=circular)
+            c.showPage()
+
+        c.save()

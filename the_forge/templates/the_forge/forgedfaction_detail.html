@@ -92,6 +92,11 @@
                 <p class="text-muted small text-center forge-detail-preview-stale">Image refreshes after download</p>
               {% endif %}
             </div>
+          {% elif sheet %}
+              <p class="text-muted text-center my-3">Download to refresh the preview.</p>
+          {% else %}
+              <p class="text-muted text-center my-3">No Faction Board yet.</p>
+
           {% endif %}
           {% if can_edit %}
             <div class="d-flex justify-content-between align-items-center mt-auto gap-2">
@@ -136,6 +141,10 @@
                 <p class="text-muted small text-center forge-detail-preview-stale">Image refreshes after download</p>
               {% endif %}
             </div>
+          {% elif back %}
+              <p class="text-muted text-center my-3">Download to refresh the preview.</p>
+          {% else %}
+              <p class="text-muted text-center my-3">No Faction Board Back yet.</p>
           {% endif %}
           {% if can_edit %}
             <div class="d-flex justify-content-between align-items-center mt-auto gap-2">
@@ -172,13 +181,19 @@
       <div class="forge-detail-col">
         <div class="card p-3 h-100 d-flex flex-column">
           <h4 class="root-title text-center mb-0">Adset Card</h4>
-          {% if setup_card.image_preview %}
-            <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3 forge-detail-preview-wrap">
-              <img src="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" alt="Adset preview" class="forge-detail-preview zoomable" data-full="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" data-preview-kind="card" data-preview-pk="{{ setup_card.pk }}" data-preview-base="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
-              {% if not setup_card.last_generated or setup_card.last_updated > setup_card.last_generated %}
-                <p class="text-muted small text-center forge-detail-preview-stale">Image refreshes after download</p>
-              {% endif %}
-            </div>
+  
+            {% if setup_card.image_preview %}
+              <div class="d-flex flex-grow-1 align-items-center justify-content-center my-3 forge-detail-preview-wrap">
+                <img src="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" alt="Adset preview" class="forge-detail-preview zoomable" data-full="{{ setup_card.image_preview.url }}?v={{ setup_card.preview_version }}" data-preview-kind="card" data-preview-pk="{{ setup_card.pk }}" data-preview-base="{{ setup_card.image_preview.url }}" onclick="openLightbox(this)" loading="lazy">
+                {% if not setup_card.last_generated or setup_card.last_updated > setup_card.last_generated %}
+                  <p class="text-muted small text-center forge-detail-preview-stale">Image refreshes after download</p>
+                {% endif %}
+              </div>
+            {% elif setup_card %}
+              <p class="text-muted text-center my-3">Download to refresh the preview.</p>
+
+          {% else %}
+            <p class="text-muted text-center my-3">No Adset Card yet.</p>
           {% endif %}
           {% if can_edit %}
             <div class="d-flex justify-content-between align-items-center mt-auto gap-2">
@@ -216,22 +231,22 @@
         <div class="card p-3 h-100 d-flex flex-column">
           <h4 class="root-title text-center mb-0">Faction Markers</h4>
           {% if faction.vp_marker or faction.relationship_marker %}
-            <div class="d-flex flex-column align-items-center gap-2 my-3">
+            <div class="d-flex flex-column align-items-center justify-content-center flex-grow-1 gap-3 my-3">
               {% if faction.vp_marker %}
                 <img src="{{ faction.vp_marker.url }}?v={{ faction.markers_version }}" alt="VP marker"
                      class="forge-faction-marker-preview zoomable"
                      data-full="{{ faction.vp_marker.url }}?v={{ faction.markers_version }}"
-                     onclick="openLightbox(this)"
-                     style="width: 6rem; height: 6rem; border-radius: 0.75rem; object-fit: cover; cursor: zoom-in; border: 2px solid var(--faction-color, rgba(0, 0, 0, 0.15));">
+                     onclick="openLightbox(this)">
               {% endif %}
               {% if faction.relationship_marker %}
                 <img src="{{ faction.relationship_marker.url }}?v={{ faction.markers_version }}" alt="Relationship marker"
                      class="forge-faction-marker-preview zoomable"
                      data-full="{{ faction.relationship_marker.url }}?v={{ faction.markers_version }}"
-                     onclick="openLightbox(this)"
-                     style="width: 6rem; height: 6rem; border-radius: 0.75rem; object-fit: cover; cursor: zoom-in; border: 2px solid var(--faction-color, rgba(0, 0, 0, 0.15));">
+                     onclick="openLightbox(this)">
               {% endif %}
             </div>
+          {% else %}
+            <p class="text-muted text-center my-3">No faction markers yet.</p>
           {% endif %}
           {% if can_edit %}
             <div class="d-flex justify-content-between align-items-center mt-auto gap-2">
@@ -265,6 +280,47 @@
           {% endif %}
         </div>
       </div>
+
+      {% if components or can_edit %}
+      <!-- Buildings & Tokens -->
+      <div class="forge-detail-col">
+        <div class="card p-3 h-100 d-flex flex-column">
+          <h4 class="root-title text-center mb-0">Buildings &amp; Tokens</h4>
+          {% if components %}
+            <ul class="forge-component-list my-3">
+              {% for piece in components %}
+                <li class="forge-component-row">
+                  <span class="forge-component-icon-wrap forge-component-icon-wrap--{% if piece.type == 'T' %}token{% else %}building{% endif %}">
+                    {% if piece.small_icon %}
+                      <img src="{{ piece.small_icon.url }}?v={{ piece.front_version }}" alt="" class="forge-component-icon" loading="lazy">
+                    {% elif piece.back_image %}
+                      <img src="{{ piece.back_image.url }}?v={{ piece.back_version }}" alt="" class="forge-component-icon" loading="lazy">
+                    {% else %}
+                      <span class="forge-component-icon forge-component-icon--placeholder"
+                            style="background: var(--faction-color, #888);"></span>
+                    {% endif %}
+                  </span>
+                  <span class="forge-component-qty">&times;{{ piece.quantity }}</span>
+                  <span class="forge-component-name">{{ piece.name|default:'' }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="text-muted text-center my-3">No buildings or tokens yet.</p>
+          {% endif %}
+          {% if can_edit %}
+            <div class="d-flex justify-content-end mt-auto gap-2">
+              {% if components %}
+                <a href="{% url 'forge-faction-cardboard-edit' pk=faction.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit Pieces</span></a>
+                <a href="{% url 'forge-faction-components-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download"><i class="bi bi-file-earmark-pdf"></i><span class="d-none d-md-inline ms-1">Download</span></a>
+              {% else %}
+                <a href="{% url 'forge-faction-cardboard-edit' pk=faction.pk %}" class="btn btn-sm btn-primary">+ Add Pieces</a>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
 
     </div>
   </div>

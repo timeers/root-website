@@ -37,6 +37,7 @@
     </div>
 
     <div class='mb-4'>
+        Woodland Warrior members are able to update their Fan Factions when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
         <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
         {% if user.is_authenticated %}
             <a href="{{woodland_warriors_invite}}"><img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
@@ -69,7 +70,6 @@
         </div>
         <div class='mb-4'>
             The {{site_title}} was created and is maintained by MrMirz from the Woodland Warriors Discord. 
-            Woodland Warrior members are also able to update their Fan Factions when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
         </div>
         <div class='mb-4'>
             Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided suggestions, input and encouragement to make the site what it is now.

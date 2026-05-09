@@ -124,6 +124,7 @@ class ForgedFaction(models.Model):
     vp_marker = models.ImageField(upload_to=vp_marker_upload_path, blank=True, null=True)
     relationship_marker = models.ImageField(upload_to=relationship_marker_upload_path, blank=True, null=True)
     markers_version = models.PositiveIntegerField(default=0)
+    print_component_backs = models.BooleanField(default=False)
 
 
     last_updated = models.DateTimeField(auto_now=True)

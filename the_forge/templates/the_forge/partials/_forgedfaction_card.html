@@ -9,8 +9,9 @@
            {% if faction.repeat_background_image %}
            data-tile-src="{{ faction.background_image.url }}"
            data-tile-pct="{{ faction.background_tile_size }}"
+           style="background-color:{{ faction.color|default:'transparent' }};"
            {% else %}
-           style="background-image:url('{{ faction.background_image.url }}');"
+           style="background-image:url('{{ faction.background_image.url }}'); background-color:{{ faction.color|default:'transparent' }};"
            {% endif %}></div>
     {% else %}
       {% with preset_path=faction.BACKGROUND_PRESET_FILES|dict_get:faction.background_preset %}
@@ -54,6 +55,12 @@
           <img src="{{ faction.setup_card.image_preview.url }}?v={{ faction.setup_card.preview_version }}" alt="Adset preview" class="forge-faction-card__preview">
         {% elif faction.setup_card %}
           <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--portrait">A</span>
+        {% endif %}
+        {% if faction.vp_marker and faction.relationship_marker %}
+          <div class="forge-faction-card__markers">
+            <img src="{{ faction.vp_marker.url }}?v={{ faction.markers_version }}" alt="VP marker" class="forge-faction-card__marker">
+            <img src="{{ faction.relationship_marker.url }}?v={{ faction.markers_version }}" alt="Relationship marker" class="forge-faction-card__marker">
+          </div>
         {% endif %}
       </div>
     </div>

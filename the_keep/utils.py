@@ -149,6 +149,43 @@ FACTION_SLUGS = {
 }
 
 
+def center_square_crop_in_place(image_field):
+    """Center-crop an image to a square at its current source resolution. Uses
+    the shorter side as the square size and trims the longer side equally on
+    both ends. Rewrites the file at its existing path/format. No-op if the
+    image is already square.
+
+    Run BEFORE resize_image_to_webp so the crop happens at the source's full
+    resolution and the subsequent resize step enforces the max-size cap.
+    """
+    try:
+        if not image_field or not image_field.name:
+            return
+        path = image_field.path
+        if not os.path.exists(path):
+            return
+
+        img = Image.open(path)
+        fmt = img.format
+        w, h = img.size
+        if w <= 0 or h <= 0 or w == h:
+            return
+
+        side = min(w, h)
+        left = (w - side) // 2
+        top = (h - side) // 2
+        cropped = img.crop((left, top, left + side, top + side))
+
+        save_kwargs = {}
+        if fmt:
+            save_kwargs['format'] = fmt
+        if fmt in ('JPEG', 'WEBP'):
+            save_kwargs['quality'] = 90
+        cropped.save(path, **save_kwargs)
+    except Exception as e:
+        print(f'Error center-square-cropping image: {e}')
+
+
 def resize_image(image_field, max_size):
     """Helper function to resize the image if necessary."""
     try:

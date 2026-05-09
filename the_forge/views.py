@@ -298,12 +298,17 @@ def forgedfaction_detail(request, pk):
         setup_card = faction.setup_card
     except SetupCard.DoesNotExist:
         setup_card = None
+    components = (
+        list(back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'))
+        if back else []
+    )
     return render(request, 'the_forge/forgedfaction_detail.html', {
         'faction': faction,
         'can_edit': user_can_edit_forge(request, faction),
         'sheet': sheet,
         'back': back,
         'setup_card': setup_card,
+        'components': components,
     })
 
 
@@ -852,6 +857,89 @@ def factionback_edit(request, pk):
             ('card_wealth', 'Card Wealth'),
             ('crafting_ability', 'Crafting Ability'),
         ],
+    })
+
+
+@forge_onboard_required
+def forgedfaction_cardboard_edit(request, pk):
+    """Standalone editor for the buildings/tokens roster and the
+    `print_component_backs` toggle. Mirrors the relevant slice of the
+    FactionBack editor (the same Buildings & Tokens piece sections) without
+    the back-side layout fields."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    back, _ = FactionBack.objects.get_or_create(faction=faction)
+    cardboard_types = ('B', 'T')
+    if request.method == 'POST':
+        piece_ids = request.POST.getlist('piece_id')
+        piece_types = request.POST.getlist('piece_type')
+        piece_names = request.POST.getlist('piece_name')
+        piece_quantities = request.POST.getlist('piece_quantity')
+        piece_clear_flags = request.POST.getlist('piece_clear_icon')
+        piece_clear_back_flags = request.POST.getlist('piece_clear_back')
+        with transaction.atomic():
+            faction.print_component_backs = bool(request.POST.get('print_component_backs'))
+            faction.save(update_fields=['print_component_backs'])
+
+            existing_pieces = {p.pk: p for p in back.pieces.filter(type__in=cardboard_types)}
+            kept_piece_ids = set()
+            rows = list(zip(
+                piece_ids, piece_types, piece_names, piece_quantities,
+                piece_clear_flags, piece_clear_back_flags,
+            ))
+            for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
+                if ptype not in cardboard_types:
+                    continue
+                front_upload = request.FILES.get(f'piece_icon_{index}')
+                back_upload = request.FILES.get(f'piece_back_{index}')
+                name = (name or '').strip()
+                try:
+                    quantity = max(1, min(99, int(qty or 1)))
+                except (TypeError, ValueError):
+                    quantity = 1
+                has_new_front = bool(front_upload)
+                has_new_back = bool(back_upload)
+                should_clear_front = (clear_front == '1') and not has_new_front
+                should_clear_back = (clear_back == '1') and not has_new_back
+                if sid and sid.isdigit() and int(sid) in existing_pieces:
+                    piece = existing_pieces[int(sid)]
+                    kept_piece_ids.add(piece.pk)
+                    piece.name = name
+                    piece.quantity = quantity
+                    piece.type = ptype
+                    if has_new_front:
+                        piece.small_icon = front_upload
+                    elif should_clear_front:
+                        piece.small_icon = None
+                    if has_new_back:
+                        piece.back_image = back_upload
+                    elif should_clear_back:
+                        piece.back_image = None
+                    piece.save()
+                else:
+                    new_piece = Piece(parent=back, name=name, quantity=quantity, type=ptype)
+                    new_piece.save()
+                    if has_new_front or has_new_back:
+                        if has_new_front:
+                            new_piece.small_icon = front_upload
+                        if has_new_back:
+                            new_piece.back_image = back_upload
+                        new_piece.save()
+            stale_piece_ids = set(existing_pieces) - kept_piece_ids
+            if stale_piece_ids:
+                Piece.objects.filter(pk__in=stale_piece_ids).delete()
+        return redirect('forge-faction-detail', pk=faction.pk)
+
+    pieces_qs = list(back.pieces.filter(type__in=cardboard_types).order_by('id'))
+    piece_sections = [
+        ('B', 'Buildings', 'Building', [p for p in pieces_qs if p.type == 'B']),
+        ('T', 'Tokens', 'Token', [p for p in pieces_qs if p.type == 'T']),
+    ]
+    return render(request, 'the_forge/cardboard_editor.html', {
+        'faction': faction,
+        'back': back,
+        'piece_sections': piece_sections,
     })
 
 
@@ -2076,9 +2164,13 @@ def forgedfaction_pdf(request, pk):
         return resp
     from io import BytesIO
     from pypdf import PdfWriter, PdfReader
-    from .pdf_engine import SheetLayoutEngine, FactionBackLayoutEngine, SetupCardLayoutEngine
+    from .pdf_engine import (
+        SheetLayoutEngine, FactionBackLayoutEngine, SetupCardLayoutEngine,
+        ComponentsSheetLayoutEngine,
+    )
     from .pdf_cache import (
-        cache_key, fingerprint_sheet, fingerprint_back, fingerprint_setup_card, get_or_build,
+        cache_key, fingerprint_sheet, fingerprint_back, fingerprint_setup_card,
+        fingerprint_components_sheet, get_or_build,
     )
 
     parts = []
@@ -2106,15 +2198,32 @@ def forgedfaction_pdf(request, pk):
         parts.append(back_pdf)
 
     card = getattr(faction, 'setup_card', None)
-    if card:
-        def build_card():
+    has_components = bool(
+        card or faction.vp_marker or faction.relationship_marker
+        or (back and back.pieces.filter(type__in=('B', 'T')).exists())
+    )
+    if has_components:
+        card_preview_path = None
+        if card:
+            card_fp = fingerprint_setup_card(card)
+            # Refresh the SetupCard preview if its fingerprint is stale, so the
+            # detail-page thumbnail updates as a side effect of Combined PDF.
+            if card.preview_fingerprint != card_fp or not card.image_preview:
+                card_buf = BytesIO()
+                SetupCardLayoutEngine(card).build(card_buf)
+                _maybe_save_image_preview(card, card_buf.getvalue(), card_fp, 'card')
+            if card.image_preview:
+                card_preview_path = card.image_preview.path
+
+        def build_components():
             buf = BytesIO()
-            SetupCardLayoutEngine(card).build(buf)
+            ComponentsSheetLayoutEngine(faction, card_preview_path=card_preview_path).build(buf)
             return buf.getvalue()
-        card_fp = fingerprint_setup_card(card)
-        card_pdf = get_or_build(cache_key('setup_card', card.pk, card_fp), build_card)
-        _maybe_save_image_preview(card, card_pdf, card_fp, 'card')
-        parts.append(card_pdf)
+        components_fp = fingerprint_components_sheet(faction)
+        components_pdf = get_or_build(
+            cache_key('components', faction.pk, components_fp), build_components,
+        )
+        parts.append(components_pdf)
 
     if not parts:
         return HttpResponse(
@@ -2130,6 +2239,50 @@ def forgedfaction_pdf(request, pk):
     writer.write(out)
     response = _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
     return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
+
+
+@login_required
+def forgedfaction_components_pdf(request, pk):
+    """Render only the components page(s) — setup card, markers, and the
+    building/token grid — without the front or back faction sheets."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SetupCardLayoutEngine, ComponentsSheetLayoutEngine
+    from .pdf_cache import (
+        cache_key, fingerprint_setup_card, fingerprint_components_sheet, get_or_build,
+    )
+
+    card = getattr(faction, 'setup_card', None)
+    back = getattr(faction, 'faction_back', None)
+    has_components = bool(
+        card or faction.vp_marker or faction.relationship_marker
+        or (back and back.pieces.filter(type__in=('B', 'T')).exists())
+    )
+    if not has_components:
+        return HttpResponse(
+            "No components yet — add a setup card, faction markers, or building/token pieces first.",
+            status=404, content_type='text/plain',
+        )
+
+    card_preview_path = None
+    if card:
+        card_fp = fingerprint_setup_card(card)
+        if card.preview_fingerprint != card_fp or not card.image_preview:
+            card_buf = BytesIO()
+            SetupCardLayoutEngine(card).build(card_buf)
+            _maybe_save_image_preview(card, card_buf.getvalue(), card_fp, 'card')
+        if card.image_preview:
+            card_preview_path = card.image_preview.path
+
+    def build_components():
+        buf = BytesIO()
+        ComponentsSheetLayoutEngine(faction, card_preview_path=card_preview_path).build(buf)
+        return buf.getvalue()
+    fp = fingerprint_components_sheet(faction)
+    data = get_or_build(cache_key('components', faction.pk, fp), build_components)
+    return _pdf_file_response(data, f'{faction.faction_name} - Components.pdf')
 
 
 @login_required

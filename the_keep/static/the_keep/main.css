@@ -3759,6 +3759,22 @@ body.forge-modal-open { overflow: hidden; }
   width: 2.14rem;
   padding: 0;
 }
+.forge-faction-card__markers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  height: 3rem;
+  width: 1.375rem;
+  flex-shrink: 0;
+}
+.forge-faction-card__marker {
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 0.3rem;
+  object-fit: cover;
+  border: 2px solid var(--faction-color, rgba(0, 0, 0, 0.15));
+  background: rgba(255, 255, 255, 0.6);
+}
 
 /* Forge faction detail page — full-page background, overlay, ornamental frame, columns */
 .forge-detail-page-bg {
@@ -3807,6 +3823,61 @@ body.forge-modal-open { overflow: hidden; }
 }
 .forge-detail-col { display: flex; }
 .forge-detail-col > .card { width: 100%; }
+.forge-faction-marker-preview {
+  width: 100%;
+  max-width: 14rem;
+  aspect-ratio: 1 / 1;
+  height: auto;
+  border-radius: 0.75rem;
+  object-fit: cover;
+  cursor: zoom-in;
+  border: 2px solid var(--faction-color, rgba(0, 0, 0, 0.15));
+}
+.forge-component-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.forge-component-row {
+  display: grid;
+  grid-template-columns: 2.25rem 2.5rem 1fr;
+  align-items: center;
+  gap: 0.6rem;
+}
+.forge-component-icon-wrap {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.04);
+}
+.forge-component-icon-wrap--building { border-radius: 0.34rem; }
+.forge-component-icon-wrap--token { border-radius: 50%; }
+.forge-component-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.forge-component-icon--placeholder {
+  width: 70%;
+  height: 70%;
+  border-radius: inherit;
+  opacity: 0.5;
+}
+.forge-component-qty {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+.forge-component-name {
+  font-style: italic;
+}
 .forge-detail-preview-wrap { position: relative; }
 .forge-detail-preview-stale {
   position: absolute;

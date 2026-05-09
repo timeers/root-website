@@ -21,6 +21,8 @@ urlpatterns = [
     path('forge/faction/<int:pk>/markers/relationship.png', views.forgedfaction_relationship_marker_png, name='forge-faction-relationship-marker-png'),
     path('forge/faction/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),
     path('forge/faction/<int:pk>/pdf/', views.forgedfaction_pdf, name='forge-faction-pdf'),
+    path('forge/faction/<int:pk>/components/pdf/', views.forgedfaction_components_pdf, name='forge-faction-components-pdf'),
+    path('forge/faction/<int:pk>/cardboard/', views.forgedfaction_cardboard_edit, name='forge-faction-cardboard-edit'),
     path('forge/faction/<int:pk>/tts/', views.forgedfaction_tts, name='forge-faction-tts'),
 
     # FactionSheet Front
