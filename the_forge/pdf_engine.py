@@ -401,6 +401,9 @@ PDF_TEXT = {
             'M': 'MODERATE',
             'H': 'HIGH',
         },
+        'adset': {
+            'title': 'ADVANCED SETUP'
+        },
     },
     'fr': {
         'crafted_items': {
@@ -432,6 +435,43 @@ PDF_TEXT = {
             'M': 'MODÉRÉE',
             'H': 'ÉLEVÉE',
         },
+        'adset': {
+            'title': 'MISE EN PLACE AVANCÉE'
+        },
+    },
+    'es': {
+        'crafted_items': {
+            'title': 'Objetos Fabricados',
+            'body': 'El vagabundo puede darte cartas para tomar estos objectos.',
+        },
+        'phases': {
+            'birdsong': 'Alba',
+            'daylight': 'Día',
+            'evening': 'Noche',
+        },
+        'back': {
+            'manifest': 'Componentes de Facción',
+            'warriors': 'Guerreros',
+            'tokens': 'Fichas',
+            'buildings': 'Edificios',
+            'other': 'Otras Piezas',
+            'complexity': 'Complejidad',
+            'aggression': 'Agresividad',
+            'card_wealth': 'Abundancia de Cartas',
+            'crafting_ability': 'Capacidad de Fabricación',
+            'setup': 'Preparación Inicial',
+            'playing': 'Jugando con',
+            'none': 'ninguno',
+        },
+        'attr_levels': {
+            'N': 'NINGUNO',
+            'L': 'BAJA',
+            'M': 'MODERADA',
+            'H': 'ALTA',
+        },
+        'adset': {
+            'title': 'CONFIGURACIÓN AVANZADA'
+        },
     },
     # 'es', 'nl', 'pl', 'ru', 'de', 'pt' to be filled in later.
 }
@@ -453,6 +493,18 @@ def _lang_code_for(obj):
 def _pdf_label(element_key, label_key, obj, default=''):
     """One-shot lookup: resolve language from `obj`, fetch element block, return label."""
     return _pdf_text(element_key, _lang_code_for(obj)).get(label_key, default)
+
+
+def _numbered_svg_path(base_dir, n, lang_code):
+    """Resolve the numbered-SVG path for a given language. Non-English languages
+    use the shared `pdf/svg/international/<n>.svg` set; English uses the
+    caller-specified `base_dir/<n>.svg`. Falls back to `base_dir` if the
+    international file is missing."""
+    if lang_code and lang_code != PDF_TEXT_FALLBACK:
+        intl = os.path.join(STATIC_DIR, 'pdf/svg/international', f'{n}.svg')
+        if os.path.exists(intl):
+            return intl
+    return os.path.join(base_dir, f'{n}.svg')
 
 # Track slot rendering
 TRACK_SLOT_SIZE = 0.67 * inch
@@ -638,6 +690,8 @@ SETUP_CARD_TITLE_TEXT = 'ADVANCED SETUP'
 SETUP_CARD_TITLE_FONT_SIZE = 9.5               # font size (pt) of the "ADVANCED SETUP" title
 SETUP_CARD_TITLE_TOP_MARGIN = 0.833 * inch     # distance from top of card to title baseline
 SETUP_CARD_TITLE_CHAR_SPACING = 0.35           # extra pts of space between each character in the title
+SETUP_CARD_TITLE_MAX_W = CARD_SLOT_W - 2 * SETUP_CARD_BAND_X_INSET  # title must fit within the band's horizontal extent
+SETUP_CARD_TITLE_MIN_FONT_SIZE = 6.5            # don't shrink the localized title below this
 
 # Header image hangs upward from the bottom-left of the band
 SETUP_CARD_HEADER_MAX_H = 1.4 * inch          # don't let the header overflow upward forever
@@ -792,8 +846,13 @@ MEEPLE_SVG = os.path.join(STATIC_DIR, 'pdf/svg/meeple.svg')
 
 ADSET_DIR = os.path.join(STATIC_DIR, 'pdf/adset')
 SETUP_CARD_BG_PNG = os.path.join(ADSET_DIR, 'background.png')
-SETUP_CARD_MILITANT_PNG = os.path.join(ADSET_DIR, 'militant2.png')
+SETUP_CARD_MILITANT_PNG = os.path.join(ADSET_DIR, 'militant3.png')
 SETUP_CARD_INSURGENT_PNG = os.path.join(ADSET_DIR, 'insurgent2.png')
+SETUP_CARD_SWORD_PNG = os.path.join(ADSET_DIR, 'Adset_Sword.png')
+SETUP_CARD_SWORD_SIZE = 0.162 * inch              # rendered size (square) of the militant sword next to the title
+SETUP_CARD_SWORD_TITLE_GAP = 0.017 * inch         # horizontal gap between sword and title
+SETUP_CARD_SWORD_Y_NUDGE = -1.42                  # pts to shift the sword vertically (negative = down)
+SETUP_CARD_SWORD_MIN_LEFT_INSET = 0.25 * inch     # sword's left edge can't go any closer to the card edge than this — keeps it from drifting too far out and forces the title to shrink earlier
 
 PHASE_HEADERS = {
     'birdsong': {
@@ -3106,8 +3165,9 @@ class SheetLayoutEngine:
 
         # Preload numbered SVGs (0-9) for phase steps, at natural size
         self._phase_number_svgs = {}
+        lang_code = _lang_code_for(self.sheet)
         for n in range(10):
-            svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
+            svg_path = _numbered_svg_path(PHASE_NUMBER_SVG_DIR, n, lang_code)
             if os.path.exists(svg_path):
                 self._phase_number_svgs[n] = self._load_colored_svg(svg_path, on_tan_hex)
 
@@ -6678,7 +6738,7 @@ class FactionBackLayoutEngine:
 
         self._setup_marker_svgs = {}
         for n in range(10):
-            svg_path = os.path.join(PHASE_NUMBER_SVG_DIR, f'{n}.svg')
+            svg_path = _numbered_svg_path(PHASE_NUMBER_SVG_DIR, n, self._lang_code)
             if os.path.exists(svg_path):
                 self._setup_marker_svgs[n] = self._load_colored_svg(
                     svg_path, '#000000', fit_size=SETUP_MARKER_HEIGHT,
@@ -7500,7 +7560,7 @@ class SetupCardLayoutEngine:
 
     Layer order (bottom to top):
       1. adset/background.png (full canvas)
-      2. adset/militant2.png or adset/insurgent2.png (full canvas)
+      2. adset/militant3.png or adset/insurgent2.png (full canvas)
       3. Reach number (white Luminari, bottom-right)
       4. Faction-color band (above the bottom strip)
       5. Optional header image (bottom-left aligned to band, hangs upward)
@@ -7517,8 +7577,9 @@ class SetupCardLayoutEngine:
         self._setup_steps = self._resolve_setup_steps(card)
 
         self._setup_marker_svgs = {}
+        lang_code = _lang_code_for(self.faction)
         for n in range(10):
-            svg_path = os.path.join(SETUP_CARD_NUMBER_SVG_DIR, f'{n}.svg')
+            svg_path = _numbered_svg_path(SETUP_CARD_NUMBER_SVG_DIR, n, lang_code)
             if os.path.exists(svg_path):
                 self._setup_marker_svgs[n] = self._load_colored_svg(
                     svg_path, '#000000', fit_size=SETUP_CARD_MARKER_HEIGHT,
@@ -7661,19 +7722,74 @@ class SetupCardLayoutEngine:
         c.set_layer_tag('fg')
         self._draw_reach(c)
 
-        # Title: "ADVANCED SETUP" centered near top
+        # Title: "ADVANCED SETUP" (localized) centered near top. Some
+        # languages (e.g. French "MISE EN PLACE AVANCÉE") are much longer
+        # than the English original — shrink in place rather than wrap.
+        # Militant factions get a sword icon to the left of the title; the
+        # available text width is reduced by 2x the sword size so the title
+        # stays visually centered (sword on the left, matching gutter on
+        # the right).
+        title_text = _pdf_label('adset', 'title', self.faction, default=SETUP_CARD_TITLE_TEXT)
+        title_font_size = SETUP_CARD_TITLE_FONT_SIZE
+        title_char_spacing = SETUP_CARD_TITLE_CHAR_SPACING
+        is_militant = self.card.type == 'M'
+        title_max_w = SETUP_CARD_TITLE_MAX_W
+        if is_militant:
+            # The sword's left edge is clamped to SETUP_CARD_SWORD_MIN_LEFT_INSET
+            # from the card edge, with a mirrored gutter on the right so the
+            # title stays visually centered. The title window is whatever is
+            # left between sword + gap on each side. This caps how far the
+            # sword can slide outward — once the title gets long enough to
+            # bump into this window, the title shrinks instead of the sword
+            # drifting further left.
+            militant_max_w = CARD_SLOT_W - 2 * (
+                SETUP_CARD_SWORD_MIN_LEFT_INSET + SETUP_CARD_SWORD_SIZE + SETUP_CARD_SWORD_TITLE_GAP
+            )
+            title_max_w = min(title_max_w, militant_max_w)
+
+        def _title_width(font_size, char_spacing):
+            return (
+                pdfmetrics.stringWidth(title_text, 'Baskerville-Bold', font_size)
+                + char_spacing * max(len(title_text) - 1, 0)
+            )
+
+        title_w = _title_width(title_font_size, title_char_spacing)
+        if title_w > title_max_w:
+            scale = max(
+                SETUP_CARD_TITLE_MIN_FONT_SIZE / SETUP_CARD_TITLE_FONT_SIZE,
+                title_max_w / title_w,
+            )
+            title_font_size = SETUP_CARD_TITLE_FONT_SIZE * scale
+            title_char_spacing = SETUP_CARD_TITLE_CHAR_SPACING * scale
+            title_w = _title_width(title_font_size, title_char_spacing)
+
+        title_x = (CARD_SLOT_W - title_w) / 2
+        title_baseline_y = CARD_SLOT_H - SETUP_CARD_TITLE_TOP_MARGIN
+
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        title_w = (
-            pdfmetrics.stringWidth(SETUP_CARD_TITLE_TEXT, 'Baskerville-Bold', SETUP_CARD_TITLE_FONT_SIZE)
-            + SETUP_CARD_TITLE_CHAR_SPACING * max(len(SETUP_CARD_TITLE_TEXT) - 1, 0)
-        )
-        txt = c.beginText((CARD_SLOT_W - title_w) / 2, CARD_SLOT_H - SETUP_CARD_TITLE_TOP_MARGIN)
-        txt.setFont('Baskerville-Bold', SETUP_CARD_TITLE_FONT_SIZE)
-        txt.setCharSpace(SETUP_CARD_TITLE_CHAR_SPACING)
-        txt.textLine(SETUP_CARD_TITLE_TEXT)
+        txt = c.beginText(title_x, title_baseline_y)
+        txt.setFont('Baskerville-Bold', title_font_size)
+        txt.setCharSpace(title_char_spacing)
+        txt.textLine(title_text)
         c.drawText(txt)
         c.restoreState()
+
+        # Militant sword to the left of the title. Vertical position is
+        # locked to the unscaled title font size — long localized titles
+        # may shrink the text, but the sword stays put and only shifts
+        # horizontally to track the title's left edge.
+        if is_militant and os.path.exists(SETUP_CARD_SWORD_PNG):
+            sword_size = SETUP_CARD_SWORD_SIZE
+            sword_x = max(
+                title_x - SETUP_CARD_SWORD_TITLE_GAP - sword_size,
+                SETUP_CARD_SWORD_MIN_LEFT_INSET,
+            )
+            sword_y = title_baseline_y + (SETUP_CARD_TITLE_FONT_SIZE / 2) - (sword_size / 2) + SETUP_CARD_SWORD_Y_NUDGE
+            c.drawImage(
+                SETUP_CARD_SWORD_PNG, sword_x, sword_y, sword_size, sword_size,
+                preserveAspectRatio=True, mask='auto',
+            )
 
         # Layer 4: faction-color band
         band_x = SETUP_CARD_BAND_X_INSET

@@ -17,6 +17,7 @@
 - Dynamic min width for attribute bars
 - Soft warning if name in Forge conflicts with existing faction
 - Pieces snap to matching tracks
+- Added French and Spanish
 
 ### Bug Fixes
 - Piece name field is now optional

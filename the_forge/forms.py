@@ -97,6 +97,8 @@ class ForgedFactionForm(forms.ModelForm):
         from the_gatehouse.models import Language
         self.fields['language'].queryset = Language.objects.filter(code__in=PDF_TEXT.keys())
         self.fields['language'].widget.attrs.setdefault('class', 'form-select')
+        self.fields['language'].required = True
+        self.fields['language'].empty_label = None
 
     def clean_background_tile_size(self):
         raw = self.cleaned_data.get('background_tile_size')

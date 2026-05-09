@@ -72,7 +72,7 @@ class ForgedFaction(models.Model):
         on_delete=models.SET_NULL,
         null=True, blank=True,
         default=_default_language,
-        help_text="Language used for built-in faction text (e.g. Crafted Items label). Defaults to English.",
+        help_text="Language used for built-in faction text (e.g. Crafted Items label).",
     )
     faction_name = models.CharField(max_length=100)
     slug = models.SlugField(unique=True, null=True, blank=True)
