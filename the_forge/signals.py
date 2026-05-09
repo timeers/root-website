@@ -14,8 +14,8 @@ ICON_MAX = 400       # small icons (~1")
 TRACK_MAX = 300      # cardboard track / slot backgrounds (~1" rect/circle)
 
 IMAGE_FIELDS_CONFIG = {
-    'ForgedFaction':   {'fields': {'background_image': FORGE_MAX}},
-    'FactionSheet':    {'fields': {'action_image': ICON_MAX, 'header_image': FORGE_MAX}},
+    'ForgedFaction':   {'fields': {'background_image': FORGE_MAX, 'faction_icon': ICON_MAX}},
+    'FactionSheet':    {'fields': {'header_image': FORGE_MAX}},
     'CharacterImage':  {'fields': {'image': MEDIUM_MAX}},
     'StepAction':      {'fields': {'cost_image': ICON_MAX}},
     'PhaseStep':       {'fields': {'step_cost_image': ICON_MAX}},

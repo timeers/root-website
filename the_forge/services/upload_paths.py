@@ -46,6 +46,24 @@ def back_preview_upload_path(instance, filename):
         filename='back.webp',
     )
 
+def faction_icon_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.slug, 'board'],
+        filename='icon.webp',
+    )
+
+def vp_marker_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.slug, 'board'],
+        filename='vp_marker.webp',
+    )
+
+def relationship_marker_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.slug, 'board'],
+        filename='relationship_marker.webp',
+    )
+
 
 def card_preview_upload_path(instance, filename):
     return upload_path(

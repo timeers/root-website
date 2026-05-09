@@ -64,6 +64,7 @@ class ForgedFactionForm(forms.ModelForm):
         model = ForgedFaction
         fields = [
             'faction_name',
+            'language',
             'color',
             'secondary_color',
             'background_preset',
@@ -86,6 +87,17 @@ class ForgedFactionForm(forms.ModelForm):
             }),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Whitelist language choices to codes that have a populated PDF_TEXT
+        # entry — the dropdown should only offer languages the PDF engine can
+        # actually render. Imports are deferred to avoid pulling another app's
+        # models at module-load time.
+        from the_forge.pdf_engine import PDF_TEXT
+        from the_gatehouse.models import Language
+        self.fields['language'].queryset = Language.objects.filter(code__in=PDF_TEXT.keys())
+        self.fields['language'].widget.attrs.setdefault('class', 'form-select')
+
     def clean_background_tile_size(self):
         raw = self.cleaned_data.get('background_tile_size')
         if raw is None:
@@ -107,6 +119,40 @@ class ForgedFactionForm(forms.ModelForm):
         elif mode == self.BG_MODE_PRESET:
             cleaned['background_image'] = False
             cleaned['repeat_background_image'] = False
+        return cleaned
+
+
+class FactionMarkersForm(forms.ModelForm):
+    """Edit a faction's icon plus VP/Relationship marker color. Markers
+    themselves (the composite PNGs) are generated client-side and posted
+    alongside this form's data — see the view."""
+
+    use_faction_color = forms.BooleanField(
+        required=False,
+        label="Use faction color",
+        help_text="Use the faction's primary color for marker backgrounds.",
+    )
+
+    class Meta:
+        model = ForgedFaction
+        fields = ['faction_icon', 'icon_color']
+        widgets = {
+            'icon_color': forms.TextInput(attrs={
+                'type': 'color',
+                'class': 'form-control form-control-color forge-color-swatch',
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Toggle is on whenever no icon_color override is set.
+        if self.instance and self.instance.pk and not self.is_bound:
+            self.fields['use_faction_color'].initial = not bool(self.instance.icon_color)
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('use_faction_color'):
+            cleaned['icon_color'] = None
         return cleaned
 
 

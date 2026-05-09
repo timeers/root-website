@@ -39,6 +39,13 @@
   </div>
 
   <div class="card p-3 mb-3">
+    <label for="{{ form.language.id_for_label }}" class="form-label small text-muted text-uppercase">Language</label>
+    {{ form.language }}
+    {% if form.language.help_text %}<div class="form-text">{{ form.language.help_text }}</div>{% endif %}
+    {% if form.language.errors %}<div class="text-danger small mt-1">{{ form.language.errors }}</div>{% endif %}
+  </div>
+
+  <div class="card p-3 mb-3">
     <div class="d-flex flex-wrap gap-3 align-items-start">
       <div class="flex-grow-1" id="forge-primary-color-wrap" style="min-width: 12rem;">
         <label class="form-label small text-muted text-uppercase">Faction Color</label>

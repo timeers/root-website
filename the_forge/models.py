@@ -11,6 +11,9 @@ from .services.upload_paths import (
     back_preview_upload_path,
     card_preview_upload_path,
     faction_upload_path,
+    faction_icon_upload_path,
+    vp_marker_upload_path,
+    relationship_marker_upload_path,
     piece_front_upload_path,
     piece_back_upload_path,
 )
@@ -110,6 +113,19 @@ class ForgedFaction(models.Model):
     pnp_version = models.CharField(max_length=100, null=True, blank=True)
     art_by = models.CharField(max_length=100, null=True, blank=True)
 
+    faction_icon = models.ImageField(upload_to=faction_icon_upload_path, blank=True, null=True)
+    icon_color = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        validators=[validate_hex_color],
+        help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
+    vp_marker = models.ImageField(upload_to=vp_marker_upload_path, blank=True, null=True)
+    relationship_marker = models.ImageField(upload_to=relationship_marker_upload_path, blank=True, null=True)
+    markers_version = models.PositiveIntegerField(default=0)
+
+
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 
@@ -130,6 +146,8 @@ class ForgedFaction(models.Model):
                 old = ForgedFaction.objects.get(pk=self.pk)
                 if old.background_image and old.background_image != self.background_image:
                     delete_old_image(old.background_image)
+                if old.faction_icon and old.faction_icon != self.faction_icon:
+                    delete_old_image(old.faction_icon)
             except ForgedFaction.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
@@ -176,7 +194,6 @@ class FactionSheet(models.Model):
 
     faction = models.OneToOneField(ForgedFaction, related_name='faction_sheet', on_delete=models.CASCADE)
     flavor_text = models.TextField(blank=True, null=True)
-    action_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
     include_crafted_items = models.BooleanField(default=True)
     include_decree = models.BooleanField(default=False)
     layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_VERTICAL)
@@ -229,7 +246,7 @@ class FactionSheet(models.Model):
         if self.pk:
             try:
                 old = FactionSheet.objects.get(pk=self.pk)
-                for field_name in ('action_image', 'header_image', 'image_preview'):
+                for field_name in ('header_image', 'image_preview'):
                     old_img = getattr(old, field_name)
                     new_img = getattr(self, field_name)
                     if old_img and old_img != new_img:

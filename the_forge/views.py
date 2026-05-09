@@ -34,6 +34,7 @@ from .forms import (
     FactionAbilityForm,
     FactionBackForm,
     FactionHeaderForm,
+    FactionMarkersForm,
     ForgedFactionForm,
     LegendForm,
     LegendRowForm,
@@ -322,6 +323,94 @@ def forgedfaction_edit(request, pk):
         'form': form, 'is_create': False, 'faction': faction,
         'background_presets': _background_preset_options(),
     })
+
+
+@forge_onboard_required
+def forgedfaction_markers_edit(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if request.method == 'POST':
+        form = FactionMarkersForm(request.POST, request.FILES, instance=faction)
+        if form.is_valid():
+            faction = form.save()
+            _save_marker_uploads(request, faction)
+            return redirect('forge-faction-detail', pk=faction.pk)
+    else:
+        form = FactionMarkersForm(instance=faction)
+    return render(request, 'the_forge/forgedfaction_markers_form.html', {
+        'form': form,
+        'faction': faction,
+    })
+
+
+def _save_marker_uploads(request, faction):
+    """Persist the JS-generated VP and Relationship marker PNGs sent up as
+    base64 data URLs alongside the markers form. The JS only attaches them
+    when the icon or color actually changed, so a missing field is normal
+    on no-op saves."""
+    import base64
+    from django.core.files.base import ContentFile
+    pairs = (
+        ('vp_marker_data', 'vp_marker', 'vp_marker'),
+        ('relationship_marker_data', 'relationship_marker', 'relationship_marker'),
+    )
+    update_fields = []
+    for post_key, field_name, filename_stem in pairs:
+        data_url = request.POST.get(post_key, '').strip()
+        if not data_url or ',' not in data_url:
+            continue
+        try:
+            raw = base64.b64decode(data_url.split(',', 1)[1])
+        except Exception:
+            continue
+        field = getattr(faction, field_name)
+        if field:
+            field.delete(save=False)
+        field.save(f'{filename_stem}.png', ContentFile(raw), save=False)
+        update_fields.append(field_name)
+    if update_fields:
+        faction.markers_version = (faction.markers_version or 0) + 1
+        update_fields.append('markers_version')
+        faction.save(update_fields=update_fields)
+
+
+@login_required
+@require_http_methods(["POST"])
+def forgedfaction_markers_delete(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    update_fields = []
+    if faction.vp_marker:
+        faction.vp_marker.delete(save=False)
+        update_fields.append('vp_marker')
+    if faction.relationship_marker:
+        faction.relationship_marker.delete(save=False)
+        update_fields.append('relationship_marker')
+    if update_fields:
+        faction.markers_version = (faction.markers_version or 0) + 1
+        update_fields.append('markers_version')
+        faction.save(update_fields=update_fields)
+    return redirect('forge-faction-detail', pk=faction.pk)
+
+
+def forgedfaction_vp_marker_png(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if not user_can_view_forge(request, faction):
+        return HttpResponseForbidden()
+    if not faction.vp_marker:
+        return HttpResponseBadRequest("No VP marker generated yet.")
+    return _png_file_response(faction.vp_marker, f'{faction.faction_name} - VP Marker.png')
+
+
+def forgedfaction_relationship_marker_png(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if not user_can_view_forge(request, faction):
+        return HttpResponseForbidden()
+    if not faction.relationship_marker:
+        return HttpResponseBadRequest("No relationship marker generated yet.")
+    return _png_file_response(faction.relationship_marker, f'{faction.faction_name} - Relationship Marker.png')
 
 
 @login_required
@@ -1863,6 +1952,12 @@ def _pdf_file_response(data, filename):
 def _webp_file_response(image_field, filename):
     response = FileResponse(image_field.open('rb'), content_type='image/webp')
     response['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response
+
+
+def _png_file_response(image_field, filename):
+    response = FileResponse(image_field.open('rb'), content_type='image/png')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
 
 
