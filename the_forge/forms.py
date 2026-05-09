@@ -1,6 +1,22 @@
 from django import forms
 from django.core.validators import MinValueValidator, MaxValueValidator
 
+from .limits import (
+    MAX_ABILITY_BODY,
+    MAX_BORDERED_BOX_BODY,
+    MAX_CARD_PILE_BODY,
+    MAX_CONTENT_TEXT,
+    MAX_HOW_TO_PLAY_TEXT,
+    MAX_HOW_TO_PLAY_TITLE,
+    MAX_LEGEND_ROW_BODY,
+    MAX_PHASE_STEP_TEXT,
+    MAX_PIECE_QUANTITY,
+    MAX_SETUP_STEP_TEXT,
+    MAX_STEP_ACTION_TEXT,
+    MAX_TRACK_BODY,
+    MAX_TRACK_COLS,
+    MAX_TRACK_ROWS,
+)
 from .models import (
     BorderedBox,
     CardboardSlot,
@@ -177,10 +193,12 @@ class FactionBackForm(forms.Form):
         }),
     )
     how_to_play_title = forms.CharField(
+        max_length=MAX_HOW_TO_PLAY_TITLE,
         widget=forms.TextInput(attrs={'placeholder': 'Faction', 'class': 'form-control form-control-lg'}),
     )
     how_to_play_text = forms.CharField(
         required=False,
+        max_length=MAX_HOW_TO_PLAY_TEXT,
         widget=RichTextarea(attrs={'rows': 8}),
     )
     back_image = forms.ImageField(
@@ -256,6 +274,25 @@ class FactionBackForm(forms.Form):
         return back
 
 
+def _cap(value, limit, label):
+    text = value or ''
+    if len(text) > limit:
+        raise forms.ValidationError(f"{label} limited to {limit} characters.")
+    return text
+
+
+def _cap_visible(value, limit, label):
+    """Cap based on visible character count (HTML stripped) so inline tags and
+    image embeds don't push otherwise-fine input over the limit. The raw value
+    is still saved as-is — only the length check uses the stripped form."""
+    from django.utils.html import strip_tags
+    raw = value or ''
+    visible_len = len(strip_tags(raw))
+    if visible_len > limit:
+        raise forms.ValidationError(f"{label} limited to {limit} characters.")
+    return raw
+
+
 class FactionAbilityForm(forms.ModelForm):
     class Meta:
         model = FactionAbility
@@ -267,6 +304,9 @@ class FactionAbilityForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['order'].required = False
+
+    def clean_body(self):
+        return _cap_visible(self.cleaned_data.get('body'), MAX_ABILITY_BODY, 'Body')
 
 
 class ContentBoxForm(forms.ModelForm):
@@ -283,6 +323,9 @@ class ContentBoxForm(forms.ModelForm):
         self.fields['title'].required = False
         self.fields['text'].required = False
 
+    def clean_text(self):
+        return _cap(self.cleaned_data.get('text'), MAX_CONTENT_TEXT, 'Text')
+
 
 class PhaseStepForm(forms.ModelForm):
     class Meta:
@@ -298,6 +341,9 @@ class PhaseStepForm(forms.ModelForm):
         self.fields['content_box'].required = False
         self.fields['text'].required = False
 
+    def clean_text(self):
+        return _cap_visible(self.cleaned_data.get('text'), MAX_PHASE_STEP_TEXT, 'Text')
+
 
 class StepActionForm(forms.ModelForm):
     cost = forms.CharField(
@@ -312,6 +358,9 @@ class StepActionForm(forms.ModelForm):
             'text': RichTextarea(attrs={'rows': 3}),
             'cost_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }
+
+    def clean_text(self):
+        return _cap(self.cleaned_data.get('text'), MAX_STEP_ACTION_TEXT, 'Text')
 
 
 class PhaseStepCostImageForm(forms.ModelForm):
@@ -332,6 +381,9 @@ class BorderedBoxForm(forms.ModelForm):
             'body': RichTextarea(),
             'height': forms.Select(attrs={'class': 'form-select form-select-sm'}),
         }
+
+    def clean_body(self):
+        return _cap(self.cleaned_data.get('body'), MAX_BORDERED_BOX_BODY, 'Body')
 
 
 class CardboardTrackForm(forms.ModelForm):
@@ -395,6 +447,24 @@ class CardboardTrackForm(forms.ModelForm):
     def clean_column_headers_json(self):
         return self._parse_json_list('column_headers_json')
 
+    def clean_num_rows(self):
+        n = self.cleaned_data['num_rows']
+        if n > MAX_TRACK_ROWS:
+            raise forms.ValidationError(f"Maximum {MAX_TRACK_ROWS} rows.")
+        return n
+
+    def clean_num_columns(self):
+        n = self.cleaned_data['num_columns']
+        if n > MAX_TRACK_COLS:
+            raise forms.ValidationError(f"Maximum {MAX_TRACK_COLS} columns.")
+        return n
+
+    def clean_body(self):
+        text = self.cleaned_data.get('body') or ''
+        if len(text) > MAX_TRACK_BODY:
+            raise forms.ValidationError(f"Body limited to {MAX_TRACK_BODY} characters.")
+        return text
+
 
 class CardboardSlotForm(forms.ModelForm):
     class Meta:
@@ -439,11 +509,17 @@ class CardPileForm(forms.ModelForm):
         self.fields['title'].required = False
         self.fields['body'].required = False
 
+    def clean_body(self):
+        return _cap(self.cleaned_data.get('body'), MAX_CARD_PILE_BODY, 'Body')
+
 
 class PieceForm(forms.ModelForm):
     class Meta:
         model = Piece
         fields = ['name', 'quantity', 'type', 'small_icon']
+
+    def clean_quantity(self):
+        return min(self.cleaned_data['quantity'], MAX_PIECE_QUANTITY)
 
 
 class FactionHeaderForm(forms.Form):
@@ -580,6 +656,9 @@ class SetupStepForm(forms.ModelForm):
             'text': RichTextarea(attrs={'rows': 3}),
         }
 
+    def clean_text(self):
+        return _cap(self.cleaned_data.get('text'), MAX_SETUP_STEP_TEXT, 'Text')
+
 
 class LegendForm(forms.ModelForm):
     class Meta:
@@ -610,6 +689,9 @@ class LegendRowForm(forms.ModelForm):
         self.fields['body'].required = False
         self.fields['image'].required = False
         self.fields['icon'].required = False
+
+    def clean_body(self):
+        return _cap(self.cleaned_data.get('body'), MAX_LEGEND_ROW_BODY, 'Body')
 
 
 class CharacterImageForm(forms.ModelForm):

@@ -20,6 +20,9 @@
 
 <form id="factionback-form" method="post" enctype="multipart/form-data" class="card p-3 mb-3">
   {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
 
   <!-- Component Manifest -->
   <div class="manifest-box mb-3">
@@ -30,7 +33,7 @@
     <div class="row row-cols-1 row-cols-md-2 row-cols-xxl-3 g-3 px-3 pb-3">
       {% for code, label, singular, items in piece_sections %}
         <div class="col">
-          <div class="piece-section h-100" data-piece-section="{{ code }}">
+          <div class="piece-section h-100" data-piece-section="{{ code }}" data-max-pieces="{{ max_pieces_per_type }}">
             <h5 class="root-title text-start mb-2"><strong>{{ label }}</strong></h5>
             <div class="piece-list" data-piece-list data-type="{{ code }}">
               {% for piece in items %}
@@ -90,12 +93,25 @@
           {{ form.how_to_play_title }}
         </div>
       </div>
+      {% if form.how_to_play_title.errors %}
+        <div class="text-danger small mb-2">{{ form.how_to_play_title.errors }}</div>
+      {% endif %}
       <div class="mb-2">
         {{ form.how_to_play_text.label_tag }}
         <div class="forge-rich-text forge-how-to-play">
           {{ form.how_to_play_text }}
           {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold'|split:',' %}
+          {% if form.how_to_play_text.field.max_length %}
+            <span class="forge-rich-text-counter text-muted small ms-auto"
+                  data-richtext-counter="{{ form.how_to_play_text.id_for_label }}"
+                  data-richtext-max="{{ form.how_to_play_text.field.max_length }}">
+              0 / {{ form.how_to_play_text.field.max_length }}
+            </span>
+          {% endif %}
         </div>
+        {% if form.how_to_play_text.errors %}
+          <div class="text-danger small mt-1">{{ form.how_to_play_text.errors }}</div>
+        {% endif %}
       </div>
 
       <div class="mb-2">
@@ -164,6 +180,41 @@ document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('factionback-form');
   if (!form) return;
 
+  // ----- Rich-text length counters -----
+  function blockInputAtCap(ta, max) {
+    const wrapper = ta.closest('.forge-rich-text');
+    const editor = wrapper && wrapper.querySelector('.forge-rich-text-editor');
+    const target = editor || ta;
+    target.addEventListener('beforeinput', (ev) => {
+      if (ev.inputType && ev.inputType.startsWith('delete')) return;
+      if ((ta.value || '').length >= max) ev.preventDefault();
+    });
+    target.addEventListener('paste', (ev) => {
+      if ((ta.value || '').length >= max) ev.preventDefault();
+    });
+  }
+
+  document.querySelectorAll('[data-richtext-counter]').forEach(el => {
+    const taId = el.dataset.richtextCounter;
+    const max = parseInt(el.dataset.richtextMax, 10);
+    const ta = document.getElementById(taId);
+    if (!ta || !Number.isFinite(max)) return;
+    // Move the counter into the sibling toolbar so it sits inline with the bold button.
+    const wrapper = ta.closest('.forge-rich-text');
+    const toolbar = wrapper && wrapper.querySelector('.forge-rich-text-toolbar');
+    if (toolbar) toolbar.appendChild(el);
+    const showAt = max * 0.9;
+    function update() {
+      const len = (ta.value || '').length;
+      el.textContent = `${len} / ${max}`;
+      el.classList.toggle('text-danger', len > max);
+      el.hidden = len < showAt;
+    }
+    ta.addEventListener('input', update);
+    update();
+    blockInputAtCap(ta, max);
+  });
+
   // ----- Setup steps (mirrors setup_card_editor) -----
   const stepList = document.getElementById('setup-step-list-bulk');
   const stepAddBtn = document.getElementById('setup-step-add-btn');
@@ -181,6 +232,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function updateStepAddVisibility() {
+    if (!stepList || !stepAddBtn) return;
+    const max = parseInt(stepList.dataset.maxSteps, 10);
+    if (!Number.isFinite(max)) return;
+    const count = stepList.querySelectorAll('[data-row]').length;
+    stepAddBtn.hidden = count >= max;
+  }
+  updateStepAddVisibility();
+
+  function wireStepCounter(row) {
+    const ta = row.querySelector('textarea[name="step_text"]');
+    const counter = row.querySelector('[data-step-counter]');
+    if (!ta || !counter) return;
+    const max = parseInt(counter.dataset.richtextMax, 10);
+    if (!Number.isFinite(max)) return;
+    const showAt = max * 0.9;
+    function update() {
+      const len = (ta.value || '').length;
+      counter.textContent = `${len} / ${max}`;
+      counter.classList.toggle('text-danger', len > max);
+      counter.hidden = len < showAt;
+    }
+    ta.addEventListener('input', update);
+    update();
+    blockInputAtCap(ta, max);
+  }
+  stepList?.querySelectorAll('[data-row]').forEach(wireStepCounter);
+
   if (stepList) {
     new Sortable(stepList, {
       animation: 150,
@@ -195,9 +274,11 @@ document.addEventListener('DOMContentLoaded', () => {
       stepList.appendChild(frag);
       const newRow = stepList.lastElementChild;
       if (window.initForgeRichText) window.initForgeRichText(newRow);
+      wireStepCounter(newRow);
       const ta = newRow.querySelector('textarea[name="step_text"]');
       if (ta) ta.focus();
       renumberStepMarkers();
+      updateStepAddVisibility();
       markDirty();
     });
   }
@@ -209,11 +290,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!row || !stepList.contains(row)) return;
     row.remove();
     renumberStepMarkers();
+    updateStepAddVisibility();
     markDirty();
   });
 
   // ----- Pieces -----
   const pieceTpl = document.getElementById('piece-row-template');
+
+  function updatePieceAddVisibility(section) {
+    if (!section) return;
+    const max = parseInt(section.dataset.maxPieces, 10);
+    if (!Number.isFinite(max)) return;
+    const count = section.querySelectorAll('[data-piece-list] [data-row]').length;
+    const btn = section.querySelector('.piece-add-btn');
+    if (btn) btn.hidden = count >= max;
+  }
+  document.querySelectorAll('[data-piece-section]').forEach(updatePieceAddVisibility);
 
   document.querySelectorAll('.piece-add-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -231,6 +323,7 @@ document.addEventListener('DOMContentLoaded', () => {
       list.appendChild(frag);
       const nameInput = list.lastElementChild?.querySelector('input[name="piece_name"]');
       if (nameInput) nameInput.focus();
+      updatePieceAddVisibility(btn.closest('[data-piece-section]'));
       markDirty();
     });
   });
@@ -314,7 +407,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!btn) return;
       const row = btn.closest('[data-row]');
       if (!row || !list.contains(row)) return;
+      const section = list.closest('[data-piece-section]');
       row.remove();
+      updatePieceAddVisibility(section);
       markDirty();
     });
   });

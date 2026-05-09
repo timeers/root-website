@@ -17,7 +17,7 @@
 {% include 'the_forge/partials/sheet_settings_toggles.html' with sheet=sheet %}
 
 <!-- Flavor text (inline save) -->
-{% include 'the_forge/partials/sheet_flavor_form.html' with sheet=sheet %}
+{% include 'the_forge/partials/sheet_flavor_form.html' with sheet=sheet max_flavor_text=max_flavor_text %}
 
 
 <!-- Abilities -->
@@ -26,25 +26,35 @@
     <img src="{% static 'pdf/svg/ability_berry.svg' %}" alt="" style="width:1.5rem;">
     <h4 class="root-title m-0">Abilities</h4>
   </div>
-  <div id="ability-list" data-reorder-url="{% url 'forge-ability-reorder' sheet_pk=sheet.pk %}">
+  <div id="ability-list"
+       data-step-cap-list
+       data-max-steps="{{ max_faction_abilities }}"
+       data-toggle-selector="#ability-add-toggle"
+       data-cap-note-selector="#ability-cap-note"
+       data-reorder-url="{% url 'forge-ability-reorder' sheet_pk=sheet.pk %}">
     {% for ability in abilities %}
-      {% include 'the_forge/partials/ability_row.html' with ability=ability %}
+      {% include 'the_forge/partials/ability_row.html' with ability=ability max_ability_body=max_ability_body max_ability_title=max_ability_title %}
     {% endfor %}
   </div>
 
   <button type="button" id="ability-add-toggle" class="btn btn-sm btn-primary mt-2">+ Add Ability</button>
+  <div id="ability-cap-note" class="mt-2 small text-muted" hidden>
+    {{ max_faction_abilities }} / {{ max_faction_abilities }} abilities
+  </div>
 
   <form id="ability-add-form" class="mt-2" hidden data-add-url="{% url 'forge-ability-add' sheet_pk=sheet.pk %}">
     {% csrf_token %}
     <div class="d-flex gap-2 align-items-center mb-1">
-      <input type="text" name="title" class="form-control form-control-sm forge-baskerville-bold" placeholder="Title" required>
+      <input type="text" name="title" maxlength="{{ max_ability_title }}" class="form-control form-control-sm forge-baskerville-bold" placeholder="Title" required>
     </div>
     <div class="forge-rich-text">
-      <textarea name="body" class="form-control" rows="3" placeholder="Ability body…"></textarea>
+      <textarea name="body" class="form-control" rows="3" placeholder="Ability body…"
+                data-richtext-cap data-richtext-max="{{ max_ability_body }}"></textarea>
       <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
         {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='image'|split:',' %}
-        <div class="ms-auto d-flex gap-2">
-          <button type="submit" class="btn btn-sm btn-primary">Add</button>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <span class="text-muted small" data-richtext-counter data-richtext-max="{{ max_ability_body }}" hidden>0 / {{ max_ability_body }}</span>
+          <button type="submit" class="btn btn-sm btn-primary" data-save-btn>Add</button>
           <button type="button" id="ability-add-cancel" class="btn btn-sm btn-outline-secondary">Cancel</button>
         </div>
       </div>
@@ -78,6 +88,10 @@
     <div class="mb-3">
       <img src="{% static phase_image %}" alt="{{ phase_label }}" class="img-fluid mb-2 d-block">
       <div id="phase-step-list-{{ phase_code }}"
+           data-step-cap-list
+           data-max-steps="{{ max_phase_steps_per_phase }}"
+           data-toggle-selector="[data-phase-step-add-toggle='{{ phase_code }}']"
+           data-cap-note-selector="#phase-step-cap-note-{{ phase_code }}"
            data-reorder-url="{% url 'forge-phasestep-reorder' sheet_pk=sheet.pk phase=phase_code %}">
         {% for step in phase_steps_list %}
           {% include 'the_forge/partials/phase_step_row.html' with step=step %}
@@ -86,17 +100,22 @@
       <button type="button" class="btn btn-sm btn-primary mt-2" data-phase-step-add-toggle="{{ phase_code }}">
         + Add {{ phase_label }} Step
       </button>
+      <div id="phase-step-cap-note-{{ phase_code }}" class="mt-2 small text-muted" hidden>
+        {{ max_phase_steps_per_phase }} / {{ max_phase_steps_per_phase }} steps
+      </div>
       <form id="phase-step-add-form-{{ phase_code }}" class="mt-2" hidden
             data-add-url="{% url 'forge-phasestep-add' sheet_pk=sheet.pk %}"
             data-target="#phase-step-list-{{ phase_code }}">
         {% csrf_token %}
         <input type="hidden" name="phase" value="{{ phase_code }}">
         <div class="forge-rich-text">
-          <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+          <textarea name="text" class="form-control" rows="3" placeholder="Step text…"
+                    data-richtext-cap data-richtext-max="{{ max_phase_step_text }}"></textarea>
           <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
             {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,header,image'|split:',' %}
-            <div class="ms-auto d-flex gap-2">
-              <button type="submit" class="btn btn-sm btn-primary">Add</button>
+            <div class="ms-auto d-flex align-items-center gap-2">
+              <span class="text-muted small" data-richtext-counter data-richtext-max="{{ max_phase_step_text }}" hidden>0 / {{ max_phase_step_text }}</span>
+              <button type="submit" class="btn btn-sm btn-primary" data-save-btn>Add</button>
               <button type="button" class="btn btn-sm btn-outline-secondary" data-phase-step-add-cancel="{{ phase_code }}">Cancel</button>
             </div>
           </div>
@@ -129,12 +148,22 @@
 <div class="card p-3 mb-3"
      data-contentbox-add-url="{% url 'forge-contentbox-add' sheet_pk=sheet.pk %}">
   <h4 class="root-title mb-2">Sections</h4>
-  <div id="content-box-list" data-reorder-url="{% url 'forge-contentbox-reorder' sheet_pk=sheet.pk %}">
+  <div id="content-box-list"
+       data-step-cap-list
+       data-max-steps="{{ max_content_sections }}"
+       data-toggle-selector="#content-box-kind-picker"
+       data-cap-note-selector="#content-box-cap-note"
+       data-reorder-url="{% url 'forge-contentbox-reorder' sheet_pk=sheet.pk %}">
     {% for box in content_boxes %}
-      {% include 'the_forge/partials/content_box_row.html' with box=box %}
+      {% include 'the_forge/partials/content_box_row.html' with box=box max_phase_steps_per_box=max_phase_steps_per_box %}
     {% endfor %}
   </div>
 
+  <style>
+    /* Bootstrap's `d-flex` uses `display: flex !important` which beats the
+       `hidden` attribute's UA `display: none`. Force hidden to win. */
+    #content-box-kind-picker[hidden] { display: none !important; }
+  </style>
   <div id="content-box-kind-picker" class="mt-2 d-flex gap-2 flex-wrap">
     <button type="button" class="btn btn-sm btn-primary" data-add-section-kind="section">+ Section</button>
     <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="box">+ Box</button>
@@ -142,6 +171,9 @@
     <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="legend">+ Legend</button>
     <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="scale">+ Scale</button>
     <button type="button" class="btn btn-sm btn-outline-primary" data-add-section-kind="actions">+ Actions</button>
+  </div>
+  <div id="content-box-cap-note" class="mt-2 small text-muted" hidden>
+    {{ max_content_sections }} / {{ max_content_sections }} sections
   </div>
 
   <div id="content-box-add-slot" class="mt-2"></div>
@@ -216,11 +248,13 @@
     <input type="hidden" name="phase" value="other">
     <input type="hidden" name="content_box" value="0">
     <div class="forge-rich-text">
-      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"></textarea>
+      <textarea name="text" class="form-control" rows="3" placeholder="Step text…"
+                data-richtext-cap data-richtext-max="{{ max_phase_step_text }}"></textarea>
       <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
         {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,header,image'|split:',' %}
-        <div class="ms-auto d-flex gap-2">
-          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <span class="text-muted small" data-richtext-counter data-richtext-max="{{ max_phase_step_text }}" hidden>0 / {{ max_phase_step_text }}</span>
+          <button type="submit" class="btn btn-sm btn-primary" data-save-btn>Save</button>
           <button type="button" class="btn btn-sm btn-outline-secondary" data-cancel-content-box-step>Cancel</button>
         </div>
       </div>
@@ -481,6 +515,104 @@
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const csrftoken = document.cookie.match(/csrftoken=([^;]+)/)[1];
+
+  // ----- Rich-text length cap + counter (scoped to [data-richtext-cap]) -----
+  // Length is measured against visible text (editor.textContent), not the
+  // serialized HTML — inline tags and image embeds shouldn't count against
+  // the user's character budget. The server enforces the same rule.
+  function wireRichtextCap(ta) {
+    if (!ta || ta.dataset.richtextCapInit === '1') return;
+    ta.dataset.richtextCapInit = '1';
+    const max = parseInt(ta.dataset.richtextMax, 10);
+    if (!Number.isFinite(max)) return;
+    const wrapper = ta.closest('.forge-rich-text');
+    const editor = wrapper?.querySelector('.forge-rich-text-editor');
+    const counter = wrapper?.parentElement.querySelector('[data-richtext-counter]')
+                 || wrapper?.querySelector('[data-richtext-counter]');
+    const saveBtn = ta.closest('form')?.querySelector('[data-save-btn]');
+    const showAt = max * 0.9;
+    function visibleLen() {
+      // Prefer the contenteditable's text (what the user sees). Fall back to
+      // stripping tags from the textarea value if the editor isn't ready yet.
+      if (editor) return editor.textContent.length;
+      return (ta.value || '').replace(/<[^>]*>/g, '').length;
+    }
+    function update() {
+      const len = visibleLen();
+      const over = len > max;
+      if (counter) {
+        counter.textContent = `${len} / ${max}`;
+        counter.classList.toggle('text-danger', over);
+        counter.hidden = !over && len < showAt;
+      }
+      if (saveBtn) saveBtn.disabled = over;
+    }
+    ta.addEventListener('input', update);
+    // editor `input` fires before forge_richtext.js's sync writes to ta;
+    // listen on both so the counter stays accurate either way.
+    editor?.addEventListener('input', update);
+    update();
+    // Block typing/pasting past the cap on the contenteditable mirror.
+    const target = editor || ta;
+    target.addEventListener('beforeinput', (ev) => {
+      if (ev.inputType && ev.inputType.startsWith('delete')) return;
+      if (visibleLen() >= max) ev.preventDefault();
+    });
+    target.addEventListener('paste', (ev) => {
+      if (visibleLen() >= max) ev.preventDefault();
+    });
+  }
+  function wireAllRichtextCaps(scope) {
+    (scope || document).querySelectorAll('[data-richtext-cap]').forEach(wireRichtextCap);
+  }
+  wireAllRichtextCaps();
+  document.addEventListener('forge:row-replaced', (ev) => {
+    const row = ev.detail?.row;
+    if (row instanceof Element) wireAllRichtextCaps(row);
+  });
+
+  // ----- Step-add button visibility (Birdsong/Daylight/Evening + Content Box steps) -----
+  // Each capped list has data-max-steps + data-toggle-selector pointing at the
+  // toggle button. When the list is at-or-above the cap, hide the toggle.
+  // Also force the add form hidden so a partially-open form doesn't sit in a
+  // capped list.
+  function refreshStepCap(list) {
+    if (!list) return;
+    const max = parseInt(list.dataset.maxSteps, 10);
+    if (!Number.isFinite(max)) return;
+    const count = list.querySelectorAll(':scope > [data-row]').length;
+    const atCap = count >= max;
+    const toggleSelector = list.dataset.toggleSelector;
+    if (toggleSelector) {
+      document.querySelectorAll(toggleSelector).forEach(btn => {
+        btn.hidden = atCap;
+      });
+    }
+    // Optional companion note (e.g. "15 / 15 sections") shown in place of the
+    // hidden toggle to make the cap explicit.
+    const noteSelector = list.dataset.capNoteSelector;
+    if (noteSelector) {
+      document.querySelectorAll(noteSelector).forEach(note => {
+        note.hidden = !atCap;
+      });
+    }
+    // Phase-step add form: if this is a Birdsong/Daylight/Evening list, also
+    // close any open add form when at cap.
+    if (atCap && list.id?.startsWith('phase-step-list-')) {
+      const phase = list.id.replace('phase-step-list-', '');
+      const form = document.getElementById(`phase-step-add-form-${phase}`);
+      if (form && !form.hidden) form.hidden = true;
+    }
+  }
+  function refreshAllStepCaps() {
+    document.querySelectorAll('[data-step-cap-list]').forEach(refreshStepCap);
+  }
+  refreshAllStepCaps();
+  // Defer to a microtask so we run *after* forge_editor.js's bindAddForm
+  // finishes its post-dispatch cleanup (which unhides the phase-step toggle).
+  document.addEventListener('forge:row-replaced', () => {
+    queueMicrotask(refreshAllStepCaps);
+  });
 
   const abilityList = document.getElementById('ability-list');
   if (abilityList && abilityList.dataset.reorderUrl) {
@@ -929,6 +1061,7 @@ document.addEventListener('DOMContentLoaded', () => {
     stepList.appendChild(node);
     if (window.bindForgeAddForm) window.bindForgeAddForm(node);
     if (window.initForgeRichText) window.initForgeRichText(node);
+    wireAllRichtextCaps(node);
     const ta = node.querySelector('textarea');
     if (ta) ta.focus();
     node.querySelector('[data-cancel-content-box-step]')?.addEventListener('click', () => {

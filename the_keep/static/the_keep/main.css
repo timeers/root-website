@@ -2925,6 +2925,11 @@ tr.clickable-row:hover {
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+/* Icon-only buttons in the segmented group needed asymmetric padding so the
+   icon optically centered. Text-only buttons (e.g. Small/Medium/Large height
+   picker on box rows) should use Bootstrap's default symmetric btn-sm padding. */
+.forge-segmented .btn:has(> .bi) {
   padding-top: 0.9375rem;
   padding-bottom: 0.375rem;
 }

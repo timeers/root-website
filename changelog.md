@@ -18,6 +18,7 @@
 - Soft warning if name in Forge conflicts with existing faction
 - Pieces snap to matching tracks
 - Added French and Spanish
+- Added quantity limits to most elements
 
 ### Bug Fixes
 - Piece name field is now optional

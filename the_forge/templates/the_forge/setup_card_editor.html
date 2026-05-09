@@ -18,6 +18,9 @@
 
 <form id="setup-card-form" method="post" enctype="multipart/form-data" class="card p-3 mb-3">
   {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
 
   <div class="row g-3 mb-3 align-items-center">
     <div class="col-md-5">
@@ -198,6 +201,47 @@ document.addEventListener('DOMContentLoaded', () => {
     if (li) li.remove();
   }
 
+  function updateStepAddVisibility() {
+    if (!list || !addBtn) return;
+    const max = parseInt(list.dataset.maxSteps, 10);
+    if (!Number.isFinite(max)) return;
+    const count = list.querySelectorAll('[data-row]').length;
+    addBtn.hidden = count >= max;
+  }
+  updateStepAddVisibility();
+
+  function blockInputAtCap(ta, max) {
+    const wrapper = ta.closest('.forge-rich-text');
+    const editor = wrapper && wrapper.querySelector('.forge-rich-text-editor');
+    const target = editor || ta;
+    target.addEventListener('beforeinput', (ev) => {
+      if (ev.inputType && ev.inputType.startsWith('delete')) return;
+      if ((ta.value || '').length >= max) ev.preventDefault();
+    });
+    target.addEventListener('paste', (ev) => {
+      if ((ta.value || '').length >= max) ev.preventDefault();
+    });
+  }
+
+  function wireStepCounter(row) {
+    const ta = row.querySelector('textarea[name="step_text"]');
+    const counter = row.querySelector('[data-step-counter]');
+    if (!ta || !counter) return;
+    const max = parseInt(counter.dataset.richtextMax, 10);
+    if (!Number.isFinite(max)) return;
+    const showAt = max * 0.9;
+    function update() {
+      const len = (ta.value || '').length;
+      counter.textContent = `${len} / ${max}`;
+      counter.classList.toggle('text-danger', len > max);
+      counter.hidden = len < showAt;
+    }
+    ta.addEventListener('input', update);
+    update();
+    blockInputAtCap(ta, max);
+  }
+  list?.querySelectorAll('[data-row]').forEach(wireStepCounter);
+
   if (list) {
     new Sortable(list, {
       animation: 150,
@@ -212,10 +256,12 @@ document.addEventListener('DOMContentLoaded', () => {
       list.appendChild(frag);
       const newRow = list.lastElementChild;
       if (window.initForgeRichText) window.initForgeRichText(newRow);
+      wireStepCounter(newRow);
       const ta = newRow.querySelector('textarea[name="step_text"]');
       if (ta) ta.focus();
       appendPreviewStep();
       renumberMarkers();
+      updateStepAddVisibility();
       markDirty();
     });
   }
@@ -229,6 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
     row.remove();
     if (idx >= 0) removePreviewStepAt(idx);
     renumberMarkers();
+    updateStepAddVisibility();
     markDirty();
   });
 

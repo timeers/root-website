@@ -45,6 +45,29 @@ from .forms import (
     SetupCardForm,
     StepActionForm,
 )
+from .limits import (
+    MAX_ABILITY_BODY,
+    MAX_ABILITY_TITLE,
+    MAX_BACK_SETUP_STEPS,
+    MAX_CARD_PILES,
+    MAX_CARD_SETUP_STEPS,
+    MAX_CARD_SLOTS,
+    MAX_CHARACTER_IMAGES,
+    MAX_CONTENT_SECTIONS,
+    MAX_CUSTOM_INLINE_IMAGES,
+    MAX_FACTION_ABILITIES,
+    MAX_FLAVOR_TEXT,
+    MAX_LEGEND_ROWS,
+    MAX_PHASE_STEPS_PER_BOX,
+    MAX_PHASE_STEPS_PER_PHASE,
+    MAX_PHASE_STEP_TEXT,
+    MAX_PIECES_PER_TYPE,
+    MAX_PIECE_QUANTITY,
+    MAX_SCALE_ROWS,
+    MAX_SETUP_STEP_TEXT,
+    MAX_STEP_ACTIONS,
+    MAX_STEP_CHILDREN,
+)
 from .models import (
     BorderedBox,
     CardPile,
@@ -71,13 +94,6 @@ from .models import (
     faction_has_background,
     faction_secondary_in_use,
 )
-
-
-# Caps on per-sheet child collections that the printable layout can render.
-MAX_CARD_PILES = 5
-MAX_CARD_SLOTS = 5
-MAX_CHARACTER_IMAGES = 5
-MAX_CUSTOM_INLINE_IMAGES = 10
 
 
 # ---------- Helpers ----------
@@ -450,6 +466,15 @@ def factionsheet_edit(request, pk):
     return render(request, 'the_forge/factionsheet_editor.html', {
         'sheet': sheet,
         'faction': sheet.faction,
+        'max_flavor_text': MAX_FLAVOR_TEXT,
+        'max_ability_body': MAX_ABILITY_BODY,
+        'max_ability_title': MAX_ABILITY_TITLE,
+        'max_faction_abilities': MAX_FACTION_ABILITIES,
+        'max_content_sections': MAX_CONTENT_SECTIONS,
+        'max_phase_steps_per_phase': MAX_PHASE_STEPS_PER_PHASE,
+        'max_phase_steps_per_box': MAX_PHASE_STEPS_PER_BOX,
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
+        'max_step_actions': MAX_STEP_ACTIONS,
         'abilities': sheet.abilities.order_by('order'),
         'content_boxes': content_boxes,
         'phase_sections': [
@@ -652,9 +677,15 @@ def sheet_flavor_edit(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
-    sheet.flavor_text = request.POST.get('flavor_text', '')
+    flavor = request.POST.get('flavor_text', '')
+    if len(flavor) > MAX_FLAVOR_TEXT:
+        return HttpResponseBadRequest(f"Flavor text limited to {MAX_FLAVOR_TEXT} characters.")
+    sheet.flavor_text = flavor
     sheet.save(update_fields=['flavor_text'])
-    return render(request, 'the_forge/partials/sheet_flavor_form.html', {'sheet': sheet})
+    return render(request, 'the_forge/partials/sheet_flavor_form.html', {
+        'sheet': sheet,
+        'max_flavor_text': MAX_FLAVOR_TEXT,
+    })
 
 
 @player_required
@@ -748,16 +779,35 @@ def factionback_edit(request, pk):
         piece_clear_back_flags = request.POST.getlist('piece_clear_back')
         step_ids = request.POST.getlist('step_id')
         step_texts = request.POST.getlist('step_text')
+
+        rows = list(zip(
+            piece_ids, piece_types, piece_names, piece_quantities,
+            piece_clear_flags, piece_clear_back_flags,
+        ))
+        type_counts = {t: 0 for t in valid_piece_types}
+        for sid, ptype, _name, _qty, _cf, _cb in rows:
+            if ptype in valid_piece_types:
+                type_counts[ptype] += 1
+        for ptype, count in type_counts.items():
+            if count > MAX_PIECES_PER_TYPE:
+                form.add_error(None, f"Maximum of {MAX_PIECES_PER_TYPE} {ptype} pieces.")
+                break
+
+        step_pairs = [
+            (sid, txt) for sid, txt in zip(step_ids, step_texts)
+            if (txt or '').strip()
+        ]
+        if len(step_pairs) > MAX_BACK_SETUP_STEPS:
+            form.add_error(None, f"Maximum of {MAX_BACK_SETUP_STEPS} setup steps allowed.")
+        if any(len(txt) > MAX_SETUP_STEP_TEXT for _sid, txt in step_pairs):
+            form.add_error(None, f"Setup step text limited to {MAX_SETUP_STEP_TEXT} characters.")
+
         if form.is_valid():
             with transaction.atomic():
                 form.save(back)
 
                 existing_pieces = {p.pk: p for p in back.pieces.all()}
                 kept_piece_ids = set()
-                rows = list(zip(
-                    piece_ids, piece_types, piece_names, piece_quantities,
-                    piece_clear_flags, piece_clear_back_flags,
-                ))
                 for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
                     front_upload = request.FILES.get(f'piece_icon_{index}')
                     back_upload = request.FILES.get(f'piece_back_{index}')
@@ -765,7 +815,7 @@ def factionback_edit(request, pk):
                     if ptype not in valid_piece_types:
                         continue
                     try:
-                        quantity = max(1, min(99, int(qty or 1)))
+                        quantity = max(1, min(MAX_PIECE_QUANTITY, int(qty or 1)))
                     except (TypeError, ValueError):
                         quantity = 1
                     has_new_front = bool(front_upload)
@@ -805,10 +855,6 @@ def factionback_edit(request, pk):
                 if stale_piece_ids:
                     Piece.objects.filter(pk__in=stale_piece_ids).delete()
 
-                step_pairs = [
-                    (sid, txt) for sid, txt in zip(step_ids, step_texts)
-                    if (txt or '').strip()
-                ]
                 existing_steps = {s.pk: s for s in back.setup_steps.all()}
                 kept_step_ids = set()
                 steps_to_update = []
@@ -857,6 +903,9 @@ def factionback_edit(request, pk):
             ('card_wealth', 'Card Wealth'),
             ('crafting_ability', 'Crafting Ability'),
         ],
+        'max_pieces_per_type': MAX_PIECES_PER_TYPE,
+        'max_setup_steps': MAX_BACK_SETUP_STEPS,
+        'max_setup_step_text': MAX_SETUP_STEP_TEXT,
     })
 
 
@@ -878,16 +927,23 @@ def forgedfaction_cardboard_edit(request, pk):
         piece_quantities = request.POST.getlist('piece_quantity')
         piece_clear_flags = request.POST.getlist('piece_clear_icon')
         piece_clear_back_flags = request.POST.getlist('piece_clear_back')
+        rows = list(zip(
+            piece_ids, piece_types, piece_names, piece_quantities,
+            piece_clear_flags, piece_clear_back_flags,
+        ))
+        type_counts = {t: 0 for t in cardboard_types}
+        for _sid, ptype, _name, _qty, _cf, _cb in rows:
+            if ptype in cardboard_types:
+                type_counts[ptype] += 1
+        for ptype, count in type_counts.items():
+            if count > MAX_PIECES_PER_TYPE:
+                return HttpResponseBadRequest(f"Maximum of {MAX_PIECES_PER_TYPE} {ptype} pieces.")
         with transaction.atomic():
             faction.print_component_backs = bool(request.POST.get('print_component_backs'))
             faction.save(update_fields=['print_component_backs'])
 
             existing_pieces = {p.pk: p for p in back.pieces.filter(type__in=cardboard_types)}
             kept_piece_ids = set()
-            rows = list(zip(
-                piece_ids, piece_types, piece_names, piece_quantities,
-                piece_clear_flags, piece_clear_back_flags,
-            ))
             for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
                 if ptype not in cardboard_types:
                     continue
@@ -895,7 +951,7 @@ def forgedfaction_cardboard_edit(request, pk):
                 back_upload = request.FILES.get(f'piece_back_{index}')
                 name = (name or '').strip()
                 try:
-                    quantity = max(1, min(99, int(qty or 1)))
+                    quantity = max(1, min(MAX_PIECE_QUANTITY, int(qty or 1)))
                 except (TypeError, ValueError):
                     quantity = 1
                 has_new_front = bool(front_upload)
@@ -940,6 +996,7 @@ def forgedfaction_cardboard_edit(request, pk):
         'faction': faction,
         'back': back,
         'piece_sections': piece_sections,
+        'max_pieces_per_type': MAX_PIECES_PER_TYPE,
     })
 
 
@@ -964,6 +1021,10 @@ def setup_card_edit(request, pk):
         ids = request.POST.getlist('step_id')
         texts = request.POST.getlist('step_text')
         pairs = [(sid, txt) for sid, txt in zip(ids, texts) if txt.strip()]
+        if len(pairs) > MAX_CARD_SETUP_STEPS:
+            form.add_error(None, f"Maximum of {MAX_CARD_SETUP_STEPS} setup steps allowed.")
+        if any(len(txt) > MAX_SETUP_STEP_TEXT for _sid, txt in pairs):
+            form.add_error(None, f"Setup step text limited to {MAX_SETUP_STEP_TEXT} characters.")
         if form.is_valid():
             with transaction.atomic():
                 form.save(card)
@@ -998,6 +1059,8 @@ def setup_card_edit(request, pk):
         'setup_steps': _annotate_steps(card.setup_steps.order_by('number')),
         'inline_keywords': _inline_keywords(),
         'inline_images_map': _inline_images_map(),
+        'max_setup_steps': MAX_CARD_SETUP_STEPS,
+        'max_setup_step_text': MAX_SETUP_STEP_TEXT,
     })
 
 
@@ -1009,6 +1072,8 @@ def ability_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
+    if sheet.abilities.count() >= MAX_FACTION_ABILITIES:
+        return HttpResponseBadRequest(f"Maximum of {MAX_FACTION_ABILITIES} abilities reached.")
     form = FactionAbilityForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1018,7 +1083,10 @@ def ability_add(request, sheet_pk):
         ability.order = sheet.abilities.count() + 1
     ability.save()
     return render(request, 'the_forge/partials/ability_row.html', {
-        'ability': ability, 'inline_keywords': _inline_keywords(ability.sheet),
+        'ability': ability,
+        'inline_keywords': _inline_keywords(ability.sheet),
+        'max_ability_body': MAX_ABILITY_BODY,
+        'max_ability_title': MAX_ABILITY_TITLE,
     })
 
 
@@ -1033,7 +1101,10 @@ def ability_edit(request, pk):
         return HttpResponseBadRequest(str(form.errors))
     form.save()
     return render(request, 'the_forge/partials/ability_row.html', {
-        'ability': ability, 'inline_keywords': _inline_keywords(ability.sheet),
+        'ability': ability,
+        'inline_keywords': _inline_keywords(ability.sheet),
+        'max_ability_body': MAX_ABILITY_BODY,
+        'max_ability_title': MAX_ABILITY_TITLE,
     })
 
 
@@ -1076,6 +1147,8 @@ def contentbox_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
+    if sheet.content_boxes.count() >= MAX_CONTENT_SECTIONS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_CONTENT_SECTIONS} content sections reached.")
 
     kind = request.POST.get('kind') or ContentBox.KindChoices.SECTION
     valid_kinds = {c.value for c in ContentBox.KindChoices}
@@ -1095,6 +1168,8 @@ def contentbox_add(request, sheet_pk):
         box.annotated_steps = []
         return render(request, 'the_forge/partials/content_box_row.html', {
             'box': box, 'inline_keywords': _inline_keywords(box.sheet),
+            'max_phase_steps_per_box': MAX_PHASE_STEPS_PER_BOX,
+            'max_phase_step_text': MAX_PHASE_STEP_TEXT,
         })
 
     # Single-element kind: validate the child form first, then create
@@ -1145,6 +1220,8 @@ def contentbox_add(request, sheet_pk):
     return render(request, 'the_forge/partials/content_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(box.sheet),
         'inline_images': _inline_images_map(box.sheet),
+        'max_phase_steps_per_box': MAX_PHASE_STEPS_PER_BOX,
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
     })
 
 
@@ -1161,6 +1238,8 @@ def contentbox_edit(request, pk):
     box.annotated_steps = _annotate_steps(box.steps.order_by('number'))
     return render(request, 'the_forge/partials/content_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(box.sheet),
+        'max_phase_steps_per_box': MAX_PHASE_STEPS_PER_BOX,
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
     })
 
 
@@ -1208,13 +1287,21 @@ def phasestep_add(request, sheet_pk):
     if step.content_box and step.content_box.sheet_id != sheet.id:
         return HttpResponseBadRequest("content_box does not belong to this sheet")
     if step.content_box:
-        step.number = sheet.phase_steps.filter(content_box=step.content_box).count() + 1
+        existing = sheet.phase_steps.filter(content_box=step.content_box).count()
+        if existing >= MAX_PHASE_STEPS_PER_BOX:
+            return HttpResponseBadRequest(f"Maximum of {MAX_PHASE_STEPS_PER_BOX} steps per content section.")
+        step.number = existing + 1
     else:
-        step.number = sheet.phase_steps.filter(phase=step.phase, content_box__isnull=True).count() + 1
+        existing = sheet.phase_steps.filter(phase=step.phase, content_box__isnull=True).count()
+        if existing >= MAX_PHASE_STEPS_PER_PHASE:
+            return HttpResponseBadRequest(f"Maximum of {MAX_PHASE_STEPS_PER_PHASE} steps in {step.phase}.")
+        step.number = existing + 1
     step.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/phase_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(step.sheet),
+        'step': _annotate_step(step),
+        'inline_keywords': _inline_keywords(step.sheet),
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
     })
 
 
@@ -1234,7 +1321,9 @@ def phasestep_edit(request, pk):
     form.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/phase_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(step.sheet),
+        'step': _annotate_step(step),
+        'inline_keywords': _inline_keywords(step.sheet),
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
     })
 
 
@@ -1300,6 +1389,8 @@ def stepaction_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if step.actions.count() >= MAX_STEP_ACTIONS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_ACTIONS} actions per step.")
     form = StepActionForm(request.POST, request.FILES)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1382,7 +1473,10 @@ def phasestep_action_type_set(request, step_pk):
         return HttpResponseBadRequest("Invalid action_type.")
     step.action_type = new_type
     step.save(update_fields=['action_type'])
-    return render(request, 'the_forge/partials/phase_step_action_header.html', {'step': step})
+    return render(request, 'the_forge/partials/phase_step_action_header.html', {
+        'step': step,
+        'max_step_actions': MAX_STEP_ACTIONS,
+    })
 
 
 @player_required
@@ -1396,7 +1490,10 @@ def phasestep_cost_image_set(request, step_pk):
         return HttpResponseBadRequest(str(form.errors))
     form.save()
     step.refresh_from_db()
-    return render(request, 'the_forge/partials/phase_step_action_header.html', {'step': step})
+    return render(request, 'the_forge/partials/phase_step_action_header.html', {
+        'step': step,
+        'max_step_actions': MAX_STEP_ACTIONS,
+    })
 
 
 # ---------- BorderedBox (child of PhaseStep) ----------
@@ -1407,6 +1504,8 @@ def borderedbox_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if _step_at_child_cap(step):
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_CHILDREN} elements per step.")
     form = BorderedBoxForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1481,6 +1580,8 @@ def track_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if _step_at_child_cap(step):
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_CHILDREN} elements per step.")
     form = CardboardTrackForm(request.POST, request.FILES)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1529,12 +1630,19 @@ def _next_step_child_order(step):
             + step.legends.count() + step.scales.count() + 1)
 
 
+def _step_at_child_cap(step):
+    return (step.boxes.count() + step.tracks.count()
+            + step.legends.count() + step.scales.count()) >= MAX_STEP_CHILDREN
+
+
 @player_required
 @require_http_methods(["POST"])
 def legend_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if _step_at_child_cap(step):
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_CHILDREN} elements per step.")
     form = LegendForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1584,6 +1692,8 @@ def legend_row_add(request, legend_pk):
     legend = get_object_or_404(Legend, pk=legend_pk)
     if (resp := _forbid_if_not_editor(request, legend.step.sheet.faction)):
         return resp
+    if legend.rows.count() >= MAX_LEGEND_ROWS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_LEGEND_ROWS} rows per legend.")
     form = LegendRowForm(request.POST, request.FILES)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1644,6 +1754,8 @@ def scale_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if _step_at_child_cap(step):
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_CHILDREN} elements per step.")
     form = ScaleForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1704,6 +1816,8 @@ def scale_save(request, pk):
     results = request.POST.getlist('result')
     if not (len(row_ids) == len(ranges) == len(results)):
         return HttpResponseBadRequest('row_id/range/result length mismatch')
+    if len(row_ids) > MAX_SCALE_ROWS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_SCALE_ROWS} rows per scale.")
     submitted_existing = {int(rid) for rid in row_ids if rid}
     # Delete rows that were removed client-side
     scale.rows.exclude(pk__in=submitted_existing).delete()

@@ -1,7 +1,7 @@
 {% load static forge_text %}
 <div class="card p-3 mb-3">
   <h4 class="root-title mb-2">Setup Steps</h4>
-  <div id="setup-step-list-bulk" data-row-list>
+  <div id="setup-step-list-bulk" data-row-list data-max-steps="{{ max_setup_steps }}">
     {% for step in setup_steps %}
       <div class="border rounded p-2 mb-2 d-flex gap-2 align-items-start setup-step-row" data-row data-id="{{ step.pk }}">
         <span class="setup-step-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
@@ -12,7 +12,12 @@
             <textarea name="step_text" class="form-control" rows="3">{{ step.text }}</textarea>
             <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
               {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
-              <div class="ms-auto">
+              <div class="ms-auto d-flex align-items-center gap-2">
+                <span class="forge-rich-text-counter text-muted small"
+                      data-step-counter
+                      data-richtext-max="{{ max_setup_step_text }}">
+                  0 / {{ max_setup_step_text }}
+                </span>
                 <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Delete</button>
               </div>
             </div>
@@ -36,7 +41,12 @@
           <textarea name="step_text" class="form-control" rows="3" placeholder="Step text…"></textarea>
           <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
             {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic'|split:',' %}
-            <div class="ms-auto">
+            <div class="ms-auto d-flex align-items-center gap-2">
+              <span class="forge-rich-text-counter text-muted small"
+                    data-step-counter
+                    data-richtext-max="{{ max_setup_step_text }}">
+                0 / {{ max_setup_step_text }}
+              </span>
               <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Delete</button>
             </div>
           </div>

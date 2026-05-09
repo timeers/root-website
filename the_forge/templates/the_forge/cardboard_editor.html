@@ -17,7 +17,7 @@
     <div class="row row-cols-1 row-cols-md-2 g-3 px-3 pb-3">
       {% for code, label, singular, items in piece_sections %}
         <div class="col">
-          <div class="piece-section h-100" data-piece-section="{{ code }}">
+          <div class="piece-section h-100" data-piece-section="{{ code }}" data-max-pieces="{{ max_pieces_per_type }}">
             <h5 class="root-title text-start mb-2"><strong>{{ label }}</strong></h5>
             <div class="piece-list" data-piece-list data-type="{{ code }}">
               {% for piece in items %}
@@ -61,6 +61,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const pieceTpl = document.getElementById('piece-row-template');
 
+  function updatePieceAddVisibility(section) {
+    if (!section) return;
+    const max = parseInt(section.dataset.maxPieces, 10);
+    if (!Number.isFinite(max)) return;
+    const count = section.querySelectorAll('[data-piece-list] [data-row]').length;
+    const btn = section.querySelector('.piece-add-btn');
+    if (btn) btn.hidden = count >= max;
+  }
+  document.querySelectorAll('[data-piece-section]').forEach(updatePieceAddVisibility);
+
   document.querySelectorAll('.piece-add-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const type = btn.dataset.type;
@@ -72,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
       list.appendChild(frag);
       const nameInput = list.lastElementChild?.querySelector('input[name="piece_name"]');
       if (nameInput) nameInput.focus();
+      updatePieceAddVisibility(btn.closest('[data-piece-section]'));
       markDirty();
     });
   });
@@ -155,7 +166,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!btn) return;
       const row = btn.closest('[data-row]');
       if (!row || !list.contains(row)) return;
+      const section = list.closest('[data-piece-section]');
       row.remove();
+      updatePieceAddVisibility(section);
       markDirty();
     });
   });

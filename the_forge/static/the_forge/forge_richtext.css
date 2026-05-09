@@ -63,6 +63,12 @@
 }
 
 /* Contenteditable WYSIWYG surface that replaces the visible textarea. */
+.forge-rich-text {
+  /* Allow the wrapper inside a flex item to shrink below the contenteditable's
+     intrinsic width so long unbroken strings wrap instead of stretching the row. */
+  min-width: 0;
+}
+
 .forge-rich-text-editor {
   width: 100%;
   min-height: 6em;
@@ -75,6 +81,7 @@
   line-height: 1.4;
   white-space: pre-wrap;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
   outline: none;
 }
 
@@ -290,6 +297,11 @@
   right: 0;
   bottom: 0;
   margin: 0;
+}
+.ability-row > form {
+  /* Flex item: allow shrinking below intrinsic content width so long unbroken
+     strings in the rich-text editor wrap instead of stretching the row. */
+  min-width: 0;
 }
 .ability-row [data-save-btn] {
   display: none;
