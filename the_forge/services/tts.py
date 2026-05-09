@@ -7,7 +7,7 @@ from the_keep.services.tts import (
     wrap_tts_save,
     TTSBoardBase,
     FACTION_BOARD_TRANSFORM,
-    DEFAULT_TRACKER_SNAP_POINTS,
+    CRAFTED_ITEMS_SNAP_POINTS,
     generate_tts_guid,
     LOCK_ON_REST_LUA,
 )
@@ -98,9 +98,9 @@ class TTSForgedFactionBoard(TTSBoardBase):
             (sheet.decree_slide_pts or 0.0) + ability_shift_pts
         )
         if not z_shift:
-            return list(DEFAULT_TRACKER_SNAP_POINTS)
+            return list(CRAFTED_ITEMS_SNAP_POINTS)
         shifted = []
-        for p in DEFAULT_TRACKER_SNAP_POINTS:
+        for p in CRAFTED_ITEMS_SNAP_POINTS:
             sp = {
                 "Position": dict(p["Position"]),
                 "Rotation": dict(p["Rotation"]),

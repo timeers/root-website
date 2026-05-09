@@ -464,6 +464,7 @@ class FactionHeaderForm(forms.Form):
             'accept': 'image/*',
         }),
     )
+    clear_header_image = forms.BooleanField(required=False, widget=forms.HiddenInput())
     title_text_color = forms.ChoiceField(
         choices=FactionSheet.TitleTextColor.choices,
         widget=forms.RadioSelect(attrs={
@@ -510,7 +511,7 @@ class FactionHeaderForm(forms.Form):
         if new_img:
             sheet.header_image = new_img
             update_fields.append('header_image')
-        elif new_img is False:
+        elif self.cleaned_data.get('clear_header_image') or new_img is False:
             sheet.header_image = None
             update_fields.append('header_image')
         sheet.save(update_fields=update_fields)

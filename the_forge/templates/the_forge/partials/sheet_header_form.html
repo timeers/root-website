@@ -38,7 +38,17 @@
       </div>
       <div class="col-md-3">
         <label class="form-label small mb-1" for="id_header_image">Header Image</label>
-        {{ header_form.header_image }}
+        <div class="d-flex align-items-center gap-2">
+          {{ header_form.header_image }}
+          {{ header_form.clear_header_image }}
+          <button type="button"
+                  class="btn btn-sm btn-outline-danger forge-header-image-clear-btn"
+                  title="Clear header image"
+                  aria-label="Clear header image"
+                  {% if not sheet.header_image %}hidden{% endif %}>
+            &times;
+          </button>
+        </div>
       </div>
     </div>
 
@@ -103,24 +113,46 @@
       applyTitleColor(root);
     } else if (t.matches('input[name="header_image"]')) {
       var img = root.querySelector('.forge-header-preview-image');
-      if (!img) return;
       var file = t.files && t.files[0];
       if (file) {
-        if (img.dataset.objectUrl) URL.revokeObjectURL(img.dataset.objectUrl);
-        var url = URL.createObjectURL(file);
-        img.dataset.objectUrl = url;
-        img.src = url;
-        img.removeAttribute('hidden');
-      }
-    } else if (t.matches('input[name="header_image-clear"]')) {
-      var img2 = root.querySelector('.forge-header-preview-image');
-      if (!img2) return;
-      if (t.checked) {
-        if (img2.dataset.objectUrl) URL.revokeObjectURL(img2.dataset.objectUrl);
-        img2.removeAttribute('src');
-        img2.setAttribute('hidden', '');
+        if (img) {
+          if (img.dataset.objectUrl) URL.revokeObjectURL(img.dataset.objectUrl);
+          var url = URL.createObjectURL(file);
+          img.dataset.objectUrl = url;
+          img.src = url;
+          img.removeAttribute('hidden');
+        }
+        // Picking a new file cancels a pending clear.
+        var clearInput = root.querySelector('input[name="clear_header_image"]');
+        if (clearInput) clearInput.value = '';
+        var clearBtn = root.querySelector('.forge-header-image-clear-btn');
+        if (clearBtn) clearBtn.removeAttribute('hidden');
       }
     }
+  });
+
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest && ev.target.closest('.forge-header-image-clear-btn');
+    if (!btn) return;
+    var root = rootFor(btn);
+    if (!root) return;
+    var fileInput = root.querySelector('input[name="header_image"]');
+    var clearInput = root.querySelector('input[name="clear_header_image"]');
+    var img = root.querySelector('.forge-header-preview-image');
+    if (clearInput) clearInput.value = 'true';
+    if (fileInput) fileInput.value = '';
+    if (img) {
+      if (img.dataset.objectUrl) {
+        URL.revokeObjectURL(img.dataset.objectUrl);
+        delete img.dataset.objectUrl;
+      }
+      img.removeAttribute('src');
+      img.setAttribute('hidden', '');
+    }
+    btn.setAttribute('hidden', '');
+    // Mark the form dirty so Save Header is enabled.
+    var form = root.querySelector('form');
+    if (form) form.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
   function initAll() {

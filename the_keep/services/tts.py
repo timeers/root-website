@@ -34,13 +34,20 @@ DEFAULT_CARD_TRANSFORM = {
     "scaleY": 1.0,
     "scaleZ": 2.3,
 }
-
-DEFAULT_TRACKER_SNAP_POINTS = [
+# 0.158 x between snap points
+CRAFTED_ITEMS_SNAP_POINTS = [
     {"Position": {"x": -0.64,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-    {"Position": {"x": -0.79,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-    {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-    {"Position": {"x": -1.09,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -0.798,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -0.956, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -1.097,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
 ]
+## Old values
+# CRAFTED_ITEMS_SNAP_POINTS = [
+#     {"Position": {"x": -0.64,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+#     {"Position": {"x": -0.79,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+#     {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+#     {"Position": {"x": -1.09,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+# ]
 
 def generate_tts_guid():
     return "".join(random.choices("0123456789abcdef", k=6))
@@ -81,13 +88,7 @@ class TTSBoard:
             sp.to_tts_dict()
             for sp in self.post.snap_points.all()
         ]
-        default_snap_points = [
-            {"Position": {"x": -0.64, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -0.79, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -1.09, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-        ]
-        all_snap_points = faction_board_snap_points + default_snap_points
+        all_snap_points = faction_board_snap_points + list(CRAFTED_ITEMS_SNAP_POINTS)
 
         front_image = tts_image_url(self.post.board_image, request=self.request)
         back_image = tts_image_url(self.post.board_2_image, request=self.request)
@@ -234,7 +235,7 @@ class TTSFactionBoard(TTSBoardBase):
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
 
     def get_default_snap_points(self):
-        return list(DEFAULT_TRACKER_SNAP_POINTS)
+        return list(CRAFTED_ITEMS_SNAP_POINTS)
 
     def get_description(self):
         return f"{self.post.title} Faction Board"
