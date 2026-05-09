@@ -608,8 +608,6 @@ SETUP_STEP_INDENT = 0.1 * inch            # left indent applied to each setup st
 HOWTOPLAY_TITLE_SIZE = 22
 HOWTOPLAY_TITLE_GAP = 0.13 * inch
 HOWTOPLAY_BODY_SIZE = 10
-HOWTOPLAY_IMAGE_MAX_W = 2.25 * inch        # optional FactionBack image: max width
-HOWTOPLAY_IMAGE_MAX_H = 3.5 * inch         # optional FactionBack image: max height
 HOWTOPLAY_IMAGE_GAP = 0.10 * inch          # horizontal gap between text and the image
 
 BACK_X_MARGIN = 0.7 * inch             # left/right page margin for the FactionBack
@@ -7402,8 +7400,9 @@ class FactionBackLayoutEngine:
         body_bottom = top_y - h
         body_h = body_top - body_bottom
 
-        # Resolve optional back_image path and natural-scale within max bounds.
-        img_path, img_w, img_h = self._resolve_back_image()
+        # Resolve optional back_image path, scaled by user back_image_size against
+        # the available text envelope (column width × body height after title).
+        img_path, img_w, img_h = self._resolve_back_image(w_avail=w, h_avail=body_h)
 
         # Draw the image (if any) regardless of whether body text exists.
         if img_path:
@@ -7471,12 +7470,13 @@ class FactionBackLayoutEngine:
         tighten_large_font_lines(para)
         para.drawOn(c, x, body_top - para.height)
 
-    def _resolve_back_image(self):
+    def _resolve_back_image(self, w_avail, h_avail):
         """Returns (path, draw_w, draw_h) for the optional FactionBack image,
-        natural-scaled to fit within HOWTOPLAY_IMAGE_MAX_W × HOWTOPLAY_IMAGE_MAX_H.
-        Returns (None, 0, 0) if no image is set."""
+        aspect-preserving-fit into (w_avail, h_avail), then scaled by
+        self.back.back_image_size as a percentage (0–100). Returns
+        (None, 0, 0) if no image is set or the envelope is non-positive."""
         img_attr = getattr(self.back, 'back_image', None)
-        if not img_attr:
+        if not img_attr or w_avail <= 0 or h_avail <= 0:
             return None, 0, 0
         path_val = getattr(img_attr, 'path', None)
         if not path_val and isinstance(img_attr, str):
@@ -7488,7 +7488,10 @@ class FactionBackLayoutEngine:
             iw, ih = ImageReader(path_val).getSize()
         except Exception:
             return None, 0, 0
-        scale = min(HOWTOPLAY_IMAGE_MAX_W / iw, HOWTOPLAY_IMAGE_MAX_H / ih, 1.0)
+        scale_max = min(w_avail / iw, h_avail / ih)
+        pct = getattr(self.back, 'back_image_size', 75) / 100.0
+        pct = max(0.10, min(1.0, pct))
+        scale = scale_max * pct
         return path_val, iw * scale, ih * scale
 
 

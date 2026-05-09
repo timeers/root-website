@@ -189,6 +189,19 @@ class FactionBackForm(forms.Form):
             'accept': 'image/*',
         }),
     )
+    back_image_size = forms.IntegerField(
+        required=False,
+        min_value=FactionBack.BACK_IMAGE_SIZE_MIN,
+        max_value=FactionBack.BACK_IMAGE_SIZE_MAX,
+        initial=FactionBack.BACK_IMAGE_SIZE_DEFAULT,
+        widget=forms.NumberInput(attrs={
+            'type': 'range',
+            'min': FactionBack.BACK_IMAGE_SIZE_MIN,
+            'max': FactionBack.BACK_IMAGE_SIZE_MAX,
+            'step': 1,
+            'class': 'form-range',
+        }),
+    )
 
     def __init__(self, *args, back=None, **kwargs):
         self.back = back
@@ -203,6 +216,16 @@ class FactionBackForm(forms.Form):
                 self.fields['setup_order'].initial = back.setup_order
                 self.fields['how_to_play_title'].initial = back.how_to_play_title
                 self.fields['how_to_play_text'].initial = back.how_to_play_text
+                self.fields['back_image_size'].initial = back.back_image_size
+
+    def clean_back_image_size(self):
+        raw = self.cleaned_data.get('back_image_size')
+        if raw in (None, ''):
+            return FactionBack.BACK_IMAGE_SIZE_DEFAULT
+        return max(
+            FactionBack.BACK_IMAGE_SIZE_MIN,
+            min(FactionBack.BACK_IMAGE_SIZE_MAX, int(raw)),
+        )
 
     def save(self, back=None):
         back = back or self.back
@@ -213,9 +236,11 @@ class FactionBackForm(forms.Form):
         back.setup_order = self.cleaned_data.get('setup_order') or ''
         back.how_to_play_title = self.cleaned_data['how_to_play_title']
         back.how_to_play_text = self.cleaned_data.get('how_to_play_text') or ''
+        back.back_image_size = self.cleaned_data['back_image_size']
         update_fields = [
             'complexity', 'card_wealth', 'aggression', 'crafting_ability',
             'setup_order', 'how_to_play_title', 'how_to_play_text',
+            'back_image_size',
             'last_updated',
         ]
         new_img = self.cleaned_data.get('back_image')

@@ -7,6 +7,8 @@
 - Crafted improvements tile added to TTS json
 - Double sided Pieces on Board Back
 - Tokens and Buildings added to TTS json
+- Added VP and Relationship Markers
+- Scale Image on back of Faction Board
 
 ### Improvements
 - Delete button for Forged Factions

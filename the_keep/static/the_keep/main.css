@@ -3832,3 +3832,49 @@ body.forge-modal-open { overflow: hidden; }
   }
 }
 
+.forge-howtoplay-preview {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 350 / 330;
+  margin-left: auto;
+  margin-right: auto;
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px dashed rgba(0, 0, 0, 0.2);
+  padding: 6px 14px 6px 6px;
+  overflow: hidden;
+}
+.forge-howtoplay-body-wrap {
+  height: var(--howto-body-h, auto);
+}
+.forge-howtoplay-body {
+  /* Render bar runs as actual inline text so the browser wraps them around
+     the floated image shape exactly like real prose. Each "bar segment"
+     is a span of unicode block glyphs at the configured line stride. */
+  font-size: var(--howto-bar-h, 4px);
+  line-height: var(--howto-line-stride, 12px);
+  color: rgba(0, 0, 0, 0.18);
+  word-spacing: calc(var(--howto-bar-h, 4px) * 0.6);
+  letter-spacing: 0;
+  font-family: monospace;
+}
+.forge-howtoplay-image-shape {
+  float: right;
+  /* Float width includes the right-padding offset so wrapped text clears the
+     image even though the image itself is anchored past the padding. */
+  width: calc(var(--howto-img-w, 0px) + 6px - var(--howto-pad-right, 0px));
+  height: var(--howto-body-h, 0px);
+  shape-outside: inset(var(--howto-img-spacer, 0px) 0 0 0);
+  pointer-events: none;
+  margin-right: calc(-1 * var(--howto-pad-right, 0px));
+}
+.forge-howtoplay-image {
+  position: absolute;
+  right: calc(-1 * var(--howto-pad-right, 0px));
+  bottom: calc(-1 * var(--howto-pad-bottom, 0px));
+  display: block;
+  width: var(--howto-img-w, 0px);
+  height: var(--howto-img-h, 0px);
+  object-fit: contain;
+}
+

@@ -774,6 +774,10 @@ class CardboardSlot(models.Model):
 
 
 class FactionBack(models.Model):
+    BACK_IMAGE_SIZE_MIN = 25
+    BACK_IMAGE_SIZE_MAX = 100
+    BACK_IMAGE_SIZE_DEFAULT = 75
+
     class AttributeChoices(models.TextChoices):
         NONE = 'N', 'None'
         LOW = 'L', 'Low'
@@ -790,6 +794,14 @@ class FactionBack(models.Model):
     how_to_play_title = models.TextField(default='Faction')
     how_to_play_text = models.TextField(blank=True, null=True)
     back_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
+    back_image_size = models.PositiveSmallIntegerField(
+        default=BACK_IMAGE_SIZE_DEFAULT,
+        validators=[
+            MinValueValidator(BACK_IMAGE_SIZE_MIN),
+            MaxValueValidator(BACK_IMAGE_SIZE_MAX),
+        ],
+        help_text="Back image size as a percentage of the maximum that fits the How To Play area.",
+    )
 
     image_preview = models.ImageField(upload_to=back_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')

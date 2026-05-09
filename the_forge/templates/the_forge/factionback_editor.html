@@ -99,11 +99,55 @@
       </div>
 
       <div class="mb-2">
-        {{ form.back_image.label_tag }}
-        {% if back.back_image %}
-          <div class="mb-2"><img src="{{ back.back_image.url }}" style="max-width:200px;" class="img-fluid rounded forge-back-preview"></div>
-        {% endif %}
-        {{ form.back_image }}
+        <div class="mb-3">
+          <label class="form-label small text-muted text-uppercase mb-1 d-block">{{ form.back_image.label }}</label>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <input type="file" name="{{ form.back_image.html_name }}"
+                   id="{{ form.back_image.id_for_label }}"
+                   accept="image/*"
+                   class="visually-hidden">
+            <input type="checkbox" name="{{ form.back_image.html_name }}-clear"
+                   id="forge-back-image-clear-input" class="visually-hidden">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="forge-back-image-choose-btn">
+              <i class="bi bi-upload"></i>
+              <span class="ms-1">{% if back.back_image %}Change Image{% else %}Choose Image{% endif %}</span>
+            </button>
+            <button type="button" class="btn btn-outline-danger btn-sm" id="forge-back-image-remove-btn"
+                    {% if not back.back_image %}hidden{% endif %}>
+              <i class="bi bi-x-lg"></i>
+              <span class="ms-1">Remove</span>
+            </button>
+            <span id="forge-back-image-filename" class="small text-muted text-truncate" style="max-width: 16rem;"></span>
+          </div>
+        </div>
+        {% if form.back_image.errors %}<div class="text-danger small mt-1 mb-2">{{ form.back_image.errors }}</div>{% endif %}
+
+        <div class="d-flex flex-column align-items-center">
+          <label class="form-label small text-muted text-uppercase mb-1">Preview</label>
+          <div class="forge-howtoplay-preview mb-2"
+               id="forge-howtoplay-preview">
+            <div class="forge-howtoplay-body-wrap">
+              <div class="forge-howtoplay-image-shape" id="forge-howtoplay-image-shape"
+                   {% if not back.back_image %}hidden{% endif %}></div>
+              <img src="{% if back.back_image %}{{ back.back_image.url }}{% endif %}"
+                   class="forge-howtoplay-image" id="forge-howtoplay-image"
+                   alt=""
+                   {% if not back.back_image %}hidden{% endif %}>
+              <div class="forge-howtoplay-body" id="forge-howtoplay-preview-body"></div>
+            </div>
+          </div>
+
+          <div class="w-100" id="back-image-size-control"
+               {% if not back.back_image %}hidden{% endif %}>
+            <label for="{{ form.back_image_size.id_for_label }}" class="visually-hidden">
+              Back image size
+            </label>
+            {{ form.back_image_size }}
+            <div class="d-flex justify-content-between small text-muted">
+              <span>Small</span><span>Large</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -275,17 +319,134 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ----- Back image preview -----
-  const backPreview = form.querySelector('.forge-back-preview');
-  const backFileInput = form.querySelector('input[name="back_image"]');
+  // ----- How-To-Play live preview -----
+  const preview        = document.getElementById('forge-howtoplay-preview');
+  const previewBody    = document.getElementById('forge-howtoplay-preview-body');
+  const imageEl        = document.getElementById('forge-howtoplay-image');
+  const imageShape     = document.getElementById('forge-howtoplay-image-shape');
+  const backFileInput  = form.querySelector('input[name="back_image"]');
+  const backClearInput = document.getElementById('forge-back-image-clear-input');
+  const backChooseBtn  = document.getElementById('forge-back-image-choose-btn');
+  const backRemoveBtn  = document.getElementById('forge-back-image-remove-btn');
+  const backFilename   = document.getElementById('forge-back-image-filename');
+  const backSizeControl = document.getElementById('back-image-size-control');
+  const backSizeInput  = form.querySelector('input[name="back_image_size"]');
   let backObjectUrl = null;
+
+  // PDF body envelope: 350pt wide × 330pt tall (after title chrome stripped).
+  const PDF_BODY_RATIO = 330 / 350;
+  // PDF body font is 10pt with leading 12.5pt → "line stride" ≈ 1.25× font.
+  const LINE_STRIDE_FACTOR = 12.5 / 10;
+  const BAR_HEIGHT_FACTOR  = 0.5;   // bar thickness as fraction of line stride
+  // Render the body as a long run of "word" glyphs so the browser flows them
+  // around the floated image shape like real text. Word lengths cycle through
+  // a deterministic sequence so the layout doesn't jitter on every render.
+  function renderBars() {
+    if (!previewBody) return;
+    const wordLens = [6, 3, 8, 4, 5, 7, 2, 9, 4, 6, 3, 5, 7, 4, 8, 5, 6, 3, 7, 4];
+    const wordCount = 400;  // plenty to overflow any envelope; overflow:hidden clips
+    const parts = [];
+    for (let i = 0; i < wordCount; i++) {
+      parts.push('█'.repeat(wordLens[i % wordLens.length]));
+    }
+    previewBody.textContent = parts.join(' ');
+  }
+
+  function applyImageSizing() {
+    if (!preview || !imageEl) return;
+    const previewStyles = getComputedStyle(preview);
+    const padL = parseFloat(previewStyles.paddingLeft);
+    const padR = parseFloat(previewStyles.paddingRight);
+    const padT = parseFloat(previewStyles.paddingTop);
+    const padB = parseFloat(previewStyles.paddingBottom);
+    const innerW = preview.clientWidth - padL - padR;
+    if (innerW <= 0) return;
+    preview.style.setProperty('--howto-pad-right', padR + 'px');
+    preview.style.setProperty('--howto-pad-bottom', padB + 'px');
+    // Mirror PDF: 10pt font in 350pt body width.
+    const fontPx = innerW * 10 / 350;
+    const lineStride = fontPx * LINE_STRIDE_FACTOR;
+    preview.style.setProperty('--howto-line-stride', lineStride + 'px');
+    preview.style.setProperty('--howto-bar-h', (fontPx * BAR_HEIGHT_FACTOR) + 'px');
+    // Force the body envelope to the PDF body aspect.
+    const bodyAvailH = innerW * PDF_BODY_RATIO;
+    const envelopeH = padT + padB + bodyAvailH;
+    preview.style.height = envelopeH + 'px';
+    preview.style.aspectRatio = 'auto';
+    renderBars();
+    // Image is anchored past the right/bottom padding.
+    const imgAvailW = innerW + padR;
+    const imgAvailH = bodyAvailH + padB;
+    preview.style.setProperty('--howto-body-h', bodyAvailH + 'px');
+    const iw = imageEl.naturalWidth;
+    const ih = imageEl.naturalHeight;
+    if (!iw || !ih || imageEl.hidden || bodyAvailH <= 0) {
+      preview.style.setProperty('--howto-img-w', '0px');
+      preview.style.setProperty('--howto-img-h', '0px');
+      preview.style.setProperty('--howto-img-spacer', '0px');
+      return;
+    }
+    const scaleMax = Math.min(imgAvailW / iw, imgAvailH / ih);
+    const pct = parseInt(backSizeInput?.value || '75', 10) / 100;
+    const drawW = iw * scaleMax * pct;
+    const drawH = ih * scaleMax * pct;
+    preview.style.setProperty('--howto-img-w', drawW + 'px');
+    preview.style.setProperty('--howto-img-h', drawH + 'px');
+    const imgInBody = Math.max(drawH - padB, 0);
+    preview.style.setProperty('--howto-img-spacer', Math.max(bodyAvailH - imgInBody, 0) + 'px');
+  }
+
+  applyImageSizing();
+
+  backSizeInput?.addEventListener('input', applyImageSizing);
+  window.addEventListener('resize', applyImageSizing);
+
+  if (imageEl) {
+    if (imageEl.complete && imageEl.naturalWidth) applyImageSizing();
+    imageEl.addEventListener('load', applyImageSizing);
+  }
+
+  backChooseBtn?.addEventListener('click', () => backFileInput?.click());
+
   backFileInput?.addEventListener('change', () => {
     const file = backFileInput.files && backFileInput.files[0];
-    if (!file || !backPreview) return;
+    if (!file || !imageEl) return;
     if (backObjectUrl) URL.revokeObjectURL(backObjectUrl);
     backObjectUrl = URL.createObjectURL(file);
-    backPreview.src = backObjectUrl;
-    backPreview.removeAttribute('hidden');
+    imageEl.src = backObjectUrl;
+    imageEl.removeAttribute('hidden');
+    imageShape?.removeAttribute('hidden');
+    backSizeControl?.removeAttribute('hidden');
+    backRemoveBtn?.removeAttribute('hidden');
+    if (backClearInput) backClearInput.checked = false;
+    if (backFilename) backFilename.textContent = file.name;
+    if (backChooseBtn) {
+      const lbl = backChooseBtn.querySelector('span');
+      if (lbl) lbl.textContent = 'Change Image';
+    }
+    applyImageSizing();
+  });
+
+  backRemoveBtn?.addEventListener('click', () => {
+    if (backObjectUrl) {
+      URL.revokeObjectURL(backObjectUrl);
+      backObjectUrl = null;
+    }
+    if (backFileInput) backFileInput.value = '';
+    if (backClearInput) backClearInput.checked = true;
+    if (imageEl) {
+      imageEl.removeAttribute('src');
+      imageEl.setAttribute('hidden', '');
+    }
+    imageShape?.setAttribute('hidden', '');
+    backSizeControl?.setAttribute('hidden', '');
+    backRemoveBtn.setAttribute('hidden', '');
+    if (backFilename) backFilename.textContent = '';
+    if (backChooseBtn) {
+      const lbl = backChooseBtn.querySelector('span');
+      if (lbl) lbl.textContent = 'Choose Image';
+    }
+    applyImageSizing();
   });
 
   // ----- Dirty tracking + beforeunload -----
