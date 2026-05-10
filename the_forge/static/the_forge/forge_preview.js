@@ -322,6 +322,9 @@
       if (!key) return;
       const div = document.createElement('div');
       div.className = `forge-preview-element forge-preview-element--${el.kind}`;
+      if (el.kind === 'content_box') {
+        div.classList.add(el.paper_background ? 'is-paper' : 'is-no-paper');
+      }
       div.dataset.key = key;
       div.dataset.kind = el.kind;
       placeDiv(div, el.x, el.y, el.w || 0, el.h || 0);

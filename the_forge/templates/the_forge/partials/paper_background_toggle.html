@@ -1,0 +1,11 @@
+{% load static %}
+<button type="button"
+        class="forge-paper-bg-toggle {% if box.paper_background %}is-on{% else %}is-off{% endif %}"
+        data-paper-bg-toggle
+        aria-pressed="{% if box.paper_background %}true{% else %}false{% endif %}"
+        title="Toggle paper background">
+  <img src="{% if box.paper_background %}{% static 'pdf/background-paper.png' %}{% else %}{% static 'pdf/background-none.png' %}{% endif %}"
+       data-on-src="{% static 'pdf/background-paper.png' %}"
+       data-off-src="{% static 'pdf/background-none.png' %}"
+       alt="Paper background">
+</button>

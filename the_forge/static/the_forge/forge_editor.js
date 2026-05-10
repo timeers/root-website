@@ -399,6 +399,27 @@
       const status = craftBtn.parentElement.querySelector('[data-autosave-status]');
       autosavePost(craftBtn.dataset.autosaveUrl, turningOn ? 'true' : 'false', status);
     }
+
+    // Paper background toggle: writes hidden paper_background input(s) inside
+    // the surrounding row's dirty form(s) and trips the dirty listener so the
+    // existing Save button(s) reveal. For express sections, multiple child
+    // forms each carry the field; we update them all so any save persists it.
+    const paperBtn = ev.target.closest('button[data-paper-bg-toggle]');
+    if (paperBtn) {
+      const turningOn = !paperBtn.classList.contains('is-on');
+      paperBtn.classList.toggle('is-on', turningOn);
+      paperBtn.classList.toggle('is-off', !turningOn);
+      paperBtn.setAttribute('aria-pressed', turningOn ? 'true' : 'false');
+      const img = paperBtn.querySelector('img');
+      if (img) img.src = turningOn ? img.dataset.onSrc : img.dataset.offSrc;
+      const row = paperBtn.closest('[data-row]');
+      if (row) {
+        row.querySelectorAll('input[data-paper-bg-input]').forEach((hidden) => {
+          hidden.value = turningOn ? 'true' : '';
+          hidden.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      }
+    }
   });
 
   // ---------- Phase-step add toggle (one button per phase) ----------

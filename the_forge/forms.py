@@ -312,7 +312,7 @@ class FactionAbilityForm(forms.ModelForm):
 class ContentBoxForm(forms.ModelForm):
     class Meta:
         model = ContentBox
-        fields = ['order', 'title', 'text']
+        fields = ['order', 'title', 'text', 'paper_background']
         widgets = {
             'text': RichTextarea(),
         }
@@ -322,6 +322,7 @@ class ContentBoxForm(forms.ModelForm):
         self.fields['order'].required = False
         self.fields['title'].required = False
         self.fields['text'].required = False
+        self.fields['paper_background'].required = False
 
     def clean_text(self):
         return _cap(self.cleaned_data.get('text'), MAX_CONTENT_TEXT, 'Text')

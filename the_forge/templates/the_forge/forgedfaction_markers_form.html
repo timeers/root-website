@@ -19,7 +19,7 @@
         <label class="form-label small text-center text-muted text-uppercase">Faction Icon</label>
         <div class="d-flex align-items-center gap-3 flex-wrap">
           <img id="forge-markers-current-icon"
-               src="{% if faction.faction_icon %}{{ faction.faction_icon.url }}{% endif %}"
+               src="{% if faction.faction_icon %}{{ faction.faction_icon.url }}?v={{ faction.markers_version }}{% endif %}"
                alt=""
                class="rounded border bg-body-tertiary"
                style="height: 3.5rem; width: 3.5rem; object-fit: contain; {% if not faction.faction_icon %}display: none;{% endif %}">
@@ -141,7 +141,7 @@
 <script>
 (() => {
   const factionPrimary = "{{ faction.color|default:'#5f788a'|escapejs }}";
-  const initialIconUrl = {% if faction.faction_icon %}"{{ faction.faction_icon.url|escapejs }}"{% else %}""{% endif %};
+  const initialIconUrl = {% if faction.faction_icon %}"{{ faction.faction_icon.url|escapejs }}?v={{ faction.markers_version }}"{% else %}""{% endif %};
 
   const form = document.getElementById('forge-markers-form');
   const fileInput = document.getElementById('{{ form.faction_icon.id_for_label }}');

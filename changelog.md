@@ -26,6 +26,8 @@
 - Adset number and text alignment adjusted
 - Lock faction board after 1.5 sec in TTS to work around floating boards
 - Fixed crafted improvements snap points
+- SVG for 6+ not using faction color
+- Track title centered over track instead of container
 
 ## [1.12.1] - 2026-5-05 Forge-Tuning
 

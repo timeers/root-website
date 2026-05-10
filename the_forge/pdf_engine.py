@@ -1846,8 +1846,7 @@ class TrackFlowable(Flowable):
         cursor_y -= TRACK_TITLE_SIZE
         c.setFont('Luminari', TRACK_TITLE_SIZE)
         c.setFillColorRGB(0, 0, 0)
-        grid_center_x = self._left_pad + self._row_title_w + self._grid_w / 2
-        c.drawCentredString(grid_center_x, cursor_y, self.track.title)
+        c.drawCentredString(self.total_width / 2, cursor_y, self.track.title)
         cursor_y -= TRACK_TITLE_GAP
 
         # --- Body text (centered, if present) ---
@@ -4645,7 +4644,8 @@ class SheetLayoutEngine:
         box_w = ov_w * inch
         box_h = ov_h * inch
         content_w = box_w - (CONTENT_BOX_INTERNAL_MARGIN * 2)
-        self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
+        if cb.paper_background:
+            self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
         content_x = box_x + CONTENT_BOX_INTERNAL_MARGIN
         frame = Frame(content_x, box_y, content_w, box_h,
                      leftPadding=0, rightPadding=0,
@@ -4655,7 +4655,8 @@ class SheetLayoutEngine:
         frame.addFromList(story, c)
         self._placed_boxes.append((box_x, box_y, box_w, box_h))
         self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
-                             x=box_x, y=box_y, w=box_w, h=box_h)
+                             x=box_x, y=box_y, w=box_w, h=box_h,
+                             paper_background=cb.paper_background)
         self._record_content_box_breakdown(cb, box_x, box_y, box_w, box_h)
         return True
 
@@ -4797,7 +4798,8 @@ class SheetLayoutEngine:
                 _, box_h, content_w = self._content_box_dims_for_width(cb, box_w)
                 box_y = cursor_y_top - box_h
 
-                self._draw_phase_box(c, cursor_x, box_y, box_w, box_h, rotated=False)
+                if cb.paper_background:
+                    self._draw_phase_box(c, cursor_x, box_y, box_w, box_h, rotated=False)
                 content_x = cursor_x + CONTENT_BOX_INTERNAL_MARGIN
                 frame = Frame(content_x, box_y, content_w, box_h,
                              leftPadding=0, rightPadding=0,
@@ -4807,7 +4809,8 @@ class SheetLayoutEngine:
                 frame.addFromList(story, c)
                 self._placed_boxes.append((cursor_x, box_y, box_w, box_h))
                 self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
-                                     x=cursor_x, y=box_y, w=box_w, h=box_h)
+                                     x=cursor_x, y=box_y, w=box_w, h=box_h,
+                                     paper_background=cb.paper_background)
                 self._record_content_box_breakdown(cb, cursor_x, box_y, box_w, box_h)
 
                 if box_y < row_bottom_y:
@@ -4968,7 +4971,8 @@ class SheetLayoutEngine:
                 box_y = cursor_y - box_h
                 _, _, content_w = self._content_box_dims_for_width(cb, col_w)
 
-                self._draw_phase_box(c, col_start_x, box_y, col_w, box_h, rotated=False)
+                if cb.paper_background:
+                    self._draw_phase_box(c, col_start_x, box_y, col_w, box_h, rotated=False)
                 content_x = col_start_x + CONTENT_BOX_INTERNAL_MARGIN
                 frame = Frame(content_x, box_y, content_w, box_h,
                              leftPadding=0, rightPadding=0,
@@ -4978,7 +4982,8 @@ class SheetLayoutEngine:
                 frame.addFromList(story, c)
                 self._placed_boxes.append((col_start_x, box_y, col_w, box_h))
                 self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
-                                     x=col_start_x, y=box_y, w=col_w, h=box_h)
+                                     x=col_start_x, y=box_y, w=col_w, h=box_h,
+                                     paper_background=cb.paper_background)
                 self._record_content_box_breakdown(cb, col_start_x, box_y, col_w, box_h)
 
                 gap = CONTENT_BOX_GAP + (padding if col_count > 1 else 0)
@@ -5076,7 +5081,8 @@ class SheetLayoutEngine:
                     box_y = max_top - box_h
 
             content_w = box_w - CONTENT_BOX_INTERNAL_MARGIN * 2
-            self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
+            if cb.paper_background:
+                self._draw_phase_box(c, box_x, box_y, box_w, box_h, rotated=False)
             content_x = box_x + CONTENT_BOX_INTERNAL_MARGIN
             frame = Frame(content_x, box_y, content_w, box_h,
                          leftPadding=0, rightPadding=0,
@@ -5086,7 +5092,8 @@ class SheetLayoutEngine:
             frame.addFromList(story, c)
             self._placed_boxes.append((box_x, box_y, box_w, box_h))
             self._record_element(kind='content_box', id=cb.id, title=cb.title or '',
-                                 x=box_x, y=box_y, w=box_w, h=box_h)
+                                 x=box_x, y=box_y, w=box_w, h=box_h,
+                                 paper_background=cb.paper_background)
             self._record_content_box_breakdown(cb, box_x, box_y, box_w, box_h)
 
     def _build_steps_story(self, steps, avail_w, centered=False):

@@ -202,6 +202,16 @@ def _forbid_if_not_editor(request, obj):
     return None
 
 
+def _maybe_update_parent_paper_background(request, content_box):
+    """Express child rows submit `paper_background` for their parent ContentBox."""
+    if content_box is None or 'paper_background' not in request.POST:
+        return
+    new_val = request.POST.get('paper_background') == 'true'
+    if content_box.paper_background != new_val:
+        content_box.paper_background = new_val
+        content_box.save(update_fields=['paper_background'])
+
+
 def _background_preset_options():
     return [
         {
@@ -1530,6 +1540,7 @@ def borderedbox_edit(request, pk):
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
+    _maybe_update_parent_paper_background(request, box.step.content_box)
     ensure_step_parent_fits(box.step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(box.step.sheet),
@@ -1608,6 +1619,7 @@ def track_edit(request, pk):
     form.save()
     track.slots.filter(column__gte=new_cols).delete()
     track.slots.filter(row__gte=new_rows).delete()
+    _maybe_update_parent_paper_background(request, track.step.content_box)
     ensure_step_parent_fits(track.step, check_width=(new_cols > prev_cols))
     return render(request, 'the_forge/partials/track_row.html', _track_render_ctx(track))
 
@@ -1668,6 +1680,7 @@ def legend_edit(request, pk):
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
+    _maybe_update_parent_paper_background(request, legend.step.content_box)
     ensure_step_parent_fits(legend.step)
     return render(request, 'the_forge/partials/legend_row.html', {
         'legend': legend, 'inline_keywords': _inline_keywords(legend.step.sheet),

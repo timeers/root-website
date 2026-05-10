@@ -74,7 +74,7 @@ class ForgedFaction(models.Model):
         default=_default_language,
         help_text="Language used for built-in faction text (e.g. Crafted Items label).",
     )
-    faction_name = models.CharField(max_length=100)
+    faction_name = models.CharField(max_length=50)
     slug = models.SlugField(unique=True, null=True, blank=True)
     color = models.CharField(
         max_length=7,
@@ -110,8 +110,8 @@ class ForgedFaction(models.Model):
         help_text="Tile height as a percentage of page height (only used when repeating).",
     )
 
-    pnp_version = models.CharField(max_length=100, null=True, blank=True)
-    art_by = models.CharField(max_length=100, null=True, blank=True)
+    pnp_version = models.CharField(max_length=20, null=True, blank=True)
+    art_by = models.CharField(max_length=50, null=True, blank=True)
 
     faction_icon = models.ImageField(upload_to=faction_icon_upload_path, blank=True, null=True)
     icon_color = models.CharField(
@@ -369,6 +369,8 @@ class ContentBox(models.Model):
     title = models.CharField(max_length=200, blank=True, default='')
     text = models.TextField(blank=True, default='')
     order = models.PositiveIntegerField()
+
+    paper_background = models.BooleanField(default=True)
 
     # Per-layout placement overrides (inches). Null = auto.
     x_h = models.FloatField(blank=True, null=True)

@@ -36,7 +36,7 @@
              class="forge-preview-grid-on"
              data-payloads="{{ payloads_json|escape }}"
              data-active-mode="{{ payload.layout_mode }}"
-             style="position: relative; background: #f5e9d0; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
+             style="position: relative; background: #cfe4f2; border: 1px solid #aa885c; margin: 0 auto; overflow: hidden;">
         </div>
       </div>
     </div>
@@ -224,6 +224,11 @@
     font-family: 'Luminari', 'Papyrus', serif;
   }
   .forge-preview-element--content_box { background: rgba(120, 170, 220, 0.45); z-index: 1; }
+  .forge-preview-element--content_box.is-paper { background: rgba(249, 227, 179, 0.55); }
+  .forge-preview-element--content_box.is-no-paper {
+    background: rgba(173, 216, 230, 0.45);
+    border: 2px dashed #1f3a8a;
+  }
   .forge-preview-element--card_pile   { background: rgba(220, 200, 130, 0.55); z-index: 1; }
   .card-pile-rotate {
     position: absolute;
