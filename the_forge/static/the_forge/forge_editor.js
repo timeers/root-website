@@ -410,6 +410,15 @@
       paperBtn.classList.toggle('is-on', turningOn);
       paperBtn.classList.toggle('is-off', !turningOn);
       paperBtn.setAttribute('aria-pressed', turningOn ? 'true' : 'false');
+      const newTitle = turningOn ? paperBtn.dataset.onTitle : paperBtn.dataset.offTitle;
+      if (newTitle) {
+        paperBtn.setAttribute('data-bs-original-title', newTitle);
+        paperBtn.title = newTitle;
+        if (window.bootstrap && bootstrap.Tooltip) {
+          const tip = bootstrap.Tooltip.getInstance(paperBtn);
+          if (tip) tip.setContent({ '.tooltip-inner': newTitle });
+        }
+      }
       const img = paperBtn.querySelector('img');
       if (img) img.src = turningOn ? img.dataset.onSrc : img.dataset.offSrc;
       const row = paperBtn.closest('[data-row]');
@@ -730,6 +739,18 @@
     });
   }
   window.initForgeStepSortables = initStepSortables;
+
+  // Initialize Bootstrap tooltips on any newly-inserted subtree. The base
+  // template handles initial load and HTMX swaps; this covers the editor's
+  // JS-driven row inserts (Add Section, Add Box, Add Track, etc.).
+  document.addEventListener('forge:row-replaced', (ev) => {
+    if (!window.bootstrap || !bootstrap.Tooltip) return;
+    const root = ev.target;
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+      if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
+    });
+  });
 
   // After any inline-edit response replaces a row, re-init sortables so a
   // newly-rendered phase-step-row gets its child sortables wired up.

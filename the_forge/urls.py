@@ -26,14 +26,14 @@ urlpatterns = [
     path('forge/faction/<int:pk>/tts/', views.forgedfaction_tts, name='forge-faction-tts'),
 
     # FactionSheet Front
-    path('forge/faction/<int:faction_pk>/sheet/new/', views.factionsheet_create, name='forge-sheet-create'),
-    path('forge/faction/sheet/<int:pk>/', views.factionsheet_edit, name='forge-sheet-edit'),
-    path('forge/faction/sheet/<int:pk>/pdf/', views.factionsheet_pdf, name='forge-sheet-pdf'),
-    path('forge/faction/sheet/<int:pk>/pdf/layered/', views.factionsheet_pdf_layered, name='forge-sheet-pdf-layered'),
-    path('forge/faction/sheet/<int:pk>/webp/', views.factionsheet_webp, name='forge-sheet-webp'),
-    path('forge/faction/sheet/<int:pk>/preview/', views.factionsheet_preview, name='forge-sheet-preview'),
-    path('forge/faction/sheet/<int:pk>/preview/save/', views.factionsheet_preview_save, name='forge-sheet-preview-save'),
-    path('forge/faction/sheet/<int:pk>/delete/', views.factionsheet_delete, name='forge-sheet-delete'),
+    path('forge/faction/<int:faction_pk>/front/new/', views.factionsheet_create, name='forge-sheet-create'),
+    path('forge/faction/front/<int:pk>/', views.factionsheet_edit, name='forge-sheet-edit'),
+    path('forge/faction/front/<int:pk>/pdf/', views.factionsheet_pdf, name='forge-sheet-pdf'),
+    path('forge/faction/front/<int:pk>/pdf/layered/', views.factionsheet_pdf_layered, name='forge-sheet-pdf-layered'),
+    path('forge/faction/front/<int:pk>/webp/', views.factionsheet_webp, name='forge-sheet-webp'),
+    path('forge/faction/front/<int:pk>/preview/', views.factionsheet_preview, name='forge-sheet-preview'),
+    path('forge/faction/front/<int:pk>/preview/save/', views.factionsheet_preview_save, name='forge-sheet-preview-save'),
+    path('forge/faction/front/<int:pk>/delete/', views.factionsheet_delete, name='forge-sheet-delete'),
     path('hx/forge/sheet/<int:pk>/flavor/edit/', views.sheet_flavor_edit, name='forge-sheet-flavor-edit'),
     path('hx/forge/sheet/<int:pk>/header/edit/', views.sheet_header_edit, name='forge-sheet-header-edit'),
     path('hx/forge/sheet/<int:pk>/crafted/toggle/', views.sheet_crafted_toggle, name='forge-sheet-crafted-toggle'),
@@ -49,12 +49,12 @@ urlpatterns = [
     path('forge/faction/back/<int:pk>/delete/', views.factionback_delete, name='forge-back-delete'),
 
     # SetupCard (child of ForgedFaction)
-    path('forge/faction/<int:faction_pk>/setup-card/new/', views.setup_card_create, name='forge-setup-card-create'),
-    path('forge/faction/setup-card/<int:pk>/', views.setup_card_edit, name='forge-setup-card-edit'),
-    path('forge/faction/setup-card/<int:pk>/pdf/', views.setup_card_pdf, name='forge-setup-card-pdf'),
-    path('forge/faction/setup-card/<int:pk>/pdf/layered/', views.setup_card_pdf_layered, name='forge-setup-card-pdf-layered'),
-    path('forge/faction/setup-card/<int:pk>/webp/', views.setup_card_webp, name='forge-setup-card-webp'),
-    path('forge/faction/setup-card/<int:pk>/delete/', views.setup_card_delete, name='forge-setup-card-delete'),
+    path('forge/faction/<int:faction_pk>/adset/new/', views.setup_card_create, name='forge-setup-card-create'),
+    path('forge/faction/adset/<int:pk>/', views.setup_card_edit, name='forge-setup-card-edit'),
+    path('forge/faction/adset/<int:pk>/pdf/', views.setup_card_pdf, name='forge-setup-card-pdf'),
+    path('forge/faction/adset/<int:pk>/pdf/layered/', views.setup_card_pdf_layered, name='forge-setup-card-pdf-layered'),
+    path('forge/faction/adset/<int:pk>/webp/', views.setup_card_webp, name='forge-setup-card-webp'),
+    path('forge/faction/adset/<int:pk>/delete/', views.setup_card_delete, name='forge-setup-card-delete'),
 
     # FactionAbility (child of FactionSheet)
     path('hx/forge/sheet/<int:sheet_pk>/ability/add/', views.ability_add, name='forge-ability-add'),

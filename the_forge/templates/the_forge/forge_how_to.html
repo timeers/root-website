@@ -26,8 +26,30 @@
     </p>
   </section>
 
+  <div class="row g-4 forge-how-to-layout">
+    <aside class="col-lg-2">
+      <nav class="forge-toc" aria-label="How-to sections">
+        <ul class="forge-toc-list">
+          <li><a href="#how-to-1" class="forge-toc-link is-active" data-toc-link>Getting Started</a></li>
+          <li><a href="#how-to-2" class="forge-toc-link" data-toc-link>Create a Faction</a></li>
+          <li><a href="#how-to-3" class="forge-toc-link" data-toc-link>Front of the Board</a></li>
+          <li><a href="#how-to-4" class="forge-toc-link" data-toc-link>Flavor &amp; Abilities</a></li>
+          <li><a href="#how-to-5" class="forge-toc-link" data-toc-link>Card Slot Section</a></li>
+          <li><a href="#how-to-6" class="forge-toc-link" data-toc-link>Primary Phases</a></li>
+          <li><a href="#how-to-7" class="forge-toc-link" data-toc-link>Sections</a></li>
+          <li><a href="#how-to-8" class="forge-toc-link" data-toc-link>Art &amp; Card Piles</a></li>
+          <li><a href="#how-to-9" class="forge-toc-link" data-toc-link>Custom Icons</a></li>
+          <li><a href="#how-to-10" class="forge-toc-link" data-toc-link>Layout Editor</a></li>
+          <li><a href="#how-to-11" class="forge-toc-link" data-toc-link>Download Your Faction</a></li>
+          <li><a href="#how-to-12" class="forge-toc-link" data-toc-link>Keep Building</a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <div class="col-lg-10">
+
   {# ==================== Section 1: Getting Started ==================== #}
-  <section class="mb-5">
+  <section id="how-to-1" class="mb-5">
     <h2 class="root-title mb-3">1. Getting Started</h2>
     <p class="text-muted mb-4">
       The Forge is open to members of the Woodland Warriors community. Before you can build a faction
@@ -79,10 +101,12 @@
   </section>
 
   {# ==================== Section 2: Create a Faction ==================== #}
-  <section class="mb-5">
+  <section id="how-to-2" class="mb-5">
     <h2 class="root-title mb-3">2. Create a Faction</h2>
     <p class="text-muted mb-2">
-      The Forge is the part of the Workshop where you can tinker and adjust your designs. Factions created here are only visible to you so have fun. 
+      The Forge is the part of the Workshop where you can tinker and adjust your designs. 
+      Factions created here are only visible to you so have fun.
+      Create as many factions as you like to iterate off of your ideas. 
       If you want to submit your design later you can download a copy and post it to the site.
     </p>
     <p class="text-muted mb-4">
@@ -148,7 +172,7 @@
   </section>
 
   {# ==================== Section 3: Build the Front of the Board ==================== #}
-  <section class="mb-5">
+  <section id="how-to-3" class="mb-5">
     <h2 class="root-title mb-3">3. Build the Front of the Board</h2>
     <p class="text-muted mb-4">
       With a faction created, head into the board editor. The front of the board is where the majority
@@ -265,7 +289,7 @@
   </section>
 
   {# ==================== Section 4: Faction Abilities ==================== #}
-  <section class="mb-5">
+  <section id="how-to-4" class="mb-5">
     <h2 class="root-title mb-3">4. Flavor Text & Faction Abilities</h2>
     
     <div class="row g-3 mb-4">
@@ -297,7 +321,7 @@
   </section>
 
   {# ==================== Section 5: Card Slot Sections ==================== #}
-  <section class="mb-5">
+  <section id="how-to-5" class="mb-5">
     <h2 class="root-title mb-3">5. Card Slot Section (Decree / Retinue)</h2>
     <p class="text-muted mb-4">
       Some factions have a row of card slots at the top of the board like the Eyrie's Decree or the Keepers
@@ -331,7 +355,7 @@
   </section>
 
   {# ==================== Section 6: The Phases Box ==================== #}
-  <section class="mb-5">
+  <section id="how-to-6" class="mb-5">
     <h2 class="root-title mb-3">6. Birdsong, Daylight & Evening</h2>
     <p class="text-muted mb-4">
       The phases box holds the heart of your turn structure. Add a step under any phase to start
@@ -449,7 +473,7 @@
   </section>
 
   {# ==================== Section 7: Sections (Outside the Phase Box) ==================== #}
-  <section class="mb-5">
+  <section id="how-to-7" class="mb-5">
     <h2 class="root-title mb-3">7. Sections (Outside the Phase Box)</h2>
     <p class="text-muted mb-4">
       Sections make up the majority of the elements of your faction board that live outside the Phase Box: cardboard
@@ -458,7 +482,7 @@
     </p>
 
     <div class="row g-3 mb-4">
-      <div class="col-md-12">
+      <div class="col-md-7">
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Section Options</h4>
           <p class="text-muted small mb-2">
@@ -470,7 +494,20 @@
         </div>
       </div>
   
-      <div class="col-md-6">
+      <div class="col-md-5">
+        <div class="card h-100 p-3">
+          <h4 class="root-title mb-2">Paper Background</h4>
+          <p class="text-muted small mb-2">
+            By default each section will have a paper background. 
+            Clicking this button will toggle that background on or off. 
+            Creating a section without a background can allow you to overlap it with an existing section for more flexibility.
+          </p>
+          <img src="{% static 'the_forge/img/how_to/paper_background_button.png' %}"
+               alt="paper background toggle" class="img-fluid mb-2">
+        </div>
+      </div>
+
+      <div class="col-md-5">
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Boxes</h4>
           <p class="text-muted small mb-2">
@@ -483,7 +520,7 @@
         </div>
       </div>
 
-      <div class="col-md-6">
+      <div class="col-md-7">
         <div class="card h-100 p-3">
           <h4 class="root-title mb-2">Legends</h4>
           <p class="text-muted small mb-2">
@@ -564,7 +601,7 @@
     </div>
   </section>
 
-  <section class="mb-5">
+  <section id="how-to-8" class="mb-5">
     <h2 class="root-title mb-3">8. Standalone Elements</h2>
     <p class="text-muted mb-4">
       There are two standalone elements that are separate from sections or phases: Card Piles and Character Images. Both are limited to 5 each.
@@ -592,6 +629,7 @@
           <p class="text-muted small mb-2">
             Add character images for flavor or to drop in a custom illustration the Forge doesn't
             otherwise cover. Choose whether the image sits behind or on top of the other elements.
+            If you would like to add your own custom section to your board, upload it as Character Art to scale and place anywhere.
           </p>
           <img src="{% static 'the_forge/img/how_to/section_character.png' %}"
                alt="Character image placed on a faction board" class="img-fluid mb-2">
@@ -601,7 +639,7 @@
   </section>
 
 
-    <section class="mb-5">
+    <section id="how-to-9" class="mb-5">
     <h2 class="root-title mb-3">9. Add Your Own Icons</h2>
     <div class="row g-3 mb-4">
 
@@ -622,7 +660,7 @@
 
 
   {# ==================== Section 10: Layout Editor ==================== #}
-  <section class="mb-5">
+  <section id="how-to-10" class="mb-5">
     <h2 class="root-title mb-3">10. Layout Editor</h2>
     <p class="text-muted mb-4">
       Once your faction board is saved you can fine-tune its layout. Head to the layout page to
@@ -700,7 +738,7 @@
   </section>
 
   {# ==================== Section 11: Download ==================== #}
-  <section class="mb-5">
+  <section id="how-to-11" class="mb-5">
     <h2 class="root-title mb-3">11. Download Your Faction Board</h2>
     <p class="text-muted mb-4">
       When you're happy with the layout, download your board. The download generates the file on
@@ -709,7 +747,7 @@
     </p>
 
     <div class="row g-3 mb-4">
-      <div class="col-md-6 col-lg-4">
+      <div class="col-md-6 col-lg-3">
         <div class="card h-100 p-3 d-flex flex-column">
           <h4 class="root-title mb-2">PDF</h4>
           <p class="text-muted small mb-2">
@@ -722,7 +760,7 @@
         </div>
       </div>
 
-      <div class="col-md-6 col-lg-4">
+      <div class="col-md-6 col-lg-3">
         <div class="card h-100 p-3 d-flex flex-column">
           <h4 class="root-title mb-2">WebP</h4>
           <p class="text-muted small mb-2">
@@ -735,7 +773,7 @@
         </div>
       </div>
 
-      <div class="col-md-12 col-lg-4">
+      <div class="col-md-12 col-lg-6">
         <div class="card h-100 p-3 d-flex flex-column">
           <h4 class="root-title mb-2">Tabletop Simulator .json</h4>
           <p class="text-muted small mb-2">
@@ -755,7 +793,7 @@
   </section>
 
   {# ==================== Section 12: More ==================== #}
-  <section class="mb-5">
+  <section id="how-to-12" class="mb-5">
     <h2 class="root-title mb-3">12. Keep Building</h2>
     <p class="text-muted mb-4">
       Beyond the faction board there are a few other pieces you can build for your faction. Any of these can be made on their own if you don't need to build a Faction Board.
@@ -805,10 +843,124 @@
                      -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
                      mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
               aria-hidden="true"></span>
-        Start Building a Faction
+        Create a New Faction
       </a>
     </div>
   </section>
 
+    </div>{# /col-lg-9 #}
+  </div>{# /row #}
+
 </div>
+
+<style>
+  /* Headroom for browser's native anchor jump so headings clear the fixed site nav. */
+  .forge-how-to section[id^="how-to-"] { scroll-margin-top: 6rem; }
+
+  /* Sidebar TOC (≥lg only). On smaller screens we just let it render inline. */
+  @media (min-width: 992px) {
+    .forge-toc {
+      position: sticky;
+      top: 6rem;
+      max-height: calc(100vh - 7rem);
+      overflow-y: auto;
+    }
+  }
+  .forge-toc-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-left: 1px solid #dee2e6;
+  }
+  .forge-toc-list li { margin: 0; }
+  .forge-toc-link {
+    display: block;
+    padding: 0.4rem 0.85rem;
+    margin-left: -1px;
+    border-left: 2px solid transparent;
+    color: #6c757d;
+    text-decoration: none;
+    font-size: 0.92rem;
+    line-height: 1.3;
+  }
+  .forge-toc-link:hover {
+    color: #212529;
+    background-color: rgba(0, 0, 0, 0.03);
+  }
+  .forge-toc-link.is-active {
+    color: #212529;
+    border-left-color: #8a6f3f;
+    font-weight: 600;
+  }
+
+  /* Mobile/tablet (<lg): horizontal scroll row, same vertical-accent styling. */
+  @media (max-width: 991.98px) {
+    .forge-toc {
+      /* Fade out the left and right edges to hint at more content. */
+      -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.5rem, #000 calc(100% - 1.5rem), transparent 100%);
+              mask-image: linear-gradient(to right, transparent 0, #000 1.5rem, #000 calc(100% - 1.5rem), transparent 100%);
+    }
+    .forge-toc-list {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: stretch;
+      overflow-x: auto;
+      overflow-y: hidden;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;     /* Firefox */
+      border-left: none;
+      border-bottom: 1px solid #dee2e6;
+      padding: 0 1rem;           /* room for the edge fade so first/last items aren't clipped */
+    }
+    .forge-toc-list::-webkit-scrollbar { display: none; }  /* Chrome/Safari */
+    .forge-toc-link {
+      flex: 0 0 auto;
+      white-space: nowrap;
+      margin-left: 0;
+      margin-bottom: -1px;       /* overlap the bottom border like vertical does */
+      border-left: none;
+      border-bottom: 2px solid transparent;
+    }
+    .forge-toc-link.is-active {
+      border-left-color: transparent;
+      border-bottom-color: #8a6f3f;
+    }
+  }
+</style>
+
+<script>
+  (function () {
+    const links = Array.from(document.querySelectorAll('[data-toc-link]'));
+    if (!links.length || !('IntersectionObserver' in window)) return;
+
+    const linkBySection = new Map();
+    const sections = links.map(link => {
+      const sec = document.getElementById(link.getAttribute('href').slice(1));
+      if (sec) linkBySection.set(sec, link);
+      return sec;
+    }).filter(Boolean);
+
+    const setActive = (link) => {
+      links.forEach(l => l.classList.toggle('is-active', l === link));
+    };
+
+    const visible = new Set();
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) visible.add(e.target);
+        else visible.delete(e.target);
+      });
+      let top = null;
+      let topY = Infinity;
+      visible.forEach(sec => {
+        const y = sec.getBoundingClientRect().top;
+        if (y < topY) { topY = y; top = sec; }
+      });
+      if (top && linkBySection.has(top)) setActive(linkBySection.get(top));
+    }, { rootMargin: '-10% 0px -70% 0px', threshold: 0 });
+
+    sections.forEach(s => observer.observe(s));
+  })();
+</script>
+</script>
 {% endblock %}

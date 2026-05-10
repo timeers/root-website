@@ -3,7 +3,11 @@
         class="forge-paper-bg-toggle {% if box.paper_background %}is-on{% else %}is-off{% endif %}"
         data-paper-bg-toggle
         aria-pressed="{% if box.paper_background %}true{% else %}false{% endif %}"
-        title="Toggle paper background">
+        data-on-title="Hide paper background"
+        data-off-title="Show paper background"
+        data-bs-toggle="tooltip"
+        data-bs-placement="top"
+        title="{% if box.paper_background %}Hide paper background{% else %}Show paper background{% endif %}">
   <img src="{% if box.paper_background %}{% static 'pdf/background-paper.png' %}{% else %}{% static 'pdf/background-none.png' %}{% endif %}"
        data-on-src="{% static 'pdf/background-paper.png' %}"
        data-off-src="{% static 'pdf/background-none.png' %}"

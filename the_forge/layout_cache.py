@@ -39,7 +39,7 @@ def _fingerprint(sheet, layout_mode):
         parts.append(('ability',) + a)
 
     for cb in sheet.content_boxes.order_by('order').values_list(
-            'id', 'order', 'title', 'text',
+            'id', 'order', 'title', 'text', 'paper_background',
             'x_h', 'y_h', 'w_h', 'h_h', 'x_v', 'y_v', 'w_v', 'h_v'):
         parts.append(('content_box',) + cb)
 

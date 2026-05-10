@@ -920,8 +920,6 @@ class SetupCard(models.Model):
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
             fields = [
                 {'name': 'By:', 'value': str(self.faction.designer)},
-                {'name': 'Type:', 'value': self.get_type_display()},
-                {'name': 'Reach:', 'value': str(self.reach)},
             ]
             send_rich_discord_message_task.delay(
                 f'[{self.faction.faction_name}](https://therootdatabase.com{url})',
