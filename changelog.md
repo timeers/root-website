@@ -29,6 +29,7 @@
 - Fixed crafted improvements snap points
 - SVG for 6+ not using faction color
 - Track title centered over track instead of container
+- Card actions indent fixed so that it doesn't overflow left
 
 ## [1.12.1] - 2026-5-05 Forge-Tuning
 

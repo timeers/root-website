@@ -740,6 +740,16 @@ MAX_ACTIONS_PER_ROW = 4           # max actions packed on one line
 # Used as the centering reference — wider icons shift left into margin
 MIN_CARD_ICON_W = ACTION_CARD_H * (486 / 673)  # ~17.52 pts
 
+# Half the width difference between other_cards.png (card_nonbird, the wide
+# icon) and the per-suit card icons (mouse/fox/rabbit/bird). When a step
+# contains a card_nonbird action, every card-cost row gets pushed right by
+# this amount so the wide icon's leftward overflow doesn't clip the section.
+# Precomputed so the math doesn't repeat at render time.
+CARD_NONBIRD_WIDTH_OVERHANG = (ACTION_CARDS_W - MIN_CARD_ICON_W) / 2
+
+# TEMP DEBUG: outline the MIN_CARD_ICON_W column on card-action rows in red.
+DEBUG_CARD_ICON_COLUMN = True
+
 STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
 FORGE_STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static', 'the_forge')
 FORGE_LOGO_SVG = os.path.join(FORGE_STATIC_DIR, 'Forge_Logo.svg')
@@ -2763,6 +2773,14 @@ class StepActionFlowable(Flowable):
         nudge = self.first_line_h * ACTION_ICON_Y_NUDGE
         first_line_center_y = self._height - self.top_pad - self.first_line_h / 2 - nudge
 
+        # TEMP DEBUG: outline the card-icon column for card actions.
+        if self.is_card and DEBUG_CARD_ICON_COLUMN:
+            c.saveState()
+            c.setStrokeColorRGB(1, 0, 0)
+            c.setLineWidth(0.5)
+            c.rect(0, 0, MIN_CARD_ICON_W, self._height, stroke=1, fill=0)
+            c.restoreState()
+
         # Draw cost icon (centered on first line)
         if self.icon_path or self.icon_drawing:
             if self.is_card:
@@ -2863,6 +2881,14 @@ class CardGroupFlowable(Flowable):
         c.saveState()
 
         text_x = self.icon_space + self.total_arrow_w
+
+        # TEMP DEBUG: outline the card-icon column (whole grouped block).
+        if DEBUG_CARD_ICON_COLUMN:
+            c.saveState()
+            c.setStrokeColorRGB(1, 0, 0)
+            c.setLineWidth(0.5)
+            c.rect(0, 0, MIN_CARD_ICON_W, self._height, stroke=1, fill=0)
+            c.restoreState()
 
         # Compute Y positions for each text block (top-to-bottom stacking)
         # and the first-line center for each (used for arrow targeting)
@@ -3602,7 +3628,23 @@ class SheetLayoutEngine:
         groups = self._group_actions(actions)
         packed_rows = self._pack_action_rows(groups, action_w)
 
+        # Card-cost rows ignore the multi-step bullet-column offset (offset 2)
+        # so they always sit at the same x relative to the content-area edge,
+        # regardless of single vs. multi-step layout. When the step also
+        # contains a card_nonbird (the wide other_cards.png icon), all
+        # card-cost rows get pushed right by half the width difference so the
+        # wide icon's leftward overflow stays inside the section. Non-card
+        # rows are unaffected.
+        step_has_nonbird = any(a.cost == 'card_nonbird' for a in actions)
+        nonbird_push = CARD_NONBIRD_WIDTH_OVERHANG
+        card_extra = -indent + nonbird_push
+        card_action_w = action_w - card_extra
+
         for row_info in packed_rows:
+            is_card_row = row_info[0] in ('single_card', 'card_group')
+            row_indent = indent + card_extra if is_card_row else indent
+            row_width = card_action_w if is_card_row else action_w
+
             if row_info[0] == 'single_card':
                 action = row_info[1]
                 icon_path, icon_drawing, icon_w, icon_h = self._resolve_cost_icon(action)
@@ -3611,7 +3653,7 @@ class SheetLayoutEngine:
                 flowable = StepActionFlowable(
                     icon_path=icon_path, icon_drawing=icon_drawing, text_paragraph=para,
                     icon_w=icon_w, icon_h=icon_h,
-                    total_width=action_w, cost=action.cost,
+                    total_width=row_width, cost=action.cost,
                 )
 
             elif row_info[0] == 'card_group':
@@ -3626,7 +3668,7 @@ class SheetLayoutEngine:
                 flowable = CardGroupFlowable(
                     icon_path=icon_path, icon_drawing=icon_drawing, text_paragraphs=paragraphs,
                     icon_w=icon_w, icon_h=icon_h,
-                    total_width=action_w, cost=cost_type,
+                    total_width=row_width, cost=cost_type,
                 )
 
             elif row_info[0] == 'row':
@@ -3682,9 +3724,9 @@ class SheetLayoutEngine:
                         ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
                     ]))
 
-            if indent:
+            if row_indent > 0:
                 # Wrap in a table to apply the left indent
-                t = Table([['', flowable]], colWidths=[indent, action_w])
+                t = Table([['', flowable]], colWidths=[row_indent, row_width])
                 t.setStyle(TableStyle([
                     ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                     ('LEFTPADDING', (0, 0), (-1, -1), 0),
@@ -8135,10 +8177,9 @@ class ComponentsSheetLayoutEngine:
         return pages, has_card, card_x, card_y
 
     def _draw_card_with_rounded_corners(self, c, path, x, y):
-        """Draw a 2.5"×3.46" card image clipped to a 15%-of-shorter-side
-        rounded rect. Matches the building rounding used in the grid."""
+        """Draw a 2.5"×3.46" card image clipped to a slightly-rounded rect."""
         try:
-            radius = min(CARD_SLOT_W, CARD_SLOT_H) * 0.15
+            radius = min(CARD_SLOT_W, CARD_SLOT_H) * 0.03
             c.saveState()
             p = c.beginPath()
             p.roundRect(x, y, CARD_SLOT_W, CARD_SLOT_H, radius)
