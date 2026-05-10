@@ -64,28 +64,63 @@ class SurveyQuerySet(models.QuerySet):
         Checks:
         - Direct invite (invited_players)
         - Series membership (player is a TournamentPlayer for the series)
-        - Round membership (player is a TournamentPlayer for the tournament)
+        - Stage membership (player is a participant in the stage)
         - Guild membership
         """
+        invited_qs = self.model.objects.filter(invited_players=profile).values('pk')
+        series_qs = self.model.objects.filter(series__tournament_players__profile=profile).values('pk')
+        stage_qs = self.model.objects.filter(stage__participants__tournament_player__profile=profile).values('pk')
+        guild_qs = self.model.objects.filter(guild__members=profile).values('pk')
+
         return self.filter(
             Q(is_public=False) & (
-                Q(invited_players=profile) |
-                Q(series__tournament_players__profile=profile) |
-                Q(stage__participants__tournament_player__profile=profile) |
-                Q(guild__members=profile)
+                Q(pk__in=invited_qs) |
+                Q(pk__in=series_qs) |
+                Q(pk__in=stage_qs) |
+                Q(pk__in=guild_qs)
             )
-        ).exclude(
-            created_by=profile
-        ).distinct()
+        ).exclude(created_by=profile)
     
-    def annotate_for_user(self, profile):
-        """Annotate surveys with user-specific status fields for list display."""
+    def annotate_for_user(self, profile, owned=False):
+        """Annotate surveys with user-specific status fields for list display.
+
+        When ``owned=True``, skip the membership-check subqueries used to
+        compute ``can_take_survey`` — appropriate for querysets the caller has
+        already filtered to surveys created by ``profile``.
+        """
         SurveyResponse = apps.get_model('the_tavern', 'SurveyResponse')
         is_banned = profile.group == Profile.GroupChoices.BANNED
 
         user_response_exists = Exists(
             SurveyResponse.objects.filter(survey=OuterRef('pk'), profile=profile)
         )
+
+        is_survey_full = Case(
+            When(
+                limit_responses=True, has_waitlist=False,
+                waitlist_threshold__isnull=False,
+                response_count__gte=F('waitlist_threshold'),
+                then=Value(True)
+            ),
+            default=Value(False),
+            output_field=models.BooleanField()
+        )
+
+        if owned:
+            return self.annotate(
+                response_count=Count('responses'),
+                user_has_responded=user_response_exists,
+                can_take_survey=Value(False, output_field=models.BooleanField()) if is_banned else (
+                    Case(
+                        When(allow_multiple_responses=True, then=Value(True)),
+                        When(user_has_responded=False, then=Value(True)),
+                        default=Value(False),
+                        output_field=models.BooleanField(),
+                    )
+                ),
+                is_survey_full=is_survey_full,
+            )
+
         user_invited = Exists(
             self.model.invited_players.through.objects.filter(
                 survey_id=OuterRef('pk'), profile_id=profile.pk
@@ -127,16 +162,7 @@ class SurveyQuerySet(models.QuerySet):
                 default=Value(False),
                 output_field=models.BooleanField()
             ) if not is_banned else Value(False, output_field=models.BooleanField()),
-            is_survey_full=Case(
-                When(
-                    limit_responses=True, has_waitlist=False,
-                    waitlist_threshold__isnull=False,
-                    response_count__gte=F('waitlist_threshold'),
-                    then=Value(True)
-                ),
-                default=Value(False),
-                output_field=models.BooleanField()
-            )
+            is_survey_full=is_survey_full,
         )
 
     def can_see_results(self, profile):

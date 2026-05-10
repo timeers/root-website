@@ -64,6 +64,10 @@
   </div>
 
   <div class="phase-step-action-list mt-2" data-step-id="{{ step.pk }}"
+       data-step-cap-list
+       data-max-steps="{{ max_step_actions }}"
+       data-toggle-selector="[data-add-action][data-step-id='{{ step.pk }}']"
+       data-cap-note-selector="[data-step-action-cap-note='{{ step.pk }}']"
        data-reorder-url="{% url 'forge-stepaction-reorder' step_pk=step.pk %}">
     {% for a in step.actions.all %}
       {% include 'the_forge/partials/step_action_row.html' with action=a %}
@@ -73,5 +77,8 @@
   <div class="mt-2">
     <button type="button" class="btn btn-sm btn-outline-secondary"
             data-add-action data-step-id="{{ step.pk }}">+ Add Action</button>
+    <span data-step-action-cap-note="{{ step.pk }}" class="small text-muted ms-2" hidden>
+      {{ max_step_actions }} / {{ max_step_actions }} actions
+    </span>
   </div>
 </div>

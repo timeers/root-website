@@ -8,7 +8,7 @@
   {% if faction %}
     <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
   {% else %}
-    <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   All Factions</a>
+    <a href="{% url 'forge-faction-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>   My Factions</a>
   {% endif %}
 </div>
 
@@ -23,7 +23,18 @@
 
   <div class="card p-3 mb-3">
     <label for="{{ form.faction_name.id_for_label }}" class="form-label small text-muted text-uppercase">Faction Name</label>
-    {{ form.faction_name }}
+    <input type="text"
+           name="{{ form.faction_name.html_name }}"
+           id="{{ form.faction_name.id_for_label }}"
+           value="{{ form.faction_name.value|default:'' }}"
+           maxlength="100"
+           class="form-control form-control-lg forge-faction-title-input"
+           placeholder="Faction Name"
+           hx-get="{% url 'forge-faction-name-check' %}"
+           hx-trigger="keyup changed delay:400ms, load"
+           hx-target="#forge-name-check"
+           hx-swap="innerHTML">
+    <div id="forge-name-check"></div>
     {% if form.faction_name.errors %}<div class="text-danger small mt-1">{{ form.faction_name.errors }}</div>{% endif %}
   </div>
 
@@ -144,6 +155,13 @@
     <div class="alert alert-danger">{{ form.non_field_errors }}</div>
   {% endif %}
 
+  <div class="card p-3 mb-3">
+    <label for="{{ form.language.id_for_label }}" class="form-label small text-muted text-uppercase">Language</label>
+    {{ form.language }}
+    {% if form.language.help_text %}<div class="form-text">{{ form.language.help_text }}</div>{% endif %}
+    {% if form.language.errors %}<div class="text-danger small mt-1">{{ form.language.errors }}</div>{% endif %}
+  </div>
+
   <div class="d-flex gap-2 mb-2 justify-content-end">
     {% if faction %}
       <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-outline-secondary">Cancel</a>
@@ -154,6 +172,8 @@
       {% if is_create %}Create{% else %}Save{% endif %}
     </button>
   </div>
+
+  
 </form>
 
 <script>

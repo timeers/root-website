@@ -1,0 +1,321 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="my-2">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
+</div>
+
+<div class="mb-2">
+  <h2 class="root-title text-center m-0">Faction Markers</h2>
+</div>
+
+<form method="post" enctype="multipart/form-data" id="forge-markers-form">
+  {% csrf_token %}
+
+  <div class="card p-3 mb-3">
+    <div class="d-flex flex-wrap gap-4 align-items-start">
+      <div class="flex-grow-1" style="min-width: 16rem;">
+        <label class="form-label small text-center text-muted text-uppercase">Faction Icon</label>
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <img id="forge-markers-current-icon"
+               src="{% if faction.faction_icon %}{{ faction.faction_icon.url }}?v={{ faction.markers_version }}{% endif %}"
+               alt=""
+               class="rounded border bg-body-tertiary"
+               style="height: 3.5rem; width: 3.5rem; object-fit: contain; {% if not faction.faction_icon %}display: none;{% endif %}">
+          <input type="file" name="{{ form.faction_icon.html_name }}"
+                 id="{{ form.faction_icon.id_for_label }}"
+                 accept="image/*"
+                 class="visually-hidden">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="forge-icon-choose-btn">
+            <i class="bi bi-upload"></i>
+            <span class="ms-1">{% if faction.faction_icon %}Change Icon{% else %}Choose Icon{% endif %}</span>
+          </button>
+          <span id="forge-icon-filename" class="small text-muted text-truncate" style="max-width: 16rem;"></span>
+        </div>
+        {% if form.faction_icon.errors %}<div class="text-danger small mt-1">{{ form.faction_icon.errors }}</div>{% endif %}
+      </div>
+
+      <div class="flex-grow-1" style="min-width: 16rem;">
+        <label class="form-label small text-muted text-uppercase mb-2">Background Color</label>
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input"
+                 type="checkbox"
+                 id="{{ form.use_faction_color.id_for_label }}"
+                 name="{{ form.use_faction_color.html_name }}"
+                 {% if form.use_faction_color.value %}checked{% endif %}>
+          <label class="form-check-label" for="{{ form.use_faction_color.id_for_label }}">
+            Use faction color
+          </label>
+        </div>
+
+        <div id="forge-icon-color-wrap" {% if form.use_faction_color.value %}hidden{% endif %}>
+          <div class="forge-color-row">
+            {{ form.icon_color }}
+            <input type="text" id="forge-icon-color-hex" class="form-control form-control-sm forge-color-hex"
+                   value="{{ form.icon_color.value|default:faction.color|default:'#5f788a' }}"
+                   placeholder="#RRGGBB" maxlength="7"
+                   pattern="^#[0-9a-fA-F]{6}$">
+          </div>
+          {% if form.icon_color.errors %}<div class="text-danger small mt-1">{{ form.icon_color.errors }}</div>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <label class="form-label small text-muted text-uppercase text-center mb-2">Preview</label>
+    <div class="d-flex flex-wrap gap-4 justify-content-center">
+      <figure class="text-center m-0">
+        <div class="forge-marker-preview" id="forge-vp-marker-preview"
+             data-marker="vp"
+             data-template-url="{% static 'pdf/markers/vp_marker_template.png' %}"
+             data-icon-pct="0.52">
+          <div class="forge-marker-bg"></div>
+          <img class="forge-marker-icon" alt="">
+          <img class="forge-marker-template" alt="">
+        </div>
+        <figcaption class="small text-muted mt-2">VP Marker</figcaption>
+      </figure>
+
+      <figure class="text-center m-0">
+        <div class="forge-marker-preview" id="forge-relationship-marker-preview"
+             data-marker="relationship"
+             data-icon-pct="0.61">
+          <div class="forge-marker-bg"></div>
+          <img class="forge-marker-icon" alt="">
+        </div>
+        <figcaption class="small text-muted mt-2">Relationship Marker</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
+
+  <input type="hidden" name="vp_marker_data" id="forge-vp-marker-data">
+  <input type="hidden" name="relationship_marker_data" id="forge-relationship-marker-data">
+
+  <div class="d-flex gap-2 mb-2 justify-content-end">
+    <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-outline-secondary">Cancel</a>
+    <button type="submit" class="btn btn-success">Save</button>
+  </div>
+</form>
+
+<style>
+  .forge-marker-preview {
+    position: relative;
+    width: 8rem;
+    height: 8rem;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+  }
+  .forge-marker-bg {
+    position: absolute;
+    inset: 0;
+    background: #5f788a;
+  }
+  .forge-marker-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    object-fit: contain;
+    pointer-events: none;
+  }
+  .forge-marker-template {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    height: auto;
+    pointer-events: none;
+  }
+  .forge-marker-preview .forge-marker-icon { display: none; }
+  .forge-marker-preview.has-icon .forge-marker-icon { display: block; }
+</style>
+
+<script>
+(() => {
+  const factionPrimary = "{{ faction.color|default:'#5f788a'|escapejs }}";
+  const initialIconUrl = {% if faction.faction_icon %}"{{ faction.faction_icon.url|escapejs }}?v={{ faction.markers_version }}"{% else %}""{% endif %};
+
+  const form = document.getElementById('forge-markers-form');
+  const fileInput = document.getElementById('{{ form.faction_icon.id_for_label }}');
+  const useFactionToggle = document.getElementById('{{ form.use_faction_color.id_for_label }}');
+  const colorWrap = document.getElementById('forge-icon-color-wrap');
+  const colorSwatch = colorWrap.querySelector('input[type="color"]');
+  const colorHex = document.getElementById('forge-icon-color-hex');
+  const vpPreview = document.getElementById('forge-vp-marker-preview');
+  const relPreview = document.getElementById('forge-relationship-marker-preview');
+  const vpData = document.getElementById('forge-vp-marker-data');
+  const relData = document.getElementById('forge-relationship-marker-data');
+
+  // Track whether the user changed anything that affects the rendered marker.
+  // We only post regenerated PNGs when this is true, so a no-op save doesn't
+  // overwrite stored markers with a slightly different re-render.
+  let dirty = false;
+
+  let currentIconUrl = initialIconUrl;
+  let templateImg = null;
+  const tmplUrl = vpPreview.dataset.templateUrl;
+  if (tmplUrl) {
+    templateImg = new Image();
+    templateImg.crossOrigin = 'anonymous';
+    templateImg.src = tmplUrl;
+  }
+
+  function activeColor() {
+    return useFactionToggle.checked ? factionPrimary : (colorSwatch.value || factionPrimary);
+  }
+
+  function applyColor() {
+    const c = activeColor();
+    [vpPreview, relPreview].forEach(p => {
+      p.querySelector('.forge-marker-bg').style.background = c;
+    });
+  }
+
+  function applyIcon() {
+    [vpPreview, relPreview].forEach(p => {
+      const img = p.querySelector('.forge-marker-icon');
+      if (currentIconUrl) {
+        img.src = currentIconUrl;
+        const pct = parseFloat(p.dataset.iconPct) || 0.5;
+        img.style.maxWidth = (pct * 100) + '%';
+        img.style.maxHeight = (pct * 100) + '%';
+        p.classList.add('has-icon');
+      } else {
+        p.classList.remove('has-icon');
+      }
+    });
+    const tmpl = vpPreview.querySelector('.forge-marker-template');
+    if (tmplUrl) {
+      tmpl.src = tmplUrl;
+      tmpl.style.display = 'block';
+    } else {
+      tmpl.style.display = 'none';
+    }
+  }
+
+  // Toggle: show/hide the picker, and reflect the toggle's state.
+  useFactionToggle.addEventListener('change', () => {
+    if (useFactionToggle.checked) {
+      colorWrap.setAttribute('hidden', '');
+    } else {
+      colorWrap.removeAttribute('hidden');
+      // Seed the picker with the faction's primary color if it has no value.
+      if (!colorSwatch.value) {
+        colorSwatch.value = factionPrimary;
+        colorHex.value = factionPrimary;
+      }
+    }
+    dirty = true;
+    applyColor();
+  });
+
+  // Color picker <-> hex sync (mirrors ForgedFaction form pattern).
+  function syncSwatchToHex() {
+    const v = colorSwatch.value;
+    colorHex.value = v;
+    dirty = true;
+    applyColor();
+  }
+  function syncHexToSwatch() {
+    const v = colorHex.value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+      colorSwatch.value = v;
+      dirty = true;
+      applyColor();
+    }
+  }
+  colorSwatch.addEventListener('input', syncSwatchToHex);
+  colorHex.addEventListener('input', syncHexToSwatch);
+
+  // "Choose Icon" button proxies to the hidden file input.
+  const chooseBtn = document.getElementById('forge-icon-choose-btn');
+  const filenameLabel = document.getElementById('forge-icon-filename');
+  const currentIconImg = document.getElementById('forge-markers-current-icon');
+  const chooseLabel = chooseBtn.querySelector('span');
+  chooseBtn.addEventListener('click', () => fileInput.click());
+
+  // File input: render the chosen file via FileReader.
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    filenameLabel.textContent = file.name;
+    chooseLabel.textContent = 'Change Icon';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      currentIconUrl = e.target.result;
+      if (currentIconImg) {
+        currentIconImg.src = e.target.result;
+        currentIconImg.style.display = '';
+      }
+      dirty = true;
+      applyIcon();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Compose a marker PNG via canvas. Mirrors the CSS preview: square,
+  // background fill, icon centered with the given percent box.
+  function renderMarker(spec) {
+    return new Promise((resolve) => {
+      const SIZE = 512;
+      const canvas = document.createElement('canvas');
+      canvas.width = SIZE; canvas.height = SIZE;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = activeColor();
+      ctx.fillRect(0, 0, SIZE, SIZE);
+
+      const drawTemplate = () => {
+        if (!spec.includeTemplate || !templateImg || !templateImg.complete || !templateImg.naturalWidth) {
+          return resolve(canvas.toDataURL('image/png'));
+        }
+        // Scale to fill width, center vertically.
+        const tw = SIZE;
+        const th = templateImg.naturalHeight * (SIZE / templateImg.naturalWidth);
+        ctx.drawImage(templateImg, 0, (SIZE - th) / 2, tw, th);
+        resolve(canvas.toDataURL('image/png'));
+      };
+
+      if (!currentIconUrl) {
+        return drawTemplate();
+      }
+      const icon = new Image();
+      icon.crossOrigin = 'anonymous';
+      icon.onload = () => {
+        const maxBox = SIZE * spec.iconPct;
+        const ratio = Math.min(maxBox / icon.naturalWidth, maxBox / icon.naturalHeight);
+        const w = icon.naturalWidth * ratio;
+        const h = icon.naturalHeight * ratio;
+        ctx.drawImage(icon, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
+        drawTemplate();
+      };
+      icon.onerror = drawTemplate;
+      icon.src = currentIconUrl;
+    });
+  }
+
+  form.addEventListener('submit', async (e) => {
+    if (!dirty) return; // No icon/color change → don't post regenerated PNGs.
+    e.preventDefault();
+    const [vp, rel] = await Promise.all([
+      renderMarker({ iconPct: 0.52, includeTemplate: true }),
+      renderMarker({ iconPct: 0.61, includeTemplate: false }),
+    ]);
+    vpData.value = vp;
+    relData.value = rel;
+    form.submit();
+  });
+
+  // Initial paint.
+  applyColor();
+  applyIcon();
+})();
+</script>
+{% endblock %}

@@ -1,6 +1,38 @@
 # Changelog
 
-## [1.12.1] - 2026-5-06 Forge-Tuning
+## [1.12.2] - 2026-5-08 More Forge Tuning
+
+### New Features
+- Adset card added to TTS json download
+- Crafted improvements tile added to TTS json
+- Double sided Pieces on Board Back
+- Tokens and Buildings added to TTS json
+- Added VP and Relationship Markers
+- Scale Image on back of Faction Board
+
+### Improvements
+- Delete button for Forged Factions
+- Stable piece images 
+- Replaced crafted items svg with dynamicly created box
+- Dynamic min width for attribute bars
+- Soft warning if name in Forge conflicts with existing faction
+- Pieces snap to matching tracks
+- Added French and Spanish
+- Added quantity limits to most elements
+- Forge How-To Table of contents
+
+### Bug Fixes
+- Piece name field is now optional
+- Fixed (none) text to be black and standard font
+- Adset number and text alignment adjusted
+- Lock faction board after 1.5 sec in TTS to work around floating boards
+- Fixed crafted improvements snap points
+- SVG for 6+ not using faction color
+- Track title centered over track instead of container
+- Card actions indent fixed so that it doesn't overflow left
+- Survey home page responsiveness when logged in
+
+## [1.12.1] - 2026-5-05 Forge-Tuning
 
 ### New Features
 - Download Front, Back or Adset Card as PDF layers to easily edit in gimp or other programs

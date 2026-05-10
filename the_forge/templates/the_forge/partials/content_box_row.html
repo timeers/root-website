@@ -7,6 +7,7 @@
       <form method="post" data-edit-url="{% url 'forge-contentbox-edit' pk=box.pk %}" class="m-0 flex-grow-1" data-dirty-form>
         {% csrf_token %}
         <input type="hidden" name="order" value="{{ box.order }}">
+        <input type="hidden" name="paper_background" value="{% if box.paper_background %}true{% endif %}" data-paper-bg-input>
         <div class="mb-1">
           <input type="text" name="title" value="{{ box.title|default_if_none:'' }}" class="form-control form-control-sm luminari" placeholder="Title">
         </div>
@@ -22,10 +23,15 @@
           </div>
         </div>
       </form>
+      {% include 'the_forge/partials/paper_background_toggle.html' with box=box %}
     </div>
 
     <div class="content-box-steps mt-2"
          data-step-list
+         data-step-cap-list
+         data-max-steps="{{ max_phase_steps_per_box }}"
+         data-toggle-selector="[data-add-content-box-step][data-content-box-id='{{ box.pk }}']"
+         data-cap-note-selector="[data-content-box-cap-note='{{ box.pk }}']"
          data-content-box-id="{{ box.pk }}"
          data-reorder-url="{% url 'forge-contentbox-step-reorder' content_box_pk=box.pk %}">
       {% for step in box.annotated_steps %}
@@ -35,6 +41,9 @@
 
     <button type="button" class="btn btn-sm btn-primary mt-2"
             data-add-content-box-step data-content-box-id="{{ box.pk }}">+ Add Step</button>
+    <div data-content-box-cap-note="{{ box.pk }}" class="mt-2 small text-muted" hidden>
+      {{ max_phase_steps_per_box }} / {{ max_phase_steps_per_box }} steps
+    </div>
 
   {% else %}
     {% if box.kind == 'actions' or box.kind == 'scale' %}
@@ -44,6 +53,7 @@
         <form method="post" data-edit-url="{% url 'forge-contentbox-edit' pk=box.pk %}" class="m-0 flex-grow-1" data-dirty-form>
           {% csrf_token %}
           <input type="hidden" name="order" value="{{ box.order }}">
+          <input type="hidden" name="paper_background" value="{% if box.paper_background %}true{% endif %}" data-paper-bg-input>
           <div class="mb-1">
             <input type="text" name="title" value="{{ box.title|default_if_none:'' }}" class="form-control form-control-sm luminari" placeholder="Title">
           </div>
@@ -59,12 +69,14 @@
             </div>
           </div>
         </form>
+        {% include 'the_forge/partials/paper_background_toggle.html' with box=box %}
       </div>
     {% else %}
       <div class="d-flex gap-2 align-items-start mb-2">
         <span class="content-box-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
         <span class="content-box-section-label luminari">Section {{ box.order }}</span>
-        <div class="ms-auto">
+        <div class="ms-auto d-flex gap-2 align-items-start">
+          {% include 'the_forge/partials/paper_background_toggle.html' with box=box %}
           <button type="button" class="btn btn-sm btn-outline-danger"
                   data-delete-url="{% url 'forge-contentbox-delete' pk=box.pk %}">Delete Section</button>
         </div>

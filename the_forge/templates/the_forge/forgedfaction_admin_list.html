@@ -1,0 +1,83 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+{% load forge_text %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center my-2">
+  <a href="{% url 'forge-home' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>  The Forge</a>
+  <h2 class="root-title m-0 text-center flex-grow-1">All Forged Factions</h2>
+  <span class="text-muted small">{{ factions|length }} faction{{ factions|length|pluralize }}</span>
+</div>
+
+{% if factions %}
+  <div class="row g-3 forge-faction-grid mb-2">
+    {% for faction in factions %}
+      {% include 'the_forge/partials/_forgedfaction_card.html' with faction=faction admin_view=True %}
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card p-3">
+    <p class="text-muted mb-0">No forged factions have been created yet.</p>
+  </div>
+{% endif %}
+
+<script>
+  // Mirrors draw_faction_background() for repeating-bg faction cards.
+  // Each card's width represents PDF landscape width (792pt), so the brick
+  // pattern reads at the same visual rhythm as the PDF and detail page.
+  (() => {
+    const layers = document.querySelectorAll('.forge-faction-card__bg[data-tile-src]');
+    if (!layers.length) return;
+    const PAGE_W_PT = 792, PAGE_H_PT = 612;
+    const imgCache = new Map();
+    const loadImg = (src) => {
+      if (imgCache.has(src)) return imgCache.get(src);
+      const p = new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = reject;
+        im.src = src;
+      });
+      imgCache.set(src, p);
+      return p;
+    };
+    const renderLayer = async (layer) => {
+      const src = layer.dataset.tileSrc;
+      const pct = (parseInt(layer.dataset.tilePct, 10) || 33) / 100;
+      const img = await loadImg(src);
+      const w = layer.clientWidth;
+      if (!w) return;
+      const ptPerPx = PAGE_W_PT / w;
+      const maxTileH_px = (PAGE_H_PT * pct) / ptPerPx;
+      const naturalH_px = img.naturalHeight / ptPerPx;
+      const tileH = Math.min(naturalH_px, maxTileH_px);
+      const tileW = img.naturalWidth * (tileH / img.naturalHeight);
+      if (tileW < 1 || tileH < 1) return;
+      const dpr = window.devicePixelRatio || 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(tileW * dpr));
+      canvas.height = Math.max(1, Math.round(2 * tileH * dpr));
+      const ctx = canvas.getContext('2d');
+      const dw = tileW * dpr, dh = tileH * dpr;
+      ctx.drawImage(img, 0, 0, dw, dh);
+      ctx.drawImage(img, -dw / 2, dh, dw, dh);
+      ctx.drawImage(img, dw / 2, dh, dw, dh);
+      layer.style.backgroundImage = `url('${canvas.toDataURL()}')`;
+      layer.style.backgroundSize = `${tileW}px ${2 * tileH}px`;
+      layer.style.backgroundPosition = '0 0';
+      layer.style.backgroundRepeat = 'repeat';
+    };
+    layers.forEach(renderLayer);
+    if (typeof ResizeObserver !== 'undefined') {
+      const debounced = new Map();
+      const ro = new ResizeObserver((entries) => {
+        for (const e of entries) {
+          clearTimeout(debounced.get(e.target));
+          debounced.set(e.target, setTimeout(() => renderLayer(e.target), 150));
+        }
+      });
+      layers.forEach((l) => ro.observe(l));
+    }
+  })();
+</script>
+{% endblock %}

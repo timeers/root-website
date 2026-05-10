@@ -1,5 +1,6 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 
 from the_gatehouse.models import Profile
 from the_keep.utils import validate_hex_color, delete_old_image
@@ -10,7 +11,22 @@ from .services.upload_paths import (
     back_preview_upload_path,
     card_preview_upload_path,
     faction_upload_path,
+    faction_icon_upload_path,
+    vp_marker_upload_path,
+    relationship_marker_upload_path,
+    piece_front_upload_path,
+    piece_back_upload_path,
 )
+
+
+def _default_language():
+    # Deferred to avoid a top-of-file import of another app's models during
+    # app loading; also tolerates a fresh DB where Language hasn't been
+    # populated yet (returns None, FK is nullable).
+    from the_gatehouse.models import Language
+    lang = Language.objects.filter(code='en').first()
+    return lang.pk if lang else None
+
 
 class ForgedFaction(models.Model):
     BACKGROUND_TILE_SIZE_MIN = 10
@@ -50,7 +66,15 @@ class ForgedFaction(models.Model):
     }
 
     designer = models.ForeignKey(Profile, related_name='faction_sheets', on_delete=models.CASCADE)
-    faction_name = models.CharField(max_length=100)
+    language = models.ForeignKey(
+        'the_gatehouse.Language',
+        related_name='forged_factions',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        default=_default_language,
+        help_text="Language used for built-in faction text (e.g. Crafted Items label).",
+    )
+    faction_name = models.CharField(max_length=50)
     slug = models.SlugField(unique=True, null=True, blank=True)
     color = models.CharField(
         max_length=7,
@@ -86,8 +110,22 @@ class ForgedFaction(models.Model):
         help_text="Tile height as a percentage of page height (only used when repeating).",
     )
 
-    pnp_version = models.CharField(max_length=100, null=True, blank=True)
-    art_by = models.CharField(max_length=100, null=True, blank=True)
+    pnp_version = models.CharField(max_length=20, null=True, blank=True)
+    art_by = models.CharField(max_length=50, null=True, blank=True)
+
+    faction_icon = models.ImageField(upload_to=faction_icon_upload_path, blank=True, null=True)
+    icon_color = models.CharField(
+        max_length=7,
+        blank=True,
+        null=True,
+        validators=[validate_hex_color],
+        help_text="Enter a hex color code (e.g., #RRGGBB)."
+    )
+    vp_marker = models.ImageField(upload_to=vp_marker_upload_path, blank=True, null=True)
+    relationship_marker = models.ImageField(upload_to=relationship_marker_upload_path, blank=True, null=True)
+    markers_version = models.PositiveIntegerField(default=0)
+    print_component_backs = models.BooleanField(default=False)
+
 
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
@@ -109,6 +147,8 @@ class ForgedFaction(models.Model):
                 old = ForgedFaction.objects.get(pk=self.pk)
                 if old.background_image and old.background_image != self.background_image:
                     delete_old_image(old.background_image)
+                if old.faction_icon and old.faction_icon != self.faction_icon:
+                    delete_old_image(old.faction_icon)
             except ForgedFaction.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
@@ -155,7 +195,6 @@ class FactionSheet(models.Model):
 
     faction = models.OneToOneField(ForgedFaction, related_name='faction_sheet', on_delete=models.CASCADE)
     flavor_text = models.TextField(blank=True, null=True)
-    action_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
     include_crafted_items = models.BooleanField(default=True)
     include_decree = models.BooleanField(default=False)
     layout_mode = models.CharField(max_length=30, choices=LayoutChoices.choices, default=LayoutChoices.LAYOUT_VERTICAL)
@@ -208,7 +247,7 @@ class FactionSheet(models.Model):
         if self.pk:
             try:
                 old = FactionSheet.objects.get(pk=self.pk)
-                for field_name in ('action_image', 'header_image', 'image_preview'):
+                for field_name in ('header_image', 'image_preview'):
                     old_img = getattr(old, field_name)
                     new_img = getattr(self, field_name)
                     if old_img and old_img != new_img:
@@ -216,6 +255,7 @@ class FactionSheet(models.Model):
             except FactionSheet.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new:
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
@@ -329,6 +369,8 @@ class ContentBox(models.Model):
     title = models.CharField(max_length=200, blank=True, default='')
     text = models.TextField(blank=True, default='')
     order = models.PositiveIntegerField()
+
+    paper_background = models.BooleanField(default=True)
 
     # Per-layout placement overrides (inches). Null = auto.
     x_h = models.FloatField(blank=True, null=True)
@@ -590,33 +632,15 @@ class CardboardTrack(models.Model):
         return cells
 
     def get_row_titles_list(self):
-        """Per-row HTML strings, one per row. Reads `row_titles_json`; falls
-        back to legacy pipe-split `row_titles` for unmigrated records."""
+        """Per-row HTML strings, one per row."""
         data = self.row_titles_json or []
-        if not data and self.row_titles:
-            data = self.row_titles.split('|')
         return [data[i] if i < len(data) else '' for i in range(self.num_rows)]
 
     def get_column_headers_list(self):
-        """Per-column HTML strings, one per column. Reads
-        `column_headers_json`; falls back to legacy pipe-split
-        `column_headers` for unmigrated records."""
+        """Per-column HTML strings, one per column."""
         data = self.column_headers_json or []
-        if not data and self.column_headers:
-            data = self.column_headers.split('|')
         return [data[i] if i < len(data) else '' for i in range(self.num_columns)]
 
-    # Legacy pipe-delimited fields. Kept for one release as the migration
-    # source for `*_json`; remove after migrate_track_text_to_json has run on
-    # prod and any saves have flushed the JSONFields.
-    column_headers = models.CharField(
-        max_length=500, blank=True, default='',
-        help_text='Deprecated. Use column_headers_json.'
-    )
-    row_titles = models.CharField(
-        max_length=2000, blank=True, default='',
-        help_text='Deprecated. Use row_titles_json.'
-    )
     column_headers_json = models.JSONField(
         default=list, blank=True,
         help_text='Per-column header HTML strings, one per column.'
@@ -753,6 +777,10 @@ class CardboardSlot(models.Model):
 
 
 class FactionBack(models.Model):
+    BACK_IMAGE_SIZE_MIN = 25
+    BACK_IMAGE_SIZE_MAX = 100
+    BACK_IMAGE_SIZE_DEFAULT = 75
+
     class AttributeChoices(models.TextChoices):
         NONE = 'N', 'None'
         LOW = 'L', 'Low'
@@ -764,11 +792,19 @@ class FactionBack(models.Model):
     aggression = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=AttributeChoices.choices, default=AttributeChoices.NONE)
 
-    setup_order = models.CharField(max_length=1, default="X")
+    setup_order = models.CharField(max_length=1, blank=True, null=True, default='')
 
     how_to_play_title = models.TextField(default='Faction')
     how_to_play_text = models.TextField(blank=True, null=True)
     back_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
+    back_image_size = models.PositiveSmallIntegerField(
+        default=BACK_IMAGE_SIZE_DEFAULT,
+        validators=[
+            MinValueValidator(BACK_IMAGE_SIZE_MIN),
+            MaxValueValidator(BACK_IMAGE_SIZE_MAX),
+        ],
+        help_text="Back image size as a percentage of the maximum that fits the How To Play area.",
+    )
 
     image_preview = models.ImageField(upload_to=back_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
@@ -793,6 +829,7 @@ class FactionBack(models.Model):
             except FactionBack.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new:
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
@@ -813,19 +850,34 @@ class Piece(models.Model):
         OTHER = 'O'
 
     parent = models.ForeignKey(FactionBack, on_delete=models.CASCADE, related_name='pieces')
-    name = models.CharField(max_length=30)
+    name = models.CharField(max_length=30, blank=True, null=True, default='')
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
-    small_icon = models.ImageField(upload_to=faction_upload_path, null=True, blank=True)
+    small_icon = models.ImageField(upload_to=piece_front_upload_path, null=True, blank=True)
+    back_image = models.ImageField(upload_to=piece_back_upload_path, null=True, blank=True)
+    front_version = models.PositiveIntegerField(default=0)
+    back_version = models.PositiveIntegerField(default=0)
 
     def save(self, *args, **kwargs):
         if self.pk:
             try:
                 old = Piece.objects.get(pk=self.pk)
-                if old.small_icon and old.small_icon != self.small_icon:
-                    delete_old_image(old.small_icon)
             except Piece.DoesNotExist:
-                pass
+                old = None
+            if old is not None:
+                type_changed = old.type != self.type
+                for field_name, version_attr in (
+                    ('small_icon', 'front_version'),
+                    ('back_image', 'back_version'),
+                ):
+                    old_file = getattr(old, field_name)
+                    new_file = getattr(self, field_name)
+                    file_replaced = old_file and old_file != new_file
+                    if file_replaced or (type_changed and old_file):
+                        delete_old_image(old_file)
+                    if file_replaced:
+                        setattr(self, version_attr,
+                                (getattr(self, version_attr) or 0) + 1)
         super().save(*args, **kwargs)
 
 
@@ -861,14 +913,13 @@ class SetupCard(models.Model):
             except SetupCard.DoesNotExist:
                 pass
         super().save(*args, **kwargs)
+        ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new:
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
             fields = [
                 {'name': 'By:', 'value': str(self.faction.designer)},
-                {'name': 'Type:', 'value': self.get_type_display()},
-                {'name': 'Reach:', 'value': str(self.reach)},
             ]
             send_rich_discord_message_task.delay(
                 f'[{self.faction.faction_name}](https://therootdatabase.com{url})',

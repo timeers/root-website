@@ -7,10 +7,12 @@
       {% csrf_token %}
       <input type="hidden" name="phase" value="{{ step.phase }}">
       <div class="forge-rich-text">
-        <textarea name="text" class="form-control" rows="3">{{ step.text }}</textarea>
+        <textarea name="text" class="form-control" rows="3"
+                  data-richtext-cap data-richtext-max="{{ max_phase_step_text }}">{{ step.text }}</textarea>
         <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
           {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,header,image'|split:',' %}
-          <div class="ms-auto d-flex gap-2">
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <span class="text-muted small" data-richtext-counter data-richtext-max="{{ max_phase_step_text }}" hidden>0 / {{ max_phase_step_text }}</span>
             <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
             <button type="button" class="btn btn-sm btn-outline-danger"
                     data-delete-url="{% url 'forge-phasestep-delete' pk=step.pk %}">Delete</button>

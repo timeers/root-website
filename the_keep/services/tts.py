@@ -13,7 +13,7 @@ from .upload_paths import deck_sheet_upload_path
 
 FACTION_BOARD_TRANSFORM = {
     "posX": 0.0,
-    "posY": 1.0,
+    "posY": -0.113604546,
     "posZ": 0.0,
     "rotX": 0.0,
     "rotY": 180.0,
@@ -25,7 +25,7 @@ FACTION_BOARD_TRANSFORM = {
 
 DEFAULT_CARD_TRANSFORM = {
     "posX": 0.0,
-    "posY": 1.0,
+    "posY": 2.0,
     "posZ": 0.0,
     "rotX": 0.0,
     "rotY": 180.0,
@@ -34,13 +34,20 @@ DEFAULT_CARD_TRANSFORM = {
     "scaleY": 1.0,
     "scaleZ": 2.3,
 }
-
-DEFAULT_TRACKER_SNAP_POINTS = [
+# 0.158 x between snap points
+CRAFTED_ITEMS_SNAP_POINTS = [
     {"Position": {"x": -0.64,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-    {"Position": {"x": -0.79,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-    {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-    {"Position": {"x": -1.09,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -0.798,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -0.956, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    {"Position": {"x": -1.097,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
 ]
+## Old values
+# CRAFTED_ITEMS_SNAP_POINTS = [
+#     {"Position": {"x": -0.64,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+#     {"Position": {"x": -0.79,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+#     {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+#     {"Position": {"x": -1.09,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
+# ]
 
 def generate_tts_guid():
     return "".join(random.choices("0123456789abcdef", k=6))
@@ -81,13 +88,7 @@ class TTSBoard:
             sp.to_tts_dict()
             for sp in self.post.snap_points.all()
         ]
-        default_snap_points = [
-            {"Position": {"x": -0.64, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -0.79, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-            {"Position": {"x": -1.09, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
-        ]
-        all_snap_points = faction_board_snap_points + default_snap_points
+        all_snap_points = faction_board_snap_points + list(CRAFTED_ITEMS_SNAP_POINTS)
 
         front_image = tts_image_url(self.post.board_image, request=self.request)
         back_image = tts_image_url(self.post.board_2_image, request=self.request)
@@ -133,9 +134,17 @@ class TTSBoard:
             "AttachedSnapPoints": all_snap_points,
         }
 
+LOCK_ON_REST_LUA = (
+    "function onLoad()\n"
+    "    Wait.time(function() self.setLock(true) end, 1.5)\n"
+    "end\n"
+)
+
+
 class TTSBoardBase:
     NAME = "Custom_Tile"
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
+    LUA_SCRIPT = ""
 
     def __init__(self, post, request=None):
         self.post = post
@@ -216,7 +225,7 @@ class TTSBoardBase:
                     "Stretch": True,
                 },
             },
-            "LuaScript": "",
+            "LuaScript": self.LUA_SCRIPT,
             "LuaScriptState": "",
             "XmlUI": "",
             "AttachedSnapPoints": self.get_snap_points(),
@@ -226,7 +235,7 @@ class TTSFactionBoard(TTSBoardBase):
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
 
     def get_default_snap_points(self):
-        return list(DEFAULT_TRACKER_SNAP_POINTS)
+        return list(CRAFTED_ITEMS_SNAP_POINTS)
 
     def get_description(self):
         return f"{self.post.title} Faction Board"
@@ -234,12 +243,17 @@ class TTSFactionBoard(TTSBoardBase):
 
 
 class TTSDeckBase:
+    DEFAULT_TRANSFORM = DEFAULT_CARD_TRANSFORM
+
     def __init__(self, deck_id, request=None):
         self.deck_id = deck_id
         self.request = request
 
     def card_id(self, index):
         return self.deck_id * 100 + index
+
+    def get_transform(self):
+        return dict(self.DEFAULT_TRANSFORM)
 
 class TTSSpriteDeck(TTSDeckBase):
     def __init__(self, carddeck, deck_id, request=None):
@@ -263,6 +277,7 @@ class TTSSpriteDeck(TTSDeckBase):
         }
 
     def to_object(self):
+        transform = self.get_transform()
         cards = []
         for i, card in enumerate(self.carddeck.cards_in_deck):
             card_name = getattr(card, "name", None)
@@ -270,6 +285,7 @@ class TTSSpriteDeck(TTSDeckBase):
             cards.append({
                 "GUID": generate_tts_guid(),
                 "Name": "Card",
+                "Transform": dict(transform),
                 "Nickname": card_name,
                 "Description": card_tags,
                 "CardID": self.card_id(i),
@@ -277,21 +293,28 @@ class TTSSpriteDeck(TTSDeckBase):
                 "HideWhenFaceDown": True,
                 "Hands": True,
             })
-        
+
         return {
             "GUID": generate_tts_guid(),
             "Name": self.carddeck_name or "Deck",
+            "Transform": transform,
             "DeckIDs": [self.card_id(i) for i in range(len(cards))],
             "ContainedObjects": cards,
             "CustomDeck": self.custom_deck(),
         }
 
 class TTSSingleCardDeck(TTSDeckBase):
-    def __init__(self, face_image, back_image, deck_id, request=None, card_name="Card"):
+    def __init__(self, face_image, back_image, deck_id, request=None, card_name="Card", transform=None):
         super().__init__(deck_id, request)
         self.face_image = face_image
         self.back_image = back_image
         self.card_name = card_name
+        self.transform_override = transform
+
+    def get_transform(self):
+        if self.transform_override is not None:
+            return dict(self.transform_override)
+        return dict(self.DEFAULT_TRANSFORM)
 
     def custom_deck(self):
         return {
@@ -307,22 +330,16 @@ class TTSSingleCardDeck(TTSDeckBase):
         }
 
     def to_object(self):
+        transform = self.get_transform()
         return {
             "GUID": generate_tts_guid(),
-            "Name": "Deck",
-            "DeckIDs": [self.card_id(0)],
-            "ContainedObjects": [
-                {
-                    "GUID": generate_tts_guid(),
-                    "Name": "Card",
-                    "Nickname": self.card_name,
-                    "CardID": self.card_id(0),
-                    "CustomDeck": self.custom_deck(),
-                    "HideWhenFaceDown": True,
-                    "Hands": True,
-                }
-            ],
+            "Name": "Card",
+            "Transform": transform,
+            "Nickname": self.card_name,
+            "CardID": self.card_id(0),
             "CustomDeck": self.custom_deck(),
+            "HideWhenFaceDown": True,
+            "Hands": True,
         }
     
 

@@ -7,6 +7,9 @@
         data-track-editor
         class="track-row__form" data-dirty-form>
     {% csrf_token %}
+    {% if express %}
+      <input type="hidden" name="paper_background" value="{% if track.step.content_box.paper_background %}true{% endif %}" data-paper-bg-input>
+    {% endif %}
 
     <div class="forge-card-row__head flex-wrap">
       <span class="row-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>

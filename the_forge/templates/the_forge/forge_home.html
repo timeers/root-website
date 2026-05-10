@@ -68,7 +68,19 @@
     </div>
   </section>
 
-
+  <section class="forge-home-style-guide mb-3">
+    <a href="{% url 'forge-element-guide' %}"
+       class="card border-primary p-4 text-decoration-none text-reset d-flex flex-row align-items-center gap-3">
+      <i class="bi bi-boxes display-5 text-primary flex-shrink-0"></i>
+      <div class="flex-grow-1">
+        <h4 class="root-title mb-1">Check out the Element Guide</h4>
+        <p class="mb-0 text-muted">
+          Visual examples and conventions for faction board elements, fonts, and design.
+        </p>
+      </div>
+      <i class="bi bi-chevron-right fs-3 text-primary flex-shrink-0"></i>
+    </a>
+  </section>
 
   <section class="forge-home-how-to mb-3">
     <a href="{% url 'forge-how-to' %}"
@@ -84,19 +96,7 @@
     </a>
   </section>
 
-  <section class="forge-home-style-guide mb-3">
-    <a href="{% url 'forge-element-guide' %}"
-       class="card border-primary p-4 text-decoration-none text-reset d-flex flex-row align-items-center gap-3">
-      <i class="bi bi-boxes display-5 text-primary flex-shrink-0"></i>
-      <div class="flex-grow-1">
-        <h4 class="root-title mb-1">Check out the Element Guide</h4>
-        <p class="mb-0 text-muted">
-          Examples and conventions for faction board elements, fonts, and design.
-        </p>
-      </div>
-      <i class="bi bi-chevron-right fs-3 text-primary flex-shrink-0"></i>
-    </a>
-  </section>
+
 
   <section class="forge-call-to-action text-center mb-5">
       {% if user.is_authenticated %}
@@ -132,6 +132,18 @@
           Log In to Get Started
         </a>
       {% endif %}
+      {% if user.profile.admin %}
+        <div class="mt-3">
+          <a href="{% url 'forge-faction-admin-list' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-shield-lock me-1"></i>All Forged Factions
+          </a>
+        </div>
+      {% endif %}
     </section>
+
+  <div class="text-center text-muted small mt-5 mb-2">
+    Have a feature request or layout bug?
+    <a href="{% url 'forge-feedback' %}">Send Feedback</a>.
+  </div>
 </div>
 {% endblock %}

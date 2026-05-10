@@ -1,11 +1,89 @@
 {% load static %}
 <div class="sheet-flavor-row card p-3 mb-3" data-row data-id="{{ sheet.pk }}">
   <label class="sheet-flavor-label mb-2">Flavor Text</label>
-  <form method="post" data-edit-url="{% url 'forge-sheet-flavor-edit' pk=sheet.pk %}" class="m-0" data-dirty-form>
+  <form method="post"
+        action="{% url 'forge-sheet-flavor-edit' pk=sheet.pk %}"
+        class="m-0"
+        data-flavor-form
+        data-dirty-form>
     {% csrf_token %}
-    <textarea name="flavor_text" class="sheet-flavor-input form-control" rows="3" placeholder="Optional text to the left of the Faction Abilities">{{ sheet.flavor_text|default_if_none:'' }}</textarea>
-    <div class="d-flex justify-content-end mt-2">
+    <textarea name="flavor_text"
+              class="sheet-flavor-input form-control"
+              rows="3"
+              maxlength="{{ max_flavor_text }}"
+              data-flavor-text
+              data-flavor-max="{{ max_flavor_text }}"
+              placeholder="Optional text to the left of the Faction Abilities">{{ sheet.flavor_text|default_if_none:'' }}</textarea>
+    <div class="d-flex justify-content-end align-items-center gap-2 mt-2">
+      <span class="text-muted small" data-flavor-counter data-flavor-max="{{ max_flavor_text }}" hidden>0 / {{ max_flavor_text }}</span>
+      <span class="small text-success" data-flavor-status hidden>Saved</span>
       <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save Flavor Text</button>
     </div>
   </form>
 </div>
+
+<script>
+(function () {
+  const form = document.currentScript.previousElementSibling.querySelector('[data-flavor-form]');
+  if (!form || form.dataset.flavorWired === '1') return;
+  form.dataset.flavorWired = '1';
+
+  const ta = form.querySelector('[data-flavor-text]');
+  const counter = form.querySelector('[data-flavor-counter]');
+  const saveBtn = form.querySelector('[data-save-btn]');
+  const status = form.querySelector('[data-flavor-status]');
+  const max = parseInt(ta.dataset.flavorMax, 10) || 0;
+  const showAt = max * 0.9;
+
+  function refresh() {
+    const len = (ta.value || '').length;
+    const over = len > max;
+    counter.textContent = `${len} / ${max}`;
+    counter.classList.toggle('text-danger', over);
+    counter.hidden = !over && len < showAt;
+    saveBtn.disabled = over;
+  }
+  ta.addEventListener('input', () => {
+    if (status) status.hidden = true;
+    refresh();
+  });
+  refresh();
+
+  let statusTimer = null;
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
+    const csrf = form.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+    const fd = new FormData(form);
+    try {
+      const resp = await fetch(form.action, {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-CSRFToken': csrf },
+      });
+      if (!resp.ok) {
+        const msg = await resp.text();
+        if (status) {
+          status.textContent = 'Save failed: ' + msg;
+          status.classList.replace('text-success', 'text-danger');
+          status.hidden = false;
+        }
+        return;
+      }
+      form.closest('[data-row]')?.classList.remove('is-dirty');
+      if (status) {
+        status.textContent = 'Saved';
+        status.classList.remove('text-danger');
+        status.classList.add('text-success');
+        status.hidden = false;
+        clearTimeout(statusTimer);
+        statusTimer = setTimeout(() => { status.hidden = true; }, 2000);
+      }
+    } finally {
+      refresh();
+    }
+  });
+})();
+</script>

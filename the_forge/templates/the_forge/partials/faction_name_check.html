@@ -1,0 +1,10 @@
+{% if conflicts %}
+  <div class="text-warning small mt-1">
+    <i class="bi bi-exclamation-triangle"></i>
+    {% if conflicts|length == 1 %}
+      A Faction named &ldquo;{{ conflicts.0.label }}&rdquo; by {{ conflicts.0.designer_name }} already exists on the site. It's fine for now, but a faction's name must be unique when submitted.
+    {% else %}
+      That name is already used by Factions on the site ({% for c in conflicts %}{{ c.label }} by {{ c.designer_name }}{% if not forloop.last %}; {% endif %}{% endfor %}). It's fine for now, but a faction's name must be unique when submitted.
+    {% endif %}
+  </div>
+{% endif %}

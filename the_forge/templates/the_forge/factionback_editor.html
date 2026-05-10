@@ -20,6 +20,9 @@
 
 <form id="factionback-form" method="post" enctype="multipart/form-data" class="card p-3 mb-3">
   {% csrf_token %}
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
 
   <!-- Component Manifest -->
   <div class="manifest-box mb-3">
@@ -30,7 +33,7 @@
     <div class="row row-cols-1 row-cols-md-2 row-cols-xxl-3 g-3 px-3 pb-3">
       {% for code, label, singular, items in piece_sections %}
         <div class="col">
-          <div class="piece-section h-100" data-piece-section="{{ code }}">
+          <div class="piece-section h-100" data-piece-section="{{ code }}" data-max-pieces="{{ max_pieces_per_type }}">
             <h5 class="root-title text-start mb-2"><strong>{{ label }}</strong></h5>
             <div class="piece-list" data-piece-list data-type="{{ code }}">
               {% for piece in items %}
@@ -90,20 +93,77 @@
           {{ form.how_to_play_title }}
         </div>
       </div>
+      {% if form.how_to_play_title.errors %}
+        <div class="text-danger small mb-2">{{ form.how_to_play_title.errors }}</div>
+      {% endif %}
       <div class="mb-2">
         {{ form.how_to_play_text.label_tag }}
         <div class="forge-rich-text forge-how-to-play">
           {{ form.how_to_play_text }}
           {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold'|split:',' %}
+          {% if form.how_to_play_text.field.max_length %}
+            <span class="forge-rich-text-counter text-muted small ms-auto"
+                  data-richtext-counter="{{ form.how_to_play_text.id_for_label }}"
+                  data-richtext-max="{{ form.how_to_play_text.field.max_length }}">
+              0 / {{ form.how_to_play_text.field.max_length }}
+            </span>
+          {% endif %}
         </div>
+        {% if form.how_to_play_text.errors %}
+          <div class="text-danger small mt-1">{{ form.how_to_play_text.errors }}</div>
+        {% endif %}
       </div>
 
       <div class="mb-2">
-        {{ form.back_image.label_tag }}
-        {% if back.back_image %}
-          <div class="mb-2"><img src="{{ back.back_image.url }}" style="max-width:200px;" class="img-fluid rounded forge-back-preview"></div>
-        {% endif %}
-        {{ form.back_image }}
+        <div class="mb-3">
+          <label class="form-label small text-muted text-uppercase mb-1 d-block">{{ form.back_image.label }}</label>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <input type="file" name="{{ form.back_image.html_name }}"
+                   id="{{ form.back_image.id_for_label }}"
+                   accept="image/*"
+                   class="visually-hidden">
+            <input type="checkbox" name="{{ form.back_image.html_name }}-clear"
+                   id="forge-back-image-clear-input" class="visually-hidden">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="forge-back-image-choose-btn">
+              <i class="bi bi-upload"></i>
+              <span class="ms-1">{% if back.back_image %}Change Image{% else %}Choose Image{% endif %}</span>
+            </button>
+            <button type="button" class="btn btn-outline-danger btn-sm" id="forge-back-image-remove-btn"
+                    {% if not back.back_image %}hidden{% endif %}>
+              <i class="bi bi-x-lg"></i>
+              <span class="ms-1">Remove</span>
+            </button>
+            <span id="forge-back-image-filename" class="small text-muted text-truncate" style="max-width: 16rem;"></span>
+          </div>
+        </div>
+        {% if form.back_image.errors %}<div class="text-danger small mt-1 mb-2">{{ form.back_image.errors }}</div>{% endif %}
+
+        <div class="d-flex flex-column align-items-center">
+          <label class="form-label small text-muted text-uppercase mb-1">Preview</label>
+          <div class="forge-howtoplay-preview mb-2"
+               id="forge-howtoplay-preview">
+            <div class="forge-howtoplay-body-wrap">
+              <div class="forge-howtoplay-image-shape" id="forge-howtoplay-image-shape"
+                   {% if not back.back_image %}hidden{% endif %}></div>
+              <img src="{% if back.back_image %}{{ back.back_image.url }}{% endif %}"
+                   class="forge-howtoplay-image" id="forge-howtoplay-image"
+                   alt=""
+                   {% if not back.back_image %}hidden{% endif %}>
+              <div class="forge-howtoplay-body" id="forge-howtoplay-preview-body"></div>
+            </div>
+          </div>
+
+          <div class="w-100" id="back-image-size-control"
+               {% if not back.back_image %}hidden{% endif %}>
+            <label for="{{ form.back_image_size.id_for_label }}" class="visually-hidden">
+              Back image size
+            </label>
+            {{ form.back_image_size }}
+            <div class="d-flex justify-content-between small text-muted">
+              <span>Small</span><span>Large</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -119,6 +179,41 @@
 document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('factionback-form');
   if (!form) return;
+
+  // ----- Rich-text length counters -----
+  function blockInputAtCap(ta, max) {
+    const wrapper = ta.closest('.forge-rich-text');
+    const editor = wrapper && wrapper.querySelector('.forge-rich-text-editor');
+    const target = editor || ta;
+    target.addEventListener('beforeinput', (ev) => {
+      if (ev.inputType && ev.inputType.startsWith('delete')) return;
+      if ((ta.value || '').length >= max) ev.preventDefault();
+    });
+    target.addEventListener('paste', (ev) => {
+      if ((ta.value || '').length >= max) ev.preventDefault();
+    });
+  }
+
+  document.querySelectorAll('[data-richtext-counter]').forEach(el => {
+    const taId = el.dataset.richtextCounter;
+    const max = parseInt(el.dataset.richtextMax, 10);
+    const ta = document.getElementById(taId);
+    if (!ta || !Number.isFinite(max)) return;
+    // Move the counter into the sibling toolbar so it sits inline with the bold button.
+    const wrapper = ta.closest('.forge-rich-text');
+    const toolbar = wrapper && wrapper.querySelector('.forge-rich-text-toolbar');
+    if (toolbar) toolbar.appendChild(el);
+    const showAt = max * 0.9;
+    function update() {
+      const len = (ta.value || '').length;
+      el.textContent = `${len} / ${max}`;
+      el.classList.toggle('text-danger', len > max);
+      el.hidden = len < showAt;
+    }
+    ta.addEventListener('input', update);
+    update();
+    blockInputAtCap(ta, max);
+  });
 
   // ----- Setup steps (mirrors setup_card_editor) -----
   const stepList = document.getElementById('setup-step-list-bulk');
@@ -137,6 +232,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function updateStepAddVisibility() {
+    if (!stepList || !stepAddBtn) return;
+    const max = parseInt(stepList.dataset.maxSteps, 10);
+    if (!Number.isFinite(max)) return;
+    const count = stepList.querySelectorAll('[data-row]').length;
+    stepAddBtn.hidden = count >= max;
+  }
+  updateStepAddVisibility();
+
+  function wireStepCounter(row) {
+    const ta = row.querySelector('textarea[name="step_text"]');
+    const counter = row.querySelector('[data-step-counter]');
+    if (!ta || !counter) return;
+    const max = parseInt(counter.dataset.richtextMax, 10);
+    if (!Number.isFinite(max)) return;
+    const showAt = max * 0.9;
+    function update() {
+      const len = (ta.value || '').length;
+      counter.textContent = `${len} / ${max}`;
+      counter.classList.toggle('text-danger', len > max);
+      counter.hidden = len < showAt;
+    }
+    ta.addEventListener('input', update);
+    update();
+    blockInputAtCap(ta, max);
+  }
+  stepList?.querySelectorAll('[data-row]').forEach(wireStepCounter);
+
   if (stepList) {
     new Sortable(stepList, {
       animation: 150,
@@ -151,9 +274,11 @@ document.addEventListener('DOMContentLoaded', () => {
       stepList.appendChild(frag);
       const newRow = stepList.lastElementChild;
       if (window.initForgeRichText) window.initForgeRichText(newRow);
+      wireStepCounter(newRow);
       const ta = newRow.querySelector('textarea[name="step_text"]');
       if (ta) ta.focus();
       renumberStepMarkers();
+      updateStepAddVisibility();
       markDirty();
     });
   }
@@ -165,11 +290,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!row || !stepList.contains(row)) return;
     row.remove();
     renumberStepMarkers();
+    updateStepAddVisibility();
     markDirty();
   });
 
   // ----- Pieces -----
   const pieceTpl = document.getElementById('piece-row-template');
+
+  function updatePieceAddVisibility(section) {
+    if (!section) return;
+    const max = parseInt(section.dataset.maxPieces, 10);
+    if (!Number.isFinite(max)) return;
+    const count = section.querySelectorAll('[data-piece-list] [data-row]').length;
+    const btn = section.querySelector('.piece-add-btn');
+    if (btn) btn.hidden = count >= max;
+  }
+  document.querySelectorAll('[data-piece-section]').forEach(updatePieceAddVisibility);
 
   document.querySelectorAll('.piece-add-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -180,10 +316,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const row = frag.querySelector('[data-row]');
       if (row) {
         row.querySelector('input[name="piece_type"]').value = type;
+        if (type === 'W') {
+          row.querySelector('[data-back-row]')?.remove();
+        }
       }
       list.appendChild(frag);
       const nameInput = list.lastElementChild?.querySelector('input[name="piece_name"]');
       if (nameInput) nameInput.focus();
+      updatePieceAddVisibility(btn.closest('[data-piece-section]'));
       markDirty();
     });
   });
@@ -191,14 +331,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Piece row delegation: file input preview, clear-icon checkbox, remove button.
   document.querySelectorAll('[data-piece-list]').forEach(list => {
     list.addEventListener('change', (ev) => {
-      const fileInput = ev.target.closest('input[data-piece-icon]');
-      if (fileInput) {
-        const row = fileInput.closest('[data-row]');
+      const frontInput = ev.target.closest('input[data-piece-icon]');
+      if (frontInput) {
+        const row = frontInput.closest('[data-row]');
         if (!row) return;
         const thumb = row.querySelector('.piece-icon-thumb');
         const clearFlag = row.querySelector('input[data-clear-flag]');
         const clearCheckbox = row.querySelector('input[data-clear-icon]');
-        const file = fileInput.files && fileInput.files[0];
+        const file = frontInput.files && frontInput.files[0];
         if (!file) return;
         if (thumb) {
           thumb.src = URL.createObjectURL(file);
@@ -209,14 +349,49 @@ document.addEventListener('DOMContentLoaded', () => {
         markDirty();
         return;
       }
-      const clearCheckbox = ev.target.closest('input[data-clear-icon]');
-      if (clearCheckbox) {
-        const row = clearCheckbox.closest('[data-row]');
+      const backInput = ev.target.closest('input[data-piece-back]');
+      if (backInput) {
+        const row = backInput.closest('[data-row]');
+        if (!row) return;
+        const thumb = row.querySelector('.piece-back-thumb');
+        const clearFlag = row.querySelector('input[data-clear-back-flag]');
+        const clearCheckbox = row.querySelector('input[data-clear-back]');
+        const file = backInput.files && backInput.files[0];
+        if (!file) return;
+        if (thumb) {
+          thumb.src = URL.createObjectURL(file);
+          thumb.removeAttribute('hidden');
+        }
+        if (clearFlag) clearFlag.value = '0';
+        if (clearCheckbox) clearCheckbox.checked = false;
+        markDirty();
+        return;
+      }
+      const clearFrontCheckbox = ev.target.closest('input[data-clear-icon]');
+      if (clearFrontCheckbox) {
+        const row = clearFrontCheckbox.closest('[data-row]');
         if (!row) return;
         const thumb = row.querySelector('.piece-icon-thumb');
         const clearFlag = row.querySelector('input[data-clear-flag]');
         const fileInput = row.querySelector('input[data-piece-icon]');
-        if (clearCheckbox.checked) {
+        if (clearFrontCheckbox.checked) {
+          if (thumb) { thumb.setAttribute('hidden', ''); thumb.removeAttribute('src'); }
+          if (fileInput) fileInput.value = '';
+          if (clearFlag) clearFlag.value = '1';
+        } else {
+          if (clearFlag) clearFlag.value = '0';
+        }
+        markDirty();
+        return;
+      }
+      const clearBackCheckbox = ev.target.closest('input[data-clear-back]');
+      if (clearBackCheckbox) {
+        const row = clearBackCheckbox.closest('[data-row]');
+        if (!row) return;
+        const thumb = row.querySelector('.piece-back-thumb');
+        const clearFlag = row.querySelector('input[data-clear-back-flag]');
+        const fileInput = row.querySelector('input[data-piece-back]');
+        if (clearBackCheckbox.checked) {
           if (thumb) { thumb.setAttribute('hidden', ''); thumb.removeAttribute('src'); }
           if (fileInput) fileInput.value = '';
           if (clearFlag) clearFlag.value = '1';
@@ -232,22 +407,141 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!btn) return;
       const row = btn.closest('[data-row]');
       if (!row || !list.contains(row)) return;
+      const section = list.closest('[data-piece-section]');
       row.remove();
+      updatePieceAddVisibility(section);
       markDirty();
     });
   });
 
-  // ----- Back image preview -----
-  const backPreview = form.querySelector('.forge-back-preview');
-  const backFileInput = form.querySelector('input[name="back_image"]');
+  // ----- How-To-Play live preview -----
+  const preview        = document.getElementById('forge-howtoplay-preview');
+  const previewBody    = document.getElementById('forge-howtoplay-preview-body');
+  const imageEl        = document.getElementById('forge-howtoplay-image');
+  const imageShape     = document.getElementById('forge-howtoplay-image-shape');
+  const backFileInput  = form.querySelector('input[name="back_image"]');
+  const backClearInput = document.getElementById('forge-back-image-clear-input');
+  const backChooseBtn  = document.getElementById('forge-back-image-choose-btn');
+  const backRemoveBtn  = document.getElementById('forge-back-image-remove-btn');
+  const backFilename   = document.getElementById('forge-back-image-filename');
+  const backSizeControl = document.getElementById('back-image-size-control');
+  const backSizeInput  = form.querySelector('input[name="back_image_size"]');
   let backObjectUrl = null;
+
+  // PDF body envelope: 350pt wide × 330pt tall (after title chrome stripped).
+  const PDF_BODY_RATIO = 330 / 350;
+  // PDF body font is 10pt with leading 12.5pt → "line stride" ≈ 1.25× font.
+  const LINE_STRIDE_FACTOR = 12.5 / 10;
+  const BAR_HEIGHT_FACTOR  = 0.5;   // bar thickness as fraction of line stride
+  // Render the body as a long run of "word" glyphs so the browser flows them
+  // around the floated image shape like real text. Word lengths cycle through
+  // a deterministic sequence so the layout doesn't jitter on every render.
+  function renderBars() {
+    if (!previewBody) return;
+    const wordLens = [6, 3, 8, 4, 5, 7, 2, 9, 4, 6, 3, 5, 7, 4, 8, 5, 6, 3, 7, 4];
+    const wordCount = 400;  // plenty to overflow any envelope; overflow:hidden clips
+    const parts = [];
+    for (let i = 0; i < wordCount; i++) {
+      parts.push('█'.repeat(wordLens[i % wordLens.length]));
+    }
+    previewBody.textContent = parts.join(' ');
+  }
+
+  function applyImageSizing() {
+    if (!preview || !imageEl) return;
+    const previewStyles = getComputedStyle(preview);
+    const padL = parseFloat(previewStyles.paddingLeft);
+    const padR = parseFloat(previewStyles.paddingRight);
+    const padT = parseFloat(previewStyles.paddingTop);
+    const padB = parseFloat(previewStyles.paddingBottom);
+    const innerW = preview.clientWidth - padL - padR;
+    if (innerW <= 0) return;
+    preview.style.setProperty('--howto-pad-right', padR + 'px');
+    preview.style.setProperty('--howto-pad-bottom', padB + 'px');
+    // Mirror PDF: 10pt font in 350pt body width.
+    const fontPx = innerW * 10 / 350;
+    const lineStride = fontPx * LINE_STRIDE_FACTOR;
+    preview.style.setProperty('--howto-line-stride', lineStride + 'px');
+    preview.style.setProperty('--howto-bar-h', (fontPx * BAR_HEIGHT_FACTOR) + 'px');
+    // Force the body envelope to the PDF body aspect.
+    const bodyAvailH = innerW * PDF_BODY_RATIO;
+    const envelopeH = padT + padB + bodyAvailH;
+    preview.style.height = envelopeH + 'px';
+    preview.style.aspectRatio = 'auto';
+    renderBars();
+    // Image is anchored past the right/bottom padding.
+    const imgAvailW = innerW + padR;
+    const imgAvailH = bodyAvailH + padB;
+    preview.style.setProperty('--howto-body-h', bodyAvailH + 'px');
+    const iw = imageEl.naturalWidth;
+    const ih = imageEl.naturalHeight;
+    if (!iw || !ih || imageEl.hidden || bodyAvailH <= 0) {
+      preview.style.setProperty('--howto-img-w', '0px');
+      preview.style.setProperty('--howto-img-h', '0px');
+      preview.style.setProperty('--howto-img-spacer', '0px');
+      return;
+    }
+    const scaleMax = Math.min(imgAvailW / iw, imgAvailH / ih);
+    const pct = parseInt(backSizeInput?.value || '75', 10) / 100;
+    const drawW = iw * scaleMax * pct;
+    const drawH = ih * scaleMax * pct;
+    preview.style.setProperty('--howto-img-w', drawW + 'px');
+    preview.style.setProperty('--howto-img-h', drawH + 'px');
+    const imgInBody = Math.max(drawH - padB, 0);
+    preview.style.setProperty('--howto-img-spacer', Math.max(bodyAvailH - imgInBody, 0) + 'px');
+  }
+
+  applyImageSizing();
+
+  backSizeInput?.addEventListener('input', applyImageSizing);
+  window.addEventListener('resize', applyImageSizing);
+
+  if (imageEl) {
+    if (imageEl.complete && imageEl.naturalWidth) applyImageSizing();
+    imageEl.addEventListener('load', applyImageSizing);
+  }
+
+  backChooseBtn?.addEventListener('click', () => backFileInput?.click());
+
   backFileInput?.addEventListener('change', () => {
     const file = backFileInput.files && backFileInput.files[0];
-    if (!file || !backPreview) return;
+    if (!file || !imageEl) return;
     if (backObjectUrl) URL.revokeObjectURL(backObjectUrl);
     backObjectUrl = URL.createObjectURL(file);
-    backPreview.src = backObjectUrl;
-    backPreview.removeAttribute('hidden');
+    imageEl.src = backObjectUrl;
+    imageEl.removeAttribute('hidden');
+    imageShape?.removeAttribute('hidden');
+    backSizeControl?.removeAttribute('hidden');
+    backRemoveBtn?.removeAttribute('hidden');
+    if (backClearInput) backClearInput.checked = false;
+    if (backFilename) backFilename.textContent = file.name;
+    if (backChooseBtn) {
+      const lbl = backChooseBtn.querySelector('span');
+      if (lbl) lbl.textContent = 'Change Image';
+    }
+    applyImageSizing();
+  });
+
+  backRemoveBtn?.addEventListener('click', () => {
+    if (backObjectUrl) {
+      URL.revokeObjectURL(backObjectUrl);
+      backObjectUrl = null;
+    }
+    if (backFileInput) backFileInput.value = '';
+    if (backClearInput) backClearInput.checked = true;
+    if (imageEl) {
+      imageEl.removeAttribute('src');
+      imageEl.setAttribute('hidden', '');
+    }
+    imageShape?.setAttribute('hidden', '');
+    backSizeControl?.setAttribute('hidden', '');
+    backRemoveBtn.setAttribute('hidden', '');
+    if (backFilename) backFilename.textContent = '';
+    if (backChooseBtn) {
+      const lbl = backChooseBtn.querySelector('span');
+      if (lbl) lbl.textContent = 'Choose Image';
+    }
+    applyImageSizing();
   });
 
   // ----- Dirty tracking + beforeunload -----
@@ -272,8 +566,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // uploads back to their row by index across all sections.
     let pieceRowIndex = 0;
     document.querySelectorAll('[data-piece-list] [data-row]').forEach(row => {
-      const fileInput = row.querySelector('input[data-piece-icon]');
-      if (fileInput) fileInput.name = `piece_icon_${pieceRowIndex}`;
+      const frontInput = row.querySelector('input[data-piece-icon]');
+      if (frontInput) frontInput.name = `piece_icon_${pieceRowIndex}`;
+      const backInput = row.querySelector('input[data-piece-back]');
+      if (backInput) backInput.name = `piece_back_${pieceRowIndex}`;
       pieceRowIndex += 1;
     });
 
@@ -290,21 +586,10 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
-    document.querySelectorAll('[data-piece-list] [data-row]').forEach(row => {
-      const nameInput = row.querySelector('input[name="piece_name"]');
-      const value = (nameInput?.value || '').trim();
-      if (!value) {
-        row.classList.add('is-error');
-        if (!firstBad) firstBad = row;
-      } else {
-        row.classList.remove('is-error');
-      }
-    });
-
     if (firstBad) {
       ev.preventDefault();
       firstBad.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const focusable = firstBad.querySelector('input[name="piece_name"], textarea[name="step_text"]');
+      const focusable = firstBad.querySelector('textarea[name="step_text"]');
       if (focusable) focusable.focus();
       return;
     }

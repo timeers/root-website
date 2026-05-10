@@ -1,0 +1,68 @@
+{% load static %}
+{% load forge_text %}
+<div class="col-12 col-sm-6 col-lg-4">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}"
+     class="forge-faction-card card h-100 text-decoration-none position-relative overflow-hidden"
+     style="--faction-color: {{ faction.color|default:'#888888' }};">
+    {% if faction.background_image %}
+      <div class="forge-faction-card__bg"
+           {% if faction.repeat_background_image %}
+           data-tile-src="{{ faction.background_image.url }}"
+           data-tile-pct="{{ faction.background_tile_size }}"
+           style="background-color:{{ faction.color|default:'transparent' }};"
+           {% else %}
+           style="background-image:url('{{ faction.background_image.url }}'); background-color:{{ faction.color|default:'transparent' }};"
+           {% endif %}></div>
+    {% else %}
+      {% with preset_path=faction.BACKGROUND_PRESET_FILES|dict_get:faction.background_preset %}
+        {% if preset_path %}
+          <div class="forge-faction-card__bg"
+               style="background-image:url('{% static preset_path %}');"></div>
+        {% elif faction.color %}
+          <div class="forge-faction-card__bg"
+               style="background:{{ faction.color }};"></div>
+        {% endif %}
+      {% endwith %}
+    {% endif %}
+    <div class="forge-faction-card__overlay"></div>
+    <div class="card-body position-relative d-flex flex-column">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        {% if faction.color %}
+          <span class="forge-faction-card__swatch" style="background:{{ faction.color }};"></span>
+        {% endif %}
+        <h4 class="root-title mb-0 forge-faction-card__name">{{ faction.faction_name }}</h4>
+      </div>
+      {% if admin_view and faction.designer %}
+        <div class="d-flex align-items-center gap-2 mb-3">
+          {% if faction.designer.image %}
+            <img class="avatar-icon" src="{{ faction.designer.image.url }}" alt="{{ faction.designer }}">
+          {% endif %}
+          <span class="forge-faction-card__designer">{{ faction.designer }}</span>
+        </div>
+      {% endif %}
+      <div class="mt-auto d-flex flex-wrap gap-1 align-items-center">
+        {% if faction.faction_sheet.image_preview %}
+          <img src="{{ faction.faction_sheet.image_preview.url }}?v={{ faction.faction_sheet.preview_version }}" alt="Front preview" class="forge-faction-card__preview">
+        {% elif faction.faction_sheet %}
+          <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--landscape">Front</span>
+        {% endif %}
+        {% if faction.faction_back.image_preview %}
+          <img src="{{ faction.faction_back.image_preview.url }}?v={{ faction.faction_back.preview_version }}" alt="Back preview" class="forge-faction-card__preview">
+        {% elif faction.faction_back %}
+          <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--landscape">Back</span>
+        {% endif %}
+        {% if faction.setup_card.image_preview %}
+          <img src="{{ faction.setup_card.image_preview.url }}?v={{ faction.setup_card.preview_version }}" alt="Adset preview" class="forge-faction-card__preview">
+        {% elif faction.setup_card %}
+          <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--portrait">A</span>
+        {% endif %}
+        {% if faction.vp_marker and faction.relationship_marker %}
+          <div class="forge-faction-card__markers">
+            <img src="{{ faction.vp_marker.url }}?v={{ faction.markers_version }}" alt="VP marker" class="forge-faction-card__marker">
+            <img src="{{ faction.relationship_marker.url }}?v={{ faction.markers_version }}" alt="Relationship marker" class="forge-faction-card__marker">
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </a>
+</div>

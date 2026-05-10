@@ -6,13 +6,15 @@
     {% csrf_token %}
     <input type="hidden" name="order" value="{{ ability.order }}">
     <div class="mb-1">
-      <input type="text" name="title" value="{{ ability.title }}" class="form-control form-control-sm forge-baskerville-bold" required>
+      <input type="text" name="title" value="{{ ability.title }}" maxlength="{{ max_ability_title }}" class="form-control form-control-sm forge-baskerville-bold" required>
     </div>
     <div class="forge-rich-text">
-      <textarea name="body" class="form-control" rows="3">{{ ability.body }}</textarea>
+      <textarea name="body" class="form-control" rows="3"
+                data-richtext-cap data-richtext-max="{{ max_ability_body }}">{{ ability.body }}</textarea>
       <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
         {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='image'|split:',' %}
-        <div class="ms-auto d-flex gap-2">
+        <div class="ms-auto d-flex align-items-center gap-2">
+          <span class="text-muted small" data-richtext-counter data-richtext-max="{{ max_ability_body }}" hidden>0 / {{ max_ability_body }}</span>
           <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
           <button type="button" class="btn btn-sm btn-outline-danger"
                   data-delete-url="{% url 'forge-ability-delete' pk=ability.pk %}">Delete</button>

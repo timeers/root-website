@@ -13,7 +13,7 @@ from django.templatetags.static import static
 from django.views.decorators.http import require_http_methods
 
 from django.contrib.auth.decorators import login_required
-from the_gatehouse.views import forge_onboard_required, player_required
+from the_gatehouse.views import admin_onboard_required, forge_onboard_required, player_required
 from .inline_images import picker_image_map, picker_keywords, sheet_inline_images, sheet_picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
 
@@ -34,6 +34,7 @@ from .forms import (
     FactionAbilityForm,
     FactionBackForm,
     FactionHeaderForm,
+    FactionMarkersForm,
     ForgedFactionForm,
     LegendForm,
     LegendRowForm,
@@ -43,6 +44,29 @@ from .forms import (
     ScaleRowForm,
     SetupCardForm,
     StepActionForm,
+)
+from .limits import (
+    MAX_ABILITY_BODY,
+    MAX_ABILITY_TITLE,
+    MAX_BACK_SETUP_STEPS,
+    MAX_CARD_PILES,
+    MAX_CARD_SETUP_STEPS,
+    MAX_CARD_SLOTS,
+    MAX_CHARACTER_IMAGES,
+    MAX_CONTENT_SECTIONS,
+    MAX_CUSTOM_INLINE_IMAGES,
+    MAX_FACTION_ABILITIES,
+    MAX_FLAVOR_TEXT,
+    MAX_LEGEND_ROWS,
+    MAX_PHASE_STEPS_PER_BOX,
+    MAX_PHASE_STEPS_PER_PHASE,
+    MAX_PHASE_STEP_TEXT,
+    MAX_PIECES_PER_TYPE,
+    MAX_PIECE_QUANTITY,
+    MAX_SCALE_ROWS,
+    MAX_SETUP_STEP_TEXT,
+    MAX_STEP_ACTIONS,
+    MAX_STEP_CHILDREN,
 )
 from .models import (
     BorderedBox,
@@ -70,13 +94,6 @@ from .models import (
     faction_has_background,
     faction_secondary_in_use,
 )
-
-
-# Caps on per-sheet child collections that the printable layout can render.
-MAX_CARD_PILES = 5
-MAX_CARD_SLOTS = 5
-MAX_CHARACTER_IMAGES = 5
-MAX_CUSTOM_INLINE_IMAGES = 10
 
 
 # ---------- Helpers ----------
@@ -185,6 +202,16 @@ def _forbid_if_not_editor(request, obj):
     return None
 
 
+def _maybe_update_parent_paper_background(request, content_box):
+    """Express child rows submit `paper_background` for their parent ContentBox."""
+    if content_box is None or 'paper_background' not in request.POST:
+        return
+    new_val = request.POST.get('paper_background') == 'true'
+    if content_box.paper_background != new_val:
+        content_box.paper_background = new_val
+        content_box.save(update_fields=['paper_background'])
+
+
 def _background_preset_options():
     return [
         {
@@ -237,11 +264,30 @@ def forgedfaction_list(request):
             ForgedFaction.objects
             .filter(designer=profile)
             .select_related('faction_sheet', 'faction_back', 'setup_card')
-            .order_by('faction_name')
+            .order_by('-last_updated')
         )
     else:
         factions = []
     return render(request, 'the_forge/forgedfaction_list.html', {'factions': factions})
+
+
+@admin_onboard_required
+def forgedfaction_admin_list(request):
+    factions = (
+        ForgedFaction.objects
+        .select_related('designer', 'faction_sheet', 'faction_back', 'setup_card')
+        .order_by('-last_updated')
+    )
+    return render(request, 'the_forge/forgedfaction_admin_list.html', {'factions': factions})
+
+
+@forge_onboard_required
+def forgedfaction_name_check(request):
+    from .services.name_conflicts import find_faction_name_conflicts
+    name = request.GET.get('faction_name', '')
+    conflicts = find_faction_name_conflicts(name, request.user.profile)
+    return render(request, 'the_forge/partials/faction_name_check.html',
+                  {'conflicts': conflicts})
 
 
 @forge_onboard_required
@@ -278,12 +324,17 @@ def forgedfaction_detail(request, pk):
         setup_card = faction.setup_card
     except SetupCard.DoesNotExist:
         setup_card = None
+    components = (
+        list(back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'))
+        if back else []
+    )
     return render(request, 'the_forge/forgedfaction_detail.html', {
         'faction': faction,
         'can_edit': user_can_edit_forge(request, faction),
         'sheet': sheet,
         'back': back,
         'setup_card': setup_card,
+        'components': components,
     })
 
 
@@ -303,6 +354,94 @@ def forgedfaction_edit(request, pk):
         'form': form, 'is_create': False, 'faction': faction,
         'background_presets': _background_preset_options(),
     })
+
+
+@forge_onboard_required
+def forgedfaction_markers_edit(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if request.method == 'POST':
+        form = FactionMarkersForm(request.POST, request.FILES, instance=faction)
+        if form.is_valid():
+            faction = form.save()
+            _save_marker_uploads(request, faction)
+            return redirect('forge-faction-detail', pk=faction.pk)
+    else:
+        form = FactionMarkersForm(instance=faction)
+    return render(request, 'the_forge/forgedfaction_markers_form.html', {
+        'form': form,
+        'faction': faction,
+    })
+
+
+def _save_marker_uploads(request, faction):
+    """Persist the JS-generated VP and Relationship marker PNGs sent up as
+    base64 data URLs alongside the markers form. The JS only attaches them
+    when the icon or color actually changed, so a missing field is normal
+    on no-op saves."""
+    import base64
+    from django.core.files.base import ContentFile
+    pairs = (
+        ('vp_marker_data', 'vp_marker', 'vp_marker'),
+        ('relationship_marker_data', 'relationship_marker', 'relationship_marker'),
+    )
+    update_fields = []
+    for post_key, field_name, filename_stem in pairs:
+        data_url = request.POST.get(post_key, '').strip()
+        if not data_url or ',' not in data_url:
+            continue
+        try:
+            raw = base64.b64decode(data_url.split(',', 1)[1])
+        except Exception:
+            continue
+        field = getattr(faction, field_name)
+        if field:
+            field.delete(save=False)
+        field.save(f'{filename_stem}.png', ContentFile(raw), save=False)
+        update_fields.append(field_name)
+    if update_fields:
+        faction.markers_version = (faction.markers_version or 0) + 1
+        update_fields.append('markers_version')
+        faction.save(update_fields=update_fields)
+
+
+@login_required
+@require_http_methods(["POST"])
+def forgedfaction_markers_delete(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    update_fields = []
+    if faction.vp_marker:
+        faction.vp_marker.delete(save=False)
+        update_fields.append('vp_marker')
+    if faction.relationship_marker:
+        faction.relationship_marker.delete(save=False)
+        update_fields.append('relationship_marker')
+    if update_fields:
+        faction.markers_version = (faction.markers_version or 0) + 1
+        update_fields.append('markers_version')
+        faction.save(update_fields=update_fields)
+    return redirect('forge-faction-detail', pk=faction.pk)
+
+
+def forgedfaction_vp_marker_png(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if not user_can_view_forge(request, faction):
+        return HttpResponseForbidden()
+    if not faction.vp_marker:
+        return HttpResponseBadRequest("No VP marker generated yet.")
+    return _png_file_response(faction.vp_marker, f'{faction.faction_name} - VP Marker.png')
+
+
+def forgedfaction_relationship_marker_png(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if not user_can_view_forge(request, faction):
+        return HttpResponseForbidden()
+    if not faction.relationship_marker:
+        return HttpResponseBadRequest("No relationship marker generated yet.")
+    return _png_file_response(faction.relationship_marker, f'{faction.faction_name} - Relationship Marker.png')
 
 
 @login_required
@@ -337,6 +476,15 @@ def factionsheet_edit(request, pk):
     return render(request, 'the_forge/factionsheet_editor.html', {
         'sheet': sheet,
         'faction': sheet.faction,
+        'max_flavor_text': MAX_FLAVOR_TEXT,
+        'max_ability_body': MAX_ABILITY_BODY,
+        'max_ability_title': MAX_ABILITY_TITLE,
+        'max_faction_abilities': MAX_FACTION_ABILITIES,
+        'max_content_sections': MAX_CONTENT_SECTIONS,
+        'max_phase_steps_per_phase': MAX_PHASE_STEPS_PER_PHASE,
+        'max_phase_steps_per_box': MAX_PHASE_STEPS_PER_BOX,
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
+        'max_step_actions': MAX_STEP_ACTIONS,
         'abilities': sheet.abilities.order_by('order'),
         'content_boxes': content_boxes,
         'phase_sections': [
@@ -511,15 +659,43 @@ def factionsheet_delete(request, pk):
     return redirect('forge-faction-detail', pk=faction_pk)
 
 
+@login_required
+@require_http_methods(["POST"])
+def factionback_delete(request, pk):
+    back = get_object_or_404(FactionBack, pk=pk)
+    if (resp := _forbid_if_not_editor(request, back.faction)):
+        return resp
+    faction_pk = back.faction_id
+    back.delete()
+    return redirect('forge-faction-detail', pk=faction_pk)
+
+
+@login_required
+@require_http_methods(["POST"])
+def setup_card_delete(request, pk):
+    card = get_object_or_404(SetupCard, pk=pk)
+    if (resp := _forbid_if_not_editor(request, card.faction)):
+        return resp
+    faction_pk = card.faction_id
+    card.delete()
+    return redirect('forge-faction-detail', pk=faction_pk)
+
+
 @player_required
 @require_http_methods(["POST"])
 def sheet_flavor_edit(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
-    sheet.flavor_text = request.POST.get('flavor_text', '')
+    flavor = request.POST.get('flavor_text', '')
+    if len(flavor) > MAX_FLAVOR_TEXT:
+        return HttpResponseBadRequest(f"Flavor text limited to {MAX_FLAVOR_TEXT} characters.")
+    sheet.flavor_text = flavor
     sheet.save(update_fields=['flavor_text'])
-    return render(request, 'the_forge/partials/sheet_flavor_form.html', {'sheet': sheet})
+    return render(request, 'the_forge/partials/sheet_flavor_form.html', {
+        'sheet': sheet,
+        'max_flavor_text': MAX_FLAVOR_TEXT,
+    })
 
 
 @player_required
@@ -610,41 +786,66 @@ def factionback_edit(request, pk):
         piece_names = request.POST.getlist('piece_name')
         piece_quantities = request.POST.getlist('piece_quantity')
         piece_clear_flags = request.POST.getlist('piece_clear_icon')
+        piece_clear_back_flags = request.POST.getlist('piece_clear_back')
         step_ids = request.POST.getlist('step_id')
         step_texts = request.POST.getlist('step_text')
+
+        rows = list(zip(
+            piece_ids, piece_types, piece_names, piece_quantities,
+            piece_clear_flags, piece_clear_back_flags,
+        ))
+        type_counts = {t: 0 for t in valid_piece_types}
+        for sid, ptype, _name, _qty, _cf, _cb in rows:
+            if ptype in valid_piece_types:
+                type_counts[ptype] += 1
+        for ptype, count in type_counts.items():
+            if count > MAX_PIECES_PER_TYPE:
+                form.add_error(None, f"Maximum of {MAX_PIECES_PER_TYPE} {ptype} pieces.")
+                break
+
+        step_pairs = [
+            (sid, txt) for sid, txt in zip(step_ids, step_texts)
+            if (txt or '').strip()
+        ]
+        if len(step_pairs) > MAX_BACK_SETUP_STEPS:
+            form.add_error(None, f"Maximum of {MAX_BACK_SETUP_STEPS} setup steps allowed.")
+        if any(len(txt) > MAX_SETUP_STEP_TEXT for _sid, txt in step_pairs):
+            form.add_error(None, f"Setup step text limited to {MAX_SETUP_STEP_TEXT} characters.")
+
         if form.is_valid():
             with transaction.atomic():
                 form.save(back)
 
                 existing_pieces = {p.pk: p for p in back.pieces.all()}
                 kept_piece_ids = set()
-                rows = list(zip(
-                    piece_ids, piece_types, piece_names, piece_quantities,
-                    piece_clear_flags,
-                ))
-                for index, (sid, ptype, name, qty, clear) in enumerate(rows):
-                    upload = request.FILES.get(f'piece_icon_{index}')
+                for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
+                    front_upload = request.FILES.get(f'piece_icon_{index}')
+                    back_upload = request.FILES.get(f'piece_back_{index}')
                     name = (name or '').strip()
-                    if not name:
-                        continue
                     if ptype not in valid_piece_types:
                         continue
                     try:
-                        quantity = max(1, min(99, int(qty or 1)))
+                        quantity = max(1, min(MAX_PIECE_QUANTITY, int(qty or 1)))
                     except (TypeError, ValueError):
                         quantity = 1
-                    has_new_file = bool(upload)
-                    should_clear = (clear == '1') and not has_new_file
+                    has_new_front = bool(front_upload)
+                    has_new_back = bool(back_upload)
+                    should_clear_front = (clear_front == '1') and not has_new_front
+                    should_clear_back = (clear_back == '1') and not has_new_back
                     if sid and sid.isdigit() and int(sid) in existing_pieces:
                         piece = existing_pieces[int(sid)]
                         kept_piece_ids.add(piece.pk)
                         piece.name = name
                         piece.quantity = quantity
                         piece.type = ptype
-                        if has_new_file:
-                            piece.small_icon = upload
-                        elif should_clear:
+                        if has_new_front:
+                            piece.small_icon = front_upload
+                        elif should_clear_front:
                             piece.small_icon = None
+                        if has_new_back:
+                            piece.back_image = back_upload
+                        elif should_clear_back:
+                            piece.back_image = None
                         piece.save()
                     else:
                         new_piece = Piece(
@@ -653,17 +854,17 @@ def factionback_edit(request, pk):
                             quantity=quantity,
                             type=ptype,
                         )
-                        if has_new_file:
-                            new_piece.small_icon = upload
                         new_piece.save()
+                        if has_new_front or has_new_back:
+                            if has_new_front:
+                                new_piece.small_icon = front_upload
+                            if has_new_back:
+                                new_piece.back_image = back_upload
+                            new_piece.save()
                 stale_piece_ids = set(existing_pieces) - kept_piece_ids
                 if stale_piece_ids:
                     Piece.objects.filter(pk__in=stale_piece_ids).delete()
 
-                step_pairs = [
-                    (sid, txt) for sid, txt in zip(step_ids, step_texts)
-                    if (txt or '').strip()
-                ]
                 existing_steps = {s.pk: s for s in back.setup_steps.all()}
                 kept_step_ids = set()
                 steps_to_update = []
@@ -687,7 +888,7 @@ def factionback_edit(request, pk):
                     SetupStep.objects.bulk_update(steps_to_update, ['text', 'number'])
                 if steps_to_create:
                     SetupStep.objects.bulk_create(steps_to_create)
-            return redirect('forge-back-edit', pk=back.pk)
+            return redirect('forge-faction-detail', pk=back.faction.pk)
     else:
         form = FactionBackForm(back=back)
     pieces_qs = list(back.pieces.order_by('id'))
@@ -712,6 +913,100 @@ def factionback_edit(request, pk):
             ('card_wealth', 'Card Wealth'),
             ('crafting_ability', 'Crafting Ability'),
         ],
+        'max_pieces_per_type': MAX_PIECES_PER_TYPE,
+        'max_setup_steps': MAX_BACK_SETUP_STEPS,
+        'max_setup_step_text': MAX_SETUP_STEP_TEXT,
+    })
+
+
+@forge_onboard_required
+def forgedfaction_cardboard_edit(request, pk):
+    """Standalone editor for the buildings/tokens roster and the
+    `print_component_backs` toggle. Mirrors the relevant slice of the
+    FactionBack editor (the same Buildings & Tokens piece sections) without
+    the back-side layout fields."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    back, _ = FactionBack.objects.get_or_create(faction=faction)
+    cardboard_types = ('B', 'T')
+    if request.method == 'POST':
+        piece_ids = request.POST.getlist('piece_id')
+        piece_types = request.POST.getlist('piece_type')
+        piece_names = request.POST.getlist('piece_name')
+        piece_quantities = request.POST.getlist('piece_quantity')
+        piece_clear_flags = request.POST.getlist('piece_clear_icon')
+        piece_clear_back_flags = request.POST.getlist('piece_clear_back')
+        rows = list(zip(
+            piece_ids, piece_types, piece_names, piece_quantities,
+            piece_clear_flags, piece_clear_back_flags,
+        ))
+        type_counts = {t: 0 for t in cardboard_types}
+        for _sid, ptype, _name, _qty, _cf, _cb in rows:
+            if ptype in cardboard_types:
+                type_counts[ptype] += 1
+        for ptype, count in type_counts.items():
+            if count > MAX_PIECES_PER_TYPE:
+                return HttpResponseBadRequest(f"Maximum of {MAX_PIECES_PER_TYPE} {ptype} pieces.")
+        with transaction.atomic():
+            faction.print_component_backs = bool(request.POST.get('print_component_backs'))
+            faction.save(update_fields=['print_component_backs'])
+
+            existing_pieces = {p.pk: p for p in back.pieces.filter(type__in=cardboard_types)}
+            kept_piece_ids = set()
+            for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
+                if ptype not in cardboard_types:
+                    continue
+                front_upload = request.FILES.get(f'piece_icon_{index}')
+                back_upload = request.FILES.get(f'piece_back_{index}')
+                name = (name or '').strip()
+                try:
+                    quantity = max(1, min(MAX_PIECE_QUANTITY, int(qty or 1)))
+                except (TypeError, ValueError):
+                    quantity = 1
+                has_new_front = bool(front_upload)
+                has_new_back = bool(back_upload)
+                should_clear_front = (clear_front == '1') and not has_new_front
+                should_clear_back = (clear_back == '1') and not has_new_back
+                if sid and sid.isdigit() and int(sid) in existing_pieces:
+                    piece = existing_pieces[int(sid)]
+                    kept_piece_ids.add(piece.pk)
+                    piece.name = name
+                    piece.quantity = quantity
+                    piece.type = ptype
+                    if has_new_front:
+                        piece.small_icon = front_upload
+                    elif should_clear_front:
+                        piece.small_icon = None
+                    if has_new_back:
+                        piece.back_image = back_upload
+                    elif should_clear_back:
+                        piece.back_image = None
+                    piece.save()
+                else:
+                    new_piece = Piece(parent=back, name=name, quantity=quantity, type=ptype)
+                    new_piece.save()
+                    if has_new_front or has_new_back:
+                        if has_new_front:
+                            new_piece.small_icon = front_upload
+                        if has_new_back:
+                            new_piece.back_image = back_upload
+                        new_piece.save()
+            stale_piece_ids = set(existing_pieces) - kept_piece_ids
+            if stale_piece_ids:
+                Piece.objects.filter(pk__in=stale_piece_ids).delete()
+        return redirect('forge-faction-detail', pk=faction.pk)
+
+    pieces_qs = list(back.pieces.filter(type__in=cardboard_types).order_by('id'))
+    piece_sections = [
+        ('B', 'Buildings', 'Building', [p for p in pieces_qs if p.type == 'B']),
+        ('T', 'Tokens', 'Token', [p for p in pieces_qs if p.type == 'T']),
+    ]
+    return render(request, 'the_forge/cardboard_editor.html', {
+        'faction': faction,
+        'back': back,
+        'piece_sections': piece_sections,
+        'max_pieces_per_type': MAX_PIECES_PER_TYPE,
     })
 
 
@@ -736,6 +1031,10 @@ def setup_card_edit(request, pk):
         ids = request.POST.getlist('step_id')
         texts = request.POST.getlist('step_text')
         pairs = [(sid, txt) for sid, txt in zip(ids, texts) if txt.strip()]
+        if len(pairs) > MAX_CARD_SETUP_STEPS:
+            form.add_error(None, f"Maximum of {MAX_CARD_SETUP_STEPS} setup steps allowed.")
+        if any(len(txt) > MAX_SETUP_STEP_TEXT for _sid, txt in pairs):
+            form.add_error(None, f"Setup step text limited to {MAX_SETUP_STEP_TEXT} characters.")
         if form.is_valid():
             with transaction.atomic():
                 form.save(card)
@@ -760,7 +1059,7 @@ def setup_card_edit(request, pk):
                     SetupStep.objects.bulk_update(to_update, ['text', 'number'])
                 if to_create:
                     SetupStep.objects.bulk_create(to_create)
-            return redirect('forge-setup-card-edit', pk=card.pk)
+            return redirect('forge-faction-detail', pk=card.faction.pk)
     else:
         form = SetupCardForm(card=card)
     return render(request, 'the_forge/setup_card_editor.html', {
@@ -770,6 +1069,8 @@ def setup_card_edit(request, pk):
         'setup_steps': _annotate_steps(card.setup_steps.order_by('number')),
         'inline_keywords': _inline_keywords(),
         'inline_images_map': _inline_images_map(),
+        'max_setup_steps': MAX_CARD_SETUP_STEPS,
+        'max_setup_step_text': MAX_SETUP_STEP_TEXT,
     })
 
 
@@ -781,6 +1082,8 @@ def ability_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
+    if sheet.abilities.count() >= MAX_FACTION_ABILITIES:
+        return HttpResponseBadRequest(f"Maximum of {MAX_FACTION_ABILITIES} abilities reached.")
     form = FactionAbilityForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -790,7 +1093,10 @@ def ability_add(request, sheet_pk):
         ability.order = sheet.abilities.count() + 1
     ability.save()
     return render(request, 'the_forge/partials/ability_row.html', {
-        'ability': ability, 'inline_keywords': _inline_keywords(ability.sheet),
+        'ability': ability,
+        'inline_keywords': _inline_keywords(ability.sheet),
+        'max_ability_body': MAX_ABILITY_BODY,
+        'max_ability_title': MAX_ABILITY_TITLE,
     })
 
 
@@ -805,7 +1111,10 @@ def ability_edit(request, pk):
         return HttpResponseBadRequest(str(form.errors))
     form.save()
     return render(request, 'the_forge/partials/ability_row.html', {
-        'ability': ability, 'inline_keywords': _inline_keywords(ability.sheet),
+        'ability': ability,
+        'inline_keywords': _inline_keywords(ability.sheet),
+        'max_ability_body': MAX_ABILITY_BODY,
+        'max_ability_title': MAX_ABILITY_TITLE,
     })
 
 
@@ -848,6 +1157,8 @@ def contentbox_add(request, sheet_pk):
     sheet = get_object_or_404(FactionSheet, pk=sheet_pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
+    if sheet.content_boxes.count() >= MAX_CONTENT_SECTIONS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_CONTENT_SECTIONS} content sections reached.")
 
     kind = request.POST.get('kind') or ContentBox.KindChoices.SECTION
     valid_kinds = {c.value for c in ContentBox.KindChoices}
@@ -867,6 +1178,8 @@ def contentbox_add(request, sheet_pk):
         box.annotated_steps = []
         return render(request, 'the_forge/partials/content_box_row.html', {
             'box': box, 'inline_keywords': _inline_keywords(box.sheet),
+            'max_phase_steps_per_box': MAX_PHASE_STEPS_PER_BOX,
+            'max_phase_step_text': MAX_PHASE_STEP_TEXT,
         })
 
     # Single-element kind: validate the child form first, then create
@@ -917,6 +1230,8 @@ def contentbox_add(request, sheet_pk):
     return render(request, 'the_forge/partials/content_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(box.sheet),
         'inline_images': _inline_images_map(box.sheet),
+        'max_phase_steps_per_box': MAX_PHASE_STEPS_PER_BOX,
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
     })
 
 
@@ -933,6 +1248,8 @@ def contentbox_edit(request, pk):
     box.annotated_steps = _annotate_steps(box.steps.order_by('number'))
     return render(request, 'the_forge/partials/content_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(box.sheet),
+        'max_phase_steps_per_box': MAX_PHASE_STEPS_PER_BOX,
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
     })
 
 
@@ -980,13 +1297,21 @@ def phasestep_add(request, sheet_pk):
     if step.content_box and step.content_box.sheet_id != sheet.id:
         return HttpResponseBadRequest("content_box does not belong to this sheet")
     if step.content_box:
-        step.number = sheet.phase_steps.filter(content_box=step.content_box).count() + 1
+        existing = sheet.phase_steps.filter(content_box=step.content_box).count()
+        if existing >= MAX_PHASE_STEPS_PER_BOX:
+            return HttpResponseBadRequest(f"Maximum of {MAX_PHASE_STEPS_PER_BOX} steps per content section.")
+        step.number = existing + 1
     else:
-        step.number = sheet.phase_steps.filter(phase=step.phase, content_box__isnull=True).count() + 1
+        existing = sheet.phase_steps.filter(phase=step.phase, content_box__isnull=True).count()
+        if existing >= MAX_PHASE_STEPS_PER_PHASE:
+            return HttpResponseBadRequest(f"Maximum of {MAX_PHASE_STEPS_PER_PHASE} steps in {step.phase}.")
+        step.number = existing + 1
     step.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/phase_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(step.sheet),
+        'step': _annotate_step(step),
+        'inline_keywords': _inline_keywords(step.sheet),
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
     })
 
 
@@ -1006,7 +1331,9 @@ def phasestep_edit(request, pk):
     form.save()
     ensure_step_parent_fits(step)
     return render(request, 'the_forge/partials/phase_step_row.html', {
-        'step': _annotate_step(step), 'inline_keywords': _inline_keywords(step.sheet),
+        'step': _annotate_step(step),
+        'inline_keywords': _inline_keywords(step.sheet),
+        'max_phase_step_text': MAX_PHASE_STEP_TEXT,
     })
 
 
@@ -1072,6 +1399,8 @@ def stepaction_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if step.actions.count() >= MAX_STEP_ACTIONS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_ACTIONS} actions per step.")
     form = StepActionForm(request.POST, request.FILES)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1154,7 +1483,10 @@ def phasestep_action_type_set(request, step_pk):
         return HttpResponseBadRequest("Invalid action_type.")
     step.action_type = new_type
     step.save(update_fields=['action_type'])
-    return render(request, 'the_forge/partials/phase_step_action_header.html', {'step': step})
+    return render(request, 'the_forge/partials/phase_step_action_header.html', {
+        'step': step,
+        'max_step_actions': MAX_STEP_ACTIONS,
+    })
 
 
 @player_required
@@ -1168,7 +1500,10 @@ def phasestep_cost_image_set(request, step_pk):
         return HttpResponseBadRequest(str(form.errors))
     form.save()
     step.refresh_from_db()
-    return render(request, 'the_forge/partials/phase_step_action_header.html', {'step': step})
+    return render(request, 'the_forge/partials/phase_step_action_header.html', {
+        'step': step,
+        'max_step_actions': MAX_STEP_ACTIONS,
+    })
 
 
 # ---------- BorderedBox (child of PhaseStep) ----------
@@ -1179,6 +1514,8 @@ def borderedbox_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if _step_at_child_cap(step):
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_CHILDREN} elements per step.")
     form = BorderedBoxForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1203,6 +1540,7 @@ def borderedbox_edit(request, pk):
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
+    _maybe_update_parent_paper_background(request, box.step.content_box)
     ensure_step_parent_fits(box.step)
     return render(request, 'the_forge/partials/bordered_box_row.html', {
         'box': box, 'inline_keywords': _inline_keywords(box.step.sheet),
@@ -1253,6 +1591,8 @@ def track_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if _step_at_child_cap(step):
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_CHILDREN} elements per step.")
     form = CardboardTrackForm(request.POST, request.FILES)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1279,6 +1619,7 @@ def track_edit(request, pk):
     form.save()
     track.slots.filter(column__gte=new_cols).delete()
     track.slots.filter(row__gte=new_rows).delete()
+    _maybe_update_parent_paper_background(request, track.step.content_box)
     ensure_step_parent_fits(track.step, check_width=(new_cols > prev_cols))
     return render(request, 'the_forge/partials/track_row.html', _track_render_ctx(track))
 
@@ -1301,12 +1642,19 @@ def _next_step_child_order(step):
             + step.legends.count() + step.scales.count() + 1)
 
 
+def _step_at_child_cap(step):
+    return (step.boxes.count() + step.tracks.count()
+            + step.legends.count() + step.scales.count()) >= MAX_STEP_CHILDREN
+
+
 @player_required
 @require_http_methods(["POST"])
 def legend_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if _step_at_child_cap(step):
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_CHILDREN} elements per step.")
     form = LegendForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1332,6 +1680,7 @@ def legend_edit(request, pk):
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
     form.save()
+    _maybe_update_parent_paper_background(request, legend.step.content_box)
     ensure_step_parent_fits(legend.step)
     return render(request, 'the_forge/partials/legend_row.html', {
         'legend': legend, 'inline_keywords': _inline_keywords(legend.step.sheet),
@@ -1356,6 +1705,8 @@ def legend_row_add(request, legend_pk):
     legend = get_object_or_404(Legend, pk=legend_pk)
     if (resp := _forbid_if_not_editor(request, legend.step.sheet.faction)):
         return resp
+    if legend.rows.count() >= MAX_LEGEND_ROWS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_LEGEND_ROWS} rows per legend.")
     form = LegendRowForm(request.POST, request.FILES)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1416,6 +1767,8 @@ def scale_add(request, step_pk):
     step = get_object_or_404(PhaseStep, pk=step_pk)
     if (resp := _forbid_if_not_editor(request, step.sheet.faction)):
         return resp
+    if _step_at_child_cap(step):
+        return HttpResponseBadRequest(f"Maximum of {MAX_STEP_CHILDREN} elements per step.")
     form = ScaleForm(request.POST)
     if not form.is_valid():
         return HttpResponseBadRequest(str(form.errors))
@@ -1476,6 +1829,8 @@ def scale_save(request, pk):
     results = request.POST.getlist('result')
     if not (len(row_ids) == len(ranges) == len(results)):
         return HttpResponseBadRequest('row_id/range/result length mismatch')
+    if len(row_ids) > MAX_SCALE_ROWS:
+        return HttpResponseBadRequest(f"Maximum of {MAX_SCALE_ROWS} rows per scale.")
     submitted_existing = {int(rid) for rid in row_ids if rid}
     # Delete rows that were removed client-side
     scale.rows.exclude(pk__in=submitted_existing).delete()
@@ -1815,6 +2170,12 @@ def _webp_file_response(image_field, filename):
     return response
 
 
+def _png_file_response(image_field, filename):
+    response = FileResponse(image_field.open('rb'), content_type='image/png')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
 def _attach_preview_versions(response, **objects):
     """Stamp the response with current preview_version values so the page can
     refresh its <img> tags after an async download. Pass keyword args like
@@ -1842,8 +2203,11 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     from django.core.files.base import ContentFile
     from django.utils import timezone
     from .pdf_engine import pdf_bytes_to_webp_bytes
+    # SetupCard previews are also embedded in the printable Components sheet,
+    # so render them at higher DPI for crisp print output.
+    dpi = 300 if field_prefix == 'card' else 150
     try:
-        webp = pdf_bytes_to_webp_bytes(pdf_bytes)
+        webp = pdf_bytes_to_webp_bytes(pdf_bytes, dpi=dpi)
     except Exception:
         return
     if instance.image_preview:
@@ -1930,9 +2294,13 @@ def forgedfaction_pdf(request, pk):
         return resp
     from io import BytesIO
     from pypdf import PdfWriter, PdfReader
-    from .pdf_engine import SheetLayoutEngine, FactionBackLayoutEngine, SetupCardLayoutEngine
+    from .pdf_engine import (
+        SheetLayoutEngine, FactionBackLayoutEngine, SetupCardLayoutEngine,
+        ComponentsSheetLayoutEngine,
+    )
     from .pdf_cache import (
-        cache_key, fingerprint_sheet, fingerprint_back, fingerprint_setup_card, get_or_build,
+        cache_key, fingerprint_sheet, fingerprint_back, fingerprint_setup_card,
+        fingerprint_components_sheet, get_or_build,
     )
 
     parts = []
@@ -1960,15 +2328,32 @@ def forgedfaction_pdf(request, pk):
         parts.append(back_pdf)
 
     card = getattr(faction, 'setup_card', None)
-    if card:
-        def build_card():
+    has_components = bool(
+        card or faction.vp_marker or faction.relationship_marker
+        or (back and back.pieces.filter(type__in=('B', 'T')).exists())
+    )
+    if has_components:
+        card_preview_path = None
+        if card:
+            card_fp = fingerprint_setup_card(card)
+            # Refresh the SetupCard preview if its fingerprint is stale, so the
+            # detail-page thumbnail updates as a side effect of Combined PDF.
+            if card.preview_fingerprint != card_fp or not card.image_preview:
+                card_buf = BytesIO()
+                SetupCardLayoutEngine(card).build(card_buf)
+                _maybe_save_image_preview(card, card_buf.getvalue(), card_fp, 'card')
+            if card.image_preview:
+                card_preview_path = card.image_preview.path
+
+        def build_components():
             buf = BytesIO()
-            SetupCardLayoutEngine(card).build(buf)
+            ComponentsSheetLayoutEngine(faction, card_preview_path=card_preview_path).build(buf)
             return buf.getvalue()
-        card_fp = fingerprint_setup_card(card)
-        card_pdf = get_or_build(cache_key('setup_card', card.pk, card_fp), build_card)
-        _maybe_save_image_preview(card, card_pdf, card_fp, 'card')
-        parts.append(card_pdf)
+        components_fp = fingerprint_components_sheet(faction)
+        components_pdf = get_or_build(
+            cache_key('components', faction.pk, components_fp), build_components,
+        )
+        parts.append(components_pdf)
 
     if not parts:
         return HttpResponse(
@@ -1984,6 +2369,50 @@ def forgedfaction_pdf(request, pk):
     writer.write(out)
     response = _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
     return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
+
+
+@login_required
+def forgedfaction_components_pdf(request, pk):
+    """Render only the components page(s) — setup card, markers, and the
+    building/token grid — without the front or back faction sheets."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import SetupCardLayoutEngine, ComponentsSheetLayoutEngine
+    from .pdf_cache import (
+        cache_key, fingerprint_setup_card, fingerprint_components_sheet, get_or_build,
+    )
+
+    card = getattr(faction, 'setup_card', None)
+    back = getattr(faction, 'faction_back', None)
+    has_components = bool(
+        card or faction.vp_marker or faction.relationship_marker
+        or (back and back.pieces.filter(type__in=('B', 'T')).exists())
+    )
+    if not has_components:
+        return HttpResponse(
+            "No components yet — add a setup card, faction markers, or building/token pieces first.",
+            status=404, content_type='text/plain',
+        )
+
+    card_preview_path = None
+    if card:
+        card_fp = fingerprint_setup_card(card)
+        if card.preview_fingerprint != card_fp or not card.image_preview:
+            card_buf = BytesIO()
+            SetupCardLayoutEngine(card).build(card_buf)
+            _maybe_save_image_preview(card, card_buf.getvalue(), card_fp, 'card')
+        if card.image_preview:
+            card_preview_path = card.image_preview.path
+
+    def build_components():
+        buf = BytesIO()
+        ComponentsSheetLayoutEngine(faction, card_preview_path=card_preview_path).build(buf)
+        return buf.getvalue()
+    fp = fingerprint_components_sheet(faction)
+    data = get_or_build(cache_key('components', faction.pk, fp), build_components)
+    return _pdf_file_response(data, f'{faction.faction_name} - Components.pdf')
 
 
 @login_required
@@ -2096,9 +2525,10 @@ def forgedfaction_tts(request, pk):
 
     sheet = getattr(faction, 'faction_sheet', None)
     back = getattr(faction, 'faction_back', None)
-    if not sheet and not back:
+    card = getattr(faction, 'setup_card', None)
+    if not sheet and not back and not card:
         return HttpResponse(
-            "No content yet — create a Front or Back first.",
+            "No content yet — create a Front, Back, or Setup Card first.",
             status=404, content_type='text/plain',
         )
 
@@ -2109,20 +2539,69 @@ def forgedfaction_tts(request, pk):
     if back:
         _ensure_back_preview(back)
         back.refresh_from_db()
+    if card:
+        from io import BytesIO
+        from .pdf_engine import SetupCardLayoutEngine
+        from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+        fp = fingerprint_setup_card(card)
+        if card.preview_fingerprint != fp or not card.image_preview:
+            def _build_card():
+                buffer = BytesIO()
+                SetupCardLayoutEngine(card).build(buffer)
+                return buffer.getvalue()
+            data = get_or_build(cache_key('setup_card', card.pk, fp), _build_card)
+            _maybe_save_image_preview(card, data, fp, 'card')
+            card.refresh_from_db()
 
-    if not (sheet and sheet.image_preview) and not (back and back.image_preview):
+    sheet_ready = bool(sheet and sheet.image_preview)
+    back_ready = bool(back and back.image_preview)
+    card_ready = bool(card and card.image_preview)
+    if not (sheet_ready or back_ready or card_ready):
         return HttpResponse(
             "Preview unavailable.",
             status=404, content_type='text/plain',
         )
 
-    from .services.tts import TTSForgedFactionBoard, TTSForgedFactionDecree
-    from the_keep.services.tts import wrap_tts_save
+    from .services.tts import (
+        TTSForgedFactionBoard, TTSForgedFactionDecree, load_tts_object,
+        place_pieces_for_back,
+    )
+    from the_keep.services.tts import wrap_tts_save, TTSSingleCardDeck
 
-    board = TTSForgedFactionBoard(faction, request=request)
-    boards = [board.to_dict()]
-    if sheet and sheet.decree_preview:
-        boards.append(TTSForgedFactionDecree(faction, request=request).to_dict())
+    boards = []
+    if sheet_ready or back_ready:
+        boards.append(TTSForgedFactionBoard(faction, request=request).to_dict())
+        if sheet and sheet.decree_preview:
+            boards.append(TTSForgedFactionDecree(faction, request=request).to_dict())
+        improvements_transform = {
+            "posX": -16.0, "posY": -0.113604546, "posZ": 0.0,
+            "rotX": 0.0, "rotY": 180.0, "rotZ": 0.0,
+            "scaleX": 9.516764, "scaleY": 1.0, "scaleZ": 9.516764,
+        }
+        boards.append(load_tts_object('Improved Crafted Improvements.json', transform=improvements_transform))
+        if back_ready:
+            boards.extend(place_pieces_for_back(back, sheet=sheet, request=request))
+    if card_ready:
+        from the_keep.services.tts import DEFAULT_CARD_TRANSFORM
+        adset_transform = dict(DEFAULT_CARD_TRANSFORM)
+        if sheet_ready or back_ready:
+            # Center on the southernmost snap point of the Improved Crafted
+            # Improvements tile. The tile sits at (-16, 0) and is rotated 180°
+            # around Y, so its local +Z snap points map to world -Z. The
+            # southernmost (largest world-negative Z) snap point is the one
+            # with local z=+0.518260956.
+            adset_transform["posX"] = -16.0 + (-0.00133301085 * 9.516764)
+            adset_transform["posZ"] = 0.0 + (-0.518260956 * 9.516764)
+            adset_transform["posY"] = 2.0
+        adset = TTSSingleCardDeck(
+            card.image_preview,
+            static("images/adset.png"),
+            deck_id=1,
+            request=request,
+            card_name="Adset Card",
+            transform=adset_transform,
+        )
+        boards.append(adset.to_object())
     save_file = wrap_tts_save(boards, save_name=faction.faction_name)
 
     response = HttpResponse(
@@ -2132,7 +2611,7 @@ def forgedfaction_tts(request, pk):
     safe_name = (faction.faction_name or faction.slug or str(faction.pk)).replace('"', '').replace('\\', '')
     filename = f'{safe_name}.json'
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    return _attach_preview_versions(response, sheet=sheet, back=back)
+    return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
 
 
 @login_required

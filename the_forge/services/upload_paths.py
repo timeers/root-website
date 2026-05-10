@@ -46,6 +46,24 @@ def back_preview_upload_path(instance, filename):
         filename='back.webp',
     )
 
+def faction_icon_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.slug, 'board'],
+        filename='icon.webp',
+    )
+
+def vp_marker_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.slug, 'board'],
+        filename='vp_marker.webp',
+    )
+
+def relationship_marker_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.slug, 'board'],
+        filename='relationship_marker.webp',
+    )
+
 
 def card_preview_upload_path(instance, filename):
     return upload_path(
@@ -78,3 +96,22 @@ def faction_upload_path(instance, filename):
         filename=uuid.uuid4().hex,
         force_ext=ext.lstrip('.'),
     )
+
+
+def _piece_upload_path(instance, face):
+    faction = _resolve_faction(instance)
+    slug = faction.slug if faction else None
+    piece_type = instance.get_type_display().lower()
+    return upload_path(
+        slug_parts=[slug, 'pieces', f'{piece_type}s'],
+        filename=f'{instance.pk}-{face}',
+        force_ext='webp',
+    )
+
+
+def piece_front_upload_path(instance, filename):
+    return _piece_upload_path(instance, 'front')
+
+
+def piece_back_upload_path(instance, filename):
+    return _piece_upload_path(instance, 'back')

@@ -1,6 +1,22 @@
 from django import forms
 from django.core.validators import MinValueValidator, MaxValueValidator
 
+from .limits import (
+    MAX_ABILITY_BODY,
+    MAX_BORDERED_BOX_BODY,
+    MAX_CARD_PILE_BODY,
+    MAX_CONTENT_TEXT,
+    MAX_HOW_TO_PLAY_TEXT,
+    MAX_HOW_TO_PLAY_TITLE,
+    MAX_LEGEND_ROW_BODY,
+    MAX_PHASE_STEP_TEXT,
+    MAX_PIECE_QUANTITY,
+    MAX_SETUP_STEP_TEXT,
+    MAX_STEP_ACTION_TEXT,
+    MAX_TRACK_BODY,
+    MAX_TRACK_COLS,
+    MAX_TRACK_ROWS,
+)
 from .models import (
     BorderedBox,
     CardboardSlot,
@@ -64,6 +80,7 @@ class ForgedFactionForm(forms.ModelForm):
         model = ForgedFaction
         fields = [
             'faction_name',
+            'language',
             'color',
             'secondary_color',
             'background_preset',
@@ -85,6 +102,19 @@ class ForgedFactionForm(forms.ModelForm):
                 'class': 'form-control form-control-color forge-color-swatch forge-secondary-color-swatch',
             }),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Whitelist language choices to codes that have a populated PDF_TEXT
+        # entry — the dropdown should only offer languages the PDF engine can
+        # actually render. Imports are deferred to avoid pulling another app's
+        # models at module-load time.
+        from the_forge.pdf_engine import PDF_TEXT
+        from the_gatehouse.models import Language
+        self.fields['language'].queryset = Language.objects.filter(code__in=PDF_TEXT.keys())
+        self.fields['language'].widget.attrs.setdefault('class', 'form-select')
+        self.fields['language'].required = True
+        self.fields['language'].empty_label = None
 
     def clean_background_tile_size(self):
         raw = self.cleaned_data.get('background_tile_size')
@@ -110,6 +140,40 @@ class ForgedFactionForm(forms.ModelForm):
         return cleaned
 
 
+class FactionMarkersForm(forms.ModelForm):
+    """Edit a faction's icon plus VP/Relationship marker color. Markers
+    themselves (the composite PNGs) are generated client-side and posted
+    alongside this form's data — see the view."""
+
+    use_faction_color = forms.BooleanField(
+        required=False,
+        label="Use faction color",
+        help_text="Use the faction's primary color for marker backgrounds.",
+    )
+
+    class Meta:
+        model = ForgedFaction
+        fields = ['faction_icon', 'icon_color']
+        widgets = {
+            'icon_color': forms.TextInput(attrs={
+                'type': 'color',
+                'class': 'form-control form-control-color forge-color-swatch',
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Toggle is on whenever no icon_color override is set.
+        if self.instance and self.instance.pk and not self.is_bound:
+            self.fields['use_faction_color'].initial = not bool(self.instance.icon_color)
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('use_faction_color'):
+            cleaned['icon_color'] = None
+        return cleaned
+
+
 class FactionBackForm(forms.Form):
     """Edits all simple FactionBack fields. Pieces and setup steps are
     reconciled separately by the view from parallel POST arrays."""
@@ -129,10 +193,12 @@ class FactionBackForm(forms.Form):
         }),
     )
     how_to_play_title = forms.CharField(
+        max_length=MAX_HOW_TO_PLAY_TITLE,
         widget=forms.TextInput(attrs={'placeholder': 'Faction', 'class': 'form-control form-control-lg'}),
     )
     how_to_play_text = forms.CharField(
         required=False,
+        max_length=MAX_HOW_TO_PLAY_TEXT,
         widget=RichTextarea(attrs={'rows': 8}),
     )
     back_image = forms.ImageField(
@@ -141,6 +207,19 @@ class FactionBackForm(forms.Form):
         widget=forms.ClearableFileInput(attrs={
             'class': 'form-control form-control-sm',
             'accept': 'image/*',
+        }),
+    )
+    back_image_size = forms.IntegerField(
+        required=False,
+        min_value=FactionBack.BACK_IMAGE_SIZE_MIN,
+        max_value=FactionBack.BACK_IMAGE_SIZE_MAX,
+        initial=FactionBack.BACK_IMAGE_SIZE_DEFAULT,
+        widget=forms.NumberInput(attrs={
+            'type': 'range',
+            'min': FactionBack.BACK_IMAGE_SIZE_MIN,
+            'max': FactionBack.BACK_IMAGE_SIZE_MAX,
+            'step': 1,
+            'class': 'form-range',
         }),
     )
 
@@ -157,6 +236,16 @@ class FactionBackForm(forms.Form):
                 self.fields['setup_order'].initial = back.setup_order
                 self.fields['how_to_play_title'].initial = back.how_to_play_title
                 self.fields['how_to_play_text'].initial = back.how_to_play_text
+                self.fields['back_image_size'].initial = back.back_image_size
+
+    def clean_back_image_size(self):
+        raw = self.cleaned_data.get('back_image_size')
+        if raw in (None, ''):
+            return FactionBack.BACK_IMAGE_SIZE_DEFAULT
+        return max(
+            FactionBack.BACK_IMAGE_SIZE_MIN,
+            min(FactionBack.BACK_IMAGE_SIZE_MAX, int(raw)),
+        )
 
     def save(self, back=None):
         back = back or self.back
@@ -164,12 +253,15 @@ class FactionBackForm(forms.Form):
         back.card_wealth = self.cleaned_data['card_wealth']
         back.aggression = self.cleaned_data['aggression']
         back.crafting_ability = self.cleaned_data['crafting_ability']
-        back.setup_order = self.cleaned_data.get('setup_order') or 'X'
+        back.setup_order = self.cleaned_data.get('setup_order') or ''
         back.how_to_play_title = self.cleaned_data['how_to_play_title']
         back.how_to_play_text = self.cleaned_data.get('how_to_play_text') or ''
+        back.back_image_size = self.cleaned_data['back_image_size']
         update_fields = [
             'complexity', 'card_wealth', 'aggression', 'crafting_ability',
             'setup_order', 'how_to_play_title', 'how_to_play_text',
+            'back_image_size',
+            'last_updated',
         ]
         new_img = self.cleaned_data.get('back_image')
         if new_img:
@@ -180,6 +272,25 @@ class FactionBackForm(forms.Form):
             update_fields.append('back_image')
         back.save(update_fields=update_fields)
         return back
+
+
+def _cap(value, limit, label):
+    text = value or ''
+    if len(text) > limit:
+        raise forms.ValidationError(f"{label} limited to {limit} characters.")
+    return text
+
+
+def _cap_visible(value, limit, label):
+    """Cap based on visible character count (HTML stripped) so inline tags and
+    image embeds don't push otherwise-fine input over the limit. The raw value
+    is still saved as-is — only the length check uses the stripped form."""
+    from django.utils.html import strip_tags
+    raw = value or ''
+    visible_len = len(strip_tags(raw))
+    if visible_len > limit:
+        raise forms.ValidationError(f"{label} limited to {limit} characters.")
+    return raw
 
 
 class FactionAbilityForm(forms.ModelForm):
@@ -194,11 +305,14 @@ class FactionAbilityForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['order'].required = False
 
+    def clean_body(self):
+        return _cap_visible(self.cleaned_data.get('body'), MAX_ABILITY_BODY, 'Body')
+
 
 class ContentBoxForm(forms.ModelForm):
     class Meta:
         model = ContentBox
-        fields = ['order', 'title', 'text']
+        fields = ['order', 'title', 'text', 'paper_background']
         widgets = {
             'text': RichTextarea(),
         }
@@ -208,6 +322,10 @@ class ContentBoxForm(forms.ModelForm):
         self.fields['order'].required = False
         self.fields['title'].required = False
         self.fields['text'].required = False
+        self.fields['paper_background'].required = False
+
+    def clean_text(self):
+        return _cap(self.cleaned_data.get('text'), MAX_CONTENT_TEXT, 'Text')
 
 
 class PhaseStepForm(forms.ModelForm):
@@ -224,6 +342,9 @@ class PhaseStepForm(forms.ModelForm):
         self.fields['content_box'].required = False
         self.fields['text'].required = False
 
+    def clean_text(self):
+        return _cap_visible(self.cleaned_data.get('text'), MAX_PHASE_STEP_TEXT, 'Text')
+
 
 class StepActionForm(forms.ModelForm):
     cost = forms.CharField(
@@ -238,6 +359,9 @@ class StepActionForm(forms.ModelForm):
             'text': RichTextarea(attrs={'rows': 3}),
             'cost_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }
+
+    def clean_text(self):
+        return _cap(self.cleaned_data.get('text'), MAX_STEP_ACTION_TEXT, 'Text')
 
 
 class PhaseStepCostImageForm(forms.ModelForm):
@@ -258,6 +382,9 @@ class BorderedBoxForm(forms.ModelForm):
             'body': RichTextarea(),
             'height': forms.Select(attrs={'class': 'form-select form-select-sm'}),
         }
+
+    def clean_body(self):
+        return _cap(self.cleaned_data.get('body'), MAX_BORDERED_BOX_BODY, 'Body')
 
 
 class CardboardTrackForm(forms.ModelForm):
@@ -321,6 +448,24 @@ class CardboardTrackForm(forms.ModelForm):
     def clean_column_headers_json(self):
         return self._parse_json_list('column_headers_json')
 
+    def clean_num_rows(self):
+        n = self.cleaned_data['num_rows']
+        if n > MAX_TRACK_ROWS:
+            raise forms.ValidationError(f"Maximum {MAX_TRACK_ROWS} rows.")
+        return n
+
+    def clean_num_columns(self):
+        n = self.cleaned_data['num_columns']
+        if n > MAX_TRACK_COLS:
+            raise forms.ValidationError(f"Maximum {MAX_TRACK_COLS} columns.")
+        return n
+
+    def clean_body(self):
+        text = self.cleaned_data.get('body') or ''
+        if len(text) > MAX_TRACK_BODY:
+            raise forms.ValidationError(f"Body limited to {MAX_TRACK_BODY} characters.")
+        return text
+
 
 class CardboardSlotForm(forms.ModelForm):
     class Meta:
@@ -365,11 +510,17 @@ class CardPileForm(forms.ModelForm):
         self.fields['title'].required = False
         self.fields['body'].required = False
 
+    def clean_body(self):
+        return _cap(self.cleaned_data.get('body'), MAX_CARD_PILE_BODY, 'Body')
+
 
 class PieceForm(forms.ModelForm):
     class Meta:
         model = Piece
         fields = ['name', 'quantity', 'type', 'small_icon']
+
+    def clean_quantity(self):
+        return min(self.cleaned_data['quantity'], MAX_PIECE_QUANTITY)
 
 
 class FactionHeaderForm(forms.Form):
@@ -390,6 +541,7 @@ class FactionHeaderForm(forms.Form):
             'accept': 'image/*',
         }),
     )
+    clear_header_image = forms.BooleanField(required=False, widget=forms.HiddenInput())
     title_text_color = forms.ChoiceField(
         choices=FactionSheet.TitleTextColor.choices,
         widget=forms.RadioSelect(attrs={
@@ -431,12 +583,12 @@ class FactionHeaderForm(forms.Form):
         faction.art_by = self.cleaned_data.get('art_by') or None
         faction.save(update_fields=['faction_name', 'pnp_version', 'art_by'])
         sheet.title_text_color = self.cleaned_data['title_text_color']
-        update_fields = ['title_text_color']
+        update_fields = ['title_text_color', 'last_updated']
         new_img = self.cleaned_data.get('header_image')
         if new_img:
             sheet.header_image = new_img
             update_fields.append('header_image')
-        elif new_img is False:
+        elif self.cleaned_data.get('clear_header_image') or new_img is False:
             sheet.header_image = None
             update_fields.append('header_image')
         sheet.save(update_fields=update_fields)
@@ -485,7 +637,7 @@ class SetupCardForm(forms.Form):
         card.faction.save(update_fields=['faction_name'])
         card.type = self.cleaned_data['type']
         card.reach = self.cleaned_data['reach']
-        update_fields = ['type', 'reach']
+        update_fields = ['type', 'reach', 'last_updated']
         new_img = self.cleaned_data.get('header_image')
         if new_img:
             card.header_image = new_img
@@ -504,6 +656,9 @@ class SetupStepForm(forms.ModelForm):
         widgets = {
             'text': RichTextarea(attrs={'rows': 3}),
         }
+
+    def clean_text(self):
+        return _cap(self.cleaned_data.get('text'), MAX_SETUP_STEP_TEXT, 'Text')
 
 
 class LegendForm(forms.ModelForm):
@@ -535,6 +690,9 @@ class LegendRowForm(forms.ModelForm):
         self.fields['body'].required = False
         self.fields['image'].required = False
         self.fields['icon'].required = False
+
+    def clean_body(self):
+        return _cap(self.cleaned_data.get('body'), MAX_LEGEND_ROW_BODY, 'Body')
 
 
 class CharacterImageForm(forms.ModelForm):

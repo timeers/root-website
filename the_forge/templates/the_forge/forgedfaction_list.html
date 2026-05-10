@@ -12,57 +12,7 @@
 {% if factions %}
   <div class="row g-3 forge-faction-grid mb-2">
     {% for faction in factions %}
-      <div class="col-12 col-sm-6 col-lg-4">
-        <a href="{% url 'forge-faction-detail' pk=faction.pk %}"
-           class="forge-faction-card card h-100 text-decoration-none position-relative overflow-hidden"
-           style="--faction-color: {{ faction.color|default:'#888888' }};">
-          {% if faction.background_image %}
-            <div class="forge-faction-card__bg"
-                 {% if faction.repeat_background_image %}
-                 data-tile-src="{{ faction.background_image.url }}"
-                 data-tile-pct="{{ faction.background_tile_size }}"
-                 {% else %}
-                 style="background-image:url('{{ faction.background_image.url }}');"
-                 {% endif %}></div>
-          {% else %}
-            {% with preset_path=faction.BACKGROUND_PRESET_FILES|dict_get:faction.background_preset %}
-              {% if preset_path %}
-                <div class="forge-faction-card__bg"
-                     style="background-image:url('{% static preset_path %}');"></div>
-              {% elif faction.color %}
-                <div class="forge-faction-card__bg"
-                     style="background:{{ faction.color }};"></div>
-              {% endif %}
-            {% endwith %}
-          {% endif %}
-          <div class="forge-faction-card__overlay"></div>
-          <div class="card-body position-relative d-flex flex-column">
-            <div class="d-flex align-items-center gap-2 mb-3">
-              {% if faction.color %}
-                <span class="forge-faction-card__swatch" style="background:{{ faction.color }};"></span>
-              {% endif %}
-              <h4 class="root-title mb-0 forge-faction-card__name">{{ faction.faction_name }}</h4>
-            </div>
-            <div class="mt-auto d-flex flex-wrap gap-1 align-items-center">
-              {% if faction.faction_sheet.image_preview %}
-                <img src="{{ faction.faction_sheet.image_preview.url }}?v={{ faction.faction_sheet.preview_version }}" alt="Front preview" class="forge-faction-card__preview">
-              {% elif faction.faction_sheet %}
-                <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--landscape">Front</span>
-              {% endif %}
-              {% if faction.faction_back.image_preview %}
-                <img src="{{ faction.faction_back.image_preview.url }}?v={{ faction.faction_back.preview_version }}" alt="Back preview" class="forge-faction-card__preview">
-              {% elif faction.faction_back %}
-                <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--landscape">Back</span>
-              {% endif %}
-              {% if faction.setup_card.image_preview %}
-                <img src="{{ faction.setup_card.image_preview.url }}?v={{ faction.setup_card.preview_version }}" alt="Adset preview" class="forge-faction-card__preview">
-              {% elif faction.setup_card %}
-                <span class="forge-faction-card__preview-empty forge-faction-card__preview-empty--portrait">A</span>
-              {% endif %}
-            </div>
-          </div>
-        </a>
-      </div>
+      {% include 'the_forge/partials/_forgedfaction_card.html' with faction=faction admin_view=False %}
     {% endfor %}
   </div>
 {% else %}
@@ -70,6 +20,12 @@
     <p class="text-muted mb-0">You haven't created any forged factions yet.</p>
   </div>
 {% endif %}
+
+<div class="text-center text-muted small mt-5 mb-2">
+  Have a feature request or layout bug?
+  <a href="{% url 'forge-feedback' %}">Send Feedback</a>.
+</div>
+
 
 <script>
   // Mirrors draw_faction_background() for repeating-bg faction cards.

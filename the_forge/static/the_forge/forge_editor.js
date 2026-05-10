@@ -399,6 +399,36 @@
       const status = craftBtn.parentElement.querySelector('[data-autosave-status]');
       autosavePost(craftBtn.dataset.autosaveUrl, turningOn ? 'true' : 'false', status);
     }
+
+    // Paper background toggle: writes hidden paper_background input(s) inside
+    // the surrounding row's dirty form(s) and trips the dirty listener so the
+    // existing Save button(s) reveal. For express sections, multiple child
+    // forms each carry the field; we update them all so any save persists it.
+    const paperBtn = ev.target.closest('button[data-paper-bg-toggle]');
+    if (paperBtn) {
+      const turningOn = !paperBtn.classList.contains('is-on');
+      paperBtn.classList.toggle('is-on', turningOn);
+      paperBtn.classList.toggle('is-off', !turningOn);
+      paperBtn.setAttribute('aria-pressed', turningOn ? 'true' : 'false');
+      const newTitle = turningOn ? paperBtn.dataset.onTitle : paperBtn.dataset.offTitle;
+      if (newTitle) {
+        paperBtn.setAttribute('data-bs-original-title', newTitle);
+        paperBtn.title = newTitle;
+        if (window.bootstrap && bootstrap.Tooltip) {
+          const tip = bootstrap.Tooltip.getInstance(paperBtn);
+          if (tip) tip.setContent({ '.tooltip-inner': newTitle });
+        }
+      }
+      const img = paperBtn.querySelector('img');
+      if (img) img.src = turningOn ? img.dataset.onSrc : img.dataset.offSrc;
+      const row = paperBtn.closest('[data-row]');
+      if (row) {
+        row.querySelectorAll('input[data-paper-bg-input]').forEach((hidden) => {
+          hidden.value = turningOn ? 'true' : '';
+          hidden.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      }
+    }
   });
 
   // ---------- Phase-step add toggle (one button per phase) ----------
@@ -709,6 +739,18 @@
     });
   }
   window.initForgeStepSortables = initStepSortables;
+
+  // Initialize Bootstrap tooltips on any newly-inserted subtree. The base
+  // template handles initial load and HTMX swaps; this covers the editor's
+  // JS-driven row inserts (Add Section, Add Box, Add Track, etc.).
+  document.addEventListener('forge:row-replaced', (ev) => {
+    if (!window.bootstrap || !bootstrap.Tooltip) return;
+    const root = ev.target;
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+      if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
+    });
+  });
 
   // After any inline-edit response replaces a row, re-init sortables so a
   // newly-rendered phase-step-row gets its child sortables wired up.

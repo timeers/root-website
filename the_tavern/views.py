@@ -323,32 +323,41 @@ def survey_list_view(request):
     load_type = request.GET.get('load_type', None)
 
     if profile:
-        my_surveys = (
-            Survey.objects.is_available()
-            .filter(created_by=profile)
-            .annotate_for_user(profile)
-        )
-        private_surveys = (
-            Survey.objects.is_available()
-            .user_has_invite(profile)
-            .annotate_for_user(profile)
-            .prefetch_related('guild', 'created_by')
-        )
-        public_surveys = (
+        my_surveys_base = Survey.objects.is_available().filter(created_by=profile)
+        private_surveys_base = Survey.objects.is_available().user_has_invite(profile)
+        public_surveys_base = (
             Survey.objects.is_available()
             .filter(is_public=True)
             .exclude(created_by=profile)
-            .annotate_for_user(profile)
-            .prefetch_related('created_by')
         )
+
+        my_surveys = my_surveys_base.annotate_for_user(profile, owned=True).select_related('created_by')
+        private_surveys = (
+            private_surveys_base
+            .annotate_for_user(profile)
+            .select_related('guild', 'created_by')
+        )
+        public_surveys = (
+            public_surveys_base
+            .annotate_for_user(profile)
+            .select_related('created_by')
+        )
+
+        total_my_surveys = my_surveys_base.count()
+        total_private = private_surveys_base.count()
+        total_public = public_surveys_base.count()
     else:
         my_surveys = Survey.objects.none()
         private_surveys = Survey.objects.none()
-        public_surveys = Survey.objects.is_available().filter(is_public=True).prefetch_related('responses', 'created_by')
+        public_surveys = (
+            Survey.objects.is_available()
+            .filter(is_public=True)
+            .select_related('created_by')
+        )
 
-    total_my_surveys = my_surveys.count()
-    total_private = private_surveys.count()
-    total_public = private_surveys.count()
+        total_my_surveys = 0
+        total_private = 0
+        total_public = public_surveys.count()
 
     # Handle HTMX partial requests for loading more surveys
     if load_type == 'my_surveys':

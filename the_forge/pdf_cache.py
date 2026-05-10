@@ -6,7 +6,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.forms.models import model_to_dict
 
 
-CACHE_PREFIX = 'forge_pdf:v7'
+CACHE_PREFIX = 'forge_pdf:v8'
 PDF_CACHE_TTL = 60 * 60 * 24
 PDF_CACHE_MAX_BYTES = 25 * 1024 * 1024
 
@@ -70,6 +70,23 @@ def fingerprint_setup_card(card):
         'faction': _serialize_instance(card.faction),
         'card': _serialize_instance(card),
         'steps': _serialize_qs(card.setup_steps.all(), order_by=('number', 'pk')),
+    })
+
+
+def fingerprint_components_sheet(faction):
+    card = getattr(faction, 'setup_card', None)
+    back = getattr(faction, 'faction_back', None)
+    pieces = []
+    if back is not None:
+        for p in back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
+            pieces.append((p.pk, p.front_version, p.back_version, p.quantity, p.type))
+    return _digest({
+        'card_fp': fingerprint_setup_card(card) if card else '',
+        'markers_version': faction.markers_version,
+        'vp_marker': faction.vp_marker.name if faction.vp_marker else '',
+        'rel_marker': faction.relationship_marker.name if faction.relationship_marker else '',
+        'print_backs': bool(faction.print_component_backs),
+        'pieces': pieces,
     })
 
 
