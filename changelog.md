@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.2] - 2026-5-08 More Forge Tuning
+## [1.12.2] - 2026-5-10 More Forge Tuning
 
 ### New Features
 - Adset card added to TTS json download
@@ -31,6 +31,7 @@
 - Track title centered over track instead of container
 - Card actions indent fixed so that it doesn't overflow left
 - Survey home page responsiveness when logged in
+- PDF Engine memory improvements
 
 ## [1.12.1] - 2026-5-05 Forge-Tuning
 

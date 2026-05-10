@@ -2205,7 +2205,7 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     from .pdf_engine import pdf_bytes_to_webp_bytes
     # SetupCard previews are also embedded in the printable Components sheet,
     # so render them at higher DPI for crisp print output.
-    dpi = 300 if field_prefix == 'card' else 150
+    dpi = 250 if field_prefix == 'card' else 150
     try:
         webp = pdf_bytes_to_webp_bytes(pdf_bytes, dpi=dpi)
     except Exception:

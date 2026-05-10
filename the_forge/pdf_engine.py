@@ -72,10 +72,16 @@ def pdf_bytes_to_webp_bytes(pdf_bytes, dpi=150, quality=85):
         page = doc.load_page(0)
         zoom = dpi / 72.0
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-        img = PILImage.frombytes('RGB', (pix.width, pix.height), pix.samples)
-        out = BytesIO()
-        img.save(out, format='WEBP', quality=quality, method=6)
-        return out.getvalue()
+        try:
+            img = PILImage.frombytes('RGB', (pix.width, pix.height), pix.samples)
+        finally:
+            pix = None  # release native pixmap memory before encoding
+        try:
+            out = BytesIO()
+            img.save(out, format='WEBP', quality=quality, method=4)
+            return out.getvalue()
+        finally:
+            img.close()
     finally:
         doc.close()
 
@@ -1016,8 +1022,8 @@ def _inline_image_tag(key, img_height=None, sheet=None):
         return ''
     h = img_height or INLINE_IMG_H
     from PIL import Image as PILImage
-    pil_img = PILImage.open(img_path)
-    iw, ih = pil_img.size
+    with PILImage.open(img_path) as pil_img:
+        iw, ih = pil_img.size
     aspect = iw / ih
     img_w = h * aspect
     return f'<img src="{img_path}" width="{img_w:.1f}" height="{h}" valign="middle"/>'
@@ -2238,8 +2244,8 @@ class TrackFlowable(Flowable):
         for i, img_path in enumerate(images[:len(positions)]):
             ix, iy = positions[i]
             # Preserve aspect ratio
-            pil_img = PILImage.open(img_path)
-            iw, ih = pil_img.size
+            with PILImage.open(img_path) as pil_img:
+                iw, ih = pil_img.size
             aspect = iw / ih
             if aspect >= 1:
                 draw_w = img_size
@@ -2424,8 +2430,8 @@ class LegendFlowable(Flowable):
             if img_path:
                 try:
                     from PIL import Image as PILImage
-                    pil = PILImage.open(img_path)
-                    aspect = pil.size[0] / pil.size[1] if pil.size[1] else 1
+                    with PILImage.open(img_path) as pil:
+                        aspect = pil.size[0] / pil.size[1] if pil.size[1] else 1
                     img_h = LEGEND_IMAGE_MAX_H
                     img_w = img_h * aspect
                     if img_w > LEGEND_IMAGE_MAX_W:
@@ -3428,8 +3434,8 @@ class SheetLayoutEngine:
         if not icon_path or not os.path.exists(icon_path):
             return None, None, 0, 0
 
-        pil_img = PILImage.open(icon_path)
-        iw, ih = pil_img.size
+        with PILImage.open(icon_path) as pil_img:
+            iw, ih = pil_img.size
         aspect = iw / ih
 
         if cost.startswith('item_'):
@@ -5304,8 +5310,8 @@ class SheetLayoutEngine:
         header_path = header_config['banner']
         if os.path.exists(header_path):
             from PIL import Image as PILImage
-            pil_img = PILImage.open(header_path)
-            aspect = pil_img.size[0] / pil_img.size[1]
+            with PILImage.open(header_path) as pil_img:
+                aspect = pil_img.size[0] / pil_img.size[1]
             target_w = avail_w
             if target_w <= PHASE_HEADER_LOCK_W:
                 target_h = max(target_w / aspect, PHASE_HEADER_MIN_H)
