@@ -45,6 +45,7 @@
         <i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span>
       </a>
     {% endif %}
+
     {% if can_edit %}{% if sheet or back or setup_card %}
       <div class="btn-group">
         <a href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download">Download All</a>
@@ -325,6 +326,86 @@
     </div>
   </div>
 </div>
+
+{% if can_edit %}
+<div class="card forge-publish-card mt-4 position-relative">
+  <div class="card-body">
+    <div class="d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between">
+      <div class="flex-grow-1">
+        <h5 class="root-title mb-1">
+          {% if publish_target %}
+            {% if sync_available %}
+              Updates Available
+            {% else %}
+              Submitted
+            {% endif %}
+          {% else %}
+            Submit to the Root Database
+          {% endif %}
+        </h5>
+        <p class="text-muted small mb-0">
+          {% if publish_target %}
+            {% if sync_available %}
+              Push selected changes from this draft to <strong>{{ publish_target_label }}</strong>.
+            {% else %}
+              This Faction is published as <strong>{{ publish_target_label }}</strong>.
+            {% endif %}
+          {% else %}
+            All requirements below must be met before submitting as a new Faction.
+            In addition, you must have a link to a Discord Thread or BGG Post.
+          {% endif %}
+        </p>
+      </div>
+      <div class="forge-publish-card__action">
+        {% if publish_target %}
+          {% if sync_available %}
+            <a href="{% url 'forge-faction-sync' pk=faction.pk %}" class="btn btn-success">
+              <i class="bi bi-arrow-repeat me-1"></i>Sync
+            </a>
+          {% else %}
+            <a href="{{ publish_target_url }}" class="btn btn-outline-success">
+              <i class="bi bi-check2-circle me-1"></i>View Published
+            </a>
+          {% endif %}
+        {% elif submit_ready and link_candidate_exists %}
+          <div class="btn-group">
+            <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="bi bi-upload me-1"></i>Publish
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="{% url 'forge-faction-submit' pk=faction.pk %}"><i class="bi bi-plus-circle me-1"></i>Submit</a></li>
+              <li><a class="dropdown-item" href="{% url 'forge-faction-link' pk=faction.pk %}"><i class="bi bi-link-45deg me-1"></i>Link to Existing Faction</a></li>
+            </ul>
+          </div>
+        {% elif submit_ready %}
+          <a href="{% url 'forge-faction-submit' pk=faction.pk %}" class="btn btn-primary">
+            <i class="bi bi-upload me-1"></i>Submit as New Faction
+          </a>
+        {% elif link_candidate_exists %}
+          <a href="{% url 'forge-faction-link' pk=faction.pk %}" class="btn btn-primary">
+            <i class="bi bi-link-45deg me-1"></i>Link to Existing Faction
+          </a>
+        {% else %}
+          <button type="button" class="btn btn-primary" disabled>
+            <i class="bi bi-upload me-1"></i>Submit as New Faction
+          </button>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if not publish_target %}
+      <ul class="forge-publish-requirements mt-3 mb-0">
+        {% for req in submit_requirements %}
+          <li class="forge-publish-requirement {% if req.done %}is-done{% else %}is-missing{% endif %}">
+            <i class="bi {% if req.done %}bi-check-circle-fill{% else %}bi-circle{% endif %} forge-publish-requirement__icon"></i>
+            <span class="forge-publish-requirement__label">{{ req.label }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 
 <div class="text-center text-muted small mt-5 mb-2 position-relative">
   Have a feature request or layout bug?

@@ -11,11 +11,34 @@ PDF_CACHE_TTL = 60 * 60 * 24
 PDF_CACHE_MAX_BYTES = 25 * 1024 * 1024
 
 
+# Fields that change as a side-effect of generating a preview (or get bumped
+# by Django auto_now hooks). Including them in the fingerprint would make the
+# fingerprint self-referential: saving the preview mutates the fingerprint
+# inputs, so the next call would compute a different digest and invalidate
+# the cache we just populated.
+_FINGERPRINT_EXCLUDE_FIELDS = frozenset({
+    'preview_fingerprint',
+    'preview_version',
+    'image_preview',
+    'last_generated',
+    'last_updated',
+    'decree_fingerprint',
+    'decree_preview',
+    'snap_points',
+    'decree_slide_pts',
+    'ability_bar_extra_h_pts',
+})
+
+
 def _serialize_instance(obj):
     if obj is None:
         return None
     data = model_to_dict(obj)
-    for k, v in list(data.items()):
+    for k in list(data.keys()):
+        if k in _FINGERPRINT_EXCLUDE_FIELDS:
+            del data[k]
+            continue
+        v = data[k]
         if hasattr(v, 'name'):
             data[k] = v.name or ''
     return data

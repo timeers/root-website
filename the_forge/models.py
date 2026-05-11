@@ -130,8 +130,28 @@ class ForgedFaction(models.Model):
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 
+    published_faction = models.OneToOneField(
+        'the_keep.Faction',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='source_forged_faction',
+    )
+    published_translation = models.OneToOneField(
+        'the_keep.PostTranslation',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='source_forged_faction',
+    )
+
     def __str__(self):
         return self.faction_name
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.published_faction_id and self.published_translation_id:
+            raise ValidationError(
+                "A ForgedFaction can be linked to a Faction or a translation, not both."
+            )
 
     def get_background_path(self):
         if self.background_preset:

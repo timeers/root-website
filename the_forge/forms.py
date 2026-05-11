@@ -171,6 +171,12 @@ class FactionMarkersForm(forms.ModelForm):
         cleaned = super().clean()
         if cleaned.get('use_faction_color'):
             cleaned['icon_color'] = None
+        # Require a faction icon: either a freshly uploaded file in this
+        # submission, or one already persisted on the instance.
+        uploaded_icon = cleaned.get('faction_icon')
+        existing_icon = self.instance.faction_icon if self.instance else None
+        if not uploaded_icon and not existing_icon:
+            self.add_error('faction_icon', 'A faction icon is required.')
         return cleaned
 
 

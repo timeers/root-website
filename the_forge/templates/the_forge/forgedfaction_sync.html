@@ -1,0 +1,171 @@
+{% extends 'the_keep/base.html' %}
+
+{% block content %}
+<div class="my-2">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
+</div>
+
+<div class="mb-3">
+  {% if mode == 'faction' %}
+    <h2 class="root-title m-0">Sync Faction: {{ target_label }}</h2>
+  {% else %}
+    <h2 class="root-title m-0">Sync Translation: {{ target_label }}</h2>
+  {% endif %}
+  <p class="text-muted mb-0">Check each row to push that value from the Forge draft. Unchecked rows are kept as-is.</p>
+  <p class="text-muted mb-0">Faction Board, Back and Adset cards only update when downloaded.</p>
+</div>
+
+{% if not diff_rows and not piece_plan %}
+  <div class="alert alert-info">Nothing to compare — your Forge draft has no values for the sync-eligible fields yet.</div>
+{% else %}
+  {% if not has_changes %}
+    <div class="alert alert-info">Everything is already in sync.</div>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}
+    {% if diff_rows %}
+    <div class="card p-0 mb-3">
+      <table class="table mb-0 align-middle">
+        <thead>
+          <tr>
+            <th style="width: 18%;">Field</th>
+            <th style="width: 38%;">Current</th>
+            <th style="width: 38%;">From Forge</th>
+            <th style="width: 6%;">Apply</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for field_name, label, current, proposed, is_image, in_sync in diff_rows %}
+            <tr{% if in_sync %} class="text-muted"{% endif %}>
+              <td><strong>{{ label }}</strong></td>
+              <td>
+                {% if is_image %}
+                  {% if current %}<img src="{{ current.url }}" alt="" style="max-width: 200px;">{% else %}<span class="text-muted">— none —</span>{% endif %}
+                {% elif field_name == 'color' %}
+                  {% if current %}<span class="d-inline-flex align-items-center gap-2"><span class="d-inline-block rounded-circle" style="width: 1.25rem; height: 1.25rem; background: {{ current }}; border: 1px solid rgba(0,0,0,0.2);"></span><span class="font-monospace">{{ current }}</span></span>{% else %}<span class="text-muted">— empty —</span>{% endif %}
+                {% elif field_name == 'complexity' or field_name == 'card_wealth' or field_name == 'aggression' or field_name == 'crafting_ability' %}
+                  <div class="bar-container">
+                    <div class="bar-background bar-background-variable" style="--bar-color: {{ faction.color|default:'#888888' }}; --bar-width: {{ current.width }};">
+                      <div class="bar-text{% if current.is_none %} bar-black-text{% endif %}">{{ current.display }}</div>
+                    </div>
+                  </div>
+                {% elif field_name == 'type' %}
+                  {% if current %}{{ current }}{% else %}<span class="text-muted">— blank —</span>{% endif %}
+                {% else %}
+                  {% if current %}{{ current|truncatechars:400 }}{% else %}<span class="text-muted">— empty —</span>{% endif %}
+                {% endif %}
+              </td>
+              <td>
+                {% if is_image %}
+                  {% if proposed %}<img src="{{ proposed.url }}" alt="" style="max-width: 200px;">{% else %}<span class="text-muted">— none —</span>{% endif %}
+                {% elif field_name == 'color' %}
+                  {% if proposed %}<span class="d-inline-flex align-items-center gap-2"><span class="d-inline-block rounded-circle" style="width: 1.25rem; height: 1.25rem; background: {{ proposed }}; border: 1px solid rgba(0,0,0,0.2);"></span><span class="font-monospace">{{ proposed }}</span></span>{% else %}<span class="text-muted">— empty —</span>{% endif %}
+                {% elif field_name == 'complexity' or field_name == 'card_wealth' or field_name == 'aggression' or field_name == 'crafting_ability' %}
+                  <div class="bar-container">
+                    <div class="bar-background bar-background-variable" style="--bar-color: {{ faction.color|default:'#888888' }}; --bar-width: {{ proposed.width }};">
+                      <div class="bar-text{% if proposed.is_none %} bar-black-text{% endif %}">{{ proposed.display }}</div>
+                    </div>
+                  </div>
+                {% elif field_name == 'type' %}
+                  {% if proposed %}{{ proposed }}{% else %}<span class="text-muted">— blank —</span>{% endif %}
+                {% else %}
+                  {% if proposed %}{{ proposed|truncatechars:400 }}{% else %}<span class="text-muted">— empty —</span>{% endif %}
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if in_sync %}
+                  <span class="badge bg-secondary">Up to date</span>
+                {% else %}
+                  <input type="checkbox" class="form-check-input" name="sync_{{ field_name }}" id="id_sync_{{ field_name }}" checked>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if mode == 'faction' %}
+      {% if piece_plan %}
+        <h5 class="root-title mt-4">Pieces</h5>
+        <div class="card p-0 mb-3">
+          <table class="table mb-0 align-middle">
+            <thead>
+              <tr>
+                <th style="width: 18%;">Type / Name</th>
+                <th style="width: 32%;">Current</th>
+                <th style="width: 32%;">From Forge</th>
+                <th style="width: 18%;">Apply</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in piece_plan %}
+                <tr{% if entry.in_sync %} class="text-muted"{% endif %}>
+                  <td>
+                    <div class="small text-muted text-uppercase">{{ entry.type_display }}</div>
+                    <strong>{{ entry.resolved_name }}</strong>
+                  </td>
+                  <td>
+                    {% if entry.action == 'create' %}
+                      <span class="text-muted">— new piece —</span>
+                    {% else %}
+                      <div class="d-flex align-items-center gap-2 flex-wrap">
+                        {% if entry.keep_piece.small_icon %}
+                          <img src="{{ entry.keep_piece.small_icon.url }}" alt="front" title="Front" style="max-width: 48px; max-height: 48px;">
+                        {% endif %}
+                        {% if entry.keep_piece.back_image %}
+                          <img src="{{ entry.keep_piece.back_image.url }}" alt="back" title="Back" style="max-width: 48px; max-height: 48px;">
+                        {% endif %}
+                        <span>X {{ entry.keep_piece.quantity }}</span>
+                      </div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      {% if entry.forge_piece.small_icon %}
+                        <img src="{{ entry.forge_piece.small_icon.url }}" alt="front" title="Front" style="max-width: 48px; max-height: 48px;">
+                      {% endif %}
+                      {% if entry.forge_piece.back_image %}
+                        <img src="{{ entry.forge_piece.back_image.url }}" alt="back" title="Back" style="max-width: 48px; max-height: 48px;">
+                      {% endif %}
+                      <span>X {{ entry.forge_piece.quantity }}</span>
+                    </div>
+                    {% if entry.action == 'update' %}
+                      <div class="small text-muted mt-1">
+                        {% if entry.quantity_changed %}<span class="me-2">qty change</span>{% endif %}
+                        {% if entry.front_changed %}<span class="me-2">new front art</span>{% endif %}
+                        {% if entry.back_changed %}<span class="me-2">new back art</span>{% endif %}
+                      </div>
+                    {% endif %}
+                  </td>
+                  <td class="text-center">
+                    {% if entry.in_sync %}
+                      <span class="badge bg-secondary">Up to date</span>
+                    {% elif entry.action == 'create' %}
+                      <span class="badge bg-success me-2">New</span>
+                      <input type="checkbox" class="form-check-input" name="piece_{{ entry.forge_piece.pk }}" id="id_piece_{{ entry.forge_piece.pk }}" checked>
+                    {% else %}
+                      <input type="checkbox" class="form-check-input" name="piece_{{ entry.forge_piece.pk }}" id="id_piece_{{ entry.forge_piece.pk }}" checked>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="form-text mb-3">Existing pieces on the Faction without a matching name are not touched and are not shown above.</p>
+      {% endif %}
+    {% else %}
+      <p class="form-text mt-3 mb-3 text-muted"><em>Pieces aren't synced into translations — manage them via the base Faction.</em></p>
+    {% endif %}
+
+    <div class="d-flex justify-content-end gap-2 mb-5">
+      <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-secondary">{% if has_changes %}Cancel{% else %}Back{% endif %}</a>
+      {% if has_changes %}
+        <button type="submit" class="btn btn-primary">Sync Selected</button>
+      {% endif %}
+    </div>
+  </form>
+{% endif %}
+{% endblock %}

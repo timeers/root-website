@@ -1,0 +1,154 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="my-2">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
+</div>
+
+<div class="mb-3">
+  <h2 class="root-title m-0">Submit "{{ faction.faction_name }}" as a Faction</h2>
+  <p class="text-muted mb-0">Title, color, language, and version are taken from your Forge draft and can't be changed here. Other fields are pre-filled where the draft has data — review and refine before submitting.</p>
+</div>
+
+<form method="post" enctype="multipart/form-data" novalidate>
+  {% csrf_token %}
+
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  {% endif %}
+
+  <div class="card p-3 mb-3">
+    <h5 class="root-title">From your Forge draft</h5>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label small text-muted text-uppercase">Faction Name</label>
+        {{ form.title }}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-muted text-uppercase">Color</label>
+        <div class="d-flex align-items-center gap-2">
+          {{ form.color }}
+          <span class="font-monospace small">{{ form.color.value }}</span>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-muted text-uppercase">Language</label>
+        {{ form.language }}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-muted text-uppercase">Version</label>
+        {{ form.version }}
+      </div>
+      {% if art_by_hint %}
+        <div class="col-12">
+          <div class="form-text">Forge "art by" credit: <strong>{{ art_by_hint }}</strong> — if this person is in our system, set them as the artist below; otherwise leave blank.</div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <h5 class="root-title">Required Faction details</h5>
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Animal *</label>
+        {{ form.animal }}
+        {{ form.animal.errors }}
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Color Group *</label>
+        {{ form.color_group }}
+        {{ form.color_group.errors }}
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Reach</label>
+        {{ form.reach }}
+        {{ form.reach.errors }}
+      </div>
+      <div class="col-md-12">
+        <label class="form-label">Type *</label>
+        {{ form.type }}
+        {{ form.type.errors }}
+      </div>
+      <div class="col-md-3"><label class="form-label">Complexity</label>{{ form.complexity }}</div>
+      <div class="col-md-3"><label class="form-label">Card Wealth</label>{{ form.card_wealth }}</div>
+      <div class="col-md-3"><label class="form-label">Aggression</label>{{ form.aggression }}</div>
+      <div class="col-md-3"><label class="form-label">Crafting Ability</label>{{ form.crafting_ability }}</div>
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <h5 class="root-title">Character Art</h5>
+    <p class="form-text mb-2">{{ form.picture_source.help_text }}</p>
+    <div class="row g-3">
+      {% for choice in form.picture_source %}
+        {% with value=choice.data.value %}
+          <div class="col-6 col-md-3">
+            <label class="forge-picture-option d-block">
+              {{ choice.tag }}
+              <div class="border rounded p-2 text-center h-100">
+                {% for opt_value, opt_label, opt_file in picture_options %}
+                  {% if opt_value == value %}
+                    <img src="{{ opt_file.url }}" alt="{{ opt_label }}" class="img-fluid mb-2" style="max-height: 120px;">
+                  {% endif %}
+                {% endfor %}
+                <div class="small">{{ choice.choice_label }}</div>
+              </div>
+            </label>
+          </div>
+        {% endwith %}
+      {% endfor %}
+    </div>
+    {{ form.picture_source.errors }}
+    <div class="mt-2" id="forge-picture-upload">
+      <label class="form-label small text-muted text-uppercase">Upload a custom image (only used if "Upload my own" is selected)</label>
+      {{ form.picture }}
+      {{ form.picture.errors }}
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <h5 class="root-title">Lore & description</h5>
+    <div class="mb-3">
+      <label class="form-label">Lore</label>
+      {{ form.lore }}
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Description</label>
+      {{ form.description }}
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <h5 class="root-title">Links</h5>
+    <p class="form-text mb-2">At least one link is required.</p>
+    <div class="row g-3">
+      {% if form.bgg_link %}<div class="col-md-6"><label class="form-label">{{ form.bgg_link.label }}</label>{{ form.bgg_link }}{{ form.bgg_link.errors }}</div>{% endif %}
+      {% if form.tts_link %}<div class="col-md-6"><label class="form-label">{{ form.tts_link.label }}</label>{{ form.tts_link }}{{ form.tts_link.errors }}</div>{% endif %}
+      {% if form.ww_link %}<div class="col-md-6"><label class="form-label">{{ form.ww_link.label }}</label>{{ form.ww_link }}{{ form.ww_link.errors }}</div>{% endif %}
+      {% if form.wr_link %}<div class="col-md-6"><label class="form-label">{{ form.wr_link.label }}</label>{{ form.wr_link }}{{ form.wr_link.errors }}</div>{% endif %}
+      {% if form.fr_link %}<div class="col-md-6"><label class="form-label">{{ form.fr_link.label }}</label>{{ form.fr_link }}{{ form.fr_link.errors }}</div>{% endif %}
+      {% if form.pnp_link %}<div class="col-md-6"><label class="form-label">{{ form.pnp_link.label }}</label>{{ form.pnp_link }}{{ form.pnp_link.errors }}</div>{% endif %}
+      {% if form.stl_link %}<div class="col-md-6"><label class="form-label">{{ form.stl_link.label }}</label>{{ form.stl_link }}{{ form.stl_link.errors }}</div>{% endif %}
+      {% if form.rootjam_link %}<div class="col-md-6"><label class="form-label">{{ form.rootjam_link.label }}</label>{{ form.rootjam_link }}{{ form.rootjam_link.errors }}</div>{% endif %}
+      {% if form.leder_games_link %}<div class="col-md-6"><label class="form-label">{{ form.leder_games_link.label }}</label>{{ form.leder_games_link }}{{ form.leder_games_link.errors }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <h5 class="root-title">Credits</h5>
+    <div class="row g-3">
+      {% if form.designer %}<div class="col-md-6"><label class="form-label">Designer</label>{{ form.designer }}</div>{% endif %}
+      {% if form.artist %}<div class="col-md-6"><label class="form-label">Artist</label>{{ form.artist }}</div>{% endif %}
+      {% if form.co_designers %}<div class="col-md-6"><label class="form-label">Co-designers</label>{{ form.co_designers }}</div>{% endif %}
+      {% if form.art_by_kyle_ferrin %}<div class="col-md-6 d-flex align-items-end"><label class="form-check-label">{{ form.art_by_kyle_ferrin }} Art by Kyle Ferrin</label></div>{% endif %}
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-end gap-2 mb-5">
+    <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-secondary">Cancel</a>
+    <button type="submit" class="btn btn-primary">Submit for Review</button>
+  </div>
+</form>
+{% endblock %}

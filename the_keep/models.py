@@ -371,6 +371,10 @@ class Post(models.Model):
     card_image = models.ImageField(upload_to=card_front_upload_path, null=True, blank=True)
     board_2_image = models.ImageField(upload_to=board_back_upload_path, null=True, blank=True)
     card_2_image = models.ImageField(upload_to=card_back_upload_path, null=True, blank=True)
+    board_image_version = models.PositiveIntegerField(default=0)
+    card_image_version = models.PositiveIntegerField(default=0)
+    board_2_image_version = models.PositiveIntegerField(default=0)
+    card_2_image_version = models.PositiveIntegerField(default=0)
 
 
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
@@ -521,6 +525,12 @@ class Post(models.Model):
             old_instance = Post.objects.get(pk=self.pk)
             # List of fields to check and delete old images if necessary
             image_fields = ['card_image', 'picture', 'small_icon', 'board_image', 'board_2_image', 'card_2_image']
+            versioned_image_fields = {
+                'board_image': 'board_image_version',
+                'board_2_image': 'board_2_image_version',
+                'card_image': 'card_image_version',
+                'card_2_image': 'card_2_image_version',
+            }
             for field_name in image_fields:
                 old_image = getattr(old_instance, field_name)
                 new_image = getattr(self, field_name)
@@ -529,6 +539,11 @@ class Post(models.Model):
                     if old_image and not old_image.name.startswith('default_images/'):
                         # Delete non-default images
                         self._delete_old_image(old_image)
+                    version_attr = versioned_image_fields.get(field_name)
+                    if version_attr and getattr(self, version_attr) == getattr(old_instance, version_attr):
+                        # Caller didn't bump the version explicitly; do it for them so
+                        # forge-side sync can detect that the keep image was replaced.
+                        setattr(self, version_attr, (getattr(self, version_attr) or 0) + 1)
             if old_instance.status == StatusChoices.SUBMITTED and self.status != StatusChoices.SUBMITTED:
                 new_post = True
             else:
@@ -2000,6 +2015,9 @@ class Piece(models.Model):
     parent = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='pieces')
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
     small_icon = models.ImageField(upload_to=piece_upload_path, null=True, blank=True)
+    back_image = models.ImageField(upload_to=piece_upload_path, null=True, blank=True)
+    front_version = models.PositiveIntegerField(default=0)
+    back_version = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return f'{self.name} ({self.type})'
@@ -2031,31 +2049,35 @@ class Piece(models.Model):
     
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old_instance = Piece.objects.get(pk=self.pk)
+            except Piece.DoesNotExist:
+                old_instance = None
+            if old_instance is not None:
+                for field_name, version_attr in (
+                    ('small_icon', 'front_version'),
+                    ('back_image', 'back_version'),
+                ):
+                    old_image = getattr(old_instance, field_name)
+                    new_image = getattr(self, field_name)
+                    if old_image and old_image != new_image:
+                        delete_old_image(old_image)
+                    if new_image and old_image != new_image and getattr(self, version_attr) == getattr(old_instance, version_attr):
+                        # Caller didn't bump the version explicitly; do it for them
+                        # so sync diffs detect a change.
+                        setattr(self, version_attr, (getattr(self, version_attr) or 0) + 1)
 
-        # Check if the image field has changed (only works if the instance is already saved)
-        if self.pk:  # If the object already exists in the database
-            old_instance = Piece.objects.get(pk=self.pk)
-            # List of fields to check and delete old images if necessary
-            field_name = 'small_icon'
-
-            old_image = getattr(old_instance, field_name)
-            new_image = getattr(self, field_name)
-            if old_image != new_image:
-                delete_old_image(old_image)
-        
         super().save(*args, **kwargs)
 
 
 
     def delete(self, *args, **kwargs):
-        # Delete the old image file from storage before deleting the instance
+        for field_name in ('small_icon', 'back_image'):
+            image = getattr(self, field_name, None)
+            if image and os.path.isfile(image.path):
+                os.remove(image.path)
 
-        if self.small_icon:
-            # Check if the file exists
-            if os.path.isfile(self.small_icon.path):
-                os.remove(self.small_icon.path)
-        
-        # Now delete the Piece instance
         super().delete(*args, **kwargs)
 
 

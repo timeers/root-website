@@ -12,14 +12,25 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
 from django.views.decorators.http import require_http_methods
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.urls import reverse
 from the_gatehouse.views import admin_onboard_required, forge_onboard_required, player_required
 from .inline_images import picker_image_map, picker_keywords, sheet_inline_images, sheet_picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
 
+from the_gatehouse.models import MessageChoices, UserNotification
 from the_gatehouse.utils import build_absolute_uri
+from the_keep.models import Faction, PostTranslation
 from the_keep.utils import delete_old_image
 from the_gatehouse.tasks import send_discord_message_task, send_rich_discord_message_task
+
+from .forms_publish import (
+    ForgedFactionLinkForm,
+    ForgedFactionSubmitForm,
+    ForgedFactionSyncForm,
+    submit_prerequisites_missing,
+)
 
 from .forms import (
     BorderedBoxForm,
@@ -328,13 +339,51 @@ def forgedfaction_detail(request, pk):
         list(back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'))
         if back else []
     )
+    can_edit = user_can_edit_forge(request, faction)
+    publish_context = {}
+    if can_edit:
+        submit_missing = submit_prerequisites_missing(faction)
+        submit_requirements = [
+            {'label': 'Faction Board', 'done': sheet is not None},
+            {'label': 'Faction Board Back', 'done': back is not None},
+            {'label': 'Adset Card', 'done': setup_card is not None},
+            {'label': 'Faction Icon', 'done': bool(faction.faction_icon)},
+        ]
+        link_candidate_exists = _link_candidate_exists(request.user.profile, faction)
+        target, target_mode, target_label = _resolved_published(faction)
+        if target_mode == 'faction':
+            target_modified = target.date_modified
+            target_url = target.get_absolute_url()
+        elif target_mode == 'translation':
+            target_modified = target.date_modified
+            target_url = target.post.get_absolute_url()
+        else:
+            target_modified = None
+            target_url = None
+        sync_available = bool(
+            target is not None
+            and target_modified is not None
+            and faction.last_updated > target_modified
+        )
+        publish_context = {
+            'submit_ready': not submit_missing,
+            'submit_missing': submit_missing,
+            'submit_requirements': submit_requirements,
+            'link_candidate_exists': link_candidate_exists,
+            'publish_target': target,
+            'publish_target_mode': target_mode,
+            'publish_target_label': target_label,
+            'publish_target_url': target_url,
+            'sync_available': sync_available,
+        }
     return render(request, 'the_forge/forgedfaction_detail.html', {
         'faction': faction,
-        'can_edit': user_can_edit_forge(request, faction),
+        'can_edit': can_edit,
         'sheet': sheet,
         'back': back,
         'setup_card': setup_card,
         'components': components,
+        **publish_context,
     })
 
 
@@ -2287,6 +2336,50 @@ def _ensure_back_preview(back):
     _maybe_save_image_preview(back, data, fp, 'back')
 
 
+def _ensure_setup_card_preview(card):
+    from io import BytesIO
+    from .pdf_engine import SetupCardLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    fp = fingerprint_setup_card(card)
+    if card.preview_fingerprint == fp and card.image_preview:
+        return
+    def build():
+        buffer = BytesIO()
+        SetupCardLayoutEngine(card).build(buffer)
+        return buffer.getvalue()
+    data = get_or_build(cache_key('setup_card', card.pk, fp), build)
+    _maybe_save_image_preview(card, data, fp, 'card')
+
+
+def _refresh_all_element_previews(forged):
+    """Render and save any stale element previews for the forge children that
+    exist. No-op per child whose fingerprint already matches. Failures are
+    swallowed so a broken layout doesn't block the calling view."""
+    try:
+        sheet = forged.faction_sheet
+    except FactionSheet.DoesNotExist:
+        sheet = None
+    try:
+        back = forged.faction_back
+    except FactionBack.DoesNotExist:
+        back = None
+    try:
+        setup_card = forged.setup_card
+    except SetupCard.DoesNotExist:
+        setup_card = None
+    for related, ensure_fn in (
+        (sheet, _ensure_sheet_preview),
+        (back, _ensure_back_preview),
+        (setup_card, _ensure_setup_card_preview),
+    ):
+        if related is None:
+            continue
+        try:
+            ensure_fn(related)
+        except Exception:
+            pass
+
+
 @login_required
 def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
@@ -2673,3 +2766,240 @@ def setup_card_webp(request, pk):
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
     response = _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')
     return _attach_preview_versions(response, card=card)
+
+
+# ---------- Publish / Link / Sync ----------
+
+def _link_candidate_exists(profile, forged):
+    """Cheap exists() check matching the three sources in ForgedFactionLinkForm."""
+    if profile is None or forged is None:
+        return False
+    same_lang_faction = Faction.objects.filter(
+        designer=profile,
+        source_forged_faction__isnull=True,
+        title__iexact=forged.faction_name,
+        language=forged.language,
+    ).exists()
+    same_lang_translation = PostTranslation.objects.filter(
+        post__designer=profile,
+        source_forged_faction__isnull=True,
+        translated_title__iexact=forged.faction_name,
+        language=forged.language,
+        post__component__in=['Faction', 'Clockwork'],
+    ).exists()
+    cross_lang_faction = Faction.objects.filter(
+        designer=profile,
+        title__iexact=forged.faction_name,
+    ).exclude(language=forged.language).exclude(
+        translations__language=forged.language,
+    ).exists()
+    return same_lang_faction or same_lang_translation or cross_lang_faction
+
+
+def _resolved_published(forged):
+    """Return (target, mode, label) for whichever publish link is set, or
+    (None, None, None) if not linked."""
+    if forged.published_faction_id:
+        f = forged.published_faction
+        return f, 'faction', f.title
+    if forged.published_translation_id:
+        t = forged.published_translation
+        lang = t.language.name if t.language else '?'
+        return t, 'translation', f'{t.translated_title or t.post.title} ({lang})'
+    return None, None, None
+
+
+@forge_onboard_required
+def forgedfaction_submit(request, pk):
+    forged = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, forged)):
+        return resp
+    if forged.published_faction_id or forged.published_translation_id:
+        messages.info(request, "This forge draft is already published.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    _refresh_all_element_previews(forged)
+    missing = submit_prerequisites_missing(forged)
+    if missing:
+        messages.error(
+            request,
+            "Submit isn't ready yet — missing: " + ", ".join(missing) + ".",
+        )
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    if request.method == 'POST':
+        form = ForgedFactionSubmitForm(
+            request.POST, request.FILES,
+            forged_faction=forged,
+            user=request.user,
+        )
+        if form.is_valid():
+            profile = request.user.profile
+            faction = form.save(commit=False)
+            if not faction.designer_id:
+                faction.designer = profile
+            faction.submitted_by = profile
+            if not profile.admin:
+                faction.status = '9'
+
+            sheet = _safe_related_for_view(forged, 'faction_sheet')
+            back = _safe_related_for_view(forged, 'faction_back')
+            card = _safe_related_for_view(forged, 'setup_card')
+            if sheet and sheet.image_preview:
+                faction.board_image = _file_from(sheet.image_preview)
+                faction.board_image_version = sheet.preview_version or 0
+            if back and back.image_preview:
+                faction.board_2_image = _file_from(back.image_preview)
+                faction.board_2_image_version = back.preview_version or 0
+            if card and card.image_preview:
+                faction.card_image = _file_from(card.image_preview)
+                faction.card_image_version = card.preview_version or 0
+            if not faction.small_icon and forged.faction_icon:
+                faction.small_icon = _file_from(forged.faction_icon)
+
+            faction.save()
+            form.save_m2m()
+
+            forged.published_faction = faction
+            forged.save(update_fields=['published_faction'])
+
+            fields = [{'name': 'Submitted by:', 'value': profile.name}]
+            send_rich_discord_message_task.delay(
+                f'[{faction.title}](https://therootdatabase.com{faction.get_absolute_url()})',
+                category='report', title=f'Submitted {faction.component}', fields=fields,
+            )
+            messages.success(request, f"Submitted '{faction.title}' for review.")
+            return redirect(faction.get_absolute_url())
+    else:
+        form = ForgedFactionSubmitForm(forged_faction=forged, user=request.user)
+
+    return render(request, 'the_forge/forgedfaction_submit.html', {
+        'faction': forged,
+        'form': form,
+        'art_by_hint': forged.art_by,
+        'picture_options': form._picture_options,
+    })
+
+
+@forge_onboard_required
+def forgedfaction_link(request, pk):
+    forged = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, forged)):
+        return resp
+    if forged.published_faction_id or forged.published_translation_id:
+        messages.info(request, "This forge draft is already published.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    if request.method == 'POST':
+        form = ForgedFactionLinkForm(request.POST, user=request.user, forged=forged)
+        if form.is_valid():
+            mode = form.resolved_mode
+            target = form.resolved
+            if mode == ForgedFactionLinkForm.PREFIX_FACTION:
+                forged.published_faction = target
+                forged.save(update_fields=['published_faction'])
+                messages.success(request, f"Linked to existing Faction '{target.title}'.")
+            elif mode == ForgedFactionLinkForm.PREFIX_TRANSLATION:
+                forged.published_translation = target
+                forged.save(update_fields=['published_translation'])
+                messages.success(
+                    request,
+                    f"Linked to existing translation of '{target.post.title}'.",
+                )
+            elif mode == ForgedFactionLinkForm.PREFIX_NEW_TRANSLATION:
+                new_translation = PostTranslation.objects.create(
+                    post=target,
+                    language=forged.language,
+                    designer=forged.designer,
+                    translated_title=forged.faction_name,
+                )
+                forged.published_translation = new_translation
+                forged.save(update_fields=['published_translation'])
+                messages.success(
+                    request,
+                    f"Started a {forged.language.name} translation of '{target.title}'. "
+                    "Open Sync to fill it in.",
+                )
+            return redirect('forge-faction-detail', pk=forged.pk)
+    else:
+        form = ForgedFactionLinkForm(user=request.user, forged=forged)
+
+    return render(request, 'the_forge/forgedfaction_link.html', {
+        'faction': forged,
+        'form': form,
+    })
+
+
+@forge_onboard_required
+def forgedfaction_sync(request, pk):
+    forged = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, forged)):
+        return resp
+
+    _refresh_all_element_previews(forged)
+
+    target, mode, target_label = _resolved_published(forged)
+    if target is None:
+        messages.error(request, "Link this forge draft to a Faction or translation first.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    profile = request.user.profile
+    owner = target.designer if mode == 'faction' else target.post.designer
+    if owner_id := getattr(owner, 'id', None):
+        if owner_id != profile.id:
+            return redirect('forge-home')
+
+    if request.method == 'POST':
+        form = ForgedFactionSyncForm(request.POST, forged=forged)
+        if form.is_valid():
+            form.save()
+            if owner and owner.id != profile.id:
+                UserNotification.create_notification(
+                    profile=owner,
+                    message=f"Forge updates were applied to '{target_label}'.",
+                    message_type=MessageChoices.INFO,
+                    related_url=(
+                        target.get_absolute_url()
+                        if mode == 'faction'
+                        else target.post.get_absolute_url()
+                    ),
+                    sender=profile,
+                )
+            messages.success(request, "Selected changes applied.")
+            return redirect('forge-faction-detail', pk=forged.pk)
+    else:
+        form = ForgedFactionSyncForm(forged=forged)
+
+    field_changes = any(not row[5] for row in form.diff_rows)
+    piece_changes = any(not entry['in_sync'] for entry in form.piece_plan)
+    has_changes = field_changes or piece_changes
+    return render(request, 'the_forge/forgedfaction_sync.html', {
+        'faction': forged,
+        'form': form,
+        'mode': mode,
+        'target': target,
+        'target_label': target_label,
+        'diff_rows': form.diff_rows,
+        'piece_plan': form.piece_plan,
+        'has_changes': has_changes,
+    })
+
+
+def _safe_related_for_view(forged, attr):
+    try:
+        return getattr(forged, attr)
+    except (FactionSheet.DoesNotExist, FactionBack.DoesNotExist, SetupCard.DoesNotExist):
+        return None
+
+
+def _file_from(image_field):
+    """Read an existing ImageField into a fresh upload-style File so saving
+    on a different model writes to that model's own upload path."""
+    from django.core.files.base import ContentFile
+    image_field.open('rb')
+    try:
+        data = image_field.read()
+    finally:
+        image_field.close()
+    name = image_field.name.rsplit('/', 1)[-1]
+    return ContentFile(data, name=name)
