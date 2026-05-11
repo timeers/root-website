@@ -5279,7 +5279,7 @@ def download_tts_file(request, slug):
         all_objects.append(board.to_dict())
     
     if post.component == "Faction":
-        adset_card = TTSSingleCardDeck(post.card_image, static("images/adset.png"), deck_id=next_deck_id, request=request, card_name=f"Adset Card")
+        adset_card = TTSSingleCardDeck(post.card_image, static("images/ADSET.png"), deck_id=next_deck_id, request=request, card_name=f"Adset Card")
         all_objects.append(adset_card.to_object())
         next_deck_id += 1
 

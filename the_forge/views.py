@@ -2595,7 +2595,7 @@ def forgedfaction_tts(request, pk):
             adset_transform["posY"] = 2.0
         adset = TTSSingleCardDeck(
             card.image_preview,
-            static("images/adset.png"),
+            static("images/ADSET.png"),
             deck_id=1,
             request=request,
             card_name="Adset Card",
