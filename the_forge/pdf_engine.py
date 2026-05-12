@@ -318,6 +318,8 @@ FACTION_NAME_Y_OFFSET = 0.15 * inch
 
 PHASE_HEADER_H = 0.36 * inch
 PHASE_INTERNAL_MARGIN = 0.17 * inch
+SINGLE_STEP_PHASE_INDENT = 0.05 * inch   # left indent for single-step phase body text
+
 PHASE_HEADER_MIN_W = 3.0 * inch           # minimum banner width for vertical layout
 PHASE_HEADER_MIN_H = 0.35 * inch          # minimum banner height for vertical layout
 PHASE_HEADER_LOCK_W = 4.25 * inch         # width at which banner height stops scaling
@@ -3786,7 +3788,8 @@ class SheetLayoutEngine:
         total = header_h if header_h is not None else self._header_height()
         single_step = len(steps) == 1
         for step in steps:
-            total += self.measure_step_height(step, width, single_step=single_step)
+            total += self.measure_step_height(step, width, single_step=single_step,
+                                              phase_indent=SINGLE_STEP_PHASE_INDENT)
         return total
 
     def measure_content_box_height(self, content_box, width):
@@ -4078,7 +4081,7 @@ class SheetLayoutEngine:
             return 0
         return max_needed + (PHASE_INTERNAL_MARGIN * 2)
 
-    def measure_step_height(self, step, width, single_step=False, body_style=None):
+    def measure_step_height(self, step, width, single_step=False, body_style=None, phase_indent=0):
         from reportlab.platypus import Table, TableStyle
         ICON_COL_W = 0.325 * inch
         ICON_TEXT_GAP = 0.015 * inch
@@ -4086,7 +4089,11 @@ class SheetLayoutEngine:
         ICON_NUDGE_DOWN = 4
 
         style = body_style or self.step_body_style
-        text_col_w = 0 if single_step else TEXT_COL_X
+        # Content-box single-step (signalled by content_box_text_style) keeps its
+        # centered, zero-indent layout; phase single-step uses phase_indent.
+        is_centered_content_box = (style is self.content_box_text_style)
+        single_indent = phase_indent if (single_step and not is_centered_content_box) else 0
+        text_col_w = single_indent if single_step else TEXT_COL_X
         text_content_w = width - text_col_w
         markup = format_step_markup(step.text, sheet=self.sheet)
 
@@ -4100,8 +4107,19 @@ class SheetLayoutEngine:
         para.wrap(text_content_w, 9999)
         tighten_large_font_lines(para)
         if single_step:
-            _, table_h = para.wrap(width, 9999)
-            table_h += extra_h
+            if single_indent:
+                t = Table([['', para]], colWidths=[single_indent, text_content_w])
+                t.setStyle(TableStyle([
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                    ('TOPPADDING', (0, 0), (-1, -1), 0),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
+                ]))
+                _, table_h = t.wrap(width, 9999)
+            else:
+                _, table_h = para.wrap(width, 9999)
+                table_h += extra_h
             if first_line_has_inline_icon_only_base_font(para):
                 table_h += SINGLE_STEP_INLINE_ICON_PAD_TOP
         else:
@@ -4215,7 +4233,8 @@ class SheetLayoutEngine:
         cursor_y = banner_y
         last_idx = len(steps) - 1
         for i, step in enumerate(steps):
-            step_h = self.measure_step_height(step, content_w, single_step=single_step)
+            step_h = self.measure_step_height(step, content_w, single_step=single_step,
+                                              phase_indent=SINGLE_STEP_PHASE_INDENT)
             step_y = cursor_y - step_h
             if i == last_idx and content_bottom_y is not None and step_y > content_bottom_y:
                 step_h = cursor_y - content_bottom_y
@@ -4225,7 +4244,8 @@ class SheetLayoutEngine:
                                  number=step.number, text=step.text or '',
                                  single_step=single_step,
                                  phase=phase_key)
-            self._record_step_children(step, content_x, step_y, step_h, content_w, single_step)
+            self._record_step_children(step, content_x, step_y, step_h, content_w, single_step,
+                                       phase_indent=SINGLE_STEP_PHASE_INDENT)
             cursor_y = step_y
 
     def _record_content_box_breakdown(self, content_box, box_x, box_y, box_w, box_h):
@@ -4258,7 +4278,7 @@ class SheetLayoutEngine:
             self._record_step_children(step, content_x, step_y, step_h, content_w, single_step)
             cursor_top = step_y
 
-    def _record_step_children(self, step, step_x, step_y, step_h, step_w, single_step):
+    def _record_step_children(self, step, step_x, step_y, step_h, step_w, single_step, phase_indent=0):
         """Preview-only: record bordered_box and track rects inside a phase step.
         Children stack at the bottom of the step (after text+actions) and are drawn
         in `ordered_children` order. No-op outside compute_layout()."""
@@ -4275,7 +4295,7 @@ class SheetLayoutEngine:
         ICON_COL_W = 0.325 * inch
         ICON_TEXT_GAP = 0.015 * inch
         TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
-        indent = 0 if single_step else TEXT_COL_X
+        indent = (phase_indent if single_step else TEXT_COL_X)
         avail_w = step_w - indent
 
         # Compute each child's height + top pad in points, in order.
@@ -5179,8 +5199,14 @@ class SheetLayoutEngine:
                                  paper_background=cb.paper_background)
             self._record_content_box_breakdown(cb, box_x, box_y, box_w, box_h)
 
-    def _build_steps_story(self, steps, avail_w, centered=False):
-        """Build flowables for a list of PhaseSteps (no header). Reused by phases and content boxes."""
+    def _build_steps_story(self, steps, avail_w, centered=False, phase_indent=0):
+        """Build flowables for a list of PhaseSteps (no header). Reused by phases and content boxes.
+
+        ``phase_indent`` shifts the body, actions, and child flowables of a
+        single-step entry inward from the left edge. Used for phase boxes
+        (birdsong/daylight/evening) so a lone step doesn't sit flush left.
+        Content boxes pass 0 (the default) to keep their centered layout.
+        """
         from reportlab.platypus import Table, TableStyle
 
         story = []
@@ -5188,6 +5214,7 @@ class SheetLayoutEngine:
         ICON_TEXT_GAP = 0.015 * inch
         TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
         single_step = len(steps) == 1
+        single_indent = phase_indent if (single_step and not centered) else 0
 
         if centered and single_step:
             body_style = self.content_box_text_style
@@ -5199,7 +5226,7 @@ class SheetLayoutEngine:
             para = Paragraph(markup, body_style)
 
             # Compute extra bottom padding to compensate for autoLeading underreporting
-            text_w = 0 if single_step else TEXT_COL_X
+            text_w = single_indent if single_step else TEXT_COL_X
             content_w = avail_w - text_w
             probe = Paragraph(markup, body_style)
             _, wrap_h = probe.wrap(content_w, 9999)
@@ -5210,14 +5237,25 @@ class SheetLayoutEngine:
             tighten_large_font_lines(para)
 
             if single_step:
-                # No number icon — text takes full width.
+                # No number icon — text takes (avail_w - single_indent).
                 # If the first line is base-font-only AND has an inline icon,
                 # the icon would sit above the cap-height of the small text and
                 # overlap the header band above. Pad it down a few points.
                 if first_line_has_inline_icon_only_base_font(para):
                     from reportlab.platypus import Spacer
                     story.append(Spacer(1, SINGLE_STEP_INLINE_ICON_PAD_TOP))
-                story.append(para)
+                if single_indent:
+                    t = Table([['', para]], colWidths=[single_indent, content_w])
+                    t.setStyle(TableStyle([
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                        ('TOPPADDING', (0, 0), (-1, -1), 0),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
+                    ]))
+                    story.append(t)
+                else:
+                    story.append(para)
             else:
                 svg_drawing = self._phase_number_svgs.get(step.number % 10)
                 if svg_drawing:
@@ -5238,7 +5276,7 @@ class SheetLayoutEngine:
                     story.append(para)
 
             # Append StepAction flowables below the step
-            indent = 0 if single_step else TEXT_COL_X
+            indent = single_indent if single_step else TEXT_COL_X
             action_flowables = self._build_action_flowables(step, avail_w, indent)
             story.extend(action_flowables)
 
@@ -5357,7 +5395,7 @@ class SheetLayoutEngine:
             banner.hAlign = 'LEFT'
             story.append(banner)
 
-        story.extend(self._build_steps_story(steps, avail_w))
+        story.extend(self._build_steps_story(steps, avail_w, phase_indent=SINGLE_STEP_PHASE_INDENT))
         return story
 
     def _build_content_box_story(self, content_box, content_width):
