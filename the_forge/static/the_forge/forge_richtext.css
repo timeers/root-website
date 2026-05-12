@@ -90,6 +90,22 @@
   box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2);
 }
 
+/* Empty-state placeholder: mirrors the textarea's placeholder attribute,
+   surfaced as data-placeholder on the editor by forge_richtext.js. */
+.forge-rich-text-editor.is-empty::before {
+  content: attr(data-placeholder);
+  color: #6c757d;
+  pointer-events: none;
+  display: block;
+  height: 0;
+}
+
+/* Short variant — for compact rich-text fields like the Legend block body
+   where a 2-line height is enough. */
+.forge-rich-text--short .forge-rich-text-editor {
+  min-height: 3em;
+}
+
 .forge-rich-text-editor.is-invalid {
   border-color: #dc3545;
   box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);

@@ -423,10 +423,21 @@
     editor.setAttribute('role', 'textbox');
     editor.setAttribute('aria-multiline', 'true');
     editor.innerHTML = htmlToEditorHtml(textarea.value) || '<br>';
+    const placeholderText = textarea.getAttribute('placeholder');
+    if (placeholderText) {
+      editor.setAttribute('data-placeholder', placeholderText);
+    }
     textarea.parentNode.insertBefore(editor, textarea);
     textarea.hidden = true;
     textarea.setAttribute('aria-hidden', 'true');
     textarea.tabIndex = -1;
+
+    function updateEmptyState() {
+      const text = (editor.textContent || '').replace(/​/g, '').trim();
+      const hasMedia = editor.querySelector('img, br + *, [data-forge]') !== null;
+      editor.classList.toggle('is-empty', text === '' && !hasMedia);
+    }
+    updateEmptyState();
 
     function sync() {
       const md = serialize(editor);
@@ -434,6 +445,7 @@
         textarea.value = md;
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
       }
+      updateEmptyState();
     }
     editor.addEventListener('input', sync);
 

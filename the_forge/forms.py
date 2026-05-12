@@ -8,6 +8,7 @@ from .limits import (
     MAX_CONTENT_TEXT,
     MAX_HOW_TO_PLAY_TEXT,
     MAX_HOW_TO_PLAY_TITLE,
+    MAX_LEGEND_BODY,
     MAX_LEGEND_ROW_BODY,
     MAX_PHASE_STEP_TEXT,
     MAX_PIECE_QUANTITY,
@@ -670,14 +671,19 @@ class SetupStepForm(forms.ModelForm):
 class LegendForm(forms.ModelForm):
     class Meta:
         model = Legend
-        fields = ['title']
+        fields = ['title', 'body']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control form-control-sm luminari'}),
+            'body': RichTextarea(attrs={'rows': 2}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['title'].required = False
+        self.fields['body'].required = False
+
+    def clean_body(self):
+        return _cap(self.cleaned_data.get('body'), MAX_LEGEND_BODY, 'Body')
 
 
 class LegendRowForm(forms.ModelForm):

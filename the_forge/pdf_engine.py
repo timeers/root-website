@@ -540,6 +540,7 @@ TRACK_COUNTER_STROKE_W = 1             # Counter outline stroke width (pts)
 # Legend rendering — title-over-image left column, body right column
 LEGEND_BLOCK_TITLE_SIZE = 16               # centered Luminari header above the rows (large)
 LEGEND_BLOCK_TITLE_GAP = 6                 # gap below the centered block title
+LEGEND_BLOCK_BODY_GAP = 0                  # gap between the centered block body and the first row
 LEGEND_ROW_TITLE_FONT_SIZE = 11            # Luminari row title (centered over image)
 LEGEND_ROW_TITLE_GAP = 2                   # gap between row title baseline and image top
 LEGEND_BODY_FONT_SIZE = 10                 # body text font size (controls leading too)
@@ -2369,6 +2370,8 @@ class LegendFlowable(Flowable):
         self.title_color_hex = title_color_hex
         self._rows_data = []   # list of (title, img_path, img_w, img_h, body_para, body_h, row_h)
         self._block_title_h = 0
+        self._block_body_para = None
+        self._block_body_h = 0
         self._height = 0
 
     def _required_left_col_width(self):
@@ -2461,11 +2464,35 @@ class LegendFlowable(Flowable):
             self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h, has_left_visual))
 
         block_title = (self.legend.title or '').strip()
-        self._block_title_h = (LEGEND_BLOCK_TITLE_SIZE * 1.1 + LEGEND_BLOCK_TITLE_GAP) if block_title else 0
+        self._block_title_h = (LEGEND_BLOCK_TITLE_SIZE * 1.1) if block_title else 0
+
+        block_body = (self.legend.body or '').strip()
+        if block_body:
+            from reportlab.lib.enums import TA_CENTER
+            centered_body_style = ParagraphStyle(
+                'LegendBlockBody',
+                parent=self.body_style,
+                fontSize=LEGEND_BODY_FONT_SIZE,
+                leading=LEGEND_BODY_FONT_SIZE * 1.15,
+                alignment=TA_CENTER,
+            )
+            body_markup = format_step_markup(self.legend.body, sheet=sheet)
+            self._block_body_para = Paragraph(body_markup or '&nbsp;', centered_body_style)
+            self._block_body_para.wrap(self.total_width, 9999)
+            self._block_body_h = true_paragraph_height(self._block_body_para, self.total_width)
+        else:
+            self._block_body_para = None
+            self._block_body_h = 0
+
+        # Gap between title and body, only when both exist.
+        self._title_body_gap = LEGEND_BLOCK_BODY_GAP if (block_title and self._block_body_para) else 0
+        # Gap below the last header element (body if present, else title) before the first row.
+        self._header_bottom_gap = LEGEND_BLOCK_TITLE_GAP if (block_title or self._block_body_para) else 0
 
         total_rows_h = sum(r[6] for r in self._rows_data)
         gap_h = max(0, len(self._rows_data) - 1) * LEGEND_ROW_GAP
-        self._height = self._block_title_h + total_rows_h + gap_h
+        self._height = (self._block_title_h + self._title_body_gap + self._block_body_h
+                        + self._header_bottom_gap + total_rows_h + gap_h)
 
     def wrap(self, availWidth, availHeight):
         # Always honor the width the parent gives us. LEGEND_MIN_WIDTH is
@@ -2476,6 +2503,8 @@ class LegendFlowable(Flowable):
         width = min(availWidth, self.total_width) if availWidth else self.total_width
         self.total_width = width
         self._rows_data = []
+        self._block_body_para = None
+        self._block_body_h = 0
         self._measure()
         return self.total_width, self._height
 
@@ -2492,7 +2521,13 @@ class LegendFlowable(Flowable):
             c.setFillColor(title_color)
             cap_h = LEGEND_BLOCK_TITLE_SIZE * 0.70
             c.drawCentredString(self.total_width / 2.0, y - cap_h, block_title)
-            y -= self._block_title_h
+            y -= self._block_title_h + self._title_body_gap
+
+        if self._block_body_para is not None:
+            self._block_body_para.drawOn(c, 0, y - self._block_body_h)
+            y -= self._block_body_h
+
+        y -= self._header_bottom_gap
 
         for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h, has_left_visual) in enumerate(self._rows_data):
             row_top = y

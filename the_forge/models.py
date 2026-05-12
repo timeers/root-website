@@ -958,6 +958,7 @@ class Legend(models.Model):
     step = models.ForeignKey(PhaseStep, related_name='legends', on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=200, blank=True, default='')
+    body = models.TextField(blank=True, default='')
 
     class Meta:
         ordering = ['order']

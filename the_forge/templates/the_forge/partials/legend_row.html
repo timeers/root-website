@@ -9,12 +9,18 @@
       <span class="row-grip" title="Drag to reorder" aria-label="Drag to reorder">⋮⋮</span>
       <span class="forge-card-row__badge flex-shrink-0">Legend</span>
       <input type="text" name="title" value="{{ legend.title }}" class="form-control form-control-sm forge-card-row__title flex-grow-1 luminari" style="min-width:0;max-width:none;" placeholder="Title (optional)">
-      <div class="d-flex gap-2 flex-shrink-0">
-        <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
-        {% if not express %}
-          <button type="button" class="btn btn-sm btn-outline-danger"
-                  data-delete-url="{% url 'forge-legend-delete' pk=legend.pk %}">Delete</button>
-        {% endif %}
+    </div>
+    <div class="forge-rich-text forge-rich-text--short mt-2">
+      <textarea name="body" class="form-control" rows="2" placeholder="Optional Description">{{ legend.body }}</textarea>
+      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+        {% include 'the_forge/partials/richtext_toolbar.html' with allowed_buttons='bold,italic,bolditalic,image'|split:',' %}
+        <div class="ms-auto d-flex gap-2">
+          <button type="submit" class="btn btn-sm btn-outline-primary" data-save-btn>Save</button>
+          {% if not express %}
+            <button type="button" class="btn btn-sm btn-outline-danger"
+                    data-delete-url="{% url 'forge-legend-delete' pk=legend.pk %}">Delete</button>
+          {% endif %}
+        </div>
       </div>
     </div>
   </form>
