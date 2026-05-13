@@ -604,6 +604,7 @@ CARD_PILE_NO_TEXT_OVERHANG = 3.25 * inch        # max edge overhang for piles wi
 
 # Image height for inline images like card draw and VP
 INLINE_IMG_H = 14.5
+ABILITY_INLINE_IMG_H = 12          # smaller inline icons inside FactionAbility bodies
 
 # --- FactionBack layout constants ---
 MANIFEST_BOX_H = 2.4 * inch
@@ -5601,7 +5602,7 @@ class SheetLayoutEngine:
                 for a in abilities:
                     story = [
                         Paragraph(f"<b>{a.title}</b>", self.ability_title_style),
-                        Paragraph(format_inline_images(a.body, sheet=self.sheet), self.ability_body_style),
+                        Paragraph(format_inline_images(a.body, img_height=ABILITY_INLINE_IMG_H, sheet=self.sheet), self.ability_body_style),
                     ]
                     used_h = 0
                     for flowable in story:
@@ -5864,7 +5865,7 @@ class SheetLayoutEngine:
     def _measure_ability(self, ability, width, title_style, body_style):
         """Return total rendered height of title + body at the given width."""
         title_p = Paragraph(f"<b>{ability.title}</b>", title_style)
-        body_p = Paragraph(format_inline_images(ability.body, sheet=self.sheet), body_style)
+        body_p = Paragraph(format_inline_images(ability.body, img_height=ABILITY_INLINE_IMG_H, sheet=self.sheet), body_style)
         _, th = title_p.wrap(width, 9999)
         _, bh = body_p.wrap(width, 9999)
         return th + bh
@@ -6327,7 +6328,7 @@ class SheetLayoutEngine:
                 # Flow title + body text to the right of the icon
                 story = [
                     Paragraph(f"<b>{ability.title}</b>", title_style),
-                    Paragraph(format_inline_images(ability.body, sheet=self.sheet), body_style),
+                    Paragraph(format_inline_images(ability.body, img_height=ABILITY_INLINE_IMG_H, sheet=self.sheet), body_style),
                 ]
                 frame = Frame(
                     x + icon_w, box_y,
