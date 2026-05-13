@@ -1,0 +1,70 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="my-2">
+  {% if group %}
+    <a href="{% url 'forge-deckgroup-detail' pk=group.pk %}" class="btn btn-sm btn-secondary">
+      <i class="bi bi-chevron-left"></i> Back to Deck
+    </a>
+  {% else %}
+    <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">
+      <i class="bi bi-chevron-left"></i> Back
+    </a>
+  {% endif %}
+</div>
+
+<div class="mb-2">
+  <h2 class="root-title m-0">
+    {% if is_create %}New Cards{% else %}Edit Cards{% endif %}
+  </h2>
+  <p class="text-muted small mb-0">For <strong>{{ faction.faction_name }}</strong></p>
+</div>
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+
+  <div class="card p-3 mb-3">
+    <label for="{{ form.name.id_for_label }}" class="form-label small text-muted text-uppercase">Deck Name</label>
+    {{ form.name }}
+    {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors }}</div>{% endif %}
+  </div>
+
+  <div class="card p-3 mb-3">
+    <label for="{{ form.back_image.id_for_label }}" class="form-label small text-muted text-uppercase">Card Back Image</label>
+    {% if group and group.back_image %}
+      <div class="mb-2">
+        <img src="{{ group.back_image.url }}" alt="Card back"
+             class="img-fluid rounded"
+             style="max-width: 140px; max-height: 200px; object-fit: contain;">
+      </div>
+    {% endif %}
+    {{ form.back_image }}
+    <div class="form-text">Shown as the back of every card in this deck.</div>
+    {% if form.back_image.errors %}<div class="text-danger small mt-1">{{ form.back_image.errors }}</div>{% endif %}
+  </div>
+
+
+
+  <div class="d-flex gap-2 mb-2 justify-content-end">
+    {% if group %}
+      <a href="{% url 'forge-deckgroup-detail' pk=group.pk %}" class="btn btn-outline-secondary">Cancel</a>
+    {% else %}
+      <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-outline-secondary">Cancel</a>
+    {% endif %}
+    <button type="submit" class="btn btn-success">
+      {% if is_create %}Create{% else %}Save{% endif %}
+    </button>
+  </div>
+</form>
+
+{% if not is_create and group %}
+  <form method="post" action="{% url 'forge-deckgroup-delete' pk=group.pk %}"
+        class="mt-4 text-end"
+        onsubmit="return confirm('Delete this deck and all its cards? This cannot be undone.');">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-sm btn-outline-danger">Delete Deck</button>
+  </form>
+{% endif %}
+
+{% endblock %}

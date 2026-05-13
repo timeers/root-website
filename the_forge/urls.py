@@ -20,8 +20,12 @@ urlpatterns = [
     path('forge/faction/<int:pk>/markers/vp.png', views.forgedfaction_vp_marker_png, name='forge-faction-vp-marker-png'),
     path('forge/faction/<int:pk>/markers/relationship.png', views.forgedfaction_relationship_marker_png, name='forge-faction-relationship-marker-png'),
     path('forge/faction/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),
+    path('forge/faction/<int:pk>/submit/', views.forgedfaction_submit, name='forge-faction-submit'),
+    path('forge/faction/<int:pk>/link/', views.forgedfaction_link, name='forge-faction-link'),
+    path('forge/faction/<int:pk>/sync/', views.forgedfaction_sync, name='forge-faction-sync'),
     path('forge/faction/<int:pk>/pdf/', views.forgedfaction_pdf, name='forge-faction-pdf'),
     path('forge/faction/<int:pk>/components/pdf/', views.forgedfaction_components_pdf, name='forge-faction-components-pdf'),
+    path('forge/faction/<int:pk>/cards/pdf/', views.forgedfaction_cards_pdf, name='forge-faction-cards-pdf'),
     path('forge/faction/<int:pk>/cardboard/', views.forgedfaction_cardboard_edit, name='forge-faction-cardboard-edit'),
     path('forge/faction/<int:pk>/tts/', views.forgedfaction_tts, name='forge-faction-tts'),
 
@@ -137,4 +141,17 @@ urlpatterns = [
     path('hx/forge/sheet/<int:sheet_pk>/custom-inline-image/add/', views.custom_inline_image_add, name='forge-custom-inline-image-add'),
     path('hx/forge/custom-inline-image/<int:pk>/edit/', views.custom_inline_image_edit, name='forge-custom-inline-image-edit'),
     path('hx/forge/sheet/<int:sheet_pk>/inline-images.json', views.sheet_inline_images_json, name='forge-sheet-inline-images-json'),
+
+    # ForgedDeckGroup (custom deck attached to a card-type Piece)
+    path('forge/piece/<int:piece_pk>/deck/new/', views.forge_deckgroup_add, name='forge-deckgroup-add'),
+    path('forge/faction/<int:faction_pk>/deck/new/', views.forge_deckgroup_create_for_faction, name='forge-deckgroup-create-for-faction'),
+    path('forge/deck/<int:pk>/', views.forge_deckgroup_detail, name='forge-deckgroup-detail'),
+    path('forge/deck/<int:pk>/edit/', views.forge_deckgroup_edit, name='forge-deckgroup-edit'),
+    path('forge/deck/<int:pk>/delete/', views.forge_deckgroup_delete, name='forge-deckgroup-delete'),
+
+    # ForgedCard (child of ForgedDeckGroup) — HTMX
+    path('hx/forge/deck/<int:group_pk>/card/add/', views.forge_card_add, name='forge-card-add'),
+    path('hx/forge/card/<int:pk>/edit/', views.forge_card_edit, name='forge-card-edit'),
+    path('hx/forge/card/<int:pk>/delete/', views.forge_card_delete, name='forge-card-delete'),
+    path('hx/forge/deck/<int:group_pk>/cards/reorder/', views.forge_card_reorder, name='forge-card-reorder'),
 ]

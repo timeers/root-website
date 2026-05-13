@@ -8,6 +8,7 @@ from .limits import (
     MAX_CONTENT_TEXT,
     MAX_HOW_TO_PLAY_TEXT,
     MAX_HOW_TO_PLAY_TITLE,
+    MAX_LEGEND_BODY,
     MAX_LEGEND_ROW_BODY,
     MAX_PHASE_STEP_TEXT,
     MAX_PIECE_QUANTITY,
@@ -31,6 +32,8 @@ from .models import (
     FactionBack,
     FactionSheet,
     ForgedFaction,
+    ForgedDeckGroup,
+    ForgedCard,
     Legend,
     LegendRow,
     PhaseStep,
@@ -115,6 +118,15 @@ class ForgedFactionForm(forms.ModelForm):
         self.fields['language'].widget.attrs.setdefault('class', 'form-select')
         self.fields['language'].required = True
         self.fields['language'].empty_label = None
+        # If this ForgedFaction is already published/linked to a Faction or
+        # PostTranslation, lock the name and language so they don't drift
+        # away from the linked source.
+        if self.instance and self.instance.pk and self.instance.is_published_linked:
+            for fname in ('faction_name', 'language'):
+                self.fields[fname].disabled = True
+                self.fields[fname].help_text = (
+                    "This field is locked and can no longer be changed."
+                )
 
     def clean_background_tile_size(self):
         raw = self.cleaned_data.get('background_tile_size')
@@ -171,6 +183,12 @@ class FactionMarkersForm(forms.ModelForm):
         cleaned = super().clean()
         if cleaned.get('use_faction_color'):
             cleaned['icon_color'] = None
+        # Require a faction icon: either a freshly uploaded file in this
+        # submission, or one already persisted on the instance.
+        uploaded_icon = cleaned.get('faction_icon')
+        existing_icon = self.instance.faction_icon if self.instance else None
+        if not uploaded_icon and not existing_icon:
+            self.add_error('faction_icon', 'A faction icon is required.')
         return cleaned
 
 
@@ -574,11 +592,17 @@ class FactionHeaderForm(forms.Form):
             self.fields['title_text_color'].initial = sheet.title_text_color
             self.fields['pnp_version'].initial = faction.pnp_version or ''
             self.fields['art_by'].initial = faction.art_by or ''
+        if sheet is not None and sheet.faction.is_published_linked:
+            self.fields['faction_name'].disabled = True
+            self.fields['faction_name'].help_text = (
+                "This Faction's name can no longer be changed."
+            )
 
     def save(self):
         sheet = self.sheet
         faction = sheet.faction
-        faction.faction_name = self.cleaned_data['faction_name']
+        if not faction.is_published_linked:
+            faction.faction_name = self.cleaned_data['faction_name']
         faction.pnp_version = self.cleaned_data.get('pnp_version') or None
         faction.art_by = self.cleaned_data.get('art_by') or None
         faction.save(update_fields=['faction_name', 'pnp_version', 'art_by'])
@@ -630,11 +654,17 @@ class SetupCardForm(forms.Form):
             self.fields['faction_name'].initial = card.faction.faction_name
             self.fields['type'].initial = card.type
             self.fields['reach'].initial = card.reach
+        if card is not None and card.faction.is_published_linked:
+            self.fields['faction_name'].disabled = True
+            self.fields['faction_name'].help_text = (
+                "This Faction's name can no longer be changed."
+            )
 
     def save(self, card=None):
         card = card or self.card
-        card.faction.faction_name = self.cleaned_data['faction_name']
-        card.faction.save(update_fields=['faction_name'])
+        if not card.faction.is_published_linked:
+            card.faction.faction_name = self.cleaned_data['faction_name']
+            card.faction.save(update_fields=['faction_name'])
         card.type = self.cleaned_data['type']
         card.reach = self.cleaned_data['reach']
         update_fields = ['type', 'reach', 'last_updated']
@@ -664,14 +694,19 @@ class SetupStepForm(forms.ModelForm):
 class LegendForm(forms.ModelForm):
     class Meta:
         model = Legend
-        fields = ['title']
+        fields = ['title', 'body']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control form-control-sm luminari'}),
+            'body': RichTextarea(attrs={'rows': 2}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['title'].required = False
+        self.fields['body'].required = False
+
+    def clean_body(self):
+        return _cap(self.cleaned_data.get('body'), MAX_LEGEND_BODY, 'Body')
 
 
 class LegendRowForm(forms.ModelForm):
@@ -778,4 +813,25 @@ class ScaleRowForm(forms.ModelForm):
                 'class': 'form-control form-control-sm',
                 'data-track-image-input': '',
             }),
+        }
+
+
+class ForgedDeckGroupForm(forms.ModelForm):
+    class Meta:
+        model = ForgedDeckGroup
+        fields = ['name', 'back_image']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'back_image': forms.ClearableFileInput(attrs={'class': 'form-control'}),
+        }
+
+
+class ForgedCardForm(forms.ModelForm):
+    class Meta:
+        model = ForgedCard
+        fields = ['name', 'text', 'front_image']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'text': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'front_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }

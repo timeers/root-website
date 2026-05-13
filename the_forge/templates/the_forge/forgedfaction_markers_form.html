@@ -16,8 +16,9 @@
   <div class="card p-3 mb-3">
     <div class="d-flex flex-wrap gap-4 align-items-start">
       <div class="flex-grow-1" style="min-width: 16rem;">
-        <label class="form-label small text-center text-muted text-uppercase">Faction Icon</label>
-        <div class="d-flex align-items-center gap-3 flex-wrap">
+        <label class="form-label small text-center text-muted text-uppercase">Faction Icon <span class="text-danger">*</span></label>
+        <div id="forge-icon-field-wrap"
+             class="d-flex align-items-center gap-3 flex-wrap p-2 rounded forge-icon-field-wrap{% if form.faction_icon.errors %} is-invalid{% endif %}">
           <img id="forge-markers-current-icon"
                src="{% if faction.faction_icon %}{{ faction.faction_icon.url }}?v={{ faction.markers_version }}{% endif %}"
                alt=""
@@ -33,7 +34,11 @@
           </button>
           <span id="forge-icon-filename" class="small text-muted text-truncate" style="max-width: 16rem;"></span>
         </div>
-        {% if form.faction_icon.errors %}<div class="text-danger small mt-1">{{ form.faction_icon.errors }}</div>{% endif %}
+        {% if form.faction_icon.errors %}
+          <div id="forge-icon-error" class="text-danger small mt-1">{{ form.faction_icon.errors|join:" " }}</div>
+        {% else %}
+          <div id="forge-icon-error" class="text-danger small mt-1 d-none">A faction icon is required.</div>
+        {% endif %}
       </div>
 
       <div class="flex-grow-1" style="min-width: 16rem;">
@@ -136,6 +141,14 @@
   }
   .forge-marker-preview .forge-marker-icon { display: none; }
   .forge-marker-preview.has-icon .forge-marker-icon { display: block; }
+  .forge-icon-field-wrap {
+    border: 1px solid transparent;
+    transition: border-color 120ms ease, background-color 120ms ease;
+  }
+  .forge-icon-field-wrap.is-invalid {
+    border-color: var(--bs-danger);
+    background-color: rgba(var(--bs-danger-rgb), 0.05);
+  }
 </style>
 
 <script>
@@ -242,10 +255,24 @@
   const chooseLabel = chooseBtn.querySelector('span');
   chooseBtn.addEventListener('click', () => fileInput.click());
 
+  const iconFieldWrap = document.getElementById('forge-icon-field-wrap');
+  const iconErrorEl = document.getElementById('forge-icon-error');
+
+  function clearIconError() {
+    if (iconFieldWrap) iconFieldWrap.classList.remove('is-invalid');
+    if (iconErrorEl) iconErrorEl.classList.add('d-none');
+  }
+
+  function showIconError() {
+    if (iconFieldWrap) iconFieldWrap.classList.add('is-invalid');
+    if (iconErrorEl) iconErrorEl.classList.remove('d-none');
+  }
+
   // File input: render the chosen file via FileReader.
   fileInput.addEventListener('change', () => {
     const file = fileInput.files && fileInput.files[0];
     if (!file) return;
+    clearIconError();
     filenameLabel.textContent = file.name;
     chooseLabel.textContent = 'Change Icon';
     const reader = new FileReader();
@@ -302,6 +329,17 @@
   }
 
   form.addEventListener('submit', async (e) => {
+    // Block submission when no icon is present (no persisted icon and no
+    // newly-selected file). Server-side validation enforces the same rule;
+    // this just keeps the UX snappy without a round-trip.
+    const hasExistingIcon = !!initialIconUrl;
+    const hasNewFile = !!(fileInput.files && fileInput.files[0]);
+    if (!hasExistingIcon && !hasNewFile) {
+      e.preventDefault();
+      showIconError();
+      iconFieldWrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     if (!dirty) return; // No icon/color change → don't post regenerated PNGs.
     e.preventDefault();
     const [vp, rel] = await Promise.all([

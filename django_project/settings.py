@@ -204,8 +204,20 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 SESSION_COOKIE_AGE = 604800  # 1 week
-SESSION_EXPIRE_AT_BROWSER_CLOSE = False 
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
+
+# Cookie / HTTPS settings for production. Scoping cookies to the parent
+# domain (".therootdatabase.com") means a login on www. and a login on the
+# bare domain share the same session cookie — combined with the Apache
+# redirect to www., visitors land on one canonical origin regardless of
+# which form of the URL they used.
+if not DEBUG:
+    SESSION_COOKIE_DOMAIN = '.therootdatabase.com'
+    CSRF_COOKIE_DOMAIN = '.therootdatabase.com'
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 # Internationalization

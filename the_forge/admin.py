@@ -22,6 +22,9 @@ from .models import (
     ScaleRow,
     SetupCard,
     SetupStep,
+    ForgedDeckGroup,
+    ForgedCardDeck,
+    ForgedCard,
 )
 
 
@@ -120,7 +123,7 @@ class CardPileInline(admin.TabularInline):
 
 class PieceInline(admin.TabularInline):
     model = Piece
-    fk_name = 'parent'
+    fk_name = 'faction'
     extra = 0
     fields = ('name', 'quantity', 'type', 'small_icon')
 
@@ -146,6 +149,7 @@ class ForgedFactionAdmin(admin.ModelAdmin):
     list_display = ('faction_name', 'designer', 'color', 'background_preset')
     list_filter = ('background_preset',)
     search_fields = ('faction_name',)
+    inlines = [PieceInline]
 
 
 @admin.register(FactionSheet)
@@ -215,10 +219,35 @@ class CardboardSlotAdmin(admin.ModelAdmin):
 @admin.register(FactionBack)
 class FactionBackAdmin(admin.ModelAdmin):
     list_display = ('faction',)
-    inlines = [PieceInline, SetupStepBackInline]
+    inlines = [SetupStepBackInline]
 
 
 @admin.register(SetupCard)
 class SetupCardAdmin(admin.ModelAdmin):
     list_display = ('faction', 'type', 'reach')
     inlines = [SetupStepCardInline]
+
+
+class ForgedCardInline(admin.TabularInline):
+    model = ForgedCard
+    extra = 0
+    fields = ('order', 'name', 'text', 'front_image')
+    readonly_fields = ('order',)
+    ordering = ('order',)
+
+
+@admin.register(ForgedDeckGroup)
+class ForgedDeckGroupAdmin(admin.ModelAdmin):
+    list_display = ('name', 'piece', 'slug')
+    inlines = [ForgedCardInline]
+
+
+@admin.register(ForgedCardDeck)
+class ForgedCardDeckAdmin(admin.ModelAdmin):
+    list_display = ('group', 'deck_index')
+
+
+@admin.register(ForgedCard)
+class ForgedCardAdmin(admin.ModelAdmin):
+    list_display = ('name', 'group', 'order')
+    list_filter = ('group',)

@@ -318,6 +318,8 @@ FACTION_NAME_Y_OFFSET = 0.15 * inch
 
 PHASE_HEADER_H = 0.36 * inch
 PHASE_INTERNAL_MARGIN = 0.17 * inch
+SINGLE_STEP_PHASE_INDENT = 0.05 * inch   # left indent for single-step phase body text
+
 PHASE_HEADER_MIN_W = 3.0 * inch           # minimum banner width for vertical layout
 PHASE_HEADER_MIN_H = 0.35 * inch          # minimum banner height for vertical layout
 PHASE_HEADER_LOCK_W = 4.25 * inch         # width at which banner height stops scaling
@@ -540,6 +542,7 @@ TRACK_COUNTER_STROKE_W = 1             # Counter outline stroke width (pts)
 # Legend rendering — title-over-image left column, body right column
 LEGEND_BLOCK_TITLE_SIZE = 16               # centered Luminari header above the rows (large)
 LEGEND_BLOCK_TITLE_GAP = 6                 # gap below the centered block title
+LEGEND_BLOCK_BODY_GAP = 0                  # gap between the centered block body and the first row
 LEGEND_ROW_TITLE_FONT_SIZE = 11            # Luminari row title (centered over image)
 LEGEND_ROW_TITLE_GAP = 2                   # gap between row title baseline and image top
 LEGEND_BODY_FONT_SIZE = 10                 # body text font size (controls leading too)
@@ -601,6 +604,7 @@ CARD_PILE_NO_TEXT_OVERHANG = 3.25 * inch        # max edge overhang for piles wi
 
 # Image height for inline images like card draw and VP
 INLINE_IMG_H = 14.5
+ABILITY_INLINE_IMG_H = 12          # smaller inline icons inside FactionAbility bodies
 
 # --- FactionBack layout constants ---
 MANIFEST_BOX_H = 2.4 * inch
@@ -2369,6 +2373,8 @@ class LegendFlowable(Flowable):
         self.title_color_hex = title_color_hex
         self._rows_data = []   # list of (title, img_path, img_w, img_h, body_para, body_h, row_h)
         self._block_title_h = 0
+        self._block_body_para = None
+        self._block_body_h = 0
         self._height = 0
 
     def _required_left_col_width(self):
@@ -2461,11 +2467,35 @@ class LegendFlowable(Flowable):
             self._rows_data.append((title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h, has_left_visual))
 
         block_title = (self.legend.title or '').strip()
-        self._block_title_h = (LEGEND_BLOCK_TITLE_SIZE * 1.1 + LEGEND_BLOCK_TITLE_GAP) if block_title else 0
+        self._block_title_h = (LEGEND_BLOCK_TITLE_SIZE * 1.1) if block_title else 0
+
+        block_body = (self.legend.body or '').strip()
+        if block_body:
+            from reportlab.lib.enums import TA_CENTER
+            centered_body_style = ParagraphStyle(
+                'LegendBlockBody',
+                parent=self.body_style,
+                fontSize=LEGEND_BODY_FONT_SIZE,
+                leading=LEGEND_BODY_FONT_SIZE * 1.15,
+                alignment=TA_CENTER,
+            )
+            body_markup = format_step_markup(self.legend.body, sheet=sheet)
+            self._block_body_para = Paragraph(body_markup or '&nbsp;', centered_body_style)
+            self._block_body_para.wrap(self.total_width, 9999)
+            self._block_body_h = true_paragraph_height(self._block_body_para, self.total_width)
+        else:
+            self._block_body_para = None
+            self._block_body_h = 0
+
+        # Gap between title and body, only when both exist.
+        self._title_body_gap = LEGEND_BLOCK_BODY_GAP if (block_title and self._block_body_para) else 0
+        # Gap below the last header element (body if present, else title) before the first row.
+        self._header_bottom_gap = LEGEND_BLOCK_TITLE_GAP if (block_title or self._block_body_para) else 0
 
         total_rows_h = sum(r[6] for r in self._rows_data)
         gap_h = max(0, len(self._rows_data) - 1) * LEGEND_ROW_GAP
-        self._height = self._block_title_h + total_rows_h + gap_h
+        self._height = (self._block_title_h + self._title_body_gap + self._block_body_h
+                        + self._header_bottom_gap + total_rows_h + gap_h)
 
     def wrap(self, availWidth, availHeight):
         # Always honor the width the parent gives us. LEGEND_MIN_WIDTH is
@@ -2476,6 +2506,8 @@ class LegendFlowable(Flowable):
         width = min(availWidth, self.total_width) if availWidth else self.total_width
         self.total_width = width
         self._rows_data = []
+        self._block_body_para = None
+        self._block_body_h = 0
         self._measure()
         return self.total_width, self._height
 
@@ -2492,7 +2524,13 @@ class LegendFlowable(Flowable):
             c.setFillColor(title_color)
             cap_h = LEGEND_BLOCK_TITLE_SIZE * 0.70
             c.drawCentredString(self.total_width / 2.0, y - cap_h, block_title)
-            y -= self._block_title_h
+            y -= self._block_title_h + self._title_body_gap
+
+        if self._block_body_para is not None:
+            self._block_body_para.drawOn(c, 0, y - self._block_body_h)
+            y -= self._block_body_h
+
+        y -= self._header_bottom_gap
 
         for i, (title, img_path, img_w, img_h, body_para, body_h, row_h, right_w, left_w, title_block_h, has_left_visual) in enumerate(self._rows_data):
             row_top = y
@@ -3751,7 +3789,8 @@ class SheetLayoutEngine:
         total = header_h if header_h is not None else self._header_height()
         single_step = len(steps) == 1
         for step in steps:
-            total += self.measure_step_height(step, width, single_step=single_step)
+            total += self.measure_step_height(step, width, single_step=single_step,
+                                              phase_indent=SINGLE_STEP_PHASE_INDENT)
         return total
 
     def measure_content_box_height(self, content_box, width):
@@ -4043,7 +4082,7 @@ class SheetLayoutEngine:
             return 0
         return max_needed + (PHASE_INTERNAL_MARGIN * 2)
 
-    def measure_step_height(self, step, width, single_step=False, body_style=None):
+    def measure_step_height(self, step, width, single_step=False, body_style=None, phase_indent=0):
         from reportlab.platypus import Table, TableStyle
         ICON_COL_W = 0.325 * inch
         ICON_TEXT_GAP = 0.015 * inch
@@ -4051,7 +4090,11 @@ class SheetLayoutEngine:
         ICON_NUDGE_DOWN = 4
 
         style = body_style or self.step_body_style
-        text_col_w = 0 if single_step else TEXT_COL_X
+        # Content-box single-step (signalled by content_box_text_style) keeps its
+        # centered, zero-indent layout; phase single-step uses phase_indent.
+        is_centered_content_box = (style is self.content_box_text_style)
+        single_indent = phase_indent if (single_step and not is_centered_content_box) else 0
+        text_col_w = single_indent if single_step else TEXT_COL_X
         text_content_w = width - text_col_w
         markup = format_step_markup(step.text, sheet=self.sheet)
 
@@ -4065,8 +4108,19 @@ class SheetLayoutEngine:
         para.wrap(text_content_w, 9999)
         tighten_large_font_lines(para)
         if single_step:
-            _, table_h = para.wrap(width, 9999)
-            table_h += extra_h
+            if single_indent:
+                t = Table([['', para]], colWidths=[single_indent, text_content_w])
+                t.setStyle(TableStyle([
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                    ('TOPPADDING', (0, 0), (-1, -1), 0),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
+                ]))
+                _, table_h = t.wrap(width, 9999)
+            else:
+                _, table_h = para.wrap(width, 9999)
+                table_h += extra_h
             if first_line_has_inline_icon_only_base_font(para):
                 table_h += SINGLE_STEP_INLINE_ICON_PAD_TOP
         else:
@@ -4180,7 +4234,8 @@ class SheetLayoutEngine:
         cursor_y = banner_y
         last_idx = len(steps) - 1
         for i, step in enumerate(steps):
-            step_h = self.measure_step_height(step, content_w, single_step=single_step)
+            step_h = self.measure_step_height(step, content_w, single_step=single_step,
+                                              phase_indent=SINGLE_STEP_PHASE_INDENT)
             step_y = cursor_y - step_h
             if i == last_idx and content_bottom_y is not None and step_y > content_bottom_y:
                 step_h = cursor_y - content_bottom_y
@@ -4190,7 +4245,8 @@ class SheetLayoutEngine:
                                  number=step.number, text=step.text or '',
                                  single_step=single_step,
                                  phase=phase_key)
-            self._record_step_children(step, content_x, step_y, step_h, content_w, single_step)
+            self._record_step_children(step, content_x, step_y, step_h, content_w, single_step,
+                                       phase_indent=SINGLE_STEP_PHASE_INDENT)
             cursor_y = step_y
 
     def _record_content_box_breakdown(self, content_box, box_x, box_y, box_w, box_h):
@@ -4223,7 +4279,7 @@ class SheetLayoutEngine:
             self._record_step_children(step, content_x, step_y, step_h, content_w, single_step)
             cursor_top = step_y
 
-    def _record_step_children(self, step, step_x, step_y, step_h, step_w, single_step):
+    def _record_step_children(self, step, step_x, step_y, step_h, step_w, single_step, phase_indent=0):
         """Preview-only: record bordered_box and track rects inside a phase step.
         Children stack at the bottom of the step (after text+actions) and are drawn
         in `ordered_children` order. No-op outside compute_layout()."""
@@ -4240,7 +4296,7 @@ class SheetLayoutEngine:
         ICON_COL_W = 0.325 * inch
         ICON_TEXT_GAP = 0.015 * inch
         TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
-        indent = 0 if single_step else TEXT_COL_X
+        indent = (phase_indent if single_step else TEXT_COL_X)
         avail_w = step_w - indent
 
         # Compute each child's height + top pad in points, in order.
@@ -4429,7 +4485,8 @@ class SheetLayoutEngine:
         }
 
     def record_slot_snap_point(self, abs_x_pts, abs_y_pts,
-                                track=None, row_idx=None, row_title=None):
+                                track=None, row_idx=None, row_title=None,
+                                pile=None):
         local_x, local_z = pdf_to_tts_local(abs_x_pts, abs_y_pts)
         entry = {
             "Position": {"x": local_x, "y": 0.1, "z": local_z},
@@ -4444,6 +4501,10 @@ class SheetLayoutEngine:
                 entry["row_index"] = row_idx
             if row_title:
                 entry["row_title"] = strip_tags(row_title).strip()
+        if pile is not None:
+            from django.utils.html import strip_tags
+            entry["pile_id"] = pile.pk
+            entry["pile_title"] = strip_tags(pile.title or "").strip()
         self.collected_snap_points.append(entry)
 
     LAYER_GROUPS = (
@@ -5144,8 +5205,14 @@ class SheetLayoutEngine:
                                  paper_background=cb.paper_background)
             self._record_content_box_breakdown(cb, box_x, box_y, box_w, box_h)
 
-    def _build_steps_story(self, steps, avail_w, centered=False):
-        """Build flowables for a list of PhaseSteps (no header). Reused by phases and content boxes."""
+    def _build_steps_story(self, steps, avail_w, centered=False, phase_indent=0):
+        """Build flowables for a list of PhaseSteps (no header). Reused by phases and content boxes.
+
+        ``phase_indent`` shifts the body, actions, and child flowables of a
+        single-step entry inward from the left edge. Used for phase boxes
+        (birdsong/daylight/evening) so a lone step doesn't sit flush left.
+        Content boxes pass 0 (the default) to keep their centered layout.
+        """
         from reportlab.platypus import Table, TableStyle
 
         story = []
@@ -5153,6 +5220,7 @@ class SheetLayoutEngine:
         ICON_TEXT_GAP = 0.015 * inch
         TEXT_COL_X = ICON_COL_W + ICON_TEXT_GAP
         single_step = len(steps) == 1
+        single_indent = phase_indent if (single_step and not centered) else 0
 
         if centered and single_step:
             body_style = self.content_box_text_style
@@ -5164,7 +5232,7 @@ class SheetLayoutEngine:
             para = Paragraph(markup, body_style)
 
             # Compute extra bottom padding to compensate for autoLeading underreporting
-            text_w = 0 if single_step else TEXT_COL_X
+            text_w = single_indent if single_step else TEXT_COL_X
             content_w = avail_w - text_w
             probe = Paragraph(markup, body_style)
             _, wrap_h = probe.wrap(content_w, 9999)
@@ -5175,14 +5243,25 @@ class SheetLayoutEngine:
             tighten_large_font_lines(para)
 
             if single_step:
-                # No number icon — text takes full width.
+                # No number icon — text takes (avail_w - single_indent).
                 # If the first line is base-font-only AND has an inline icon,
                 # the icon would sit above the cap-height of the small text and
                 # overlap the header band above. Pad it down a few points.
                 if first_line_has_inline_icon_only_base_font(para):
                     from reportlab.platypus import Spacer
                     story.append(Spacer(1, SINGLE_STEP_INLINE_ICON_PAD_TOP))
-                story.append(para)
+                if single_indent:
+                    t = Table([['', para]], colWidths=[single_indent, content_w])
+                    t.setStyle(TableStyle([
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+                        ('TOPPADDING', (0, 0), (-1, -1), 0),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), extra_h),
+                    ]))
+                    story.append(t)
+                else:
+                    story.append(para)
             else:
                 svg_drawing = self._phase_number_svgs.get(step.number % 10)
                 if svg_drawing:
@@ -5203,7 +5282,7 @@ class SheetLayoutEngine:
                     story.append(para)
 
             # Append StepAction flowables below the step
-            indent = 0 if single_step else TEXT_COL_X
+            indent = single_indent if single_step else TEXT_COL_X
             action_flowables = self._build_action_flowables(step, avail_w, indent)
             story.extend(action_flowables)
 
@@ -5322,7 +5401,7 @@ class SheetLayoutEngine:
             banner.hAlign = 'LEFT'
             story.append(banner)
 
-        story.extend(self._build_steps_story(steps, avail_w))
+        story.extend(self._build_steps_story(steps, avail_w, phase_indent=SINGLE_STEP_PHASE_INDENT))
         return story
 
     def _build_content_box_story(self, content_box, content_width):
@@ -5490,55 +5569,85 @@ class SheetLayoutEngine:
         size_weights: optional list of multipliers (one per ability) applied to
         char count. Pass body_size/MAX_BODY to give shrunk abilities less width
         so neighbors get more room.
+
+        Equal-width fast-path is preserved here for callers that pass only
+        abilities — when flavor competes alongside abilities (see
+        _calculate_item_widths) the fast-path isn't useful because flavor's
+        weight differs from abilities' and a flat split would over-allocate.
         """
         n = len(abilities)
         total_gap = ABILITY_GAP * (n - 1)
         distributable_w = available_w - total_gap
 
+        if n == 0:
+            return []
         if n == 1:
             return [distributable_w]
 
         if size_weights is None:
             size_weights = [1.0] * n
 
-        # Body character counts as proxy for space needs, weighted by size
         char_counts = [len(a.body) * size_weights[i] for i, a in enumerate(abilities)]
-        total_chars = sum(char_counts)
 
-        # Per-ability minimum: max of global minimum or title rendered width
         min_widths = []
         for a in abilities:
             title_w = pdfmetrics.stringWidth(a.title, 'Baskerville', 8)
             min_widths.append(max(MIN_ABILITY_BOX_W, title_w + icon_w + 4))
 
-        # If all bodies are empty, fall back to equal widths
-        if total_chars == 0:
-            return [max(distributable_w / n, mw) for mw in min_widths]
-
         # Equal-width default: if every ability's title+body fits comfortably at
         # equal width, just split evenly. Only valid for unweighted calls — when
         # weights are non-uniform, the caller wants proportional allocation.
-        uniform_weights = all(w == size_weights[0] for w in size_weights)
-        equal_w = distributable_w / n
-        box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE
-        if uniform_weights and all(equal_w >= mw for mw in min_widths):
-            all_fit = True
-            for a in abilities:
-                story = [
-                    Paragraph(f"<b>{a.title}</b>", self.ability_title_style),
-                    Paragraph(format_inline_images(a.body, sheet=self.sheet), self.ability_body_style),
-                ]
-                used_h = 0
-                for flowable in story:
-                    _, h = flowable.wrap(equal_w - icon_w, 9999)
-                    used_h += h
-                if used_h > box_h:
-                    all_fit = False
-                    break
-            if all_fit:
-                return [equal_w] * n
+        total_chars = sum(char_counts)
+        if total_chars > 0:
+            uniform_weights = all(w == size_weights[0] for w in size_weights)
+            equal_w = distributable_w / n
+            box_h = ABILITY_BAR_H - FACTION_TOP_BAR_NUDGE
+            if uniform_weights and all(equal_w >= mw for mw in min_widths):
+                all_fit = True
+                for a in abilities:
+                    story = [
+                        Paragraph(f"<b>{a.title}</b>", self.ability_title_style),
+                        Paragraph(format_inline_images(a.body, img_height=ABILITY_INLINE_IMG_H, sheet=self.sheet), self.ability_body_style),
+                    ]
+                    used_h = 0
+                    for flowable in story:
+                        _, h = flowable.wrap(equal_w - icon_w, 9999)
+                        used_h += h
+                    if used_h > box_h:
+                        all_fit = False
+                        break
+                if all_fit:
+                    return [equal_w] * n
 
-        # Initial proportional allocation
+        items = [{'char_weight': c, 'min_w': mw}
+                 for c, mw in zip(char_counts, min_widths)]
+        return self._calculate_item_widths(items, available_w)
+
+    def _calculate_item_widths(self, items, available_w):
+        """Generalized proportional width allocator. Used by the abilities
+        path and by the "flavor competes alongside abilities" path so flavor
+        goes through the same proportional logic as an ability.
+
+        items: list of dicts with keys ``char_weight`` (already adjusted for
+        font size / italic / no-title vertical savings as appropriate) and
+        ``min_w`` (already includes any per-item icon width or title width).
+        Returns a list of widths in the same order as ``items``.
+        """
+        n = len(items)
+        if n == 0:
+            return []
+        total_gap = ABILITY_GAP * (n - 1)
+        distributable_w = available_w - total_gap
+        if n == 1:
+            return [distributable_w]
+
+        char_counts = [it['char_weight'] for it in items]
+        min_widths = [it['min_w'] for it in items]
+        total_chars = sum(char_counts)
+
+        if total_chars == 0:
+            return [max(distributable_w / n, mw) for mw in min_widths]
+
         widths = [(count / total_chars) * distributable_w for count in char_counts]
 
         # Iteratively clamp below-minimum widths and redistribute
@@ -5679,6 +5788,58 @@ class SheetLayoutEngine:
         title_size = ABILITY_TITLE_MAX_SIZE - (ABILITY_BODY_MAX_SIZE - body_size)
         return max(ABILITY_TITLE_MIN_SIZE, min(ABILITY_TITLE_MAX_SIZE, title_size))
 
+    def _flavor_char_weight(self, text, body_size, flavor_size, box_h):
+        """Effective character weight for flavor when it competes for width
+        alongside abilities in the proportional allocator.
+
+        Two adjustments are applied to the raw character count:
+
+        1. **Italic font density**: Baskerville-Italic at ``flavor_size`` is
+           typically a bit narrower than Baskerville (roman) at ``body_size``.
+           The ratio of measured "M" widths captures that — flavor needs less
+           width per character.
+        2. **No-title vertical savings**: an ability spends part of ``box_h``
+           on its title; flavor spends none. The fraction of vertical space
+           still available for body in an ability cell scales the weight down
+           — with more vertical room per char, flavor needs less width.
+
+        Both factors are then softened toward 1.0 by FLAVOR_WEIGHT_BIAS so
+        flavor still gets a reasonable share of the bar even with long
+        ability bodies competing for width.
+        """
+        char_count = len(text)
+        if char_count == 0:
+            return 0
+
+        # Bias toward 1.0: 0 = full reduction (font_ratio * body_fraction),
+        # 1 = no reduction (raw char count). 0.5 splits the difference.
+        FLAVOR_WEIGHT_BIAS = 0.5
+
+        # Italic vs roman width ratio at the relevant sizes. Use a short
+        # sample string and divide so we get an average char width that
+        # accounts for both font shape and font size differences.
+        sample = 'M' * 20
+        try:
+            italic_w = pdfmetrics.stringWidth(sample, 'Baskerville-Italic', flavor_size) / len(sample)
+            roman_w = pdfmetrics.stringWidth(sample, 'Baskerville', body_size) / len(sample)
+            font_ratio = italic_w / roman_w if roman_w > 0 else 1.0
+        except Exception:
+            font_ratio = 1.0
+
+        # Title-area savings: an ability's title occupies ~title_size leading
+        # + 2pt spaceAfter (matches _make_ability_styles). Flavor has no
+        # title so it gets all of box_h for body. The body-only fraction tells
+        # us how much *less* width flavor needs for the same char count.
+        title_size = self._ability_title_size_for_body(body_size)
+        title_h = title_size + 2  # leading == title_size, spaceAfter == 2
+        title_fraction = min(0.5, max(0.0, title_h / box_h)) if box_h > 0 else 0.0
+        body_fraction = 1.0 - title_fraction
+
+        font_ratio = font_ratio + (1.0 - font_ratio) * FLAVOR_WEIGHT_BIAS
+        body_fraction = body_fraction + (1.0 - body_fraction) * FLAVOR_WEIGHT_BIAS
+
+        return char_count * font_ratio * body_fraction
+
     def _make_ability_styles(self, body_size, title_size=None):
         """Build (title_style, body_style). title_size defaults to the size
         derived from body_size; pass an explicit value to keep all titles
@@ -5709,7 +5870,7 @@ class SheetLayoutEngine:
     def _measure_ability(self, ability, width, title_style, body_style):
         """Return total rendered height of title + body at the given width."""
         title_p = Paragraph(f"<b>{ability.title}</b>", title_style)
-        body_p = Paragraph(format_inline_images(ability.body, sheet=self.sheet), body_style)
+        body_p = Paragraph(format_inline_images(ability.body, img_height=ABILITY_INLINE_IMG_H, sheet=self.sheet), body_style)
         _, th = title_p.wrap(width, 9999)
         _, bh = body_p.wrap(width, 9999)
         return th + bh
@@ -5741,6 +5902,24 @@ class SheetLayoutEngine:
         has_flavor = bool(flavor_text and flavor_text.strip())
         flavor_text_clean = flavor_text.strip() if has_flavor else ''
 
+        # Identify "outlier" abilities — bodies that are significantly longer
+        # than the median. The interleaved Strategy 1 outlier probe (and the
+        # fallback Strategy 2b) shrink only these so the rest of the row can
+        # stay at a larger, more readable size.
+        if n:
+            ability_char_counts = [len(a.body) for a in abilities]
+            _sorted_counts = sorted(ability_char_counts)
+            _median = (
+                _sorted_counts[n // 2] if n % 2 == 1 else
+                (_sorted_counts[n // 2 - 1] + _sorted_counts[n // 2]) / 2
+            )
+            outlier_idx = {
+                i for i, c in enumerate(ability_char_counts)
+                if _median > 0 and c > ABILITY_OUTLIER_RATIO * _median
+            }
+        else:
+            outlier_idx = set()
+
         def reserve_flavor(flavor_size, box_h):
             """Return (flavor_w, flavor_style, available_w_for_abilities,
             flavor_used_h) for the given flavor size and bar height."""
@@ -5758,44 +5937,109 @@ class SheetLayoutEngine:
                 avail -= (crafted_w + ABILITY_GAP)
             return fw, fs, avail, fh
 
-        # Build the joint walk: same-level body+flavor with half-step where
-        # flavor is one size below body. Stop when both at floor.
-        # E.g. body MAX=11, flavor MAX=11, body MIN=5, flavor MIN=6:
-        # (11,11), (11,10), (10,10), (10,9), ..., (6,6), (5,6)
-        walk = []
-        for body_size in range(ABILITY_BODY_MAX_SIZE, ABILITY_BODY_MIN_SIZE - 1, -1):
-            flavor_full = max(min(body_size, FLAVOR_TEXT_MAX_SIZE), FLAVOR_TEXT_BASE_SIZE)
-            walk.append((body_size, flavor_full))
-            flavor_half = max(flavor_full - 1, FLAVOR_TEXT_BASE_SIZE)
-            if flavor_half < flavor_full:
-                walk.append((body_size, flavor_half))
+        # Strategy 1 walk is body-only. Flavor's font size is derived from the
+        # row's max body size (clamped to flavor's own MIN/MAX), so the two
+        # shrink in lockstep — flavor never grows larger than the largest
+        # ability in the row. A separate bump-up after pack() can grow flavor
+        # back up if the assigned flavor_w / box_h have headroom.
+        def _coupled_flavor_size(row_max_body):
+            return max(
+                FLAVOR_TEXT_BASE_SIZE,
+                min(FLAVOR_TEXT_MAX_SIZE, row_max_body),
+            )
 
-        def try_step(body_size, flavor_size, box_h):
-            """Test one walk step. Returns (widths, sizes, flavor_w, flavor_style,
-            flavor_used_h, fits) at default box_h."""
-            fw, fs, avail, fh = reserve_flavor(flavor_size, box_h)
-            sizes = [body_size] * n if n else []
-            widths = (
-                self._calculate_ability_widths(abilities, avail, icon_w)
-                if n else []
+        body_sizes = list(range(ABILITY_BODY_MAX_SIZE, ABILITY_BODY_MIN_SIZE - 1, -1))
+        walk = [(bs, _coupled_flavor_size(bs)) for bs in body_sizes]
+
+        def _try_alloc_with_sizes(sizes_per_ability, flavor_size, box_h):
+            """Shared Strategy 1 inner step. Lays out abilities at the given
+            per-ability body sizes against ``box_h``, with flavor competing
+            in the same proportional allocator. Pass uniform sizes for the
+            uniform-fit path or mixed sizes for an outlier variant.
+
+            char-weight per ability is scaled by its body size relative to
+            MAX so shrunk abilities claim proportionally less horizontal
+            space (matches the existing size_weights logic in
+            _calculate_ability_widths).
+
+            Returns (ability_widths, sizes, flavor_w, flavor_style,
+            flavor_used_h, fits).
+            """
+            base_available = bar_w
+            if crafted_w:
+                base_available -= (crafted_w + ABILITY_GAP)
+
+            flavor_style = self._flavor_style_at_size(flavor_size) if has_flavor else None
+            row_max_for_flavor = (
+                max(sizes_per_ability) if sizes_per_ability else ABILITY_BODY_MAX_SIZE
             )
+            # size_weights matter only for non-uniform rows (outlier variants)
+            # — in the uniform case every ability has the same size so the
+            # weight is the same multiplier and cancels out, but keeping the
+            # weight at 1.0 also matches the equal-split fast-path historical
+            # behavior in _calculate_ability_widths.
+            uniform_row = (
+                not sizes_per_ability
+                or all(s == sizes_per_ability[0] for s in sizes_per_ability)
+            )
+
+            items = []
+            for i, a in enumerate(abilities):
+                title_w = pdfmetrics.stringWidth(a.title, 'Baskerville', 8)
+                if uniform_row or not sizes_per_ability:
+                    weight = 1.0
+                else:
+                    weight = sizes_per_ability[i] / ABILITY_BODY_MAX_SIZE
+                items.append({
+                    'char_weight': len(a.body) * weight,
+                    'min_w': max(MIN_ABILITY_BOX_W, title_w + icon_w + 4),
+                })
+            if has_flavor:
+                items.append({
+                    'char_weight': self._flavor_char_weight(
+                        flavor_text_clean, row_max_for_flavor, flavor_size, box_h,
+                    ),
+                    'min_w': MIN_FLAVOR_TEXT_W,
+                })
+
+            widths_all = self._calculate_item_widths(items, base_available)
+            ability_widths = widths_all[:n]
+            flavor_w = widths_all[n] if has_flavor else 0
+
             ability_fit = (n == 0) or self._all_fit(
-                abilities, widths, icon_w, box_h, sizes
+                abilities, ability_widths, icon_w, box_h, sizes_per_ability
             )
-            flavor_fit = (not has_flavor) or fh <= (box_h - 2 * FLAVOR_TEXT_PADDING)
-            return widths, sizes, fw, fs, fh, ability_fit and flavor_fit
+            flavor_used_h = 0
+            flavor_fit = True
+            if has_flavor:
+                pad = FLAVOR_TEXT_PADDING * 2
+                p = Paragraph(flavor_text_clean, flavor_style)
+                _, flavor_used_h = p.wrap(max(flavor_w - pad, 1), 9999)
+                flavor_fit = flavor_used_h <= (box_h - pad)
+
+            return (
+                ability_widths, list(sizes_per_ability), flavor_w, flavor_style,
+                flavor_used_h, ability_fit and flavor_fit,
+            )
+
+        def try_step_alloc(body_size, flavor_size, box_h):
+            """Uniform-body Strategy 1 probe."""
+            return _try_alloc_with_sizes([body_size] * n, flavor_size, box_h)
+
+        def try_outlier_alloc(non_size, out_size, flavor_size, box_h):
+            """Outlier-shrink Strategy 1 probe: non-outliers at ``non_size``,
+            outliers at ``out_size`` (must be < non_size)."""
+            sizes = [out_size if i in outlier_idx else non_size for i in range(n)]
+            return _try_alloc_with_sizes(sizes, flavor_size, box_h)
 
         def bump_up_sizes(widths, sizes, box_h):
-            """For each ability, find the largest size up to MAX that still
-            fits at its assigned width and box_h. Returns a new list."""
+            """For each ability, find the largest integer size up to MAX
+            that still fits at its assigned width and box_h. Returns a new
+            list."""
             bumped = list(sizes)
             for i, a in enumerate(abilities):
                 cur = bumped[i]
                 avail_w = widths[i] - icon_w
-                # Title size will be unified after bump-up, so measure with
-                # the eventual unified title size derived from the row max.
-                # Use per-trial title size here; titles will be re-measured
-                # below if the row max changes during the pass.
                 for trial in range(ABILITY_BODY_MAX_SIZE, cur, -1):
                     ts, bs = self._make_ability_styles(trial)
                     if self._measure_ability(a, avail_w, ts, bs) <= box_h:
@@ -5803,16 +6047,36 @@ class SheetLayoutEngine:
                         break
             return bumped
 
+        faction_label = getattr(getattr(self, 'sheet', None), 'faction', None)
+        faction_label = getattr(faction_label, 'faction_name', '?')
+
+        def _log(strategy, body_size=None, flavor_size=None, box_h=None,
+                 extra=''):
+            parts = [f'[ability-bar] {faction_label!r} → {strategy}']
+            if body_size is not None:
+                parts.append(f'body={body_size}')
+            if flavor_size is not None:
+                parts.append(f'flavor={flavor_size}')
+            if box_h is not None:
+                parts.append(f'box_h={box_h:.1f}')
+            if extra:
+                parts.append(extra)
+            print(' '.join(parts))
+
         def pack(widths, sizes, box_h, flavor_w, flavor_style, flavor_size):
-            # When the global solver landed at or below MIN, short abilities
-            # may have headroom. Bump each one up individually to the largest
-            # size that still fits. Titles stay in lockstep at the row max.
-            if sizes and min(sizes) <= ABILITY_BODY_MIN_SIZE:
-                sizes = bump_up_sizes(widths, sizes, box_h)
+            # Per-ability bump-up: for each ability, find the largest body
+            # size up to ABILITY_BODY_MAX_SIZE that still fits at its assigned
+            # width. Runs whenever there are abilities — short abilities may
+            # have headroom even when the row-min sat above MIN.
+            if sizes:
+                before = list(sizes)
+                bumped = bump_up_sizes(widths, sizes, box_h)
+                sizes = bumped
                 # After bump-up, re-validate with the unified title size
                 # (titles all match the largest body in the row). A larger
                 # unified title may push a previously-fitting ability over —
                 # walk back individually until each fits with that title.
+                walked_back = False
                 while sizes:
                     row_max = max(sizes)
                     unified_title = self._ability_title_size_for_body(row_max)
@@ -5823,9 +6087,50 @@ class SheetLayoutEngine:
                             if sizes[i] > ABILITY_BODY_HARD_FLOOR:
                                 sizes[i] -= 1
                                 overflow = True
+                                walked_back = True
                                 break
                     if not overflow:
                         break
+                if sizes == before:
+                    _log('bump-up: no change (already at best fit)',
+                         extra=f'sizes={sizes}')
+                elif walked_back:
+                    if any(s > b for s, b in zip(sizes, before)):
+                        _log('bump-up: partial (some raised, some walked back)',
+                             extra=f'before={before} after={sizes}')
+                    else:
+                        _log('bump-up: failed (raises rolled back below baseline)',
+                             extra=f'before={before} after={sizes}')
+                else:
+                    _log('bump-up: success',
+                         extra=f'before={before} after={sizes}')
+
+            # Flavor bump-up: after abilities settle, see if flavor can grow
+            # within its already-assigned column (flavor_w × box_h). Coupling
+            # flavor to body during the walk means flavor often sat below
+            # FLAVOR_TEXT_MAX_SIZE; if the column has headroom, raise it.
+            # Same half-step probe as the ability bump-up.
+            if has_flavor and flavor_w > 0 and flavor_size < FLAVOR_TEXT_MAX_SIZE:
+                pad = FLAVOR_TEXT_PADDING * 2
+                usable_w = max(flavor_w - pad, 1)
+                usable_h = box_h - pad
+                before_flavor = flavor_size
+
+                for trial in range(FLAVOR_TEXT_MAX_SIZE, flavor_size, -1):
+                    trial_style = self._flavor_style_at_size(trial)
+                    p = Paragraph(flavor_text_clean, trial_style)
+                    _, h = p.wrap(usable_w, 9999)
+                    if h <= usable_h:
+                        flavor_style = trial_style
+                        flavor_size = trial
+                        break
+                if flavor_size != before_flavor:
+                    _log('flavor bump-up: success',
+                         extra=f'before={before_flavor} after={flavor_size}')
+                else:
+                    _log('flavor bump-up: no change',
+                         extra=f'flavor_size={flavor_size}')
+
             title_size = (
                 self._ability_title_size_for_body(max(sizes)) if sizes else None
             )
@@ -5840,15 +6145,45 @@ class SheetLayoutEngine:
             }
 
         if n == 0 and not has_flavor:
+            _log('empty (no abilities, no flavor)', box_h=default_box_h)
             return pack([], [], default_box_h, 0, None, FLAVOR_TEXT_MAX_SIZE)
 
-        # Strategy 1 — joint walk at default box_h.
+        # Strategy 1 — joint NN walk at default box_h. At each (body, flavor)
+        # step we first try uniform body sizes; if uniform fails and outliers
+        # exist, we probe outlier-shrink variants at the SAME non-outlier
+        # size with the outlier shrunk by 1 or 2 (MAX_OUTLIER_GAP = 2). This
+        # interleaves the outlier search with the NN walk so we keep the
+        # majority of abilities at the largest readable size whenever the
+        # row has a single long outlier dragging the uniform size down.
+        MAX_OUTLIER_GAP = 2
+
+        def _try_step1_variants(body_size, flavor_size, box_h):
+            """Return (variant, fits) where variant is the result tuple from
+            _try_alloc_with_sizes and fits is True if any variant at this
+            step fits. Prefers uniform; falls back to gap-1 then gap-2
+            outlier shrinks only when uniform fails and outliers exist."""
+            uniform = try_step_alloc(body_size, flavor_size, box_h)
+            if uniform[5]:  # uniform fits
+                return uniform, 'uniform'
+            if not outlier_idx:
+                return uniform, None
+            for gap in range(1, MAX_OUTLIER_GAP + 1):
+                out_size = body_size - gap
+                if out_size < ABILITY_BODY_MIN_SIZE:
+                    break
+                variant = try_outlier_alloc(body_size, out_size, flavor_size, box_h)
+                if variant[5]:
+                    return variant, f'outlier (non={body_size}, out={out_size}, gap={gap})'
+            return uniform, None
+
         for step_idx, (body_size, flavor_size) in enumerate(walk):
-            widths, sizes, fw, fs, fh, fits = try_step(body_size, flavor_size, default_box_h)
+            variant, label = _try_step1_variants(body_size, flavor_size, default_box_h)
+            widths, sizes, fw, fs, fh, fits = variant
             if fits:
-                # Strategy 0 — only at the very first (max,max) step, with no
-                # crafted items: try one flavor-shrink to reclaim vertical space.
-                if step_idx == 0 and not has_crafted:
+                # Strategy 0 — only at the very first step, with no crafted
+                # items AND a uniform fit: shrink box_h down to what's
+                # actually used so phases can move up.
+                if step_idx == 0 and not has_crafted and label == 'uniform':
                     used_abil = max(
                         (self._measure_ability(
                             a, widths[i] - icon_w, *self._make_ability_styles(body_size)
@@ -5857,42 +6192,19 @@ class SheetLayoutEngine:
                     )
                     used = max(used_abil, fh)
                     needed = used + 2 * ABILITY_BAR_MIN_PAD
-                    # Try the half-step (flavor 1 smaller) — only if it
-                    # measurably reduces the box_h needed.
-                    if has_flavor and flavor_size > FLAVOR_TEXT_BASE_SIZE:
-                        f2_size = flavor_size - 1
-                        w2, s2, fw2, fs2, fh2, f2_fits = try_step(
-                            body_size, f2_size, default_box_h
-                        )
-                        if f2_fits:
-                            used2 = max(
-                                max(
-                                    (self._measure_ability(
-                                        a, w2[i] - icon_w,
-                                        *self._make_ability_styles(body_size)
-                                    ) for i, a in enumerate(abilities)),
-                                    default=0,
-                                ),
-                                fh2,
-                            )
-                            needed2 = used2 + 2 * ABILITY_BAR_MIN_PAD
-                            if needed2 < needed:
-                                if needed2 < default_box_h:
-                                    return pack(w2, s2, needed2, fw2, fs2, f2_size)
-                                return pack(w2, s2, default_box_h, fw2, fs2, f2_size)
                     if needed < default_box_h:
+                        _log('Strategy 0 (reclaim box_h)',
+                             body_size=body_size, flavor_size=flavor_size, box_h=needed)
                         return pack(widths, sizes, needed, fw, fs, flavor_size)
+                _log(f'Strategy 1 NN walk fit (step {step_idx}, {label})',
+                     body_size=sizes, flavor_size=flavor_size, box_h=default_box_h)
                 return pack(widths, sizes, default_box_h, fw, fs, flavor_size)
 
-        # Strategy 2 — outlier shrink. Flavor pinned at non_outlier_size - 1
-        # (clamped to FLAVOR_TEXT_BASE_SIZE).
-        char_counts = [len(a.body) for a in abilities]
-        sorted_counts = sorted(char_counts)
-        median_chars = sorted_counts[n // 2] if n % 2 == 1 else (
-            (sorted_counts[n // 2 - 1] + sorted_counts[n // 2]) / 2
-        )
-        outlier_idx = {i for i, c in enumerate(char_counts)
-                       if median_chars > 0 and c > ABILITY_OUTLIER_RATIO * median_chars}
+        # Strategy 2b — last-resort outlier shrink at default box_h. The
+        # interleaved Strategy 1 outlier probe (with gap cap) covers the
+        # quality cases; this fallback path uses the legacy reserve_flavor
+        # allocator and is only reached when Strategy 1 and Strategy 3 both
+        # fail outright.
 
         def try_outlier(min_outlier_size):
             """Search outlier-shrink combinations with outlier floor = min_outlier_size.
@@ -5916,11 +6228,8 @@ class SheetLayoutEngine:
                         return pack(new_widths, sizes_, default_box_h, fw_, fs_, flavor_size)
             return None
 
-        # Strategy 2a — outlier shrink, but never below MIN (readable floor).
-        if outlier_idx:
-            result = try_outlier(ABILITY_BODY_MIN_SIZE)
-            if result is not None:
-                return result
+        # (Strategy 2a is now interleaved into Strategy 1 above; the
+        # standalone outlier ≥ MIN pass is no longer needed.)
 
         # Strategy 3 — extend box_h. Flavor at its floor since we're spending
         # vertical real estate already.
@@ -5939,6 +6248,9 @@ class SheetLayoutEngine:
         needed = max(used_abil, fh) + 2 * ABILITY_BAR_MIN_PAD
         new_box_h = min(needed, max_box_h)
         if self._all_fit(abilities, widths, icon_w, new_box_h, sizes):
+            _log('Strategy 3 (extend box_h)',
+                 body_size=ABILITY_BODY_MIN_SIZE,
+                 flavor_size=flavor_size, box_h=new_box_h)
             return pack(widths, sizes, new_box_h, fw, fs, flavor_size)
 
         # Strategy 2b — last resort: outlier below MIN, down to HARD_FLOOR.
@@ -5947,9 +6259,16 @@ class SheetLayoutEngine:
         if outlier_idx:
             result = try_outlier(ABILITY_BODY_HARD_FLOOR)
             if result is not None:
+                _log('Strategy 2b (outlier shrink, ≥ HARD_FLOOR)',
+                     body_size=result.get('sizes'),
+                     flavor_size=getattr(result.get('flavor_style'), 'fontSize', None),
+                     box_h=result.get('box_h'))
                 return result
 
         # Strategy 4 — accept overflow at the cap.
+        _log('Strategy 4 (overflow at cap)',
+             body_size=ABILITY_BODY_MIN_SIZE,
+             flavor_size=flavor_size, box_h=max_box_h)
         return pack(widths, sizes, max_box_h, fw, fs, flavor_size)
 
     def _draw_ability_boxes(self, c):
@@ -6014,7 +6333,7 @@ class SheetLayoutEngine:
                 # Flow title + body text to the right of the icon
                 story = [
                     Paragraph(f"<b>{ability.title}</b>", title_style),
-                    Paragraph(format_inline_images(ability.body, sheet=self.sheet), body_style),
+                    Paragraph(format_inline_images(ability.body, img_height=ABILITY_INLINE_IMG_H, sheet=self.sheet), body_style),
                 ]
                 frame = Frame(
                     x + icon_w, box_y,
@@ -6401,7 +6720,7 @@ class SheetLayoutEngine:
         else:
             cx = x + CARD_SLOT_W / 2
             cy = y + CARD_SLOT_H / 2
-        self.record_slot_snap_point(cx, cy)
+        self.record_slot_snap_point(cx, cy, pile=pile)
 
     def _draw_card_piles(self, c):
         if not self.card_piles:
@@ -6789,7 +7108,7 @@ class FactionBackLayoutEngine:
         self.faction_color = HexColor(self.color_hex)
         self._lang_code = _lang_code_for(self.faction)
 
-        pieces = self._resolve_pieces(faction_back)
+        pieces = self._resolve_pieces(self.faction)
         self._pieces_by_col = []
         for label_key, types in self.PIECE_COLUMNS:
             title = self._label(label_key, label_key.title())
@@ -8086,6 +8405,7 @@ class ComponentsSheetLayoutEngine:
         self.back = getattr(faction, 'faction_back', None)
         self.print_backs = bool(getattr(faction, 'print_component_backs', False))
         self.card_preview_path = card_preview_path
+        self.faction_color = HexColor(faction.color or '#5B4A8A')
 
     def _build_grid_slots(self):
         """Slot order: VP marker, relationship marker, then each B/T piece
@@ -8098,18 +8418,17 @@ class ComponentsSheetLayoutEngine:
         rel_path = _resolve_image_path(getattr(self.faction, 'relationship_marker', None))
         if rel_path:
             slots.append({'kind': 'marker', 'front': rel_path, 'back': rel_path})
-        if self.back is not None:
-            for piece in self.back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
-                front = _resolve_image_path(getattr(piece, 'small_icon', None))
-                back = _resolve_image_path(getattr(piece, 'back_image', None)) or front
-                qty = getattr(piece, 'quantity', 1) or 1
-                for _ in range(qty):
-                    slots.append({
-                        'kind': 'piece',
-                        'piece_type': piece.type,
-                        'front': front,
-                        'back': back,
-                    })
+        for piece in self.faction.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
+            front = _resolve_image_path(getattr(piece, 'small_icon', None))
+            back = _resolve_image_path(getattr(piece, 'back_image', None)) or front
+            qty = getattr(piece, 'quantity', 1) or 1
+            for _ in range(qty):
+                slots.append({
+                    'kind': 'piece',
+                    'piece_type': piece.type,
+                    'front': front,
+                    'back': back,
+                })
         return slots
 
     def _paginate(self, slots):
@@ -8199,20 +8518,28 @@ class ComponentsSheetLayoutEngine:
             except Exception:
                 pass
 
-    def _draw_image_in_cell(self, c, path, x, y, circular=False):
+    def _draw_image_in_cell(self, c, path, x, y, circular=False, piece_type=None):
         """Draw `path` centered inside a TRACK_SLOT_SIZE cell anchored at (x, y),
         preserving aspect ratio. Tokens (`circular=True`) clip to a circle;
-        everything else clips to a 15%-radius rounded rect."""
+        everything else clips to a 15%-radius rounded rect. When `path` is
+        missing and `piece_type` is 'B' or 'T', render a solid faction-colored
+        placeholder of the appropriate shape."""
+        cell = TRACK_SLOT_SIZE
         if not path:
+            if piece_type in ('B', 'T'):
+                self._draw_piece_placeholder(c, x, y, cell, circular=circular)
             return
         from reportlab.lib.utils import ImageReader
         try:
             iw, ih = ImageReader(path).getSize()
         except Exception:
+            if piece_type in ('B', 'T'):
+                self._draw_piece_placeholder(c, x, y, cell, circular=circular)
             return
         if iw <= 0 or ih <= 0:
+            if piece_type in ('B', 'T'):
+                self._draw_piece_placeholder(c, x, y, cell, circular=circular)
             return
-        cell = TRACK_SLOT_SIZE
         scale = min(cell / iw, cell / ih)
         dw = iw * scale
         dh = ih * scale
@@ -8229,6 +8556,16 @@ class ComponentsSheetLayoutEngine:
         c.clipPath(p, stroke=0, fill=0)
         c.drawImage(path, dx, dy, width=dw, height=dh,
                     preserveAspectRatio=True, mask='auto')
+        c.restoreState()
+
+    def _draw_piece_placeholder(self, c, x, y, cell, circular=False):
+        c.saveState()
+        c.setFillColor(self.faction_color)
+        if circular:
+            c.circle(x + cell / 2, y + cell / 2, cell / 2, stroke=0, fill=1)
+        else:
+            radius = cell * 0.15
+            c.roundRect(x, y, cell, cell, radius, stroke=0, fill=1)
         c.restoreState()
 
     def build(self, output_path):
@@ -8251,8 +8588,9 @@ class ComponentsSheetLayoutEngine:
             if i == 0 and has_card:
                 self._draw_card_with_rounded_corners(c, self.card_preview_path, card_x, card_y)
             for slot, x, y in page_items:
-                circular = slot.get('piece_type') == 'T'
-                self._draw_image_in_cell(c, slot['front'], x, y, circular=circular)
+                piece_type = slot.get('piece_type')
+                circular = piece_type == 'T'
+                self._draw_image_in_cell(c, slot['front'], x, y, circular=circular, piece_type=piece_type)
             c.showPage()
 
             if not self.print_backs:
@@ -8264,8 +8602,91 @@ class ComponentsSheetLayoutEngine:
                 self._draw_card_with_rounded_corners(c, adset_path, xb, card_y)
             for slot, x, y in page_items:
                 xb = page_w - x - TRACK_SLOT_SIZE
-                circular = slot.get('piece_type') == 'T'
-                self._draw_image_in_cell(c, slot['back'], xb, y, circular=circular)
+                piece_type = slot.get('piece_type')
+                circular = piece_type == 'T'
+                self._draw_image_in_cell(c, slot['back'], xb, y, circular=circular, piece_type=piece_type)
             c.showPage()
 
+        c.save()
+
+
+# ---------- Forged custom-deck cards PDF ----------
+
+class ForgedCardsLayoutEngine:
+    """Lays out as many uploaded card fronts as fit on a landscape letter
+    page at the SetupCardLayoutEngine physical dimensions (poker card /
+    mini-tarot size). Cards are tiled edge-to-edge with no gutters so a
+    print shop can guillotine along straight gridlines, then the whole
+    grid is centered on the page.
+    """
+
+    PAGE_MARGIN = 0.25 * inch
+
+    def __init__(self, faction):
+        self.faction = faction
+        self.page_w, self.page_h = landscape(letter)
+        usable_w = self.page_w - 2 * self.PAGE_MARGIN
+        usable_h = self.page_h - 2 * self.PAGE_MARGIN
+        self.cols = max(1, int(usable_w // CARD_SLOT_W))
+        self.rows = max(1, int(usable_h // CARD_SLOT_H))
+        grid_w = self.cols * CARD_SLOT_W
+        grid_h = self.rows * CARD_SLOT_H
+        # Center the grid; the leftover space splits evenly into margins.
+        self.grid_origin_x = (self.page_w - grid_w) / 2
+        self.grid_origin_y = (self.page_h - grid_h) / 2
+
+    def _iter_card_image_paths(self):
+        from .models import ForgedDeckGroup
+        groups = (
+            ForgedDeckGroup.objects
+            .filter(piece__faction=self.faction, piece__type='C')
+            .order_by('piece__pk')
+        )
+        for group in groups:
+            for card in group.cards.all().order_by('order'):
+                img = card.front_image
+                if not img:
+                    continue
+                path_val = getattr(img, 'path', None) or (img if isinstance(img, str) else None)
+                if path_val and os.path.exists(path_val):
+                    yield path_val
+
+    def has_cards(self):
+        return any(True for _ in self._iter_card_image_paths())
+
+    def _card_origin(self, slot_index):
+        """Top-down reading order: row 0 is the top of the page, col 0 is left."""
+        col = slot_index % self.cols
+        row = slot_index // self.cols
+        x = self.grid_origin_x + col * CARD_SLOT_W
+        # PDF y-axis points up; lay out rows from the top of the grid.
+        y = self.grid_origin_y + (self.rows - 1 - row) * CARD_SLOT_H
+        return x, y
+
+    def _draw_card(self, c, path, x, y):
+        # No corner radius — cards butt against each other and get cut along
+        # straight gridlines.
+        c.drawImage(
+            path, x, y,
+            width=CARD_SLOT_W, height=CARD_SLOT_H,
+            preserveAspectRatio=True, mask='auto',
+        )
+
+    def build(self, output_path):
+        c = rl_canvas.Canvas(output_path, pagesize=(self.page_w, self.page_h))
+        per_page = self.cols * self.rows
+        any_drawn = False
+        slot_on_page = 0
+        for path in self._iter_card_image_paths():
+            x, y = self._card_origin(slot_on_page)
+            self._draw_card(c, path, x, y)
+            any_drawn = True
+            slot_on_page += 1
+            if slot_on_page >= per_page:
+                c.showPage()
+                slot_on_page = 0
+        # Flush any partial final page; emit a blank page if nothing rendered
+        # (reportlab requires at least one page).
+        if slot_on_page > 0 or not any_drawn:
+            c.showPage()
         c.save()

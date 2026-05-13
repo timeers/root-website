@@ -212,6 +212,16 @@ TOKEN_SCALE = 0.703911364
 
 PIECE_TYPE_TO_TRACK_TYPE = {'B': 'building', 'T': 'token'}
 
+MARKER_FALLBACK_ORIGIN_X = 13.0
+MARKER_FALLBACK_ORIGIN_Z = 12.0
+MARKER_GROUP_X_STEP = 1.5
+
+# Fallback spawn location for ForgedDeckGroup decks that don't match a
+# CardPile snap point. Sits north of the marker stack (higher Z in TTS world coords) so it doesn't overlap the markers; subsequent decks step east (higher X).
+DECK_FALLBACK_ORIGIN_X = MARKER_FALLBACK_ORIGIN_X + 1.5
+DECK_FALLBACK_ORIGIN_Z = MARKER_FALLBACK_ORIGIN_Z + 5.0  # ~5u north of markers
+DECK_FALLBACK_X_STEP = 6.5
+
 
 class TTSForgedPiece:
     """Builds TTS Custom_Token / Custom_Tile dicts for a Piece.
@@ -231,7 +241,7 @@ class TTSForgedPiece:
         return TOKEN_SCALE if self._is_token() else BUILDING_SCALE
 
     def _color_diffuse(self):
-        faction_color = getattr(self.piece.parent.faction, 'color', None)
+        faction_color = getattr(self.piece.faction, 'color', None)
         return _hex_to_rgb_floats(faction_color)
 
     def _custom_image(self):
@@ -304,6 +314,73 @@ class TTSForgedPiece:
         })
 
 
+class TTSForgedMarker:
+    """Builds a TTS Custom_Tile dict for a faction's VP or Relationship marker.
+
+    Same shape as a building piece (CustomTile.Type=3, square, BUILDING_SCALE),
+    using the faction's color as ColorDiffuse and the marker image as ImageURL.
+    """
+
+    def __init__(self, faction, image_field, nickname, request=None):
+        self.faction = faction
+        self.image_field = image_field
+        self.nickname = nickname
+        self.request = request
+
+    def _color_diffuse(self):
+        return _hex_to_rgb_floats(getattr(self.faction, 'color', None))
+
+    def _custom_image(self):
+        return {
+            "ImageURL": tts_image_url(self.image_field, request=self.request),
+            "ImageSecondaryURL": "",
+            "ImageScalar": 1.0,
+            "WidthScale": 0.0,
+            "CustomTile": {
+                "Type": 3,
+                "Thickness": 0.1,
+                "Stackable": False,
+                "Stretch": True,
+            },
+        }
+
+    def at_world_point(self, world_x, world_z):
+        return {
+            "GUID": generate_tts_guid(),
+            "Name": "Custom_Tile",
+            "Transform": {
+                "posX": world_x,
+                "posY": PIECE_BASE_Y,
+                "posZ": world_z,
+                "rotX": 0.0, "rotY": PIECE_ROT_Y, "rotZ": 0.0,
+                "scaleX": BUILDING_SCALE, "scaleY": 1.0, "scaleZ": BUILDING_SCALE,
+            },
+            "Nickname": self.nickname,
+            "Description": "",
+            "GMNotes": "",
+            "AltLookAngle": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "ColorDiffuse": self._color_diffuse(),
+            "LayoutGroupSortIndex": 0,
+            "Value": 0,
+            "Locked": False,
+            "Grid": True,
+            "Snap": True,
+            "IgnoreFoW": False,
+            "MeasureMovement": False,
+            "DragSelectable": True,
+            "Autoraise": True,
+            "Sticky": True,
+            "Tooltip": True,
+            "GridProjection": False,
+            "HideWhenFaceDown": False,
+            "Hands": False,
+            "CustomImage": self._custom_image(),
+            "LuaScript": "",
+            "LuaScriptState": "",
+            "XmlUI": "",
+        }
+
+
 def _norm_name(s):
     """HTML-stripped, whitespace-trimmed, lowercased — matching key."""
     if not s:
@@ -334,7 +411,7 @@ def place_pieces_for_back(back, sheet, request):
     get placed at that track's snap points; everything else falls back to an
     offset stack next to the board.
     """
-    pieces = list(back.pieces.filter(type__in=['B', 'T']).order_by('type', 'pk'))
+    pieces = list(back.faction.pieces.filter(type__in=['B', 'T']).order_by('type', 'pk'))
     if not pieces:
         return []
 
@@ -393,4 +470,29 @@ def place_pieces_for_back(back, sheet, request):
         for copy_index in range(remaining):
             objects.append(builder.at_fallback_stack(fallback_index, copy_index))
 
+    return objects
+
+
+def place_markers_for_faction(faction, request):
+    """Return TTS object dicts for the faction's VP and Relationship markers.
+
+    Markers stack east of the faction board, mirroring the piece fallback
+    stacks that sit west of it. Missing markers are skipped.
+    """
+    candidates = [
+        (getattr(faction, 'vp_marker', None),
+         f"{faction.faction_name or 'Faction'} VP"),
+        (getattr(faction, 'relationship_marker', None),
+         f"{faction.faction_name or 'Faction'} Relationship"),
+    ]
+    objects = []
+    group_index = 0
+    for image_field, nickname in candidates:
+        if not image_field:
+            continue
+        world_x = MARKER_FALLBACK_ORIGIN_X + group_index * MARKER_GROUP_X_STEP
+        world_z = MARKER_FALLBACK_ORIGIN_Z
+        builder = TTSForgedMarker(faction, image_field, nickname, request=request)
+        objects.append(builder.at_world_point(world_x, world_z))
+        group_index += 1
     return objects

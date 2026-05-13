@@ -11,11 +11,34 @@ PDF_CACHE_TTL = 60 * 60 * 24
 PDF_CACHE_MAX_BYTES = 25 * 1024 * 1024
 
 
+# Fields that change as a side-effect of generating a preview (or get bumped
+# by Django auto_now hooks). Including them in the fingerprint would make the
+# fingerprint self-referential: saving the preview mutates the fingerprint
+# inputs, so the next call would compute a different digest and invalidate
+# the cache we just populated.
+_FINGERPRINT_EXCLUDE_FIELDS = frozenset({
+    'preview_fingerprint',
+    'preview_version',
+    'image_preview',
+    'last_generated',
+    'last_updated',
+    'decree_fingerprint',
+    'decree_preview',
+    'snap_points',
+    'decree_slide_pts',
+    'ability_bar_extra_h_pts',
+})
+
+
 def _serialize_instance(obj):
     if obj is None:
         return None
     data = model_to_dict(obj)
-    for k, v in list(data.items()):
+    for k in list(data.keys()):
+        if k in _FINGERPRINT_EXCLUDE_FIELDS:
+            del data[k]
+            continue
+        v = data[k]
         if hasattr(v, 'name'):
             data[k] = v.name or ''
     return data
@@ -75,11 +98,9 @@ def fingerprint_setup_card(card):
 
 def fingerprint_components_sheet(faction):
     card = getattr(faction, 'setup_card', None)
-    back = getattr(faction, 'faction_back', None)
     pieces = []
-    if back is not None:
-        for p in back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
-            pieces.append((p.pk, p.front_version, p.back_version, p.quantity, p.type))
+    for p in faction.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
+        pieces.append((p.pk, p.front_version, p.back_version, p.quantity, p.type))
     return _digest({
         'card_fp': fingerprint_setup_card(card) if card else '',
         'markers_version': faction.markers_version,
@@ -88,6 +109,37 @@ def fingerprint_components_sheet(faction):
         'print_backs': bool(faction.print_component_backs),
         'pieces': pieces,
     })
+
+
+def fingerprint_cards(faction):
+    """Fingerprint every ForgedCard belonging to card-type Pieces on this
+    faction. Includes file mtime so re-uploading an image (which may keep the
+    same path on overwrite) still busts the cache."""
+    import os
+    from .models import ForgedDeckGroup
+    payload = []
+    groups = (
+        ForgedDeckGroup.objects
+        .filter(piece__faction=faction, piece__type='C')
+        .order_by('piece__pk')
+    )
+    for group in groups:
+        group_entry = {
+            'group_pk': group.pk,
+            'group_name': group.name,
+            'back_image': group.back_image.name if group.back_image else '',
+            'cards': [],
+        }
+        for card in group.cards.all().order_by('order'):
+            path = getattr(card.front_image, 'path', None) if card.front_image else None
+            mtime = os.path.getmtime(path) if path and os.path.exists(path) else 0
+            group_entry['cards'].append((
+                card.pk, card.order, card.name or '', card.text or '',
+                card.front_image.name if card.front_image else '',
+                mtime,
+            ))
+        payload.append(group_entry)
+    return _digest({'groups': payload})
 
 
 def _sheet_payload(sheet):
@@ -145,7 +197,7 @@ def _back_payload(back):
     return {
         'faction': _serialize_instance(back.faction),
         'back': _serialize_instance(back),
-        'pieces': _serialize_qs(back.pieces.all(), order_by=('pk',)),
+        'pieces': _serialize_qs(back.faction.pieces.all(), order_by=('pk',)),
         'setup_steps': _serialize_qs(back.setup_steps.all(), order_by=('number', 'pk')),
     }
 

@@ -12,14 +12,25 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
 from django.views.decorators.http import require_http_methods
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.urls import reverse
 from the_gatehouse.views import admin_onboard_required, forge_onboard_required, player_required
 from .inline_images import picker_image_map, picker_keywords, sheet_inline_images, sheet_picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
 
+from the_gatehouse.models import MessageChoices, UserNotification
 from the_gatehouse.utils import build_absolute_uri
+from the_keep.models import Faction, PostTranslation
 from the_keep.utils import delete_old_image
 from the_gatehouse.tasks import send_discord_message_task, send_rich_discord_message_task
+
+from .forms_publish import (
+    ForgedFactionLinkForm,
+    ForgedFactionSubmitForm,
+    ForgedFactionSyncForm,
+    submit_prerequisites_missing,
+)
 
 from .forms import (
     BorderedBoxForm,
@@ -36,6 +47,8 @@ from .forms import (
     FactionHeaderForm,
     FactionMarkersForm,
     ForgedFactionForm,
+    ForgedDeckGroupForm,
+    ForgedCardForm,
     LegendForm,
     LegendRowForm,
     PhaseStepCostImageForm,
@@ -82,6 +95,8 @@ from .models import (
     FactionBack,
     FactionSheet,
     ForgedFaction,
+    ForgedDeckGroup,
+    ForgedCard,
     Legend,
     LegendRow,
     PhaseStep,
@@ -103,7 +118,8 @@ def _faction_for(obj):
     if isinstance(obj, ForgedFaction):
         return obj
     for attr in ('faction', 'sheet', 'step', 'legend', 'scale',
-                 'track', 'parent', 'decree', 'card', 'faction_back'):
+                 'track', 'parent', 'decree', 'card', 'faction_back',
+                 'piece', 'group'):
         parent = getattr(obj, attr, None)
         if parent is not None:
             return _faction_for(parent)
@@ -324,17 +340,58 @@ def forgedfaction_detail(request, pk):
         setup_card = faction.setup_card
     except SetupCard.DoesNotExist:
         setup_card = None
-    components = (
-        list(back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'))
-        if back else []
+    components = list(
+        faction.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk')
     )
+    card_pieces = list(
+        faction.pieces.filter(type='C').select_related('deck_group').order_by('pk')
+    )
+    can_edit = user_can_edit_forge(request, faction)
+    publish_context = {}
+    if can_edit:
+        submit_missing = submit_prerequisites_missing(faction)
+        submit_requirements = [
+            {'label': 'Faction Board', 'done': sheet is not None},
+            {'label': 'Faction Board Back', 'done': back is not None},
+            {'label': 'Adset Card', 'done': setup_card is not None},
+            {'label': 'Faction Icon', 'done': bool(faction.faction_icon)},
+        ]
+        link_candidate_exists = _link_candidate_exists(request.user.profile, faction)
+        target, target_mode, target_label = _resolved_published(faction)
+        if target_mode == 'faction':
+            target_modified = target.date_modified
+            target_url = target.get_absolute_url()
+        elif target_mode == 'translation':
+            target_modified = target.date_modified
+            target_url = target.post.get_absolute_url()
+        else:
+            target_modified = None
+            target_url = None
+        sync_available = bool(
+            target is not None
+            and target_modified is not None
+            and faction.last_updated > target_modified
+        )
+        publish_context = {
+            'submit_ready': not submit_missing,
+            'submit_missing': submit_missing,
+            'submit_requirements': submit_requirements,
+            'link_candidate_exists': link_candidate_exists,
+            'publish_target': target,
+            'publish_target_mode': target_mode,
+            'publish_target_label': target_label,
+            'publish_target_url': target_url,
+            'sync_available': sync_available,
+        }
     return render(request, 'the_forge/forgedfaction_detail.html', {
         'faction': faction,
-        'can_edit': user_can_edit_forge(request, faction),
+        'can_edit': can_edit,
         'sheet': sheet,
         'back': back,
         'setup_card': setup_card,
         'components': components,
+        'card_pieces': card_pieces,
+        **publish_context,
     })
 
 
@@ -425,7 +482,7 @@ def forgedfaction_markers_delete(request, pk):
         faction.save(update_fields=update_fields)
     return redirect('forge-faction-detail', pk=faction.pk)
 
-
+@login_required
 def forgedfaction_vp_marker_png(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_view_forge(request, faction):
@@ -434,7 +491,7 @@ def forgedfaction_vp_marker_png(request, pk):
         return HttpResponseBadRequest("No VP marker generated yet.")
     return _png_file_response(faction.vp_marker, f'{faction.faction_name} - VP Marker.png')
 
-
+@login_required
 def forgedfaction_relationship_marker_png(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_view_forge(request, faction):
@@ -764,6 +821,37 @@ def sheet_decree_toggle(request, pk):
 
 # ---------- FactionBack ----------
 
+def _apply_card_piece_image(piece, uploaded_file, clear=False, group_name=None):
+    """Card-type Pieces don't carry their own image — the image belongs to the
+    linked ForgedDeckGroup's back_image. This helper creates the deck group on
+    demand and routes the upload (or clear) onto it. Used by the factionback
+    editor's bulk piece form so card rows can share the same UI shell as the
+    other piece types."""
+    if piece.type != Piece.TypeChoices.CARD:
+        return
+    try:
+        group = piece.deck_group
+    except ForgedDeckGroup.DoesNotExist:
+        group = None
+    if group is None:
+        if not uploaded_file and not group_name:
+            return
+        group = ForgedDeckGroup(piece=piece, name=group_name or piece.name or 'Deck')
+        group.save()
+    elif group_name and group.name != group_name:
+        group.name = group_name
+        group.save(update_fields=['name'])
+    if uploaded_file:
+        if group.back_image:
+            delete_old_image(group.back_image)
+        group.back_image = uploaded_file
+        group.save()
+    elif clear and group.back_image:
+        delete_old_image(group.back_image)
+        group.back_image = None
+        group.save()
+
+
 @forge_onboard_required
 def factionback_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
@@ -816,7 +904,7 @@ def factionback_edit(request, pk):
             with transaction.atomic():
                 form.save(back)
 
-                existing_pieces = {p.pk: p for p in back.pieces.all()}
+                existing_pieces = {p.pk: p for p in back.faction.pieces.all()}
                 kept_piece_ids = set()
                 for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
                     front_upload = request.FILES.get(f'piece_icon_{index}')
@@ -832,30 +920,43 @@ def factionback_edit(request, pk):
                     has_new_back = bool(back_upload)
                     should_clear_front = (clear_front == '1') and not has_new_front
                     should_clear_back = (clear_back == '1') and not has_new_back
+                    is_card = (ptype == 'C')
                     if sid and sid.isdigit() and int(sid) in existing_pieces:
                         piece = existing_pieces[int(sid)]
                         kept_piece_ids.add(piece.pk)
                         piece.name = name
                         piece.quantity = quantity
                         piece.type = ptype
-                        if has_new_front:
-                            piece.small_icon = front_upload
-                        elif should_clear_front:
-                            piece.small_icon = None
-                        if has_new_back:
-                            piece.back_image = back_upload
-                        elif should_clear_back:
-                            piece.back_image = None
-                        piece.save()
+                        if is_card:
+                            # Card-type rows route the uploaded image to the
+                            # linked deck group's back_image, not to the piece.
+                            piece.save()
+                            _apply_card_piece_image(
+                                piece, front_upload, clear=should_clear_front, group_name=name,
+                            )
+                        else:
+                            if has_new_front:
+                                piece.small_icon = front_upload
+                            elif should_clear_front:
+                                piece.small_icon = None
+                            if has_new_back:
+                                piece.back_image = back_upload
+                            elif should_clear_back:
+                                piece.back_image = None
+                            piece.save()
                     else:
                         new_piece = Piece(
-                            parent=back,
+                            faction=back.faction,
                             name=name,
                             quantity=quantity,
                             type=ptype,
                         )
                         new_piece.save()
-                        if has_new_front or has_new_back:
+                        if is_card:
+                            _apply_card_piece_image(
+                                new_piece, front_upload, clear=False, group_name=name,
+                            )
+                        elif has_new_front or has_new_back:
                             if has_new_front:
                                 new_piece.small_icon = front_upload
                             if has_new_back:
@@ -891,7 +992,7 @@ def factionback_edit(request, pk):
             return redirect('forge-faction-detail', pk=back.faction.pk)
     else:
         form = FactionBackForm(back=back)
-    pieces_qs = list(back.pieces.order_by('id'))
+    pieces_qs = list(back.faction.pieces.order_by('id'))
     piece_sections = [
         ('W', 'Warriors', 'Warrior', [p for p in pieces_qs if p.type == 'W']),
         ('B', 'Buildings', 'Building', [p for p in pieces_qs if p.type == 'B']),
@@ -928,7 +1029,6 @@ def forgedfaction_cardboard_edit(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
-    back, _ = FactionBack.objects.get_or_create(faction=faction)
     cardboard_types = ('B', 'T')
     if request.method == 'POST':
         piece_ids = request.POST.getlist('piece_id')
@@ -952,7 +1052,7 @@ def forgedfaction_cardboard_edit(request, pk):
             faction.print_component_backs = bool(request.POST.get('print_component_backs'))
             faction.save(update_fields=['print_component_backs'])
 
-            existing_pieces = {p.pk: p for p in back.pieces.filter(type__in=cardboard_types)}
+            existing_pieces = {p.pk: p for p in faction.pieces.filter(type__in=cardboard_types)}
             kept_piece_ids = set()
             for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
                 if ptype not in cardboard_types:
@@ -984,7 +1084,7 @@ def forgedfaction_cardboard_edit(request, pk):
                         piece.back_image = None
                     piece.save()
                 else:
-                    new_piece = Piece(parent=back, name=name, quantity=quantity, type=ptype)
+                    new_piece = Piece(faction=faction, name=name, quantity=quantity, type=ptype)
                     new_piece.save()
                     if has_new_front or has_new_back:
                         if has_new_front:
@@ -997,14 +1097,13 @@ def forgedfaction_cardboard_edit(request, pk):
                 Piece.objects.filter(pk__in=stale_piece_ids).delete()
         return redirect('forge-faction-detail', pk=faction.pk)
 
-    pieces_qs = list(back.pieces.filter(type__in=cardboard_types).order_by('id'))
+    pieces_qs = list(faction.pieces.filter(type__in=cardboard_types).order_by('id'))
     piece_sections = [
         ('B', 'Buildings', 'Building', [p for p in pieces_qs if p.type == 'B']),
         ('T', 'Tokens', 'Token', [p for p in pieces_qs if p.type == 'T']),
     ]
     return render(request, 'the_forge/cardboard_editor.html', {
         'faction': faction,
-        'back': back,
         'piece_sections': piece_sections,
         'max_pieces_per_type': MAX_PIECES_PER_TYPE,
     })
@@ -2287,6 +2386,50 @@ def _ensure_back_preview(back):
     _maybe_save_image_preview(back, data, fp, 'back')
 
 
+def _ensure_setup_card_preview(card):
+    from io import BytesIO
+    from .pdf_engine import SetupCardLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    fp = fingerprint_setup_card(card)
+    if card.preview_fingerprint == fp and card.image_preview:
+        return
+    def build():
+        buffer = BytesIO()
+        SetupCardLayoutEngine(card).build(buffer)
+        return buffer.getvalue()
+    data = get_or_build(cache_key('setup_card', card.pk, fp), build)
+    _maybe_save_image_preview(card, data, fp, 'card')
+
+
+def _refresh_all_element_previews(forged):
+    """Render and save any stale element previews for the forge children that
+    exist. No-op per child whose fingerprint already matches. Failures are
+    swallowed so a broken layout doesn't block the calling view."""
+    try:
+        sheet = forged.faction_sheet
+    except FactionSheet.DoesNotExist:
+        sheet = None
+    try:
+        back = forged.faction_back
+    except FactionBack.DoesNotExist:
+        back = None
+    try:
+        setup_card = forged.setup_card
+    except SetupCard.DoesNotExist:
+        setup_card = None
+    for related, ensure_fn in (
+        (sheet, _ensure_sheet_preview),
+        (back, _ensure_back_preview),
+        (setup_card, _ensure_setup_card_preview),
+    ):
+        if related is None:
+            continue
+        try:
+            ensure_fn(related)
+        except Exception:
+            pass
+
+
 @login_required
 def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
@@ -2296,11 +2439,11 @@ def forgedfaction_pdf(request, pk):
     from pypdf import PdfWriter, PdfReader
     from .pdf_engine import (
         SheetLayoutEngine, FactionBackLayoutEngine, SetupCardLayoutEngine,
-        ComponentsSheetLayoutEngine,
+        ComponentsSheetLayoutEngine, ForgedCardsLayoutEngine,
     )
     from .pdf_cache import (
         cache_key, fingerprint_sheet, fingerprint_back, fingerprint_setup_card,
-        fingerprint_components_sheet, get_or_build,
+        fingerprint_components_sheet, fingerprint_cards, get_or_build,
     )
 
     parts = []
@@ -2330,7 +2473,7 @@ def forgedfaction_pdf(request, pk):
     card = getattr(faction, 'setup_card', None)
     has_components = bool(
         card or faction.vp_marker or faction.relationship_marker
-        or (back and back.pieces.filter(type__in=('B', 'T')).exists())
+        or faction.pieces.filter(type__in=('B', 'T')).exists()
     )
     if has_components:
         card_preview_path = None
@@ -2354,6 +2497,18 @@ def forgedfaction_pdf(request, pk):
             cache_key('components', faction.pk, components_fp), build_components,
         )
         parts.append(components_pdf)
+
+    # Custom decks — appended after the components page so the combined PDF
+    # reads sheet -> back -> components -> cards.
+    cards_engine = ForgedCardsLayoutEngine(faction)
+    if cards_engine.has_cards():
+        def build_cards():
+            buf = BytesIO()
+            cards_engine.build(buf)
+            return buf.getvalue()
+        cards_fp = fingerprint_cards(faction)
+        cards_pdf = get_or_build(cache_key('cards', faction.pk, cards_fp), build_cards)
+        parts.append(cards_pdf)
 
     if not parts:
         return HttpResponse(
@@ -2388,7 +2543,7 @@ def forgedfaction_components_pdf(request, pk):
     back = getattr(faction, 'faction_back', None)
     has_components = bool(
         card or faction.vp_marker or faction.relationship_marker
-        or (back and back.pieces.filter(type__in=('B', 'T')).exists())
+        or faction.pieces.filter(type__in=('B', 'T')).exists()
     )
     if not has_components:
         return HttpResponse(
@@ -2413,6 +2568,33 @@ def forgedfaction_components_pdf(request, pk):
     fp = fingerprint_components_sheet(faction)
     data = get_or_build(cache_key('components', faction.pk, fp), build_components)
     return _pdf_file_response(data, f'{faction.faction_name} - Components.pdf')
+
+
+@login_required
+def forgedfaction_cards_pdf(request, pk):
+    """One uploaded card front per page, poker-card sized. Includes every
+    ForgedCard across every ForgedDeckGroup attached to a card-type Piece."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import ForgedCardsLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_cards, get_or_build
+
+    engine = ForgedCardsLayoutEngine(faction)
+    if not engine.has_cards():
+        return HttpResponse(
+            "No cards yet — add cards to a deck first.",
+            status=404, content_type='text/plain',
+        )
+
+    def build_cards():
+        buf = BytesIO()
+        engine.build(buf)
+        return buf.getvalue()
+    fp = fingerprint_cards(faction)
+    data = get_or_build(cache_key('cards', faction.pk, fp), build_cards)
+    return _pdf_file_response(data, f'{faction.faction_name} - Cards.pdf')
 
 
 @login_required
@@ -2533,6 +2715,12 @@ def forgedfaction_tts(request, pk):
         )
 
     if sheet:
+        # If snap points were captured before pile_title was added, force a
+        # one-off rebuild so deck-on-pile placement can match snap points.
+        if sheet.snap_points and not any(sp.get('pile_title') for sp in sheet.snap_points):
+            if sheet.card_piles.exists():
+                sheet.preview_fingerprint = ''
+                sheet.save(update_fields=['preview_fingerprint'])
         _ensure_sheet_preview(sheet)
         _ensure_decree_preview(sheet)
         sheet.refresh_from_db()
@@ -2564,7 +2752,7 @@ def forgedfaction_tts(request, pk):
 
     from .services.tts import (
         TTSForgedFactionBoard, TTSForgedFactionDecree, load_tts_object,
-        place_pieces_for_back,
+        place_pieces_for_back, place_markers_for_faction,
     )
     from the_keep.services.tts import wrap_tts_save, TTSSingleCardDeck
 
@@ -2581,6 +2769,7 @@ def forgedfaction_tts(request, pk):
         boards.append(load_tts_object('Improved Crafted Improvements.json', transform=improvements_transform))
         if back_ready:
             boards.extend(place_pieces_for_back(back, sheet=sheet, request=request))
+        boards.extend(place_markers_for_faction(faction, request=request))
     if card_ready:
         from the_keep.services.tts import DEFAULT_CARD_TRANSFORM
         adset_transform = dict(DEFAULT_CARD_TRANSFORM)
@@ -2595,13 +2784,71 @@ def forgedfaction_tts(request, pk):
             adset_transform["posY"] = 2.0
         adset = TTSSingleCardDeck(
             card.image_preview,
-            static("images/adset.png"),
+            static("images/ADSET.png"),
             deck_id=1,
             request=request,
             card_name="Adset Card",
             transform=adset_transform,
         )
         boards.append(adset.to_object())
+
+    # Custom decks attached to card-type Pieces. Reuses the_keep's sprite-deck
+    # pipeline via duck typing (matching field names on ForgedDeckGroup /
+    # ForgedCardDeck / ForgedCard). Decks whose name matches a CardPile title
+    # on the faction sheet snap onto that pile's slot; others stack offset
+    # next to the board, mirroring the pieces-on-tracks placement logic.
+    from the_keep.services.tts import TTSDeckGroup, DEFAULT_CARD_TRANSFORM
+    from the_forge.services.tts import (
+        _norm_name, _snap_to_world,
+        DECK_FALLBACK_ORIGIN_X, DECK_FALLBACK_ORIGIN_Z, DECK_FALLBACK_X_STEP,
+    )
+
+    pile_buckets = {}
+    if sheet and sheet.snap_points:
+        for sp in sheet.snap_points:
+            title = sp.get('pile_title')
+            if not title:
+                continue
+            pile_buckets.setdefault(_norm_name(title), []).append(sp)
+    consumed_pile_sp_ids = set()
+
+    deck_id = 2  # 1 is reserved for the adset card
+    deck_offset = 0
+    for piece in faction.pieces.filter(type='C').select_related('deck_group').order_by('pk'):
+        group = getattr(piece, 'deck_group', None)
+        if not (group and group.has_actual_cards):
+            continue
+
+        pile_sp = None
+        name_key = _norm_name(group.name) or _norm_name(piece.name)
+        if name_key:
+            for sp in pile_buckets.get(name_key, []):
+                if id(sp) in consumed_pile_sp_ids:
+                    continue
+                consumed_pile_sp_ids.add(id(sp))
+                pile_sp = sp
+                break
+
+        for built_deck in TTSDeckGroup(group, request=request).build(deck_id):
+            obj = built_deck.to_object()
+            if pile_sp is not None:
+                wx, wz, wy = _snap_to_world(pile_sp)
+                transform = dict(DEFAULT_CARD_TRANSFORM)
+                transform['posX'] = wx
+                transform['posZ'] = wz
+                transform['posY'] = wy + 1.5  # spawn above the pile so cards settle
+            else:
+                transform = dict(DEFAULT_CARD_TRANSFORM)
+                transform['posX'] = DECK_FALLBACK_ORIGIN_X + deck_offset * DECK_FALLBACK_X_STEP
+                transform['posZ'] = DECK_FALLBACK_ORIGIN_Z
+                deck_offset += 1
+            obj['Transform'] = transform
+            for contained in obj.get('ContainedObjects', []):
+                contained['Transform'] = dict(transform)
+            boards.append(obj)
+            deck_id += 1
+            pile_sp = None  # only the first sub-deck of a group consumes the snap point
+
     save_file = wrap_tts_save(boards, save_name=faction.faction_name)
 
     response = HttpResponse(
@@ -2673,3 +2920,458 @@ def setup_card_webp(request, pk):
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
     response = _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')
     return _attach_preview_versions(response, card=card)
+
+
+# ---------- Publish / Link / Sync ----------
+
+def _link_candidate_exists(profile, forged):
+    """Cheap exists() check matching the three sources in ForgedFactionLinkForm."""
+    if profile is None or forged is None:
+        return False
+    same_lang_faction = Faction.objects.filter(
+        designer=profile,
+        source_forged_faction__isnull=True,
+        title__iexact=forged.faction_name,
+        language=forged.language,
+    ).exists()
+    same_lang_translation = PostTranslation.objects.filter(
+        post__designer=profile,
+        source_forged_faction__isnull=True,
+        translated_title__iexact=forged.faction_name,
+        language=forged.language,
+        post__component__in=['Faction', 'Clockwork'],
+    ).exists()
+    cross_lang_faction = Faction.objects.filter(
+        designer=profile,
+        title__iexact=forged.faction_name,
+    ).exclude(language=forged.language).exclude(
+        translations__language=forged.language,
+    ).exists()
+    return same_lang_faction or same_lang_translation or cross_lang_faction
+
+
+def _resolved_published(forged):
+    """Return (target, mode, label) for whichever publish link is set, or
+    (None, None, None) if not linked."""
+    if forged.published_faction_id:
+        f = forged.published_faction
+        return f, 'faction', f.title
+    if forged.published_translation_id:
+        t = forged.published_translation
+        lang = t.language.name if t.language else '?'
+        return t, 'translation', f'{t.translated_title or t.post.title} ({lang})'
+    return None, None, None
+
+
+@forge_onboard_required
+def forgedfaction_submit(request, pk):
+    forged = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, forged)):
+        return resp
+    if forged.published_faction_id or forged.published_translation_id:
+        messages.info(request, "This forge draft is already published.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    _refresh_all_element_previews(forged)
+    missing = submit_prerequisites_missing(forged)
+    if missing:
+        messages.error(
+            request,
+            "Submit isn't ready yet — missing: " + ", ".join(missing) + ".",
+        )
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    if request.method == 'POST':
+        form = ForgedFactionSubmitForm(
+            request.POST, request.FILES,
+            forged_faction=forged,
+            user=request.user,
+        )
+        if form.is_valid():
+            profile = request.user.profile
+            faction = form.save(commit=False)
+            if not faction.designer_id:
+                faction.designer = profile
+            faction.submitted_by = profile
+            if not profile.admin:
+                faction.status = '9'
+
+            sheet = _safe_related_for_view(forged, 'faction_sheet')
+            back = _safe_related_for_view(forged, 'faction_back')
+            card = _safe_related_for_view(forged, 'setup_card')
+            if sheet and sheet.image_preview:
+                faction.board_image = _file_from(sheet.image_preview)
+                faction.board_image_version = sheet.preview_version or 0
+            if back and back.image_preview:
+                faction.board_2_image = _file_from(back.image_preview)
+                faction.board_2_image_version = back.preview_version or 0
+            if card and card.image_preview:
+                faction.card_image = _file_from(card.image_preview)
+                faction.card_image_version = card.preview_version or 0
+            if not faction.small_icon and forged.faction_icon:
+                faction.small_icon = _file_from(forged.faction_icon)
+
+            faction.save()
+            form.save_m2m()
+
+            forged.published_faction = faction
+            forged.save(update_fields=['published_faction'])
+
+            fields = [{'name': 'Submitted by:', 'value': profile.name}]
+            send_rich_discord_message_task.delay(
+                f'[{faction.title}](https://therootdatabase.com{faction.get_absolute_url()})',
+                category='report', title=f'Submitted {faction.component}', fields=fields,
+            )
+            messages.success(request, f"Submitted '{faction.title}' for review.")
+            return redirect(faction.get_absolute_url())
+    else:
+        form = ForgedFactionSubmitForm(forged_faction=forged, user=request.user)
+
+    return render(request, 'the_forge/forgedfaction_submit.html', {
+        'faction': forged,
+        'form': form,
+        'art_by_hint': forged.art_by,
+        'picture_options': form._picture_options,
+    })
+
+
+@forge_onboard_required
+def forgedfaction_link(request, pk):
+    forged = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, forged)):
+        return resp
+    if forged.published_faction_id or forged.published_translation_id:
+        messages.info(request, "This forge draft is already published.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    if request.method == 'POST':
+        form = ForgedFactionLinkForm(request.POST, user=request.user, forged=forged)
+        if form.is_valid():
+            mode = form.resolved_mode
+            target = form.resolved
+            if mode == ForgedFactionLinkForm.PREFIX_FACTION:
+                forged.published_faction = target
+                forged.save(update_fields=['published_faction'])
+                messages.success(request, f"Linked to existing Faction '{target.title}'.")
+            elif mode == ForgedFactionLinkForm.PREFIX_TRANSLATION:
+                forged.published_translation = target
+                forged.save(update_fields=['published_translation'])
+                messages.success(
+                    request,
+                    f"Linked to existing translation of '{target.post.title}'.",
+                )
+            elif mode == ForgedFactionLinkForm.PREFIX_NEW_TRANSLATION:
+                new_translation = PostTranslation.objects.create(
+                    post=target,
+                    language=forged.language,
+                    designer=forged.designer,
+                    translated_title=forged.faction_name,
+                )
+                forged.published_translation = new_translation
+                forged.save(update_fields=['published_translation'])
+                messages.success(
+                    request,
+                    f"Started a {forged.language.name} translation of '{target.title}'. "
+                    "Open Sync to fill it in.",
+                )
+            return redirect('forge-faction-detail', pk=forged.pk)
+    else:
+        form = ForgedFactionLinkForm(user=request.user, forged=forged)
+
+    return render(request, 'the_forge/forgedfaction_link.html', {
+        'faction': forged,
+        'form': form,
+    })
+
+
+@forge_onboard_required
+def forgedfaction_sync(request, pk):
+    forged = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, forged)):
+        return resp
+
+    _refresh_all_element_previews(forged)
+
+    target, mode, target_label = _resolved_published(forged)
+    if target is None:
+        messages.error(request, "Link this forge draft to a Faction or translation first.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    profile = request.user.profile
+    owner = target.designer if mode == 'faction' else target.post.designer
+    if owner_id := getattr(owner, 'id', None):
+        if owner_id != profile.id:
+            return redirect('forge-home')
+
+    if request.method == 'POST':
+        form = ForgedFactionSyncForm(request.POST, forged=forged)
+        if form.is_valid():
+            form.save()
+            if owner and owner.id != profile.id:
+                UserNotification.create_notification(
+                    profile=owner,
+                    message=f"Forge updates were applied to '{target_label}'.",
+                    message_type=MessageChoices.INFO,
+                    related_url=(
+                        target.get_absolute_url()
+                        if mode == 'faction'
+                        else target.post.get_absolute_url()
+                    ),
+                    sender=profile,
+                )
+            messages.success(request, "Selected changes applied.")
+            return redirect('forge-faction-detail', pk=forged.pk)
+    else:
+        form = ForgedFactionSyncForm(forged=forged)
+
+    field_changes = any(not row[5] for row in form.diff_rows)
+    piece_changes = any(not entry['in_sync'] for entry in form.piece_plan)
+    has_changes = field_changes or piece_changes
+    return render(request, 'the_forge/forgedfaction_sync.html', {
+        'faction': forged,
+        'form': form,
+        'mode': mode,
+        'target': target,
+        'target_label': target_label,
+        'diff_rows': form.diff_rows,
+        'piece_plan': form.piece_plan,
+        'has_changes': has_changes,
+    })
+
+
+def _safe_related_for_view(forged, attr):
+    try:
+        return getattr(forged, attr)
+    except (FactionSheet.DoesNotExist, FactionBack.DoesNotExist, SetupCard.DoesNotExist):
+        return None
+
+
+def _file_from(image_field):
+    """Read an existing ImageField into a fresh upload-style File so saving
+    on a different model writes to that model's own upload path."""
+    from django.core.files.base import ContentFile
+    image_field.open('rb')
+    try:
+        data = image_field.read()
+    finally:
+        image_field.close()
+    name = image_field.name.rsplit('/', 1)[-1]
+    return ContentFile(data, name=name)
+
+
+# ---------- ForgedDeckGroup + ForgedCard (custom decks on card-type Pieces) ----------
+
+# the_keep's CardTag enum lists the allowed card tag values. We reuse it
+# rather than re-declaring an enum in the_forge.
+from the_keep.models import CardTag as _ForgedCardTag
+
+
+def _filter_card_tags(raw):
+    """Return only tag values that exist in CardTag. Drops unknown strings."""
+    if not raw:
+        return []
+    allowed = {choice.value for choice in _ForgedCardTag}
+    return [t for t in raw if t in allowed]
+
+
+def _parse_card_tags(request):
+    """Read `tags` from a POST as a JSON-encoded list (matches the_keep's API)."""
+    raw = request.POST.get('tags', '[]')
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        parsed = []
+    if not isinstance(parsed, list):
+        parsed = []
+    return _filter_card_tags(parsed)
+
+
+def _card_row_context(card):
+    return {
+        'card': card,
+        'is_edit': True,
+        'card_tag_choices': list(_ForgedCardTag.choices),
+    }
+
+
+@forge_onboard_required
+def forge_deckgroup_add(request, piece_pk):
+    piece = get_object_or_404(Piece, pk=piece_pk)
+    if piece.type != Piece.TypeChoices.CARD:
+        return HttpResponseBadRequest("Decks can only be added to card-type pieces.")
+    faction = piece.faction
+    if faction is None:
+        return HttpResponseBadRequest("Piece is not linked to a faction.")
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if ForgedDeckGroup.objects.filter(piece=piece).exists():
+        return redirect('forge-deckgroup-detail', pk=piece.deck_group.pk)
+    if request.method == 'POST':
+        form = ForgedDeckGroupForm(request.POST, request.FILES)
+        if form.is_valid():
+            group = form.save(commit=False)
+            group.piece = piece
+            group.save()
+            return redirect('forge-deckgroup-detail', pk=group.pk)
+    else:
+        form = ForgedDeckGroupForm(initial={'name': piece.name or 'Deck'})
+    return render(request, 'the_forge/forged_deckgroup_form.html', {
+        'form': form,
+        'is_create': True,
+        'faction': faction,
+        'piece': piece,
+    })
+
+
+@forge_onboard_required
+def forge_deckgroup_create_for_faction(request, faction_pk):
+    """Create a new card-type Piece on a faction plus a ForgedDeckGroup for it
+    in one step. Used when a faction has no card pieces yet — the user enters
+    only the deck name + back image and we autogenerate the matching Piece."""
+    faction = get_object_or_404(ForgedFaction, pk=faction_pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if request.method == 'POST':
+        form = ForgedDeckGroupForm(request.POST, request.FILES)
+        if form.is_valid():
+            from django.db import transaction
+            with transaction.atomic():
+                name = form.cleaned_data.get('name') or 'Deck'
+                piece = Piece.objects.create(
+                    faction=faction,
+                    name=name,
+                    type=Piece.TypeChoices.CARD,
+                    quantity=1,
+                )
+                group = form.save(commit=False)
+                group.piece = piece
+                group.name = name
+                group.save()
+            return redirect('forge-deckgroup-detail', pk=group.pk)
+    else:
+        form = ForgedDeckGroupForm(initial={'name': 'Deck'})
+    return render(request, 'the_forge/forged_deckgroup_form.html', {
+        'form': form,
+        'is_create': True,
+        'faction': faction,
+        'piece': None,
+    })
+
+
+@forge_onboard_required
+def forge_deckgroup_edit(request, pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=pk)
+    faction = group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if request.method == 'POST':
+        form = ForgedDeckGroupForm(request.POST, request.FILES, instance=group)
+        if form.is_valid():
+            form.save()
+            # Piece and DeckGroup are one logical "deck" — keep their names
+            # in sync so the cardboard editor and any name-derived lookups
+            # don't drift.
+            piece = group.piece
+            if piece and piece.name != group.name:
+                piece.name = group.name
+                piece.save(update_fields=['name'])
+            return redirect('forge-deckgroup-detail', pk=group.pk)
+    else:
+        form = ForgedDeckGroupForm(instance=group)
+    return render(request, 'the_forge/forged_deckgroup_form.html', {
+        'form': form,
+        'is_create': False,
+        'faction': faction,
+        'piece': group.piece,
+        'group': group,
+    })
+
+
+@forge_onboard_required
+def forge_deckgroup_detail(request, pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=pk)
+    faction = group.piece.faction
+    if not user_can_view_forge(request, faction):
+        return redirect('forge-home')
+    cards = list(group.cards.all().order_by('order'))
+    return render(request, 'the_forge/forged_deckgroup_detail.html', {
+        'faction': faction,
+        'piece': group.piece,
+        'group': group,
+        'cards': cards,
+        'can_edit': user_can_edit_forge(request, faction),
+        'card_tags': list(_ForgedCardTag.choices),
+    })
+
+
+@forge_onboard_required
+@require_http_methods(["POST"])
+def forge_deckgroup_delete(request, pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=pk)
+    piece = group.piece
+    faction = piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    # Deleting the piece cascades to its OneToOne deck_group, removing the
+    # cards along with it. Both are tied to the same logical "deck" entity,
+    # so neither should remain without the other.
+    piece.delete()
+    return redirect('forge-faction-detail', pk=faction.pk)
+
+
+@player_required
+@require_http_methods(["POST"])
+def forge_card_add(request, group_pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=group_pk)
+    faction = group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    form = ForgedCardForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    card = form.save(commit=False)
+    card.group = group
+    card.tags = _parse_card_tags(request)
+    card.save()
+    return render(request, 'the_forge/partials/forged_card_row.html', _card_row_context(card))
+
+
+@player_required
+@require_http_methods(["POST"])
+def forge_card_edit(request, pk):
+    card = get_object_or_404(ForgedCard, pk=pk)
+    faction = card.group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    form = ForgedCardForm(request.POST, request.FILES, instance=card)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    card = form.save(commit=False)
+    if 'tags' in request.POST:
+        card.tags = _parse_card_tags(request)
+    card.save()
+    return render(request, 'the_forge/partials/forged_card_row.html', _card_row_context(card))
+
+
+@player_required
+@require_http_methods(["DELETE", "POST"])
+def forge_card_delete(request, pk):
+    card = get_object_or_404(ForgedCard, pk=pk)
+    faction = card.group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    card.delete()
+    return HttpResponse(status=204)
+
+
+@player_required
+@require_http_methods(["POST"])
+def forge_card_reorder(request, group_pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=group_pk)
+    faction = group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    data = json.loads(request.body)
+    for index, cid in enumerate(data.get('order', []), start=1):
+        ForgedCard.objects.filter(id=cid, group=group).update(order=index)
+    return HttpResponse(status=204)

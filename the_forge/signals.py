@@ -25,6 +25,8 @@ IMAGE_FIELDS_CONFIG = {
     'FactionBack':     {'fields': {'back_image': MEDIUM_MAX}},
     'SetupCard':       {'fields': {'header_image': SMALL_MAX}},
     'Piece':           {'fields': {'small_icon': ICON_MAX, 'back_image': ICON_MAX}},
+    'ForgedDeckGroup': {'fields': {'back_image': MEDIUM_MAX}},
+    'ForgedCard':      {'fields': {'front_image': MEDIUM_MAX}},
 }
 
 
@@ -216,14 +218,74 @@ def _bubble_decree_grandchild(sender, instance, **kwargs):
 
 
 def _bubble_piece(sender, instance, **kwargs):
-    """Piece (FK 'parent') -> FactionBack."""
-    _touch_back_and_faction(getattr(instance, 'parent_id', None))
+    """Piece (FK 'faction') -> ForgedFaction. Also bumps the related
+    FactionBack since pieces are rendered onto the back preview."""
+    faction_id = getattr(instance, 'faction_id', None)
+    if faction_id is None:
+        return
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    FactionBack = apps.get_model('the_forge', 'FactionBack')
+    _touch(ForgedFaction, faction_id)
+    back_id = FactionBack.objects.filter(faction_id=faction_id).values_list('pk', flat=True).first()
+    _touch(FactionBack, back_id)
 
 
 def _bubble_setupstep(sender, instance, **kwargs):
     """SetupStep has nullable FKs to FactionBack ('faction_back') AND SetupCard ('card')."""
     _touch_back_and_faction(getattr(instance, 'faction_back_id', None))
     _touch_card_and_faction(getattr(instance, 'card_id', None))
+
+
+def _bubble_deckgroup(sender, instance, **kwargs):
+    """ForgedDeckGroup (FK 'piece') -> Piece -> ForgedFaction."""
+    piece_id = getattr(instance, 'piece_id', None)
+    if piece_id is None:
+        return
+    Piece = apps.get_model('the_forge', 'Piece')
+    faction_id = Piece.objects.filter(pk=piece_id).values_list('faction_id', flat=True).first()
+    if faction_id is None:
+        return
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    _touch(ForgedFaction, faction_id)
+
+
+def _bubble_carddeck(sender, instance, **kwargs):
+    """ForgedCardDeck (FK 'group') -> ForgedDeckGroup -> Piece -> ForgedFaction.
+    The model's save() already suppresses bubbling for sprite-sheet-only writes,
+    but post_delete still routes through here for cleanup."""
+    group_id = getattr(instance, 'group_id', None)
+    if group_id is None:
+        return
+    ForgedDeckGroup = apps.get_model('the_forge', 'ForgedDeckGroup')
+    piece_id = ForgedDeckGroup.objects.filter(pk=group_id).values_list('piece_id', flat=True).first()
+    if piece_id is None:
+        return
+    Piece = apps.get_model('the_forge', 'Piece')
+    faction_id = Piece.objects.filter(pk=piece_id).values_list('faction_id', flat=True).first()
+    if faction_id is None:
+        return
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    _touch(ForgedFaction, faction_id)
+
+
+def _bubble_forged_card(sender, instance, **kwargs):
+    """ForgedCard (FK 'group') -> same chain as ForgedCardDeck. Also keeps
+    the parent Piece.quantity in sync with the deck's actual card count so
+    component renders (cardboard pages, faction back) reflect the deck size."""
+    _bubble_carddeck(sender, instance, **kwargs)
+    group_id = getattr(instance, 'group_id', None)
+    if group_id is None:
+        return
+    ForgedDeckGroup = apps.get_model('the_forge', 'ForgedDeckGroup')
+    ForgedCard = apps.get_model('the_forge', 'ForgedCard')
+    Piece = apps.get_model('the_forge', 'Piece')
+    piece_id = ForgedDeckGroup.objects.filter(pk=group_id).values_list('piece_id', flat=True).first()
+    if piece_id is None:
+        return
+    actual = ForgedCard.objects.filter(group_id=group_id).count()
+    # Piece.quantity has MinValueValidator(1) — clamp empty decks to 1.
+    new_qty = max(1, min(99, actual))
+    Piece.objects.filter(pk=piece_id).exclude(quantity=new_qty).update(quantity=new_qty)
 
 
 # Map: model name -> bubble handler. Each handler is connected to both
@@ -249,6 +311,9 @@ TIMESTAMP_BUBBLES = {
     'CardSlot':        _bubble_decree_grandchild,
     'Piece':           _bubble_piece,
     'SetupStep':       _bubble_setupstep,
+    'ForgedDeckGroup': _bubble_deckgroup,
+    'ForgedCardDeck':  _bubble_carddeck,
+    'ForgedCard':      _bubble_forged_card,
 }
 
 

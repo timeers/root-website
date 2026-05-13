@@ -37,7 +37,11 @@
             <h5 class="root-title text-start mb-2"><strong>{{ label }}</strong></h5>
             <div class="piece-list" data-piece-list data-type="{{ code }}">
               {% for piece in items %}
-                {% include 'the_forge/partials/piece_row_bulk.html' with piece=piece type_code=code %}
+                {% if code == 'C' %}
+                  {% include 'the_forge/partials/card_piece_row.html' with piece=piece %}
+                {% else %}
+                  {% include 'the_forge/partials/piece_row_bulk.html' with piece=piece type_code=code %}
+                {% endif %}
               {% endfor %}
             </div>
             <button type="button" class="btn btn-sm btn-outline-primary mt-1 piece-add-btn" data-type="{{ code }}">+ Add {{ singular }}</button>
@@ -174,6 +178,9 @@
 <template id="piece-row-template">
   {% include 'the_forge/partials/piece_row_bulk.html' with piece=None type_code='' %}
 </template>
+<template id="card-piece-row-template">
+  {% include 'the_forge/partials/card_piece_row.html' with piece=None %}
+</template>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -296,6 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ----- Pieces -----
   const pieceTpl = document.getElementById('piece-row-template');
+  const cardPieceTpl = document.getElementById('card-piece-row-template');
 
   function updatePieceAddVisibility(section) {
     if (!section) return;
@@ -311,10 +319,14 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => {
       const type = btn.dataset.type;
       const list = document.querySelector(`[data-piece-list][data-type="${type}"]`);
-      if (!list || !pieceTpl) return;
-      const frag = pieceTpl.content.cloneNode(true);
+      if (!list) return;
+      // Card pieces use a slim row tied to a ForgedDeckGroup; other types
+      // use the full piece row with front/back icons.
+      const tpl = (type === 'C') ? cardPieceTpl : pieceTpl;
+      if (!tpl) return;
+      const frag = tpl.content.cloneNode(true);
       const row = frag.querySelector('[data-row]');
-      if (row) {
+      if (row && type !== 'C') {
         row.querySelector('input[name="piece_type"]').value = type;
         if (type === 'W') {
           row.querySelector('[data-back-row]')?.remove();
@@ -586,11 +598,44 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // Every card-type piece row needs an image — either an existing card
+    // back already stored on the deck group (thumbnail unhidden) or a new
+    // file selected on the input. Reject the submit otherwise.
+    const cardList = document.querySelector('[data-piece-list][data-type="C"]');
+    if (cardList) {
+      cardList.querySelectorAll('[data-row]').forEach(row => {
+        const fileInput = row.querySelector('input[data-piece-icon]');
+        const fileLabel = fileInput && fileInput.closest('label');
+        const thumb = row.querySelector('.piece-icon-thumb');
+        const hasExisting = thumb && !thumb.hasAttribute('hidden') && thumb.getAttribute('src');
+        const hasNew = fileInput && fileInput.files && fileInput.files.length > 0;
+        if (!hasExisting && !hasNew) {
+          row.classList.add('is-error');
+          // Bootstrap's .border utility sets border-color with !important, so
+          // an inline style can't win. Set it through CSSOM with priority.
+          row.style.setProperty('border-color', 'var(--bs-danger, #dc3545)', 'important');
+          if (fileLabel) {
+            fileLabel.classList.remove('btn-outline-secondary');
+            fileLabel.classList.add('btn-outline-danger');
+          }
+          if (!firstBad) firstBad = row;
+        } else {
+          row.classList.remove('is-error');
+          row.style.removeProperty('border-color');
+          if (fileLabel) {
+            fileLabel.classList.remove('btn-outline-danger');
+            fileLabel.classList.add('btn-outline-secondary');
+          }
+        }
+      });
+    }
+
     if (firstBad) {
       ev.preventDefault();
       firstBad.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const focusable = firstBad.querySelector('textarea[name="step_text"]');
-      if (focusable) focusable.focus();
+      const focusable = firstBad.querySelector('textarea[name="step_text"]')
+                     || firstBad.querySelector('input[data-piece-icon]');
+      if (focusable && typeof focusable.focus === 'function') focusable.focus();
       return;
     }
     submitting = true;

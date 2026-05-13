@@ -1,0 +1,479 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block content %}
+
+<div class="my-2 d-flex justify-content-between">
+  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary">
+    <i class="bi bi-chevron-left"></i> Back to Faction
+  </a>
+  {% if can_edit %}
+    <button type="button" class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#editDeckModal">
+      Edit Deck
+    </button>
+  {% endif %}
+</div>
+
+<div class="card p-3 mb-3">
+  <h2 class="root-title m-0">{{ group.name|default:piece.name }}</h2>
+  <p class="text-muted small mb-0">
+    {{ faction.faction_name }}
+  </p>
+</div>
+
+<div class="card p-3 mb-3">
+  <div class="d-flex gap-3 align-items-center">
+    <div>
+      {% if group.back_image %}
+        <img src="{{ group.back_image.url }}"
+             class="img-fluid rounded"
+             style="max-width: 110px; max-height: 160px; object-fit: contain;"
+             alt="Card back">
+      {% else %}
+        <div class="text-muted small">No card back image.</div>
+      {% endif %}
+    </div>
+    <div>
+      <div class="small text-muted text-uppercase">Cards</div>
+      <div class="fs-4"><span id="actual-card-count">{{ group.card_count }}</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h5 class="root-title m-0">Cards</h5>
+    {% if can_edit %}
+      <button type="button" class="btn btn-sm btn-primary" id="add-card-btn"
+              data-deckgroup-id="{{ group.id }}">
+        + Add Card
+      </button>
+    {% endif %}
+  </div>
+
+  <div id="card-list" class="row">
+    {% for card in cards %}
+      {% include 'the_forge/partials/forged_card_row.html' with card=card is_edit=can_edit %}
+    {% empty %}
+      <p class="text-muted ms-3" id="card-list-empty">No cards yet.</p>
+    {% endfor %}
+  </div>
+</div>
+
+{% if can_edit %}
+<!-- Delete Card Modal -->
+<div class="modal fade" id="deleteCardModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Confirm Delete</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-card-text"></p>
+        <img id="delete-card-image" src="" alt="" style="max-width: 80%;">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirm-delete-card">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Card Modal -->
+<div class="modal fade" id="editCardModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5>Edit Card</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-card-id">
+
+        <div class="mb-2">
+          <label>Name</label>
+          <input class="form-control" id="edit-card-name">
+        </div>
+
+        <div class="mb-2">
+          <label>Description</label>
+          <input class="form-control" id="edit-card-text">
+        </div>
+
+        <div class="mb-2">
+          <label>Image</label>
+          <img id="edit-card-image-preview" src="" class="img-fluid mb-2"
+               style="max-height: 200px; display: none;">
+          <input type="file" id="edit-card-image" class="form-control" accept="image/*">
+        </div>
+
+        <div class="mb-2">
+          <label>Tags</label><br>
+          {% for value, label in card_tags %}
+            <label class="me-2">
+              <input type="checkbox" class="edit-card-tag" value="{{ value }}">
+              <img class="lg-faction-icon"
+                   src="{% static 'images/tags/' %}{{ label }}_Tag.png"
+                   alt="{{ label }} Tag">
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="save-card-changes">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Card Modal -->
+<div class="modal fade" id="addCardModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5>Add Card</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label>Name</label>
+          <input class="form-control" id="add-card-name">
+        </div>
+
+        <div class="mb-2">
+          <label>Description</label>
+          <input class="form-control" id="add-card-text">
+        </div>
+
+        <div class="mb-2">
+          <label>Image <span class="text-danger">*</span></label>
+          <img id="add-card-image-preview" src="" class="img-fluid mb-2"
+               style="max-height: 200px; display: none;">
+          <input type="file" id="add-card-image" class="form-control" accept="image/*">
+          <div class="invalid-feedback" id="add-card-image-error" style="display: none;">
+            Please select an image file.
+          </div>
+        </div>
+
+        <div class="mb-2">
+          <label>Tags</label><br>
+          {% for value, label in card_tags %}
+            <label class="me-2">
+              <input type="checkbox" class="add-card-tag" value="{{ value }}">
+              <img class="lg-faction-icon"
+                   src="{% static 'images/tags/' %}{{ label }}_Tag.png"
+                   alt="{{ label }} Tag">
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="save-new-card">Add Card</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Deck Modal -->
+<div class="modal fade" id="editDeckModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'forge-deckgroup-edit' pk=group.pk %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5>Edit Deck</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Name</label>
+            <input type="text" name="name" class="form-control"
+                   value="{{ group.name|default:'' }}">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Card Back Image</label>
+            <div class="mb-2">
+              <img id="edit-deck-back-preview"
+                   src="{% if group.back_image %}{{ group.back_image.url }}{% endif %}"
+                   alt="Card back"
+                   class="img-fluid rounded"
+                   style="max-width: 140px; max-height: 200px; object-fit: contain;{% if not group.back_image %} display: none;{% endif %}">
+            </div>
+            <input type="file" name="back_image" id="edit-deck-back-input"
+                   accept="image/*" class="form-control">
+          </div>
+
+        </div>
+        <div class="modal-footer justify-content-between">
+          <button type="button" class="btn btn-outline-danger"
+                  data-bs-toggle="modal" data-bs-target="#deleteDeckModal">
+            Delete Deck
+          </button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-success">Save Changes</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Deck Modal -->
+{% url 'forge-deckgroup-delete' pk=group.pk as deck_delete_url %}
+{% include 'the_forge/partials/_delete_child_modal.html' with modal_id='deleteDeckModal' child_label=group.name|default:piece.name|default:'Deck' delete_url=deck_delete_url %}
+
+<!-- Sortable -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+(function() {
+  const csrftoken = '{{ csrf_token }}';
+  let cardCount = {{ cards|length }};
+
+  function updateCardCount() {
+    const el = document.getElementById('actual-card-count');
+    if (el) el.textContent = cardCount;
+  }
+
+  {% if group.allow_reorganization %}
+  document.addEventListener('DOMContentLoaded', () => {
+    new Sortable(document.getElementById('card-list'), {
+      animation: 150,
+      forceFallback: true,
+      onEnd: (evt) => {
+        const order = [...evt.to.children]
+          .map(el => el.id.replace('card-', ''))
+          .filter(Boolean);
+        fetch('{% url "forge-card-reorder" group_pk=group.pk %}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+          body: JSON.stringify({ order }),
+        });
+      },
+    });
+  });
+  {% endif %}
+
+  // ---- Delete card ----
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.forged-delete-card-btn');
+    if (!btn) return;
+    const cardId = btn.dataset.cardId;
+    const cardName = btn.dataset.cardName;
+    const cardImage = btn.dataset.cardImage;
+    const modal = document.getElementById('deleteCardModal');
+    document.getElementById('delete-card-text').textContent =
+      cardName ? `Delete ${cardName}?` : 'Delete card?';
+    document.getElementById('delete-card-image').src = cardImage || '';
+    modal.dataset.cardId = cardId;
+    new bootstrap.Modal(modal).show();
+  });
+
+  document.getElementById('confirm-delete-card').addEventListener('click', function() {
+    const modal = document.getElementById('deleteCardModal');
+    const cardId = modal.dataset.cardId;
+    fetch(`/hx/forge/card/${cardId}/delete/`, {
+      method: 'DELETE',
+      headers: { 'X-CSRFToken': csrftoken },
+    }).then(res => {
+      if (!res.ok) { alert('Failed to delete card.'); return; }
+      const row = document.getElementById(`card-${cardId}`);
+      if (row) row.remove();
+      cardCount--;
+      updateCardCount();
+      document.activeElement.blur();
+      bootstrap.Modal.getInstance(modal).hide();
+    });
+  });
+
+  // ---- Edit card ----
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.forged-edit-card-btn');
+    if (!btn) return;
+    const cardId = btn.dataset.cardId;
+    const name = btn.dataset.cardName || '';
+    const text = btn.dataset.cardText || '';
+    const imageUrl = btn.dataset.cardImage || '';
+    let tags;
+    try { tags = JSON.parse(btn.dataset.cardTags || '[]'); } catch { tags = []; }
+
+    document.getElementById('edit-card-id').value = cardId;
+    document.getElementById('edit-card-name').value = name;
+    document.getElementById('edit-card-text').value = text;
+    document.getElementById('edit-card-image').value = '';
+
+    const preview = document.getElementById('edit-card-image-preview');
+    if (imageUrl) {
+      preview.src = imageUrl;
+      preview.style.display = 'block';
+    } else {
+      preview.src = '';
+      preview.style.display = 'none';
+    }
+    document.querySelectorAll('.edit-card-tag').forEach(cb => {
+      cb.checked = tags.includes(cb.value);
+    });
+    new bootstrap.Modal(document.getElementById('editCardModal')).show();
+  });
+
+  document.getElementById('save-card-changes').addEventListener('click', function() {
+    const saveBtn = this;
+    const cardId = document.getElementById('edit-card-id').value;
+    const name = document.getElementById('edit-card-name').value;
+    const text = document.getElementById('edit-card-text').value;
+    const imageFile = document.getElementById('edit-card-image').files[0];
+
+    saveBtn.disabled = true;
+    const originalText = saveBtn.textContent;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Saving...';
+
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('text', text);
+    if (imageFile) fd.append('front_image', imageFile);
+    const tags = Array.from(document.querySelectorAll('.edit-card-tag:checked')).map(cb => cb.value);
+    fd.append('tags', JSON.stringify(tags));
+
+    fetch(`/hx/forge/card/${cardId}/edit/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken },
+      body: fd,
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('save failed');
+        return res.text();
+      })
+      .then(html => {
+        const oldRow = document.getElementById(`card-${cardId}`);
+        if (oldRow) oldRow.outerHTML = html;
+        document.activeElement.blur();
+        bootstrap.Modal.getInstance(document.getElementById('editCardModal')).hide();
+      })
+      .catch(err => {
+        console.error(err);
+        alert('Failed to update card.');
+      })
+      .finally(() => {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
+      });
+  });
+
+  // ---- Add card ----
+  document.getElementById('add-card-btn').addEventListener('click', function() {
+    document.getElementById('add-card-name').value = '';
+    document.getElementById('add-card-text').value = '';
+    document.getElementById('add-card-image').value = '';
+    const preview = document.getElementById('add-card-image-preview');
+    preview.src = '';
+    preview.style.display = 'none';
+    document.getElementById('add-card-image').classList.remove('is-invalid');
+    document.getElementById('add-card-image-error').style.display = 'none';
+    document.querySelectorAll('.add-card-tag').forEach(cb => { cb.checked = false; });
+    new bootstrap.Modal(document.getElementById('addCardModal')).show();
+  });
+
+  document.getElementById('save-new-card').addEventListener('click', function() {
+    const saveBtn = this;
+    const imageInput = document.getElementById('add-card-image');
+    const imageFile = imageInput.files[0];
+
+    imageInput.classList.remove('is-invalid');
+    document.getElementById('add-card-image-error').style.display = 'none';
+    if (!imageFile) {
+      imageInput.classList.add('is-invalid');
+      document.getElementById('add-card-image-error').style.display = 'block';
+      imageInput.focus();
+      return;
+    }
+
+    saveBtn.disabled = true;
+    const originalText = saveBtn.textContent;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Saving...';
+
+    const groupId = document.getElementById('add-card-btn').dataset.deckgroupId;
+    const name = document.getElementById('add-card-name').value;
+    const text = document.getElementById('add-card-text').value;
+
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('text', text);
+    fd.append('front_image', imageFile);
+    const tags = Array.from(document.querySelectorAll('.add-card-tag:checked')).map(cb => cb.value);
+    fd.append('tags', JSON.stringify(tags));
+
+    fetch(`/hx/forge/deck/${groupId}/card/add/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken },
+      body: fd,
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('add failed');
+        return res.text();
+      })
+      .then(html => {
+        const empty = document.getElementById('card-list-empty');
+        if (empty) empty.remove();
+        document.getElementById('card-list').insertAdjacentHTML('beforeend', html);
+        cardCount++;
+        updateCardCount();
+        document.activeElement.blur();
+        bootstrap.Modal.getInstance(document.getElementById('addCardModal')).hide();
+      })
+      .catch(err => {
+        console.error(err);
+        alert('Failed to add card.');
+      })
+      .finally(() => {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
+      });
+  });
+
+  // ---- Image previews ----
+  function bindPreview(inputId, previewId, fallbackBtnSelector) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      const preview = document.getElementById(previewId);
+      this.classList.remove('is-invalid');
+      const err = document.getElementById('add-card-image-error');
+      if (err) err.style.display = 'none';
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          preview.src = ev.target.result;
+          preview.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+      } else if (fallbackBtnSelector) {
+        const fallback = document.querySelector(fallbackBtnSelector);
+        const url = fallback ? fallback.dataset.cardImage : '';
+        if (url) {
+          preview.src = url;
+          preview.style.display = 'block';
+        } else {
+          preview.src = '';
+          preview.style.display = 'none';
+        }
+      } else {
+        preview.src = '';
+        preview.style.display = 'none';
+      }
+    });
+  }
+  bindPreview('add-card-image', 'add-card-image-preview');
+  bindPreview('edit-card-image', 'edit-card-image-preview',
+              '.forged-edit-card-btn[data-card-id]');
+  bindPreview('edit-deck-back-input', 'edit-deck-back-preview');
+})();
+</script>
+{% endif %}
+
+{% endblock %}

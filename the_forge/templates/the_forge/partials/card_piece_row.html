@@ -1,0 +1,49 @@
+{% load static %}
+
+<div class="border rounded p-2 mb-2 piece-row" data-row data-id="{{ piece.pk|default_if_none:'' }}">
+  <input type="hidden" name="piece_id" value="{{ piece.pk|default_if_none:'' }}">
+  <input type="hidden" name="piece_type" value="C">
+  <input type="hidden" name="piece_clear_icon" value="0" data-clear-flag>
+  <input type="hidden" name="piece_clear_back" value="0">
+
+  <div class="d-flex gap-2 align-items-center">
+    <div class="piece-icon-cell d-flex align-items-center" style="flex-shrink:0;">
+      {% with back_img=piece.deck_group.back_image %}
+        <img class="piece-icon-thumb" alt=""
+             src="{% if back_img %}{{ back_img.url }}{% endif %}"
+             {% if not back_img %}hidden{% endif %}
+             style="width:2rem; height:2rem; object-fit:contain;">
+        <label class="btn btn-sm btn-outline-secondary mb-0 ms-1" title="Choose card back image">
+          <i class="bi bi-image"></i>
+          <input type="file" name="piece_icon" accept="image/*" class="d-none" data-piece-icon>
+        </label>
+        {% if back_img %}
+          <label class="form-check-label small ms-1 d-flex align-items-center gap-1" title="Remove current card back">
+            <input type="checkbox" class="form-check-input" data-clear-icon>
+            <span>Clear</span>
+          </label>
+        {% endif %}
+      {% endwith %}
+    </div>
+
+    <input type="number" name="piece_quantity" min="1" max="99"
+           value="{{ piece.quantity|default:1 }}"
+           class="form-control form-control-sm form-control-num"
+           style="width:4.5rem; flex-shrink:0;">
+    <input type="text" name="piece_name" value="{{ piece.name|default:'' }}"
+           class="form-control form-control-sm flex-grow-1"
+           placeholder="Deck Name">
+
+    {% if piece.deck_group %}
+      <a href="{% url 'forge-deckgroup-detail' pk=piece.deck_group.pk %}"
+         class="btn btn-sm btn-outline-primary d-inline-flex align-items-center justify-content-center"
+         title="Manage cards in this deck">
+        <img src="{% static 'icons/blank_cards.svg' %}" alt="Manage cards"
+             style="width:1.5em; height:1.5em;">
+      </a>
+    {% endif %}
+    <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row title="Remove">
+      <i class="bi bi-trash3"></i>
+    </button>
+  </div>
+</div>

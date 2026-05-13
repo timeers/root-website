@@ -16,6 +16,9 @@ from .services.upload_paths import (
     relationship_marker_upload_path,
     piece_front_upload_path,
     piece_back_upload_path,
+    forged_deck_back_upload_path,
+    forged_deck_sheet_upload_path,
+    forged_card_upload_path,
 )
 
 
@@ -130,8 +133,35 @@ class ForgedFaction(models.Model):
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 
+    published_faction = models.OneToOneField(
+        'the_keep.Faction',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='source_forged_faction',
+    )
+    published_translation = models.OneToOneField(
+        'the_keep.PostTranslation',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='source_forged_faction',
+    )
+
     def __str__(self):
         return self.faction_name
+
+    @property
+    def is_published_linked(self):
+        """True when this ForgedFaction is linked to a the_keep Faction or
+        PostTranslation. Forms gate name/language editing on this so the
+        link target's title and locale don't drift away from the source."""
+        return bool(self.published_faction_id or self.published_translation_id)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.published_faction_id and self.published_translation_id:
+            raise ValidationError(
+                "A ForgedFaction can be linked to a Faction or a translation, not both."
+            )
 
     def get_background_path(self):
         if self.background_preset:
@@ -849,7 +879,8 @@ class Piece(models.Model):
         CARD = 'C'
         OTHER = 'O'
 
-    parent = models.ForeignKey(FactionBack, on_delete=models.CASCADE, related_name='pieces')
+    parent = models.ForeignKey(FactionBack, on_delete=models.CASCADE, related_name='pieces', null=True, blank=True) #old relationship to remove later
+    faction = models.ForeignKey(ForgedFaction, on_delete=models.CASCADE, related_name='pieces', null=True, blank=True)
     name = models.CharField(max_length=30, blank=True, null=True, default='')
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
     type = models.CharField(max_length=1, choices=TypeChoices.choices)
@@ -938,6 +969,7 @@ class Legend(models.Model):
     step = models.ForeignKey(PhaseStep, related_name='legends', on_delete=models.CASCADE)
     order = models.PositiveIntegerField(default=0)
     title = models.CharField(max_length=200, blank=True, default='')
+    body = models.TextField(blank=True, default='')
 
     class Meta:
         ordering = ['order']
@@ -982,3 +1014,161 @@ class ScaleRow(models.Model):
 
     class Meta:
         ordering = ['order']
+
+
+# ----------------------
+# Forged Deck Models
+# ----------------------
+
+class ForgedDeckGroup(models.Model):
+    """A custom deck attached to a card-type Piece on a ForgedFaction.
+
+    Mirrors the_keep.DeckGroup so the_keep's TTS sprite-deck pipeline works
+    via duck typing.
+    """
+    piece = models.OneToOneField(
+        Piece,
+        related_name='deck_group',
+        on_delete=models.CASCADE,
+        limit_choices_to={'type': 'C'},
+    )
+    name = models.CharField(max_length=255, blank=True, default='')
+    back_image = models.ImageField(upload_to=forged_deck_back_upload_path, blank=True, null=True)
+    allow_reorganization = models.BooleanField(default=False)
+    slug = models.SlugField(null=True, blank=True)
+    last_updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name or (self.piece.name or f'Deck {self.pk}')
+
+    @property
+    def ordered_cards(self):
+        if not hasattr(self, '_ordered_cards_cache'):
+            self._ordered_cards_cache = list(self.cards.all().order_by('order'))
+        return self._ordered_cards_cache
+
+    def get_or_create_deck_for_card_index(self, card_index):
+        deck_number = card_index // 99
+        deck, _ = ForgedCardDeck.objects.get_or_create(
+            group=self,
+            deck_index=deck_number,
+        )
+        return deck
+
+    @property
+    def card_count(self):
+        actual = self.cards.count()
+        if actual > 0:
+            return actual
+        return self.piece.quantity
+
+    @property
+    def has_actual_cards(self):
+        return self.cards.exists()
+
+    def save(self, *args, **kwargs):
+        if not self.name and self.piece_id:
+            self.piece.refresh_from_db()
+            self.name = self.piece.name or 'Deck'
+        if not self.slug:
+            from django.utils.text import slugify
+            from unidecode import unidecode
+            base = slugify(unidecode(self.name or 'deck')) or 'deck'
+            self.slug = base
+        if self.pk:
+            try:
+                old = ForgedDeckGroup.objects.get(pk=self.pk)
+                if old.back_image and old.back_image != self.back_image:
+                    delete_old_image(old.back_image)
+            except ForgedDeckGroup.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.back_image:
+            delete_old_image(self.back_image)
+        super().delete(*args, **kwargs)
+
+
+class ForgedCardDeck(models.Model):
+    """A batch of up to 99 ForgedCards from a ForgedDeckGroup. One row per
+    99 cards. Sprite sheet is generated on demand by the_keep's TTS service."""
+    group = models.ForeignKey(ForgedDeckGroup, related_name='decks', on_delete=models.CASCADE)
+    deck_index = models.PositiveIntegerField()
+    sprite_sheet = models.ImageField(upload_to=forged_deck_sheet_upload_path, null=True, blank=True)
+    sprite_hash = models.CharField(max_length=32, blank=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group', 'deck_index'],
+                name='unique_forged_deck_per_group',
+            )
+        ]
+
+    @property
+    def cards_in_deck(self):
+        start = self.deck_index * 99
+        end = start + 99
+        return self.group.ordered_cards[start:end]
+
+    @property
+    def card_count(self):
+        return len(self.cards_in_deck)
+
+    def save(self, *args, **kwargs):
+        # Suppress the parent timestamp bubble when only the sprite-sheet
+        # fields changed — that's a TTS render side-effect, not a user edit.
+        update_fields = kwargs.get('update_fields')
+        sprite_only = update_fields is not None and set(update_fields) <= {'sprite_sheet', 'sprite_hash'}
+        super().save(*args, **kwargs)
+        if not sprite_only and self.group_id:
+            ForgedDeckGroup.objects.filter(pk=self.group_id).update(last_updated=timezone.now())
+
+
+class ForgedCard(models.Model):
+    """A single card in a ForgedDeckGroup. Front image is user-uploaded for
+    now; a future iteration can render fronts from structured fields the way
+    FactionBack does."""
+    group = models.ForeignKey(ForgedDeckGroup, related_name='cards', on_delete=models.CASCADE)
+    name = models.CharField(max_length=255, blank=True, null=True)
+    text = models.CharField(max_length=255, blank=True, null=True)
+    front_image = models.ImageField(upload_to=forged_card_upload_path)
+    tags = models.JSONField(default=list, blank=True, null=True)
+    order = models.PositiveIntegerField(editable=False, default=0)
+
+    def __str__(self):
+        return self.name or f'Card {self.pk}'
+
+    def save(self, *args, **kwargs):
+        if not self.pk:
+            from django.db.models import Max
+            max_order = self.group.cards.aggregate(Max('order'))['order__max'] or 0
+            self.order = max_order + 1
+        else:
+            try:
+                old = ForgedCard.objects.get(pk=self.pk)
+                if old.front_image and old.front_image != self.front_image:
+                    delete_old_image(old.front_image)
+            except ForgedCard.DoesNotExist:
+                pass
+        super().save(*args, **kwargs)
+
+    @property
+    def deck(self):
+        return self.group.get_or_create_deck_for_card_index(self.order)
+
+    @property
+    def card_index_in_deck(self):
+        return self.order % 99
+
+    @property
+    def tag_string(self):
+        """TTS card Description: card text first, then tags. Mirrors
+        the_keep.Card.tag_string but folds in the optional `text` field."""
+        parts = []
+        if self.text:
+            parts.append(self.text)
+        if self.tags:
+            parts.append(' '.join(self.tags))
+        return '\n'.join(parts).strip()
