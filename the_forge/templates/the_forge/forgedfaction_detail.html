@@ -123,7 +123,7 @@
               {% else %}
                 <form method="post" action="{% url 'forge-sheet-create' faction_pk=faction.pk %}" class="m-0 ms-auto">
                   {% csrf_token %}
-                  <button type="submit" class="btn btn-sm btn-primary">+ Create Front</button>
+                  <button type="submit" class="btn btn-sm btn-success">+ Create Front</button>
                 </form>
               {% endif %}
             </div>
@@ -170,7 +170,7 @@
               {% else %}
                 <form method="post" action="{% url 'forge-back-create' faction_pk=faction.pk %}" class="m-0 ms-auto">
                   {% csrf_token %}
-                  <button type="submit" class="btn btn-sm btn-primary">+ Create Back</button>
+                  <button type="submit" class="btn btn-sm btn-success">+ Create Back</button>
                 </form>
               {% endif %}
             </div>
@@ -219,7 +219,7 @@
               {% else %}
                 <form method="post" action="{% url 'forge-setup-card-create' faction_pk=faction.pk %}" class="m-0 ms-auto">
                   {% csrf_token %}
-                  <button type="submit" class="btn btn-sm btn-primary">+ Create Adset Card</button>
+                  <button type="submit" class="btn btn-sm btn-success">+ Create Adset Card</button>
                 </form>
               {% endif %}
             </div>
@@ -274,7 +274,7 @@
                     </ul>
                   </div>
                 {% else %}
-                  <a href="{% url 'forge-faction-markers-edit' pk=faction.pk %}" class="btn btn-sm btn-primary">+ Create Markers</a>
+                  <a href="{% url 'forge-faction-markers-edit' pk=faction.pk %}" class="btn btn-sm btn-success">+ Create Markers</a>
                 {% endif %}
               </div>
             </div>
@@ -282,55 +282,58 @@
         </div>
       </div>
 
-      {% if card_pieces %}
+      {% if card_pieces or can_edit %}
       <!-- Decks -->
       <div class="forge-detail-col">
         <div class="card p-3 h-100 d-flex flex-column">
-          <h4 class="root-title text-center mb-0">Decks</h4>
-          <ul class="list-unstyled my-3">
-            {% for piece in card_pieces %}
-              <li class="d-flex align-items-center gap-2 mb-2">
-                <span style="width:40px; flex-shrink:0;">
-                  {% if piece.deck_group and piece.deck_group.back_image %}
-                    <img src="{{ piece.deck_group.back_image.url }}" alt=""
-                         class="rounded"
-                         style="max-width: 40px; max-height: 56px; object-fit: contain;">
-                  {% else %}
-                    <span class="d-inline-block rounded"
-                          style="width:40px; height:56px; background: var(--faction-color, #888);"></span>
-                  {% endif %}
-                </span>
-                <span class="flex-grow-1">
-                  <strong>{{ piece.name|default:'Card piece' }}</strong>
-                  <span class="text-muted small">
-                    &times;{{ piece.quantity }}
-                    {% if piece.deck_group %}
-                      &middot; {{ piece.deck_group.card_count }} card{{ piece.deck_group.card_count|pluralize }}
+          <h4 class="root-title text-center mb-0">Cards</h4>
+          {% if card_pieces %}
+            <ul class="list-unstyled my-3">
+              {% for piece in card_pieces %}
+                <li class="d-flex align-items-center gap-2 mb-2">
+                  <span style="width:40px; flex-shrink:0;">
+                    {% if piece.deck_group and piece.deck_group.back_image %}
+                      <img src="{{ piece.deck_group.back_image.url }}" alt=""
+                           class="rounded"
+                           style="max-width: 40px; max-height: 56px; object-fit: contain;">
+                    {% else %}
+                      <span class="d-inline-block rounded"
+                            style="width:40px; height:56px; background: var(--faction-color, #888);"></span>
                     {% endif %}
                   </span>
-                </span>
-                {% if piece.deck_group %}
-                  <a href="{% url 'forge-deckgroup-detail' pk=piece.deck_group.pk %}"
-                     class="btn btn-sm btn-outline-primary">
-                    {% if can_edit %}Edit{% else %}View{% endif %}
-                  </a>
-                {% elif can_edit %}
-                  <a href="{% url 'forge-deckgroup-add' piece_pk=piece.pk %}"
-                     class="btn btn-sm btn-success">+ Deck</a>
-                {% endif %}
-              </li>
-            {% endfor %}
-          </ul>
+                  <span class="flex-grow-1">
+                    <strong>{{ piece.name|default:'' }}</strong>
+                    <span class="forge-component-qty">&times;{{ piece.quantity }}</span>
+                  </span>
+                  {% if piece.deck_group %}
+                    <a href="{% url 'forge-deckgroup-detail' pk=piece.deck_group.pk %}"
+                       class="btn btn-sm btn-outline-primary">
+                      {% if can_edit %}Edit{% else %}View{% endif %}
+                    </a>
+                  {% elif can_edit %}
+                    <a href="{% url 'forge-deckgroup-add' piece_pk=piece.pk %}"
+                       class="btn btn-sm btn-success">+ Deck</a>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="text-muted text-center my-3">No decks yet.</p>
+          {% endif %}
           {% if can_edit %}
-            <div class="d-flex justify-content-end gap-2 mt-auto">
-              <a href="{% url 'forge-faction-cards-pdf' pk=faction.pk %}" target="_blank" rel="noopener"
-                 class="btn btn-sm btn-primary forge-async-download">
-                <i class="bi bi-file-earmark-pdf"></i>
-                <span class="d-none d-md-inline ms-1">Cards PDF</span>
-              </a>
-            </div>
-            <div class="text-muted small mt-2">
-              Cards ship as decks in the TTS download.
+            <div class="d-flex justify-content-end align-items-center mt-auto gap-2">
+              <a href="{% url 'forge-deckgroup-create-for-faction' faction_pk=faction.pk %}"
+                 class="btn btn-sm btn-success">+ Create Deck</a>
+              {% if card_pieces %}
+                <div class="btn-group">
+                  <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-cards-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+                  </ul>
+                </div>
+              {% endif %}
             </div>
           {% endif %}
         </div>
@@ -367,10 +370,17 @@
           {% if can_edit %}
             <div class="d-flex justify-content-end mt-auto gap-2">
               {% if components %}
-                <a href="{% url 'forge-faction-cardboard-edit' pk=faction.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit Pieces</span></a>
-                <a href="{% url 'forge-faction-components-pdf' pk=faction.pk %}" target="_blank" rel="noopener" class="btn btn-sm btn-primary forge-async-download"><i class="bi bi-file-earmark-pdf"></i><span class="d-none d-md-inline ms-1">Download</span></a>
+                <a href="{% url 'forge-faction-cardboard-edit' pk=faction.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span></a>
+                <div class="btn-group">
+                  <button type="button" class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-components-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+                  </ul>
+                </div>
               {% else %}
-                <a href="{% url 'forge-faction-cardboard-edit' pk=faction.pk %}" class="btn btn-sm btn-primary">+ Add Pieces</a>
+                <a href="{% url 'forge-faction-cardboard-edit' pk=faction.pk %}" class="btn btn-sm btn-success">+ Add Pieces</a>
               {% endif %}
             </div>
           {% endif %}
@@ -382,6 +392,8 @@
   </div>
 </div>
 
+<!-- Future Submit Section -->
+{% comment %} 
 {% if can_edit %}
 <div class="card forge-publish-card mt-4 position-relative">
   <div class="card-body">
@@ -460,7 +472,11 @@
     {% endif %}
   </div>
 </div>
-{% endif %}
+{% endif %} {% endcomment %}
+
+
+<!-- End Future Submit Section -->
+
 
 <div class="text-center text-muted small mt-5 mb-2 position-relative">
   Have a feature request or layout bug?

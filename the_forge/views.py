@@ -821,6 +821,37 @@ def sheet_decree_toggle(request, pk):
 
 # ---------- FactionBack ----------
 
+def _apply_card_piece_image(piece, uploaded_file, clear=False, group_name=None):
+    """Card-type Pieces don't carry their own image — the image belongs to the
+    linked ForgedDeckGroup's back_image. This helper creates the deck group on
+    demand and routes the upload (or clear) onto it. Used by the factionback
+    editor's bulk piece form so card rows can share the same UI shell as the
+    other piece types."""
+    if piece.type != Piece.TypeChoices.CARD:
+        return
+    try:
+        group = piece.deck_group
+    except ForgedDeckGroup.DoesNotExist:
+        group = None
+    if group is None:
+        if not uploaded_file and not group_name:
+            return
+        group = ForgedDeckGroup(piece=piece, name=group_name or piece.name or 'Deck')
+        group.save()
+    elif group_name and group.name != group_name:
+        group.name = group_name
+        group.save(update_fields=['name'])
+    if uploaded_file:
+        if group.back_image:
+            delete_old_image(group.back_image)
+        group.back_image = uploaded_file
+        group.save()
+    elif clear and group.back_image:
+        delete_old_image(group.back_image)
+        group.back_image = None
+        group.save()
+
+
 @forge_onboard_required
 def factionback_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
@@ -889,21 +920,30 @@ def factionback_edit(request, pk):
                     has_new_back = bool(back_upload)
                     should_clear_front = (clear_front == '1') and not has_new_front
                     should_clear_back = (clear_back == '1') and not has_new_back
+                    is_card = (ptype == 'C')
                     if sid and sid.isdigit() and int(sid) in existing_pieces:
                         piece = existing_pieces[int(sid)]
                         kept_piece_ids.add(piece.pk)
                         piece.name = name
                         piece.quantity = quantity
                         piece.type = ptype
-                        if has_new_front:
-                            piece.small_icon = front_upload
-                        elif should_clear_front:
-                            piece.small_icon = None
-                        if has_new_back:
-                            piece.back_image = back_upload
-                        elif should_clear_back:
-                            piece.back_image = None
-                        piece.save()
+                        if is_card:
+                            # Card-type rows route the uploaded image to the
+                            # linked deck group's back_image, not to the piece.
+                            piece.save()
+                            _apply_card_piece_image(
+                                piece, front_upload, clear=should_clear_front, group_name=name,
+                            )
+                        else:
+                            if has_new_front:
+                                piece.small_icon = front_upload
+                            elif should_clear_front:
+                                piece.small_icon = None
+                            if has_new_back:
+                                piece.back_image = back_upload
+                            elif should_clear_back:
+                                piece.back_image = None
+                            piece.save()
                     else:
                         new_piece = Piece(
                             faction=back.faction,
@@ -912,7 +952,11 @@ def factionback_edit(request, pk):
                             type=ptype,
                         )
                         new_piece.save()
-                        if has_new_front or has_new_back:
+                        if is_card:
+                            _apply_card_piece_image(
+                                new_piece, front_upload, clear=False, group_name=name,
+                            )
+                        elif has_new_front or has_new_back:
                             if has_new_front:
                                 new_piece.small_icon = front_upload
                             if has_new_back:
@@ -2395,11 +2439,11 @@ def forgedfaction_pdf(request, pk):
     from pypdf import PdfWriter, PdfReader
     from .pdf_engine import (
         SheetLayoutEngine, FactionBackLayoutEngine, SetupCardLayoutEngine,
-        ComponentsSheetLayoutEngine,
+        ComponentsSheetLayoutEngine, ForgedCardsLayoutEngine,
     )
     from .pdf_cache import (
         cache_key, fingerprint_sheet, fingerprint_back, fingerprint_setup_card,
-        fingerprint_components_sheet, get_or_build,
+        fingerprint_components_sheet, fingerprint_cards, get_or_build,
     )
 
     parts = []
@@ -2453,6 +2497,18 @@ def forgedfaction_pdf(request, pk):
             cache_key('components', faction.pk, components_fp), build_components,
         )
         parts.append(components_pdf)
+
+    # Custom decks — appended after the components page so the combined PDF
+    # reads sheet -> back -> components -> cards.
+    cards_engine = ForgedCardsLayoutEngine(faction)
+    if cards_engine.has_cards():
+        def build_cards():
+            buf = BytesIO()
+            cards_engine.build(buf)
+            return buf.getvalue()
+        cards_fp = fingerprint_cards(faction)
+        cards_pdf = get_or_build(cache_key('cards', faction.pk, cards_fp), build_cards)
+        parts.append(cards_pdf)
 
     if not parts:
         return HttpResponse(
@@ -3168,6 +3224,41 @@ def forge_deckgroup_add(request, piece_pk):
 
 
 @forge_onboard_required
+def forge_deckgroup_create_for_faction(request, faction_pk):
+    """Create a new card-type Piece on a faction plus a ForgedDeckGroup for it
+    in one step. Used when a faction has no card pieces yet — the user enters
+    only the deck name + back image and we autogenerate the matching Piece."""
+    faction = get_object_or_404(ForgedFaction, pk=faction_pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if request.method == 'POST':
+        form = ForgedDeckGroupForm(request.POST, request.FILES)
+        if form.is_valid():
+            from django.db import transaction
+            with transaction.atomic():
+                name = form.cleaned_data.get('name') or 'Deck'
+                piece = Piece.objects.create(
+                    faction=faction,
+                    name=name,
+                    type=Piece.TypeChoices.CARD,
+                    quantity=1,
+                )
+                group = form.save(commit=False)
+                group.piece = piece
+                group.name = name
+                group.save()
+            return redirect('forge-deckgroup-detail', pk=group.pk)
+    else:
+        form = ForgedDeckGroupForm(initial={'name': 'Deck'})
+    return render(request, 'the_forge/forged_deckgroup_form.html', {
+        'form': form,
+        'is_create': True,
+        'faction': faction,
+        'piece': None,
+    })
+
+
+@forge_onboard_required
 def forge_deckgroup_edit(request, pk):
     group = get_object_or_404(ForgedDeckGroup, pk=pk)
     faction = group.piece.faction
@@ -3177,6 +3268,13 @@ def forge_deckgroup_edit(request, pk):
         form = ForgedDeckGroupForm(request.POST, request.FILES, instance=group)
         if form.is_valid():
             form.save()
+            # Piece and DeckGroup are one logical "deck" — keep their names
+            # in sync so the cardboard editor and any name-derived lookups
+            # don't drift.
+            piece = group.piece
+            if piece and piece.name != group.name:
+                piece.name = group.name
+                piece.save(update_fields=['name'])
             return redirect('forge-deckgroup-detail', pk=group.pk)
     else:
         form = ForgedDeckGroupForm(instance=group)
@@ -3210,10 +3308,14 @@ def forge_deckgroup_detail(request, pk):
 @require_http_methods(["POST"])
 def forge_deckgroup_delete(request, pk):
     group = get_object_or_404(ForgedDeckGroup, pk=pk)
-    faction = group.piece.faction
+    piece = group.piece
+    faction = piece.faction
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
-    group.delete()
+    # Deleting the piece cascades to its OneToOne deck_group, removing the
+    # cards along with it. Both are tied to the same logical "deck" entity,
+    # so neither should remain without the other.
+    piece.delete()
     return redirect('forge-faction-detail', pk=faction.pk)
 
 

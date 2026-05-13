@@ -118,6 +118,15 @@ class ForgedFactionForm(forms.ModelForm):
         self.fields['language'].widget.attrs.setdefault('class', 'form-select')
         self.fields['language'].required = True
         self.fields['language'].empty_label = None
+        # If this ForgedFaction is already published/linked to a Faction or
+        # PostTranslation, lock the name and language so they don't drift
+        # away from the linked source.
+        if self.instance and self.instance.pk and self.instance.is_published_linked:
+            for fname in ('faction_name', 'language'):
+                self.fields[fname].disabled = True
+                self.fields[fname].help_text = (
+                    "This field is locked and can no longer be changed."
+                )
 
     def clean_background_tile_size(self):
         raw = self.cleaned_data.get('background_tile_size')
@@ -583,11 +592,17 @@ class FactionHeaderForm(forms.Form):
             self.fields['title_text_color'].initial = sheet.title_text_color
             self.fields['pnp_version'].initial = faction.pnp_version or ''
             self.fields['art_by'].initial = faction.art_by or ''
+        if sheet is not None and sheet.faction.is_published_linked:
+            self.fields['faction_name'].disabled = True
+            self.fields['faction_name'].help_text = (
+                "This Faction's name can no longer be changed."
+            )
 
     def save(self):
         sheet = self.sheet
         faction = sheet.faction
-        faction.faction_name = self.cleaned_data['faction_name']
+        if not faction.is_published_linked:
+            faction.faction_name = self.cleaned_data['faction_name']
         faction.pnp_version = self.cleaned_data.get('pnp_version') or None
         faction.art_by = self.cleaned_data.get('art_by') or None
         faction.save(update_fields=['faction_name', 'pnp_version', 'art_by'])
@@ -639,11 +654,17 @@ class SetupCardForm(forms.Form):
             self.fields['faction_name'].initial = card.faction.faction_name
             self.fields['type'].initial = card.type
             self.fields['reach'].initial = card.reach
+        if card is not None and card.faction.is_published_linked:
+            self.fields['faction_name'].disabled = True
+            self.fields['faction_name'].help_text = (
+                "This Faction's name can no longer be changed."
+            )
 
     def save(self, card=None):
         card = card or self.card
-        card.faction.faction_name = self.cleaned_data['faction_name']
-        card.faction.save(update_fields=['faction_name'])
+        if not card.faction.is_published_linked:
+            card.faction.faction_name = self.cleaned_data['faction_name']
+            card.faction.save(update_fields=['faction_name'])
         card.type = self.cleaned_data['type']
         card.reach = self.cleaned_data['reach']
         update_fields = ['type', 'reach', 'last_updated']
@@ -798,7 +819,7 @@ class ScaleRowForm(forms.ModelForm):
 class ForgedDeckGroupForm(forms.ModelForm):
     class Meta:
         model = ForgedDeckGroup
-        fields = ['name', 'back_image', 'allow_reorganization']
+        fields = ['name', 'back_image']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
             'back_image': forms.ClearableFileInput(attrs={'class': 'form-control'}),

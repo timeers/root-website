@@ -269,8 +269,23 @@ def _bubble_carddeck(sender, instance, **kwargs):
 
 
 def _bubble_forged_card(sender, instance, **kwargs):
-    """ForgedCard (FK 'group') -> same chain as ForgedCardDeck."""
+    """ForgedCard (FK 'group') -> same chain as ForgedCardDeck. Also keeps
+    the parent Piece.quantity in sync with the deck's actual card count so
+    component renders (cardboard pages, faction back) reflect the deck size."""
     _bubble_carddeck(sender, instance, **kwargs)
+    group_id = getattr(instance, 'group_id', None)
+    if group_id is None:
+        return
+    ForgedDeckGroup = apps.get_model('the_forge', 'ForgedDeckGroup')
+    ForgedCard = apps.get_model('the_forge', 'ForgedCard')
+    Piece = apps.get_model('the_forge', 'Piece')
+    piece_id = ForgedDeckGroup.objects.filter(pk=group_id).values_list('piece_id', flat=True).first()
+    if piece_id is None:
+        return
+    actual = ForgedCard.objects.filter(group_id=group_id).count()
+    # Piece.quantity has MinValueValidator(1) — clamp empty decks to 1.
+    new_qty = max(1, min(99, actual))
+    Piece.objects.filter(pk=piece_id).exclude(quantity=new_qty).update(quantity=new_qty)
 
 
 # Map: model name -> bubble handler. Each handler is connected to both

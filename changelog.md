@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.12.3] - 2026-5-13 Forging Cards
+
+### New Features
+- Added Decks to Factions in the Forge
+- Added description text to Legends
+- Decks & Cards added to TTS JSON
+- Decks & Cards added to PDF PNP
+
+### Improvements
+- Faction Markers spawn in TTS
+- Single step phases partially indent
+- Tweaked ability/lore width allocations
+
+### Bug Fixes
+- Inline icons in ability text are a little smaller
+
 ## [1.12.2] - 2026-5-10 More Forge Tuning
 
 ### New Features

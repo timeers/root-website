@@ -149,6 +149,13 @@ class ForgedFaction(models.Model):
     def __str__(self):
         return self.faction_name
 
+    @property
+    def is_published_linked(self):
+        """True when this ForgedFaction is linked to a the_keep Faction or
+        PostTranslation. Forms gate name/language editing on this so the
+        link target's title and locale don't drift away from the source."""
+        return bool(self.published_faction_id or self.published_translation_id)
+
     def clean(self):
         from django.core.exceptions import ValidationError
         if self.published_faction_id and self.published_translation_id:

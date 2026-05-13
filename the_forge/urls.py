@@ -144,6 +144,7 @@ urlpatterns = [
 
     # ForgedDeckGroup (custom deck attached to a card-type Piece)
     path('forge/piece/<int:piece_pk>/deck/new/', views.forge_deckgroup_add, name='forge-deckgroup-add'),
+    path('forge/faction/<int:faction_pk>/deck/new/', views.forge_deckgroup_create_for_faction, name='forge-deckgroup-create-for-faction'),
     path('forge/deck/<int:pk>/', views.forge_deckgroup_detail, name='forge-deckgroup-detail'),
     path('forge/deck/<int:pk>/edit/', views.forge_deckgroup_edit, name='forge-deckgroup-edit'),
     path('forge/deck/<int:pk>/delete/', views.forge_deckgroup_delete, name='forge-deckgroup-delete'),

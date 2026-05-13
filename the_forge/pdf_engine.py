@@ -8613,13 +8613,27 @@ class ComponentsSheetLayoutEngine:
 # ---------- Forged custom-deck cards PDF ----------
 
 class ForgedCardsLayoutEngine:
-    """One uploaded card front per page, at the same physical dimensions as
-    SetupCardLayoutEngine (poker card / mini-tarot size). Reads ForgedCard
-    rows for every ForgedDeckGroup attached to a faction.
+    """Lays out as many uploaded card fronts as fit on a landscape letter
+    page at the SetupCardLayoutEngine physical dimensions (poker card /
+    mini-tarot size). Cards are tiled edge-to-edge with no gutters so a
+    print shop can guillotine along straight gridlines, then the whole
+    grid is centered on the page.
     """
+
+    PAGE_MARGIN = 0.25 * inch
 
     def __init__(self, faction):
         self.faction = faction
+        self.page_w, self.page_h = landscape(letter)
+        usable_w = self.page_w - 2 * self.PAGE_MARGIN
+        usable_h = self.page_h - 2 * self.PAGE_MARGIN
+        self.cols = max(1, int(usable_w // CARD_SLOT_W))
+        self.rows = max(1, int(usable_h // CARD_SLOT_H))
+        grid_w = self.cols * CARD_SLOT_W
+        grid_h = self.rows * CARD_SLOT_H
+        # Center the grid; the leftover space splits evenly into margins.
+        self.grid_origin_x = (self.page_w - grid_w) / 2
+        self.grid_origin_y = (self.page_h - grid_h) / 2
 
     def _iter_card_image_paths(self):
         from .models import ForgedDeckGroup
@@ -8640,29 +8654,39 @@ class ForgedCardsLayoutEngine:
     def has_cards(self):
         return any(True for _ in self._iter_card_image_paths())
 
-    def _draw_card(self, c, path):
-        radius = min(CARD_SLOT_W, CARD_SLOT_H) * 0.03
-        c.saveState()
-        try:
-            p = c.beginPath()
-            p.roundRect(0, 0, CARD_SLOT_W, CARD_SLOT_H, radius)
-            c.clipPath(p, stroke=0, fill=0)
-            c.drawImage(
-                path, 0, 0,
-                width=CARD_SLOT_W, height=CARD_SLOT_H,
-                preserveAspectRatio=True, mask='auto',
-            )
-        finally:
-            c.restoreState()
+    def _card_origin(self, slot_index):
+        """Top-down reading order: row 0 is the top of the page, col 0 is left."""
+        col = slot_index % self.cols
+        row = slot_index // self.cols
+        x = self.grid_origin_x + col * CARD_SLOT_W
+        # PDF y-axis points up; lay out rows from the top of the grid.
+        y = self.grid_origin_y + (self.rows - 1 - row) * CARD_SLOT_H
+        return x, y
+
+    def _draw_card(self, c, path, x, y):
+        # No corner radius — cards butt against each other and get cut along
+        # straight gridlines.
+        c.drawImage(
+            path, x, y,
+            width=CARD_SLOT_W, height=CARD_SLOT_H,
+            preserveAspectRatio=True, mask='auto',
+        )
 
     def build(self, output_path):
-        c = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+        c = rl_canvas.Canvas(output_path, pagesize=(self.page_w, self.page_h))
+        per_page = self.cols * self.rows
         any_drawn = False
+        slot_on_page = 0
         for path in self._iter_card_image_paths():
-            self._draw_card(c, path)
-            c.showPage()
+            x, y = self._card_origin(slot_on_page)
+            self._draw_card(c, path, x, y)
             any_drawn = True
-        if not any_drawn:
-            # Reportlab requires at least one page; emit a blank one.
+            slot_on_page += 1
+            if slot_on_page >= per_page:
+                c.showPage()
+                slot_on_page = 0
+        # Flush any partial final page; emit a blank page if nothing rendered
+        # (reportlab requires at least one page).
+        if slot_on_page > 0 or not any_drawn:
             c.showPage()
         c.save()

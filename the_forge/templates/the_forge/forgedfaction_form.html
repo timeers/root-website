@@ -30,11 +30,16 @@
            maxlength="100"
            class="form-control form-control-lg forge-faction-title-input"
            placeholder="Faction Name"
-           hx-get="{% url 'forge-faction-name-check' %}"
-           hx-trigger="keyup changed delay:400ms, load"
-           hx-target="#forge-name-check"
-           hx-swap="innerHTML">
+           {% if form.faction_name.field.disabled %}
+             disabled readonly
+           {% else %}
+             hx-get="{% url 'forge-faction-name-check' %}"
+             hx-trigger="keyup changed delay:400ms, load"
+             hx-target="#forge-name-check"
+             hx-swap="innerHTML"
+           {% endif %}>
     <div id="forge-name-check"></div>
+    {% if form.faction_name.help_text %}<div class="form-text">{{ form.faction_name.help_text }}</div>{% endif %}
     {% if form.faction_name.errors %}<div class="text-danger small mt-1">{{ form.faction_name.errors }}</div>{% endif %}
   </div>
 

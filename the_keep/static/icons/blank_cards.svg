@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="14.988051mm"
+   height="10.25845mm"
+   viewBox="0 0 14.988052 10.258449"
+   version="1.1"
+   id="svg34570"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs34567" />
+  <g
+     id="layer1"
+     transform="rotate(-90,-78.006173,102.01252)" />
+  <path
+     fill="none"
+     stroke-width="0.176389"
+     stroke-linecap="butt"
+     stroke-linejoin="miter"
+     stroke="#231f20"
+     stroke-opacity="1"
+     stroke-miterlimit="10"
+     d="m 13.85624,191.92177 1.686718,-5.14284 c 0.07028,-0.21635 0.303169,-0.33349 0.518143,-0.26321 l 7.49515,2.45704 c 0.216351,0.0703 0.333485,0.30317 0.263205,0.51952 l -1.686719,5.14284 c -0.07028,0.21636 -0.303168,0.33349 -0.518142,0.26321 l -7.49515,-2.45704 c -0.216352,-0.0717 -0.333485,-0.30317 -0.263205,-0.51952 z m 0,0"
+     id="path4834"
+     transform="rotate(-90,-78.006172,102.01252)"
+     style="fill:#e6e6e6" />
+  <path
+     fill="none"
+     stroke-width="0.176389"
+     stroke-linecap="butt"
+     stroke-linejoin="miter"
+     stroke="#231f20"
+     stroke-opacity="1"
+     stroke-miterlimit="10"
+     d="m 13.934788,183.10232 1.686719,5.14422 c 0.07028,0.21635 0.303168,0.33348 0.518142,0.2632 l 7.49515,-2.45842 c 0.216352,-0.0703 0.333485,-0.30179 0.263205,-0.51814 l -1.686719,-5.14422 c -0.07028,-0.21497 -0.303168,-0.3321 -0.518142,-0.26182 l -7.49515,2.45704 c -0.216352,0.0703 -0.333485,0.30317 -0.263205,0.51814 z m 0,0"
+     id="path4828"
+     transform="rotate(-90,-78.006172,102.01252)"
+     style="fill:#e6e6e6" />
+  <rect
+     style="fill:#e6e6e6;stroke:none;stroke-width:0.258903;stroke-linejoin:round;stroke-opacity:0"
+     id="rect766"
+     width="6.0973935"
+     height="8.5556545"
+     x="4.269969"
+     y="1.3771166"
+     ry="0" />
+  <path
+     fill="none"
+     stroke-width="0.176389"
+     stroke-linecap="butt"
+     stroke-linejoin="miter"
+     stroke="#231f20"
+     stroke-opacity="1"
+     stroke-miterlimit="10"
+     d="m 13.987154,190.0242 0.01654,-5.41293 c 0.0014,-0.22738 0.186035,-0.41066 0.413411,-0.40928 l 7.886513,0.0234 c 0.227376,0.001 0.410655,0.18604 0.410655,0.41341 l -0.01653,5.41294 c 0,0.22599 -0.186035,0.41065 -0.412034,0.40927 l -7.887892,-0.0234 c -0.227376,-0.001 -0.410655,-0.18603 -0.410655,-0.41341 z m 0,0"
+     id="path4840"
+     transform="rotate(-90,-78.006172,102.01252)" />
+</svg>
