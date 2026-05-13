@@ -32,6 +32,8 @@ from .models import (
     FactionBack,
     FactionSheet,
     ForgedFaction,
+    ForgedDeckGroup,
+    ForgedCard,
     Legend,
     LegendRow,
     PhaseStep,
@@ -790,4 +792,25 @@ class ScaleRowForm(forms.ModelForm):
                 'class': 'form-control form-control-sm',
                 'data-track-image-input': '',
             }),
+        }
+
+
+class ForgedDeckGroupForm(forms.ModelForm):
+    class Meta:
+        model = ForgedDeckGroup
+        fields = ['name', 'back_image', 'allow_reorganization']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'back_image': forms.ClearableFileInput(attrs={'class': 'form-control'}),
+        }
+
+
+class ForgedCardForm(forms.ModelForm):
+    class Meta:
+        model = ForgedCard
+        fields = ['name', 'text', 'front_image']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'text': forms.TextInput(attrs={'class': 'form-control form-control-sm'}),
+            'front_image': forms.ClearableFileInput(attrs={'class': 'form-control form-control-sm'}),
         }

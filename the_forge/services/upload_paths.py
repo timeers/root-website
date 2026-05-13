@@ -80,7 +80,8 @@ def _resolve_faction(obj):
     if isinstance(obj, ForgedFaction):
         return obj
     for attr in ('faction', 'sheet', 'step', 'legend', 'scale',
-                 'track', 'parent', 'decree', 'card', 'faction_back'):
+                 'track', 'parent', 'decree', 'card', 'faction_back',
+                 'piece', 'group'):
         parent = getattr(obj, attr, None)
         if parent is not None:
             return _resolve_faction(parent)
@@ -115,3 +116,34 @@ def piece_front_upload_path(instance, filename):
 
 def piece_back_upload_path(instance, filename):
     return _piece_upload_path(instance, 'back')
+
+
+def _deck_group_slug(group):
+    return group.slug or f'deck-{group.pk or "new"}'
+
+
+def forged_deck_back_upload_path(instance, filename):
+    faction = _resolve_faction(instance)
+    slug = faction.slug if faction else None
+    return upload_path(
+        slug_parts=[slug, 'decks', _deck_group_slug(instance)],
+        filename='back.webp',
+    )
+
+
+def forged_deck_sheet_upload_path(instance, filename):
+    faction = _resolve_faction(instance.group)
+    slug = faction.slug if faction else None
+    return upload_path(
+        slug_parts=[slug, 'decks', _deck_group_slug(instance.group)],
+        filename='sheet.webp',
+    )
+
+
+def forged_card_upload_path(instance, filename):
+    faction = _resolve_faction(instance.group)
+    slug = faction.slug if faction else None
+    return upload_path(
+        slug_parts=[slug, 'decks', _deck_group_slug(instance.group), 'cards'],
+        filename=uuid.uuid4().hex,
+    )

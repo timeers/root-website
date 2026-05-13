@@ -22,6 +22,9 @@ from .models import (
     ScaleRow,
     SetupCard,
     SetupStep,
+    ForgedDeckGroup,
+    ForgedCardDeck,
+    ForgedCard,
 )
 
 
@@ -223,3 +226,28 @@ class FactionBackAdmin(admin.ModelAdmin):
 class SetupCardAdmin(admin.ModelAdmin):
     list_display = ('faction', 'type', 'reach')
     inlines = [SetupStepCardInline]
+
+
+class ForgedCardInline(admin.TabularInline):
+    model = ForgedCard
+    extra = 0
+    fields = ('order', 'name', 'text', 'front_image')
+    readonly_fields = ('order',)
+    ordering = ('order',)
+
+
+@admin.register(ForgedDeckGroup)
+class ForgedDeckGroupAdmin(admin.ModelAdmin):
+    list_display = ('name', 'piece', 'slug')
+    inlines = [ForgedCardInline]
+
+
+@admin.register(ForgedCardDeck)
+class ForgedCardDeckAdmin(admin.ModelAdmin):
+    list_display = ('group', 'deck_index')
+
+
+@admin.register(ForgedCard)
+class ForgedCardAdmin(admin.ModelAdmin):
+    list_display = ('name', 'group', 'order')
+    list_filter = ('group',)

@@ -111,6 +111,37 @@ def fingerprint_components_sheet(faction):
     })
 
 
+def fingerprint_cards(faction):
+    """Fingerprint every ForgedCard belonging to card-type Pieces on this
+    faction. Includes file mtime so re-uploading an image (which may keep the
+    same path on overwrite) still busts the cache."""
+    import os
+    from .models import ForgedDeckGroup
+    payload = []
+    groups = (
+        ForgedDeckGroup.objects
+        .filter(piece__faction=faction, piece__type='C')
+        .order_by('piece__pk')
+    )
+    for group in groups:
+        group_entry = {
+            'group_pk': group.pk,
+            'group_name': group.name,
+            'back_image': group.back_image.name if group.back_image else '',
+            'cards': [],
+        }
+        for card in group.cards.all().order_by('order'):
+            path = getattr(card.front_image, 'path', None) if card.front_image else None
+            mtime = os.path.getmtime(path) if path and os.path.exists(path) else 0
+            group_entry['cards'].append((
+                card.pk, card.order, card.name or '', card.text or '',
+                card.front_image.name if card.front_image else '',
+                mtime,
+            ))
+        payload.append(group_entry)
+    return _digest({'groups': payload})
+
+
 def _sheet_payload(sheet):
     steps = list(sheet.phase_steps.all().order_by('phase', 'number', 'pk'))
     payload = {

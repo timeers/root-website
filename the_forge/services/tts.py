@@ -216,6 +216,12 @@ MARKER_FALLBACK_ORIGIN_X = 13.0
 MARKER_FALLBACK_ORIGIN_Z = 12.0
 MARKER_GROUP_X_STEP = 1.5
 
+# Fallback spawn location for ForgedDeckGroup decks that don't match a
+# CardPile snap point. Sits north of the marker stack (higher Z in TTS world coords) so it doesn't overlap the markers; subsequent decks step east (higher X).
+DECK_FALLBACK_ORIGIN_X = MARKER_FALLBACK_ORIGIN_X + 1.5
+DECK_FALLBACK_ORIGIN_Z = MARKER_FALLBACK_ORIGIN_Z + 5.0  # ~5u north of markers
+DECK_FALLBACK_X_STEP = 6.5
+
 
 class TTSForgedPiece:
     """Builds TTS Custom_Token / Custom_Tile dicts for a Piece.

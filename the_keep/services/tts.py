@@ -9,7 +9,6 @@ from PIL import Image
 from django.conf import settings
 
 from the_keep.models import CardDeck
-from .upload_paths import deck_sheet_upload_path
 
 FACTION_BOARD_TRANSFORM = {
     "posX": 0.0,
@@ -280,8 +279,20 @@ class TTSSpriteDeck(TTSDeckBase):
         transform = self.get_transform()
         cards = []
         for i, card in enumerate(self.carddeck.cards_in_deck):
-            card_name = getattr(card, "name", None)
+            card_name = getattr(card, "name", None) or ""
             card_tags = card.tag_string
+            # Dominance is an identity tag — promote it into the Nickname
+            # (so TTS shows "Bird Dominance", etc.) and drop the bare tag
+            # token from the Description.
+            raw_tags = getattr(card, "tags", None) or []
+            if "Dominance" in raw_tags:
+                if "dominance" not in card_name.lower():
+                    card_name = f"{card_name} Dominance".strip()
+                # tag_string puts tags as whitespace-separated tokens; drop
+                # the "Dominance" token without touching surrounding text.
+                card_tags = " ".join(
+                    tok for tok in card_tags.split(" ") if tok != "Dominance"
+                ).strip()
             cards.append({
                 "GUID": generate_tts_guid(),
                 "Name": "Card",
@@ -294,9 +305,24 @@ class TTSSpriteDeck(TTSDeckBase):
                 "Hands": True,
             })
 
+        # TTS requires a deck to contain at least 2 cards. A single-card
+        # "deck" must be exported as a bare Card object instead, or the
+        # prefab fails to load.
+        if len(cards) == 1:
+            only = dict(cards[0])
+            # Inherit the deck-group's display name as the card's Nickname
+            # if the card itself doesn't have one.
+            if not only.get("Nickname") and self.carddeck_name:
+                only["Nickname"] = self.carddeck_name
+            return only
+
         return {
             "GUID": generate_tts_guid(),
-            "Name": self.carddeck_name or "Deck",
+            # "DeckCustom" is the TTS prefab type for image-backed decks.
+            # The deck-group's display name belongs in Nickname; using it
+            # as Name made TTS look up a prefab by that name and fail.
+            "Name": "DeckCustom",
+            "Nickname": self.carddeck_name or "",
             "Transform": transform,
             "DeckIDs": [self.card_id(i) for i in range(len(cards))],
             "ContainedObjects": cards,
@@ -542,8 +568,9 @@ def generate_sprite_sheet(deck: CardDeck, quality=90):
         y = (idx // num_width) * card_h
         sprite.paste(img, (x, y))
     
-    # Use the custom upload path function
-    relative_path = deck_sheet_upload_path(deck, "sheet.webp")
+    # Delegate the path to the field's upload_to so subclasses/parallel models
+    # (e.g. the_forge's ForgedCardDeck) can route to their own location.
+    relative_path = deck.sprite_sheet.field.generate_filename(deck, "sheet.webp")
     full_path = os.path.join(settings.MEDIA_ROOT, relative_path)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     

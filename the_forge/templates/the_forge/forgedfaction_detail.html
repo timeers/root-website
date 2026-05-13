@@ -282,6 +282,61 @@
         </div>
       </div>
 
+      {% if card_pieces %}
+      <!-- Decks -->
+      <div class="forge-detail-col">
+        <div class="card p-3 h-100 d-flex flex-column">
+          <h4 class="root-title text-center mb-0">Decks</h4>
+          <ul class="list-unstyled my-3">
+            {% for piece in card_pieces %}
+              <li class="d-flex align-items-center gap-2 mb-2">
+                <span style="width:40px; flex-shrink:0;">
+                  {% if piece.deck_group and piece.deck_group.back_image %}
+                    <img src="{{ piece.deck_group.back_image.url }}" alt=""
+                         class="rounded"
+                         style="max-width: 40px; max-height: 56px; object-fit: contain;">
+                  {% else %}
+                    <span class="d-inline-block rounded"
+                          style="width:40px; height:56px; background: var(--faction-color, #888);"></span>
+                  {% endif %}
+                </span>
+                <span class="flex-grow-1">
+                  <strong>{{ piece.name|default:'Card piece' }}</strong>
+                  <span class="text-muted small">
+                    &times;{{ piece.quantity }}
+                    {% if piece.deck_group %}
+                      &middot; {{ piece.deck_group.card_count }} card{{ piece.deck_group.card_count|pluralize }}
+                    {% endif %}
+                  </span>
+                </span>
+                {% if piece.deck_group %}
+                  <a href="{% url 'forge-deckgroup-detail' pk=piece.deck_group.pk %}"
+                     class="btn btn-sm btn-outline-primary">
+                    {% if can_edit %}Edit{% else %}View{% endif %}
+                  </a>
+                {% elif can_edit %}
+                  <a href="{% url 'forge-deckgroup-add' piece_pk=piece.pk %}"
+                     class="btn btn-sm btn-success">+ Deck</a>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+          {% if can_edit %}
+            <div class="d-flex justify-content-end gap-2 mt-auto">
+              <a href="{% url 'forge-faction-cards-pdf' pk=faction.pk %}" target="_blank" rel="noopener"
+                 class="btn btn-sm btn-primary forge-async-download">
+                <i class="bi bi-file-earmark-pdf"></i>
+                <span class="d-none d-md-inline ms-1">Cards PDF</span>
+              </a>
+            </div>
+            <div class="text-muted small mt-2">
+              Cards ship as decks in the TTS download.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
       {% if components or can_edit %}
       <!-- Buildings & Tokens -->
       <div class="forge-detail-col">

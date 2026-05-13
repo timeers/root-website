@@ -47,6 +47,8 @@ from .forms import (
     FactionHeaderForm,
     FactionMarkersForm,
     ForgedFactionForm,
+    ForgedDeckGroupForm,
+    ForgedCardForm,
     LegendForm,
     LegendRowForm,
     PhaseStepCostImageForm,
@@ -93,6 +95,8 @@ from .models import (
     FactionBack,
     FactionSheet,
     ForgedFaction,
+    ForgedDeckGroup,
+    ForgedCard,
     Legend,
     LegendRow,
     PhaseStep,
@@ -114,7 +118,8 @@ def _faction_for(obj):
     if isinstance(obj, ForgedFaction):
         return obj
     for attr in ('faction', 'sheet', 'step', 'legend', 'scale',
-                 'track', 'parent', 'decree', 'card', 'faction_back'):
+                 'track', 'parent', 'decree', 'card', 'faction_back',
+                 'piece', 'group'):
         parent = getattr(obj, attr, None)
         if parent is not None:
             return _faction_for(parent)
@@ -338,6 +343,9 @@ def forgedfaction_detail(request, pk):
     components = list(
         faction.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk')
     )
+    card_pieces = list(
+        faction.pieces.filter(type='C').select_related('deck_group').order_by('pk')
+    )
     can_edit = user_can_edit_forge(request, faction)
     publish_context = {}
     if can_edit:
@@ -382,6 +390,7 @@ def forgedfaction_detail(request, pk):
         'back': back,
         'setup_card': setup_card,
         'components': components,
+        'card_pieces': card_pieces,
         **publish_context,
     })
 
@@ -2506,6 +2515,33 @@ def forgedfaction_components_pdf(request, pk):
 
 
 @login_required
+def forgedfaction_cards_pdf(request, pk):
+    """One uploaded card front per page, poker-card sized. Includes every
+    ForgedCard across every ForgedDeckGroup attached to a card-type Piece."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    from io import BytesIO
+    from .pdf_engine import ForgedCardsLayoutEngine
+    from .pdf_cache import cache_key, fingerprint_cards, get_or_build
+
+    engine = ForgedCardsLayoutEngine(faction)
+    if not engine.has_cards():
+        return HttpResponse(
+            "No cards yet — add cards to a deck first.",
+            status=404, content_type='text/plain',
+        )
+
+    def build_cards():
+        buf = BytesIO()
+        engine.build(buf)
+        return buf.getvalue()
+    fp = fingerprint_cards(faction)
+    data = get_or_build(cache_key('cards', faction.pk, fp), build_cards)
+    return _pdf_file_response(data, f'{faction.faction_name} - Cards.pdf')
+
+
+@login_required
 def factionsheet_pdf(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
@@ -2623,6 +2659,12 @@ def forgedfaction_tts(request, pk):
         )
 
     if sheet:
+        # If snap points were captured before pile_title was added, force a
+        # one-off rebuild so deck-on-pile placement can match snap points.
+        if sheet.snap_points and not any(sp.get('pile_title') for sp in sheet.snap_points):
+            if sheet.card_piles.exists():
+                sheet.preview_fingerprint = ''
+                sheet.save(update_fields=['preview_fingerprint'])
         _ensure_sheet_preview(sheet)
         _ensure_decree_preview(sheet)
         sheet.refresh_from_db()
@@ -2693,6 +2735,64 @@ def forgedfaction_tts(request, pk):
             transform=adset_transform,
         )
         boards.append(adset.to_object())
+
+    # Custom decks attached to card-type Pieces. Reuses the_keep's sprite-deck
+    # pipeline via duck typing (matching field names on ForgedDeckGroup /
+    # ForgedCardDeck / ForgedCard). Decks whose name matches a CardPile title
+    # on the faction sheet snap onto that pile's slot; others stack offset
+    # next to the board, mirroring the pieces-on-tracks placement logic.
+    from the_keep.services.tts import TTSDeckGroup, DEFAULT_CARD_TRANSFORM
+    from the_forge.services.tts import (
+        _norm_name, _snap_to_world,
+        DECK_FALLBACK_ORIGIN_X, DECK_FALLBACK_ORIGIN_Z, DECK_FALLBACK_X_STEP,
+    )
+
+    pile_buckets = {}
+    if sheet and sheet.snap_points:
+        for sp in sheet.snap_points:
+            title = sp.get('pile_title')
+            if not title:
+                continue
+            pile_buckets.setdefault(_norm_name(title), []).append(sp)
+    consumed_pile_sp_ids = set()
+
+    deck_id = 2  # 1 is reserved for the adset card
+    deck_offset = 0
+    for piece in faction.pieces.filter(type='C').select_related('deck_group').order_by('pk'):
+        group = getattr(piece, 'deck_group', None)
+        if not (group and group.has_actual_cards):
+            continue
+
+        pile_sp = None
+        name_key = _norm_name(group.name) or _norm_name(piece.name)
+        if name_key:
+            for sp in pile_buckets.get(name_key, []):
+                if id(sp) in consumed_pile_sp_ids:
+                    continue
+                consumed_pile_sp_ids.add(id(sp))
+                pile_sp = sp
+                break
+
+        for built_deck in TTSDeckGroup(group, request=request).build(deck_id):
+            obj = built_deck.to_object()
+            if pile_sp is not None:
+                wx, wz, wy = _snap_to_world(pile_sp)
+                transform = dict(DEFAULT_CARD_TRANSFORM)
+                transform['posX'] = wx
+                transform['posZ'] = wz
+                transform['posY'] = wy + 1.5  # spawn above the pile so cards settle
+            else:
+                transform = dict(DEFAULT_CARD_TRANSFORM)
+                transform['posX'] = DECK_FALLBACK_ORIGIN_X + deck_offset * DECK_FALLBACK_X_STEP
+                transform['posZ'] = DECK_FALLBACK_ORIGIN_Z
+                deck_offset += 1
+            obj['Transform'] = transform
+            for contained in obj.get('ContainedObjects', []):
+                contained['Transform'] = dict(transform)
+            boards.append(obj)
+            deck_id += 1
+            pile_sp = None  # only the first sub-deck of a group consumes the snap point
+
     save_file = wrap_tts_save(boards, save_name=faction.faction_name)
 
     response = HttpResponse(
@@ -3001,3 +3101,175 @@ def _file_from(image_field):
         image_field.close()
     name = image_field.name.rsplit('/', 1)[-1]
     return ContentFile(data, name=name)
+
+
+# ---------- ForgedDeckGroup + ForgedCard (custom decks on card-type Pieces) ----------
+
+# the_keep's CardTag enum lists the allowed card tag values. We reuse it
+# rather than re-declaring an enum in the_forge.
+from the_keep.models import CardTag as _ForgedCardTag
+
+
+def _filter_card_tags(raw):
+    """Return only tag values that exist in CardTag. Drops unknown strings."""
+    if not raw:
+        return []
+    allowed = {choice.value for choice in _ForgedCardTag}
+    return [t for t in raw if t in allowed]
+
+
+def _parse_card_tags(request):
+    """Read `tags` from a POST as a JSON-encoded list (matches the_keep's API)."""
+    raw = request.POST.get('tags', '[]')
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        parsed = []
+    if not isinstance(parsed, list):
+        parsed = []
+    return _filter_card_tags(parsed)
+
+
+def _card_row_context(card):
+    return {
+        'card': card,
+        'is_edit': True,
+        'card_tag_choices': list(_ForgedCardTag.choices),
+    }
+
+
+@forge_onboard_required
+def forge_deckgroup_add(request, piece_pk):
+    piece = get_object_or_404(Piece, pk=piece_pk)
+    if piece.type != Piece.TypeChoices.CARD:
+        return HttpResponseBadRequest("Decks can only be added to card-type pieces.")
+    faction = piece.faction
+    if faction is None:
+        return HttpResponseBadRequest("Piece is not linked to a faction.")
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if ForgedDeckGroup.objects.filter(piece=piece).exists():
+        return redirect('forge-deckgroup-detail', pk=piece.deck_group.pk)
+    if request.method == 'POST':
+        form = ForgedDeckGroupForm(request.POST, request.FILES)
+        if form.is_valid():
+            group = form.save(commit=False)
+            group.piece = piece
+            group.save()
+            return redirect('forge-deckgroup-detail', pk=group.pk)
+    else:
+        form = ForgedDeckGroupForm(initial={'name': piece.name or 'Deck'})
+    return render(request, 'the_forge/forged_deckgroup_form.html', {
+        'form': form,
+        'is_create': True,
+        'faction': faction,
+        'piece': piece,
+    })
+
+
+@forge_onboard_required
+def forge_deckgroup_edit(request, pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=pk)
+    faction = group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if request.method == 'POST':
+        form = ForgedDeckGroupForm(request.POST, request.FILES, instance=group)
+        if form.is_valid():
+            form.save()
+            return redirect('forge-deckgroup-detail', pk=group.pk)
+    else:
+        form = ForgedDeckGroupForm(instance=group)
+    return render(request, 'the_forge/forged_deckgroup_form.html', {
+        'form': form,
+        'is_create': False,
+        'faction': faction,
+        'piece': group.piece,
+        'group': group,
+    })
+
+
+@forge_onboard_required
+def forge_deckgroup_detail(request, pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=pk)
+    faction = group.piece.faction
+    if not user_can_view_forge(request, faction):
+        return redirect('forge-home')
+    cards = list(group.cards.all().order_by('order'))
+    return render(request, 'the_forge/forged_deckgroup_detail.html', {
+        'faction': faction,
+        'piece': group.piece,
+        'group': group,
+        'cards': cards,
+        'can_edit': user_can_edit_forge(request, faction),
+        'card_tags': list(_ForgedCardTag.choices),
+    })
+
+
+@forge_onboard_required
+@require_http_methods(["POST"])
+def forge_deckgroup_delete(request, pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=pk)
+    faction = group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    group.delete()
+    return redirect('forge-faction-detail', pk=faction.pk)
+
+
+@player_required
+@require_http_methods(["POST"])
+def forge_card_add(request, group_pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=group_pk)
+    faction = group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    form = ForgedCardForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    card = form.save(commit=False)
+    card.group = group
+    card.tags = _parse_card_tags(request)
+    card.save()
+    return render(request, 'the_forge/partials/forged_card_row.html', _card_row_context(card))
+
+
+@player_required
+@require_http_methods(["POST"])
+def forge_card_edit(request, pk):
+    card = get_object_or_404(ForgedCard, pk=pk)
+    faction = card.group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    form = ForgedCardForm(request.POST, request.FILES, instance=card)
+    if not form.is_valid():
+        return HttpResponseBadRequest(str(form.errors))
+    card = form.save(commit=False)
+    if 'tags' in request.POST:
+        card.tags = _parse_card_tags(request)
+    card.save()
+    return render(request, 'the_forge/partials/forged_card_row.html', _card_row_context(card))
+
+
+@player_required
+@require_http_methods(["DELETE", "POST"])
+def forge_card_delete(request, pk):
+    card = get_object_or_404(ForgedCard, pk=pk)
+    faction = card.group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    card.delete()
+    return HttpResponse(status=204)
+
+
+@player_required
+@require_http_methods(["POST"])
+def forge_card_reorder(request, group_pk):
+    group = get_object_or_404(ForgedDeckGroup, pk=group_pk)
+    faction = group.piece.faction
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    data = json.loads(request.body)
+    for index, cid in enumerate(data.get('order', []), start=1):
+        ForgedCard.objects.filter(id=cid, group=group).update(order=index)
+    return HttpResponse(status=204)

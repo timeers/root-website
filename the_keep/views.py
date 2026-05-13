@@ -5527,7 +5527,7 @@ def edit_deckgroup(request, post_slug, language_code, deckgroup_slug):
         "is_edit": True,
         "language_code": language_code,
         "title": title,
-        "allow_reorganization": deckgroup.allow_reoganization,
+        "allow_reorganization": deckgroup.allow_reorganization,
     })
 
 @editor_required

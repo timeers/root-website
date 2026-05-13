@@ -4485,7 +4485,8 @@ class SheetLayoutEngine:
         }
 
     def record_slot_snap_point(self, abs_x_pts, abs_y_pts,
-                                track=None, row_idx=None, row_title=None):
+                                track=None, row_idx=None, row_title=None,
+                                pile=None):
         local_x, local_z = pdf_to_tts_local(abs_x_pts, abs_y_pts)
         entry = {
             "Position": {"x": local_x, "y": 0.1, "z": local_z},
@@ -4500,6 +4501,10 @@ class SheetLayoutEngine:
                 entry["row_index"] = row_idx
             if row_title:
                 entry["row_title"] = strip_tags(row_title).strip()
+        if pile is not None:
+            from django.utils.html import strip_tags
+            entry["pile_id"] = pile.pk
+            entry["pile_title"] = strip_tags(pile.title or "").strip()
         self.collected_snap_points.append(entry)
 
     LAYER_GROUPS = (
@@ -6715,7 +6720,7 @@ class SheetLayoutEngine:
         else:
             cx = x + CARD_SLOT_W / 2
             cy = y + CARD_SLOT_H / 2
-        self.record_slot_snap_point(cx, cy)
+        self.record_slot_snap_point(cx, cy, pile=pile)
 
     def _draw_card_piles(self, c):
         if not self.card_piles:
@@ -8602,4 +8607,62 @@ class ComponentsSheetLayoutEngine:
                 self._draw_image_in_cell(c, slot['back'], xb, y, circular=circular, piece_type=piece_type)
             c.showPage()
 
+        c.save()
+
+
+# ---------- Forged custom-deck cards PDF ----------
+
+class ForgedCardsLayoutEngine:
+    """One uploaded card front per page, at the same physical dimensions as
+    SetupCardLayoutEngine (poker card / mini-tarot size). Reads ForgedCard
+    rows for every ForgedDeckGroup attached to a faction.
+    """
+
+    def __init__(self, faction):
+        self.faction = faction
+
+    def _iter_card_image_paths(self):
+        from .models import ForgedDeckGroup
+        groups = (
+            ForgedDeckGroup.objects
+            .filter(piece__faction=self.faction, piece__type='C')
+            .order_by('piece__pk')
+        )
+        for group in groups:
+            for card in group.cards.all().order_by('order'):
+                img = card.front_image
+                if not img:
+                    continue
+                path_val = getattr(img, 'path', None) or (img if isinstance(img, str) else None)
+                if path_val and os.path.exists(path_val):
+                    yield path_val
+
+    def has_cards(self):
+        return any(True for _ in self._iter_card_image_paths())
+
+    def _draw_card(self, c, path):
+        radius = min(CARD_SLOT_W, CARD_SLOT_H) * 0.03
+        c.saveState()
+        try:
+            p = c.beginPath()
+            p.roundRect(0, 0, CARD_SLOT_W, CARD_SLOT_H, radius)
+            c.clipPath(p, stroke=0, fill=0)
+            c.drawImage(
+                path, 0, 0,
+                width=CARD_SLOT_W, height=CARD_SLOT_H,
+                preserveAspectRatio=True, mask='auto',
+            )
+        finally:
+            c.restoreState()
+
+    def build(self, output_path):
+        c = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+        any_drawn = False
+        for path in self._iter_card_image_paths():
+            self._draw_card(c, path)
+            c.showPage()
+            any_drawn = True
+        if not any_drawn:
+            # Reportlab requires at least one page; emit a blank one.
+            c.showPage()
         c.save()

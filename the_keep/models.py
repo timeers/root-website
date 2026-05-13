@@ -2801,7 +2801,7 @@ class DeckGroup(models.Model):
     post = models.ForeignKey(Post, related_name='decks', on_delete=models.CASCADE)
     piece = models.ForeignKey(Piece, related_name='decks', on_delete=models.CASCADE)
     language = models.ForeignKey(Language, on_delete=models.CASCADE, default=get_default_language)
-    allow_reoganization = models.BooleanField(default=False)
+    allow_reorganization = models.BooleanField(default=False)
 
     back_image = models.ImageField(upload_to=deck_back_upload_path)
     slug = models.SlugField(null=True, blank=True)
