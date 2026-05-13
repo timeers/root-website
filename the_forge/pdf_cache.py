@@ -98,11 +98,9 @@ def fingerprint_setup_card(card):
 
 def fingerprint_components_sheet(faction):
     card = getattr(faction, 'setup_card', None)
-    back = getattr(faction, 'faction_back', None)
     pieces = []
-    if back is not None:
-        for p in back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
-            pieces.append((p.pk, p.front_version, p.back_version, p.quantity, p.type))
+    for p in faction.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
+        pieces.append((p.pk, p.front_version, p.back_version, p.quantity, p.type))
     return _digest({
         'card_fp': fingerprint_setup_card(card) if card else '',
         'markers_version': faction.markers_version,
@@ -168,7 +166,7 @@ def _back_payload(back):
     return {
         'faction': _serialize_instance(back.faction),
         'back': _serialize_instance(back),
-        'pieces': _serialize_qs(back.pieces.all(), order_by=('pk',)),
+        'pieces': _serialize_qs(back.faction.pieces.all(), order_by=('pk',)),
         'setup_steps': _serialize_qs(back.setup_steps.all(), order_by=('number', 'pk')),
     }
 

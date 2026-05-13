@@ -286,12 +286,9 @@ def build_piece_plan(forged):
     proposes deletion of keep pieces that have no forge counterpart."""
     if not forged.published_faction_id:
         return []
-    back = _safe_related(forged, 'faction_back')
-    if back is None:
-        return []
     keep_pieces = list(forged.published_faction.pieces.all())
     plan = []
-    for forge_piece in back.pieces.all():
+    for forge_piece in forged.pieces.all():
         resolved_name = _resolved_piece_name(forge_piece)
         match = next(
             (

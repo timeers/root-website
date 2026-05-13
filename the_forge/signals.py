@@ -216,8 +216,16 @@ def _bubble_decree_grandchild(sender, instance, **kwargs):
 
 
 def _bubble_piece(sender, instance, **kwargs):
-    """Piece (FK 'parent') -> FactionBack."""
-    _touch_back_and_faction(getattr(instance, 'parent_id', None))
+    """Piece (FK 'faction') -> ForgedFaction. Also bumps the related
+    FactionBack since pieces are rendered onto the back preview."""
+    faction_id = getattr(instance, 'faction_id', None)
+    if faction_id is None:
+        return
+    ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
+    FactionBack = apps.get_model('the_forge', 'FactionBack')
+    _touch(ForgedFaction, faction_id)
+    back_id = FactionBack.objects.filter(faction_id=faction_id).values_list('pk', flat=True).first()
+    _touch(FactionBack, back_id)
 
 
 def _bubble_setupstep(sender, instance, **kwargs):

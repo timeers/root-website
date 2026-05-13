@@ -335,9 +335,8 @@ def forgedfaction_detail(request, pk):
         setup_card = faction.setup_card
     except SetupCard.DoesNotExist:
         setup_card = None
-    components = (
-        list(back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'))
-        if back else []
+    components = list(
+        faction.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk')
     )
     can_edit = user_can_edit_forge(request, faction)
     publish_context = {}
@@ -865,7 +864,7 @@ def factionback_edit(request, pk):
             with transaction.atomic():
                 form.save(back)
 
-                existing_pieces = {p.pk: p for p in back.pieces.all()}
+                existing_pieces = {p.pk: p for p in back.faction.pieces.all()}
                 kept_piece_ids = set()
                 for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
                     front_upload = request.FILES.get(f'piece_icon_{index}')
@@ -898,7 +897,7 @@ def factionback_edit(request, pk):
                         piece.save()
                     else:
                         new_piece = Piece(
-                            parent=back,
+                            faction=back.faction,
                             name=name,
                             quantity=quantity,
                             type=ptype,
@@ -940,7 +939,7 @@ def factionback_edit(request, pk):
             return redirect('forge-faction-detail', pk=back.faction.pk)
     else:
         form = FactionBackForm(back=back)
-    pieces_qs = list(back.pieces.order_by('id'))
+    pieces_qs = list(back.faction.pieces.order_by('id'))
     piece_sections = [
         ('W', 'Warriors', 'Warrior', [p for p in pieces_qs if p.type == 'W']),
         ('B', 'Buildings', 'Building', [p for p in pieces_qs if p.type == 'B']),
@@ -977,7 +976,6 @@ def forgedfaction_cardboard_edit(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
-    back, _ = FactionBack.objects.get_or_create(faction=faction)
     cardboard_types = ('B', 'T')
     if request.method == 'POST':
         piece_ids = request.POST.getlist('piece_id')
@@ -1001,7 +999,7 @@ def forgedfaction_cardboard_edit(request, pk):
             faction.print_component_backs = bool(request.POST.get('print_component_backs'))
             faction.save(update_fields=['print_component_backs'])
 
-            existing_pieces = {p.pk: p for p in back.pieces.filter(type__in=cardboard_types)}
+            existing_pieces = {p.pk: p for p in faction.pieces.filter(type__in=cardboard_types)}
             kept_piece_ids = set()
             for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
                 if ptype not in cardboard_types:
@@ -1033,7 +1031,7 @@ def forgedfaction_cardboard_edit(request, pk):
                         piece.back_image = None
                     piece.save()
                 else:
-                    new_piece = Piece(parent=back, name=name, quantity=quantity, type=ptype)
+                    new_piece = Piece(faction=faction, name=name, quantity=quantity, type=ptype)
                     new_piece.save()
                     if has_new_front or has_new_back:
                         if has_new_front:
@@ -1046,14 +1044,13 @@ def forgedfaction_cardboard_edit(request, pk):
                 Piece.objects.filter(pk__in=stale_piece_ids).delete()
         return redirect('forge-faction-detail', pk=faction.pk)
 
-    pieces_qs = list(back.pieces.filter(type__in=cardboard_types).order_by('id'))
+    pieces_qs = list(faction.pieces.filter(type__in=cardboard_types).order_by('id'))
     piece_sections = [
         ('B', 'Buildings', 'Building', [p for p in pieces_qs if p.type == 'B']),
         ('T', 'Tokens', 'Token', [p for p in pieces_qs if p.type == 'T']),
     ]
     return render(request, 'the_forge/cardboard_editor.html', {
         'faction': faction,
-        'back': back,
         'piece_sections': piece_sections,
         'max_pieces_per_type': MAX_PIECES_PER_TYPE,
     })
@@ -2423,7 +2420,7 @@ def forgedfaction_pdf(request, pk):
     card = getattr(faction, 'setup_card', None)
     has_components = bool(
         card or faction.vp_marker or faction.relationship_marker
-        or (back and back.pieces.filter(type__in=('B', 'T')).exists())
+        or faction.pieces.filter(type__in=('B', 'T')).exists()
     )
     if has_components:
         card_preview_path = None
@@ -2481,7 +2478,7 @@ def forgedfaction_components_pdf(request, pk):
     back = getattr(faction, 'faction_back', None)
     has_components = bool(
         card or faction.vp_marker or faction.relationship_marker
-        or (back and back.pieces.filter(type__in=('B', 'T')).exists())
+        or faction.pieces.filter(type__in=('B', 'T')).exists()
     )
     if not has_components:
         return HttpResponse(

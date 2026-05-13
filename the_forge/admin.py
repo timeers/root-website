@@ -120,7 +120,7 @@ class CardPileInline(admin.TabularInline):
 
 class PieceInline(admin.TabularInline):
     model = Piece
-    fk_name = 'parent'
+    fk_name = 'faction'
     extra = 0
     fields = ('name', 'quantity', 'type', 'small_icon')
 
@@ -146,6 +146,7 @@ class ForgedFactionAdmin(admin.ModelAdmin):
     list_display = ('faction_name', 'designer', 'color', 'background_preset')
     list_filter = ('background_preset',)
     search_fields = ('faction_name',)
+    inlines = [PieceInline]
 
 
 @admin.register(FactionSheet)
@@ -215,7 +216,7 @@ class CardboardSlotAdmin(admin.ModelAdmin):
 @admin.register(FactionBack)
 class FactionBackAdmin(admin.ModelAdmin):
     list_display = ('faction',)
-    inlines = [PieceInline, SetupStepBackInline]
+    inlines = [SetupStepBackInline]
 
 
 @admin.register(SetupCard)

@@ -235,7 +235,7 @@ class TTSForgedPiece:
         return TOKEN_SCALE if self._is_token() else BUILDING_SCALE
 
     def _color_diffuse(self):
-        faction_color = getattr(self.piece.parent.faction, 'color', None)
+        faction_color = getattr(self.piece.faction, 'color', None)
         return _hex_to_rgb_floats(faction_color)
 
     def _custom_image(self):
@@ -405,7 +405,7 @@ def place_pieces_for_back(back, sheet, request):
     get placed at that track's snap points; everything else falls back to an
     offset stack next to the board.
     """
-    pieces = list(back.pieces.filter(type__in=['B', 'T']).order_by('type', 'pk'))
+    pieces = list(back.faction.pieces.filter(type__in=['B', 'T']).order_by('type', 'pk'))
     if not pieces:
         return []
 

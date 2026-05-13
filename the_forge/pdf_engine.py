@@ -7103,7 +7103,7 @@ class FactionBackLayoutEngine:
         self.faction_color = HexColor(self.color_hex)
         self._lang_code = _lang_code_for(self.faction)
 
-        pieces = self._resolve_pieces(faction_back)
+        pieces = self._resolve_pieces(self.faction)
         self._pieces_by_col = []
         for label_key, types in self.PIECE_COLUMNS:
             title = self._label(label_key, label_key.title())
@@ -8400,6 +8400,7 @@ class ComponentsSheetLayoutEngine:
         self.back = getattr(faction, 'faction_back', None)
         self.print_backs = bool(getattr(faction, 'print_component_backs', False))
         self.card_preview_path = card_preview_path
+        self.faction_color = HexColor(faction.color or '#5B4A8A')
 
     def _build_grid_slots(self):
         """Slot order: VP marker, relationship marker, then each B/T piece
@@ -8412,18 +8413,17 @@ class ComponentsSheetLayoutEngine:
         rel_path = _resolve_image_path(getattr(self.faction, 'relationship_marker', None))
         if rel_path:
             slots.append({'kind': 'marker', 'front': rel_path, 'back': rel_path})
-        if self.back is not None:
-            for piece in self.back.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
-                front = _resolve_image_path(getattr(piece, 'small_icon', None))
-                back = _resolve_image_path(getattr(piece, 'back_image', None)) or front
-                qty = getattr(piece, 'quantity', 1) or 1
-                for _ in range(qty):
-                    slots.append({
-                        'kind': 'piece',
-                        'piece_type': piece.type,
-                        'front': front,
-                        'back': back,
-                    })
+        for piece in self.faction.pieces.filter(type__in=('B', 'T')).order_by('type', 'pk'):
+            front = _resolve_image_path(getattr(piece, 'small_icon', None))
+            back = _resolve_image_path(getattr(piece, 'back_image', None)) or front
+            qty = getattr(piece, 'quantity', 1) or 1
+            for _ in range(qty):
+                slots.append({
+                    'kind': 'piece',
+                    'piece_type': piece.type,
+                    'front': front,
+                    'back': back,
+                })
         return slots
 
     def _paginate(self, slots):
@@ -8513,20 +8513,28 @@ class ComponentsSheetLayoutEngine:
             except Exception:
                 pass
 
-    def _draw_image_in_cell(self, c, path, x, y, circular=False):
+    def _draw_image_in_cell(self, c, path, x, y, circular=False, piece_type=None):
         """Draw `path` centered inside a TRACK_SLOT_SIZE cell anchored at (x, y),
         preserving aspect ratio. Tokens (`circular=True`) clip to a circle;
-        everything else clips to a 15%-radius rounded rect."""
+        everything else clips to a 15%-radius rounded rect. When `path` is
+        missing and `piece_type` is 'B' or 'T', render a solid faction-colored
+        placeholder of the appropriate shape."""
+        cell = TRACK_SLOT_SIZE
         if not path:
+            if piece_type in ('B', 'T'):
+                self._draw_piece_placeholder(c, x, y, cell, circular=circular)
             return
         from reportlab.lib.utils import ImageReader
         try:
             iw, ih = ImageReader(path).getSize()
         except Exception:
+            if piece_type in ('B', 'T'):
+                self._draw_piece_placeholder(c, x, y, cell, circular=circular)
             return
         if iw <= 0 or ih <= 0:
+            if piece_type in ('B', 'T'):
+                self._draw_piece_placeholder(c, x, y, cell, circular=circular)
             return
-        cell = TRACK_SLOT_SIZE
         scale = min(cell / iw, cell / ih)
         dw = iw * scale
         dh = ih * scale
@@ -8543,6 +8551,16 @@ class ComponentsSheetLayoutEngine:
         c.clipPath(p, stroke=0, fill=0)
         c.drawImage(path, dx, dy, width=dw, height=dh,
                     preserveAspectRatio=True, mask='auto')
+        c.restoreState()
+
+    def _draw_piece_placeholder(self, c, x, y, cell, circular=False):
+        c.saveState()
+        c.setFillColor(self.faction_color)
+        if circular:
+            c.circle(x + cell / 2, y + cell / 2, cell / 2, stroke=0, fill=1)
+        else:
+            radius = cell * 0.15
+            c.roundRect(x, y, cell, cell, radius, stroke=0, fill=1)
         c.restoreState()
 
     def build(self, output_path):
@@ -8565,8 +8583,9 @@ class ComponentsSheetLayoutEngine:
             if i == 0 and has_card:
                 self._draw_card_with_rounded_corners(c, self.card_preview_path, card_x, card_y)
             for slot, x, y in page_items:
-                circular = slot.get('piece_type') == 'T'
-                self._draw_image_in_cell(c, slot['front'], x, y, circular=circular)
+                piece_type = slot.get('piece_type')
+                circular = piece_type == 'T'
+                self._draw_image_in_cell(c, slot['front'], x, y, circular=circular, piece_type=piece_type)
             c.showPage()
 
             if not self.print_backs:
@@ -8578,8 +8597,9 @@ class ComponentsSheetLayoutEngine:
                 self._draw_card_with_rounded_corners(c, adset_path, xb, card_y)
             for slot, x, y in page_items:
                 xb = page_w - x - TRACK_SLOT_SIZE
-                circular = slot.get('piece_type') == 'T'
-                self._draw_image_in_cell(c, slot['back'], xb, y, circular=circular)
+                piece_type = slot.get('piece_type')
+                circular = piece_type == 'T'
+                self._draw_image_in_cell(c, slot['back'], xb, y, circular=circular, piece_type=piece_type)
             c.showPage()
 
         c.save()
