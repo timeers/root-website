@@ -530,11 +530,15 @@ def carddeck_hash(deck: CardDeck):
 
 #     return deck.sprite_sheet.url
 
+CARD_MAX_DIM = 800
+MAX_SHEET_PIXELS = 100_000_000
+
+
 def generate_sprite_sheet(deck: CardDeck, quality=90):
     """
     Combine up to 99 card front images into a single TTS-compatible sprite sheet.
     Only regenerates if the deck has changed.
-    
+
     Args:
         deck: CardDeck instance
         quality: WebP quality (0-100, default 90 for high quality sprite sheets)
@@ -542,31 +546,48 @@ def generate_sprite_sheet(deck: CardDeck, quality=90):
     cards = deck.cards_in_deck
     if not cards:
         return None
-    
+
     # Check if sprite sheet is up-to-date
     current_hash = carddeck_hash(deck)
     if deck.sprite_hash == current_hash and deck.sprite_sheet:
         return deck.sprite_sheet.url  # up-to-date
-    
+
     num_cards = len(cards)
     num_width = 6  # TTS standard
     num_height = math.ceil(num_cards / num_width)
-    
-    # Use first card to determine size
-    first_img = Image.open(cards[0].front_image.path)
-    card_w, card_h = first_img.size
-    
+
+    # Drop quality for big decks — TTS scales them down on-screen anyway.
+    if num_cards > 30:
+        quality = min(quality, 75)
+
+    # Use first card to determine size, then clamp to a safe ceiling so a card
+    # that slipped through the per-field resize doesn't blow up the sheet.
+    with Image.open(cards[0].front_image.path) as first_img:
+        card_w, card_h = first_img.size
+    if card_w > CARD_MAX_DIM or card_h > CARD_MAX_DIM:
+        ratio = CARD_MAX_DIM / max(card_w, card_h)
+        card_w, card_h = int(card_w * ratio), int(card_h * ratio)
+
     sheet_w = card_w * num_width
     sheet_h = card_h * num_height
-    
+
+    # Hard bail-out before allocating the canvas. Without this an oversized
+    # deck can OOM the worker via Image.new.
+    if sheet_w * sheet_h > MAX_SHEET_PIXELS:
+        raise ValueError(
+            f"Sprite sheet would be {sheet_w}x{sheet_h} px "
+            f"({sheet_w * sheet_h:,} pixels) — exceeds {MAX_SHEET_PIXELS:,} pixel limit"
+        )
+
     sprite = Image.new("RGBA", (sheet_w, sheet_h), (0, 0, 0, 0))
-    
+
     for idx, card in enumerate(cards):
-        img = Image.open(card.front_image.path).convert("RGBA")
-        img = img.resize((card_w, card_h), Image.LANCZOS)
-        x = (idx % num_width) * card_w
-        y = (idx // num_width) * card_h
-        sprite.paste(img, (x, y))
+        with Image.open(card.front_image.path) as img:
+            img = img.convert("RGBA")
+            img = img.resize((card_w, card_h), Image.LANCZOS)
+            x = (idx % num_width) * card_w
+            y = (idx // num_width) * card_h
+            sprite.paste(img, (x, y))
     
     # Delegate the path to the field's upload_to so subclasses/parallel models
     # (e.g. the_forge's ForgedCardDeck) can route to their own location.
