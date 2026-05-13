@@ -879,7 +879,6 @@ class Piece(models.Model):
         CARD = 'C'
         OTHER = 'O'
 
-    parent = models.ForeignKey(FactionBack, on_delete=models.CASCADE, related_name='pieces', null=True, blank=True) #old relationship to remove later
     faction = models.ForeignKey(ForgedFaction, on_delete=models.CASCADE, related_name='pieces', null=True, blank=True)
     name = models.CharField(max_length=30, blank=True, null=True, default='')
     quantity = models.PositiveIntegerField(validators=[MinValueValidator(1), MaxValueValidator(99)])
