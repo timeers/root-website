@@ -474,7 +474,7 @@ def forgedfaction_markers_delete(request, pk):
         faction.save(update_fields=update_fields)
     return redirect('forge-faction-detail', pk=faction.pk)
 
-
+@login_required
 def forgedfaction_vp_marker_png(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_view_forge(request, faction):
@@ -483,7 +483,7 @@ def forgedfaction_vp_marker_png(request, pk):
         return HttpResponseBadRequest("No VP marker generated yet.")
     return _png_file_response(faction.vp_marker, f'{faction.faction_name} - VP Marker.png')
 
-
+@login_required
 def forgedfaction_relationship_marker_png(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_view_forge(request, faction):
