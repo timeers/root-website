@@ -264,7 +264,7 @@ LOGIN_REDIRECT_URL = 'site-home'
 HOME_URL = 'site-home'
 LOGIN_URL = 'discord_login'
 
-ACCOUNT_EMAIL_REQUIRED = False
+ACCOUNT_SIGNUP_FIELDS = ['email', 'username*', 'password1*', 'password2*']
 SOCIALACCOUNT_QUERY_EMAIL = False  # This doesn't seem to do anything
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 
