@@ -2956,22 +2956,33 @@ class CardGroupFlowable(Flowable):
 
         # Bracket arrow layout:
         #   [horiz start] -> [quarter curve] -> [vertical] -> [quarter curve] -> [flat end -> head]
-        # All arrows share the same vertical turn x so they visually align.
+        # All arrows share the same curve radius and the same turn_x, so every
+        # bend has the same size and sits in the same vertical column. Length
+        # variation is absorbed entirely by the vertical segment between bends.
         # Left flat is a ratio of arrow width (0.1242 gives 0.05" for non-bird arrows).
         LEFT_FLAT_RATIO = 0.1242
-        MAX_CURVE_R = 7.5             # max quarter-circle radius for bends
+        MAX_CURVE_R = 7.5             # uniform quarter-circle radius for all bends
         left_flat = dynamic_arrow_w * LEFT_FLAT_RATIO
 
         c.setStrokeColorRGB(0.15, 0.15, 0.15)
         c.setLineWidth(2.3)
         c.setFillColorRGB(0.15, 0.15, 0.15)
 
-        # Find the max y-distance any arrow travels (for scaling curve_r)
-        max_y_dist = max(
+        # Smallest y-distance any non-straight arrow travels — the curve radius
+        # is clamped to half this so even the shortest arrow still has room for
+        # two quarter-circles without their endpoints crossing.
+        min_y_dist = min(
             abs(first_line_centers[i] - icon_center_y)
             for i in range(self.n)
             if not (self.n % 2 == 1 and i == self.n // 2)
         ) if self.n > 1 else 0
+
+        # One radius for every arrow on this row.
+        if min_y_dist > 0:
+            curve_r = min(MAX_CURVE_R, min_y_dist / 2)
+        else:
+            curve_r = MAX_CURVE_R
+        turn_x = arrow_start_x + left_flat + curve_r
 
         for i in range(self.n):
             target_y = first_line_centers[i]
@@ -2984,18 +2995,6 @@ class CardGroupFlowable(Flowable):
                 # Bracket-style arrow: horiz → curve → vert → curve → horiz
                 dy = target_y - icon_center_y
                 sign = 1 if dy > 0 else -1
-                abs_dy = abs(dy)
-
-                # Scale curve_r based on y-distance relative to the max
-                # Smaller distances get tighter curves
-                if max_y_dist > 0:
-                    curve_r = min(MAX_CURVE_R, MAX_CURVE_R * (abs_dy / max_y_dist))
-                else:
-                    curve_r = MAX_CURVE_R
-                # Don't let the radius exceed half the y-distance
-                curve_r = min(curve_r, abs_dy / 2)
-
-                turn_x = arrow_start_x + left_flat + curve_r
 
                 path = c.beginPath()
                 # Start horizontal from icon at icon_center_y
