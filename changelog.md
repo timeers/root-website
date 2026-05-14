@@ -12,6 +12,7 @@
 - Faction Markers spawn in TTS
 - Single step phases partially indent
 - Tweaked ability/lore width allocations
+- Improved the curves oddly spaced card action arrows
 
 ### Bug Fixes
 - Inline icons in ability text are a little smaller
