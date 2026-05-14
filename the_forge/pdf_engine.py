@@ -754,9 +754,6 @@ MIN_CARD_ICON_W = ACTION_CARD_H * (486 / 673)  # ~17.52 pts
 # Precomputed so the math doesn't repeat at render time.
 CARD_NONBIRD_WIDTH_OVERHANG = (ACTION_CARDS_W - MIN_CARD_ICON_W) / 2
 
-# TEMP DEBUG: outline the MIN_CARD_ICON_W column on card-action rows in red.
-DEBUG_CARD_ICON_COLUMN = True
-
 STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'the_keep', 'static')
 FORGE_STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static', 'the_forge')
 FORGE_LOGO_SVG = os.path.join(FORGE_STATIC_DIR, 'Forge_Logo.svg')
@@ -2814,14 +2811,6 @@ class StepActionFlowable(Flowable):
         nudge = self.first_line_h * ACTION_ICON_Y_NUDGE
         first_line_center_y = self._height - self.top_pad - self.first_line_h / 2 - nudge
 
-        # TEMP DEBUG: outline the card-icon column for card actions.
-        if self.is_card and DEBUG_CARD_ICON_COLUMN:
-            c.saveState()
-            c.setStrokeColorRGB(1, 0, 0)
-            c.setLineWidth(0.5)
-            c.rect(0, 0, MIN_CARD_ICON_W, self._height, stroke=1, fill=0)
-            c.restoreState()
-
         # Draw cost icon (centered on first line)
         if self.icon_path or self.icon_drawing:
             if self.is_card:
@@ -2922,14 +2911,6 @@ class CardGroupFlowable(Flowable):
         c.saveState()
 
         text_x = self.icon_space + self.total_arrow_w
-
-        # TEMP DEBUG: outline the card-icon column (whole grouped block).
-        if DEBUG_CARD_ICON_COLUMN:
-            c.saveState()
-            c.setStrokeColorRGB(1, 0, 0)
-            c.setLineWidth(0.5)
-            c.rect(0, 0, MIN_CARD_ICON_W, self._height, stroke=1, fill=0)
-            c.restoreState()
 
         # Compute Y positions for each text block (top-to-bottom stacking)
         # and the first-line center for each (used for arrow targeting)
