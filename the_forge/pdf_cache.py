@@ -30,6 +30,41 @@ _FINGERPRINT_EXCLUDE_FIELDS = frozenset({
 })
 
 
+# Whitelist of ForgedFaction fields that actually affect the rendered front,
+# back, or setup-card PDFs. Everything else on ForgedFaction (icon, markers,
+# metadata, sync/link state) is irrelevant to those three renders, so we only
+# include these in the fingerprint. The components-sheet fingerprint has its
+# own explicit field list and doesn't go through this helper.
+_FACTION_RENDER_FIELDS = (
+    'faction_name',
+    'color',
+    'secondary_color',
+    'background_preset',
+    'background_image',
+    'repeat_background_image',
+    'background_tile_size',
+    'language',
+)
+
+
+def _faction_payload_for_render(faction):
+    """Serialize only the ForgedFaction fields that influence sheet/back/card
+    PDF output. Markers, metadata, and publish state are deliberately omitted
+    so e.g. changing the icon color doesn't invalidate those previews."""
+    if faction is None:
+        return None
+    out = {}
+    for name in _FACTION_RENDER_FIELDS:
+        v = getattr(faction, name, None)
+        if hasattr(v, 'name'):  # ImageField
+            out[name] = v.name or ''
+        elif hasattr(v, 'pk'):   # FK (Language)
+            out[name] = v.pk
+        else:
+            out[name] = v
+    return out
+
+
 def _serialize_instance(obj):
     if obj is None:
         return None
@@ -90,7 +125,7 @@ def fingerprint_decree(sheet):
 
 def fingerprint_setup_card(card):
     return _digest({
-        'faction': _serialize_instance(card.faction),
+        'faction': _faction_payload_for_render(card.faction),
         'card': _serialize_instance(card),
         'steps': _serialize_qs(card.setup_steps.all(), order_by=('number', 'pk')),
     })
@@ -145,7 +180,7 @@ def fingerprint_cards(faction):
 def _sheet_payload(sheet):
     steps = list(sheet.phase_steps.all().order_by('phase', 'number', 'pk'))
     payload = {
-        'faction': _serialize_instance(sheet.faction),
+        'faction': _faction_payload_for_render(sheet.faction),
         'sheet': _serialize_instance(sheet),
         'character_images': _serialize_qs(sheet.character_images.all(), order_by=('order', 'pk')),
         'custom_inline_images': _serialize_qs(sheet.custom_inline_images.all(), order_by=('slot', 'pk')),
@@ -195,7 +230,7 @@ def _scale_payload(scale):
 
 def _back_payload(back):
     return {
-        'faction': _serialize_instance(back.faction),
+        'faction': _faction_payload_for_render(back.faction),
         'back': _serialize_instance(back),
         'pieces': _serialize_qs(back.faction.pieces.all(), order_by=('pk',)),
         'setup_steps': _serialize_qs(back.setup_steps.all(), order_by=('number', 'pk')),

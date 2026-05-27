@@ -22,6 +22,7 @@ urlpatterns = [
     path('forge/faction/<int:pk>/delete/', views.forgedfaction_delete, name='forge-faction-delete'),
     path('forge/faction/<int:pk>/submit/', views.forgedfaction_submit, name='forge-faction-submit'),
     path('forge/faction/<int:pk>/link/', views.forgedfaction_link, name='forge-faction-link'),
+    path('forge/faction/<int:pk>/unlink/', views.forgedfaction_unlink, name='forge-faction-unlink'),
     path('forge/faction/<int:pk>/sync/', views.forgedfaction_sync, name='forge-faction-sync'),
     path('forge/faction/<int:pk>/pdf/', views.forgedfaction_pdf, name='forge-faction-pdf'),
     path('forge/faction/<int:pk>/components/pdf/', views.forgedfaction_components_pdf, name='forge-faction-components-pdf'),

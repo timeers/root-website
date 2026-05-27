@@ -117,6 +117,12 @@ class ForgedFaction(models.Model):
     art_by = models.CharField(max_length=50, null=True, blank=True)
 
     faction_icon = models.ImageField(upload_to=faction_icon_upload_path, blank=True, null=True)
+    # Snapshot of `faction_icon.name` at the time the icon was last pushed to
+    # the linked keep Faction (via submit or sync). Lets the sync diff tell
+    # whether the forge icon has actually been replaced since — comparing
+    # the rendered file bytes wouldn't work because the keep side reprocesses
+    # the icon (smaller max-size) so the stored bytes always differ.
+    icon_synced_name = models.CharField(max_length=255, blank=True, default='')
     icon_color = models.CharField(
         max_length=7,
         blank=True,
@@ -385,6 +391,9 @@ class FactionAbility(models.Model):
     title = models.CharField(max_length=100)
     body = models.TextField()
 
+    class Meta:
+        ordering = ['order']
+
 class ContentBox(models.Model):
     class KindChoices(models.TextChoices):
         SECTION = 'section', 'Section'
@@ -533,6 +542,9 @@ class StepAction(models.Model):
     cost = models.CharField(max_length=20, default=CostChoices.ACTION)
     cost_image = models.ImageField(upload_to=faction_upload_path, blank=True, null=True)
 
+    class Meta:
+        ordering = ['order']
+
     def clean(self):
         from django.core.exceptions import ValidationError
         if self.cost == self.CostChoices.OTHER and not self.cost_image:
@@ -638,6 +650,9 @@ class BorderedBox(models.Model):
         choices=ElementColor.choices,
         default=ElementColor.BLACK,
     )
+
+    class Meta:
+        ordering = ['order']
 
 class CardboardTrack(models.Model):
     class TrackChoices(models.TextChoices):
@@ -963,6 +978,9 @@ class SetupStep(models.Model):
     number = models.PositiveIntegerField()
     text = models.TextField()
 
+    class Meta:
+        ordering = ['number']
+
 
 class Legend(models.Model):
     step = models.ForeignKey(PhaseStep, related_name='legends', on_delete=models.CASCADE)
@@ -1135,6 +1153,9 @@ class ForgedCard(models.Model):
     front_image = models.ImageField(upload_to=forged_card_upload_path)
     tags = models.JSONField(default=list, blank=True, null=True)
     order = models.PositiveIntegerField(editable=False, default=0)
+
+    class Meta:
+        ordering = ['order']
 
     def __str__(self):
         return self.name or f'Card {self.pk}'

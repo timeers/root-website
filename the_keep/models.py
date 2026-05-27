@@ -803,6 +803,16 @@ class PostTranslation(models.Model):
     translated_card_image = models.ImageField(upload_to=translation_card_front_upload_path, null=True, blank=True)
     translated_board_2_image = models.ImageField(upload_to=translation_board_back_upload_path, null=True, blank=True)
     translated_card_2_image = models.ImageField(upload_to=translation_card_back_upload_path, null=True, blank=True)
+    # Mirrors the per-image version pattern on Faction so the forge sync diff
+    # can compare against the source `preview_version` instead of file paths
+    # (which always differ because the forge preview and the translation copy
+    # live under different upload paths). Bumped by the sync save flow when
+    # the matching image is copied from the forge. card_2 isn't currently
+    # produced by the forge but is wired in for future symmetry.
+    translated_board_image_version = models.PositiveIntegerField(default=0)
+    translated_card_image_version = models.PositiveIntegerField(default=0)
+    translated_board_2_image_version = models.PositiveIntegerField(default=0)
+    translated_card_2_image_version = models.PositiveIntegerField(default=0)
     
     translated_lore = models.TextField(null=True, blank=True)
     translated_description = models.TextField(null=True, blank=True)

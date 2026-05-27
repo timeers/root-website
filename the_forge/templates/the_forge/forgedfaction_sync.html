@@ -40,7 +40,13 @@
               <td><strong>{{ label }}</strong></td>
               <td>
                 {% if is_image %}
-                  {% if current %}<img src="{{ current.url }}" alt="" style="max-width: 200px;">{% else %}<span class="text-muted">— none —</span>{% endif %}
+                  {% if current %}
+                    {% if field_name == 'small_icon' %}
+                      <img src="{{ current.url }}" alt="" style="width: 96px; height: 96px; object-fit: contain;">
+                    {% else %}
+                      <img src="{{ current.url }}" alt="" style="max-width: 200px;">
+                    {% endif %}
+                  {% else %}<span class="text-muted">— none —</span>{% endif %}
                 {% elif field_name == 'color' %}
                   {% if current %}<span class="d-inline-flex align-items-center gap-2"><span class="d-inline-block rounded-circle" style="width: 1.25rem; height: 1.25rem; background: {{ current }}; border: 1px solid rgba(0,0,0,0.2);"></span><span class="font-monospace">{{ current }}</span></span>{% else %}<span class="text-muted">— empty —</span>{% endif %}
                 {% elif field_name == 'complexity' or field_name == 'card_wealth' or field_name == 'aggression' or field_name == 'crafting_ability' %}
@@ -57,7 +63,13 @@
               </td>
               <td>
                 {% if is_image %}
-                  {% if proposed %}<img src="{{ proposed.url }}" alt="" style="max-width: 200px;">{% else %}<span class="text-muted">— none —</span>{% endif %}
+                  {% if proposed %}
+                    {% if field_name == 'small_icon' %}
+                      <img src="{{ proposed.url }}" alt="" style="width: 96px; height: 96px; object-fit: contain;">
+                    {% else %}
+                      <img src="{{ proposed.url }}" alt="" style="max-width: 200px;">
+                    {% endif %}
+                  {% else %}<span class="text-muted">— none —</span>{% endif %}
                 {% elif field_name == 'color' %}
                   {% if proposed %}<span class="d-inline-flex align-items-center gap-2"><span class="d-inline-block rounded-circle" style="width: 1.25rem; height: 1.25rem; background: {{ proposed }}; border: 1px solid rgba(0,0,0,0.2);"></span><span class="font-monospace">{{ proposed }}</span></span>{% else %}<span class="text-muted">— empty —</span>{% endif %}
                 {% elif field_name == 'complexity' or field_name == 'card_wealth' or field_name == 'aggression' or field_name == 'crafting_ability' %}
@@ -157,7 +169,7 @@
         <p class="form-text mb-3">Existing pieces on the Faction without a matching name are not touched and are not shown above.</p>
       {% endif %}
     {% else %}
-      <p class="form-text mt-3 mb-3 text-muted"><em>Pieces aren't synced into translations — manage them via the base Faction.</em></p>
+      <p class="form-text mt-3 mb-3 text-muted"><em>Pieces aren't synced for translations. Manage them via the original Faction.</em></p>
     {% endif %}
 
     <div class="d-flex justify-content-end gap-2 mb-5">

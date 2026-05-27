@@ -37,11 +37,11 @@
     {% endif %}
 
     {% if can_edit %}
-      <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteFactionModal">
+      <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteFactionModal">
         <i class="bi bi-trash"></i><span class="d-none d-md-inline ms-1">Delete</span>
       </button>
 
-      <a href="{% url 'forge-faction-edit' pk=faction.pk %}" class="btn btn-sm btn-outline-primary">
+      <a href="{% url 'forge-faction-edit' pk=faction.pk %}" class="btn btn-sm btn-warning">
         <i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span>
       </a>
     {% endif %}
@@ -393,7 +393,7 @@
 </div>
 
 <!-- Future Submit Section -->
-{% comment %} 
+
 {% if can_edit %}
 <div class="card forge-publish-card mt-4 position-relative">
   <div class="card-body">
@@ -404,7 +404,7 @@
             {% if sync_available %}
               Updates Available
             {% else %}
-              Submitted
+              Up to Date
             {% endif %}
           {% else %}
             Submit to the Root Database
@@ -415,25 +415,46 @@
             {% if sync_available %}
               Push selected changes from this draft to <strong>{{ publish_target_label }}</strong>.
             {% else %}
-              This Faction is published as <strong>{{ publish_target_label }}</strong>.
+              This Faction, <strong>{{ publish_target_label }}</strong>, is up to date.
             {% endif %}
           {% else %}
-            All requirements below must be met before submitting as a new Faction.
-            In addition, you must have a link to a Discord Thread or BGG Post.
+            All requirements below must be met before submitting as a new Faction.<br>
+            In addition, you must have a link to a Woodland Warriors Discord Thread.
           {% endif %}
         </p>
       </div>
       <div class="forge-publish-card__action">
         {% if publish_target %}
-          {% if sync_available %}
-            <a href="{% url 'forge-faction-sync' pk=faction.pk %}" class="btn btn-success">
-              <i class="bi bi-arrow-repeat me-1"></i>Sync
-            </a>
-          {% else %}
-            <a href="{{ publish_target_url }}" class="btn btn-outline-success">
-              <i class="bi bi-check2-circle me-1"></i>View Published
-            </a>
-          {% endif %}
+          <div class="btn-group">
+            {% if sync_available %}
+              <a href="{% url 'forge-faction-sync' pk=faction.pk %}" class="btn btn-success">
+                <i class="bi bi-arrow-repeat me-1"></i>Sync
+              </a>
+              <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                <span class="visually-hidden">Toggle Dropdown</span>
+              </button>
+            {% else %}
+              <a href="{{ publish_target_url }}" class="btn btn-outline-success">
+                <i class="bi bi-check2-circle me-1"></i>View Faction
+              </a>
+              <button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                <span class="visually-hidden">Toggle Dropdown</span>
+              </button>
+            {% endif %}
+            <ul class="dropdown-menu dropdown-menu-end">
+              {% if sync_available %}
+                <li><a class="dropdown-item" href="{{ publish_target_url }}"><i class="bi bi-box-arrow-up-right me-1"></i>View Faction</a></li>
+              {% else %}
+                <li><a class="dropdown-item" href="{% url 'forge-faction-sync' pk=faction.pk %}"><i class="bi bi-arrow-repeat me-1"></i>Sync</a></li>
+              {% endif %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#unlinkForgeModal">
+                  <i class="bi bi-link-45deg me-1"></i>Unlink
+                </button>
+              </li>
+            </ul>
+          </div>
         {% elif submit_ready and link_candidate_exists %}
           <div class="btn-group">
             <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
@@ -463,16 +484,21 @@
     {% if not publish_target %}
       <ul class="forge-publish-requirements mt-3 mb-0">
         {% for req in submit_requirements %}
-          <li class="forge-publish-requirement {% if req.done %}is-done{% else %}is-missing{% endif %}">
-            <i class="bi {% if req.done %}bi-check-circle-fill{% else %}bi-circle{% endif %} forge-publish-requirement__icon"></i>
-            <span class="forge-publish-requirement__label">{{ req.label }}</span>
+          <li class="forge-publish-requirement {% if req.done %}is-done{% else %}is-missing{% endif %}{% if req.warning %} has-warning{% endif %}">
+            <i class="bi {% if req.done and not req.warning %}bi-check-circle-fill{% elif req.warning %}bi-exclamation-triangle-fill{% else %}bi-circle{% endif %} forge-publish-requirement__icon"></i>
+            <span class="forge-publish-requirement__label">
+              {{ req.label }}
+              {% if req.warning %}
+                <span class="forge-publish-requirement__warning d-block small text-warning-emphasis">{{ req.warning }}</span>
+              {% endif %}
+            </span>
           </li>
         {% endfor %}
       </ul>
     {% endif %}
   </div>
 </div>
-{% endif %} {% endcomment %}
+{% endif %} 
 
 
 <!-- End Future Submit Section -->
@@ -574,6 +600,35 @@
 <script src="{% static 'the_forge/forge_async_download.js' %}"></script>
 
 {% if can_edit %}
+  {% if publish_target %}
+    <div class="modal fade" id="unlinkForgeModal" tabindex="-1" aria-labelledby="unlinkForgeModalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="unlinkForgeModalLabel">
+              <i class="bi bi-link-45deg"></i> Unlink from Faction
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Unlink <strong>{{ faction.faction_name }}</strong> from <strong>{{ publish_target_label }}</strong>?</p>
+            <p class="text-muted small mb-0">
+              The Faction will not be deleted, it stays as-is and can be linked with another Forge Faction. This Forge Faction becomes unlinked again, so you can re-submit it as a new Faction or link it to a different existing one.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <form method="POST" action="{% url 'forge-faction-unlink' pk=faction.pk %}" class="d-inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-warning">
+                <i class="bi bi-link-45deg"></i> Unlink
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
   {% include 'the_forge/partials/_delete_faction_modal.html' %}
   {% if sheet %}
     {% url 'forge-sheet-delete' pk=sheet.pk as sheet_delete_url %}

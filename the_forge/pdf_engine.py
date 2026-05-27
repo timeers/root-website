@@ -1244,7 +1244,11 @@ def true_paragraph_height(para, width):
     """
     _, h = para.wrap(width, 9999)
     tighten_large_font_lines(para)
-    h = para.height  # may have been updated by tightening
+    # tighten_large_font_lines only sets para.height when it actually
+    # adjusted a line's descent. ReportLab's Paragraph doesn't set .height
+    # itself, so fall back to wrap()'s return value when no tightening
+    # occurred — otherwise this raises AttributeError.
+    h = getattr(para, 'height', h)
     if not hasattr(para, 'blPara') or not hasattr(para.blPara, 'lines'):
         return h
 
