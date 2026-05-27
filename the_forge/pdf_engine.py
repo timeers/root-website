@@ -1439,7 +1439,7 @@ class BorderedBoxFlowable(Flowable):
             para = Paragraph(self.body_markup, centered_style)
             para_w, para_h = para.wrap(body_w, 9999)
             tighten_large_font_lines(para)
-            para_h = para.height
+            para_h = getattr(para, 'height', para_h)
 
             overflow = para_h > body_available_h
 
@@ -1526,8 +1526,7 @@ def draw_crafted_items_overlay(c, x, y, w, h, title, body, color_hex='#000000'):
             textColor=color,
         )
         para = Paragraph(body, style)
-        para.wrap(body_w, 9999)
-        para_h = para.height
+        _, para_h = para.wrap(body_w, 9999)
 
         if para_h > body_available_h:
             print(f"WARNING: CraftedItemsOverlay '{title}' body text overflows "
@@ -2750,7 +2749,10 @@ class StepActionFlowable(Flowable):
         self.text_w = total_width - icon_space - self.total_arrow_w
         _, self.wrap_h = text_paragraph.wrap(self.text_w, 9999)
         self.true_h = true_paragraph_height(text_paragraph, self.text_w)
-        self.wrap_h = text_paragraph.height  # updated by tightening in true_paragraph_height
+        # true_paragraph_height tightens the paragraph; if any line was
+        # adjusted its post-tightening height lives on para.height, otherwise
+        # ReportLab never sets that attribute. Fall back to wrap_h.
+        self.wrap_h = getattr(text_paragraph, 'height', self.wrap_h)
 
         # Determine first line height for icon/arrow vertical alignment
         self.first_line_h = self._get_first_line_height(text_paragraph)
@@ -2896,7 +2898,9 @@ class CardGroupFlowable(Flowable):
         for para in text_paragraphs:
             _, wh = para.wrap(self.text_w, 9999)
             th = true_paragraph_height(para, self.text_w)
-            wh = para.height  # updated by tightening in true_paragraph_height
+            # See StepActionFlowable.__init__ — .height is only set when
+            # tighten_large_font_lines actually adjusted a descent.
+            wh = getattr(para, 'height', wh)
             flh = StepActionFlowable._get_first_line_height(para)
             self.wrap_heights.append(wh)
             self.true_heights.append(th)
@@ -7352,9 +7356,9 @@ class FactionBackLayoutEngine:
         else:
             markup = qty_markup
         para = Paragraph(markup, style)
-        para.wrap(available_w, 9999)
+        _, _wh = para.wrap(available_w, 9999)
         tighten_large_font_lines(para)
-        para_h = para.height
+        para_h = getattr(para, 'height', _wh)
         # Actual rendered width is the widest line. FragLine stores maxWidth (the
         # wrap box it was given) and extraSpace (unused trailing space), so the
         # real line width is maxWidth - extraSpace.
@@ -7609,7 +7613,7 @@ class FactionBackLayoutEngine:
         para = Paragraph(markup, self.setup_step_style)
         _, para_h = para.wrap(text_w, 9999)
         tighten_large_font_lines(para)
-        para_h = para.height
+        para_h = getattr(para, 'height', para_h)
 
         block_h = max(marker_h, para_h)
         block_bottom = top_y - block_h
@@ -7670,9 +7674,9 @@ class FactionBackLayoutEngine:
         para = Paragraph(markup, self.howtoplay_body_style)
 
         if not img_path:
-            para.wrap(w, body_h)
+            _, para_h = para.wrap(w, body_h)
             tighten_large_font_lines(para)
-            para_h = para.height
+            para_h = getattr(para, 'height', para_h)
             para.drawOn(c, x, body_top - para_h)
             return
 
@@ -8137,9 +8141,9 @@ class SetupCardLayoutEngine:
 
         markup = format_step_markup(text)
         para = Paragraph(markup, self.setup_step_style)
-        _, _ = para.wrap(text_w, 9999)
+        _, _wh = para.wrap(text_w, 9999)
         tighten_large_font_lines(para)
-        para_h = para.height
+        para_h = getattr(para, 'height', _wh)
 
         block_h = max(marker_h, para_h)
         block_bottom = top_y - block_h
