@@ -1,4 +1,5 @@
 {% extends 'the_keep/base.html' %}
+{% load static %}
 
 {% block content %}
 <div class="my-2">
@@ -7,7 +8,7 @@
 
 <div class="mb-3">
   <h2 class="root-title m-0">Link "{{ faction.faction_name }}" to an existing Faction</h2>
-  <p class="text-muted mb-0">Linking does not change the existing Faction. After linking, use Sync to push selected forge values across.</p>
+  <p class="text-muted mb-0">Linking does not change the existing Faction. After linking, use Sync to push selected forge values across. Each existing Faction can only be linked to one ForgedFaction at a time.</p>
 </div>
 
 <form method="post">
@@ -18,31 +19,124 @@
   {% endif %}
 
   <div class="card p-3 mb-3">
-    {% if form.target.field.choices %}
-      <div class="mb-2">
-        {% for choice in form.target %}
-          <div class="form-check">
-            {{ choice.tag }}
-            <label class="form-check-label" for="{{ choice.id_for_label }}">{{ choice.choice_label }}</label>
-          </div>
+    {% if form.target_options %}
+      <div class="forge-link-target-grid">
+        {% for opt in form.target_options %}
+          <label class="forge-link-target-tile">
+            <input type="radio" name="{{ form.target.html_name }}" value="{{ opt.value }}"
+                   {% if form.target.value == opt.value %}checked{% endif %}>
+            <div class="forge-link-target-body">
+              <div class="forge-link-target-image">
+                {% if opt.picture_url %}
+                  <img src="{{ opt.picture_url }}" alt="">
+                {% elif opt.icon_url %}
+                  <img src="{{ opt.icon_url }}" alt="">
+                {% else %}
+                  <i class="bi bi-image text-muted" style="font-size:2rem;"></i>
+                {% endif %}
+              </div>
+              <div class="forge-link-target-meta">
+                <div class="forge-link-target-title">{{ opt.title }}</div>
+                <div class="forge-link-target-subtitle small text-muted">{{ opt.subtitle }}</div>
+              </div>
+              <div class="forge-link-target-check"><i class="bi bi-check-circle-fill"></i></div>
+            </div>
+          </label>
         {% endfor %}
-        {{ form.target.errors }}
       </div>
+      {{ form.target.errors }}
     {% else %}
       <p class="text-muted mb-0">No matching Factions or translations found for this draft.</p>
     {% endif %}
 
     <div class="form-check mt-3">
-      {{ form.show_all_factions }}
-      <label class="form-check-label" for="{{ form.show_all_factions.id_for_label }}">{{ form.show_all_factions.label }}</label>
+      <input type="checkbox" class="form-check-input" id="forge-show-all-factions"
+             {% if show_all %}checked{% endif %}
+             onchange="window.location.search = this.checked ? '?show_all=1' : '';">
+      <label class="form-check-label" for="forge-show-all-factions">Show all my Factions</label>
     </div>
   </div>
 
   <div class="d-flex justify-content-end gap-2 mb-5">
     <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-secondary">Cancel</a>
-    {% if form.target.field.choices %}
+    {% if form.target_options %}
       <button type="submit" class="btn btn-primary">Link</button>
     {% endif %}
   </div>
 </form>
+
+<style>
+  .forge-link-target-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 0.75rem;
+  }
+  .forge-link-target-tile {
+    position: relative;
+    display: block;
+    cursor: pointer;
+    margin: 0;
+  }
+  .forge-link-target-tile input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .forge-link-target-body {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border: 2px solid var(--bs-border-color, #ced4da);
+    border-radius: 0.75rem;
+    background-color: var(--bs-body-bg, #fff);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    height: 100%;
+  }
+  .forge-link-target-tile:hover .forge-link-target-body {
+    border-color: #86b7fe;
+    box-shadow: 0 2px 8px rgba(13, 110, 253, 0.12);
+  }
+  .forge-link-target-tile input[type="radio"]:checked + .forge-link-target-body {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2);
+  }
+  .forge-link-target-image {
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+    border-radius: 0.5rem;
+    background-color: rgba(0,0,0,0.04);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .forge-link-target-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .forge-link-target-meta {
+    flex: 1;
+    min-width: 0;
+  }
+  .forge-link-target-title {
+    font-weight: 600;
+    line-height: 1.2;
+  }
+  .forge-link-target-subtitle {
+    line-height: 1.2;
+  }
+  .forge-link-target-check {
+    color: #0d6efd;
+    font-size: 1.1rem;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .forge-link-target-tile input[type="radio"]:checked + .forge-link-target-body .forge-link-target-check {
+    opacity: 1;
+  }
+</style>
 {% endblock %}

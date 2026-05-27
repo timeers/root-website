@@ -4000,4 +4000,17 @@ body.forge-modal-open { overflow: hidden; }
 .forge-publish-requirement.is-missing .forge-publish-requirement__icon {
   color: #adb5bd;
 }
+.forge-publish-requirement.has-warning {
+  align-items: flex-start;
+  background: rgba(255, 193, 7, 0.12);
+  color: #997404;
+}
+.forge-publish-requirement.has-warning .forge-publish-requirement__icon {
+  color: #ffc107;
+  margin-top: 0.15rem;
+}
+.forge-publish-requirement__warning {
+  margin-top: 0.15rem;
+  line-height: 1.3;
+}
 

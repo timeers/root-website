@@ -593,6 +593,10 @@ class FactionHeaderForm(forms.Form):
             self.fields['pnp_version'].initial = faction.pnp_version or ''
             self.fields['art_by'].initial = faction.art_by or ''
         if sheet is not None and sheet.faction.is_published_linked:
+            # Disabled fields ignore POST data and fall back to `initial`, so
+            # we must set `initial` even on bound forms — otherwise the field
+            # cleans to None and trips the required-field validator.
+            self.fields['faction_name'].initial = sheet.faction.faction_name
             self.fields['faction_name'].disabled = True
             self.fields['faction_name'].help_text = (
                 "This Faction's name can no longer be changed."
@@ -655,6 +659,10 @@ class SetupCardForm(forms.Form):
             self.fields['type'].initial = card.type
             self.fields['reach'].initial = card.reach
         if card is not None and card.faction.is_published_linked:
+            # Disabled fields ignore POST data and fall back to `initial`, so
+            # we must set `initial` even on bound forms — otherwise the field
+            # cleans to None and trips the required-field validator.
+            self.fields['faction_name'].initial = card.faction.faction_name
             self.fields['faction_name'].disabled = True
             self.fields['faction_name'].help_text = (
                 "This Faction's name can no longer be changed."

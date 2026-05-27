@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.12.4] - 2026-5-26 Forge Sync
+
+### New Features
+- Link Forge Faction with your existing Faction
+- Submit your Forge Faction to the Database
+- Sync your Forge Faction with your linked or submitted Faction
+- Unlink your Faction so that you can link it with another
+
+### Bug Fixes
+- Ability bar height bug found by Blaise
+
 ## [1.12.3] - 2026-5-13 Forging Cards
 
 ### New Features

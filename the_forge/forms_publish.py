@@ -199,6 +199,13 @@ FACTION_IMAGE_VERSION_MAP = {
     'card_image': ('setup_card', 'card_image_version'),
 }
 
+# Same pattern for the PostTranslation side.
+TRANSLATION_IMAGE_VERSION_MAP = {
+    'translated_board_image': ('faction_sheet', 'translated_board_image_version'),
+    'translated_board_2_image': ('faction_back', 'translated_board_2_image_version'),
+    'translated_card_image': ('setup_card', 'translated_card_image_version'),
+}
+
 
 def _forge_preview_version(forged, source_attr):
     related = _safe_related(forged, source_attr)
@@ -236,6 +243,16 @@ def build_diff(forged):
                 forge_version = _forge_preview_version(forged, source_attr)
                 keep_version = getattr(faction, keep_version_attr, 0) or 0
                 in_sync = forge_version <= keep_version
+            elif field == 'small_icon':
+                # Comparing the keep faction's small_icon bytes against the
+                # forge faction_icon bytes doesn't work — the keep side
+                # reprocesses the icon at a smaller max-size, so the stored
+                # bytes diverge even when the source is unchanged. Instead,
+                # remember the forge icon's storage name at the time of the
+                # last push (submit or sync) and flag this field only if the
+                # name has changed since.
+                current_name = proposed.name if proposed else ''
+                in_sync = bool(current_name) and current_name == (forged.icon_synced_name or '')
             else:
                 in_sync = _values_equal(current, proposed, is_image)
             if field in ATTRIBUTE_FIELDS:
@@ -259,7 +276,16 @@ def build_diff(forged):
                 continue
             current = getattr(translation, field, None)
             is_image = field in IMAGE_FIELDS
-            in_sync = _values_equal(current, proposed, is_image)
+            if field in TRANSLATION_IMAGE_VERSION_MAP:
+                # File paths between the forge preview and the translation
+                # copy never match; compare source preview_version against
+                # the version stamped on the translation at last sync.
+                source_attr, trans_version_attr = TRANSLATION_IMAGE_VERSION_MAP[field]
+                forge_version = _forge_preview_version(forged, source_attr)
+                trans_version = getattr(translation, trans_version_attr, 0) or 0
+                in_sync = forge_version <= trans_version
+            else:
+                in_sync = _values_equal(current, proposed, is_image)
             rows.append((
                 field, TRANSLATION_FIELD_LABELS[field],
                 current, proposed, is_image, in_sync,
@@ -373,16 +399,33 @@ def _picture_choices(forged):
 
 
 class ForgedFactionSubmitForm(FactionCreateForm):
-    """Submit a ForgedFaction as a brand new Faction in the_keep."""
+    """Submit a ForgedFaction as a brand new Faction in the_keep.
+
+    Most fields are populated from the ForgedFaction / FactionSheet /
+    FactionBack / SetupCard and shown read-only in the template. The user
+    only edits color_group, animal, picture_source (+ optional upload), and
+    ww_link. Other thread links can be revealed via the "Add more links"
+    toggle on the template but stay optional.
+    """
 
     PICTURE_UPLOAD = 'upload'
     PICTURE_NONE = 'none'
+
+    # The user-editable fields on this form. Everything else is initialised
+    # from the forge draft, disabled, and saved through silently.
+    EDITABLE_FIELDS = {
+        'color_group', 'animal', 'picture_source', 'picture', 'ww_link',
+        'bgg_link', 'tts_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link',
+    }
+    OPTIONAL_LINK_FIELDS = (
+        'bgg_link', 'tts_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link',
+    )
 
     picture_source = forms.ChoiceField(
         required=True,
         widget=forms.RadioSelect,
         label='Character Art',
-        help_text='Pick a character image from your Forge draft, upload a new one, or skip.',
+        help_text='Pick a character image for your Faction.',
     )
 
     def __init__(self, *args, forged_faction=None, **kwargs):
@@ -429,21 +472,72 @@ class ForgedFactionSubmitForm(FactionCreateForm):
         else:
             self.fields['picture_source'].initial = self.PICTURE_UPLOAD
 
-        # The view supplies board images from the forge previews — make the
-        # ImageField inputs themselves optional on this subclass.
-        if 'board_image' in self.fields:
-            self.fields['board_image'].required = False
-        if 'board_2_image' in self.fields:
-            self.fields['board_2_image'].required = False
+        # Drop fields the submit page doesn't expose at all. The published
+        # Faction can be edited normally after approval to fill these in.
+        for fname in (
+            'co_designers', 'co_designers_can_edit', 'artist',
+            'art_by_kyle_ferrin', 'designer', 'based_on', 'expansion',
+            'official', 'in_root_digital', 'status', 'rootjam_link',
+            'leder_games_link',
+        ):
+            self.fields.pop(fname, None)
+
+        # The view supplies board/card images from the forge previews —
+        # drop the image inputs entirely so they're not required.
+        for fname in ('board_image', 'board_2_image', 'card_image', 'small_icon'):
+            self.fields.pop(fname, None)
+
         # picture is filled from picture_source; the bare upload field stays
         # available for the "upload my own" branch.
         if 'picture' in self.fields:
             self.fields['picture'].required = False
 
-        # Disable identity fields the user shouldn't change at submit time.
-        for fname in ('title', 'color', 'language', 'version'):
-            if fname in self.fields:
-                self.fields[fname].disabled = True
+        # ww_link is the only required link on this form. The "add more"
+        # links stay optional and start hidden in the template.
+        if 'ww_link' in self.fields:
+            self.fields['ww_link'].required = True
+        for fname in self.OPTIONAL_LINK_FIELDS:
+            if fname in self.fields and fname != 'ww_link':
+                self.fields[fname].required = False
+
+        # Disable every field that isn't user-editable on this page. The
+        # values still POST back (Django sends disabled fields' initial),
+        # and the view overwrites them from the forge draft anyway.
+        for fname, field in self.fields.items():
+            if fname not in self.EDITABLE_FIELDS:
+                field.disabled = True
+
+    def clean_reach_and_type(self, cleaned_data):
+        # reach/type come from the forge draft and aren't editable on this
+        # page, so a parent-form consistency error here would be unfixable
+        # by the user. The draft editor is where this gets resolved.
+        return
+
+    def clean_title_uniqueness(self, cleaned_data):
+        # Title is locked to the forge draft's name on this page. Uniqueness
+        # is still important — but if there's a clash we surface it as a
+        # non-field error pointing back at the draft, not a field error on
+        # a disabled control.
+        from the_keep.models import Faction as KeepFaction, PostTranslation
+        title = cleaned_data.get('title')
+        if not title:
+            return
+        instance_id = self.instance.id if self.instance else None
+        clash = (
+            KeepFaction.objects.exclude(id=instance_id).filter(title__iexact=title).exists()
+            or PostTranslation.objects.exclude(post__id=instance_id).filter(
+                translated_title__iexact=title, post__component='Faction',
+            ).exists()
+            or PostTranslation.objects.exclude(post__id=instance_id).filter(
+                translated_title__iexact=title, post__component='Clockwork',
+            ).exists()
+        )
+        if clash:
+            self.add_error(
+                None,
+                f'A Faction named "{title}" already exists. Rename your forge draft '
+                'before submitting.',
+            )
 
     def clean(self):
         cleaned = super().clean()
@@ -499,23 +593,32 @@ class ForgedFactionLinkForm(forms.Form):
     PREFIX_TRANSLATION = 'translation'
     PREFIX_NEW_TRANSLATION = 'new_translation'
 
-    def __init__(self, *args, user=None, forged=None, **kwargs):
+    def __init__(self, *args, user=None, forged=None, show_all=False, **kwargs):
         if user is None or forged is None:
             raise ValueError('ForgedFactionLinkForm requires user and forged kwargs')
         self.user = user
         self.forged = forged
         self.resolved = None
         self.resolved_mode = None
+        # Populated alongside the radio choices so the template can render
+        # each candidate's picture / icon next to the option.
+        self.target_options = []
 
         super().__init__(*args, **kwargs)
 
-        show_all = self._raw('show_all_factions') in ('on', 'true', '1', True)
-        self.fields['target'].choices = self._build_choices(show_all=show_all)
-
-    def _raw(self, name):
+        # `show_all` is normally driven by the GET query string (the checkbox
+        # auto-submits a GET to refresh the list). On POST, we still honour it
+        # from form data so a re-render after a failed submit keeps the list
+        # expanded.
         if self.is_bound:
-            return self.data.get(name)
-        return self.initial.get(name)
+            show_all = show_all or self.data.get('show_all_factions') in (
+                'on', 'true', '1', True,
+            )
+        choices, options = self._build_choices(show_all=show_all)
+        self.fields['target'].choices = choices
+        self.target_options = options
+        # Keep the checkbox visually in sync with whichever source set show_all.
+        self.fields['show_all_factions'].initial = show_all
 
     def _build_choices(self, show_all=False):
         profile = self.user.profile
@@ -537,31 +640,66 @@ class ForgedFactionLinkForm(forms.Form):
             post__component__in=['Faction', 'Clockwork'],
         ).select_related('post', 'language')
 
+        # Cross-language candidates: any Faction the user designed in
+        # another language that doesn't already have a translation in the
+        # draft's language. The draft's name typically won't match (because
+        # it's the translated name), so we intentionally don't filter by
+        # title here — the user is starting a new translation.
         cross_lang_factions = Faction.objects.filter(
             designer=profile,
-            title__iexact=forged.faction_name,
         ).exclude(
             language=forged.language,
         ).exclude(
             translations__language=forged.language,
         )
 
+        def _img_url(field):
+            return field.url if field and field.name else ''
+
         choices = []
+        options = []
         for f in faction_qs:
-            choices.append((f'{self.PREFIX_FACTION}:{f.pk}', f'{f.title} (Faction)'))
+            value = f'{self.PREFIX_FACTION}:{f.pk}'
+            label = f'{f.title} (Faction)'
+            choices.append((value, label))
+            options.append({
+                'value': value,
+                'label': label,
+                'title': f.title,
+                'subtitle': 'Faction',
+                'picture_url': _img_url(f.picture),
+                'icon_url': _img_url(f.small_icon),
+                'kind': self.PREFIX_FACTION,
+            })
         for t in translation_qs:
             lang_name = t.language.name if t.language else '?'
-            choices.append((
-                f'{self.PREFIX_TRANSLATION}:{t.pk}',
-                f'{t.translated_title} ({lang_name} translation of {t.post.title})',
-            ))
+            value = f'{self.PREFIX_TRANSLATION}:{t.pk}'
+            label = f'{t.translated_title} ({lang_name} translation of {t.post.title})'
+            choices.append((value, label))
+            options.append({
+                'value': value,
+                'label': label,
+                'title': t.translated_title or t.post.title,
+                'subtitle': f'{lang_name} translation of {t.post.title}',
+                'picture_url': _img_url(t.post.picture),
+                'icon_url': _img_url(t.post.small_icon),
+                'kind': self.PREFIX_TRANSLATION,
+            })
         forged_lang_name = forged.language.name if forged.language else '?'
         for f in cross_lang_factions:
-            choices.append((
-                f'{self.PREFIX_NEW_TRANSLATION}:{f.pk}',
-                f'Publish {forged_lang_name} translation of {f.title}',
-            ))
-        return choices
+            value = f'{self.PREFIX_NEW_TRANSLATION}:{f.pk}'
+            label = f'Publish {forged_lang_name} translation of {f.title}'
+            choices.append((value, label))
+            options.append({
+                'value': value,
+                'label': label,
+                'title': f.title,
+                'subtitle': f'Start a new {forged_lang_name} translation',
+                'picture_url': _img_url(f.picture),
+                'icon_url': _img_url(f.small_icon),
+                'kind': self.PREFIX_NEW_TRANSLATION,
+            })
+        return choices, options
 
     def clean_target(self):
         value = self.cleaned_data['target']
@@ -645,6 +783,7 @@ class ForgedFactionSyncForm(forms.Form):
             return None
 
         changed_fields = []
+        icon_synced = False
         for field_name, _label, _current, _proposed, is_image, in_sync in self.diff_rows:
             if in_sync:
                 continue
@@ -657,12 +796,26 @@ class ForgedFactionSyncForm(forms.Form):
                     source_attr, keep_version_attr = FACTION_IMAGE_VERSION_MAP[field_name]
                     setattr(target, keep_version_attr,
                             _forge_preview_version(self.forged, source_attr))
+                if self.mode == 'translation' and field_name in TRANSLATION_IMAGE_VERSION_MAP:
+                    source_attr, trans_version_attr = TRANSLATION_IMAGE_VERSION_MAP[field_name]
+                    setattr(target, trans_version_attr,
+                            _forge_preview_version(self.forged, source_attr))
+                if field_name == 'small_icon':
+                    icon_synced = True
             else:
                 setattr(target, field_name, proposed)
             changed_fields.append(field_name)
 
         if changed_fields:
             target.save()
+        if icon_synced and self.mode == 'faction':
+            # Remember which forge icon we just pushed so the next diff can
+            # distinguish "icon hasn't changed since sync" from "icon was
+            # replaced upstream".
+            self.forged.icon_synced_name = (
+                self.forged.faction_icon.name if self.forged.faction_icon else ''
+            )
+            self.forged.save(update_fields=['icon_synced_name'])
 
         if self.mode == 'faction':
             for entry in self.piece_plan:

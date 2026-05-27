@@ -29,6 +29,8 @@ from .forms_publish import (
     ForgedFactionLinkForm,
     ForgedFactionSubmitForm,
     ForgedFactionSyncForm,
+    build_diff,
+    build_piece_plan,
     submit_prerequisites_missing,
 )
 
@@ -350,11 +352,53 @@ def forgedfaction_detail(request, pk):
     publish_context = {}
     if can_edit:
         submit_missing = submit_prerequisites_missing(faction)
+
+        # Unique-name check: don't allow submit if the name is already taken
+        # by a published Faction or PostTranslation (matches the server-side
+        # clean_title_uniqueness rule in ForgedFactionSubmitForm).
+        existing_published_id = faction.published_faction_id
+        name_taken = (
+            Faction.objects.exclude(id=existing_published_id)
+            .filter(title__iexact=faction.faction_name).exists()
+            or PostTranslation.objects.filter(
+                translated_title__iexact=faction.faction_name,
+                post__component__in=('Faction', 'Clockwork'),
+            ).exists()
+        )
+
+        # Adset Card warning: type / reach must agree with the Faction model's
+        # consistency rule. Insurgent factions have reach ≤ 6; Militant ≥ 6.
+        adset_warning = None
+        if setup_card is not None and setup_card.reach:
+            if setup_card.type == 'I' and setup_card.reach > 6:
+                adset_warning = (
+                    f'Reach is {setup_card.reach} but Type is Insurgent. '
+                    'Lower the reach or switch the type to Militant.'
+                )
+            elif setup_card.type == 'M' and setup_card.reach < 6:
+                adset_warning = (
+                    f'Reach is {setup_card.reach} but Type is Militant. '
+                    'Raise the reach or switch the type to Insurgent.'
+                )
+
         submit_requirements = [
+            {
+                'label': 'Unique Name',
+                'done': not name_taken,
+                'warning': (
+                    f'"{faction.faction_name}" is already used by another Faction. '
+                    'Rename your faction before submitting.'
+                ) if name_taken else None,
+            },
             {'label': 'Faction Board', 'done': sheet is not None},
             {'label': 'Faction Board Back', 'done': back is not None},
-            {'label': 'Adset Card', 'done': setup_card is not None},
+            {
+                'label': 'Adset Card',
+                'done': setup_card is not None,
+                'warning': adset_warning,
+            },
             {'label': 'Faction Icon', 'done': bool(faction.faction_icon)},
+
         ]
         link_candidate_exists = _link_candidate_exists(request.user.profile, faction)
         target, target_mode, target_label = _resolved_published(faction)
@@ -367,13 +411,24 @@ def forgedfaction_detail(request, pk):
         else:
             target_modified = None
             target_url = None
-        sync_available = bool(
-            target is not None
-            and target_modified is not None
-            and faction.last_updated > target_modified
-        )
+        # "Sync available" must match what the sync page actually shows. Using
+        # last_updated vs target.date_modified isn't reliable — last_updated
+        # bubbles on bookkeeping writes that don't change any synced field,
+        # and conversely some real diffs (e.g. icon-name drift) don't move
+        # those timestamps. Mirror the sync page's logic instead: any non-
+        # in-sync diff row, or any piece needing create/update, counts.
+        if target is None:
+            sync_available = False
+        else:
+            field_changes = any(not row[5] for row in build_diff(faction))
+            piece_changes = False
+            if target_mode == 'faction':
+                piece_changes = any(
+                    not entry['in_sync'] for entry in build_piece_plan(faction)
+                )
+            sync_available = field_changes or piece_changes
         publish_context = {
-            'submit_ready': not submit_missing,
+            'submit_ready': not submit_missing and not name_taken,
             'submit_missing': submit_missing,
             'submit_requirements': submit_requirements,
             'link_candidate_exists': link_candidate_exists,
@@ -2941,9 +2996,12 @@ def _link_candidate_exists(profile, forged):
         language=forged.language,
         post__component__in=['Faction', 'Clockwork'],
     ).exists()
+    # Cross-language candidates: any Faction the user designed in another
+    # language that doesn't already have a translation in the draft's
+    # language. The draft's name won't match (different language) so we
+    # intentionally don't filter by title here.
     cross_lang_faction = Faction.objects.filter(
         designer=profile,
-        title__iexact=forged.faction_name,
     ).exclude(language=forged.language).exclude(
         translations__language=forged.language,
     ).exists()
@@ -2959,7 +3017,7 @@ def _resolved_published(forged):
     if forged.published_translation_id:
         t = forged.published_translation
         lang = t.language.name if t.language else '?'
-        return t, 'translation', f'{t.translated_title or t.post.title} ({lang})'
+        return t, 'translation', f'{t.post.title} ({lang})'
     return None, None, None
 
 
@@ -3011,11 +3069,15 @@ def forgedfaction_submit(request, pk):
             if not faction.small_icon and forged.faction_icon:
                 faction.small_icon = _file_from(forged.faction_icon)
 
+            if forged.art_by and 'kyle ferrin' in forged.art_by.lower():
+                faction.art_by_kyle_ferrin = True
+
             faction.save()
             form.save_m2m()
 
             forged.published_faction = faction
-            forged.save(update_fields=['published_faction'])
+            forged.icon_synced_name = forged.faction_icon.name if forged.faction_icon else ''
+            forged.save(update_fields=['published_faction', 'icon_synced_name'])
 
             fields = [{'name': 'Submitted by:', 'value': profile.name}]
             send_rich_discord_message_task.delay(
@@ -3027,11 +3089,21 @@ def forgedfaction_submit(request, pk):
     else:
         form = ForgedFactionSubmitForm(forged_faction=forged, user=request.user)
 
+    sheet = _safe_related_for_view(forged, 'faction_sheet')
+    back = _safe_related_for_view(forged, 'faction_back')
+    card = _safe_related_for_view(forged, 'setup_card')
+    from the_keep.forms import config as keep_config
     return render(request, 'the_forge/forgedfaction_submit.html', {
         'faction': forged,
         'form': form,
         'art_by_hint': forged.art_by,
         'picture_options': form._picture_options,
+        'sheet': sheet,
+        'back': back,
+        'card': card,
+        'ww_guild_id': keep_config.get('WW_GUILD_ID', ''),
+        'wr_guild_id': keep_config.get('WR_GUILD_ID', ''),
+        'fr_guild_id': keep_config.get('FR_GUILD_ID', ''),
     })
 
 
@@ -3044,8 +3116,11 @@ def forgedfaction_link(request, pk):
         messages.info(request, "This forge draft is already published.")
         return redirect('forge-faction-detail', pk=forged.pk)
 
+    show_all = request.GET.get('show_all') in ('1', 'true', 'on')
     if request.method == 'POST':
-        form = ForgedFactionLinkForm(request.POST, user=request.user, forged=forged)
+        form = ForgedFactionLinkForm(
+            request.POST, user=request.user, forged=forged, show_all=show_all,
+        )
         if form.is_valid():
             mode = form.resolved_mode
             target = form.resolved
@@ -3076,12 +3151,46 @@ def forgedfaction_link(request, pk):
                 )
             return redirect('forge-faction-detail', pk=forged.pk)
     else:
-        form = ForgedFactionLinkForm(user=request.user, forged=forged)
+        form = ForgedFactionLinkForm(user=request.user, forged=forged, show_all=show_all)
 
     return render(request, 'the_forge/forgedfaction_link.html', {
         'faction': forged,
         'form': form,
+        'show_all': show_all,
     })
+
+
+@forge_onboard_required
+@require_http_methods(["POST"])
+def forgedfaction_unlink(request, pk):
+    """Break the link between this ForgedFaction and its published Faction or
+    PostTranslation. Leaves the keep-side record untouched — only the forge's
+    pointer is cleared, freeing the keep Faction to be re-linked elsewhere
+    and freeing this draft to be re-submitted or linked to a different one.
+    """
+    forged = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, forged)):
+        return resp
+    if not (forged.published_faction_id or forged.published_translation_id):
+        messages.info(request, "This forge draft isn't linked to anything.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+
+    _, _, label = _resolved_published(forged)
+    update_fields = []
+    if forged.published_faction_id:
+        forged.published_faction = None
+        update_fields.append('published_faction')
+    if forged.published_translation_id:
+        forged.published_translation = None
+        update_fields.append('published_translation')
+    # Clear the icon snapshot so re-linking to a different target re-prompts
+    # the icon as out-of-sync rather than spuriously claiming it's up to date.
+    if forged.icon_synced_name:
+        forged.icon_synced_name = ''
+        update_fields.append('icon_synced_name')
+    forged.save(update_fields=update_fields)
+    messages.success(request, f"Unlinked from '{label}'.")
+    return redirect('forge-faction-detail', pk=forged.pk)
 
 
 @forge_onboard_required

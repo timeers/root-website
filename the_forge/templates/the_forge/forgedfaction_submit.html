@@ -8,7 +8,10 @@
 
 <div class="mb-3">
   <h2 class="root-title m-0">Submit "{{ faction.faction_name }}" as a Faction</h2>
-  <p class="text-muted mb-0">Title, color, language, and version are taken from your Forge draft and can't be changed here. Other fields are pre-filled where the draft has data — review and refine before submitting.</p>
+  <p class="text-muted mb-0">Your faction will be submitted and linked as is. 
+    You can make changes later in the Forge but any changes will not be reflected on the submitted faction until you sync again. 
+    Think of the Forge as a place to iterate your rough draft and syncing to the Database as a checkpoint in your faction's development.
+    Before you submit there are a few required fields below. <strong>You will not be able to change {{ faction.faction_name }}'s name or selected language after submission.</strong></p>
 </div>
 
 <form method="post" enctype="multipart/form-data" novalidate>
@@ -18,131 +21,207 @@
     <div class="alert alert-danger">{{ form.non_field_errors }}</div>
   {% endif %}
 
+  {# ----- Editable inputs ----- #}
   <div class="card p-3 mb-3">
-    <h5 class="root-title">From your Forge draft</h5>
-    <div class="row g-3">
-      <div class="col-md-6">
-        <label class="form-label small text-muted text-uppercase">Faction Name</label>
-        {{ form.title }}
-      </div>
-      <div class="col-md-3">
-        <label class="form-label small text-muted text-uppercase">Color</label>
-        <div class="d-flex align-items-center gap-2">
-          {{ form.color }}
-          <span class="font-monospace small">{{ form.color.value }}</span>
-        </div>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label small text-muted text-uppercase">Language</label>
-        {{ form.language }}
-      </div>
-      <div class="col-md-3">
-        <label class="form-label small text-muted text-uppercase">Version</label>
-        {{ form.version }}
-      </div>
-      {% if art_by_hint %}
-        <div class="col-12">
-          <div class="form-text">Forge "art by" credit: <strong>{{ art_by_hint }}</strong> — if this person is in our system, set them as the artist below; otherwise leave blank.</div>
-        </div>
-      {% endif %}
-    </div>
-  </div>
+    <h5 class="root-title">Faction details</h5>
 
-  <div class="card p-3 mb-3">
-    <h5 class="root-title">Required Faction details</h5>
-    <div class="row g-3">
-      <div class="col-md-4">
-        <label class="form-label">Animal *</label>
+    <div class="mb-4">
+      <label class="form-label fw-semibold" for="{{ form.animal.id_for_label }}">Animal *</label>
+      <div class="forge-text-input-group">
+      
         {{ form.animal }}
-        {{ form.animal.errors }}
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Color Group *</label>
-        {{ form.color_group }}
-        {{ form.color_group.errors }}
+      {{ form.animal.errors }}
+      <div class="form-text">e.g. "Mouse" or "Fox".</div>
+    </div>
+
+    <div>
+      <label class="form-label fw-semibold">Color Group *</label>
+      <div class="forge-color-grid" role="radiogroup" aria-label="Color Group">
+        {% for value, label in form.color_group.field.choices %}
+          {% if value %}
+            <label class="forge-color-swatch" data-color-value="{{ value }}">
+              <input type="radio" name="{{ form.color_group.html_name }}" value="{{ value }}"
+                     {% if form.color_group.value == value %}checked{% endif %}>
+              <span class="forge-color-swatch-chip" style="background-color: {{ value }};"></span>
+              <span class="forge-color-swatch-label">{{ label }}</span>
+              <span class="forge-color-swatch-check"><i class="bi bi-check-circle-fill"></i></span>
+            </label>
+          {% endif %}
+        {% endfor %}
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Reach</label>
-        {{ form.reach }}
-        {{ form.reach.errors }}
-      </div>
-      <div class="col-md-12">
-        <label class="form-label">Type *</label>
-        {{ form.type }}
-        {{ form.type.errors }}
-      </div>
-      <div class="col-md-3"><label class="form-label">Complexity</label>{{ form.complexity }}</div>
-      <div class="col-md-3"><label class="form-label">Card Wealth</label>{{ form.card_wealth }}</div>
-      <div class="col-md-3"><label class="form-label">Aggression</label>{{ form.aggression }}</div>
-      <div class="col-md-3"><label class="form-label">Crafting Ability</label>{{ form.crafting_ability }}</div>
+      {{ form.color_group.errors }}
+      <div class="form-text">Choose the group that most closely matches your faction. This does not change the color you selected for your faction, it only helps to group similar colors.</div>
     </div>
   </div>
 
   <div class="card p-3 mb-3">
     <h5 class="root-title">Character Art</h5>
-    <p class="form-text mb-2">{{ form.picture_source.help_text }}</p>
-    <div class="row g-3">
+    <p class="form-text mb-3">{{ form.picture_source.help_text }}</p>
+    <div class="forge-picture-grid">
       {% for choice in form.picture_source %}
         {% with value=choice.data.value %}
-          <div class="col-6 col-md-3">
-            <label class="forge-picture-option d-block">
-              {{ choice.tag }}
-              <div class="border rounded p-2 text-center h-100">
+          <label class="forge-picture-tile" data-picture-value="{{ value }}">
+            {{ choice.tag }}
+            <div class="forge-picture-tile-body">
+              {% if value == 'upload' %}
+                <div class="forge-picture-tile-icon"><i class="bi bi-cloud-arrow-up"></i></div>
+              {% elif value == 'none' %}
+                <div class="forge-picture-tile-icon"><i class="bi bi-slash-circle"></i></div>
+              {% else %}
                 {% for opt_value, opt_label, opt_file in picture_options %}
                   {% if opt_value == value %}
-                    <img src="{{ opt_file.url }}" alt="{{ opt_label }}" class="img-fluid mb-2" style="max-height: 120px;">
+                    <img src="{{ opt_file.url }}" alt="{{ opt_label }}" class="forge-picture-tile-img">
                   {% endif %}
                 {% endfor %}
-                <div class="small">{{ choice.choice_label }}</div>
-              </div>
-            </label>
-          </div>
+              {% endif %}
+              <div class="forge-picture-tile-label">{{ choice.choice_label }}</div>
+            </div>
+            <div class="forge-picture-tile-check"><i class="bi bi-check-circle-fill"></i></div>
+          </label>
         {% endwith %}
       {% endfor %}
     </div>
     {{ form.picture_source.errors }}
-    <div class="mt-2" id="forge-picture-upload">
-      <label class="form-label small text-muted text-uppercase">Upload a custom image (only used if "Upload my own" is selected)</label>
-      {{ form.picture }}
+    <div class="mt-3" id="forge-picture-upload" style="display: none;">
+      <label class="forge-upload-dropzone" for="{{ form.picture.id_for_label }}">
+        <div class="forge-upload-preview" id="forge-upload-preview" style="display: none;">
+          <img id="forge-upload-preview-img" src="" alt="Selected image preview">
+        </div>
+        <div class="forge-upload-placeholder" id="forge-upload-placeholder">
+          <i class="bi bi-cloud-arrow-up forge-upload-icon"></i>
+          <div class="forge-upload-title">Click to choose an image</div>
+          <div class="forge-upload-hint">PNG, JPG, or WebP</div>
+        </div>
+        <div class="forge-upload-filename" id="forge-upload-filename"></div>
+        {{ form.picture }}
+      </label>
       {{ form.picture.errors }}
     </div>
   </div>
 
   <div class="card p-3 mb-3">
-    <h5 class="root-title">Lore & description</h5>
-    <div class="mb-3">
-      <label class="form-label">Lore</label>
-      {{ form.lore }}
-    </div>
-    <div class="mb-3">
-      <label class="form-label">Description</label>
-      {{ form.description }}
-    </div>
-  </div>
-
-  <div class="card p-3 mb-3">
     <h5 class="root-title">Links</h5>
-    <p class="form-text mb-2">At least one link is required.</p>
-    <div class="row g-3">
-      {% if form.bgg_link %}<div class="col-md-6"><label class="form-label">{{ form.bgg_link.label }}</label>{{ form.bgg_link }}{{ form.bgg_link.errors }}</div>{% endif %}
-      {% if form.tts_link %}<div class="col-md-6"><label class="form-label">{{ form.tts_link.label }}</label>{{ form.tts_link }}{{ form.tts_link.errors }}</div>{% endif %}
-      {% if form.ww_link %}<div class="col-md-6"><label class="form-label">{{ form.ww_link.label }}</label>{{ form.ww_link }}{{ form.ww_link.errors }}</div>{% endif %}
-      {% if form.wr_link %}<div class="col-md-6"><label class="form-label">{{ form.wr_link.label }}</label>{{ form.wr_link }}{{ form.wr_link.errors }}</div>{% endif %}
-      {% if form.fr_link %}<div class="col-md-6"><label class="form-label">{{ form.fr_link.label }}</label>{{ form.fr_link }}{{ form.fr_link.errors }}</div>{% endif %}
-      {% if form.pnp_link %}<div class="col-md-6"><label class="form-label">{{ form.pnp_link.label }}</label>{{ form.pnp_link }}{{ form.pnp_link.errors }}</div>{% endif %}
-      {% if form.stl_link %}<div class="col-md-6"><label class="form-label">{{ form.stl_link.label }}</label>{{ form.stl_link }}{{ form.stl_link.errors }}</div>{% endif %}
-      {% if form.rootjam_link %}<div class="col-md-6"><label class="form-label">{{ form.rootjam_link.label }}</label>{{ form.rootjam_link }}{{ form.rootjam_link.errors }}</div>{% endif %}
-      {% if form.leder_games_link %}<div class="col-md-6"><label class="form-label">{{ form.leder_games_link.label }}</label>{{ form.leder_games_link }}{{ form.leder_games_link.errors }}</div>{% endif %}
+    <p class="form-text mb-3">A Woodland Warriors thread link is required. You can also add aditional links.</p>
+
+    <div class="forge-link-row" data-link-key="ww">
+      <label class="form-label fw-semibold">{{ form.ww_link.label }} *</label>
+      <div class="forge-link-input-group">
+        <span class="forge-link-icon">
+          <img src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
+        </span>
+        {{ form.ww_link }}
+      </div>
+      {{ form.ww_link.errors }}
     </div>
+
+    <div id="forge-more-links-toggle" class="mt-3" style="display: none;">
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="forge-more-links-btn" aria-expanded="false" aria-controls="forge-more-links">
+        <i class="bi bi-plus-circle"></i> Add more links
+      </button>
+    </div>
+
+    {% if form.bgg_link or form.tts_link or form.wr_link or form.fr_link or form.pnp_link or form.stl_link %}
+      <div id="forge-more-links" class="mt-3" style="display: none;">
+        {% if form.bgg_link %}
+          <div class="forge-link-row" data-link-key="bgg">
+            <label class="form-label">{{ form.bgg_link.label }}</label>
+            <div class="forge-link-input-group">
+              <span class="forge-link-icon"><img src="{% static 'images/link_icons/BGG.webp' %}" alt="Board Game Geek"></span>
+              {{ form.bgg_link }}
+            </div>
+            {{ form.bgg_link.errors }}
+          </div>
+        {% endif %}
+        {% if form.tts_link %}
+          <div class="forge-link-row" data-link-key="tts">
+            <label class="form-label">{{ form.tts_link.label }}</label>
+            <div class="forge-link-input-group">
+              <span class="forge-link-icon"><img src="{% static 'images/link_icons/TTS.webp' %}" alt="Tabletop Simulator"></span>
+              {{ form.tts_link }}
+            </div>
+            {{ form.tts_link.errors }}
+          </div>
+        {% endif %}
+        {% if form.wr_link %}
+          <div class="forge-link-row" data-link-key="wr">
+            <label class="form-label">{{ form.wr_link.label }}</label>
+            <div class="forge-link-input-group">
+              <span class="forge-link-icon"><img src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root"></span>
+              {{ form.wr_link }}
+            </div>
+            {{ form.wr_link.errors }}
+          </div>
+        {% endif %}
+        {% if form.fr_link %}
+          <div class="forge-link-row" data-link-key="fr">
+            <label class="form-label">{{ form.fr_link.label }}</label>
+            <div class="forge-link-input-group">
+              <span class="forge-link-icon"><img src="{% static 'images/link_icons/FR.webp' %}" alt="French Root"></span>
+              {{ form.fr_link }}
+            </div>
+            {{ form.fr_link.errors }}
+          </div>
+        {% endif %}
+        {% if form.pnp_link %}
+          <div class="forge-link-row" data-link-key="pnp">
+            <label class="form-label">{{ form.pnp_link.label }}</label>
+            <div class="forge-link-input-group">
+              <span class="forge-link-icon"><img src="{% static 'images/link_icons/PNP.webp' %}" alt="Print & Play"></span>
+              {{ form.pnp_link }}
+            </div>
+            {{ form.pnp_link.errors }}
+          </div>
+        {% endif %}
+        {% if form.stl_link %}
+          <div class="forge-link-row" data-link-key="stl">
+            <label class="form-label">{{ form.stl_link.label }}</label>
+            <div class="forge-link-input-group">
+              <span class="forge-link-icon"><img src="{% static 'images/link_icons/STL.webp' %}" alt="STL Files"></span>
+              {{ form.stl_link }}
+            </div>
+            {{ form.stl_link.errors }}
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 
+  {# ----- Previews from the Forge draft ----- #}
   <div class="card p-3 mb-3">
-    <h5 class="root-title">Credits</h5>
+    <h5 class="root-title">From your Forge draft</h5>
+    <p class="form-text mb-3 text-muted">These previews will be submitted with your faction. Go back to the draft if you need to change anything.</p>
     <div class="row g-3">
-      {% if form.designer %}<div class="col-md-6"><label class="form-label">Designer</label>{{ form.designer }}</div>{% endif %}
-      {% if form.artist %}<div class="col-md-6"><label class="form-label">Artist</label>{{ form.artist }}</div>{% endif %}
-      {% if form.co_designers %}<div class="col-md-6"><label class="form-label">Co-designers</label>{{ form.co_designers }}</div>{% endif %}
-      {% if form.art_by_kyle_ferrin %}<div class="col-md-6 d-flex align-items-end"><label class="form-check-label">{{ form.art_by_kyle_ferrin }} Art by Kyle Ferrin</label></div>{% endif %}
+      {% if sheet and sheet.image_preview %}
+        <div class="col-md-4">
+          <div class="text-center">
+            <a href="{{ sheet.image_preview.url }}" target="_blank" rel="noopener">
+              <img src="{{ sheet.image_preview.url }}" alt="Faction Board Front" class="img-fluid border rounded">
+            </a>
+            <div class="small text-muted mt-1">Faction Board Front</div>
+          </div>
+        </div>
+      {% endif %}
+      {% if back and back.image_preview %}
+        <div class="col-md-4">
+          <div class="text-center">
+            <a href="{{ back.image_preview.url }}" target="_blank" rel="noopener">
+              <img src="{{ back.image_preview.url }}" alt="Faction Board Back" class="img-fluid border rounded">
+            </a>
+            <div class="small text-muted mt-1">Faction Board Back</div>
+          </div>
+        </div>
+      {% endif %}
+      {% if card and card.image_preview %}
+        <div class="col-md-4">
+          <div class="text-center">
+            <a href="{{ card.image_preview.url }}" target="_blank" rel="noopener">
+              <img src="{{ card.image_preview.url }}" alt="Setup Card" class="img-fluid border rounded">
+            </a>
+            <div class="small text-muted mt-1">Setup Card</div>
+          </div>
+        </div>
+      {% endif %}
     </div>
   </div>
 
@@ -151,4 +230,616 @@
     <button type="submit" class="btn btn-primary">Submit for Review</button>
   </div>
 </form>
+
+<style>
+  .forge-link-row { margin-bottom: 1rem; }
+  .forge-link-row:last-child { margin-bottom: 0; }
+  .forge-link-input-group {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--bs-border-color, #ced4da);
+    border-radius: 0.5rem;
+    background-color: var(--bs-body-bg, #fff);
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .forge-link-input-group:focus-within {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.18);
+  }
+  .forge-link-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.75rem;
+    background-color: rgba(0,0,0,0.03);
+    border-right: 1px solid var(--bs-border-color, #ced4da);
+    flex-shrink: 0;
+  }
+  .forge-link-icon img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    display: block;
+  }
+  .forge-link-input-group input[type="text"],
+  .forge-link-input-group input[type="url"] {
+    flex: 1;
+    min-width: 0;
+    border: none !important;
+    background: transparent !important;
+    padding: 0.5rem 0.75rem;
+    outline: none;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    font-size: 0.95rem;
+  }
+  .forge-link-input-group input:focus { outline: none; box-shadow: none; }
+
+  .forge-picture-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+  }
+  .forge-picture-tile {
+    position: relative;
+    display: block;
+    cursor: pointer;
+    margin: 0;
+  }
+  .forge-picture-tile input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .forge-picture-tile-body {
+    border: 2px solid var(--bs-border-color, #ced4da);
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    height: 100%;
+    background-color: var(--bs-body-bg, #fff);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 150px;
+  }
+  .forge-picture-tile:hover .forge-picture-tile-body {
+    border-color: #86b7fe;
+    box-shadow: 0 2px 8px rgba(13, 110, 253, 0.12);
+  }
+  .forge-picture-tile input[type="radio"]:checked + .forge-picture-tile-body {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2);
+  }
+  .forge-picture-tile input[type="radio"]:focus-visible + .forge-picture-tile-body {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+  }
+  .forge-picture-tile-img {
+    max-width: 100%;
+    max-height: 120px;
+    object-fit: contain;
+    margin-bottom: 0.5rem;
+  }
+  .forge-picture-tile-icon {
+    font-size: 2.5rem;
+    color: var(--bs-secondary-color, #6c757d);
+    margin-bottom: 0.5rem;
+    line-height: 1;
+  }
+  .forge-picture-tile-label {
+    font-size: 0.85rem;
+    text-align: center;
+    color: var(--bs-body-color);
+  }
+  .forge-picture-tile-check {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    color: #0d6efd;
+    font-size: 1.25rem;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    line-height: 1;
+    background-color: var(--bs-body-bg, #fff);
+    border-radius: 50%;
+  }
+  .forge-picture-tile input[type="radio"]:checked ~ .forge-picture-tile-check {
+    opacity: 1;
+  }
+
+  .forge-text-input-group {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--bs-border-color, #ced4da);
+    border-radius: 0.5rem;
+    background-color: var(--bs-body-bg, #fff);
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .forge-text-input-group:focus-within {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.18);
+  }
+  .forge-text-input-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.85rem;
+    background-color: rgba(0,0,0,0.03);
+    border-right: 1px solid var(--bs-border-color, #ced4da);
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+  .forge-text-input-group input[type="text"],
+  .forge-text-input-group input[type="email"],
+  .forge-text-input-group input[type="number"] {
+    flex: 1;
+    min-width: 0;
+    border: none !important;
+    background: transparent !important;
+    padding: 0.5rem 0.75rem;
+    outline: none;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    font-size: 0.95rem;
+  }
+
+  .forge-color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 0.5rem;
+  }
+  .forge-color-swatch {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.65rem 0.4rem 0.5rem;
+    border: 2px solid var(--bs-border-color, #ced4da);
+    border-radius: 0.6rem;
+    background-color: var(--bs-body-bg, #fff);
+    cursor: pointer;
+    margin: 0;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  }
+  .forge-color-swatch input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .forge-color-swatch:hover {
+    border-color: #86b7fe;
+    box-shadow: 0 2px 8px rgba(13, 110, 253, 0.12);
+  }
+  .forge-color-swatch:has(input[type="radio"]:checked) {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.2);
+  }
+  .forge-color-swatch:has(input[type="radio"]:focus-visible) {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+  }
+  .forge-color-swatch-chip {
+    display: block;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.15);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4);
+  }
+  .forge-color-swatch-label {
+    font-size: 0.8rem;
+    text-align: center;
+    color: var(--bs-body-color);
+    line-height: 1.1;
+  }
+  .forge-color-swatch-check {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.3rem;
+    color: #0d6efd;
+    font-size: 1rem;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    line-height: 1;
+    background-color: var(--bs-body-bg, #fff);
+    border-radius: 50%;
+  }
+  .forge-color-swatch:has(input[type="radio"]:checked) .forge-color-swatch-check {
+    opacity: 1;
+  }
+
+  .forge-upload-dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 180px;
+    padding: 1.5rem 1rem;
+    border: 2px dashed var(--bs-border-color, #ced4da);
+    border-radius: 0.75rem;
+    background-color: rgba(0,0,0,0.02);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    margin-bottom: 0;
+    text-align: center;
+  }
+  .forge-upload-dropzone:hover {
+    border-color: #86b7fe;
+    background-color: rgba(13, 110, 253, 0.04);
+  }
+  .forge-upload-dropzone.is-dragover {
+    border-color: #0d6efd;
+    background-color: rgba(13, 110, 253, 0.08);
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+  }
+  .forge-upload-dropzone:focus-within {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.18);
+  }
+  .forge-upload-dropzone input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .forge-upload-icon {
+    font-size: 2.5rem;
+    color: var(--bs-secondary-color, #6c757d);
+    line-height: 1;
+    margin-bottom: 0.5rem;
+  }
+  .forge-upload-title {
+    font-weight: 600;
+    color: var(--bs-body-color);
+    margin-bottom: 0.15rem;
+  }
+  .forge-upload-hint {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color, #6c757d);
+  }
+  .forge-upload-preview img {
+    max-height: 180px;
+    max-width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid var(--bs-border-color, #ced4da);
+    background-color: var(--bs-body-bg, #fff);
+    object-fit: contain;
+    display: block;
+  }
+  .forge-upload-filename {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--bs-body-color);
+    word-break: break-all;
+  }
+</style>
+
+<script>
+  (function () {
+    var wwInput = document.querySelector('[data-link-key="ww"] input');
+    var toggleWrap = document.getElementById('forge-more-links-toggle');
+    var btn = document.getElementById('forge-more-links-btn');
+    var box = document.getElementById('forge-more-links');
+    var guildId = "{{ ww_guild_id|escapejs }}";
+    var wrGuildId = "{{ wr_guild_id|escapejs }}";
+    var frGuildId = "{{ fr_guild_id|escapejs }}";
+    var requiredPrefix = "discord.com/channels/" + guildId;
+
+    function isValidWwLink(value) {
+      if (!value) return false;
+      var v = value.trim();
+      if (!v) return false;
+      return guildId && v.indexOf(requiredPrefix) !== -1;
+    }
+
+    function isWellFormedUrl(value) {
+      try {
+        var u = new URL(value);
+        return u.protocol === 'http:' || u.protocol === 'https:';
+      } catch (e) {
+        return false;
+      }
+    }
+
+    // Each entry mirrors a server-side rule from the_keep/forms.py.
+    // `test(value)` returns null if OK or an error message string if not.
+    var OPTIONAL_LINK_RULES = {
+      bgg_link: {
+        test: function (v) {
+          if (v.indexOf('boardgamegeek.com/thread/') === -1) {
+            return 'Link must point to a BoardGameGeek thread.';
+          }
+          return null;
+        }
+      },
+      tts_link: {
+        test: function (v) {
+          if (v.indexOf('steamcommunity.com/sharedfiles/') === -1) {
+            return 'Link must point to a Steam Workshop shared file.';
+          }
+          return null;
+        }
+      },
+      wr_link: {
+        test: function (v) {
+          if (!wrGuildId || v.indexOf('discord.com/channels/' + wrGuildId) === -1) {
+            return 'Link must point to the Weird Root Discord server.';
+          }
+          return null;
+        }
+      },
+      fr_link: {
+        test: function (v) {
+          if (!frGuildId || v.indexOf('discord.com/channels/' + frGuildId) === -1) {
+            return 'Link must point to the French Root Discord server.';
+          }
+          return null;
+        }
+      },
+      pnp_link: {
+        test: function (v) {
+          if (v.indexOf('dropbox.com') === -1
+              && v.indexOf('drive.google.com') === -1
+              && v.indexOf('docs.google.com') === -1) {
+            return 'PNP link must be a Dropbox or Google Drive URL.';
+          }
+          return null;
+        }
+      },
+      stl_link: { test: function () { return null; } }
+    };
+
+    function updateToggleVisibility() {
+      if (!toggleWrap) return;
+      if (isValidWwLink(wwInput ? wwInput.value : '')) {
+        toggleWrap.style.display = '';
+      } else {
+        toggleWrap.style.display = 'none';
+        // Collapse the optional links if ww becomes invalid again.
+        if (box) {
+          box.style.display = 'none';
+          if (btn) btn.setAttribute('aria-expanded', 'false');
+        }
+      }
+    }
+
+    if (wwInput) {
+      wwInput.addEventListener('input', updateToggleVisibility);
+      wwInput.addEventListener('change', updateToggleVisibility);
+    }
+
+    if (btn && box) {
+      btn.addEventListener('click', function () {
+        var open = box.style.display !== 'none';
+        box.style.display = open ? 'none' : '';
+        btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+      });
+    }
+
+    // Initial state — show toggle if ww_link already valid, and expand the
+    // optional section if any of its fields already have content/errors so
+    // server-side validation errors stay visible after a failed submit.
+    updateToggleVisibility();
+    if (box) {
+      var hasContent = box.querySelector('input[value]:not([value=""])')
+                    || box.querySelector('ul.errorlist');
+      if (hasContent && toggleWrap && toggleWrap.style.display !== 'none') {
+        box.style.display = '';
+        if (btn) btn.setAttribute('aria-expanded', 'true');
+      }
+    }
+
+    // Character art: show the upload field only when "Upload my own" is picked.
+    var uploadWrap = document.getElementById('forge-picture-upload');
+    var pictureRadios = document.querySelectorAll('input[type="radio"][name="picture_source"]');
+    function syncUploadVisibility() {
+      if (!uploadWrap) return;
+      var selected = null;
+      for (var i = 0; i < pictureRadios.length; i++) {
+        if (pictureRadios[i].checked) { selected = pictureRadios[i].value; break; }
+      }
+      uploadWrap.style.display = (selected === 'upload') ? '' : 'none';
+    }
+    pictureRadios.forEach(function (r) { r.addEventListener('change', syncUploadVisibility); });
+    syncUploadVisibility();
+
+    // Custom dropzone for the file input.
+    var dropzone = document.querySelector('.forge-upload-dropzone');
+    var fileInput = dropzone ? dropzone.querySelector('input[type="file"]') : null;
+    var placeholder = document.getElementById('forge-upload-placeholder');
+    var previewWrap = document.getElementById('forge-upload-preview');
+    var previewImg = document.getElementById('forge-upload-preview-img');
+    var filenameEl = document.getElementById('forge-upload-filename');
+
+    function renderSelectedFile(file) {
+      if (!file) {
+        if (previewWrap) previewWrap.style.display = 'none';
+        if (placeholder) placeholder.style.display = '';
+        if (filenameEl) filenameEl.textContent = '';
+        if (previewImg) previewImg.src = '';
+        return;
+      }
+      if (filenameEl) filenameEl.textContent = file.name;
+      if (file.type && file.type.indexOf('image/') === 0 && previewImg && previewWrap) {
+        var reader = new FileReader();
+        reader.onload = function (e) {
+          previewImg.src = e.target.result;
+          previewWrap.style.display = '';
+          if (placeholder) placeholder.style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+      } else {
+        if (previewWrap) previewWrap.style.display = 'none';
+        if (placeholder) placeholder.style.display = '';
+      }
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener('change', function () {
+        renderSelectedFile(fileInput.files && fileInput.files[0]);
+      });
+    }
+
+    if (dropzone && fileInput) {
+      ['dragenter', 'dragover'].forEach(function (evt) {
+        dropzone.addEventListener(evt, function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.add('is-dragover');
+        });
+      });
+      ['dragleave', 'drop'].forEach(function (evt) {
+        dropzone.addEventListener(evt, function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.remove('is-dragover');
+        });
+      });
+      dropzone.addEventListener('drop', function (e) {
+        var dt = e.dataTransfer;
+        if (dt && dt.files && dt.files.length > 0) {
+          fileInput.files = dt.files;
+          renderSelectedFile(dt.files[0]);
+        }
+      });
+    }
+
+    // ----- Required-field validation on submit -----
+    var form = document.querySelector('form[method="post"]');
+    if (!form) return;
+
+    function clearFieldError(anchorEl) {
+      if (!anchorEl) return;
+      var existing = anchorEl.parentNode.querySelector('.forge-js-error');
+      if (existing) existing.remove();
+    }
+
+    function setFieldError(anchorEl, message) {
+      if (!anchorEl) return;
+      clearFieldError(anchorEl);
+      var msg = document.createElement('div');
+      msg.className = 'forge-js-error text-danger small mt-1';
+      msg.textContent = message;
+      anchorEl.parentNode.insertBefore(msg, anchorEl.nextSibling);
+    }
+
+    function getCheckedPictureSource() {
+      for (var i = 0; i < pictureRadios.length; i++) {
+        if (pictureRadios[i].checked) return pictureRadios[i].value;
+      }
+      return null;
+    }
+
+    function getCheckedColorGroup() {
+      var inputs = form.querySelectorAll('input[type="radio"][name="' + (document.querySelector('.forge-color-swatch input[type="radio"]') || {}).name + '"]');
+      for (var i = 0; i < inputs.length; i++) {
+        if (inputs[i].checked) return inputs[i].value;
+      }
+      return null;
+    }
+
+    form.addEventListener('submit', function (e) {
+      var errors = [];
+
+      // Animal
+      var animal = form.querySelector('input[name="animal"]');
+      var animalGroup = animal ? animal.closest('.forge-text-input-group') : null;
+      clearFieldError(animalGroup);
+      if (!animal || !animal.value.trim()) {
+        errors.push({ anchor: animalGroup, msg: 'Please enter an animal.', focus: animal });
+      }
+
+      // Color group
+      var colorGroupGrid = form.querySelector('.forge-color-grid');
+      clearFieldError(colorGroupGrid);
+      var colorChecked = colorGroupGrid && colorGroupGrid.querySelector('input[type="radio"]:checked');
+      if (!colorChecked) {
+        errors.push({ anchor: colorGroupGrid, msg: 'Please choose a color group.', focus: colorGroupGrid });
+      }
+
+      // Picture source (character art)
+      var pictureGrid = form.querySelector('.forge-picture-grid');
+      clearFieldError(pictureGrid);
+      var pictureChoice = getCheckedPictureSource();
+      if (!pictureChoice) {
+        errors.push({ anchor: pictureGrid, msg: 'Please choose a character art option.', focus: pictureGrid });
+      } else if (pictureChoice === 'upload') {
+        // If "Upload my own" is picked, require a file to actually be selected.
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+          errors.push({ anchor: dropzone, msg: 'Please upload an image or pick a different option.', focus: dropzone });
+        }
+      }
+
+      // ww_link — required, and must contain the WW guild prefix.
+      var wwGroup = wwInput ? wwInput.closest('.forge-link-input-group') : null;
+      clearFieldError(wwGroup);
+      if (!wwInput || !wwInput.value.trim()) {
+        errors.push({ anchor: wwGroup, msg: 'Please add a Woodland Warriors link.', focus: wwInput });
+      } else if (!isValidWwLink(wwInput.value)) {
+        errors.push({ anchor: wwGroup, msg: 'Link must point to the Woodland Warriors Discord server.', focus: wwInput });
+      }
+
+      // Optional links — only validated if the user filled them in.
+      Object.keys(OPTIONAL_LINK_RULES).forEach(function (linkName) {
+        var input = form.querySelector('input[name="' + linkName + '"]');
+        if (!input) return;
+        var group = input.closest('.forge-link-input-group');
+        clearFieldError(group);
+        var v = (input.value || '').trim();
+        if (!v) return;
+        if (!isWellFormedUrl(v)) {
+          errors.push({ anchor: group, msg: 'Please enter a valid URL.', focus: input });
+          return;
+        }
+        var ruleErr = OPTIONAL_LINK_RULES[linkName].test(v);
+        if (ruleErr) {
+          errors.push({ anchor: group, msg: ruleErr, focus: input });
+        }
+      });
+
+      if (errors.length > 0) {
+        e.preventDefault();
+        errors.forEach(function (err) { setFieldError(err.anchor, err.msg); });
+        var first = errors[0];
+        if (first.anchor && typeof first.anchor.scrollIntoView === 'function') {
+          first.anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        if (first.focus && typeof first.focus.focus === 'function') {
+          setTimeout(function () { first.focus.focus(); }, 250);
+        }
+      }
+    });
+
+    // Clear inline errors as the user fixes them.
+    function bindClearOnChange(el, anchor) {
+      if (!el || !anchor) return;
+      var evt = (el.type === 'radio' || el.type === 'checkbox' || el.type === 'file') ? 'change' : 'input';
+      el.addEventListener(evt, function () { clearFieldError(anchor); });
+    }
+    var animalEl = form.querySelector('input[name="animal"]');
+    bindClearOnChange(animalEl, animalEl ? animalEl.closest('.forge-text-input-group') : null);
+    bindClearOnChange(wwInput, wwInput ? wwInput.closest('.forge-link-input-group') : null);
+    if (fileInput) bindClearOnChange(fileInput, dropzone);
+    form.querySelectorAll('.forge-color-grid input[type="radio"]').forEach(function (r) {
+      bindClearOnChange(r, form.querySelector('.forge-color-grid'));
+    });
+    pictureRadios.forEach(function (r) {
+      bindClearOnChange(r, form.querySelector('.forge-picture-grid'));
+    });
+    Object.keys(OPTIONAL_LINK_RULES).forEach(function (linkName) {
+      var input = form.querySelector('input[name="' + linkName + '"]');
+      if (!input) return;
+      bindClearOnChange(input, input.closest('.forge-link-input-group'));
+    });
+  })();
+</script>
 {% endblock %}
