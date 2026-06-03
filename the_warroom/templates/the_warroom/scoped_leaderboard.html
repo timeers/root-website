@@ -132,9 +132,11 @@
             <h3 class="root-title">{% trans 'Games' %} ({{ games_count }})</h3>
         </div>
     </article>
+    <div class="game-grid">
     {% for game in games %}
         {% include 'the_warroom/partials/game_detail_button.html' %}
     {% endfor %}
+    </div>
 
     {% if page_obj.has_previous or page_obj.has_next %}
     <nav aria-label="Page navigation">

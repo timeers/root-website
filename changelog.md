@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.5] - 2026-5-26 Forge Sync
+
+### New Features
+- Added PWA support. Internet connection still required.
+
+### Improvements
+- Games show as columns on wide screens to save space
+
+### Bug Fixes
+- Expansion image bug where the image could be unintentionally deleted
+- Faction header image now includes cache busting on detail page (thanks Tricholome). Cache intentionally does not update on list results for now.
+- Bug where games could show up twice in list views
+
 ## [1.12.4] - 2026-5-26 Forge Sync
 
 ### New Features

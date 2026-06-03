@@ -1069,6 +1069,8 @@ def ultimate_component_view(request, slug, component):
     )
     object_card_2_image_url = get_fresh_image_url(object_card_2_image)
 
+    object_picture_url = get_fresh_image_url(obj.picture)
+
 
     # Links
     tts_link = object_translation.tts_link if object_translation and object_translation.tts_link else obj.tts_link
@@ -1293,6 +1295,7 @@ def ultimate_component_view(request, slug, component):
         'object_board_2_image_url': object_board_2_image_url,
         'object_card_image_url': object_card_image_url,
         'object_card_2_image_url': object_card_2_image_url,
+        'object_picture_url': object_picture_url,
 
         'small_board_image_url': small_board_image_url,
         'small_board_2_image_url': small_board_2_image_url,

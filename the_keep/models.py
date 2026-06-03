@@ -299,12 +299,14 @@ class Expansion(models.Model):
         # Check if the image field has changed (only works if the instance is already saved)
         if self.pk:  # If the object already exists in the database
             old_instance = Expansion.objects.get(pk=self.pk)
-            # List of fields to check and delete old images if necessary
             field_name = 'picture'
 
             old_image = getattr(old_instance, field_name)
             new_image = getattr(self, field_name)
-            if old_image != new_image:
+            # Only delete the old file when it's being replaced by a different uploaded file.
+            # Comparing by .name avoids ImageFieldFile equality quirks that could
+            # otherwise delete the file when it wasn't actually changing.
+            if old_image and new_image and old_image.name != new_image.name:
                 delete_old_image(old_image)
 
         super().save(*args, **kwargs)
@@ -704,13 +706,22 @@ class Post(models.Model):
 
     def get_games_queryset(self):
         Game = apps.get_model('the_warroom', 'Game')
+        Effort = apps.get_model('the_warroom', 'Effort')
         match self.component:
             case "Map" | "Deck" | "Landmark" | "Tweak" | "Hireling":
                 return self.games.order_by('-date_posted')  # Return a queryset directly
             case "Vagabond":
-                return Game.objects.filter(efforts__vagabond=self, efforts__game__final=True)
+                # Use an id__in subquery so games with multiple matching efforts
+                # are not returned more than once (see Profile.get_games_queryset).
+                game_ids = Effort.objects.filter(
+                    vagabond=self, game__final=True
+                ).values_list('game', flat=True)
+                return Game.objects.filter(id__in=game_ids).order_by('-date_posted')
             case "Faction" | "Clockwork":
-                return Game.objects.filter(efforts__faction=self, efforts__game__final=True)
+                game_ids = Effort.objects.filter(
+                    faction=self, game__final=True
+                ).values_list('game', flat=True)
+                return Game.objects.filter(id__in=game_ids).order_by('-date_posted')
 
             case _:
                 return Game.objects.none()  # No games if no component matches

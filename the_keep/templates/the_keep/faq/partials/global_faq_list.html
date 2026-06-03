@@ -5,7 +5,9 @@
         <div class="accordion-header" onclick="toggleAccordion(this)">
           <div>
           <div>
-            <img class="faction-icon" src="{{ faq.post.small_icon.url }}">
+            {% if faq.post.small_icon %}
+              <img class="faction-icon" src="{{ faq.post.small_icon.url }}">
+            {% endif %}
             {{faq.get_post_title}}
           </div>
           <div>

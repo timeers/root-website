@@ -1,0 +1,29 @@
+{% load static %}{
+  "name": "Root Database",
+  "short_name": "RDB",
+  "description": "The Root Database — a site for posting and discovering fan factions and other fan-created content for the woodland war game, Root, by Leder Games.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#5f788a",
+  "theme_color": "#5f788a",
+  "icons": [
+    {
+      "src": "{% static 'images/icon-192.png' %}",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "{% static 'images/icon-512.png' %}",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "{% static 'images/icon-maskable-512.png' %}",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

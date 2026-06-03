@@ -24,6 +24,7 @@ from the_tavern import views as comment_views
 from the_keep.api_views import get_options_for_platform
 from the_warroom.api_views import get_options_for_tournament
 from the_gatehouse.views import onboard_user, onboard_decline, set_language_custom
+from the_gatehouse import pwa_views
 from the_tavern.views import bookmark_player
 # from django.views.i18n import JavaScriptCatalog
 
@@ -58,6 +59,10 @@ urlpatterns = [
 
     path('onboard/reject/<str:user_type>/', onboard_decline, name='onboard-decline'),
     path('onboard/<str:user_type>/', onboard_user, name='onboard-user'),
+
+    path('manifest.json', pwa_views.manifest, name='pwa-manifest'),
+    path('service-worker.js', pwa_views.service_worker, name='pwa-service-worker'),
+    path('offline/', pwa_views.offline, name='pwa-offline'),
 
     path('api/platform/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
     path('api/tournament/<pk>/', get_options_for_tournament, name='get_options_for_tournament'),

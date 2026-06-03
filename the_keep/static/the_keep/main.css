@@ -2145,6 +2145,36 @@ tr.clickable-row:hover {
   margin: 2em 0;
 }
 
+/* Game list responsive grid: fills columns based on available width.
+   One column on narrow screens, more as the container gets wider. */
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+/* Keep cards from forcing horizontal overflow on very narrow screens */
+@media (max-width: 400px) {
+  .game-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Each game card already has its own margin-bottom (content-section);
+   the grid gap handles spacing, so suppress the doubled bottom margin. */
+.game-grid > div > .post-card,
+.game-grid > .post-card {
+  margin-bottom: 0;
+}
+
+/* Full-width rows inside the grid: the loading spinner and the stats header
+   should span all columns rather than occupying a single cell. */
+.game-grid > #spinner,
+.game-grid > #games-stats {
+  grid-column: 1 / -1;
+}
+
 /* Dashboard Widgets */
 .dashboard-grid {
   display: grid;

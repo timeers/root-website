@@ -1,14 +1,20 @@
 {% load i18n %}
+{% comment %}
+    Pages 2+ are appended into #search-contents (hx-swap="beforeend"), so only page 1
+    renders the wrapper chrome / grid container. See game_list_home.html for details.
+{% endcomment %}
+{% if page_obj.number == 1 %}
 <div id="games-container">
 
-    {% if page_obj.number == 1 %}
-        <article class="d-flex content-section">
-            <div class="w-100">
+    <article class="d-flex content-section">
+        <div class="w-100">
         <h3 class='root-title'>{% trans 'Total Games' %} ({{ games_count }})</h3>
-            </div>
-        </article>
-    {% endif %}
-<div id="search-contents">
+        </div>
+    </article>
+
+<div id="search-contents" class="game-grid">
+{% endif %}
+
 {% if games %}
     {% for game in games %}
 
@@ -32,9 +38,11 @@
         {% endif %}
 
     {% endfor %}
-
-{% else %}
+{% elif page_obj.number == 1 %}
     {% trans 'No matching games recorded.' %}
 {% endif %}
+
+{% if page_obj.number == 1 %}
     </div>
 </div>
+{% endif %}

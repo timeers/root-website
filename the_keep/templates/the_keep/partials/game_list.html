@@ -2,9 +2,12 @@
 
     {% include 'the_keep/partials/game_stats.html' %}
 
+    <div class="game-grid">
+        {% include 'the_warroom/partials/hx_game_list.html' %}
+    </div>
+
+{% else %}
+
+    {% include 'the_warroom/partials/hx_game_list.html' %}
 
 {% endif %}
-
-
-
-{% include 'the_warroom/partials/hx_game_list.html' %}

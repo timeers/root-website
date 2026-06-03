@@ -101,9 +101,11 @@
 
         </div>
     </article>
+        <div class="game-grid">
         {% for game in in_progress_games %}
             {% include 'the_warroom/partials/game_detail_button.html' %}
         {% endfor %}
+        </div>
 
 {% endif %}
 
