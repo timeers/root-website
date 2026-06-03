@@ -1,6 +1,7 @@
 import os
 import uuid
 import calendar
+import secrets
 
 from urllib.parse import urlparse
 from django.contrib.auth.models import User
@@ -415,6 +416,13 @@ class Profile(models.Model):
     guilds = models.ManyToManyField(DiscordGuild, related_name="members", help_text="User's known Root Guilds.", blank=True)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
     cached_winrate = models.FloatField(null=True, blank=True)
+    api_key = models.CharField(max_length=64, unique=True, null=True, blank=True, db_index=True, help_text="Personal key for accessing the game data download API.")
+
+    def generate_api_key(self):
+        """Generate (or regenerate) this profile's personal API key and save it."""
+        self.api_key = secrets.token_urlsafe(32)
+        self.save(update_fields=['api_key'])
+        return self.api_key
 
     @property
     def name(self):

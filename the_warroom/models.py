@@ -1411,7 +1411,7 @@ class Game(models.Model):
 
 
     # Automatic
-    date_posted = models.DateTimeField(default=timezone.now)
+    date_posted = models.DateTimeField(default=timezone.now, db_index=True)
     date_modified = models.DateTimeField(auto_now=True)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='games_recorded')
 

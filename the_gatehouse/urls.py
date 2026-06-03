@@ -7,7 +7,7 @@ from .views import (user_settings, player_page_view,
                     status_check, general_feedback, post_feedback, player_feedback, law_feedback, faq_feedback,
                     game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error,
                     forge_feedback, forge_faction_feedback,
-                    admin_dashboard, sync_discord_avatar, join_discord_server, changelog_select_view, latest_changelog_redirect,
+                    admin_dashboard, sync_discord_avatar, generate_api_key, join_discord_server, changelog_select_view, latest_changelog_redirect,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification, dismiss_global_message, add_guild_from_invite,
@@ -38,6 +38,7 @@ urlpatterns = [
     path('profile/<slug:slug>/game-bookmarks/', game_bookmarks, name='game-bookmarks'),
     path('settings/', user_settings, name='user-settings'),
     path('settings/sync-avatar/', sync_discord_avatar, name='sync-avatar'),
+    path('settings/generate-api-key/', generate_api_key, name='generate-api-key'),
 
     # Admin
     path('profile/<slug:slug>/manage/', manage_user, name='manage-user'),

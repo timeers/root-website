@@ -87,11 +87,20 @@ def user_settings(request):
         p_form = ProfileUpdateForm(instance=request.user.profile)
 
     context = {
-        # 'u_form': u_form, 
-        'p_form': p_form
+        # 'u_form': u_form,
+        'p_form': p_form,
+        'api_key': request.user.profile.api_key,
     }
 
     return render(request, 'the_gatehouse/user_settings.html', context)
+
+
+@login_required
+def generate_api_key(request):
+    if request.method == 'POST':
+        request.user.profile.generate_api_key()
+        messages.success(request, _('A new API key has been generated.'))
+    return redirect('user-settings')
 
 
 

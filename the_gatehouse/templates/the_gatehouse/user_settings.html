@@ -67,5 +67,47 @@
         </form>
         </fieldset>
 
+    {% if user.profile.player %}
+    <fieldset class="mb-3">
+        <legend class="border-bottom mb-4 mt-2">{% trans 'API Key' %}</legend>
+
+        <p class="text-secondary">
+            {% trans 'Use a personal API key to filter and download game data.' %}
+        </p>
+
+        {% if api_key %}
+            <div class="input-group mb-2">
+                <input type="text" class="form-control" id="api-key-field" value="{{ api_key }}" readonly>
+                <button type="button" class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('api-key-field').value)">
+                    <i class="bi bi-clipboard"></i> {% trans 'Copy' %}
+                </button>
+            </div>
+        {% else %}
+            <div class="alert alert-secondary">{% trans 'You have not generated an API key yet.' %}</div>
+        {% endif %}
+
+        <form action="{% url 'generate-api-key' %}" method="post" class="mb-3">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-primary"
+                {% if api_key %}onclick="return confirm('{% trans 'Generating a new key will invalidate your current one. Continue?' %}');"{% endif %}>
+                {% if api_key %}{% trans 'Regenerate Key' %}{% else %}{% trans 'Generate Key' %}{% endif %}
+            </button>
+        </form>
+
+        <details class="text-secondary">
+            <summary>{% trans 'How to use' %}</summary>
+            <p class="mt-2">
+                {% trans 'Send your key in the Authorization header:' %}
+            </p>
+            <pre class="bg-light p-2"><code>curl -H "Authorization: Api-Key YOUR_KEY" \
+  "{{ request.scheme }}://{{ request.get_host }}{% url 'api-game-list' %}?page_size=50"</code></pre>
+            <p>
+                {% trans 'Filters:' %} <code>?faction=&player=&map=&deck=&tournament=&date_after=&date_before=&official=</code><br>
+                {% trans 'Page through results by following the "next" URL until it is null.' %}
+            </p>
+        </details>
+    </fieldset>
+    {% endif %}
+
     </div>
 {% endblock content %}
