@@ -1,9 +1,11 @@
 {% extends "rest_framework/base.html" %}
+{% load static %}
 {# Custom browsable API template: adds Select2 to the filter form's dropdowns. #}
 {# Only affects the DRF browsable API page; the JSON API is unchanged. #}
 
 {% block style %}
   {{ block.super }}
+  <link rel="icon" href="{% static 'images/favicon.png' %}" type="image/png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
   <style>
     /* Match Select2 to the surrounding Bootstrap form controls. */

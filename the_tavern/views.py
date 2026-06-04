@@ -1,3 +1,4 @@
+import csv
 import json
 
 from datetime import datetime
@@ -13,6 +14,7 @@ from django.db.models import Count, F, Q, Avg, Case, When, Value, BooleanField, 
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
+from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
@@ -1545,6 +1547,7 @@ def survey_results_view(request, slug, from_settings=False):
         'total_responses': survey.response_count(),
         'questions_with_results': questions_with_results,
         'sections_data': sections_data,
+        'can_edit_survey': survey.can_edit_survey(profile),
         'return_title': return_title,
         'return_to': return_to,
 
@@ -1967,6 +1970,53 @@ def survey_responses_view(request, slug, from_settings=False):
         'unresponded_players': unresponded_players,
     }
     return render(request, 'the_tavern/survey_responses.html', context)
+
+
+@player_required
+def survey_export_csv(request, slug):
+    """Download all responses for a survey as a CSV (admin / survey creator only)."""
+    survey = get_object_or_404(Survey, slug=slug)
+    profile = request.user.profile
+
+    if not survey.can_edit_survey(profile):
+        raise PermissionDenied
+
+    # Questions in survey display order (model Meta orders by section/order/id).
+    questions = list(survey.questions.all())
+
+    response = HttpResponse(content_type='text/csv')
+    filename = f"{slugify(survey.title) or 'survey'}-responses.csv"
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+    writer = csv.writer(response)
+    header = ['Respondent', 'Submitted At', 'Position'] + [q.text for q in questions]
+    if survey.is_quiz:
+        header += ['Score', 'Total', 'Relative Score']
+    writer.writerow(header)
+
+    responses = (
+        SurveyResponse.objects.filter(survey=survey)
+        .select_related('profile')
+        .prefetch_related('answers__question', 'answers__selected_choices', 'answers__selected_posts')
+        .order_by('response_position')
+    )
+
+    for resp in responses:
+        # Map question_id -> Answer for O(1) lookup; missing answers => blank cell.
+        answers_by_q = {a.question_id: a for a in resp.answers.all()}
+        row = [
+            resp.profile.discord if resp.profile else 'Anonymous',
+            resp.submitted_at.strftime('%Y-%m-%d %H:%M'),
+            resp.response_position,
+        ]
+        for q in questions:
+            answer = answers_by_q.get(q.id)
+            row.append(answer.get_display_value() if answer else '')
+        if survey.is_quiz:
+            row += [resp.score_correct, resp.score_total, resp.relative_score]
+        writer.writerow(row)
+
+    return response
 
 
 @player_required

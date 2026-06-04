@@ -4098,6 +4098,20 @@ def build_status_hierarchy(entity_type, tournament, stage=None, round_obj=None):
     return hierarchy
 
 
+def _schedule_matches_context(tournament, round):
+    """Context for the 'Schedule Matches' settings-hub card (League / Game Group).
+
+    Tournament-classification tournaments use the grouping pipeline instead, so this
+    returns empty for them. `round` is the default/resolved round (or None).
+    """
+    if tournament.classification == Tournament.ClassificationTypes.TOURNAMENT or not round:
+        return {'schedule_round': None, 'matches_enabled': False}
+    return {
+        'schedule_round': round,
+        'matches_enabled': round.bracket_status == Round.BracketStatusChoices.FINALIZED,
+    }
+
+
 @player_onboard_required
 def tournament_settings_hub(request, slug):
     """Settings hub page with links to all tournament management tools."""
@@ -4114,6 +4128,10 @@ def tournament_settings_hub(request, slug):
     is_owner = profile.admin or profile == tournament.designer
     has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
 
+    from the_warroom.utils import get_single_stage
+    default_stage = get_single_stage(tournament)
+    default_round = default_stage.rounds.first() if default_stage else None
+
     context = {
         'object_type': 'Series',
         'tournament': tournament,
@@ -4124,6 +4142,7 @@ def tournament_settings_hub(request, slug):
         'has_games': has_games,
         'status_hierarchy': build_status_hierarchy('tournament', tournament),
     }
+    context.update(_schedule_matches_context(tournament, default_round))
     return render(request, 'the_warroom/settings_hub.html', context)
 
 
@@ -4188,6 +4207,7 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
         'status_hierarchy': build_status_hierarchy('round', tournament, stage=stage, round_obj=round),
         'grouping_step': grouping_step,
     }
+    context.update(_schedule_matches_context(tournament, round))
     return render(request, 'the_warroom/settings_hub.html', context)
 
 
@@ -4842,6 +4862,16 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     # Add series edit modal context for managers
     if context.get('can_manage') and context.get('is_bracket_finalized'):
         context.update(_build_series_edit_context(tournament, stage, round))
+        context['create_series_url'] = reverse('round-create-series', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
+        context['delete_series_url'] = reverse('round-delete-series', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
 
     context.update({
         'page_name': round.name,
@@ -4906,6 +4936,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
         'grouping_step': grouping_step,
         'hidden_round': hidden_round,
     }
+    context.update(_schedule_matches_context(tournament, stage.rounds.first()))
     return render(request, 'the_warroom/settings_hub.html', context)
 
 
@@ -5196,6 +5227,23 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
             round.save(update_fields=['grouping_status', 'grouping_notes', 'bracket_status'])
             messages.success(request, 'Groups reset successfully.')
             return redirect('round-grouping-setup', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
+
+        # Skip grouping - finalize grouping + bracket with no groups, go straight to manual matches
+        elif action == 'skip_grouping':
+            if (round.grouping_status == Round.GroupingStatusChoices.FINALIZED
+                    or round.bracket_status == Round.BracketStatusChoices.FINALIZED):
+                messages.error(request, 'Cannot skip grouping once grouping or the bracket is finalized.')
+                return redirect('round-grouping-setup', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
+            # Clear any draft groups/series/matches so we start clean
+            Match.objects.filter(round=round).delete()
+            MatchSeries.objects.filter(round=round).delete()
+            round.player_groups.all().delete()
+            round.grouping_status = Round.GroupingStatusChoices.FINALIZED
+            round.grouping_notes = ''
+            round.bracket_status = Round.BracketStatusChoices.FINALIZED
+            round.save(update_fields=['grouping_status', 'grouping_notes', 'bracket_status'])
+            messages.success(request, 'Grouping skipped. You can now add matches manually.')
+            return redirect('round-matches-page', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
 
         # Generate/regenerate groups with new settings
         elif action == 'generate':
@@ -5948,6 +5996,32 @@ def round_finalize_bracket(request, tournament_slug, stage_slug, round_slug):
     round.save(update_fields=['bracket_status'])
 
     return JsonResponse({'success': True, 'status': 'finalized'})
+
+
+@login_required
+@require_http_methods(["POST"])
+def round_enable_matches(request, tournament_slug, stage_slug, round_slug):
+    """Enable manual match scheduling for a round without going through grouping.
+
+    Used by League and Game Group tournaments (any non-Tournament classification)
+    so moderators can add matches directly. Finalizes grouping + bracket on the
+    round and redirects to the matches page where the manual tools live.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied
+
+    # Idempotent: if already enabled, just go to the matches page
+    if round.bracket_status != Round.BracketStatusChoices.FINALIZED:
+        round.grouping_status = Round.GroupingStatusChoices.FINALIZED
+        round.bracket_status = Round.BracketStatusChoices.FINALIZED
+        round.save(update_fields=['grouping_status', 'bracket_status'])
+        messages.success(request, 'Match scheduling enabled. You can now add matches.')
+
+    return redirect('round-matches-page', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
 
 
 def _build_series_edit_context(tournament, stage, round):

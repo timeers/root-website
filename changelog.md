@@ -3,10 +3,14 @@
 ## [1.12.5] - 2026-5-26 Forge Sync
 
 ### New Features
-- Added PWA support. Internet connection still required.
+- Added PWA support - Internet connection still required
+- Generate API key from profile for downloading game data
+- Schedule matches for a series without grouping players
+- Option to download survey responses as csv file
 
 ### Improvements
 - Games show as columns on wide screens to save space
+- Removed confirmation dialogue when adding unregistered players to stages
 
 ### Bug Fixes
 - Expansion image bug where the image could be unintentionally deleted

@@ -9,9 +9,11 @@ KEYWORD = 'Api-Key'
 class ProfileApiKeyAuthentication(BaseAuthentication):
     """Authenticate a request using a per-user API key stored on Profile.
 
-    The key may be supplied either as an Authorization header:
+    The key must be supplied via the Authorization header:
         Authorization: Api-Key <key>
-    or as an ``api_key`` query parameter (convenient for browser testing).
+
+    The key is intentionally NOT read from a query parameter: query strings are written to
+    web-server/proxy access logs and browser history, which would leak the credential.
     """
 
     def authenticate(self, request):
@@ -21,7 +23,10 @@ class ProfileApiKeyAuthentication(BaseAuthentication):
             return None
 
         try:
-            profile = Profile.objects.select_related('user').get(api_key=key)
+            # Only the hash is stored; hash the presented key and match on that.
+            profile = Profile.objects.select_related('user').get(
+                api_key_hash=Profile.hash_api_key(key)
+            )
         except Profile.DoesNotExist:
             raise AuthenticationFailed('Invalid API key.')
 
@@ -38,4 +43,4 @@ class ProfileApiKeyAuthentication(BaseAuthentication):
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
         if auth_header.startswith(f'{KEYWORD} '):
             return auth_header[len(KEYWORD) + 1:].strip()
-        return request.query_params.get('api_key')
+        return None

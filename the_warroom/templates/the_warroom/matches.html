@@ -26,20 +26,37 @@
     <!-- Match Series -->
     {% if not is_bracket_finalized %}
     <p class="text-muted">{% trans 'The bracket must be finalized before matches are available.' %}</p>
-    {% elif match_series %}
+    {% else %}
+    {% if not match_series and not create_series_url %}
+    <p class="text-muted">{% trans 'No matches have been generated yet.' %}</p>
+    {% endif %}
     <div class="row g-3">
         {% for series in match_series %}
         <div class="col-md-6 col-lg-4" id="series-card-{{ series.id }}" data-series-id="{{ series.id }}">
             {% include 'the_warroom/partials/series_card_matches.html' with series_index=forloop.counter %}
         </div>
         {% endfor %}
+        {% if can_manage and create_series_url %}
+        <div class="col-md-6 col-lg-4" id="addSeriesCard">
+            <div class="card h-100 group-card"
+                 style="min-height: 120px; border-style: dashed !important; cursor: pointer;"
+                 onclick="createNewSeries()">
+                <div class="card-body text-center text-muted d-flex flex-column align-items-center justify-content-center">
+                    <i class="bi bi-plus-circle fs-2"></i>
+                    <p class="mb-0 mt-2"><strong>{% trans 'Schedule Match' %}</strong></p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
-    {% else %}
-    <p class="text-muted">{% trans 'No matches have been generated yet.' %}</p>
     {% endif %}
 
     {% if can_manage and is_bracket_finalized and edit_series_url %}
     {% include 'the_warroom/partials/series_edit_modal.html' %}
+    <style>
+    .group-card { transition: box-shadow 0.2s; }
+    .group-card:hover { box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15); }
+    </style>
     <script>
     var _seriesEditUrl = '{{ edit_series_url }}';
     var _seriesCsrfToken = '{{ csrf_token }}';
@@ -47,6 +64,67 @@
     var _stageParticipants = {{ stage_participants_json|safe }};
     var _recordGameUrl = '{{ record_game_url }}';
     var _seriesCardType = 'matches';
+    var _createSeriesUrl = '{{ create_series_url }}';
+    var _deleteSeriesUrl = '{{ delete_series_url }}';
+
+    function createNewSeries() {
+        const addCard = document.getElementById('addSeriesCard');
+        addCard.style.pointerEvents = 'none';
+        addCard.style.opacity = '0.5';
+
+        fetch(_createSeriesUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': _seriesCsrfToken,
+            },
+            body: JSON.stringify({}),
+        })
+        .then(response => response.json().then(data => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+            addCard.style.pointerEvents = '';
+            addCard.style.opacity = '';
+
+            if (!ok || !data.success) {
+                alert('Error: ' + (data.error || 'Unknown error'));
+                return;
+            }
+
+            const series = data.series;
+            _seriesDataMap[series.id] = series;
+
+            const grid = addCard.parentElement;
+            const newCol = document.createElement('div');
+            newCol.className = 'col-md-6 col-lg-4';
+            newCol.id = `series-card-${series.id}`;
+            newCol.dataset.seriesId = series.id;
+            newCol.innerHTML = `
+                <div class="card h-100 group-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>${series.name || 'Match'}</strong>
+                        <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openSeriesEditModal(${series.id})" title="Edit">
+                            <i class="bi bi-gear-wide-connected"></i>
+                        </button>
+                    </div>
+                    <div class="card-body p-2">
+                        <ul class="list-group list-group-flush">
+                            <li class="list-group-item text-muted text-center">
+                                <small>No participants</small>
+                            </li>
+                        </ul>
+                    </div>
+                </div>`;
+            grid.insertBefore(newCol, addCard);
+
+            openSeriesEditModal(series.id);
+        })
+        .catch(error => {
+            addCard.style.pointerEvents = '';
+            addCard.style.opacity = '';
+            console.error('Error:', error);
+            alert('An error occurred while creating the series.');
+        });
+    }
     </script>
     {% endif %}
 

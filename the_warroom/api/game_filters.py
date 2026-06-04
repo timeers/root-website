@@ -1,9 +1,10 @@
 import django_filters
+from django import forms
 from django.db.models import Count, Q
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, HTML
 
-from the_warroom.models import Game, Tournament
+from the_warroom.models import Game, Tournament, PlatformChoices
 from the_keep.models import Faction, Vagabond, Landmark, Hireling, Deck, Map
 from the_gatehouse.models import Profile
 
@@ -43,9 +44,63 @@ class GameFilter(django_filters.FilterSet):
         field_name='round__tournament', to_field_name='slug',
         queryset=Tournament.objects.all(), label='Tournament',
     )
-    date_after = django_filters.DateFilter(field_name='date_posted', lookup_expr='gte')
-    date_before = django_filters.DateFilter(field_name='date_posted', lookup_expr='lte')
-    official = django_filters.BooleanFilter(field_name='official')
+    recorder = django_filters.ModelChoiceFilter(
+        field_name='recorder', to_field_name='slug',
+        queryset=Profile.objects.all(), label='Recorder',
+    )
+    type = django_filters.ChoiceFilter(field_name='type', choices=Game.TypeChoices.choices, label='Type')
+    platform = django_filters.ChoiceFilter(field_name='platform', choices=PlatformChoices.choices, label='Platform')
+    date_after = django_filters.DateFilter(
+        field_name='date_posted', lookup_expr='gte', label='Posted on/after',
+        widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    date_before = django_filters.DateFilter(
+        field_name='date_posted', lookup_expr='lte', label='Posted on/before',
+        widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    # Blank = all games; 'true' = only official content; 'false' = includes fan content.
+    official = django_filters.ChoiceFilter(
+        method='filter_official', label='Content',
+        choices=[('true', 'Official content only'), ('false', 'Fan content')],
+    )
+
+    @staticmethod
+    def filter_official(queryset, name, value):
+        if value == 'true':
+            return queryset.filter(official=True)
+        if value == 'false':
+            return queryset.filter(official=False)
+        return queryset
+
+    # Presence dropdowns. Blank = any game; 'none' = games without; 'has' = games with at
+    # least one. A single labelled dropdown avoids the confusing yes/no-to-"no landmarks"
+    # double-negative. Implemented via a method (not lookup_expr='isnull') because
+    # landmarks__isnull=False joins the M2M and returns one row per related landmark,
+    # producing duplicate games and breaking cursor pagination.
+    PRESENCE_CHOICES = [('none', 'None'), ('has', 'Has at least one')]
+    landmarks_present = django_filters.ChoiceFilter(
+        method='filter_landmarks_present', label='Has landmarks?', choices=PRESENCE_CHOICES,
+    )
+    hirelings_present = django_filters.ChoiceFilter(
+        method='filter_hirelings_present', label='Has hirelings?', choices=PRESENCE_CHOICES,
+    )
+
+    def filter_landmarks_present(self, queryset, name, value):
+        return self._filter_presence(queryset, 'landmarks', value)
+
+    def filter_hirelings_present(self, queryset, name, value):
+        return self._filter_presence(queryset, 'hirelings', value)
+
+    @staticmethod
+    def _filter_presence(queryset, field_path, value):
+        """value 'none' -> games with no related rows; 'has' -> games with at least one."""
+        lookup = {f'{field_path}__isnull': True}
+        if value == 'none':
+            return queryset.filter(**lookup)
+        if value == 'has':
+            # exclude() uses a subquery, so this branch does not duplicate rows.
+            return queryset.exclude(**lookup)
+        return queryset
 
     # Multi-value "match all" filters. Assets match on slug; players match on id (pk).
     factions = django_filters.ModelMultipleChoiceFilter(
@@ -86,9 +141,13 @@ class GameFilter(django_filters.FilterSet):
 
     class Meta:
         model = Game
+        # Form renders in this order. Landmark/hireling fields are grouped together at the
+        # bottom, just above the date/official fields.
         fields = [
-            'factions', 'vagabonds', 'players', 'landmarks', 'hirelings',
-            'map', 'deck', 'tournament', 'date_after', 'date_before', 'official',
+            'factions', 'vagabonds', 'players',
+            'map', 'deck', 'tournament', 'recorder', 'type', 'platform',
+            'landmarks_present', 'landmarks', 'hirelings_present', 'hirelings', 
+            'date_after', 'date_before', 'official',
         ]
 
     @property

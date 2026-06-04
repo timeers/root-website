@@ -10,7 +10,11 @@
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="mb-0 root-title"><i class="bi bi-gear me-2"></i>{% trans 'Survey Settings' %}</h2>
-
+        {% if response_count %}
+            <a href="{% url 'survey-export-csv' survey.slug %}" class="btn btn-sm btn-outline-success">
+                <i class="bi bi-download"></i> {% trans 'Download Responses as CSV' %}
+            </a>
+        {% endif %}
     </div>
 
     <!-- Settings Cards Grid -->

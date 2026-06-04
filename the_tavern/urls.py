@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
                     survey_list_view, survey_history_view, survey_results_view, survey_take_view, survey_user_response_view, survey_user_response_edit_view, survey_detail_view,
                     survey_create_view, survey_edit_view, survey_delete_view, survey_preview_view, survey_duplicate_view, search_posts_for_survey, search_players_for_survey, get_tournament_rounds, get_tournament_stages,
-                    get_question_data, survey_responses_view, save_question_template, get_question_template, delete_question_template, survey_admin_view, survey_quiz_settings_view,
+                    get_question_data, survey_responses_view, survey_export_csv, save_question_template, get_question_template, delete_question_template, survey_admin_view, survey_quiz_settings_view,
                     survey_response_move_to_waitlist, survey_response_move_to_accepted, survey_response_delete,
                     survey_send_availability,
                     survey_settings_hub,
@@ -49,6 +49,7 @@ urlpatterns = [
     path('surveys/<slug:slug>/duplicate/', survey_duplicate_view, name='survey-duplicate'),
     path('surveys/<slug:slug>/results/', survey_results_view, name='survey-results'),
     path('surveys/<slug:slug>/responses/', survey_responses_view, name='survey-responses'),
+    path('surveys/<slug:slug>/responses/export/', survey_export_csv, name='survey-export-csv'),
 
     path('surveys/<slug:slug>/response/<int:response_id>/', survey_user_response_view, name='survey-user-response'),
     path('surveys/<slug:slug>/response/<int:response_id>/edit/', survey_user_response_edit_view, name='survey-edit-response'),

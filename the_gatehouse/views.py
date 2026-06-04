@@ -89,7 +89,11 @@ def user_settings(request):
     context = {
         # 'u_form': u_form,
         'p_form': p_form,
-        'api_key': request.user.profile.api_key,
+        'has_api_key': bool(request.user.profile.api_key_hash),
+        'api_key_created': request.user.profile.api_key_created,
+        # Raw key is shown exactly once, right after generation; read-and-clear so a page
+        # refresh does not show it again (it is not stored anywhere we can re-read it).
+        'new_api_key': request.session.pop('new_api_key', None),
     }
 
     return render(request, 'the_gatehouse/user_settings.html', context)
@@ -97,9 +101,22 @@ def user_settings(request):
 
 @login_required
 def generate_api_key(request):
-    if request.method == 'POST':
-        request.user.profile.generate_api_key()
-        messages.success(request, _('A new API key has been generated.'))
+    if request.method != 'POST':
+        return redirect('user-settings')
+
+    # generate_api_key() returns the raw key exactly once (only its hash is stored).
+    raw_key = request.user.profile.generate_api_key()
+
+    # AJAX: return the key inline so the page can show it without a reload or banner.
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        return JsonResponse({
+            'api_key': raw_key,
+            'created': request.user.profile.api_key_created.strftime('%Y-%m-%d'),
+        })
+
+    # Non-JS fallback: stash the key for a one-time display, then redirect (PRG).
+    request.session['new_api_key'] = raw_key
+    messages.success(request, _('A new API key has been generated. Copy it now — it will not be shown again.'))
     return redirect('user-settings')
 
 

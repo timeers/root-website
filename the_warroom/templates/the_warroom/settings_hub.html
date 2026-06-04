@@ -374,6 +374,13 @@
                         <a href="{% url 'round-grouping-setup' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-primary w-100">
                             <i class="bi bi-people-fill me-1"></i>Set Up Groups
                         </a>
+                        <form method="post" action="{% url 'round-grouping-setup' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="mt-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="skip_grouping">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
+                                <i class="bi bi-fast-forward me-1"></i>Skip grouping &amp; add matches
+                            </button>
+                        </form>
                     {% else %}
                         <a href="{% url 'round-grouping-setup' tournament_slug=tournament.slug stage_slug=round.stage.slug round_slug=round.slug %}" class="btn btn-primary w-100">
                             <i class="bi bi-people-fill me-1"></i>Finalize Groups
@@ -438,10 +445,47 @@
                         <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
                             <i class="bi bi-people-fill me-1"></i>Set Up Groups
                         </a>
+                        <form method="post" action="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="mt-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="skip_grouping">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
+                                <i class="bi bi-fast-forward me-1"></i>Skip grouping &amp; add matches
+                            </button>
+                        </form>
                     {% else %}
                         <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
                             <i class="bi bi-people-fill me-1"></i>Finalize Groups
                         </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Schedule Matches Card (League / Game Group) -->
+        {% if can_manage and tournament.classification != "Tournament" and schedule_round %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title root-title">
+                        <i class="bi bi-calendar-event me-2"></i>Schedule Matches
+                    </h5>
+                    <p class="card-text text-muted">
+                        Create scheduled matches with players and times.
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    {% if matches_enabled %}
+                        <a href="{% url 'round-matches-page' tournament_slug=tournament.slug stage_slug=schedule_round.stage.slug round_slug=schedule_round.slug %}" class="btn btn-outline-success w-100">
+                            <i class="bi bi-calendar-event me-1"></i>Manage Scheduled Matches
+                        </a>
+                    {% else %}
+                        <form method="post" action="{% url 'round-enable-matches' tournament_slug=tournament.slug stage_slug=schedule_round.stage.slug round_slug=schedule_round.slug %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-calendar-plus me-1"></i>Enable Match Scheduling
+                            </button>
+                        </form>
                     {% endif %}
                 </div>
             </div>
