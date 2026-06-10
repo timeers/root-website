@@ -233,7 +233,6 @@ class Tournament(models.Model):
     slug = models.SlugField(unique=True, null=True, blank=True)
 
     use_stages = models.BooleanField(default=False, help_text='Enable if you want multiple stages.')
-    use_rounds = models.BooleanField(default=False, help_text='Enable if you want multiple rounds for each stage.')
 
     is_active = models.BooleanField(
         default=True,
@@ -503,6 +502,8 @@ class Stage(models.Model):
 
     name = models.CharField(max_length=100)
     order = models.PositiveIntegerField()
+
+    use_rounds = models.BooleanField(default=False, help_text='Enable if this stage has multiple rounds.')
 
     stage_format = models.CharField(
         max_length=32,
@@ -996,11 +997,11 @@ class Round(models.Model):
         tournament = self.stage.tournament
 
         # No stages and no rounds — link to tournament
-        if not tournament.use_stages and not tournament.use_rounds:
+        if not tournament.use_stages and not self.stage.use_rounds:
             return tournament.get_absolute_url()
 
         # No rounds — link to stage
-        if not tournament.use_rounds:
+        if not self.stage.use_rounds:
             return self.stage.get_absolute_url()
 
         # No stages (simple round mode) — use simplified URL
@@ -1239,9 +1240,9 @@ class Round(models.Model):
 
         if self.stage:
             tournament = self.stage.tournament
-            if tournament.use_rounds and tournament.use_stages:
+            if self.stage.use_rounds and tournament.use_stages:
                 return f"{self.stage.tournament.name} - {self.stage.name} - {self.name}"
-            elif tournament.use_rounds:
+            elif self.stage.use_rounds:
                 return f'{tournament.name} - {self.name}'
             elif tournament.use_stages:
                 return f'{tournament.name} - {self.stage.name}'

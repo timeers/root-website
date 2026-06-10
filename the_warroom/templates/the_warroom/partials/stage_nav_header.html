@@ -26,7 +26,7 @@
                        class="root-title section-sub-tab {% if active_sub_page == 'games' %}active{% endif %}">
                         {% trans 'All Games' %}
                     </a>
-                    {% if tournament.use_rounds %}
+                    {% if stage.use_rounds %}
                     <a href="{% url 'stage-bracket-page' tournament.slug stage.slug %}"
                        class="root-title section-sub-tab {% if active_sub_page == 'bracket' %}active{% endif %}">
                         {% trans 'Bracket' %}
@@ -41,7 +41,7 @@
                 {% endif %}
             </div>
             {% elif has_bracket %}
-            {% if tournament.use_rounds %}
+            {% if stage.use_rounds %}
             <a href="{% url 'stage-bracket-page' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
                 {% trans 'Games' %}

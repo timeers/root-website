@@ -1813,7 +1813,7 @@ def tournament_overview_page(request, slug):
     else:
         single_stage = get_single_stage(tournament)
         if single_stage:
-            if tournament.use_rounds:
+            if single_stage.use_rounds:
                 children = Round.objects.filter(stage=single_stage).select_related('stage__tournament').annotate(
                     annotated_game_count=Count(
                         'games',
@@ -2303,10 +2303,9 @@ def tournament_dynamic_create(request):
             if tournament.classification != Tournament.ClassificationTypes.LEAGUE:
                 tournament.guild = None
 
-            use_stages = form.cleaned_data.get('use_stages', False)
-            use_rounds = form.cleaned_data.get('use_rounds', False)
-            tournament.use_stages = use_stages
-            tournament.use_rounds = use_rounds
+            # Stages/rounds are enabled later via the settings hub; a new
+            # tournament starts flat with a single implicit Stage and Round.
+            tournament.use_stages = False
             tournament.save()
             form.save_m2m()  # Save ManyToMany relationships
 
@@ -2319,9 +2318,8 @@ def tournament_dynamic_create(request):
             # Set default assets based on asset_mode and platform
             set_default_tournament_assets(tournament)
 
-            # Determine names for auto-created Stage and Round
-            stage_name = form.cleaned_data.get('stage_name') or 'Stage 1' if use_stages else 'Stage 1'
-            round_name = (form.cleaned_data.get('round_name') or 'Round 1') if use_rounds else 'Round 1'
+            stage_name = 'Stage 1'
+            round_name = 'Round 1'
 
             # Create the initial Stage and Round 1
             stage_kwargs = dict(
@@ -2396,16 +2394,8 @@ def tournament_dynamic_update(request, slug):
                 if tournament.guild is not None and tournament.guild != original.guild:
                     tournament.guild = original.guild
 
-            # Enforce locking: cannot unset use_stages if 2+ stages exist
-            stage_count = original.stages.count()
-            if stage_count >= 2:
-                tournament.use_stages = True
-
-            # Enforce locking: cannot unset use_rounds if any stage has 2+ rounds
-            max_round_count = max((s.rounds.count() for s in original.stages.all()), default=0)
-            if max_round_count >= 2:
-                tournament.use_rounds = True
-
+            # use_stages / use_rounds are managed via the settings hub, not this
+            # form, so there is nothing to lock here.
             tournament.save()
             form.save_m2m()
 
@@ -2422,15 +2412,11 @@ def tournament_dynamic_update(request, slug):
     else:
         form = TournamentDynamicUpdateForm(instance=tournament, user=request.user)
 
-    stage_count = tournament.stages.count()
-    max_round_count = max((s.rounds.count() for s in tournament.stages.all()), default=0)
     context = {
         'form': form,
         'tournament': tournament,
         'is_admin': request.user.profile.admin,
         'action': 'Update',
-        'use_stages_locked': stage_count >= 2,
-        'use_rounds_locked': max_round_count >= 2,
         'moderators': tournament.moderators.all(),
     }
     return render(request, 'the_warroom/tournament_dynamic_form.html', context)
@@ -4135,6 +4121,12 @@ def tournament_settings_hub(request, slug):
     default_stage = get_single_stage(tournament)
     default_round = default_stage.rounds.first() if default_stage else None
 
+    tournament_stages = tournament.stages.all().order_by('order')
+
+    # When stages are disabled, the tournament has a single hidden stage. Expose it
+    # (and its rounds) so the Rounds card can be managed straight from this hub.
+    default_stage_rounds = default_stage.rounds.all().order_by('round_number') if default_stage else None
+
     context = {
         'object_type': 'Series',
         'tournament': tournament,
@@ -4144,6 +4136,10 @@ def tournament_settings_hub(request, slug):
         'is_owner': is_owner,
         'has_games': has_games,
         'status_hierarchy': build_status_hierarchy('tournament', tournament),
+        'tournament_stages': tournament_stages,
+        'use_stages_locked': tournament_stages.count() >= 2,
+        'default_stage': default_stage,
+        'default_stage_rounds': default_stage_rounds,
     }
     context.update(_schedule_matches_context(tournament, default_round))
     return render(request, 'the_warroom/settings_hub.html', context)
@@ -4276,15 +4272,7 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
                 start_date=stage_instance.start_date,
             )
 
-        # Save use_rounds to the tournament (locked if any stage has 2+ rounds)
-        max_round_count = max((s.rounds.count() for s in tournament.stages.all()), default=0)
-        if max_round_count < 2:
-            tournament.use_rounds = form.cleaned_data.get('use_rounds', tournament.use_rounds)
-            tournament.save(update_fields=['use_rounds'])
-
         return redirect(stage_instance.get_absolute_url())
-
-    max_round_count = max((s.rounds.count() for s in tournament.stages.all()), default=0)
 
     # Existing stage names in this tournament for frontend duplicate validation
     existing_stage_names = list(
@@ -4300,7 +4288,6 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
         'tournament': tournament,
         'stage': stage_instance,
         'is_creating': is_creating,
-        'use_rounds_locked': max_round_count >= 2,
         'existing_names_json': json.dumps(existing_stage_names),
         'is_bracket_format': current_format in BRACKET_FORMATS,
         'is_double_elim': current_format == FormatChoices.DOUBLE_ELIM,
@@ -4316,7 +4303,7 @@ def stage_overview_page(request, tournament_slug, stage_slug):
     context = _stage_base_context(request, tournament, stage)
     context['active_page'] = 'overview'
 
-    if tournament.use_rounds:
+    if stage.use_rounds:
         children = Round.objects.filter(stage=stage).select_related('stage__tournament').annotate(
             annotated_game_count=Count(
                 'games',
@@ -4906,7 +4893,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
 
     grouping_step = None
     hidden_round = None
-    if not tournament.use_rounds and tournament.classification == "Tournament":
+    if not stage.use_rounds and tournament.classification == "Tournament":
         hidden_round = stage.rounds.first()
         if hidden_round:
             has_groups = hidden_round.player_groups.exists()
@@ -4924,6 +4911,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
             else:
                 grouping_step = 'no_groups'
 
+    stage_rounds = stage.rounds.all().order_by('round_number')
     context = {
         'tournament': tournament,
         'stage': stage,
@@ -4938,6 +4926,8 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
         'status_hierarchy': build_status_hierarchy('stage', tournament, stage=stage),
         'grouping_step': grouping_step,
         'hidden_round': hidden_round,
+        'stage_rounds': stage_rounds,
+        'use_rounds_locked': stage_rounds.count() >= 2,
     }
     context.update(_schedule_matches_context(tournament, stage.rounds.first()))
     return render(request, 'the_warroom/settings_hub.html', context)
@@ -4945,14 +4935,14 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
 
 @login_required
 def stage_grouping_setup_view(request, tournament_slug, stage_slug):
-    """Grouping entry point for stages in use_rounds=False tournaments."""
+    """Grouping entry point for stages with use_rounds=False."""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied()
 
-    if tournament.use_rounds:
+    if stage.use_rounds:
         return redirect('stage-settings-hub', tournament_slug=tournament_slug, stage_slug=stage_slug)
 
     round = stage.rounds.first()
@@ -6789,6 +6779,46 @@ def stage_create_quick(request, tournament_slug):
     )
 
     return JsonResponse({'success': True, 'stage_id': stage.id, 'stage_name': stage.name})
+
+
+@login_required
+@require_http_methods(["POST"])
+def tournament_enable_stages(request, tournament_slug):
+    """Enable stages on a tournament and return the rendered 'Stages' card."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if not tournament.use_stages:
+        tournament.use_stages = True
+        tournament.save(update_fields=['use_stages'])
+
+    return render(request, 'the_warroom/partials/stages_card.html', {
+        'tournament': tournament,
+        'tournament_stages': tournament.stages.all().order_by('order'),
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def stage_enable_rounds(request, tournament_slug, stage_slug):
+    """Enable rounds on a stage and return the rendered 'Rounds' card."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if not stage.use_rounds:
+        stage.use_rounds = True
+        stage.save(update_fields=['use_rounds'])
+
+    return render(request, 'the_warroom/partials/rounds_card.html', {
+        'tournament': tournament,
+        'stage': stage,
+        'stage_rounds': stage.rounds.all().order_by('round_number'),
+    })
 
 
 @login_required

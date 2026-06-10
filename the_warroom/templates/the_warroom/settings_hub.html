@@ -215,65 +215,86 @@
 
 
         {% if not stage and not round %}
-            <!-- Add Stage Card (Tournament only, when use_stages is enabled) -->
-            {% if tournament.use_stages %}
-                <div class="col-md-6">
+            <!-- Stages slot: "Enable Stages" card (off) or the "Stages" card (on) -->
+            <div id="stages-card-slot" class="col-md-6">
+                {% if tournament.use_stages %}
+                    {% include "the_warroom/partials/stages_card.html" %}
+                {% else %}
                     <div class="card h-100">
                         <div class="card-body">
                             <h5 class="card-title root-title">
-                                <i class="bi bi-plus-circle me-2"></i>Add Stage
+                                <i class="bi bi-diagram-3 me-2"></i>Enable Stages
                             </h5>
                             <p class="card-text text-muted">
-                                Create a new stage within {{tournament}}
+                                Split {{tournament}} into multiple stages.
                             </p>
                         </div>
                         <div class="card-footer bg-transparent">
-                            <a href="{% url 'stage-create' tournament_slug=tournament.slug %}" class="btn btn-primary w-100">
-                                <i class="bi bi-plus-lg me-1"></i>New Stage
-                            </a>
+                            <button type="button"
+                                    class="btn btn-outline-primary w-100"
+                                    data-enable-url="{% url 'tournament-enable-stages' tournament_slug=tournament.slug %}"
+                                    data-enable-slot="stages-card-slot">
+                                <i class="bi bi-toggle-on me-1"></i>Enable Stages
+                            </button>
                         </div>
                     </div>
-                </div>
-            {% elif tournament.use_rounds %}
-            <!-- Add Round Card (Tournament only, when use_stages is disabled and use_rounds is enabled) -->
-                <div class="col-md-6">
+                {% endif %}
+            </div>
+
+            <!-- Rounds slot for the hidden default stage (only when stages are disabled) -->
+            {% if not tournament.use_stages and default_stage %}
+            <div id="rounds-card-slot" class="col-md-6">
+                {% if default_stage.use_rounds %}
+                    {% include "the_warroom/partials/rounds_card.html" with stage=default_stage stage_rounds=default_stage_rounds %}
+                {% else %}
                     <div class="card h-100">
                         <div class="card-body">
                             <h5 class="card-title root-title">
-                                <i class="bi bi-plus-circle me-2"></i>Add Round
+                                <i class="bi bi-list-ol me-2"></i>Enable Rounds
                             </h5>
                             <p class="card-text text-muted">
-                                Create a new round within {{tournament}}
+                                Split {{tournament}} into multiple rounds.
                             </p>
                         </div>
                         <div class="card-footer bg-transparent">
-                            <a href="{% url 'round-create-simple' tournament_slug=tournament.slug %}" class="btn btn-primary w-100">
-                                <i class="bi bi-plus-lg me-1"></i>New Round
-                            </a>
+                            <button type="button"
+                                    class="btn btn-outline-primary w-100"
+                                    data-enable-url="{% url 'stage-enable-rounds' tournament_slug=tournament.slug stage_slug=default_stage.slug %}"
+                                    data-enable-slot="rounds-card-slot">
+                                <i class="bi bi-toggle-on me-1"></i>Enable Rounds
+                            </button>
                         </div>
                     </div>
-                </div>
+                {% endif %}
+            </div>
             {% endif %}
         {% endif %}
 
-        <!-- Add Round Card (Stage only, when use_rounds is enabled) -->
-        {% if stage and not round and tournament.use_rounds %}
-        <div class="col-md-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h5 class="card-title root-title">
-                        <i class="bi bi-plus-circle me-2"></i>Add Round
-                    </h5>
-                    <p class="card-text text-muted">
-                        Create a new round within {{stage.name}}
-                    </p>
+        <!-- Rounds slot (Stage only): "Enable Rounds" card (off) or the "Rounds" card (on) -->
+        {% if stage and not round %}
+        <div id="rounds-card-slot" class="col-md-6">
+            {% if stage.use_rounds %}
+                {% include "the_warroom/partials/rounds_card.html" %}
+            {% else %}
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title root-title">
+                            <i class="bi bi-list-ol me-2"></i>Enable Rounds
+                        </h5>
+                        <p class="card-text text-muted">
+                            Split {{stage.name}} into multiple rounds.
+                        </p>
+                    </div>
+                    <div class="card-footer bg-transparent">
+                        <button type="button"
+                                class="btn btn-outline-primary w-100"
+                                data-enable-url="{% url 'stage-enable-rounds' tournament_slug=tournament.slug stage_slug=stage.slug %}"
+                                data-enable-slot="rounds-card-slot">
+                            <i class="bi bi-toggle-on me-1"></i>Enable Rounds
+                        </button>
+                    </div>
                 </div>
-                <div class="card-footer bg-transparent">
-                    <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
-                        <i class="bi bi-plus-lg me-1"></i>New Round
-                    </a>
-                </div>
-            </div>
+            {% endif %}
         </div>
         {% endif %}
 
@@ -389,7 +410,7 @@
                 </div>
             </div>
         </div>
-        {% elif object_type == 'Stage' and not tournament.use_rounds and grouping_step is not None and tournament.classification == "Tournament" %}
+        {% elif object_type == 'Stage' and not stage.use_rounds and grouping_step is not None and tournament.classification == "Tournament" %}
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
@@ -547,4 +568,40 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ block.super }}
+<script>
+(function () {
+    const csrftoken = '{{ csrf_token }}';
+    document.addEventListener('click', function (evt) {
+        const btn = evt.target.closest('[data-enable-url]');
+        if (!btn) return;
+        evt.preventDefault();
+        const url = btn.getAttribute('data-enable-url');
+        const slotId = btn.getAttribute('data-enable-slot');
+        const slot = document.getElementById(slotId);
+        btn.disabled = true;
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrftoken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        })
+        .then(function (res) {
+            if (!res.ok) throw new Error('Request failed');
+            return res.text();
+        })
+        .then(function (html) {
+            if (slot) slot.innerHTML = html;
+        })
+        .catch(function (err) {
+            console.error(err);
+            btn.disabled = false;
+        });
+    });
+})();
+</script>
 {% endblock %}

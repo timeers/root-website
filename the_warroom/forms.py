@@ -765,28 +765,6 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         label='Allowed Coalitions'
     )
     picture = forms.ImageField(required=False)
-    use_stages = forms.BooleanField(
-        required=False,
-        initial=False,
-        label='Use Stages',
-    )
-    stage_name = forms.CharField(
-        max_length=100,
-        initial='Stage 1',
-        required=False,
-        label='First Stage Name',
-    )
-    use_rounds = forms.BooleanField(
-        required=False,
-        initial=False,
-        label='Use Rounds',
-    )
-    round_name = forms.CharField(
-        max_length=100,
-        initial='Round 1',
-        required=False,
-        label='First Round Name',
-    )
 
     class Meta:
         model = Tournament
@@ -862,18 +840,6 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         if user and not user.profile.admin:
             self.fields.pop('designer', None)
 
-    def clean(self):
-        cleaned_data = super().clean()
-        use_stages = cleaned_data.get('use_stages')
-        use_rounds = cleaned_data.get('use_rounds')
-        stage_name = cleaned_data.get('stage_name')
-        round_name = cleaned_data.get('round_name')
-        if use_stages and not stage_name:
-            self.add_error('stage_name', 'Stage name is required when Use Stages is enabled.')
-        if use_rounds and not round_name:
-            self.add_error('round_name', 'Round name is required when Use Rounds is enabled.')
-        return cleaned_data
-
     def save(self, commit=True):
         """Save tournament and set default assets based on platform"""
         instance = super().save(commit=False)
@@ -947,7 +913,6 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'asset_mode', 'include_clockwork',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
             'default_format',
-            'use_stages', 'use_rounds',
             'picture'
         ]
         labels = {
@@ -972,14 +937,8 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
             'default_format': 'Default Round Format',
-            'use_stages': 'Use Stages',
-            'use_rounds': 'Use Rounds',
             'picture': 'Series Image',
         }
-        # help_texts = {
-        #     'use_stages': 'Enable if there are multiple stages (e.g. Swiss then Top 8 or 2026 then 2027).',
-        #     'use_rounds': 'Enable if stages in this tournament have multiple rounds.',
-        # }
 
     def __init__(self, *args, user=None, **kwargs):
         super(TournamentDynamicUpdateForm, self).__init__(*args, **kwargs)
@@ -1081,11 +1040,6 @@ class RoundCreateForm(forms.ModelForm):
 
 
 class StageCreateForm(forms.ModelForm):
-    use_rounds = forms.BooleanField(
-        required=False,
-        label='Use Rounds',
-        # help_text='Enable if stages in this tournament have multiple rounds.',
-    )
     round_name = forms.CharField(
         max_length=255,
         initial='Round 1',
@@ -1125,9 +1079,7 @@ class StageCreateForm(forms.ModelForm):
             if tournament:
                 max_order = tournament.stages.aggregate(Max('order'))['order__max'] or 0
                 self.fields['order'].initial = max_order + 1
-        # Pre-populate use_rounds from the tournament's current setting
         if tournament:
-            self.fields['use_rounds'].initial = tournament.use_rounds
             # Limit FK stage choices to other stages in the same tournament
             other_stages = tournament.stages.exclude(pk=self.instance.pk) if self.instance.pk else tournament.stages.all()
             self.fields['winners_advance_to'].queryset = other_stages
@@ -1150,12 +1102,6 @@ class StageCreateForm(forms.ModelForm):
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise ValidationError(f"A stage with this name already exists in {self.tournament.name}")
-        # Validate round_name on create when use_rounds is enabled
-        if not self.instance.pk:
-            use_rounds = cleaned_data.get('use_rounds')
-            round_name = cleaned_data.get('round_name')
-            if use_rounds and not round_name:
-                self.add_error('round_name', 'Round name is required when Use Rounds is enabled.')
         return cleaned_data
 
 

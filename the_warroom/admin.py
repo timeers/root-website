@@ -60,7 +60,7 @@ class TournamentAdmin(admin.ModelAdmin):
             'fields': ('game_threshold', 'leaderboard_positions')
         }),
         ('Structure', {
-            'fields': ('use_stages', 'use_rounds', 'publicly_visible')
+            'fields': ('use_stages', 'publicly_visible')
         }),
     )
 
@@ -567,7 +567,7 @@ class StageAdmin(admin.ModelAdmin):
     inlines = [RoundInline, StageParticipantInline]
     fieldsets = (
         (None, {
-            'fields': ('tournament', 'name', 'order', 'stage_format')
+            'fields': ('tournament', 'name', 'order', 'stage_format', 'use_rounds')
         }),
         ('Availability', {
             'fields': ('is_active', 'start_date', 'end_date', 'status')

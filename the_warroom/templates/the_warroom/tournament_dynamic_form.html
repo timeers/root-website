@@ -272,79 +272,6 @@
                     </div>
                 </div>
             </fieldset>
-            
-            {% if use_stages_locked and use_rounds_locked %}
-            <input type="hidden" name="use_stages" value="on">
-            <input type="hidden" name="use_rounds" value="on">
-            {% else %}
-            <!-- Structure Settings Card -->
-            <div class="card mb-3">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-layers me-2"></i>{% trans 'Structure Settings' %}</h5>
-                </div>
-                <div class="card-body">
-                    {% if action == 'Create' %}
-                    <p class="text-muted small">If you need a more complex structure for this Series you can enable Stages and Rounds below.</p>
-                    {% endif %}
-
-                    <!-- Use Stages -->
-                    <div>
-              
-                            {% if use_stages_locked %}
-                            <input type="hidden" name="use_stages" value="on">
-                            {% else %}
-                            <div class="form-check mb-2">
-                                {{ form.use_stages }}
-                                <label class="form-check-label" for="{{ form.use_stages.id_for_label }}">
-                                    {{ form.use_stages.label }}
-                                </label>
-                                <div class="form-text text-muted">Stages allow you to specify which players are participating. If you want to have a Loser's bracket or something similar with certain players you'll want to use Stages.</div>
-                            </div>
-                            {% endif %}
-            
-                    </div>
-
-                    {% if action == 'Create' %}
-                    <!-- Stage name field (shown when use_stages is checked) -->
-                    <div id="stage-name-field" style="display:none;">
-                        <div class="row">
-                            <div class="col-md-6 mb-2">
-                                {{ form.stage_name|as_crispy_field }}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-
-                    <!-- Use Rounds -->
-                    <div>
-                   
-                            {% if use_rounds_locked %}
-                            <input type="hidden" name="use_rounds" value="on">
-                            {% else %}
-                            <div class="form-check mb-2">
-                                {{ form.use_rounds }}
-                                <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
-                                    {{ form.use_rounds.label }}
-                                </label>
-                                <div class="form-text text-muted">Rounds allow you to set multiple matchups with the same players and group players by availability. If you want each player to play a set number of games against different opponents you'll want to use Rounds.</div>
-                            </div>
-                            {% endif %}
-              
-                    </div>
-
-                    {% if action == 'Create' %}
-                        <!-- Round name field (shown when both use_stages and use_rounds are checked) -->
-                        <div id="round-name-field" style="display:none;">
-                            <div class="row">
-                                <div class="col-md-6 mb-2">
-                                    {{ form.round_name|as_crispy_field }}
-                                </div>
-                            </div>
-                        </div>
-                    {% endif %}
-                </div>
-            </div>
-            {% endif %}
 
             <!-- Save/Cancel Buttons -->
             <div class="mb-3">
@@ -401,28 +328,6 @@
         const fields = document.getElementById('player-count-fields');
         fields.style.display = checkbox.checked ? 'block' : 'none';
     }
-
-    // Create mode: toggle stage name / use_rounds / round name fields
-    const useStagesCheckbox = document.getElementById('id_use_stages');
-    const useRoundsCheckbox = document.getElementById('id_use_rounds');
-    const stageNameField = document.getElementById('stage-name-field');
-    const roundNameField = document.getElementById('round-name-field');
-
-    function updateStructureFields() {
-        const stagesOn = useStagesCheckbox && useStagesCheckbox.checked;
-        const roundsOn = useRoundsCheckbox && useRoundsCheckbox.checked;
-        if (stageNameField) stageNameField.style.display = stagesOn ? 'block' : 'none';
-        if (roundNameField) roundNameField.style.display = roundsOn ? 'block' : 'none';
-    }
-
-    if (useStagesCheckbox) {
-        useStagesCheckbox.addEventListener('change', updateStructureFields);
-    }
-    if (useRoundsCheckbox) {
-        useRoundsCheckbox.addEventListener('change', updateStructureFields);
-    }
-    // Run on load to reflect pre-filled values (e.g. on validation failure)
-    updateStructureFields();
 
     // Show/hide default_format based on classification (admin only)
     const classificationInput = document.getElementById('classification_input');

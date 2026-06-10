@@ -56,9 +56,10 @@ def slugify_round_name(instance, save=False, new_slug=None):
             slug = slugify(unidecode(instance.name))
         else:
             slug = f"round-{random.randint(1_000, 9_999)}"
-    # If either use_rounds or use_stages is False, the structure is flat - need tournament-wide uniqueness
-    # If both are True, there's a proper hierarchy - need stage-level uniqueness
-    if instance.stage and (instance.stage.tournament.use_rounds == False or instance.stage.tournament.use_stages == False):
+    # If either the stage's use_rounds or the tournament's use_stages is False, the
+    # structure is flat - need tournament-wide uniqueness. If both are True, there's
+    # a proper hierarchy - need stage-level uniqueness.
+    if instance.stage and (instance.stage.use_rounds == False or instance.stage.tournament.use_stages == False):
         # Flat structure: check tournament-wide uniqueness
         qs = Round.objects.filter(slug=slug, stage__tournament=instance.stage.tournament).exclude(id=instance.id)
     else:

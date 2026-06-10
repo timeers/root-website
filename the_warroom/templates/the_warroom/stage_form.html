@@ -181,10 +181,8 @@
                             <div id="newWinnersStageFields" class="mt-2" style="display:none;">
                                 <input type="text" class="form-control mb-2" id="new_winners_stage_name"
                                        name="new_winners_stage_name" placeholder="{% trans 'Stage name' %}">
-                                {% if tournament.use_rounds %}
                                 <input type="text" class="form-control" id="new_winners_round_name"
                                        name="new_winners_round_name" placeholder="{% trans 'First round name' %}" value="Round 1">
-                                {% endif %}
                             </div>
                         </div>
                         <!-- Losers advance to -->
@@ -200,10 +198,8 @@
                             <div id="newLosersStageFields" class="mt-2" style="display:none;">
                                 <input type="text" class="form-control mb-2" id="new_losers_stage_name"
                                        name="new_losers_stage_name" placeholder="{% trans 'Stage name' %}">
-                                {% if tournament.use_rounds %}
                                 <input type="text" class="form-control" id="new_losers_round_name"
                                        name="new_losers_round_name" placeholder="{% trans 'First round name' %}" value="Round 1">
-                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -211,41 +207,14 @@
             </div>
             {% endif %}
 
-            {% if not use_rounds_locked %}
-                <!-- Round Settings -->
+            {% if is_creating %}
+                <!-- First Round name (a Round 1 is always created with the stage) -->
                 <div class="card mb-3">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>{% trans 'Round Settings' %}</h5>
                     </div>
                     <div class="card-body">
-                        <div class="form-check mb-1">
-                            {{ form.use_rounds }}
-                            <label class="form-check-label" for="{{ form.use_rounds.id_for_label }}">
-                                {{ form.use_rounds.label }}
-                            </label>
-                        </div>
-                        <div class="form-text text-muted">Rounds allow you to set multiple matchups with the same players and group players by availability. If you want each player to play a set number of games against different opponents you'll want to use Rounds.</div>
-
-
-                        {% if is_creating %}
-                        <!-- Round name field (shown when use_rounds is checked) -->
-                        <div id="round-name-field" class="mt-3" style="display:none;">
-                            <div class="row">
-                                <div class="col-md-6 mb-2">
-                                    {{ form.round_name|as_crispy_field }}
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-            {% elif is_creating and tournament.use_rounds %}
-                <!-- Round name only (use_rounds is locked on, just show the name field) -->
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="bi bi-arrow-repeat me-2"></i>{% trans 'Round Settings' %}</h5>
-                    </div>
-                    <div class="card-body">
+                        <div class="form-text text-muted mb-2">You can enable multiple rounds for this stage later from its settings page.</div>
                         <div class="row">
                             <div class="col-md-6 mb-2">
                                 {{ form.round_name|as_crispy_field }}
@@ -365,22 +334,6 @@
             formatSelect.addEventListener('change', updateAdvancementFields);
         }
         updateAdvancementFields();
-
-        // Toggle round_name field visibility based on use_rounds checkbox
-        const useRoundsCheckbox = document.getElementById('id_use_rounds');
-        const roundNameField = document.getElementById('round-name-field');
-
-        function updateRoundNameVisibility() {
-            if (roundNameField) {
-                roundNameField.style.display = useRoundsCheckbox && useRoundsCheckbox.checked ? 'block' : 'none';
-            }
-        }
-
-        if (useRoundsCheckbox) {
-            useRoundsCheckbox.addEventListener('change', updateRoundNameVisibility);
-        }
-        // Run on load to reflect pre-filled values (e.g. on validation failure)
-        updateRoundNameVisibility();
     });
 </script>
 {% endblock %}
