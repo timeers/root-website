@@ -1039,6 +1039,9 @@ def manage_game_v2(request, id=None):
                         f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})',
                         category='New Game', title='Game Recorded', fields=fields
                     )
+                    # DM opted-in players / component designers / tournament hosts
+                    from the_gatehouse.services.notifyservice import notify_game_recorded
+                    notify_game_recorded(parent)
             _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
 
             return redirect(parent.get_absolute_url())

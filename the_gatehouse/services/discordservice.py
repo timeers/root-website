@@ -37,20 +37,39 @@ def _bot_headers():
     }
 
 
-def send_discord_dm(user, content=None, embed=None):
+# send_discord_dm result codes
+DM_OK = "ok"            # delivered
+DM_BLOCKED = "blocked"  # permanent: no shared server / DMs disabled / no Discord ID — do not retry
+DM_ERROR = "error"      # transient: network error, 5xx, rate limit — safe to retry
+
+
+def _is_terminal_http_error(exc):
+    """A 403 means the bot can't DM this user (no shared server / DMs off): permanent."""
+    response = getattr(exc, "response", None)
+    return response is not None and response.status_code == 403
+
+
+def send_discord_dm(user, content=None, embed=None, force=False):
     """
     Send a direct message to a user via the bot.
 
     Requires the bot and the user to share a server (Discord anti-spam rule).
-    Returns True on success, False otherwise (never raises to the caller).
+    Never raises to the caller. Returns one of:
+        DM_OK      — delivered
+        DM_BLOCKED — permanent failure (no shared server, DMs disabled, no ID); do not retry
+        DM_ERROR   — transient failure (network/5xx/rate limit); safe to retry
+
+    force=True bypasses the DEBUG_VALUE guard. Use only for explicit manual
+    testing (e.g. the test_dm command); the real event triggers never set it,
+    so a dev/staging environment won't DM real users during normal testing.
     """
-    if config["DEBUG_VALUE"] == "True":
-        return False  # mirror existing webhook guard
+    if not force and config["DEBUG_VALUE"] == "True":
+        return DM_BLOCKED  # mirror existing webhook guard; not a retryable error
 
     discord_id = get_discord_id(user)
     if not discord_id:
-        logger.warning("No Discord ID for user %s; cannot DM.", user)
-        return False
+        logger.info("No Discord ID for user %s; cannot DM.", user)
+        return DM_BLOCKED
 
     # 1) Open (or fetch) the DM channel with this user
     try:
@@ -63,8 +82,11 @@ def send_discord_dm(user, content=None, embed=None):
         ch.raise_for_status()
         channel_id = ch.json()["id"]
     except requests.RequestException as e:
+        if _is_terminal_http_error(e):
+            logger.info("Cannot DM user %s (channel open 403, no shared server).", user)
+            return DM_BLOCKED
         logger.error("Failed to open DM channel for user %s: %s", user, e)
-        return False
+        return DM_ERROR
 
     # 2) Post the message into that channel
     payload = {}
@@ -83,10 +105,13 @@ def send_discord_dm(user, content=None, embed=None):
         # 403 here usually means the bot and user share no server, or the
         # user has DMs from server members disabled.
         msg.raise_for_status()
-        return True
+        return DM_OK
     except requests.RequestException as e:
+        if _is_terminal_http_error(e):
+            logger.info("Cannot DM user %s (message 403, DMs blocked).", user)
+            return DM_BLOCKED
         logger.error("Failed to send DM to user %s: %s", user, e)
-        return False
+        return DM_ERROR
 
 
 def get_bot_guilds():

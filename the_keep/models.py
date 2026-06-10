@@ -548,10 +548,13 @@ class Post(models.Model):
                         setattr(self, version_attr, (getattr(self, version_attr) or 0) + 1)
             if old_instance.status == StatusChoices.SUBMITTED and self.status != StatusChoices.SUBMITTED:
                 new_post = True
+                approved_from_submitted = True
             else:
                 new_post = False
+                approved_from_submitted = False
         else:
             new_post = True
+            approved_from_submitted = False
 
 
         if self.color:
@@ -582,7 +585,12 @@ class Post(models.Model):
                     'value': self.designers_list
                 })
             send_rich_discord_message_task.delay(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
-            
+
+            # DM the designer if their submission was just approved (submitted -> dev)
+            if approved_from_submitted:
+                from the_gatehouse.services.notifyservice import notify_post_approved
+                notify_post_approved(self)
+
             # If the designer is registered and the post was submitted by an admin, update the designer's profile
             if self.designer.group == "P":
                 self.designer.group = "E"

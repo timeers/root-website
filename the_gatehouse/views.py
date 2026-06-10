@@ -227,7 +227,7 @@ def editor_required_class_based_view(view_class):
 
 
 def forge_onboard_required(view_func):
-    @login_required
+    @player_onboard_required
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         profile = request.user.profile

@@ -426,6 +426,7 @@ class Profile(models.Model):
     notify_game_recorded = models.BooleanField(default=False)
     notify_tournament_game_recorded = models.BooleanField(default=False)
     notify_post_game_recorded = models.BooleanField(default=False)
+    notify_post_approved = models.BooleanField(default=False)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
     cached_winrate = models.FloatField(null=True, blank=True)
     # Only a hash of the API key is stored, never the key itself (like GitHub/Discord
