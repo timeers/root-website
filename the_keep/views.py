@@ -2880,10 +2880,18 @@ def post_settings_hub(request, slug):
     # Only admin can delete
     can_delete = profile.admin
 
+    # Linked ForgedFaction (Forge source), if any. The reverse OneToOne
+    # accessor raises when unset, so catch that and fall back to None.
+    try:
+        forged_faction = obj.source_forged_faction
+    except (AttributeError, ObjectDoesNotExist):
+        forged_faction = None
+
     context = {
         'object': obj,
         'post': post,
         'object_component': obj.get_component_display(),
+        'forged_faction': forged_faction,
         'can_edit': can_edit,
         'is_designer': is_designer,
         'stable_ready': stable_ready,

@@ -1,5 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
+{% load static %}
 
 {% block title %}{% trans 'Settings' %} - {{ object.title }}{% endblock %}
 
@@ -82,6 +83,37 @@
                 </div>
             </div>
         </div>
+
+        <!-- Forge Card -->
+        {% if forged_faction %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <span class="forge-home-hero-logo d-inline-block align-middle me-2"
+                              style="height:1em; width:1em; vertical-align:-0.125em;
+                                     background-color: currentColor;
+                                     -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
+                                     mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
+                              aria-hidden="true"></span>{% trans 'Edit in the Forge' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'Make changes in the Forge and sync to update your Faction' %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'forge-faction-detail' forged_faction.pk %}" class="btn btn-primary w-100">
+                        <span class="forge-home-hero-logo d-inline-block align-middle me-2"
+                              style="height:1em; width:1em; vertical-align:-0.125em;
+                                     background-color: currentColor;
+                                     -webkit-mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;
+                                     mask: url('{% static 'the_forge/Forge_Logo.svg' %}') center/contain no-repeat;"
+                              aria-hidden="true"></span>{% trans 'View in Forge' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Components Card -->
         <div class="col-md-6">
