@@ -1,12 +1,13 @@
 # Changelog
 
-## [1.12.5] - 2026-5-26 Forge Sync
+## [1.12.5] - 2026-6-10 App Features
 
 ### New Features
 - Added PWA support - Internet connection still required
 - Generate API key from profile for downloading game data
 - Schedule matches for a series without grouping players
 - Option to download survey responses as csv file
+- Discord bot for requested DMs
 
 ### Improvements
 - Games show as columns on wide screens to save space

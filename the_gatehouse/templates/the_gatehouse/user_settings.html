@@ -161,5 +161,15 @@
     </fieldset>
     {% endif %}
 
+    <fieldset class="mb-3">
+        <legend class="border-bottom mb-4 mt-2">{% trans 'Discord Notifications' %}</legend>
+        <p class="text-secondary">
+            {% trans 'Choose which events you want the bot to message you about on Discord.' %}
+        </p>
+        <a href="{% url 'discord-notifications' %}" class="btn btn-sm btn-primary">
+            <i class="bi bi-discord"></i> {% trans 'Manage Discord Notifications' %}
+        </a>
+    </fieldset>
+
     </div>
 {% endblock content %}

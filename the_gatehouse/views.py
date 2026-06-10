@@ -23,7 +23,7 @@ from django.views.generic import ListView
 from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday
 from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
@@ -97,6 +97,26 @@ def user_settings(request):
     }
 
     return render(request, 'the_gatehouse/user_settings.html', context)
+
+
+@login_required
+def discord_notification_settings(request):
+    profile = request.user.profile
+    if request.method == 'POST':
+        form = DiscordNotificationsForm(request.POST, instance=profile)
+        if form.is_valid():
+            form.save()
+            messages.success(request, _('Notification preferences updated!'))
+            return redirect('discord-notifications')
+    else:
+        form = DiscordNotificationsForm(instance=profile)
+
+    context = {
+        'form': form,
+        # The bot can only DM users who share a guild with it.
+        'can_receive_dms': profile.can_receive_dms,
+    }
+    return render(request, 'the_gatehouse/discord_notifications.html', context)
 
 
 @login_required

@@ -1,0 +1,38 @@
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags static i18n %}
+{% block title %}Discord Notifications | {% endblock %}
+{% block content %}
+    <div class="content-section">
+        <fieldset class="mb-3">
+            <legend class="border-bottom mb-4 mt-2">
+                <i class="bi bi-discord"></i> {% trans 'Discord Notifications' %}
+            </legend>
+
+            <p class="text-secondary">
+                {% trans 'Select which events you want to receive a Discord notification for. All notifications are off by default.' %}
+            </p>
+
+            {% if not can_receive_dms %}
+                <div class="alert alert-warning">
+                    {% trans "You're not currently in a Discord server with the RDB Bot, so Discord notifications are not available." %}
+                    {% if rdb_feedback_invite %}
+                        <a href="{{ rdb_feedback_invite }}" target="_blank" rel="noopener">
+                            {% trans 'Join the RDB Discord' %}
+                        </a>
+                        {% trans 'to enable notifications, then log out and back in.' %}
+                    {% endif %}
+                    {% trans 'You can still set your preferences below for when you join.' %}
+                </div>
+            {% endif %}
+
+            <form method="POST">
+                {% csrf_token %}
+                {{ form | crispy }}
+                <div class="mb-3">
+                    <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
+                    <a href="{% url 'user-settings' %}" class="btn btn-outline-secondary">{% trans 'Back to Settings' %}</a>
+                </div>
+            </form>
+        </fieldset>
+    </div>
+{% endblock content %}

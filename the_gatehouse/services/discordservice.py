@@ -23,8 +23,117 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROFILE_IMAGE = "default_images/default_user.png"
 
+DISCORD_API = "https://discord.com/api/v10"
+
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
+
+
+def _bot_headers():
+    """Auth headers for Discord bot REST calls (DMs, command registration)."""
+    return {
+        "Authorization": f"Bot {config['DISCORD_BOT_TOKEN']}",
+        "Content-Type": "application/json",
+    }
+
+
+def send_discord_dm(user, content=None, embed=None):
+    """
+    Send a direct message to a user via the bot.
+
+    Requires the bot and the user to share a server (Discord anti-spam rule).
+    Returns True on success, False otherwise (never raises to the caller).
+    """
+    if config["DEBUG_VALUE"] == "True":
+        return False  # mirror existing webhook guard
+
+    discord_id = get_discord_id(user)
+    if not discord_id:
+        logger.warning("No Discord ID for user %s; cannot DM.", user)
+        return False
+
+    # 1) Open (or fetch) the DM channel with this user
+    try:
+        ch = requests.post(
+            f"{DISCORD_API}/users/@me/channels",
+            headers=_bot_headers(),
+            json={"recipient_id": discord_id},
+            timeout=10,
+        )
+        ch.raise_for_status()
+        channel_id = ch.json()["id"]
+    except requests.RequestException as e:
+        logger.error("Failed to open DM channel for user %s: %s", user, e)
+        return False
+
+    # 2) Post the message into that channel
+    payload = {}
+    if content:
+        payload["content"] = content
+    if embed:
+        payload["embeds"] = [embed]
+
+    try:
+        msg = requests.post(
+            f"{DISCORD_API}/channels/{channel_id}/messages",
+            headers=_bot_headers(),
+            json=payload,
+            timeout=10,
+        )
+        # 403 here usually means the bot and user share no server, or the
+        # user has DMs from server members disabled.
+        msg.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        logger.error("Failed to send DM to user %s: %s", user, e)
+        return False
+
+
+def get_bot_guilds():
+    """
+    Return the list of guilds the bot is a member of (from Discord),
+    or None on failure. Each item is a dict with at least 'id' and 'name'.
+    """
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/users/@me/guilds",
+            headers=_bot_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        logger.error("Failed to fetch bot guilds: %s", e)
+        return None
+
+
+def sync_bot_guilds():
+    """
+    Refresh DiscordGuild.bot_member to reflect which guilds the bot is in.
+
+    Creates a DiscordGuild row for any guild the bot joined that we don't
+    track yet, flags those bot_member=True, and clears the flag on the rest.
+    Returns the number of guilds the bot is in, or None on API failure.
+    """
+    guilds = get_bot_guilds()
+    if guilds is None:
+        return None
+
+    bot_guild_ids = [str(g["id"]) for g in guilds]
+
+    # Ensure a DiscordGuild exists for each guild the bot is in.
+    for g in guilds:
+        DiscordGuild.objects.get_or_create(
+            guild_id=str(g["id"]),
+            defaults={"name": g.get("name", "")},
+        )
+
+    # Flag membership: True for the bot's guilds, False for all others.
+    DiscordGuild.objects.filter(guild_id__in=bot_guild_ids).update(bot_member=True)
+    DiscordGuild.objects.exclude(guild_id__in=bot_guild_ids).update(bot_member=False)
+
+    logger.info("Synced bot guilds: bot is in %d guild(s).", len(bot_guild_ids))
+    return len(bot_guild_ids)
 
 
 def get_discord_display_name(user):
@@ -408,6 +517,45 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
             }
         )
 
+
+
+def build_faction_embed(faction):
+    """Build a Discord embed dict for a Faction (used by the /faction slash command)."""
+    site_url = config.get("SITE_URL", "").rstrip("/")
+
+    embed = {
+        "title": faction.title,
+        "url": f"{site_url}{faction.get_absolute_url()}" if site_url else None,
+        "description": faction.description or faction.lore or "",
+    }
+
+    # color field is a "#RRGGBB" string; Discord wants an int
+    if faction.color:
+        try:
+            embed["color"] = int(faction.color.lstrip("#"), 16)
+        except (ValueError, AttributeError):
+            pass
+
+    # Faction image as thumbnail (only resolvable on the public domain)
+    if site_url and getattr(faction, "picture", None):
+        try:
+            embed["thumbnail"] = {"url": f"{site_url}{faction.picture.url}"}
+        except ValueError:
+            pass  # no file associated
+
+    fields = []
+    if faction.designer:
+        fields.append({"name": "Designer", "value": faction.designer.display_name or "—", "inline": True})
+    if faction.type:
+        fields.append({"name": "Type", "value": faction.get_type_display(), "inline": True})
+    fields.append({"name": "Reach", "value": str(faction.reach), "inline": True})
+    if faction.complexity and faction.complexity != faction.StyleChoices.NONE:
+        fields.append({"name": "Complexity", "value": faction.get_complexity_display(), "inline": True})
+    if fields:
+        embed["fields"] = fields
+
+    # Drop None values Discord would reject
+    return {k: v for k, v in embed.items() if v is not None}
 
 
 def get_discord_invite_info(invite_code):

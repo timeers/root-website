@@ -8,6 +8,7 @@ from .views import (user_settings, player_page_view,
                     game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error,
                     forge_feedback, forge_faction_feedback,
                     admin_dashboard, sync_discord_avatar, generate_api_key, join_discord_server, changelog_select_view, latest_changelog_redirect,
+                    discord_notification_settings,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification, dismiss_global_message, add_guild_from_invite,
@@ -17,7 +18,10 @@ from .views import (user_settings, player_page_view,
                     hx_save_background_image, hx_delete_background_image,
                     manage_holidays, manage_holiday_edit)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
+from .discord_interactions import discord_interactions
 urlpatterns = [
+    path('discord/interactions/', discord_interactions, name='discord-interactions'),
+
     # path("", list_view, name='home'),
     # path("home/", list_view),
     path('status/', status_check, name='status_check'),
@@ -38,6 +42,7 @@ urlpatterns = [
     path('profile/<slug:slug>/game-bookmarks/', game_bookmarks, name='game-bookmarks'),
     path('settings/', user_settings, name='user-settings'),
     path('settings/sync-avatar/', sync_discord_avatar, name='sync-avatar'),
+    path('settings/discord-notifications/', discord_notification_settings, name='discord-notifications'),
     path('settings/generate-api-key/', generate_api_key, name='generate-api-key'),
 
     # Admin

@@ -5,7 +5,7 @@ from django.utils import timezone
 from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
 
-from .services.discordservice import send_discord_message, send_rich_discord_message
+from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds
 from .services.context_service import get_daily_user_summary
 from .utils import format_bulleted_list
 
@@ -237,3 +237,27 @@ def send_discord_message_task(*args, **kwargs):
     except Exception:
         logger.exception("Discord webhook failed")
         raise
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def send_discord_dm_task(user_id, content=None, embed=None):
+    from django.contrib.auth import get_user_model
+    user = get_user_model().objects.get(pk=user_id)
+    if not send_discord_dm(user, content=content, embed=embed):
+        # Raise so autoretry handles transient failures. A hard 403
+        # (no shared server) will exhaust retries and log; acceptable for now.
+        raise RuntimeError(f"DM to user {user_id} failed")
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def sync_bot_guilds_task():
+    if sync_bot_guilds() is None:
+        raise RuntimeError("Failed to sync bot guilds from Discord")
