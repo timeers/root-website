@@ -954,6 +954,12 @@ class SurveyResponse(models.Model):
         user_display = self.profile.name if self.profile else "Anonymous"
         return f"{user_display} → {self.survey.title}"
 
+    def get_absolute_url(self):
+        return reverse('survey-user-response', kwargs={
+            'slug': self.survey.slug,
+            'response_id': self.pk,
+        })
+
     @property
     def was_edited(self):
         """Check if response was edited after initial submission"""

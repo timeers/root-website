@@ -26,72 +26,104 @@ def _link(relative_url):
     return f"{SITE_URL}{relative_url}" if SITE_URL else relative_url
 
 
-def _queue_dm(profile, content):
+def _link_embed(title, relative_url):
+    """
+    Build a minimal Discord embed whose title is a clickable link.
+
+    Masked links ([text](url)) don't render in a plain DM body, so the link is
+    carried here instead: an embed with a title + url shows the title as a
+    clickable link below the plain-text message content.
+    """
+    return {"title": title, "url": _link(relative_url)}
+
+
+def _queue_dm(profile, content, embed=None):
     """Queue a DM to a profile's user, if it has a linked user account."""
     user_id = getattr(profile, "user_id", None)
     if not user_id:
         return
-    send_discord_dm_task.delay(user_id, content=content)
+    send_discord_dm_task.delay(user_id, content=content, embed=embed)
+
+
+def _join_names(names):
+    """Join component names as 'A', 'A and B', or 'A, B and C'."""
+    names = list(names)
+    if len(names) <= 1:
+        return "".join(names)
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def _component_designers(game):
-    """Set of Profiles who designed any component used in the game."""
-    designers = set()
+    """
+    Map each designer Profile to the list of component names they designed in
+    the game, preserving discovery order and de-duplicating per designer (a
+    designer credited on two components gets both names, once each).
+    """
+    designers = {}
 
-    if game.deck and game.deck.designer:
-        designers.add(game.deck.designer)
-    if game.map and game.map.designer:
-        designers.add(game.map.designer)
+    def add(component):
+        if component and component.designer:
+            names = designers.setdefault(component.designer, [])
+            if component.title not in names:
+                names.append(component.title)
+
+    add(game.deck)
+    add(game.map)
 
     for effort in game.efforts.all():
-        if effort.faction and effort.faction.designer:
-            designers.add(effort.faction.designer)
-        if effort.vagabond and effort.vagabond.designer:
-            designers.add(effort.vagabond.designer)
+        add(effort.faction)
+        add(effort.vagabond)
 
     for landmark in game.landmarks.all():
-        if landmark.designer:
-            designers.add(landmark.designer)
+        add(landmark)
     for hireling in game.hirelings.all():
-        if hireling.designer:
-            designers.add(hireling.designer)
+        add(hireling)
     for tweak in game.tweaks.all():
-        if tweak.designer:
-            designers.add(tweak.designer)
+        add(tweak)
 
     return designers
 
 
 def notify_game_recorded(game):
     """
-    DM opted-in users when a game is recorded (finalized). Each recipient gets
-    one combined message listing every reason that applies to them:
+    DM opted-in users when a game is recorded (finalized). A recipient gets a
+    separate message for each reason that applies to them (deduped per
+    profile+reason so the same reason is never sent twice):
       - notify_game_recorded: they played in the game (recorder excluded)
       - notify_post_game_recorded: a component they designed was used
       - notify_tournament_game_recorded: they host the tournament (organizer/mod)
     """
-    # profile -> list of reason strings (only kept if the matching pref is on)
-    reasons = {}
+    game_title = game.nickname if game.nickname else f"{game.platform} Game"
+    embed = _link_embed(game_title, game.get_absolute_url())
 
-    def add_reason(profile, pref_attr, text):
+    # (profile, pref_attr) pairs already queued, so a recipient gets at most one
+    # DM per reason (e.g. a designer credited on two components in the game).
+    sent = set()
+
+    def notify(profile, pref_attr, content):
         if profile is None:
             return
         if not getattr(profile, pref_attr, False):
             return
-        reasons.setdefault(profile, [])
-        if text not in reasons[profile]:
-            reasons[profile].append(text)
+        key = (profile.pk, pref_attr)
+        if key in sent:
+            return
+        sent.add(key)
+        _queue_dm(profile, content, embed=embed)
 
     # Players (exclude the recorder — they know, they recorded it)
     recorder = game.recorder
     for effort in game.efforts.all():
         player = effort.player
         if player and player != recorder:
-            add_reason(player, "notify_game_recorded", "you played in it")
+            notify(player, "notify_game_recorded", "A game you played in was recorded:")
 
     # Component designers
-    for designer in _component_designers(game):
-        add_reason(designer, "notify_post_game_recorded", "it used a component you designed")
+    for designer, names in _component_designers(game).items():
+        notify(designer, "notify_post_game_recorded",
+               f"A game using {_join_names(names)} was recorded:")
 
     # Tournament host(s): organizer + moderators
     if game.round_id:
@@ -102,21 +134,8 @@ def notify_game_recorded(game):
                 hosts.add(tournament.designer)
             hosts.update(tournament.moderators.all())
             for host in hosts:
-                add_reason(host, "notify_tournament_game_recorded",
-                           "it's part of a tournament you host")
-
-    if not reasons:
-        return
-
-    game_title = game.nickname if game.nickname else f"{game.platform} Game"
-    link = _link(game.get_absolute_url())
-
-    for profile, why in reasons.items():
-        content = (
-            f"A game was recorded ({' and '.join(why)}): "
-            f"[{game_title}]({link})"
-        )
-        _queue_dm(profile, content)
+                notify(host, "notify_tournament_game_recorded",
+                       f"A {tournament.name} game was recorded:")
 
 
 def notify_post_approved(post):
@@ -128,12 +147,9 @@ def notify_post_approved(post):
     if designer is None or not getattr(designer, "notify_post_approved", False):
         return
 
-    link = _link(post.get_absolute_url())
-    content = (
-        f"Your submitted {post.get_component_display()} was approved: "
-        f"[{post.title}]({link})"
-    )
-    _queue_dm(designer, content)
+    content = f"Your submitted {post.get_component_display()} was approved:"
+    embed = _link_embed(post.title, post.get_absolute_url())
+    _queue_dm(designer, content, embed=embed)
 
 
 def notify_survey_response(survey_response):
@@ -147,6 +163,7 @@ def notify_survey_response(survey_response):
     if not getattr(owner, "notify_survey_response", False):
         return
 
-    link = _link(survey.get_absolute_url())
-    content = f"A new response was submitted to your survey: [{survey.title}]({link})"
-    _queue_dm(owner, content)
+    content = f"A new response was submitted to {survey.title}:"
+    respondent_name = respondent.name if respondent else "Anonymous"
+    embed = _link_embed(respondent_name, survey_response.get_absolute_url())
+    _queue_dm(owner, content, embed=embed)
