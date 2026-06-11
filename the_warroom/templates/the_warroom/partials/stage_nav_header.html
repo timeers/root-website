@@ -56,7 +56,7 @@
             {% if has_games or has_players %}
             <a href="{% url 'stage-roster-page' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
-                {% trans 'Roster' %}
+                {% trans 'Players' %}
             </a>
             {% endif %}
             {% if has_surveys %}

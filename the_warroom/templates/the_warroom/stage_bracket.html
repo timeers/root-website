@@ -24,76 +24,7 @@
     {% include 'the_warroom/partials/stage_nav_header.html' %}
 
     <!-- Bracket -->
-    <div class="d-flex gap-0 overflow-auto p-3" style="min-height: 200px;">
-        {% for round in rounds_with_matches %}
-        {% if round.matches.all %}
-        <div class="flex-shrink-0" style="min-width: 240px;">
-            <div class="text-center fw-bold mb-3 text-muted small text-uppercase">
-                {{ round.name|default:round.round_number }}
-            </div>
-            <div class="d-flex flex-column gap-2">
-                {% for match in round.matches.all %}
-                <div class="card">
-                    <div class="card-body py-2 px-3">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            {% if match.series.is_bye %}
-                            <small class="fw-bold">{{ match.series.name }}</small>
-                            <span class="badge bg-info">{% trans 'Bye' %}</span>
-                            {% else %}
-                            <small class="fw-bold">Match {{ match.match_number }}</small>
-                            {% if match.status == 'Completed' %}
-                            <span class="badge bg-success">{% trans 'Done' %}</span>
-                            {% elif match.status == 'Active' %}
-                            <span class="badge bg-primary">{% trans 'Active' %}</span>
-                            {% else %}
-                            <span class="badge bg-secondary">{% trans 'TBD' %}</span>
-                            {% endif %}
-                            {% endif %}
-                        </div>
-                        {% if match.series.is_bye %}
-                        {% for bye_winner in match.series.winners.all %}
-                        <div class="d-flex align-items-center gap-1 small">
-                            {% if bye_winner.tournament_player.profile.image %}
-                            <img src="{{ bye_winner.tournament_player.profile.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
-                            {% endif %}
-                            <span>{{ bye_winner.tournament_player.profile.display_name }}</span>
-                            <i class="bi bi-arrow-right-circle text-info ms-auto"></i>
-                        </div>
-                        {% endfor %}
-                        {% elif match.player_group %}
-                        <small class="text-muted d-block mb-1">{{ match.player_group.name|default:"" }}</small>
-                        {% for tp in match.player_group.tournament_players.all %}
-                        <div class="d-flex align-items-center gap-1 small">
-                            {% if tp.profile.image %}
-                            <img src="{{ tp.profile.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
-                            {% endif %}
-                            <span>{{ tp.profile.display_name }}</span>
-                            {% if match.series|is_series_winner:tp.id %}
-                            <i class="bi bi-trophy-fill text-warning ms-auto"></i>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                        {% else %}
-                        <small class="text-muted">{% trans 'Players TBD' %}</small>
-                        {% endif %}
-                        {% if match.series.number_of_games > 1 %}
-                        <div class="mt-1">
-                            <small class="badge bg-light text-dark">Bo{{ match.series.number_of_games }}</small>
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% if not forloop.last %}
-        <div class="flex-shrink-0 d-flex align-items-center px-2">
-            <i class="bi bi-arrow-right text-muted fs-4"></i>
-        </div>
-        {% endif %}
-        {% endif %}
-        {% endfor %}
-    </div>
+    {% include 'the_warroom/partials/stage_bracket.html' with rounds=rounds_with_matches stage=stage %}
 
 </div>
 {% endblock %}

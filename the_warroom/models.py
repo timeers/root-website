@@ -1364,6 +1364,30 @@ class Match(models.Model):
             raise ValidationError("The assigned game must belong to the same round as the match.")
 
     @property
+    def display_status(self):
+        """Status for display purposes. A match that hasn't started but has a
+        scheduled time reads as 'Scheduled' rather than the stored 'Pending'."""
+        if self.status == CompetitionStatus.PENDING and self.scheduled_time:
+            return "Scheduled"
+        return self.status
+
+    @property
+    def series_position(self):
+        """This match's 1-based game number within its multi-game series, or
+        None for single-game series. Reads from ``series.matches`` so a
+        prefetched set is reused instead of issuing a query."""
+        if not self.series_id or self.series.number_of_games <= 1:
+            return None
+        siblings = sorted(
+            self.series.matches.all(),
+            key=lambda m: (m.match_number is None, m.match_number),
+        )
+        for index, sibling in enumerate(siblings, start=1):
+            if sibling.pk == self.pk:
+                return index
+        return None
+
+    @property
     def winners(self):
         """Players who won the game linked to this match."""
         if not self.game_id:

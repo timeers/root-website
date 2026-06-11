@@ -19,7 +19,7 @@ page's ambient round/stage/tournament globals.
                 {% if level == 'round' %}
                 Update round information, dates, and game thresholds
                 {% elif level == 'stage' %}
-                Update stage information, format, and grouping configuration
+                Update stage information and format
                 {% else %}
                 Update series information, dates, rules, and game settings
                 {% endif %}
@@ -66,7 +66,7 @@ page's ambient round/stage/tournament globals.
 
 
 <!-- Player Management Card (Stage / Series, and Round only when stages are used) -->
-{% if level != 'round' or tournament.use_stages %}
+{% if level != 'round' %}
 <div class="col-md-6">
     <div class="card h-100">
         <div class="card-body">
@@ -77,7 +77,7 @@ page's ambient round/stage/tournament globals.
                 {% if level == 'series' %}
                 Manage roster, waitlist, and eliminated players
                 {% else %}
-                Manage stage roster, withdrawn, and eliminated players
+                Add or eliminate Series players for {{stage.name}}
                 {% endif %}
             </p>
         </div>
@@ -237,13 +237,13 @@ page's ambient round/stage/tournament globals.
 {% endif %}
 
 
-<!-- Player Grouping Card (Round level, or Stage level when use_rounds=False) -->
-{% if level == 'round' and tournament.classification == "Tournament" or level == 'stage' and not stage.use_rounds and grouping_step is not None and tournament.classification == "Tournament" %}
+<!-- Player Grouping Card (Round level, Stage level when use_rounds=False, or Series level for a no-stages/no-rounds tournament) -->
+{% if level == 'round' and tournament.classification == "Tournament" or level == 'stage' and not stage.use_rounds and grouping_step is not None and tournament.classification == "Tournament" or level == 'series' and grouping_step is not None and tournament.classification == "Tournament" %}
 <div class="col-md-6">
     <div class="card h-100">
         <div class="card-body">
             <h5 class="card-title root-title">
-                <i class="bi bi-diagram-3 me-2"></i>Player Grouping
+                <i class="bi bi-columns-gap me-2"></i>Player Grouping
             </h5>
             <div class="mt-2 d-flex flex-wrap align-items-center gap-1" style="font-size:0.75rem;">
                 {% if grouping_step == 'no_groups' %}
@@ -314,23 +314,25 @@ page's ambient round/stage/tournament globals.
                     </a>
                 {% endif %}
             {% else %}
+                {% comment %}Stage level uses the current stage; Series level (no stages / no rounds) has stage=None, so fall back to the default stage.{% endcomment %}
+                {% with grouping_stage=stage|default:section.default_stage %}
                 {% if grouping_step == 'matches_finalized' %}
-                    <a href="{% url 'stage-matches-page' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-outline-success w-100">
+                    <a href="{% url 'stage-matches-page' tournament_slug=tournament.slug stage_slug=grouping_stage.slug %}" class="btn btn-outline-success w-100">
                         <i class="bi bi-trophy me-1"></i>View Matches
                     </a>
                 {% elif grouping_step == 'matches_draft' %}
-                    <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-warning w-100">
+                    <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=grouping_stage.slug %}" class="btn btn-warning w-100">
                         <i class="bi bi-lock me-1"></i>Finalize Bracket
                     </a>
                 {% elif grouping_step == 'groups_finalized' %}
-                    <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
+                    <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=grouping_stage.slug %}" class="btn btn-primary w-100">
                         <i class="bi bi-diagram-3 me-1"></i>Generate Bracket
                     </a>
                 {% elif grouping_step == 'no_groups' %}
-                    <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
+                    <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=grouping_stage.slug %}" class="btn btn-primary w-100">
                         <i class="bi bi-people-fill me-1"></i>Set Up Groups
                     </a>
-                    <form method="post" action="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="mt-2">
+                    <form method="post" action="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=grouping_stage.slug %}" class="mt-2">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="skip_grouping">
                         <button type="submit" class="btn btn-outline-secondary btn-sm w-100">
@@ -338,10 +340,11 @@ page's ambient round/stage/tournament globals.
                         </button>
                     </form>
                 {% else %}
-                    <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
+                    <a href="{% url 'stage-grouping-setup' tournament_slug=tournament.slug stage_slug=grouping_stage.slug %}" class="btn btn-primary w-100">
                         <i class="bi bi-people-fill me-1"></i>Finalize Groups
                     </a>
                 {% endif %}
+                {% endwith %}
             {% endif %}
         </div>
     </div>

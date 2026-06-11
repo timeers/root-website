@@ -21,7 +21,7 @@ from django.db import IntegrityError, models
 from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
-from django.utils.translation import get_language
+from django.utils.translation import get_language, gettext as _
 from urllib.parse import quote
 
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
@@ -1664,6 +1664,7 @@ def _tournament_base_context(request, tournament):
         playable_round = None
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
+    has_bracket = Match.objects.filter(round__stage__tournament=tournament).exists()
     has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
     has_players = TournamentPlayer.objects.filter(tournament=tournament).exists()
 
@@ -1681,6 +1682,7 @@ def _tournament_base_context(request, tournament):
         'object': tournament,
         'playable_round': playable_round,
         'can_manage': can_manage,
+        'has_bracket': has_bracket,
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
@@ -1948,6 +1950,7 @@ def tournament_games_page(request, slug):
     context = _tournament_base_context(request, tournament)
     context.update({
         'active_page': 'games',
+        'active_sub_page': 'games',
         'games': page_obj,
         'page_obj': page_obj,
         'games_count': paginator.count,
@@ -4028,39 +4031,39 @@ def get_status_info(entity, entity_type, tournament=None, stage=None):
         t = entity.classification
         if entity.is_active:
             if entity.status == CompetitionStatus.COMPLETED:
-                return {'alert_type': 'secondary', 'alert_message': f'{t} is completed', 'icon': 'bi-check-circle-fill'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': f'{t} is completed', 'icon': 'bi-check-circle-fill'}
             if entity.end_date and entity.end_date < now:
-                return {'alert_type': 'secondary', 'alert_message': f'{t} has ended', 'icon': 'bi-clock-history'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': f'{t} has ended', 'icon': 'bi-clock-history'}
             if entity.start_date and entity.start_date > now:
-                return {'alert_type': 'info', 'alert_message': f'{t} is active but has not started yet', 'icon': 'bi-info-circle-fill'}
-            return {'alert_type': 'success', 'alert_message': f'{t} is active and available', 'icon': 'bi-check-circle-fill'}
-        return {'alert_type': 'danger', 'alert_message': f'{t} is inactive and not available', 'icon': 'bi-x-circle-fill'}
+                return {'alert_type': 'info', 'status_word': 'Scheduled', 'alert_message': f'{t} is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'status_word': 'Active', 'alert_message': f'{t} is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'status_word': 'Inactive', 'alert_message': f'{t} is inactive and not available', 'icon': 'bi-x-circle-fill'}
 
     elif entity_type == 'stage':
         if entity.is_active:
             if entity.status == CompetitionStatus.COMPLETED:
-                return {'alert_type': 'secondary', 'alert_message': 'Stage is completed', 'icon': 'bi-check-circle-fill'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': 'Stage is completed', 'icon': 'bi-check-circle-fill'}
             if not tournament.is_active:
-                return {'alert_type': 'warning', 'alert_message': 'Stage is active but tournament is inactive', 'icon': 'bi-exclamation-triangle-fill'}
+                return {'alert_type': 'warning', 'status_word': 'Inactive', 'alert_message': 'Stage is active but tournament is inactive', 'icon': 'bi-exclamation-triangle-fill'}
             if (entity.end_date and entity.end_date < now) or (tournament.end_date and tournament.end_date < now):
-                return {'alert_type': 'secondary', 'alert_message': 'Stage has ended', 'icon': 'bi-clock-history'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': 'Stage has ended', 'icon': 'bi-clock-history'}
             if (entity.start_date and entity.start_date > now) or (tournament.start_date and tournament.start_date > now):
-                return {'alert_type': 'info', 'alert_message': 'Stage is active but has not started yet', 'icon': 'bi-info-circle-fill'}
-            return {'alert_type': 'success', 'alert_message': 'Stage is active and available', 'icon': 'bi-check-circle-fill'}
-        return {'alert_type': 'danger', 'alert_message': 'Stage is inactive', 'icon': 'bi-x-circle-fill'}
+                return {'alert_type': 'info', 'status_word': 'Scheduled', 'alert_message': 'Stage is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'status_word': 'Active', 'alert_message': 'Stage is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'status_word': 'Inactive', 'alert_message': 'Stage is inactive', 'icon': 'bi-x-circle-fill'}
 
     elif entity_type == 'round':
         if entity.is_active:
             if entity.status == CompetitionStatus.COMPLETED:
-                return {'alert_type': 'secondary', 'alert_message': 'Round is completed', 'icon': 'bi-check-circle-fill'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': 'Round is completed', 'icon': 'bi-check-circle-fill'}
             if not tournament.is_active or not stage.is_active:
-                return {'alert_type': 'warning', 'alert_message': 'Round is active but parent is inactive', 'icon': 'bi-exclamation-triangle-fill'}
+                return {'alert_type': 'warning', 'status_word': 'Inactive', 'alert_message': 'Round is active but parent is inactive', 'icon': 'bi-exclamation-triangle-fill'}
             if (entity.end_date and entity.end_date < now) or (stage.end_date and stage.end_date < now) or (tournament.end_date and tournament.end_date < now):
-                return {'alert_type': 'secondary', 'alert_message': 'Round has ended', 'icon': 'bi-clock-history'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': 'Round has ended', 'icon': 'bi-clock-history'}
             if (entity.start_date and entity.start_date > now) or (stage.start_date and stage.start_date > now) or (tournament.start_date and tournament.start_date > now):
-                return {'alert_type': 'info', 'alert_message': 'Round is active but has not started yet', 'icon': 'bi-info-circle-fill'}
-            return {'alert_type': 'success', 'alert_message': 'Round is active and available', 'icon': 'bi-check-circle-fill'}
-        return {'alert_type': 'danger', 'alert_message': 'Round is inactive', 'icon': 'bi-x-circle-fill'}
+                return {'alert_type': 'info', 'status_word': 'Scheduled', 'alert_message': 'Round is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'status_word': 'Active', 'alert_message': 'Round is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'status_word': 'Inactive', 'alert_message': 'Round is inactive', 'icon': 'bi-x-circle-fill'}
 
 
 def build_status_hierarchy(entity_type, tournament, stage=None, round_obj=None):
@@ -4141,6 +4144,16 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
         default_stage_rounds = (
             default_stage.rounds.all().order_by('round_number') if default_stage else None
         )
+        # When the tournament has no stages and its default stage has no rounds,
+        # the series hub stands in for the (hidden) default stage — surface the
+        # Player Grouping card the same way the stage hub does.
+        grouping_step = None
+        if (
+            default_stage is not None
+            and not default_stage.use_rounds
+            and tournament.classification == "Tournament"
+        ):
+            grouping_step = _grouping_step(default_round)
         ctx.update({
             'heading': f'{tournament.name} Settings',
             'can_manage': is_owner,
@@ -4150,6 +4163,7 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
             'use_stages_locked': tournament_stages.count() >= 2,
             'default_stage': default_stage,
             'default_stage_rounds': default_stage_rounds,
+            'grouping_step': grouping_step,
         })
         ctx.update(_schedule_matches_context(tournament, default_round))
 
@@ -4174,6 +4188,9 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
             'hidden_round': hidden_round,
             'stage_rounds': stage_rounds,
             'use_rounds_locked': stage_rounds.count() >= 2,
+            # Only consumed by the series-level grouping card, but must exist so
+            # the shared footer's `stage|default:section.default_stage` resolves.
+            'default_stage': stage,
         })
         ctx.update(_schedule_matches_context(tournament, stage.rounds.first()))
 
@@ -4562,11 +4579,13 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
 
     rounds = stage.rounds.all().order_by('round_number')
     rounds_with_matches = rounds.prefetch_related(
-        'matches__series__player_group__tournament_players__profile',
+        'matches__series__player_group',
+        'matches__series__matches',
+        'matches__series__matchseat_set__stage_participant__tournament_player__profile',
+        'matches__series__winners__tournament_player__profile',
         'series__player_group',
     )
     has_bracket = Match.objects.filter(round__stage=stage).exists()
-    print(has_bracket)
     context = _stage_base_context(request, tournament, stage)
     context.update({
         'active_page': 'games',
@@ -4577,10 +4596,10 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
     return render(request, 'the_warroom/stage_bracket.html', context)
 
 
-def stage_matches_page(request, tournament_slug, stage_slug):
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-
+def _stage_matches_context(request, tournament, stage):
+    """Build the context for the scheduled-matches view of a stage's single
+    (default) round. Shared by the stage matches page and the tournament
+    bracket page when the tournament has no stages and the stage has no rounds."""
     round = stage.rounds.first()
     match_series = []
     recordable_match_ids = set()
@@ -4643,6 +4662,14 @@ def stage_matches_page(request, tournament_slug, stage_slug):
             'round_slug': round.slug,
         })
 
+    return context
+
+
+def stage_matches_page(request, tournament_slug, stage_slug):
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    context = _stage_matches_context(request, tournament, stage)
     return render(request, 'the_warroom/matches.html', context)
 
 
@@ -5137,31 +5164,44 @@ def stage_move_player(request, tournament_slug, stage_slug):
     })
 
 
-@player_onboard_required
-def tournament_bracket_view(request, slug):
-    """Read-only bracket overview — shows all stages and their bracket status."""
+def tournament_bracket_page(request, slug):
+    """Read-only bracket overview — shows all stages and their bracket status.
+
+    When the tournament has no stages and its single default stage has no
+    rounds, there is nothing to lay out as a bracket — instead show the fuller,
+    editable scheduled-matches view (the same one the stage matches page uses)
+    so moderators can add and edit matches directly."""
     tournament = get_object_or_404(Tournament, slug=slug)
 
-    if not tournament.has_permission(request.user.profile):
-        raise PermissionDenied()
+    if not tournament.use_stages:
+        single_stage = get_single_stage(tournament)
+        if single_stage and not single_stage.use_rounds:
+            context = _stage_matches_context(request, tournament, single_stage)
+            context.update({
+                'active_sub_page': 'bracket',
+                'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
+                'breadcrumb_page': _('Bracket'),
+            })
+            return render(request, 'the_warroom/matches.html', context)
 
     stages = tournament.stages.order_by('order').prefetch_related(
         Prefetch(
             'rounds',
             queryset=Round.objects.order_by('round_number').prefetch_related(
-                'matches__series__player_group__tournament_players__profile',
+                'matches__series__player_group',
+                'matches__series__matches',
+                'matches__series__matchseat_set__stage_participant__tournament_player__profile',
                 'matches__series__winners__tournament_player__profile',
             ),
         ),
     )
 
-    has_bracket = Match.objects.filter(round__stage__tournament=tournament).exists()
-
-    context = {
-        'tournament': tournament,
+    context = _tournament_base_context(request, tournament)
+    context.update({
+        'active_page': 'games',
+        'active_sub_page': 'bracket',
         'stages': stages,
-        'has_bracket': has_bracket,
-    }
+    })
     return render(request, 'the_warroom/tournament_bracket.html', context)
 
 
