@@ -18,8 +18,18 @@
         {% endif %}
     </div>
     <div class="card-footer bg-transparent">
-        <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary w-100">
-            <i class="bi bi-plus-lg me-1"></i>New Round
-        </a>
+        <div class="d-flex flex-column flex-md-row gap-2">
+            <a href="{% url 'round-create' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="btn btn-primary flex-md-fill">
+                <i class="bi bi-plus-lg me-1"></i>New Round
+            </a>
+            {% if stage_rounds|length <= 1 %}
+            <button type="button"
+                    class="btn btn-outline-secondary flex-md-fill"
+                    data-enable-url="{% url 'stage-disable-rounds' tournament_slug=tournament.slug stage_slug=stage.slug %}"
+                    data-enable-slot="rounds-card-slot">
+                <i class="bi bi-dash-lg me-1"></i>Disable Rounds
+            </button>
+            {% endif %}
+        </div>
     </div>
 </div>

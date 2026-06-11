@@ -1,0 +1,18 @@
+<div class="card h-100">
+    <div class="card-body">
+        <h5 class="card-title root-title">
+            <i class="bi bi-diagram-3 me-2"></i>Enable Stages
+        </h5>
+        <p class="card-text text-muted">
+            Split {{tournament}} into multiple stages.
+        </p>
+    </div>
+    <div class="card-footer bg-transparent">
+        <button type="button"
+                class="btn btn-outline-primary w-100"
+                data-enable-url="{% url 'tournament-enable-stages' tournament_slug=tournament.slug %}"
+                data-enable-slot="stages-card-slot">
+            <i class="bi bi-diagram-3 me-2"></i>Enable Stages
+        </button>
+    </div>
+</div>

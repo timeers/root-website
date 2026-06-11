@@ -14,6 +14,7 @@
 - Removed confirmation dialogue when adding unregistered players to stages
 - New card in Faction settings to view the faction in the Forge if linked
 - Tournament Stages can now enable rounds independent of the Tournament
+- Reorganized Tournament settings pages
 
 ### Bug Fixes
 - Expansion image bug where the image could be unintentionally deleted

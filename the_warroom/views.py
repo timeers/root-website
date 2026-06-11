@@ -4101,47 +4101,116 @@ def _schedule_matches_context(tournament, round):
     }
 
 
+def _grouping_step(round):
+    """Map a round's grouping/bracket status to a settings-hub step label."""
+    if not round:
+        return None
+    if round.bracket_status == Round.BracketStatusChoices.FINALIZED:
+        return 'matches_finalized'
+    if round.matches.exists():
+        return 'matches_draft'
+    if round.grouping_status == Round.GroupingStatusChoices.FINALIZED:
+        return 'groups_finalized'
+    if round.player_groups.exists():
+        return 'groups_draft'
+    return 'no_groups'
+
+
+def _settings_level_context(level, tournament, stage=None, round=None, *, is_owner):
+    """Build the card-relevant flags for ONE settings level (a hub section).
+
+    `level` is 'round' | 'stage' | 'series'. Returns a dict consumed by
+    partials/settings_cards.html, namespaced so a section can render without
+    depending on the page's "current object".
+    """
+    from the_tavern.models import Survey
+    from the_warroom.utils import get_single_stage
+
+    ctx = {
+        'level': level,
+        'tournament': tournament,
+        'stage': stage,
+        'round': round,
+        'is_owner': is_owner,
+    }
+
+    if level == 'series':
+        default_stage = get_single_stage(tournament)
+        default_round = default_stage.rounds.first() if default_stage else None
+        tournament_stages = tournament.stages.all().order_by('order')
+        default_stage_rounds = (
+            default_stage.rounds.all().order_by('round_number') if default_stage else None
+        )
+        ctx.update({
+            'heading': f'{tournament.name} Settings',
+            'can_manage': is_owner,
+            'survey_count': Survey.objects.filter(series=tournament).count(),
+            'has_games': Game.objects.filter(round__stage__tournament=tournament).exists(),
+            'tournament_stages': tournament_stages,
+            'use_stages_locked': tournament_stages.count() >= 2,
+            'default_stage': default_stage,
+            'default_stage_rounds': default_stage_rounds,
+        })
+        ctx.update(_schedule_matches_context(tournament, default_round))
+
+    elif level == 'stage':
+        has_match_series = MatchSeries.objects.filter(round__stage=stage).exists()
+        has_game_data = Effort.objects.filter(
+            game__round__stage=stage, game__test_match=False, game__final=True
+        ).exists()
+        grouping_step = None
+        hidden_round = None
+        if not stage.use_rounds and tournament.classification == "Tournament":
+            hidden_round = stage.rounds.first()
+            grouping_step = _grouping_step(hidden_round)
+        stage_rounds = stage.rounds.all().order_by('round_number')
+        ctx.update({
+            'heading': f'{stage.name} Settings',
+            'can_manage': True,  # permission-gated by the calling view
+            'survey_count': Survey.objects.filter(series=tournament, stage=stage).count(),
+            'has_games': Game.objects.filter(round__stage=stage).exists(),
+            'has_advancement_data': has_match_series or has_game_data,
+            'grouping_step': grouping_step,
+            'hidden_round': hidden_round,
+            'stage_rounds': stage_rounds,
+            'use_rounds_locked': stage_rounds.count() >= 2,
+        })
+        ctx.update(_schedule_matches_context(tournament, stage.rounds.first()))
+
+    else:  # round
+        ctx.update({
+            'heading': f'{round.name} Settings',
+            'can_manage': True,  # permission-gated by the calling view
+            'survey_count': Survey.objects.filter(series=tournament, stage=stage).count(),
+            'has_games': Game.objects.filter(round__stage=stage).exists(),
+            'grouping_step': _grouping_step(round),
+        })
+        ctx.update(_schedule_matches_context(tournament, round))
+
+    return ctx
+
+
 @player_onboard_required
 def tournament_settings_hub(request, slug):
     """Settings hub page with links to all tournament management tools."""
-    from the_tavern.models import Survey
     tournament = get_object_or_404(Tournament, slug=slug)
 
     # Permission check
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied()
 
-    survey_count = Survey.objects.filter(series=tournament).count()
-
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
-    has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
 
-    from the_warroom.utils import get_single_stage
-    default_stage = get_single_stage(tournament)
-    default_round = default_stage.rounds.first() if default_stage else None
-
-    tournament_stages = tournament.stages.all().order_by('order')
-
-    # When stages are disabled, the tournament has a single hidden stage. Expose it
-    # (and its rounds) so the Rounds card can be managed straight from this hub.
-    default_stage_rounds = default_stage.rounds.all().order_by('round_number') if default_stage else None
+    sections = [_settings_level_context('series', tournament, is_owner=is_owner)]
 
     context = {
         'object_type': 'Series',
-        'tournament': tournament,
         'object': tournament,  # For template title
-        'survey_count': survey_count,
-        'can_manage': is_owner,
-        'is_owner': is_owner,
-        'has_games': has_games,
+        'tournament': tournament,
+        'sections': sections,
         'status_hierarchy': build_status_hierarchy('tournament', tournament),
-        'tournament_stages': tournament_stages,
-        'use_stages_locked': tournament_stages.count() >= 2,
-        'default_stage': default_stage,
-        'default_stage_rounds': default_stage_rounds,
     }
-    context.update(_schedule_matches_context(tournament, default_round))
     return render(request, 'the_warroom/settings_hub.html', context)
 
 
@@ -4165,48 +4234,26 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied()
 
-    from the_tavern.models import Survey
     stage = round.stage
-    survey_count = Survey.objects.filter(series=tournament, stage=stage).count() if stage else Survey.objects.filter(series=tournament).count()
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
-    has_completed_round = stage.rounds.filter(status=CompetitionStatus.COMPLETED).exists() if stage else False
-    has_match_series = MatchSeries.objects.filter(round__stage=stage).exists() if stage else False
-    has_game_data = Effort.objects.filter(
-        game__round__stage=stage, game__test_match=False, game__final=True
-    ).exists() if stage else False
-    has_advancement_data = has_match_series or has_game_data
 
-    has_groups = round.player_groups.exists()
-    grouping_is_finalized = round.grouping_status == Round.GroupingStatusChoices.FINALIZED
-    has_matches = round.matches.exists()
-    bracket_is_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
-    if bracket_is_finalized:
-        grouping_step = 'matches_finalized'
-    elif has_matches:
-        grouping_step = 'matches_draft'
-    elif grouping_is_finalized:
-        grouping_step = 'groups_finalized'
-    elif has_groups:
-        grouping_step = 'groups_draft'
-    else:
-        grouping_step = 'no_groups'
+    # Stacked sections, deepest object first. The Stage section only appears when
+    # stages are enabled (otherwise the stage is the hidden default stage).
+    sections = [_settings_level_context('round', tournament, stage=stage, round=round, is_owner=is_owner)]
+    if tournament.use_stages:
+        sections.append(_settings_level_context('stage', tournament, stage=stage, is_owner=is_owner))
+    sections.append(_settings_level_context('series', tournament, is_owner=is_owner))
 
     context = {
+        'object_type': 'Round',
+        'object': round,  # For template title
         'tournament': tournament,
         'round': round,
         'stage': stage,
-        'object': round,  # For template title
-        'object_type': 'Round',
-        'survey_count': survey_count,
-        'can_manage': True,  # Already permission-gated above
-        'is_owner': is_owner,
-        'has_completed_round': has_completed_round,
-        'has_advancement_data': has_advancement_data,
+        'sections': sections,
         'status_hierarchy': build_status_hierarchy('round', tournament, stage=stage, round_obj=round),
-        'grouping_step': grouping_step,
     }
-    context.update(_schedule_matches_context(tournament, round))
     return render(request, 'the_warroom/settings_hub.html', context)
 
 
@@ -4873,63 +4920,28 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
 @player_onboard_required
 def stage_settings_hub(request, tournament_slug, stage_slug):
     """Settings hub page with links to all stage management tools."""
-    from the_tavern.models import Survey
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied()
 
-    survey_count = Survey.objects.filter(series=tournament, stage=stage).count()
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
-    has_games = Game.objects.filter(round__stage=stage).exists()
-    has_completed_round = stage.rounds.filter(status=CompetitionStatus.COMPLETED).exists()
-    has_match_series = MatchSeries.objects.filter(round__stage=stage).exists()
-    has_game_data = Effort.objects.filter(
-        game__round__stage=stage, game__test_match=False, game__final=True
-    ).exists()
-    has_advancement_data = has_match_series or has_game_data
 
-    grouping_step = None
-    hidden_round = None
-    if not stage.use_rounds and tournament.classification == "Tournament":
-        hidden_round = stage.rounds.first()
-        if hidden_round:
-            has_groups = hidden_round.player_groups.exists()
-            grouping_is_finalized = hidden_round.grouping_status == Round.GroupingStatusChoices.FINALIZED
-            has_matches = hidden_round.matches.exists()
-            bracket_is_finalized = hidden_round.bracket_status == Round.BracketStatusChoices.FINALIZED
-            if bracket_is_finalized:
-                grouping_step = 'matches_finalized'
-            elif has_matches:
-                grouping_step = 'matches_draft'
-            elif grouping_is_finalized:
-                grouping_step = 'groups_finalized'
-            elif has_groups:
-                grouping_step = 'groups_draft'
-            else:
-                grouping_step = 'no_groups'
+    sections = [
+        _settings_level_context('stage', tournament, stage=stage, is_owner=is_owner),
+        _settings_level_context('series', tournament, is_owner=is_owner),
+    ]
 
-    stage_rounds = stage.rounds.all().order_by('round_number')
     context = {
+        'object_type': 'Stage',
+        'object': stage,
         'tournament': tournament,
         'stage': stage,
-        'object': stage,
-        'object_type': 'Stage',
-        'survey_count': survey_count,
-        'can_manage': True,  # Already permission-gated above
-        'is_owner': is_owner,
-        'has_games': has_games,
-        'has_completed_round': has_completed_round,
-        'has_advancement_data': has_advancement_data,
+        'sections': sections,
         'status_hierarchy': build_status_hierarchy('stage', tournament, stage=stage),
-        'grouping_step': grouping_step,
-        'hidden_round': hidden_round,
-        'stage_rounds': stage_rounds,
-        'use_rounds_locked': stage_rounds.count() >= 2,
     }
-    context.update(_schedule_matches_context(tournament, stage.rounds.first()))
     return render(request, 'the_warroom/settings_hub.html', context)
 
 
@@ -6818,6 +6830,58 @@ def stage_enable_rounds(request, tournament_slug, stage_slug):
         'tournament': tournament,
         'stage': stage,
         'stage_rounds': stage.rounds.all().order_by('round_number'),
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def tournament_disable_stages(request, tournament_slug):
+    """Disable stages on a tournament and return the rendered 'Enable Stages' card.
+
+    Only allowed when at most one stage exists; the remaining stage becomes the
+    hidden default stage and keeps its rounds/games.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if tournament.stages.count() > 1:
+        return HttpResponseBadRequest("Cannot disable stages while more than one stage exists.")
+
+    if tournament.use_stages:
+        tournament.use_stages = False
+        tournament.save(update_fields=['use_stages'])
+
+    return render(request, 'the_warroom/partials/enable_stages_card.html', {
+        'tournament': tournament,
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def stage_disable_rounds(request, tournament_slug, stage_slug):
+    """Disable rounds on a stage and return the rendered 'Enable Rounds' card.
+
+    Only allowed when at most one round exists; the remaining round becomes the
+    hidden default round and keeps its games.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if stage.rounds.count() > 1:
+        return HttpResponseBadRequest("Cannot disable rounds while more than one round exists.")
+
+    if stage.use_rounds:
+        stage.use_rounds = False
+        stage.save(update_fields=['use_rounds'])
+
+    return render(request, 'the_warroom/partials/enable_rounds_card.html', {
+        'tournament': tournament,
+        'stage': stage,
     })
 
 

@@ -415,6 +415,7 @@ class Profile(models.Model):
     designer_onboard = models.BooleanField(default=False)
     admin_onboard = models.BooleanField(default=False)
     forge_onboard = models.BooleanField(default=False)
+    trusted_tournament_host = models.BooleanField(default=False)
     admin_nominated = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='nominated_by')
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')
     credit_link = models.CharField(max_length=400, null=True, blank=True, help_text="User's external link to their other endeavors.")

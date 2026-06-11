@@ -91,9 +91,28 @@ def handle_effort_delete_update_winrates(sender, instance, **kwargs):
         update_cached_winrates.delay([_obj_to_tuple(obj) for obj in objects])
 
 
+def _slug_should_follow_name(instance, model_class, update_fields):
+    """Return True if the slug should be regenerated because the name changed.
+
+    Guards against partial (update_fields) saves that don't touch the name, so a
+    re-slug only happens on full saves (e.g. the update forms) or saves that
+    explicitly include 'name'. Regenerating the slug keeps the URL in sync with
+    the new name; existing links to the old slug will no longer resolve.
+    """
+    if update_fields is not None and 'name' not in update_fields:
+        return False
+    try:
+        old = model_class.objects.get(pk=instance.pk)
+    except model_class.DoesNotExist:
+        return False
+    return (old.name or '') != (instance.name or '')
+
+
 @receiver(pre_save, sender=Tournament)
-def tournament_pre_save(sender, instance, *args, **kwargs):
+def tournament_pre_save(sender, instance, update_fields=None, *args, **kwargs):
     if instance.slug is None:
+        slugify_tournament_name(instance, save=False)
+    elif instance.pk and _slug_should_follow_name(instance, Tournament, update_fields):
         slugify_tournament_name(instance, save=False)
 
 @receiver(post_save, sender=Tournament)
@@ -101,20 +120,12 @@ def tournament_post_save(sender, instance, created, *args, **kwargs):
     if created:
         slugify_tournament_name(instance, save=True)
 
-def _had_default_name(instance, model_class, default_prefix):
-    """Return True if the saved record's name starts with the default prefix (e.g. 'Round 1')."""
-    try:
-        old = model_class.objects.get(pk=instance.pk)
-        return old.name and old.name.strip() == f"{default_prefix} 1"
-    except model_class.DoesNotExist:
-        return False
-
 
 @receiver(pre_save, sender=Round)
-def round_pre_save(sender, instance, *args, **kwargs):
+def round_pre_save(sender, instance, update_fields=None, *args, **kwargs):
     if instance.slug is None:
         slugify_round_name(instance, save=False)
-    elif instance.pk and _had_default_name(instance, Round, 'Round'):
+    elif instance.pk and _slug_should_follow_name(instance, Round, update_fields):
         slugify_round_name(instance, save=False)
 
 @receiver(post_save, sender=Round)
@@ -124,10 +135,10 @@ def round_post_save(sender, instance, created, *args, **kwargs):
 
 
 @receiver(pre_save, sender=Stage)
-def stage_pre_save(sender, instance, *args, **kwargs):
+def stage_pre_save(sender, instance, update_fields=None, *args, **kwargs):
     if instance.slug is None:
         slugify_stage_name(instance, save=False)
-    elif instance.pk and _had_default_name(instance, Stage, 'Stage'):
+    elif instance.pk and _slug_should_follow_name(instance, Stage, update_fields):
         slugify_stage_name(instance, save=False)
 
 @receiver(post_save, sender=Stage)

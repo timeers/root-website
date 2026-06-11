@@ -1,0 +1,18 @@
+<div class="card h-100">
+    <div class="card-body">
+        <h5 class="card-title root-title">
+            <i class="bi bi-list-ol me-2"></i>Enable Rounds
+        </h5>
+        <p class="card-text text-muted">
+            Split {{ enable_rounds_label|default:stage.name }} into multiple rounds.
+        </p>
+    </div>
+    <div class="card-footer bg-transparent">
+        <button type="button"
+                class="btn btn-outline-primary w-100"
+                data-enable-url="{% url 'stage-enable-rounds' tournament_slug=tournament.slug stage_slug=stage.slug %}"
+                data-enable-slot="rounds-card-slot">
+            <i class="bi bi-list-ol me-2"></i>Enable Rounds
+        </button>
+    </div>
+</div>
