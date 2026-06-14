@@ -377,6 +377,7 @@ class Post(models.Model):
     card_image_version = models.PositiveIntegerField(default=0)
     board_2_image_version = models.PositiveIntegerField(default=0)
     card_2_image_version = models.PositiveIntegerField(default=0)
+    small_icon_version = models.PositiveIntegerField(default=0)
 
 
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
@@ -532,6 +533,7 @@ class Post(models.Model):
                 'board_2_image': 'board_2_image_version',
                 'card_image': 'card_image_version',
                 'card_2_image': 'card_2_image_version',
+                'small_icon': 'small_icon_version',
             }
             for field_name in image_fields:
                 old_image = getattr(old_instance, field_name)

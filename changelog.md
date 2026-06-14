@@ -19,7 +19,9 @@
 ### Bug Fixes
 - Expansion image bug where the image could be unintentionally deleted
 - Faction header image now includes cache busting on detail page (thanks Tricholome). Cache intentionally does not update on list results for now.
+- Small icons for factions now has cache busting
 - Bug where games could show up twice in list views
+- Hirelings other_side image now has cache busting and respects language
 
 ## [1.12.4] - 2026-5-26 Forge Sync
 

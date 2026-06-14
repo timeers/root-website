@@ -1,3 +1,4 @@
+{% load custom_filters %}
 {% if assets %}
 <div class="search-results border rounded p-2 bg-white">
     <h6 class="text-muted mb-2"><i class="bi bi-plus-circle me-2"></i>Click to add:</h6>
@@ -12,7 +13,7 @@
             hx-on="htmx:afterRequest: if(event.detail.successful) { this.remove(); updateAssetCount('{{ asset_type }}'); }">
             <div class="d-flex align-items-center">
                 {% if asset.small_icon %}
-                <img src="{{ asset.small_icon.url }}" alt="{{ asset.title }}" class="me-2" style="width: 24px; height: 24px; object-fit: contain;">
+                <img src="{{ asset.small_icon|cache_bust:asset.small_icon_version }}" alt="{{ asset.title }}" class="me-2" style="width: 24px; height: 24px; object-fit: contain;">
                 {% else %}
                 <i class="bi bi-box me-2 text-muted"></i>
                 {% endif %}

@@ -1,4 +1,4 @@
-{% load i18n text_filters %}
+{% load i18n text_filters custom_filters %}
 <div class="accordion" id="faq-accordion">
     {% for faq in faqs %}
       <div class="accordion-item">
@@ -6,7 +6,7 @@
           <div>
           <div>
             {% if faq.post.small_icon %}
-              <img class="faction-icon" src="{{ faq.post.small_icon.url }}">
+              <img class="faction-icon" src="{{ faq.post.small_icon|cache_bust:faq.post.small_icon_version }}">
             {% endif %}
             {{faq.get_post_title}}
           </div>

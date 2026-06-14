@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags i18n survey_filters %}
+{% load crispy_forms_tags i18n survey_filters custom_filters %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
 {% block meta %}
@@ -201,7 +201,7 @@
                                                    {% if field.value == post.id|stringformat:"s" or field.value == post.id %}checked{% endif %}>
                                             <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
                                                 {% if post.small_icon %}
-                                                    <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                    <img src="{{ post.small_icon|cache_bust:post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                                 {% endif %}
                                                 {{ post.title }}
                                             </label>
@@ -218,7 +218,7 @@
                                                    onchange="hideOtherText('{{ question.id }}')">
                                             <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
                                                 {% if choice.post and choice.post.small_icon %}
-                                                    <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                    <img src="{{ choice.post.small_icon|cache_bust:choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                                 {% endif %}
                                                 {{ choice.get_display_text }}
                                             </label>
@@ -263,7 +263,7 @@
                                                    {% if field.value and post.id in field.value %}checked{% endif %}>
                                             <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
                                                 {% if post.small_icon %}
-                                                    <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                    <img src="{{ post.small_icon|cache_bust:post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                                 {% endif %}
                                                 {{ post.title }}
                                             </label>
@@ -278,7 +278,7 @@
                                                    {% if field.value and choice.id in field.value %}checked{% endif %}>
                                             <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
                                                 {% if choice.post and choice.post.small_icon %}
-                                                    <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                    <img src="{{ choice.post.small_icon|cache_bust:choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                                 {% endif %}
                                                 {{ choice.get_display_text }}
                                             </label>
@@ -328,7 +328,7 @@
                                             <span class="ranking-number">{{ forloop.counter }}</span>
                                             <i class="bi bi-grip-vertical ranking-handle"></i>
                                             {% if post.small_icon %}
-                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                <img src="{{ post.small_icon|cache_bust:post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                             {% endif %}
                                             <span class="ranking-text">{{ post.title }}</span>
                                         </div>
@@ -340,7 +340,7 @@
                                             <span class="ranking-number">{{ forloop.counter }}</span>
                                             <i class="bi bi-grip-vertical ranking-handle"></i>
                                             {% if choice.post and choice.post.small_icon %}
-                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                <img src="{{ choice.post.small_icon|cache_bust:choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                             {% endif %}
                                             <span class="ranking-text">{{ choice.get_display_text }}</span>
                                         </div>

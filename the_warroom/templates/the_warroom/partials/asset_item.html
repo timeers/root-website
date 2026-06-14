@@ -1,7 +1,8 @@
+{% load custom_filters %}
 <div class="asset-item border rounded p-2 mb-2 d-flex justify-content-between align-items-center bg-white" id="asset-{{ asset_type }}-{{ asset.id }}">
     <div class="asset-info d-flex align-items-center">
         {% if asset.small_icon %}
-        <img src="{{ asset.small_icon.url }}" alt="{{ asset.title }}" class="me-2" style="width: 24px; height: 24px; object-fit: contain;">
+        <img src="{{ asset.small_icon|cache_bust:asset.small_icon_version }}" alt="{{ asset.title }}" class="me-2" style="width: 24px; height: 24px; object-fit: contain;">
         {% else %}
         <i class="bi bi-box me-2 text-muted"></i>
         {% endif %}

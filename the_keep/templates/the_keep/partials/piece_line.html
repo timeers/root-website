@@ -1,9 +1,8 @@
+{% load custom_filters %}
 <div class="d-flex justify-content-between align-items-center" id="piece-{{ piece.id }}">
     <div class="d-flex align-items-center component-piece">
-        {% if piece.fresh_small_icon_url %}
-            <img class="lg-faction-icon me-2" src="{{ piece.fresh_small_icon_url }}">x        
-        {% elif piece.small_icon %}
-            <img class="lg-faction-icon me-2" src="{{ piece.small_icon.url }}">x
+        {% if piece.small_icon %}
+            <img class="lg-faction-icon me-2" src="{{ piece.small_icon|cache_bust:piece.front_version }}">x
         {% endif %}
         {{ piece.quantity }}
         {% if piece.suited %} Fox/Mouse/Rabbit {% endif %}

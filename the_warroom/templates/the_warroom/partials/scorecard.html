@@ -1,4 +1,4 @@
-{% load static i18n %}
+{% load static i18n custom_filters %}
 
 <table>
     <thead>
@@ -55,7 +55,7 @@
                     alt="{{ object.effort.dominance }} Dominance">
                 {% elif object.effort and object.effort.coalition_with %}
                     <img class="faction-icon"  
-                    src="{{ object.effort.coalition_with.small_icon.url }}"
+                    src="{{ object.effort.coalition_with.small_icon|cache_bust:object.effort.coalition_with.small_icon_version }}"
                     alt="{{ object.effort.coalition_with.title }} Coalition">
                 {% else %}
                     {% comment %} {% trans 'Dom' %} {% endcomment %}

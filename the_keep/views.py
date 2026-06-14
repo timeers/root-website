@@ -1071,6 +1071,31 @@ def ultimate_component_view(request, slug, component):
 
     object_picture_url = get_fresh_image_url(obj.picture)
 
+    # Hireling "other side": its own translated/timestamped images. The other
+    # side is a separate Hireling with its own translations, so look up its
+    # translation for the current language (picture has no translated variant).
+    other_side_picture_url = None
+    other_side_board_image_url = None
+    other_side_url = None
+    other_side_title = None
+    other_side = getattr(obj, 'other_side', None)
+    if other_side:
+        other_side_translation = other_side.translations.filter(language=language).first()
+        other_side_title = (
+            other_side_translation.translated_title
+            if other_side_translation and other_side_translation.translated_title
+            else other_side.title
+        )
+        other_side_picture_url = get_fresh_image_url(other_side.picture)
+        other_side_board_image = (
+            other_side_translation.translated_board_image
+            if other_side_translation and other_side_translation.translated_board_image
+            else other_side.board_image
+        )
+        other_side_board_image_url = get_fresh_image_url(other_side_board_image)
+        # Keep the link in the current language so it matches the image shown.
+        other_side_url = other_side.get_absolute_url(language_code=language_code)
+
 
     # Links
     tts_link = object_translation.tts_link if object_translation and object_translation.tts_link else obj.tts_link
@@ -1296,6 +1321,10 @@ def ultimate_component_view(request, slug, component):
         'object_card_image_url': object_card_image_url,
         'object_card_2_image_url': object_card_2_image_url,
         'object_picture_url': object_picture_url,
+        'other_side_picture_url': other_side_picture_url,
+        'other_side_board_image_url': other_side_board_image_url,
+        'other_side_url': other_side_url,
+        'other_side_title': other_side_title,
 
         'small_board_image_url': small_board_image_url,
         'small_board_2_image_url': small_board_2_image_url,

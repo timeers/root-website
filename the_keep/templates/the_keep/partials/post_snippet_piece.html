@@ -1,3 +1,4 @@
+{% load custom_filters %}
 <div class="d-flex align-items-center mb-2 clickable-segment">
     <a href="{{ result.get_absolute_url }}" class="d-flex w-100">
         {% if result.parent.picture %}
@@ -21,7 +22,7 @@
             </div>
             <div>
                 {% if result.small_icon %}
-                    <img class="faction-icon" src="{{ result.small_icon.url }}" alt="{{ result.parent.title }}">x 
+                    <img class="faction-icon" src="{{ result.small_icon|cache_bust:result.front_version }}" alt="{{ result.parent.title }}">x
                 {% endif %}
                 {{ result.quantity }}
                 {% if result.suited %} Fox/Mouse/Rabbit {% endif %}

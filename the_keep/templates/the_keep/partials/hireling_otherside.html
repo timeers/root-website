@@ -1,15 +1,15 @@
 {% load i18n %}
 {% if object.component == 'Hireling' %}
     {% if object.other_side %}
-    <a href="{{ object.other_side.get_absolute_url }}">
-        <div>
+    <a href="{{ other_side_url|default:object.other_side.get_absolute_url }}">
+        <div class='root-title'>
         <h3>{{ object.other_side.get_type_display }} {% trans 'Hireling' %}</h3>
-        <img class="lg-faction-icon me-2" src="{{ object.other_side.picture.url }}">
-        {{ object.other_side }}
+        <img class="lg-faction-icon me-2" src="{{ other_side_picture_url|default:object.other_side.picture.url }}">
+        {{ other_side_title|default:object.other_side }}
     </div>
     <div>
         {% if object.other_side.board_image %}
-            <img class="rounded-corner-img responsive-img" src="{{ object.other_side.board_image.url }}">
+            <img class="rounded-corner-img responsive-img" src="{{ other_side_board_image_url|default:object.other_side.board_image.url }}">
         {% endif %}
     </div>
     </a>
