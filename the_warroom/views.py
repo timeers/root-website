@@ -4090,17 +4090,65 @@ def build_status_hierarchy(entity_type, tournament, stage=None, round_obj=None):
     return hierarchy
 
 
-def _schedule_matches_context(tournament, round):
+def _schedule_round_manage_url(tournament, round):
+    """Where the 'Manage Scheduled Matches' link points for a single round,
+    resolved by use_stages × the round's stage use_rounds (the 2x2 routing):
+      (stages, rounds)  -> round-matches-page (full, with stage)
+      (no stages, rounds) -> round-matches-simple (omits stage)
+      (rounds off)      -> stage-matches-page (the stage's flat matches view)
+      (no stages, rounds off) -> tournament-bracket-page (delegates to matches)
+    """
+    stage = round.stage
+    if stage.use_rounds:
+        if tournament.use_stages:
+            return reverse('round-matches-page', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': stage.slug,
+                'round_slug': round.slug,
+            })
+        return reverse('round-matches-simple', kwargs={
+            'tournament_slug': tournament.slug,
+            'round_slug': round.slug,
+        })
+    if tournament.use_stages:
+        return reverse('stage-matches-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+        })
+    return reverse('tournament-bracket-page', kwargs={'slug': tournament.slug})
+
+
+def _schedule_matches_context(tournament, rounds):
     """Context for the 'Schedule Matches' settings-hub card (League / Game Group).
 
-    Tournament-classification tournaments use the grouping pipeline instead, so this
-    returns empty for them. `round` is the default/resolved round (or None).
+    `rounds` is an iterable of the schedulable rounds in scope for a hub section.
+    Builds one entry per round with its enabled state and the URLs its row needs.
+    Tournament-classification series use the grouping pipeline instead, so this
+    returns empty for them.
     """
-    if tournament.classification == Tournament.ClassificationTypes.TOURNAMENT or not round:
-        return {'schedule_round': None, 'matches_enabled': False}
+    rounds = [r for r in (rounds or []) if r]
+    if tournament.classification == Tournament.ClassificationTypes.TOURNAMENT or not rounds:
+        return {'schedule_rounds': [], 'schedule_round': None, 'matches_enabled': False}
+
+    schedule_rounds = []
+    for r in rounds:
+        schedule_rounds.append({
+            'round': r,
+            'matches_enabled': r.bracket_status == Round.BracketStatusChoices.FINALIZED,
+            'manage_url': _schedule_round_manage_url(tournament, r),
+            'enable_url': reverse('round-enable-matches', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': r.stage.slug,
+                'round_slug': r.slug,
+            }),
+        })
+
+    first = schedule_rounds[0]
     return {
-        'schedule_round': round,
-        'matches_enabled': round.bracket_status == Round.BracketStatusChoices.FINALIZED,
+        'schedule_rounds': schedule_rounds,
+        # Back-compat single-round values (used by the `{% if schedule_round %}` gate).
+        'schedule_round': first['round'],
+        'matches_enabled': first['matches_enabled'],
     }
 
 
@@ -4165,7 +4213,10 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
             'default_stage_rounds': default_stage_rounds,
             'grouping_step': grouping_step,
         })
-        ctx.update(_schedule_matches_context(tournament, default_round))
+        # Series-level scheduling only for flat (no-stages) series; multi-stage
+        # series schedule per stage on each stage hub instead.
+        series_rounds = list(default_stage_rounds) if (default_stage and not tournament.use_stages) else []
+        ctx.update(_schedule_matches_context(tournament, series_rounds))
 
     elif level == 'stage':
         has_match_series = MatchSeries.objects.filter(round__stage=stage).exists()
@@ -4192,7 +4243,9 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
             # the shared footer's `stage|default:section.default_stage` resolves.
             'default_stage': stage,
         })
-        ctx.update(_schedule_matches_context(tournament, stage.rounds.first()))
+        # Stage-level scheduling: this stage's rounds (the single hidden default
+        # round when use_rounds is off).
+        ctx.update(_schedule_matches_context(tournament, stage_rounds))
 
     else:  # round
         ctx.update({
@@ -4202,9 +4255,18 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
             'has_games': Game.objects.filter(round__stage=stage).exists(),
             'grouping_step': _grouping_step(round),
         })
-        ctx.update(_schedule_matches_context(tournament, round))
+        ctx.update(_schedule_matches_context(tournament, [round]))
 
     return ctx
+
+
+def _mark_deepest_schedule_section(sections):
+    """Flag only the deepest section so the Schedule Matches card renders once
+    per hub (not duplicated in every stacked parent section). Sections are built
+    deepest-first, so the first one is the deepest."""
+    for i, section in enumerate(sections):
+        section['show_schedule_card'] = (i == 0)
+    return sections
 
 
 @player_onboard_required
@@ -4220,6 +4282,7 @@ def tournament_settings_hub(request, slug):
     is_owner = profile.admin or profile == tournament.designer
 
     sections = [_settings_level_context('series', tournament, is_owner=is_owner)]
+    _mark_deepest_schedule_section(sections)
 
     context = {
         'object_type': 'Series',
@@ -4261,6 +4324,7 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
     if tournament.use_stages:
         sections.append(_settings_level_context('stage', tournament, stage=stage, is_owner=is_owner))
     sections.append(_settings_level_context('series', tournament, is_owner=is_owner))
+    _mark_deepest_schedule_section(sections)
 
     context = {
         'object_type': 'Round',
@@ -4326,12 +4390,13 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
             stage_instance.tournament = tournament
         stage_instance.save()
 
-        # Auto-create first Round when creating a new stage
+        # Auto-create the default first Round when creating a new stage. The
+        # round is always created; the user can rename it or add more rounds
+        # later from the stage settings page after enabling rounds.
         if is_creating:
-            round_name = form.cleaned_data.get('round_name') or 'Round 1'
             Round.objects.create(
                 stage=stage_instance,
-                name=round_name,
+                name='Round 1',
                 round_number=1,
                 start_date=stage_instance.start_date,
             )
@@ -4960,6 +5025,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
         _settings_level_context('stage', tournament, stage=stage, is_owner=is_owner),
         _settings_level_context('series', tournament, is_owner=is_owner),
     ]
+    _mark_deepest_schedule_section(sections)
 
     context = {
         'object_type': 'Stage',
@@ -5181,6 +5247,9 @@ def tournament_bracket_page(request, slug):
                 'active_sub_page': 'bracket',
                 'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
                 'breadcrumb_page': _('Bracket'),
+                # This is the tournament-level bracket URL; the single stage is
+                # hidden from the user, so show the series name, not the stage's.
+                'page_name': tournament.name,
             })
             return render(request, 'the_warroom/matches.html', context)
 

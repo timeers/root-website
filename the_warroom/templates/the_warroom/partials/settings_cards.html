@@ -5,7 +5,7 @@ page's ambient round/stage/tournament globals.
 
 `section.level` is one of: 'round' | 'stage' | 'series'.
 {% endcomment %}
-{% with level=section.level tournament=section.tournament stage=section.stage round=section.round can_manage=section.can_manage is_owner=section.is_owner survey_count=section.survey_count has_games=section.has_games has_advancement_data=section.has_advancement_data grouping_step=section.grouping_step schedule_round=section.schedule_round matches_enabled=section.matches_enabled %}
+{% with level=section.level tournament=section.tournament stage=section.stage round=section.round can_manage=section.can_manage is_owner=section.is_owner survey_count=section.survey_count has_games=section.has_games has_advancement_data=section.has_advancement_data grouping_step=section.grouping_step schedule_round=section.schedule_round matches_enabled=section.matches_enabled schedule_rounds=section.schedule_rounds show_schedule_card=section.show_schedule_card %}
 
 <!-- General Settings Card -->
 {% if can_manage %}
@@ -352,8 +352,8 @@ page's ambient round/stage/tournament globals.
 {% endif %}
 
 
-<!-- Schedule Matches Card (League / Game Group) -->
-{% if can_manage and tournament.classification != "Tournament" and schedule_round %}
+<!-- Schedule Matches Card (League / Game Group) — deepest section only -->
+{% if can_manage and tournament.classification != "Tournament" and show_schedule_card and schedule_rounds %}
 <div class="col-md-6">
     <div class="card h-100">
         <div class="card-body">
@@ -365,17 +365,39 @@ page's ambient round/stage/tournament globals.
             </p>
         </div>
         <div class="card-footer bg-transparent">
-            {% if matches_enabled %}
-                <a href="{% url 'round-matches-page' tournament_slug=tournament.slug stage_slug=schedule_round.stage.slug round_slug=schedule_round.slug %}" class="btn btn-outline-success w-100">
-                    <i class="bi bi-calendar-event me-1"></i>Manage Scheduled Matches
-                </a>
+            {% if schedule_rounds|length == 1 %}
+                {% with sr=schedule_rounds.0 %}
+                {% if sr.matches_enabled %}
+                    <a href="{{ sr.manage_url }}" class="btn btn-outline-success w-100">
+                        <i class="bi bi-calendar-event me-1"></i>Manage Scheduled Matches
+                    </a>
+                {% else %}
+                    <form method="post" action="{{ sr.enable_url }}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-calendar-plus me-1"></i>Enable Match Scheduling
+                        </button>
+                    </form>
+                {% endif %}
+                {% endwith %}
             {% else %}
-                <form method="post" action="{% url 'round-enable-matches' tournament_slug=tournament.slug stage_slug=schedule_round.stage.slug round_slug=schedule_round.slug %}">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-primary w-100">
-                        <i class="bi bi-calendar-plus me-1"></i>Enable Match Scheduling
-                    </button>
-                </form>
+                {% for sr in schedule_rounds %}
+                <div class="d-flex align-items-center justify-content-between gap-2 {% if not forloop.last %}mb-2 pb-2 border-bottom{% endif %}">
+                    <span class="fw-semibold">{{ sr.round.name|default:sr.round.round_number }}</span>
+                    {% if sr.matches_enabled %}
+                        <a href="{{ sr.manage_url }}" class="btn btn-sm btn-outline-success">
+                            <i class="bi bi-calendar-event me-1"></i>Manage
+                        </a>
+                    {% else %}
+                        <form method="post" action="{{ sr.enable_url }}" class="mb-0">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-primary">
+                                <i class="bi bi-calendar-plus me-1"></i>Enable
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
+                {% endfor %}
             {% endif %}
         </div>
     </div>

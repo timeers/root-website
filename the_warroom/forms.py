@@ -1040,13 +1040,6 @@ class RoundCreateForm(forms.ModelForm):
 
 
 class StageCreateForm(forms.ModelForm):
-    round_name = forms.CharField(
-        max_length=255,
-        initial='Round 1',
-        required=False,
-        label='First Round Name',
-    )
-
     class Meta:
         model = Stage
         fields = [
@@ -1089,9 +1082,6 @@ class StageCreateForm(forms.ModelForm):
             # Default format to tournament's format when creating a new stage
             if not self.instance.pk and tournament.default_format and not self.initial.get('stage_format'):
                 self.fields['stage_format'].initial = tournament.default_format
-        # Only show round_name on create, not update
-        if self.instance.pk:
-            del self.fields['round_name']
 
     def clean(self):
         cleaned_data = super().clean()
