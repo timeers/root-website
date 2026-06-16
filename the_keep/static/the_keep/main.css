@@ -2284,7 +2284,7 @@ tr.clickable-row:hover {
 .section-nav-tabs {
   display: flex;
   row-gap: 0.25rem;
-  column-gap: 2rem;
+  column-gap: 1.25rem;
   align-items: baseline;
   flex-wrap: wrap;
   flex: 1;

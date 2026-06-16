@@ -29,22 +29,22 @@
     {% endif %}
 
     {% for stage in stages %}
-    {% if tournament.use_stages %}
-    <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">
+        {% if tournament.use_stages %}
+            <div class="card mb-4">
                 <a href="{% url 'stage-bracket-page' tournament_slug=tournament.slug stage_slug=stage.slug %}">
-                    {{ stage.name }}
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 root-title">
+                            {{ stage.name }}
+                        </h5>
+                    </div>
                 </a>
-            </h5>
-        </div>
-        <div class="card-body p-0">
+                <div class="card-body p-0">
+                    {% include 'the_warroom/partials/stage_bracket.html' with rounds=stage.rounds.all stage=stage %}
+                </div>
+            </div>
+        {% else %}
             {% include 'the_warroom/partials/stage_bracket.html' with rounds=stage.rounds.all stage=stage %}
-        </div>
-    </div>
-    {% else %}
-    {% include 'the_warroom/partials/stage_bracket.html' with rounds=stage.rounds.all stage=stage %}
-    {% endif %}
+        {% endif %}
     {% endfor %}
 
 </div>

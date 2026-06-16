@@ -130,6 +130,20 @@
 
 </div>
 <script>
+// Format scheduled match times (UTC -> viewer's local time). Defined here so it
+// runs for every viewer — the .scheduled-time spans are shown to all users, not
+// just managers (the series edit modal is manager-only).
+function _initScheduledTimes() {
+    var fmt = new Intl.DateTimeFormat(undefined, {
+        month: 'numeric', day: 'numeric', year: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+        timeZoneName: 'short'
+    });
+    document.querySelectorAll('.scheduled-time[data-utc]').forEach(function(el) {
+        var d = new Date(el.dataset.utc);
+        if (!isNaN(d)) el.textContent = fmt.format(d);
+    });
+}
 document.addEventListener('DOMContentLoaded', _initScheduledTimes);
 </script>
 {% endblock %}
