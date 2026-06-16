@@ -1175,25 +1175,29 @@ def ultimate_component_view(request, slug, component):
     else:
         games_total = 0
 
+    # Pre-format counts with thousands separators so labels read "View 1,234 Games".
+    games_total_display = f"{games_total:,}"
+    playtests_display = f"{playtests:,}"
+
     if games_total == 1:
         if playtests:
             games_label = _("View 1 Playtest")
         else:
             games_label = _("View 1 Game")
     elif playtests == games_total and playtests != 0:
-        games_label = _("View %(count)d Playtests") % {'count': games_total}
+        games_label = _("View %(count)s Playtests") % {'count': games_total_display}
     elif playtests:
         if playtests == 1:
-            games_label = _("View %(count)d Games (1 Playtest)") % {
-                'count': games_total
+            games_label = _("View %(count)s Games (1 Playtest)") % {
+                'count': games_total_display
             }
         else:
-            games_label = _("View %(count)d Games (%(tests)d Playtests)") % {
-                'count': games_total,
-                'tests': playtests,
+            games_label = _("View %(count)s Games (%(tests)s Playtests)") % {
+                'count': games_total_display,
+                'tests': playtests_display,
             }
     else:
-        games_label = _("View %(count)d Games") % {'count': games_total}
+        games_label = _("View %(count)s Games") % {'count': games_total_display}
 
 
     

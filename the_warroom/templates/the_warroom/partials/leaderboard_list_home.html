@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n custom_filters %}
 <div id="games-container">
 
 
@@ -134,10 +134,9 @@
         {% endif %} 
     </div>
 
-    <article class="d-flex content-section">
-        <div class="w-100">
-    <h3 class='root-title text-center'>{% trans 'Total Games' %} ({{ games_count }})</h3> 
-        </div>
-    </article>
+     {% comment %} OOB carrier: updates the count text inside the persistent filter card header on htmx filter
+       swaps. Uses innerHTML so only the header span's text is replaced (its attributes are kept),
+       and the carrier itself is hidden since it renders inline on the initial full-page load.  {% endcomment %}
+    <span hx-swap-oob="innerHTML:#games-count-value" style="display:none;">{{ games_count|intcomma }}</span>
 
 </div>

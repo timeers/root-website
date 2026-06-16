@@ -1,16 +1,14 @@
-{% load i18n %}
+{% load i18n custom_filters %}
 {% comment %}
     Pages 2+ are appended into #search-contents (hx-swap="beforeend"), so only page 1
     renders the wrapper chrome / grid container. See game_list_home.html for details.
 {% endcomment %}
 {% if page_obj.number == 1 %}
+ {% comment %} OOB carrier: updates the count text inside the persistent filter card header on htmx filter
+   swaps. Uses innerHTML so only the header span's text is replaced (its attributes are kept),
+   and the carrier itself is hidden since it renders inline on the initial full-page load.  {% endcomment %}
+<span hx-swap-oob="innerHTML:#games-count-value" style="display:none;">{{ games_count|intcomma }}</span>
 <div id="games-container">
-
-    <article class="d-flex content-section">
-        <div class="w-100">
-        <h3 class='root-title'>{% trans 'Total Games' %} ({{ games_count }})</h3>
-        </div>
-    </article>
 
 <div id="search-contents" class="game-grid">
 {% endif %}

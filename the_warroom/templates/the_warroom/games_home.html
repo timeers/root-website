@@ -23,7 +23,7 @@
 {% include 'the_warroom/partials/warroom_nav_header.html' with active_page='games' %}
 
 {% url 'games-home' as filter_url %}
-{% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url %}
+{% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url show_total_count=True %}
 
 {% include 'the_warroom/partials/game_list_home.html' %}
     
@@ -34,37 +34,8 @@
 
 
 {% block scripts %}
+    {% include 'the_warroom/partials/select2_init.html' %}
     <script>
-        // Universal select2 initialization - handles both singular and plural field names
-        const selectPlaceholders = {
-            '#id_faction': "{% trans 'Select Factions' %}",
-            '#id_factions': "{% trans 'Select Factions' %}",
-            '#id_player': "{% trans 'Select Players' %}",
-            '#id_players': "{% trans 'Select Players' %}",
-            '#id_vagabond': "{% trans 'Select Vagabonds' %}",
-            '#id_vagabonds': "{% trans 'Select Vagabonds' %}",
-            '#id_map': "{% trans 'Select a Map' %}",
-            '#id_deck': "{% trans 'Select a Deck' %}"
-        };
-
-        // Apply select2 only to fields that exist on the page
-        Object.keys(selectPlaceholders).forEach(id => {
-            if ($(id).length) {
-                $(id).select2({
-                    placeholder: selectPlaceholders[id],
-                    allowClear: true,
-                    width: '100%'
-                });
-            }
-        });
-
-        if ($('#id_official').length) {
-            $('#id_official').select2({
-                width: '100%'
-            });
-        }
-
-
         // Get the collapse element and button
         const collapseElement = document.getElementById('collapseRegister');
         const collapseToggleButton = document.getElementById('collapseToggleButton');

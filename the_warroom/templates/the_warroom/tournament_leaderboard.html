@@ -31,32 +31,11 @@
     {% include 'the_warroom/partials/leaderboard_list_home.html' %}
 
     {% url 'tournament-leaderboard-page' tournament.slug as filter_url %}
-    {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url include_limit_threshold=True leaderboard_places=leaderboard_places leaderboard_threshold=leaderboard_threshold %}
+    {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url include_limit_threshold=True leaderboard_places=leaderboard_places leaderboard_threshold=leaderboard_threshold show_total_count=True %}
 
 </div>
 {% endblock content %}
 
 {% block scripts %}
-<script>
-    const selectPlaceholders = {
-        '#id_faction': "{% trans 'Select Factions' %}",
-        '#id_factions': "{% trans 'Select Factions' %}",
-        '#id_player': "{% trans 'Select Players' %}",
-        '#id_players': "{% trans 'Select Players' %}",
-        '#id_vagabond': "{% trans 'Select Vagabonds' %}",
-        '#id_vagabonds': "{% trans 'Select Vagabonds' %}",
-        '#id_map': "{% trans 'Select a Map' %}",
-        '#id_deck': "{% trans 'Select a Deck' %}"
-    };
-
-    Object.keys(selectPlaceholders).forEach(id => {
-        if ($(id).length) {
-            $(id).select2({
-                placeholder: selectPlaceholders[id],
-                allowClear: true,
-                width: '100%'
-            });
-        }
-    });
-</script>
+{% include 'the_warroom/partials/select2_init.html' %}
 {% endblock %}

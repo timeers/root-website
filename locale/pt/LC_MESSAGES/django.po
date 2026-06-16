@@ -3090,23 +3090,23 @@ msgstr "Ver 1 jogo"
 
 #: the_keep/views.py:813
 #, python-format
-msgid "View %(count)d Playtests"
-msgstr "Visualizar %(count)d Testes de jogo"
+msgid "View %(count)s Playtests"
+msgstr "Visualizar %(count)s Testes de jogo"
 
 #: the_keep/views.py:816
 #, python-format
-msgid "View %(count)d Games (1 Playtest)"
-msgstr "Visualizar %(count)d Jogos (1 Teste)"
+msgid "View %(count)s Games (1 Playtest)"
+msgstr "Visualizar %(count)s Jogos (1 Teste)"
 
 #: the_keep/views.py:820
 #, python-format
-msgid "View %(count)d Games (%(tests)d Playtests)"
-msgstr "Exibir %(count)d Jogos (%(tests)d Testes de jogo)"
+msgid "View %(count)s Games (%(tests)s Playtests)"
+msgstr "Exibir %(count)s Jogos (%(tests)s Testes de jogo)"
 
 #: the_keep/views.py:825
 #, python-format
-msgid "View %(count)d Games"
-msgstr "Exibir %(count)d Jogos"
+msgid "View %(count)s Games"
+msgstr "Exibir %(count)s Jogos"
 
 #: the_keep/views.py:1028 the_keep/views.py:1117
 msgid "{} Components"

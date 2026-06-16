@@ -23,7 +23,7 @@
     {% include 'the_warroom/partials/round_nav_header.html' with active_page='games' %}
 
     {% url 'round-games-page' tournament.slug stage.slug round.slug as filter_url %}
-    {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url %}
+    {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url show_total_count=True %}
 
     {% include 'the_warroom/partials/tournament_game_list.html' %}
 
@@ -31,26 +31,5 @@
 {% endblock content %}
 
 {% block scripts %}
-<script>
-    const selectPlaceholders = {
-        '#id_faction': "{% trans 'Select Factions' %}",
-        '#id_factions': "{% trans 'Select Factions' %}",
-        '#id_player': "{% trans 'Select Players' %}",
-        '#id_players': "{% trans 'Select Players' %}",
-        '#id_vagabond': "{% trans 'Select Vagabonds' %}",
-        '#id_vagabonds': "{% trans 'Select Vagabonds' %}",
-        '#id_map': "{% trans 'Select a Map' %}",
-        '#id_deck': "{% trans 'Select a Deck' %}"
-    };
-
-    Object.keys(selectPlaceholders).forEach(id => {
-        if ($(id).length) {
-            $(id).select2({
-                placeholder: selectPlaceholders[id],
-                allowClear: true,
-                width: '100%'
-            });
-        }
-    });
-</script>
+{% include 'the_warroom/partials/select2_init.html' %}
 {% endblock %}

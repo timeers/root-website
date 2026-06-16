@@ -1,13 +1,35 @@
-{% load i18n %}
+{% load i18n custom_filters %}
+{% filters_active as has_active_filters %}
 
 <article class="content-section">
     <div class="w-100">
 
-    <div class="d-flex justify-content-between align-items-center">
+    <div class="d-flex justify-content-between align-items-center mb-2">
         <div>
-            <h3>{% trans 'Filters' %}</h3>
+            {% if show_total_count %}
+            <h3 class="root-title mb-0">{{ count_label|default:_("Total Games") }} (<span id="games-count-value">{{ games_count|intcomma }}</span>)</h3>
+            {% else %}
+            <h3 class="mb-0">{% trans 'Filters' %}</h3>
+            {% endif %}
+        </div>
+        <div class="d-flex align-items-center">
+            {% if has_active_filters %}
+            <a href="{{ filter_url }}" class="subtle-link me-2"><small>{% trans 'Clear' %}</small></a>
+            {% endif %}
+            <button class="btn btn-sm {% if has_active_filters %}btn-primary{% else %}btn-secondary{% endif %}"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#universal-filter-collapse"
+                    aria-expanded="{% if has_active_filters %}true{% else %}false{% endif %}"
+                    aria-controls="universal-filter-collapse"
+                    id="universal-filter-toggle-btn">
+                <i class="bi bi-filter"></i>
+                <span id="universal-filter-toggle-text">{% if has_active_filters %}{% trans 'Hide Filter' %}{% else %}{% trans 'Filter' %}{% endif %}</span>
+            </button>
         </div>
     </div>
+
+    <div class="collapse {% if has_active_filters %}show{% endif %}" id="universal-filter-collapse">
     <form hx-get="{{ filter_url }}"
             hx-target="#games-container"
             hx-swap="{{ swap_method|default:'outerHTML' }}"
@@ -117,5 +139,21 @@
     </div>
     {% endif %}
 
+    </div>{# /#universal-filter-collapse #}
+
     </div>
 </article>
+
+<script>
+(function () {
+    var collapseEl = document.getElementById('universal-filter-collapse');
+    var toggleText = document.getElementById('universal-filter-toggle-text');
+    if (!collapseEl || !toggleText) return;
+    collapseEl.addEventListener('shown.bs.collapse', function () {
+        toggleText.textContent = "{% trans 'Hide Filter' %}";
+    });
+    collapseEl.addEventListener('hidden.bs.collapse', function () {
+        toggleText.textContent = "{% trans 'Filter' %}";
+    });
+})();
+</script>
