@@ -4929,6 +4929,56 @@ def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
     return render(request, 'the_warroom/round_details.html', context)
 
 
+def _attach_series_effort_grid(series):
+    """Attach per-player faction-icon data to a prefetched MatchSeries.
+
+    For each game in the series (match_number order), a player's effort contributes
+    one faction icon. The icons are shown to the right of each player's row.
+
+    Sets:
+      seat.effort_cells (on each MatchSeat) -> [(game_url, effort_or_None), ...]
+        aligned to the series' games, for the participant in that seat.
+      series.extra_player_rows -> [{'profile', 'cells': [...]}, ...]
+        for players who have an effort in a linked game but are NOT a listed
+        participant (no seat); rendered after the seat list, fainter.
+
+    Reads only prefetched data (matches__game__efforts__faction/player,
+    matchseat_set__...__profile) so it adds no queries and works in both the
+    full-page and edit re-render paths.
+    """
+    games = [m.game for m in series.matches.all() if m.game]   # match_number order = game order
+
+    # per game: player_id -> effort (faction efforts only)
+    per_game_efforts = [
+        {e.player_id: e for e in game.efforts.all() if e.player_id and e.faction_id}
+        for game in games
+    ]
+
+    def cells_for(profile_id):
+        return [
+            (game.get_absolute_url(), per_game_efforts[i].get(profile_id))
+            for i, game in enumerate(games)
+        ]
+
+    seen = set()
+    for seat in series.matchseat_set.all():
+        profile_id = seat.stage_participant.tournament_player.profile_id
+        seen.add(profile_id)
+        seat.effort_cells = cells_for(profile_id)
+
+    # non-participant effort players (have an effort but no seat), in game then seat order
+    extra_rows = []
+    for game in games:
+        for effort in game.efforts.all():
+            p = effort.player
+            if p and effort.faction_id and p.id not in seen:
+                seen.add(p.id)
+                extra_rows.append({'profile': p, 'cells': cells_for(p.id)})
+    series.extra_player_rows = extra_rows
+    series.num_games = len(games)
+    series.has_effort_grid = bool(games)
+
+
 def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     from the_warroom.utils import get_single_stage
 
@@ -4948,8 +4998,13 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     ).prefetch_related(
         'winners__tournament_player__profile',
         'matches__game',
+        'matches__game__efforts__faction',
+        'matches__game__efforts__player',
         'matchseat_set__stage_participant__tournament_player__profile',
     ).order_by('id')
+
+    for series in match_series:
+        _attach_series_effort_grid(series)
 
     recordable_match_ids = set()
     is_participant_series = set()
@@ -6383,8 +6438,11 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             ).prefetch_related(
                 'winners__tournament_player__profile',
                 'matches__game',
+                'matches__game__efforts__faction',
+                'matches__game__efforts__player',
                 'matchseat_set__stage_participant__tournament_player__profile',
             ).get(pk=series.pk)
+            _attach_series_effort_grid(series_fresh)
 
             if card_type == 'matches':
                 profile = request.user.profile

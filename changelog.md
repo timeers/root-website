@@ -22,6 +22,7 @@
 - Small icons for factions now has cache busting
 - Bug where games could show up twice in list views
 - Hirelings other_side image now has cache busting and respects language
+- Series player count limit bug restricting when null
 
 ## [1.12.4] - 2026-5-26 Forge Sync
 

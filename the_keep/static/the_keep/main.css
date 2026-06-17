@@ -526,6 +526,67 @@ em, i {
     display: flex;
     gap: 0; /* optional: explicitly removes space */
 }
+
+/* Per-player faction icons on the matches page. The player names stay fixed on
+   the left (.effort-names); only the icon grid (.effort-grid-scroll) scrolls
+   horizontally, as a single unit. Both columns use the same fixed row height so
+   their rows line up. */
+:root {
+  --effort-row-height: 28px;
+}
+
+.effort-names .effort-row,
+.effort-grid > * {
+  height: var(--effort-row-height);
+}
+
+.effort-row {
+  white-space: nowrap;
+}
+
+.effort-names {
+  /* match the scroll container's vertical padding so the name rows line up
+     with the icon-grid rows */
+  padding: 6px 0;
+}
+
+.effort-grid-scroll {
+  /* fill the width left of the names so the grid can be pushed to the right
+     edge (don't rely on the Bootstrap flex-grow-1 utility being present) */
+  flex: 1 1 auto;
+  /* scroll horizontally only when the grid is wider than the available space;
+     auto means no scrollbar (or drag) when everything already fits */
+  overflow-x: auto;
+  overflow-y: hidden; /* height always fits the rows; no vertical scrollbar */
+  min-width: 0; /* allow the flex child to shrink so it can scroll */
+  display: flex;
+  /* breathing room so the (oversized) laurel overlay isn't clipped at the edges
+     (it can spill ~11px left and ~5px up beyond its cell) */
+  padding: 6px 12px;
+}
+
+.effort-grid-scroll > .effort-grid {
+  flex-shrink: 0; /* don't squeeze the fixed-width cells when scrolling */
+  /* right-justify within the card when there's room; on overflow the auto
+     margin collapses to 0 so content scrolls from the left as usual */
+  margin-left: auto;
+}
+
+.effort-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--effort-grid-games), 28px);
+  align-items: center;
+  column-gap: 4px;
+  /* keep the laurel overlay (larger than a cell) from being clipped vertically */
+  overflow: visible;
+}
+
+.effort-grid-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
   
 .centered-icon {
   display: flex;

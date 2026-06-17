@@ -354,11 +354,14 @@ class GameCreateForm(forms.ModelForm):
                         faction = effort_form.cleaned_data.get('faction')
                         if faction:
                             validation_errors_to_display.append(f'Select a player for each faction')
-                # Check tournament's max and min player counts
-                if len(player_roster) > tournament.max_players:
-                    validation_errors_to_display.append(f'Over {tournament} maximum player count')
-                if len(player_roster) < tournament.min_players:
-                    validation_errors_to_display.append(f'Under {tournament} minimum player count')
+                # Check the round's effective max and min player counts, but only
+                # when the tournament enforces a player count (otherwise there is
+                # no limit, matching get_*_players_display()).
+                if tournament.enforce_player_count:
+                    if len(player_roster) > round.get_max_players():
+                        validation_errors_to_display.append(f'Over {tournament} maximum player count')
+                    if len(player_roster) < round.get_min_players():
+                        validation_errors_to_display.append(f'Under {tournament} minimum player count')
 
                 # Check each player in the player_roster
                 if not tournament.open_roster:

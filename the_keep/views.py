@@ -1116,7 +1116,7 @@ def ultimate_component_view(request, slug, component):
 
 
     if request.user.is_authenticated:
-        print('here')
+        # print('here')
         send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed {obj.component}: {obj.title} ({language_code})')
     # else:
     #     send_discord_message_task.delay(f'{get_uuid(request)} viewed {obj.component}: {obj.title} ({language_code})')
@@ -5441,7 +5441,7 @@ def view_deckgroup(request, post_slug, language_code, deckgroup_slug):
     if highlight_card_id:
         highlighted_card = Card.objects.filter(group=deckgroup, id=highlight_card_id).first()
         if highlighted_card:
-            print('highlight')
+            # print('highlight')
             absolute_uri = build_absolute_uri(request, highlighted_card.get_absolute_url())
             meta_image_url = highlighted_card.front_image.url
             if highlighted_card.name:

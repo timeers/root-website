@@ -328,9 +328,9 @@ def is_user_in_guild(user, guild_id):
     if guilds:
         for guild in guilds:
             if guild['id'] == guild_id:
-                print('User is in guild')
+                # print('User is in guild')
                 return True
-    print("User is not in guild")
+    # print("User is not in guild")
     return False
 
 
