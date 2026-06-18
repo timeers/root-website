@@ -587,6 +587,74 @@ em, i {
   justify-content: center;
   min-width: 0;
 }
+
+/* Clickable card hover affordance (also defined inline on the matches page). */
+.group-card {
+  transition: box-shadow 0.2s;
+}
+.group-card:hover {
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Clickable Stage / Round sections on the bracket page.
+   The whole section is a click target via a .stretched-link overlay. The
+   inner match cards must sit above that overlay so they stay independently
+   clickable, hence the raised z-index on .bracket-section .card. */
+.bracket-section {
+  transition: box-shadow 0.2s;
+}
+.bracket-section:hover {
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+/* Only the innermost hovered section shows the shadow: a stage drops its
+   shadow when a round inside it is hovered, and any section drops its shadow
+   when a match card (linked game) inside it is hovered. */
+.bracket-section:has(.bracket-section:hover),
+.bracket-section:has(.group-card:hover) {
+  box-shadow: none;
+}
+.bracket-stretched-link {
+  z-index: 1;
+}
+/* A round sits inside a stage; raise it so its overlay (and its match cards)
+   win clicks over the surrounding stage overlay. */
+.bracket-round {
+  z-index: 2;
+}
+/* Match cards live in a section's card-body; lift them above their section's
+   stretched-link overlay so they stay independently clickable. Scoped to
+   .card-body so the round's own .card wrapper isn't caught by this rule. */
+.bracket-section .card-body .card {
+  position: relative;
+  z-index: 3;
+}
+/* Header icon reacts to hovering anywhere on the section. */
+.bracket-section-header .bi {
+  opacity: 0.6;
+  transition: transform 0.15s, opacity 0.15s, color 0.15s;
+}
+.bracket-section:hover > .bracket-section-header {
+  color: var(--bs-primary);
+}
+.bracket-section:hover > .bracket-section-header .bi {
+  opacity: 1;
+  color: var(--bs-primary);
+}
+.bracket-section:hover > .bracket-section-header .bi.bi-chevron-right {
+  transform: translateX(2px);
+}
+/* Keep the header highlight tied to the innermost hovered section: a stage
+   header stays neutral while a round or match card inside it is hovered. */
+.bracket-section:has(.bracket-section:hover) > .bracket-section-header,
+.bracket-section:has(.group-card:hover) > .bracket-section-header {
+  color: inherit;
+}
+.bracket-section:has(.bracket-section:hover) > .bracket-section-header .bi,
+.bracket-section:has(.group-card:hover) > .bracket-section-header .bi {
+  opacity: 0.6;
+  color: inherit;
+  transform: none;
+}
   
 .centered-icon {
   display: flex;

@@ -25,10 +25,10 @@
 
     <!-- Match Series -->
     {% if not is_bracket_finalized %}
-    <p class="text-muted">{% trans 'The bracket must be finalized before matches are available.' %}</p>
+    <p class="text-muted">{% trans 'No matches have been scheduled yet.' %}</p>
     {% else %}
     {% if not match_series and not create_series_url %}
-    <p class="text-muted">{% trans 'No matches have been generated yet.' %}</p>
+    <p class="text-muted">{% trans 'No matches have been scheduled yet.' %}</p>
     {% endif %}
     <div class="row g-3">
         {% for series in match_series %}

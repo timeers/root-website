@@ -127,14 +127,14 @@
 
             {% if match.game %}
                 {% if match.game.final %}
-                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto p-0 px-1"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View' %}</a>
+                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto p-0 px-1">{% trans 'View' %}</a>
                 {% elif match.id in recordable_match_ids %}
                 <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-outline-primary btn-sm ms-auto p-0 px-1"><i class="bi bi-pencil-square me-1"></i></a>
                 {% else %}
-                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto p-0 px-1"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View' %}</a>
+                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto p-0 px-1">{% trans 'View' %}</a>
                 {% endif %}
             {% elif match.id in recordable_match_ids %}
-                <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm ms-auto p-0 px-1"><i class="bi bi-plus-lg"></i></a>
+                <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm ms-auto p-0 px-1">Record</a>
             {% elif match.status == 'Completed' %}
                 <span class="badge bg-success ms-auto">{% trans 'Done' %}</span>
             {% else %}
@@ -163,7 +163,7 @@
                 <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1"><i class="bi bi-box-arrow-up-right me-1"></i>{% trans 'View' %}</a>
                 {% endif %}
             {% elif match.id in recordable_match_ids %}
-            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm p-0 px-1"><i class="bi bi-plus-lg"></i></a>
+            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm p-0 px-1">Record</a>
             {% endif %}
         </div>
         {% endif %}

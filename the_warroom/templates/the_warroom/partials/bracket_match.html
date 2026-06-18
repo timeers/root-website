@@ -1,5 +1,9 @@
-{% load i18n warroom_tags %}
+{% load i18n static warroom_tags custom_filters %}
+{% if match.game_id %}
+<a href="{{ match.game.get_absolute_url }}" class="card text-decoration-none text-body group-card">
+{% else %}
 <div class="card">
+{% endif %}
     <div class="card-body py-2 px-3">
         <div class="d-flex justify-content-between align-items-center mb-1">
             {% if match.series.is_bye %}
@@ -34,6 +38,34 @@
                 <i class="bi bi-arrow-right-circle text-info ms-auto"></i>
             </div>
             {% endfor %}
+        {% elif match.game_id %}
+        {% comment %}
+        Linked to a game: list the players who actually played (the game's
+        efforts), not the series seats — a player may have played and then been
+        removed from the series.
+        {% endcomment %}
+        {% for effort in match.game.efforts.all %}
+        <div class="d-flex align-items-center gap-1 small">
+            {% if effort.player.image %}
+            <img src="{{ effort.player.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
+            {% endif %}
+            <span>{{ effort.player.display_name }}</span>
+            {% if effort.faction %}
+            <span class="ms-auto d-inline-block" title="{{ effort.faction.title }}">
+                <div class="parent">
+                    <img class="faction-icon image1"
+                         src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}"
+                         alt="{{ effort.faction.title }}">
+                    {% if effort.win %}
+                    <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="Winner">
+                    {% endif %}
+                </div>
+            </span>
+            {% endif %}
+        </div>
+        {% empty %}
+        <small class="text-muted">{% trans 'Players TBD' %}</small>
+        {% endfor %}
         {% elif match.player_group %}
 
         {% for seat in match.series.matchseat_set.all %}
@@ -43,9 +75,6 @@
             <img src="{{ tp.profile.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
             {% endif %}
             <span>{{ tp.profile.display_name }}</span>
-            {% if match.series|is_series_winner:tp.id %}
-            <i class="bi bi-trophy-fill text-warning ms-auto"></i>
-            {% endif %}
         </div>
         {% endwith %}
         {% empty %}
@@ -55,4 +84,8 @@
         <small class="text-muted">{% trans 'Players TBD' %}</small>
         {% endif %}
     </div>
+{% if match.game_id %}
+</a>
+{% else %}
 </div>
+{% endif %}

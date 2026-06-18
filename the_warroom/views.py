@@ -4646,6 +4646,8 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
         'matches__series__matches',
         'matches__series__matchseat_set__stage_participant__tournament_player__profile',
         'matches__series__winners__tournament_player__profile',
+        'matches__game__efforts__faction',
+        'matches__game__efforts__player',
         'series__player_group',
     )
     has_bracket = Match.objects.filter(round__stage=stage).exists()
@@ -5310,6 +5312,8 @@ def tournament_bracket_page(request, slug):
                 'matches__series__matches',
                 'matches__series__matchseat_set__stage_participant__tournament_player__profile',
                 'matches__series__winners__tournament_player__profile',
+                'matches__game__efforts__faction',
+                'matches__game__efforts__player',
             ),
         ),
     )

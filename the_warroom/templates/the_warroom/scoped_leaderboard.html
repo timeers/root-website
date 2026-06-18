@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static i18n %}
+{% load static i18n custom_filters %}
 {% block title %}{{ title }} - {% trans 'Leaderboard' %} | {% endblock %}
 
 {% block meta %}
@@ -53,11 +53,34 @@
 
     {% include 'the_warroom/partials/leaderboard_list_home.html' %}
 
-    <!-- Filter -->
-    {% if form %}
+    <!-- Games + Filter -->
+    {% filters_active as has_active_filters %}
     <article class="content-section">
         <div class="w-100">
-            <h3>{% trans 'Filters' %}</h3>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <h3 class="root-title mb-0">{% trans 'Total Games' %} ({{ games_count|intcomma }})</h3>
+                </div>
+                {% if form %}
+                <div class="d-flex align-items-center">
+                    {% if has_active_filters %}
+                    <a href="{{ filter_url }}" class="subtle-link me-2"><small>{% trans 'Clear' %}</small></a>
+                    {% endif %}
+                    <button class="btn btn-sm {% if has_active_filters %}btn-primary{% else %}btn-secondary{% endif %}"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#scoped-filter-collapse"
+                            aria-expanded="{% if has_active_filters %}true{% else %}false{% endif %}"
+                            aria-controls="scoped-filter-collapse"
+                            id="scoped-filter-toggle-btn">
+                        <i class="bi bi-filter"></i>
+                        <span id="scoped-filter-toggle-text">{% if has_active_filters %}{% trans 'Hide Filter' %}{% else %}{% trans 'Filter' %}{% endif %}</span>
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+            {% if form %}
+            <div class="collapse {% if has_active_filters %}show{% endif %}" id="scoped-filter-collapse">
             <form method="get" action="{{ filter_url }}">
                 <div class="row">
                     <div class="col-md-6 mb-1">
@@ -121,17 +144,13 @@
 
                 <button class="btn btn-primary mb-1">{% trans 'Filter' %}</button>
             </form>
+            </div>{# /#scoped-filter-collapse #}
+            {% endif %}
         </div>
     </article>
-    {% endif %}
 
     <!-- Games -->
     {% if games %}
-    <article class="content-section">
-        <div class="w-100">
-            <h3 class="root-title">{% trans 'Games' %} ({{ games_count }})</h3>
-        </div>
-    </article>
     <div class="game-grid">
     {% for game in games %}
         {% include 'the_warroom/partials/game_detail_button.html' %}
@@ -172,4 +191,19 @@
 
 {% block scripts %}
 {% include 'the_warroom/partials/select2_init.html' %}
+<script>
+    // Keep the filter toggle button's label/style in sync with the collapse state.
+    (function () {
+        var collapseEl = document.getElementById('scoped-filter-collapse');
+        var toggleBtn = document.getElementById('scoped-filter-toggle-btn');
+        var toggleText = document.getElementById('scoped-filter-toggle-text');
+        if (!collapseEl || !toggleBtn || !toggleText) return;
+        collapseEl.addEventListener('shown.bs.collapse', function () {
+            toggleText.textContent = "{% trans 'Hide Filter' %}";
+        });
+        collapseEl.addEventListener('hidden.bs.collapse', function () {
+            toggleText.textContent = "{% trans 'Filter' %}";
+        });
+    })();
+</script>
 {% endblock %}
