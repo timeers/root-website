@@ -621,10 +621,12 @@ em, i {
 .bracket-round {
   z-index: 2;
 }
-/* Match cards live in a section's card-body; lift them above their section's
-   stretched-link overlay so they stay independently clickable. Scoped to
-   .card-body so the round's own .card wrapper isn't caught by this rule. */
-.bracket-section .card-body .card {
+/* Match cards live in a section's card-body; lift the clickable (game-linked)
+   ones above their section's stretched-link overlay so they stay independently
+   clickable. Scoped to .group-card so non-linked match cards (plain divs with
+   no game yet) stay below the overlay and let the round's stretched-link
+   receive the hover/click. */
+.bracket-section .card-body .group-card {
   position: relative;
   z-index: 3;
 }

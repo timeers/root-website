@@ -68,7 +68,9 @@
         </fieldset>
 
     {% if user.profile.player %}
-    <fieldset class="mb-3">
+    <div class="row g-3">
+      <div class="col-lg-6">
+    <fieldset class="mb-3 h-100">
         <legend class="border-bottom mb-4 mt-2">{% trans 'Game List API Key' %}</legend>
 
         <p class="text-secondary">
@@ -159,17 +161,22 @@
 
         </details>
     </fieldset>
+      </div>
 
-
-    <fieldset class="mb-3">
+      <div class="col-lg-6">
+    <fieldset class="mb-3 h-100">
         <legend class="border-bottom mb-4 mt-2">{% trans 'Discord Notifications' %}</legend>
         <p class="text-secondary">
             {% trans 'Choose which events you want to send you a Discord message.' %}
         </p>
-        <a href="{% url 'discord-notifications' %}" class="btn btn-sm btn-primary">
-            <i class="bi bi-discord"></i> {% trans 'Manage Discord Notifications' %}
-        </a>
+        <div class="d-flex gap-2 mb-3 justify-content-center">
+            <a href="{% url 'discord-notifications' %}" class="btn btn-sm btn-primary">
+                <i class="bi bi-discord"></i> {% trans 'Manage Discord Notifications' %}
+            </a>
+        </div>
     </fieldset>
+      </div>
+    </div>
     {% endif %}
     </div>
 {% endblock content %}

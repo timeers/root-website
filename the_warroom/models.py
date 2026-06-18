@@ -1009,6 +1009,12 @@ class Round(models.Model):
             return self.stage.tournament
         return self.tournament
 
+    @property
+    def is_bracket_finalized(self):
+        """True once this round's bracket is finalized and its matches are live.
+        Mirrors the gate used on the matches page (_stage_matches_context)."""
+        return self.bracket_status == self.BracketStatusChoices.FINALIZED
+
     def _stage_slug(self):
         return self.stage.slug if self.stage else None
 
