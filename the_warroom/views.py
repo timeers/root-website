@@ -761,6 +761,12 @@ def _get_match_profiles(match):
     )
 
 
+def _is_group_moderator(profile, match):
+    """True if profile is the group_moderator of this match's player group."""
+    group = match.player_group
+    return bool(group and group.group_moderator_id == profile.id)
+
+
 def _can_record_match(profile, match):
     """Check if profile can record a game for a match."""
     tournament = match.round.get_tournament()
@@ -768,7 +774,11 @@ def _can_record_match(profile, match):
         return True
     if tournament.has_permission(profile):
         return True
-    if not tournament.players_can_record:
+    # Group moderators can always record their group's scheduled games,
+    # regardless of the tournament's recording_access tier.
+    if _is_group_moderator(profile, match):
+        return True
+    if not tournament.players_can_record_matches():
         return False
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
 
@@ -833,7 +843,7 @@ def manage_game_v2(request, id=None):
             # Block players if tournament restricts recording
             if selected_round.stage:
                 _tournament = selected_round.stage.tournament
-                if _tournament and not _tournament.players_can_record:
+                if _tournament and not _tournament.players_can_record_standalone():
                     if not (user.profile.admin or _tournament.has_permission(user.profile)):
                         messages.error(request, "Only tournament moderators can record games for this series.")
                         return redirect('games-home')
@@ -4686,7 +4696,7 @@ def _stage_matches_context(request, tournament, stage):
                 recordable_match_ids = set(
                     Match.objects.filter(round=round).values_list('id', flat=True)
                 )
-            elif tournament.players_can_record:
+            elif tournament.players_can_record_matches():
                 participant_series_ids = MatchSeat.objects.filter(
                     series__round=round,
                     stage_participant__tournament_player__profile=profile
@@ -4696,6 +4706,12 @@ def _stage_matches_context(request, tournament, stage):
                         round=round, series_id__in=participant_series_ids
                     ).values_list('id', flat=True)
                 )
+            # Group moderators can always record their group's matches.
+            recordable_match_ids |= set(
+                Match.objects.filter(
+                    round=round, series__player_group__group_moderator=profile
+                ).values_list('id', flat=True)
+            )
             is_participant_series = set(MatchSeat.objects.filter(
                 series__round=round,
                 stage_participant__tournament_player__profile=profile
@@ -5016,7 +5032,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
             recordable_match_ids = set(
                 Match.objects.filter(round=round).values_list('id', flat=True)
             )
-        elif tournament.players_can_record:
+        elif tournament.players_can_record_matches():
             participant_series_ids = MatchSeat.objects.filter(
                 series__round=round,
                 stage_participant__tournament_player__profile=profile
@@ -5026,6 +5042,12 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
                     round=round, series_id__in=participant_series_ids
                 ).values_list('id', flat=True)
             )
+        # Group moderators can always record their group's matches.
+        recordable_match_ids |= set(
+            Match.objects.filter(
+                round=round, series__player_group__group_moderator=profile
+            ).values_list('id', flat=True)
+        )
         is_participant_series = set(MatchSeat.objects.filter(
             series__round=round,
             stage_participant__tournament_player__profile=profile
@@ -6199,7 +6221,9 @@ def _build_series_edit_context(tournament, stage, round):
     })
 
     # Build series data map (keyed by series id)
-    all_series = MatchSeries.objects.filter(round=round).select_related('player_group').prefetch_related(
+    all_series = MatchSeries.objects.filter(round=round).select_related(
+        'player_group', 'player_group__group_moderator'
+    ).prefetch_related(
         'matchseat_set__stage_participant__tournament_player__profile',
         'matches__game',
     ).order_by('id')
@@ -6230,12 +6254,16 @@ def _build_series_edit_context(tournament, stage, round):
                 'game_final': m.game.final if m.game_id else False,
                 'status': m.status,
             })
+        mod = group.group_moderator if group else None
         series_map[s.id] = {
             'id': s.id,
             'name': group.name if group else (s.name or ''),
             'player_group_id': group.id if group else None,
             'discord_thread': group.discord_thread if group else '',
             'video_link': group.video_link if group else '',
+            'group_moderator_id': mod.id if mod else None,
+            'group_moderator_name': mod.display_name if mod else '',
+            'group_moderator_image': (mod.image.url if mod.image else '') if mod else '',
             'number_of_games': s.number_of_games,
             'is_bye': s.is_bye,
             'status': s.status,
@@ -6274,12 +6302,16 @@ def _build_series_response(series):
     matches = Match.objects.filter(series=series).select_related('game').order_by('match_number')
 
     group = series.player_group
+    mod = group.group_moderator if group else None
     return {
         'id': series.id,
         'name': group.name if group else (series.name or ''),
         'player_group_id': group.id if group else None,
         'discord_thread': group.discord_thread if group else '',
         'video_link': group.video_link if group else '',
+        'group_moderator_id': mod.id if mod else None,
+        'group_moderator_name': mod.display_name if mod else '',
+        'group_moderator_image': (mod.image.url if mod.image else '') if mod else '',
         'number_of_games': series.number_of_games,
         'is_bye': series.is_bye,
         'status': series.status,
@@ -6340,10 +6372,24 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             if video_link and not VIDEO_URL_PATTERN.match(video_link):
                 return JsonResponse({'error': 'Video link must be a YouTube or Twitch link'}, status=400)
 
+            # Group moderator (single Profile, optional). 'group_moderator_id'
+            # absent = leave unchanged; null/empty = clear.
+            update_fields = ['name', 'discord_thread', 'video_link', 'video_platform']
+            if 'group_moderator_id' in data:
+                mod_id = data.get('group_moderator_id')
+                if mod_id:
+                    mod_profile = Profile.objects.filter(pk=mod_id).first()
+                    if not mod_profile:
+                        return JsonResponse({'error': 'Selected group moderator not found'}, status=400)
+                    group.group_moderator = mod_profile
+                else:
+                    group.group_moderator = None
+                update_fields.append('group_moderator')
+
             group.name = name
             group.discord_thread = discord_thread
             group.video_link = video_link
-            group.save(update_fields=['name', 'discord_thread', 'video_link', 'video_platform'])
+            group.save(update_fields=update_fields)
 
         # --- Match scheduled_time updates ---
         for match_data in data.get('matches', []):
@@ -6454,7 +6500,7 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     recordable_match_ids = set(
                         Match.objects.filter(round=round).values_list('id', flat=True)
                     )
-                elif tournament.players_can_record:
+                elif tournament.players_can_record_matches():
                     participant_series_ids = MatchSeat.objects.filter(
                         series__round=round,
                         stage_participant__tournament_player__profile=profile
@@ -6466,6 +6512,12 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     )
                 else:
                     recordable_match_ids = set()
+                # Group moderators can always record their group's matches.
+                recordable_match_ids |= set(
+                    Match.objects.filter(
+                        round=round, series__player_group__group_moderator=profile
+                    ).values_list('id', flat=True)
+                )
                 series_index = data.get('series_index', 1)
                 is_participant_series = set(MatchSeat.objects.filter(
                     series__round=round,

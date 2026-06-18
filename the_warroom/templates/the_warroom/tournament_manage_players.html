@@ -24,6 +24,7 @@
         {% endif %}
     </div>
     {% if not round and is_owner %}
+    {% include 'the_warroom/partials/toggle_scripts.html' %}
     <!-- Settings Card -->
     <div class="card mb-4">
         <div class="card-header bg-light">
@@ -43,6 +44,9 @@
                     </div>
                 </div>
                 {% endif %}
+                <div class="mb-3">
+                    {% include 'the_warroom/partials/recording_access_toggle.html' with tournament_form=form %}
+                </div>
                 <div class="align-items-end">
                     <div>
                         {{ form.open_roster|as_crispy_field }}
@@ -176,6 +180,7 @@ if (enforceCheckbox) enforceCheckbox.addEventListener('change', togglePlayerCoun
     const enforceCount = document.getElementById('id_enforce_player_count');
     const minPlayers = document.getElementById('id_min_players');
     const maxPlayers = document.getElementById('id_max_players');
+    const recordingAccess = document.getElementById('recording_access_input');
 
     const initial = {
         guild: guildSelect ? guildSelect.value : null,
@@ -183,6 +188,7 @@ if (enforceCheckbox) enforceCheckbox.addEventListener('change', togglePlayerCoun
         enforceCount: enforceCount ? enforceCount.checked : null,
         minPlayers: minPlayers ? minPlayers.value : null,
         maxPlayers: maxPlayers ? maxPlayers.value : null,
+        recordingAccess: recordingAccess ? recordingAccess.value : null,
     };
 
     function checkDirty() {
@@ -191,7 +197,8 @@ if (enforceCheckbox) enforceCheckbox.addEventListener('change', togglePlayerCoun
             (openRoster && openRoster.checked !== initial.openRoster) ||
             (enforceCount && enforceCount.checked !== initial.enforceCount) ||
             (minPlayers && minPlayers.value !== initial.minPlayers) ||
-            (maxPlayers && maxPlayers.value !== initial.maxPlayers);
+            (maxPlayers && maxPlayers.value !== initial.maxPlayers) ||
+            (recordingAccess && recordingAccess.value !== initial.recordingAccess);
 
         if (dirty) {
             saveBtn.disabled = false;
@@ -209,6 +216,12 @@ if (enforceCheckbox) enforceCheckbox.addEventListener('change', togglePlayerCoun
             el.addEventListener('change', checkDirty);
             el.addEventListener('input', checkDirty);
         }
+    });
+
+    // The recording_access toggle updates its hidden input programmatically,
+    // so re-check dirty state when any of its options is clicked.
+    document.querySelectorAll('#recording-access-toggle-container .option-item').forEach(function(opt) {
+        opt.addEventListener('click', checkDirty);
     });
 
     // Also listen for guild changes via the Add Guild modal (Select2 or direct)

@@ -175,10 +175,10 @@
                     </div>
                     <div class="card-body">
                             <div class="row">
-                                <div class="col-md-6 mb-2">
-                                {{ form.players_can_record|as_crispy_field }}
+                                <div class="col-12 mb-3">
+                                {% include 'the_warroom/partials/recording_access_toggle.html' with tournament_form=form %}
                                 </div>
-                                <div class="col-md-6 mb-2">
+                                <div class="col-12 mb-2">
                                 {{ form.open_roster|as_crispy_field }}
                                 </div>
 

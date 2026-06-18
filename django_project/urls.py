@@ -22,7 +22,7 @@ from django.conf.urls.static import static
 from the_gatehouse import views as user_views
 from the_tavern import views as comment_views
 from the_keep.api_views import get_options_for_platform
-from the_warroom.api_views import get_options_for_tournament
+from the_warroom.api_views import get_options_for_tournament, search_profiles
 from the_gatehouse.views import onboard_user, onboard_decline, set_language_custom
 from the_gatehouse import pwa_views
 from the_tavern.views import bookmark_player
@@ -66,6 +66,7 @@ urlpatterns = [
 
     path('api/platform/<str:platform>/', get_options_for_platform, name='get_options_for_platform'),
     path('api/tournament/<pk>/', get_options_for_tournament, name='get_options_for_tournament'),
+    path('api/search-profiles/', search_profiles, name='search_profiles'),
     path('api/', include('the_warroom.api.urls')),
 
     path('', include('the_keep.urls')),

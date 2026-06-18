@@ -16,19 +16,7 @@
                     <label for="editSeriesName" class="form-label fw-bold">{% trans 'Group Name' %}</label>
                     <input type="text" class="form-control" id="editSeriesName" maxlength="100">
                 </div>
-                <div class="mb-3">
-                    <label for="editSeriesDiscordThread" class="form-label fw-bold"><i class="bi bi-discord"></i> {% trans 'Discord Thread' %}</label>
-                    <input type="url" class="form-control" id="editSeriesDiscordThread" placeholder="https://discord.com/channels/...">
-                    <small class="text-muted d-block">{% trans 'Must be a discord.com link' %}</small>
-                    <small class="text-muted d-block">{% trans 'Only visible to participants and moderators' %}</small>
-                    <div class="invalid-feedback" id="seriesDiscordError"></div>
-                </div>
-                <div class="mb-3">
-                    <label for="editSeriesVideoLink" class="form-label fw-bold"><i class="bi bi-play-btn-fill"></i> {% trans 'Video Link' %}</label>
-                    <input type="url" class="form-control" id="editSeriesVideoLink" placeholder="https://youtube.com/... or https://twitch.tv/...">
-                    <small class="text-muted">{% trans 'Must be a YouTube or Twitch link' %}</small>
-                    <div class="invalid-feedback" id="seriesVideoError"></div>
-                </div>
+
 
                 <hr>
 
@@ -69,7 +57,56 @@
                         <!-- Populated by JS -->
                     </ul>
                 </div>
+
+                <hr>
+
+                <div class="mb-3">
+                    <label for="editSeriesDiscordThread" class="form-label fw-bold"><i class="bi bi-discord"></i> {% trans 'Discord Thread' %}</label>
+                    <input type="url" class="form-control" id="editSeriesDiscordThread" placeholder="https://discord.com/channels/...">
+                    <small class="text-muted d-block">{% trans 'Must be a discord.com link' %}</small>
+                    <small class="text-muted d-block">{% trans 'Only visible to participants and moderators' %}</small>
+                    <div class="invalid-feedback" id="seriesDiscordError"></div>
+                </div>
+                <div class="mb-3">
+                    <label for="editSeriesVideoLink" class="form-label fw-bold"><i class="bi bi-play-btn-fill"></i> {% trans 'Video Link' %}</label>
+                    <input type="url" class="form-control" id="editSeriesVideoLink" placeholder="https://youtube.com/... or https://twitch.tv/...">
+                    <small class="text-muted">{% trans 'Must be a YouTube or Twitch link' %}</small>
+                    <div class="invalid-feedback" id="seriesVideoError"></div>
+                </div>
+
+                <!-- Group Moderator (single, optional) -->
+                <div class="mb-3">
+                    <label class="form-label fw-bold"><i class="bi bi-shield-check"></i> {% trans 'Game Moderator' %}</label>
+                    <small class="text-muted d-block mb-2">{% trans "Can record this group's game results, even if not a tournament moderator or a player in the match." %}</small>
+                    <input type="hidden" id="editSeriesGroupModeratorId">
+                    <!-- Selected moderator chip -->
+                    <div id="editSeriesGroupModeratorSelected" class="mb-2" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center border rounded p-2 bg-light">
+                            <div class="d-flex align-items-center">
+                                <img id="editSeriesGroupModeratorImg" src="" class="rounded-circle me-2" style="width:24px;height:24px;display:none;">
+                                <i id="editSeriesGroupModeratorIcon" class="bi bi-person-circle me-2"></i>
+                                <span id="editSeriesGroupModeratorName"></span>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearGroupModerator()" title="{% trans 'Remove' %}">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Search (hidden once one is selected) -->
+                    <div id="editSeriesGroupModeratorSearchWrap">
+                        <input type="text"
+                               class="form-control"
+                               placeholder="{% trans 'Search players to set as moderator...' %}"
+                               id="editSeriesGroupModeratorSearch"
+                               autocomplete="off">
+                        <ul class="list-group mt-2" id="editSeriesGroupModeratorResults" style="max-height: 200px; overflow-y: auto;"></ul>
+                    </div>
+                </div>
+
             </div>
+
+
+            
             <div class="modal-footer d-flex">
                 <div id="seriesDeleteSection" class="me-auto">
                     <button type="button" class="btn btn-outline-danger btn-sm" id="seriesDeleteBtn" onclick="_seriesShowDeleteConfirm()">
@@ -157,6 +194,19 @@ function openSeriesEditModal(seriesId) {
     document.getElementById('editSeriesName').value = seriesData.name || '';
     document.getElementById('editSeriesDiscordThread').value = seriesData.discord_thread || '';
     document.getElementById('editSeriesVideoLink').value = seriesData.video_link || '';
+
+    // Group moderator
+    if (seriesData.group_moderator_id) {
+        _setGroupModerator(
+            seriesData.group_moderator_id,
+            seriesData.group_moderator_name || '',
+            seriesData.group_moderator_image || ''
+        );
+    } else {
+        clearGroupModerator();
+    }
+    document.getElementById('editSeriesGroupModeratorSearch').value = '';
+    document.getElementById('editSeriesGroupModeratorResults').innerHTML = '';
 
     // Clear validation
     document.getElementById('editSeriesDiscordThread').classList.remove('is-invalid');
@@ -405,6 +455,62 @@ function _seriesAddSeatFromSearch(participantId) {
     _seriesUpdateSeatSearch(document.getElementById('editSeatSearch').value);
 }
 
+// --- Group Moderator (single-select) ---
+function _setGroupModerator(id, name, imageUrl) {
+    document.getElementById('editSeriesGroupModeratorId').value = id;
+    document.getElementById('editSeriesGroupModeratorName').textContent = name;
+    const img = document.getElementById('editSeriesGroupModeratorImg');
+    const icon = document.getElementById('editSeriesGroupModeratorIcon');
+    if (imageUrl) {
+        img.src = imageUrl;
+        img.style.display = '';
+        icon.style.display = 'none';
+    } else {
+        img.style.display = 'none';
+        icon.style.display = '';
+    }
+    document.getElementById('editSeriesGroupModeratorSelected').style.display = '';
+    document.getElementById('editSeriesGroupModeratorSearchWrap').style.display = 'none';
+}
+
+function clearGroupModerator() {
+    document.getElementById('editSeriesGroupModeratorId').value = '';
+    document.getElementById('editSeriesGroupModeratorSelected').style.display = 'none';
+    document.getElementById('editSeriesGroupModeratorSearchWrap').style.display = '';
+    document.getElementById('editSeriesGroupModeratorResults').innerHTML = '';
+    document.getElementById('editSeriesGroupModeratorSearch').value = '';
+}
+
+let _groupModSearchTimer = null;
+function _groupModeratorSearch(query) {
+    const results = document.getElementById('editSeriesGroupModeratorResults');
+    query = query.trim();
+    if (!query) { results.innerHTML = ''; return; }
+    fetch(`{% url 'search_profiles' %}?q=${encodeURIComponent(query)}`)
+        .then(r => r.json())
+        .then(data => {
+            results.innerHTML = '';
+            (data.results || []).forEach(p => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item list-group-item-action d-flex align-items-center justify-content-between py-1';
+                const imgHtml = p.image_url
+                    ? `<img src="${p.image_url}" alt="" class="rounded-circle me-2" style="width:24px;height:24px;">`
+                    : '<i class="bi bi-person-circle me-2"></i>';
+                li.innerHTML = `<div class="d-flex align-items-center">${imgHtml}<span></span></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" title="Select"><i class="bi bi-plus-lg"></i></button>`;
+                li.querySelector('span').textContent = p.display_name;
+                li.querySelector('button').onclick = function() {
+                    _setGroupModerator(p.id, p.display_name, p.image_url);
+                };
+                results.appendChild(li);
+            });
+            if (results.children.length === 0) {
+                results.innerHTML = '<li class="list-group-item text-muted text-center"><small>No players found</small></li>';
+            }
+        })
+        .catch(() => { results.innerHTML = ''; });
+}
+
 function _seriesValidateUrls() {
     let valid = true;
     const discordInput = document.getElementById('editSeriesDiscordThread');
@@ -439,11 +545,13 @@ function saveSeriesEdit() {
     const seriesIndex = cardWrapper
         ? Array.from(cardWrapper.parentElement.children).indexOf(cardWrapper) + 1
         : 1;
+    const groupModId = document.getElementById('editSeriesGroupModeratorId').value;
     const body = {
         series_id: seriesId,
         name: document.getElementById('editSeriesName').value.trim(),
         discord_thread: document.getElementById('editSeriesDiscordThread').value.trim(),
         video_link: document.getElementById('editSeriesVideoLink').value.trim(),
+        group_moderator_id: groupModId ? parseInt(groupModId) : null,
         card_type: typeof _seriesCardType !== 'undefined' ? _seriesCardType : null,
         series_index: seriesIndex,
     };
@@ -635,6 +743,14 @@ document.addEventListener('DOMContentLoaded', function() {
     if (searchInput) {
         searchInput.addEventListener('input', function() {
             _seriesUpdateSeatSearch(this.value);
+        });
+    }
+    const modSearch = document.getElementById('editSeriesGroupModeratorSearch');
+    if (modSearch) {
+        modSearch.addEventListener('input', function() {
+            const val = this.value;
+            clearTimeout(_groupModSearchTimer);
+            _groupModSearchTimer = setTimeout(() => _groupModeratorSearch(val), 350);
         });
     }
 });

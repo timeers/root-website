@@ -145,6 +145,10 @@ class Tournament(models.Model):
         LEAGUE = "League"
         TOURNAMENT = "Tournament"
         GROUP = "Game Group"
+    class RecordingAccessTypes(models.TextChoices):
+        MODERATORS = "moderators", "Moderators Only"
+        SCHEDULED = "scheduled", "Scheduled Match Players"
+        REGISTERED = "registered_players", "Registered Players"
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
     designer = models.ForeignKey(
@@ -181,7 +185,17 @@ class Tournament(models.Model):
     # Access & Roster
     guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this League with a Guild to allow members to record games')
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to a game. If disabled, only registered players will be available.')
-    players_can_record = models.BooleanField(default=True, help_text='Allow registered players to record games. If disabled, only admins, the owner, and moderators can record games.')
+    recording_access = models.CharField(
+        max_length=20,
+        choices=RecordingAccessTypes.choices,
+        default=RecordingAccessTypes.MODERATORS,
+        help_text=(
+            'Who can record game results. Moderators Only: only admins, owner, and '
+            'moderators. Scheduled Match Players: the above, plus players in a scheduled '
+            'match can record that match. Registered Players: the above, plus registered '
+            'players can record standalone games for rounds.'
+        ),
+    )
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)
@@ -288,6 +302,17 @@ class Tournament(models.Model):
     def has_permission(self, profile):
         """Check if profile is designer, moderator, or admin."""
         return profile.admin or profile == self.designer or self.moderators.filter(pk=profile.pk).exists()
+
+    def players_can_record_matches(self):
+        """Seated players may record their own scheduled match (SCHEDULED + REGISTERED)."""
+        return self.recording_access in (
+            self.RecordingAccessTypes.SCHEDULED,
+            self.RecordingAccessTypes.REGISTERED,
+        )
+
+    def players_can_record_standalone(self):
+        """Registered players may record standalone games for rounds (REGISTERED only)."""
+        return self.recording_access == self.RecordingAccessTypes.REGISTERED
 
     def __str__(self):
         return self.name
@@ -1515,7 +1540,12 @@ class Game(models.Model):
         # Match participants can edit non-final match games (unless tournament restricts recording)
         if has_match and not self.final:
             tournament = self.get_tournament()
-            if not tournament or tournament.players_can_record:
+            # Group moderators can always edit their group's non-final match games,
+            # regardless of the tournament's recording_access tier.
+            group = self.match.player_group
+            if group and group.group_moderator_id == profile.id:
+                return EditPermission(True, 'group_moderator')
+            if not tournament or tournament.players_can_record_matches():
                 if Profile.objects.filter(
                     tournament_participations__stage_participations__matchseat__series=self.match.series,
                     pk=profile.pk
@@ -1785,6 +1815,13 @@ class PlayerGroup(models.Model):
         max_length=500,
         blank=True,
         help_text="Video stream/recording URL for this group"
+    )
+    group_moderator = models.ForeignKey(
+        Profile,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='moderated_player_groups',
+        help_text="Profile who can record scheduled games for this group, even if not a tournament moderator or group member."
     )
 
     class VideoPlatformChoices(models.TextChoices):

@@ -15,6 +15,7 @@
 - New card in Faction settings to view the faction in the Forge if linked
 - Tournament Stages can now enable rounds independent of the Tournament
 - Reorganized Tournament settings pages
+- Record game access for Moderators/Scheduled/Registered Players for Series
 
 ### Bug Fixes
 - Expansion image bug where the image could be unintentionally deleted
@@ -23,6 +24,7 @@
 - Bug where games could show up twice in list views
 - Hirelings other_side image now has cache busting and respects language
 - Series player count limit bug restricting when null
+- Can no longer register a player in game of restricted series
 
 ## [1.12.4] - 2026-5-26 Forge Sync
 
