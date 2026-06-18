@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.5] - 2026-6-10 App Features
+## [1.12.5] - 2026-6-18 App Features
 
 ### New Features
 - Added PWA support - Internet connection still required
