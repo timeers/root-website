@@ -1,8 +1,8 @@
 {% load crispy_forms_tags %}
 <!-- Asset Mode Toggle Slider Partial -->
 
-<!-- Hidden form field for asset_mode -->
-<input type="hidden" name="asset_mode" id="asset_mode_input" value="{{ tournament_form.asset_mode.value }}">
+<!-- Hidden form field for asset_mode (defaults to 1 = Open/Any) -->
+<input type="hidden" name="asset_mode" id="asset_mode_input" value="{{ tournament_form.asset_mode.value|default:'1' }}">
 
 <div>
     <label class="form-label fw-bold mb-3">Asset Mode</label>

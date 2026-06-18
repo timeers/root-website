@@ -112,23 +112,8 @@
     </div>
 </div>
 
-<div class="modal fade" id="confirmUnregisteredModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Add Unregistered Player</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <p>Add <strong id="unregistered-player-name"></strong> to <strong>{{ tournament.name }}</strong> as a Registered player and add them to <strong>{{ stage.name }}</strong>?</p>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" id="confirmUnregisteredBtn">Add Player</button>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- Toast container for transient notifications -->
+<div id="toast-container" style="position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 1080;"></div>
 
 {% include 'the_keep/partials/register_player_modal.html' %}
 
@@ -220,23 +205,28 @@ document.body.addEventListener('htmx:afterRequest', function(evt) {
     }
 });
 
-let pendingUnregisteredId = null;
+function showToast(message) {
+    const toast = document.createElement('div');
+    toast.className = 'alert alert-success shadow-sm d-flex align-items-center';
+    toast.style.cssText = 'min-width: 280px; opacity: 0; transition: opacity 0.3s ease;';
+    toast.innerHTML = `<i class="bi bi-check-circle me-2"></i><span>${message}</span>`;
+    document.getElementById('toast-container').appendChild(toast);
 
-function confirmAddUnregistered(playerId, playerName) {
-    pendingUnregisteredId = playerId;
-    document.getElementById('unregistered-player-name').textContent = playerName;
-    new bootstrap.Modal(document.getElementById('confirmUnregisteredModal')).show();
+    // Fade in
+    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+
+    // Fade out and remove
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 2500);
 }
 
-document.getElementById('confirmUnregisteredBtn').addEventListener('click', function() {
-    bootstrap.Modal.getInstance(document.getElementById('confirmUnregisteredModal')).hide();
-    if (pendingUnregisteredId) {
-        movePlayerUnregistered(pendingUnregisteredId);
-        pendingUnregisteredId = null;
-    }
-});
+function confirmAddUnregistered(playerId, playerName) {
+    movePlayerUnregistered(playerId, playerName);
+}
 
-function movePlayerUnregistered(playerId) {
+function movePlayerUnregistered(playerId, playerName) {
     fetch(moveUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
@@ -261,6 +251,8 @@ function movePlayerUnregistered(playerId) {
         }
         updatePlayerCounts();
         refreshSearchResults();
+        const name = playerName ? `${playerName} was` : 'Player';
+        showToast(`${name} added to {{ stage.name|escapejs }} and {{ tournament.name|escapejs }}`);
     })
     .catch(err => console.error(err));
 }
@@ -305,7 +297,7 @@ document.addEventListener('htmx:afterRequest', function(event) {
             successDiv.innerHTML = `<i class="bi bi-check-circle"></i> ${response.message || 'Player registered!'}`;
             errorContainer.appendChild(successDiv);
 
-            movePlayerUnregistered(response.id);
+            movePlayerUnregistered(response.id, response.display_name || response.discord);
 
             setTimeout(() => {
                 bootstrap.Modal.getInstance(document.getElementById('registerPlayerModal')).hide();

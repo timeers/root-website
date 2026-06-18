@@ -1,6 +1,8 @@
 import os
 import uuid
 import calendar
+import secrets
+import hashlib
 
 from urllib.parse import urlparse
 from django.contrib.auth.models import User
@@ -98,6 +100,11 @@ class DiscordGuild(models.Model):
     approval_message = models.TextField(blank=True, null=True)
 
     auto_approve_invite = models.BooleanField(default=False)
+
+    # Whether OUR bot is a member of this guild. Maintained by the
+    # sync_bot_guilds command/task. The bot can only DM users who share
+    # a guild with it, so this gates DM reachability.
+    bot_member = models.BooleanField(default=False, help_text="Whether the bot is a member of this guild.")
 
     # From Discord API
     actual_name = models.CharField(max_length=100, null=True, blank=True)
@@ -408,13 +415,45 @@ class Profile(models.Model):
     designer_onboard = models.BooleanField(default=False)
     admin_onboard = models.BooleanField(default=False)
     forge_onboard = models.BooleanField(default=False)
+    trusted_tournament_host = models.BooleanField(default=False)
     admin_nominated = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='nominated_by')
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')
     credit_link = models.CharField(max_length=400, null=True, blank=True, help_text="User's external link to their other endeavors.")
     date_modified = models.DateTimeField(auto_now=True)
     guilds = models.ManyToManyField(DiscordGuild, related_name="members", help_text="User's known Root Guilds.", blank=True)
+    # Discord DM notification preferences (all opt-in). The bot can only DM
+    # users who share a guild with it; see Profile.can_receive_dms.
+    notify_survey_response = models.BooleanField(default=False)
+    notify_game_recorded = models.BooleanField(default=False)
+    notify_tournament_game_recorded = models.BooleanField(default=False)
+    notify_post_game_recorded = models.BooleanField(default=False)
+    notify_post_approved = models.BooleanField(default=False)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
     cached_winrate = models.FloatField(null=True, blank=True)
+    # Only a hash of the API key is stored, never the key itself (like GitHub/Discord
+    # tokens). The raw key is shown once at generation and is not retrievable afterwards;
+    # a DB leak therefore does not expose usable keys. API keys are high-entropy random
+    # tokens, so a fast SHA-256 is sufficient (unlike low-entropy passwords).
+    api_key_hash = models.CharField(max_length=64, unique=True, null=True, blank=True, db_index=True, help_text="SHA-256 hash of the user's game data API key.")
+    api_key_created = models.DateTimeField(null=True, blank=True, help_text="When the current API key was generated.")
+
+    @staticmethod
+    def hash_api_key(raw_key):
+        """Return the SHA-256 hex digest used to store/look up an API key."""
+        return hashlib.sha256(raw_key.encode()).hexdigest()
+
+    def generate_api_key(self):
+        """Generate (or regenerate) this profile's API key.
+
+        Stores only the hash and returns the raw key. The raw value is returned exactly
+        once here and cannot be recovered later; callers must surface it to the user
+        immediately.
+        """
+        raw_key = secrets.token_urlsafe(32)
+        self.api_key_hash = self.hash_api_key(raw_key)
+        self.api_key_created = timezone.now()
+        self.save(update_fields=['api_key_hash', 'api_key_created'])
+        return raw_key
 
     @property
     def name(self):
@@ -436,7 +475,16 @@ class Profile(models.Model):
             return self.name
         else:
             return f'{self.name} ({self.discord})'
-    
+
+    @property
+    def can_receive_dms(self):
+        """
+        True if the bot shares a guild with this user, which is Discord's
+        requirement for the bot to be able to DM them. Relies on the
+        bot_member flag kept current by sync_bot_guilds.
+        """
+        return self.guilds.filter(bot_member=True).exists()
+
     def save(self, *args, **kwargs):
         # Check for blank display names
         if not self.display_name: 

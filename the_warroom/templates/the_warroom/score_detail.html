@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n custom_filters %}
 {% block title %}{% trans 'Scorecard' %} | {% endblock %}
 {% block content %}
 
@@ -67,7 +67,7 @@
 
         <div>
             <a href="{% url 'faction-detail' object.faction.slug %}">
-                <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
+                <img class="faction-icon" src="{{ object.faction.small_icon|cache_bust:object.faction.small_icon_version }}">
                 {% if object_title %}
                     {{ object_title }}
                 {% else %}

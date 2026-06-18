@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n socialaccount static %}
+{% load i18n socialaccount static custom_filters %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
 {% block meta %}
@@ -46,7 +46,7 @@
                             <span class="text-muted mx-1">&middot;</span>
                         {% endif %}
                         <a href="{{ survey.post.get_absolute_url }}" class="text-decoration-none">
-                            {% if survey.post.small_icon %}<img src="{{ survey.post.small_icon.url }}" alt="" class="faction-icon">{% endif %} {{ survey.post.title }}
+                            {% if survey.post.small_icon %}<img src="{{ survey.post.small_icon|cache_bust:survey.post.small_icon_version }}" alt="" class="faction-icon">{% endif %} {{ survey.post.title }}
                         </a>
                     {% endif %}
                 </small>

@@ -1,6 +1,11 @@
+{% comment %}
+    Page 1 opens the .game-grid container; pages 2+ are appended as flat siblings
+    (hx-swap="afterend") inside that grid, so they must not re-open the wrapper.
+{% endcomment %}
+{% if games.number == 1 %}<div class="game-grid">{% endif %}
 {% for game in games %}
     {% if forloop.last and games.has_next %}
-        <div hx-trigger="revealed" 
+        <div hx-trigger="revealed"
         hx-get="{% url 'round-games-pagination' object.id %}?page={{ games.number|add:1 }}"
         hx-swap="afterend">
     {% else %}
@@ -8,9 +13,9 @@
     {% endif %}
 
 
-    
+
     {% include 'the_warroom/partials/game_detail_button.html' %}
-    
+
 
     </div>
 {% empty %}
@@ -20,3 +25,4 @@
     </div>
 </article>
 {% endfor %}
+{% if games.number == 1 %}</div>{% endif %}

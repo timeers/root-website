@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n custom_filters %}
 <div class="table-responsive">
 <table>
     <thead>
@@ -26,10 +26,10 @@
                 {{ player.win_rate|floatformat:2 }}%
             </td>
             <td>
-                {{ player.tourney_points }}
+                {{ player.tourney_points|intcomma }}
             </td>
             <td>
-                {{ player.total_efforts }}
+                {{ player.total_efforts|intcomma }}
             </td>
         </tr>
 

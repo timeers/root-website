@@ -1,0 +1,45 @@
+{% load crispy_forms_tags %}
+<!-- Recording Access Toggle Slider Partial -->
+
+<!-- Hidden form field for recording_access -->
+<input type="hidden" name="recording_access" id="recording_access_input" value="{{ tournament_form.recording_access.value|default:'moderators' }}">
+
+<div id="recording-access-toggle-container">
+    <label class="form-label fw-bold mb-3">Who Can Record Games</label>
+    <div class="option-toggle option-toggle-3">
+        <div class="option-slider position-1" id="recording-access-slider"></div>
+        <div class="option-item" data-value="moderators" data-position="1">
+            <i class="bi bi-shield-lock me-1"></i>
+            <span class="toggle-text-full">Moderators</span>
+            <span class="toggle-text-short">Mods</span>
+        </div>
+        <div class="option-item" data-value="scheduled" data-position="2">
+            <i class="bi bi-calendar-check me-1"></i>
+            <span class="toggle-text-full">Scheduled</span>
+            <span class="toggle-text-short">Sched</span>
+        </div>
+        <div class="option-item" data-value="registered_players" data-position="3">
+            <i class="bi bi-people me-1"></i>
+            <span class="toggle-text-full">Registered</span>
+            <span class="toggle-text-short">Players</span>
+        </div>
+    </div>
+    <div class="toggle-description" id="recording-access-description">
+        <i class="bi bi-info-circle me-1"></i>
+        <span id="recording-access-description-text"></span>
+    </div>
+</div>
+
+<script>
+initToggle({
+    containerId: 'recording-access-toggle-container',
+    inputId: 'recording_access_input',
+    sliderId: 'recording-access-slider',
+    descriptionId: 'recording-access-description-text',
+    descriptions: {
+        'moderators': 'Only admins, the owner, and moderators can record games.',
+        'scheduled': 'Moderators, plus players in a scheduled match can record that match.',
+        'registered_players': 'Moderators, Scheduled, plus registered players can record standalone games for rounds.'
+    }
+});
+</script>

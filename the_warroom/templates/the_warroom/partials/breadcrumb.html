@@ -17,7 +17,7 @@
             {% endif %}
         {% endif %}
 
-        {% if round and not breadcrumb_hide_round and tournament.use_rounds %}
+        {% if round and not breadcrumb_hide_round and round.stage.use_rounds %}
             {% if breadcrumb_page %}
                 <li class="breadcrumb-item"><a href="{{ round.get_absolute_url }}">{{ round.name }}</a></li>
             {% else %}

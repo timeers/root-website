@@ -52,7 +52,6 @@ def clean_nickname(raw_title):
 
 def get_single_round(tournament, stage):
     use_stages = tournament.use_stages
-    use_rounds = tournament.use_rounds
 
     if not stage and not use_stages:
         only_stage = tournament.stages.first()
@@ -60,6 +59,8 @@ def get_single_round(tournament, stage):
         only_stage = stage
     else:
         only_stage = None
+
+    use_rounds = only_stage.use_rounds if only_stage else False
 
     if not use_rounds and only_stage:
         only_round = only_stage.rounds.first()

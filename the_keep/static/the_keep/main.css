@@ -526,6 +526,137 @@ em, i {
     display: flex;
     gap: 0; /* optional: explicitly removes space */
 }
+
+/* Per-player faction icons on the matches page. The player names stay fixed on
+   the left (.effort-names); only the icon grid (.effort-grid-scroll) scrolls
+   horizontally, as a single unit. Both columns use the same fixed row height so
+   their rows line up. */
+:root {
+  --effort-row-height: 28px;
+}
+
+.effort-names .effort-row,
+.effort-grid > * {
+  height: var(--effort-row-height);
+}
+
+.effort-row {
+  white-space: nowrap;
+}
+
+.effort-names {
+  /* match the scroll container's vertical padding so the name rows line up
+     with the icon-grid rows */
+  padding: 6px 0;
+}
+
+.effort-grid-scroll {
+  /* fill the width left of the names so the grid can be pushed to the right
+     edge (don't rely on the Bootstrap flex-grow-1 utility being present) */
+  flex: 1 1 auto;
+  /* scroll horizontally only when the grid is wider than the available space;
+     auto means no scrollbar (or drag) when everything already fits */
+  overflow-x: auto;
+  overflow-y: hidden; /* height always fits the rows; no vertical scrollbar */
+  min-width: 0; /* allow the flex child to shrink so it can scroll */
+  display: flex;
+  /* breathing room so the (oversized) laurel overlay isn't clipped at the edges
+     (it can spill ~11px left and ~5px up beyond its cell) */
+  padding: 6px 12px;
+}
+
+.effort-grid-scroll > .effort-grid {
+  flex-shrink: 0; /* don't squeeze the fixed-width cells when scrolling */
+  /* right-justify within the card when there's room; on overflow the auto
+     margin collapses to 0 so content scrolls from the left as usual */
+  margin-left: auto;
+}
+
+.effort-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--effort-grid-games), 28px);
+  align-items: center;
+  column-gap: 4px;
+  /* keep the laurel overlay (larger than a cell) from being clipped vertically */
+  overflow: visible;
+}
+
+.effort-grid-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+/* Clickable card hover affordance (also defined inline on the matches page). */
+.group-card {
+  transition: box-shadow 0.2s;
+}
+.group-card:hover {
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Clickable Stage / Round sections on the bracket page.
+   The whole section is a click target via a .stretched-link overlay. The
+   inner match cards must sit above that overlay so they stay independently
+   clickable, hence the raised z-index on .bracket-section .card. */
+.bracket-section {
+  transition: box-shadow 0.2s;
+}
+.bracket-section:hover {
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+/* Only the innermost hovered section shows the shadow: a stage drops its
+   shadow when a round inside it is hovered, and any section drops its shadow
+   when a match card (linked game) inside it is hovered. */
+.bracket-section:has(.bracket-section:hover),
+.bracket-section:has(.group-card:hover) {
+  box-shadow: none;
+}
+.bracket-stretched-link {
+  z-index: 1;
+}
+/* A round sits inside a stage; raise it so its overlay (and its match cards)
+   win clicks over the surrounding stage overlay. */
+.bracket-round {
+  z-index: 2;
+}
+/* Match cards live in a section's card-body; lift the clickable (game-linked)
+   ones above their section's stretched-link overlay so they stay independently
+   clickable. Scoped to .group-card so non-linked match cards (plain divs with
+   no game yet) stay below the overlay and let the round's stretched-link
+   receive the hover/click. */
+.bracket-section .card-body .group-card {
+  position: relative;
+  z-index: 3;
+}
+/* Header icon reacts to hovering anywhere on the section. */
+.bracket-section-header .bi {
+  opacity: 0.6;
+  transition: transform 0.15s, opacity 0.15s, color 0.15s;
+}
+.bracket-section:hover > .bracket-section-header {
+  color: var(--bs-primary);
+}
+.bracket-section:hover > .bracket-section-header .bi {
+  opacity: 1;
+  color: var(--bs-primary);
+}
+.bracket-section:hover > .bracket-section-header .bi.bi-chevron-right {
+  transform: translateX(2px);
+}
+/* Keep the header highlight tied to the innermost hovered section: a stage
+   header stays neutral while a round or match card inside it is hovered. */
+.bracket-section:has(.bracket-section:hover) > .bracket-section-header,
+.bracket-section:has(.group-card:hover) > .bracket-section-header {
+  color: inherit;
+}
+.bracket-section:has(.bracket-section:hover) > .bracket-section-header .bi,
+.bracket-section:has(.group-card:hover) > .bracket-section-header .bi {
+  opacity: 0.6;
+  color: inherit;
+  transform: none;
+}
   
 .centered-icon {
   display: flex;
@@ -2145,6 +2276,36 @@ tr.clickable-row:hover {
   margin: 2em 0;
 }
 
+/* Game list responsive grid: fills columns based on available width.
+   One column on narrow screens, more as the container gets wider. */
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+/* Keep cards from forcing horizontal overflow on very narrow screens */
+@media (max-width: 400px) {
+  .game-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Each game card already has its own margin-bottom (content-section);
+   the grid gap handles spacing, so suppress the doubled bottom margin. */
+.game-grid > div > .post-card,
+.game-grid > .post-card {
+  margin-bottom: 0;
+}
+
+/* Full-width rows inside the grid: the loading spinner and the stats header
+   should span all columns rather than occupying a single cell. */
+.game-grid > #spinner,
+.game-grid > #games-stats {
+  grid-column: 1 / -1;
+}
+
 /* Dashboard Widgets */
 .dashboard-grid {
   display: grid;
@@ -2254,7 +2415,7 @@ tr.clickable-row:hover {
 .section-nav-tabs {
   display: flex;
   row-gap: 0.25rem;
-  column-gap: 2rem;
+  column-gap: 1.25rem;
   align-items: baseline;
   flex-wrap: wrap;
   flex: 1;

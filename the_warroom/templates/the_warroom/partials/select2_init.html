@@ -1,0 +1,32 @@
+{% load i18n %}
+{% trans 'Select Factions' as default_faction_placeholder %}
+<script>
+    // Universal select2 initialization - handles both singular and plural field names
+    const selectPlaceholders = {
+        '#id_faction': "{{ faction_placeholder|default:default_faction_placeholder }}",
+        '#id_factions': "{% trans 'Select Factions' %}",
+        '#id_player': "{% trans 'Select Players' %}",
+        '#id_players': "{% trans 'Select Players' %}",
+        '#id_vagabond': "{% trans 'Select Vagabonds' %}",
+        '#id_vagabonds': "{% trans 'Select Vagabonds' %}",
+        '#id_map': "{% trans 'Select a Map' %}",
+        '#id_deck': "{% trans 'Select a Deck' %}"
+    };
+
+    // Apply select2 only to fields that exist on the page
+    Object.keys(selectPlaceholders).forEach(id => {
+        if ($(id).length) {
+            $(id).select2({
+                placeholder: selectPlaceholders[id],
+                allowClear: true,
+                width: '100%'
+            });
+        }
+    });
+
+    if ($('#id_official').length) {
+        $('#id_official').select2({
+            width: '100%'
+        });
+    }
+</script>

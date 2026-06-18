@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n custom_filters %}
 
 {% block meta %}
     {% include 'the_keep/partials/component_meta.html' %}
@@ -165,14 +165,14 @@
                             {% for faction in official_faction_queryset %}
                                 <div class='centered-icon' style="--icon-width:{{ faction_icon_width }}";>
                                     {% if faction.small_icon %}
-                                        <img class="status-icon" src="{{ faction.small_icon.url }}";>
+                                        <img class="status-icon" src="{{ faction.small_icon|cache_bust:faction.small_icon_version }}";>
                                     {% endif %}
                                 </div>
                             {% endfor %}
                             {% for faction in unplayed_faction_queryset %}
                                 <div class='centered-icon' style="--icon-width:{{ faction_icon_width }}";>
                                     {% if faction.small_icon %}
-                                        <img class="status-icon greyed-out" src="{{ faction.small_icon.url }}">
+                                        <img class="status-icon greyed-out" src="{{ faction.small_icon|cache_bust:faction.small_icon_version }}">
                                     {% endif %}
                                 </div>
                             {% endfor %}
@@ -189,14 +189,14 @@
                             {% for map in official_map_queryset %}
                                 <div class='centered-icon' style="--icon-width:{{ map_icon_width }}";>
                                     {% if map.small_icon %}
-                                    <img class="status-icon" src="{{ map.small_icon.url }}">
+                                    <img class="status-icon" src="{{ map.small_icon|cache_bust:map.small_icon_version }}">
                                     {% endif %}
                                 </div>
                             {% endfor %}
                             {% for map in unplayed_map_queryset %}
                                 <div class='centered-icon' style="--icon-width:{{ map_icon_width }}";>
                                     {% if map.small_icon %}
-                                    <img class="status-icon greyed-out" src="{{ map.small_icon.url }}">
+                                    <img class="status-icon greyed-out" src="{{ map.small_icon|cache_bust:map.small_icon_version }}">
                                     {% endif %}
                                 </div>
                             {% endfor %}
@@ -213,7 +213,7 @@
                             {% for deck in official_deck_queryset %}
                                 <div class='centered-icon' style="--icon-width:{{ deck_icon_width }}";>
                                     {% if deck.small_icon %}
-                                        <img class="status-icon" src="{{ deck.small_icon.url }}">
+                                        <img class="status-icon" src="{{ deck.small_icon|cache_bust:deck.small_icon_version }}">
                                     {% endif %}
                                 </div>
                             {% endfor %}
@@ -221,7 +221,7 @@
                                 {% for deck in unplayed_deck_queryset %}
                                     <div class='centered-icon' style="--icon-width:{{ deck_icon_width }}";>
                                         {% if deck.small_icon %}
-                                            <img class="status-icon greyed-out" src="{{ deck.small_icon.url }}">
+                                            <img class="status-icon greyed-out" src="{{ deck.small_icon|cache_bust:deck.small_icon_version }}">
                                         {% endif %}
                                     </div>
                                 {% endfor %}

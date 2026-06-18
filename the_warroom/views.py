@@ -21,7 +21,7 @@ from django.db import IntegrityError, models
 from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
-from django.utils.translation import get_language
+from django.utils.translation import get_language, gettext as _
 from urllib.parse import quote
 
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
@@ -761,6 +761,12 @@ def _get_match_profiles(match):
     )
 
 
+def _is_group_moderator(profile, match):
+    """True if profile is the group_moderator of this match's player group."""
+    group = match.player_group
+    return bool(group and group.group_moderator_id == profile.id)
+
+
 def _can_record_match(profile, match):
     """Check if profile can record a game for a match."""
     tournament = match.round.get_tournament()
@@ -768,7 +774,11 @@ def _can_record_match(profile, match):
         return True
     if tournament.has_permission(profile):
         return True
-    if not tournament.players_can_record:
+    # Group moderators can always record their group's scheduled games,
+    # regardless of the tournament's recording_access tier.
+    if _is_group_moderator(profile, match):
+        return True
+    if not tournament.players_can_record_matches():
         return False
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
 
@@ -833,7 +843,7 @@ def manage_game_v2(request, id=None):
             # Block players if tournament restricts recording
             if selected_round.stage:
                 _tournament = selected_round.stage.tournament
-                if _tournament and not _tournament.players_can_record:
+                if _tournament and not _tournament.players_can_record_standalone():
                     if not (user.profile.admin or _tournament.has_permission(user.profile)):
                         messages.error(request, "Only tournament moderators can record games for this series.")
                         return redirect('games-home')
@@ -1039,6 +1049,9 @@ def manage_game_v2(request, id=None):
                         f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})',
                         category='New Game', title='Game Recorded', fields=fields
                     )
+                    # DM opted-in players / component designers / tournament hosts
+                    from the_gatehouse.services.notifyservice import notify_game_recorded
+                    notify_game_recorded(parent)
             _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
 
             return redirect(parent.get_absolute_url())
@@ -1661,6 +1674,7 @@ def _tournament_base_context(request, tournament):
         playable_round = None
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
+    has_bracket = Match.objects.filter(round__stage__tournament=tournament).exists()
     has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
     has_players = TournamentPlayer.objects.filter(tournament=tournament).exists()
 
@@ -1678,6 +1692,7 @@ def _tournament_base_context(request, tournament):
         'object': tournament,
         'playable_round': playable_round,
         'can_manage': can_manage,
+        'has_bracket': has_bracket,
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
@@ -1810,7 +1825,7 @@ def tournament_overview_page(request, slug):
     else:
         single_stage = get_single_stage(tournament)
         if single_stage:
-            if tournament.use_rounds:
+            if single_stage.use_rounds:
                 children = Round.objects.filter(stage=single_stage).select_related('stage__tournament').annotate(
                     annotated_game_count=Count(
                         'games',
@@ -2300,10 +2315,9 @@ def tournament_dynamic_create(request):
             if tournament.classification != Tournament.ClassificationTypes.LEAGUE:
                 tournament.guild = None
 
-            use_stages = form.cleaned_data.get('use_stages', False)
-            use_rounds = form.cleaned_data.get('use_rounds', False)
-            tournament.use_stages = use_stages
-            tournament.use_rounds = use_rounds
+            # Stages/rounds are enabled later via the settings hub; a new
+            # tournament starts flat with a single implicit Stage and Round.
+            tournament.use_stages = False
             tournament.save()
             form.save_m2m()  # Save ManyToMany relationships
 
@@ -2316,9 +2330,8 @@ def tournament_dynamic_create(request):
             # Set default assets based on asset_mode and platform
             set_default_tournament_assets(tournament)
 
-            # Determine names for auto-created Stage and Round
-            stage_name = form.cleaned_data.get('stage_name') or 'Stage 1' if use_stages else 'Stage 1'
-            round_name = (form.cleaned_data.get('round_name') or 'Round 1') if use_rounds else 'Round 1'
+            stage_name = 'Stage 1'
+            round_name = 'Round 1'
 
             # Create the initial Stage and Round 1
             stage_kwargs = dict(
@@ -2393,16 +2406,8 @@ def tournament_dynamic_update(request, slug):
                 if tournament.guild is not None and tournament.guild != original.guild:
                     tournament.guild = original.guild
 
-            # Enforce locking: cannot unset use_stages if 2+ stages exist
-            stage_count = original.stages.count()
-            if stage_count >= 2:
-                tournament.use_stages = True
-
-            # Enforce locking: cannot unset use_rounds if any stage has 2+ rounds
-            max_round_count = max((s.rounds.count() for s in original.stages.all()), default=0)
-            if max_round_count >= 2:
-                tournament.use_rounds = True
-
+            # use_stages / use_rounds are managed via the settings hub, not this
+            # form, so there is nothing to lock here.
             tournament.save()
             form.save_m2m()
 
@@ -2419,15 +2424,11 @@ def tournament_dynamic_update(request, slug):
     else:
         form = TournamentDynamicUpdateForm(instance=tournament, user=request.user)
 
-    stage_count = tournament.stages.count()
-    max_round_count = max((s.rounds.count() for s in tournament.stages.all()), default=0)
     context = {
         'form': form,
         'tournament': tournament,
         'is_admin': request.user.profile.admin,
         'action': 'Update',
-        'use_stages_locked': stage_count >= 2,
-        'use_rounds_locked': max_round_count >= 2,
         'moderators': tournament.moderators.all(),
     }
     return render(request, 'the_warroom/tournament_dynamic_form.html', context)
@@ -4039,39 +4040,39 @@ def get_status_info(entity, entity_type, tournament=None, stage=None):
         t = entity.classification
         if entity.is_active:
             if entity.status == CompetitionStatus.COMPLETED:
-                return {'alert_type': 'secondary', 'alert_message': f'{t} is completed', 'icon': 'bi-check-circle-fill'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': f'{t} is completed', 'icon': 'bi-check-circle-fill'}
             if entity.end_date and entity.end_date < now:
-                return {'alert_type': 'secondary', 'alert_message': f'{t} has ended', 'icon': 'bi-clock-history'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': f'{t} has ended', 'icon': 'bi-clock-history'}
             if entity.start_date and entity.start_date > now:
-                return {'alert_type': 'info', 'alert_message': f'{t} is active but has not started yet', 'icon': 'bi-info-circle-fill'}
-            return {'alert_type': 'success', 'alert_message': f'{t} is active and available', 'icon': 'bi-check-circle-fill'}
-        return {'alert_type': 'danger', 'alert_message': f'{t} is inactive and not available', 'icon': 'bi-x-circle-fill'}
+                return {'alert_type': 'info', 'status_word': 'Scheduled', 'alert_message': f'{t} is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'status_word': 'Active', 'alert_message': f'{t} is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'status_word': 'Inactive', 'alert_message': f'{t} is inactive and not available', 'icon': 'bi-x-circle-fill'}
 
     elif entity_type == 'stage':
         if entity.is_active:
             if entity.status == CompetitionStatus.COMPLETED:
-                return {'alert_type': 'secondary', 'alert_message': 'Stage is completed', 'icon': 'bi-check-circle-fill'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': 'Stage is completed', 'icon': 'bi-check-circle-fill'}
             if not tournament.is_active:
-                return {'alert_type': 'warning', 'alert_message': 'Stage is active but tournament is inactive', 'icon': 'bi-exclamation-triangle-fill'}
+                return {'alert_type': 'warning', 'status_word': 'Inactive', 'alert_message': 'Stage is active but tournament is inactive', 'icon': 'bi-exclamation-triangle-fill'}
             if (entity.end_date and entity.end_date < now) or (tournament.end_date and tournament.end_date < now):
-                return {'alert_type': 'secondary', 'alert_message': 'Stage has ended', 'icon': 'bi-clock-history'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': 'Stage has ended', 'icon': 'bi-clock-history'}
             if (entity.start_date and entity.start_date > now) or (tournament.start_date and tournament.start_date > now):
-                return {'alert_type': 'info', 'alert_message': 'Stage is active but has not started yet', 'icon': 'bi-info-circle-fill'}
-            return {'alert_type': 'success', 'alert_message': 'Stage is active and available', 'icon': 'bi-check-circle-fill'}
-        return {'alert_type': 'danger', 'alert_message': 'Stage is inactive', 'icon': 'bi-x-circle-fill'}
+                return {'alert_type': 'info', 'status_word': 'Scheduled', 'alert_message': 'Stage is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'status_word': 'Active', 'alert_message': 'Stage is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'status_word': 'Inactive', 'alert_message': 'Stage is inactive', 'icon': 'bi-x-circle-fill'}
 
     elif entity_type == 'round':
         if entity.is_active:
             if entity.status == CompetitionStatus.COMPLETED:
-                return {'alert_type': 'secondary', 'alert_message': 'Round is completed', 'icon': 'bi-check-circle-fill'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': 'Round is completed', 'icon': 'bi-check-circle-fill'}
             if not tournament.is_active or not stage.is_active:
-                return {'alert_type': 'warning', 'alert_message': 'Round is active but parent is inactive', 'icon': 'bi-exclamation-triangle-fill'}
+                return {'alert_type': 'warning', 'status_word': 'Inactive', 'alert_message': 'Round is active but parent is inactive', 'icon': 'bi-exclamation-triangle-fill'}
             if (entity.end_date and entity.end_date < now) or (stage.end_date and stage.end_date < now) or (tournament.end_date and tournament.end_date < now):
-                return {'alert_type': 'secondary', 'alert_message': 'Round has ended', 'icon': 'bi-clock-history'}
+                return {'alert_type': 'secondary', 'status_word': 'Completed', 'alert_message': 'Round has ended', 'icon': 'bi-clock-history'}
             if (entity.start_date and entity.start_date > now) or (stage.start_date and stage.start_date > now) or (tournament.start_date and tournament.start_date > now):
-                return {'alert_type': 'info', 'alert_message': 'Round is active but has not started yet', 'icon': 'bi-info-circle-fill'}
-            return {'alert_type': 'success', 'alert_message': 'Round is active and available', 'icon': 'bi-check-circle-fill'}
-        return {'alert_type': 'danger', 'alert_message': 'Round is inactive', 'icon': 'bi-x-circle-fill'}
+                return {'alert_type': 'info', 'status_word': 'Scheduled', 'alert_message': 'Round is active but has not started yet', 'icon': 'bi-info-circle-fill'}
+            return {'alert_type': 'success', 'status_word': 'Active', 'alert_message': 'Round is active and available', 'icon': 'bi-check-circle-fill'}
+        return {'alert_type': 'danger', 'status_word': 'Inactive', 'alert_message': 'Round is inactive', 'icon': 'bi-x-circle-fill'}
 
 
 def build_status_hierarchy(entity_type, tournament, stage=None, round_obj=None):
@@ -4098,30 +4099,205 @@ def build_status_hierarchy(entity_type, tournament, stage=None, round_obj=None):
     return hierarchy
 
 
+def _schedule_round_manage_url(tournament, round):
+    """Where the 'Manage Scheduled Matches' link points for a single round,
+    resolved by use_stages × the round's stage use_rounds (the 2x2 routing):
+      (stages, rounds)  -> round-matches-page (full, with stage)
+      (no stages, rounds) -> round-matches-simple (omits stage)
+      (rounds off)      -> stage-matches-page (the stage's flat matches view)
+      (no stages, rounds off) -> tournament-bracket-page (delegates to matches)
+    """
+    stage = round.stage
+    if stage.use_rounds:
+        if tournament.use_stages:
+            return reverse('round-matches-page', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': stage.slug,
+                'round_slug': round.slug,
+            })
+        return reverse('round-matches-simple', kwargs={
+            'tournament_slug': tournament.slug,
+            'round_slug': round.slug,
+        })
+    if tournament.use_stages:
+        return reverse('stage-matches-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+        })
+    return reverse('tournament-bracket-page', kwargs={'slug': tournament.slug})
+
+
+def _schedule_matches_context(tournament, rounds):
+    """Context for the 'Schedule Matches' settings-hub card (League / Game Group).
+
+    `rounds` is an iterable of the schedulable rounds in scope for a hub section.
+    Builds one entry per round with its enabled state and the URLs its row needs.
+    Tournament-classification series use the grouping pipeline instead, so this
+    returns empty for them.
+    """
+    rounds = [r for r in (rounds or []) if r]
+    if tournament.classification == Tournament.ClassificationTypes.TOURNAMENT or not rounds:
+        return {'schedule_rounds': [], 'schedule_round': None, 'matches_enabled': False}
+
+    schedule_rounds = []
+    for r in rounds:
+        schedule_rounds.append({
+            'round': r,
+            'matches_enabled': r.bracket_status == Round.BracketStatusChoices.FINALIZED,
+            'manage_url': _schedule_round_manage_url(tournament, r),
+            'enable_url': reverse('round-enable-matches', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': r.stage.slug,
+                'round_slug': r.slug,
+            }),
+        })
+
+    first = schedule_rounds[0]
+    return {
+        'schedule_rounds': schedule_rounds,
+        # Back-compat single-round values (used by the `{% if schedule_round %}` gate).
+        'schedule_round': first['round'],
+        'matches_enabled': first['matches_enabled'],
+    }
+
+
+def _grouping_step(round):
+    """Map a round's grouping/bracket status to a settings-hub step label."""
+    if not round:
+        return None
+    if round.bracket_status == Round.BracketStatusChoices.FINALIZED:
+        return 'matches_finalized'
+    if round.matches.exists():
+        return 'matches_draft'
+    if round.grouping_status == Round.GroupingStatusChoices.FINALIZED:
+        return 'groups_finalized'
+    if round.player_groups.exists():
+        return 'groups_draft'
+    return 'no_groups'
+
+
+def _settings_level_context(level, tournament, stage=None, round=None, *, is_owner):
+    """Build the card-relevant flags for ONE settings level (a hub section).
+
+    `level` is 'round' | 'stage' | 'series'. Returns a dict consumed by
+    partials/settings_cards.html, namespaced so a section can render without
+    depending on the page's "current object".
+    """
+    from the_tavern.models import Survey
+    from the_warroom.utils import get_single_stage
+
+    ctx = {
+        'level': level,
+        'tournament': tournament,
+        'stage': stage,
+        'round': round,
+        'is_owner': is_owner,
+    }
+
+    if level == 'series':
+        default_stage = get_single_stage(tournament)
+        default_round = default_stage.rounds.first() if default_stage else None
+        tournament_stages = tournament.stages.all().order_by('order')
+        default_stage_rounds = (
+            default_stage.rounds.all().order_by('round_number') if default_stage else None
+        )
+        # When the tournament has no stages and its default stage has no rounds,
+        # the series hub stands in for the (hidden) default stage — surface the
+        # Player Grouping card the same way the stage hub does.
+        grouping_step = None
+        if (
+            default_stage is not None
+            and not default_stage.use_rounds
+            and tournament.classification == "Tournament"
+        ):
+            grouping_step = _grouping_step(default_round)
+        ctx.update({
+            'heading': f'{tournament.name} Settings',
+            'can_manage': is_owner,
+            'survey_count': Survey.objects.filter(series=tournament).count(),
+            'has_games': Game.objects.filter(round__stage__tournament=tournament).exists(),
+            'tournament_stages': tournament_stages,
+            'use_stages_locked': tournament_stages.count() >= 2,
+            'default_stage': default_stage,
+            'default_stage_rounds': default_stage_rounds,
+            'grouping_step': grouping_step,
+        })
+        # Series-level scheduling only for flat (no-stages) series; multi-stage
+        # series schedule per stage on each stage hub instead.
+        series_rounds = list(default_stage_rounds) if (default_stage and not tournament.use_stages) else []
+        ctx.update(_schedule_matches_context(tournament, series_rounds))
+
+    elif level == 'stage':
+        has_match_series = MatchSeries.objects.filter(round__stage=stage).exists()
+        has_game_data = Effort.objects.filter(
+            game__round__stage=stage, game__test_match=False, game__final=True
+        ).exists()
+        grouping_step = None
+        hidden_round = None
+        if not stage.use_rounds and tournament.classification == "Tournament":
+            hidden_round = stage.rounds.first()
+            grouping_step = _grouping_step(hidden_round)
+        stage_rounds = stage.rounds.all().order_by('round_number')
+        ctx.update({
+            'heading': f'{stage.name} Settings',
+            'can_manage': True,  # permission-gated by the calling view
+            'survey_count': Survey.objects.filter(series=tournament, stage=stage).count(),
+            'has_games': Game.objects.filter(round__stage=stage).exists(),
+            'has_advancement_data': has_match_series or has_game_data,
+            'grouping_step': grouping_step,
+            'hidden_round': hidden_round,
+            'stage_rounds': stage_rounds,
+            'use_rounds_locked': stage_rounds.count() >= 2,
+            # Only consumed by the series-level grouping card, but must exist so
+            # the shared footer's `stage|default:section.default_stage` resolves.
+            'default_stage': stage,
+        })
+        # Stage-level scheduling: this stage's rounds (the single hidden default
+        # round when use_rounds is off).
+        ctx.update(_schedule_matches_context(tournament, stage_rounds))
+
+    else:  # round
+        ctx.update({
+            'heading': f'{round.name} Settings',
+            'can_manage': True,  # permission-gated by the calling view
+            'survey_count': Survey.objects.filter(series=tournament, stage=stage).count(),
+            'has_games': Game.objects.filter(round__stage=stage).exists(),
+            'grouping_step': _grouping_step(round),
+        })
+        ctx.update(_schedule_matches_context(tournament, [round]))
+
+    return ctx
+
+
+def _mark_deepest_schedule_section(sections):
+    """Flag only the deepest section so the Schedule Matches card renders once
+    per hub (not duplicated in every stacked parent section). Sections are built
+    deepest-first, so the first one is the deepest."""
+    for i, section in enumerate(sections):
+        section['show_schedule_card'] = (i == 0)
+    return sections
+
+
 @player_onboard_required
 def tournament_settings_hub(request, slug):
     """Settings hub page with links to all tournament management tools."""
-    from the_tavern.models import Survey
     tournament = get_object_or_404(Tournament, slug=slug)
 
     # Permission check
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied()
 
-    survey_count = Survey.objects.filter(series=tournament).count()
-
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
-    has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
+
+    sections = [_settings_level_context('series', tournament, is_owner=is_owner)]
+    _mark_deepest_schedule_section(sections)
 
     context = {
         'object_type': 'Series',
-        'tournament': tournament,
         'object': tournament,  # For template title
-        'survey_count': survey_count,
-        'can_manage': is_owner,
-        'is_owner': is_owner,
-        'has_games': has_games,
+        'tournament': tournament,
+        'sections': sections,
         'status_hierarchy': build_status_hierarchy('tournament', tournament),
     }
     return render(request, 'the_warroom/settings_hub.html', context)
@@ -4147,46 +4323,26 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied()
 
-    from the_tavern.models import Survey
     stage = round.stage
-    survey_count = Survey.objects.filter(series=tournament, stage=stage).count() if stage else Survey.objects.filter(series=tournament).count()
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
-    has_completed_round = stage.rounds.filter(status=CompetitionStatus.COMPLETED).exists() if stage else False
-    has_match_series = MatchSeries.objects.filter(round__stage=stage).exists() if stage else False
-    has_game_data = Effort.objects.filter(
-        game__round__stage=stage, game__test_match=False, game__final=True
-    ).exists() if stage else False
-    has_advancement_data = has_match_series or has_game_data
 
-    has_groups = round.player_groups.exists()
-    grouping_is_finalized = round.grouping_status == Round.GroupingStatusChoices.FINALIZED
-    has_matches = round.matches.exists()
-    bracket_is_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
-    if bracket_is_finalized:
-        grouping_step = 'matches_finalized'
-    elif has_matches:
-        grouping_step = 'matches_draft'
-    elif grouping_is_finalized:
-        grouping_step = 'groups_finalized'
-    elif has_groups:
-        grouping_step = 'groups_draft'
-    else:
-        grouping_step = 'no_groups'
+    # Stacked sections, deepest object first. The Stage section only appears when
+    # stages are enabled (otherwise the stage is the hidden default stage).
+    sections = [_settings_level_context('round', tournament, stage=stage, round=round, is_owner=is_owner)]
+    if tournament.use_stages:
+        sections.append(_settings_level_context('stage', tournament, stage=stage, is_owner=is_owner))
+    sections.append(_settings_level_context('series', tournament, is_owner=is_owner))
+    _mark_deepest_schedule_section(sections)
 
     context = {
+        'object_type': 'Round',
+        'object': round,  # For template title
         'tournament': tournament,
         'round': round,
         'stage': stage,
-        'object': round,  # For template title
-        'object_type': 'Round',
-        'survey_count': survey_count,
-        'can_manage': True,  # Already permission-gated above
-        'is_owner': is_owner,
-        'has_completed_round': has_completed_round,
-        'has_advancement_data': has_advancement_data,
+        'sections': sections,
         'status_hierarchy': build_status_hierarchy('round', tournament, stage=stage, round_obj=round),
-        'grouping_step': grouping_step,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
@@ -4243,25 +4399,18 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
             stage_instance.tournament = tournament
         stage_instance.save()
 
-        # Auto-create first Round when creating a new stage
+        # Auto-create the default first Round when creating a new stage. The
+        # round is always created; the user can rename it or add more rounds
+        # later from the stage settings page after enabling rounds.
         if is_creating:
-            round_name = form.cleaned_data.get('round_name') or 'Round 1'
             Round.objects.create(
                 stage=stage_instance,
-                name=round_name,
+                name='Round 1',
                 round_number=1,
                 start_date=stage_instance.start_date,
             )
 
-        # Save use_rounds to the tournament (locked if any stage has 2+ rounds)
-        max_round_count = max((s.rounds.count() for s in tournament.stages.all()), default=0)
-        if max_round_count < 2:
-            tournament.use_rounds = form.cleaned_data.get('use_rounds', tournament.use_rounds)
-            tournament.save(update_fields=['use_rounds'])
-
         return redirect(stage_instance.get_absolute_url())
-
-    max_round_count = max((s.rounds.count() for s in tournament.stages.all()), default=0)
 
     # Existing stage names in this tournament for frontend duplicate validation
     existing_stage_names = list(
@@ -4277,7 +4426,6 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
         'tournament': tournament,
         'stage': stage_instance,
         'is_creating': is_creating,
-        'use_rounds_locked': max_round_count >= 2,
         'existing_names_json': json.dumps(existing_stage_names),
         'is_bracket_format': current_format in BRACKET_FORMATS,
         'is_double_elim': current_format == FormatChoices.DOUBLE_ELIM,
@@ -4293,7 +4441,7 @@ def stage_overview_page(request, tournament_slug, stage_slug):
     context = _stage_base_context(request, tournament, stage)
     context['active_page'] = 'overview'
 
-    if tournament.use_rounds:
+    if stage.use_rounds:
         children = Round.objects.filter(stage=stage).select_related('stage__tournament').annotate(
             annotated_game_count=Count(
                 'games',
@@ -4428,7 +4576,6 @@ def stage_games_page(request, tournament_slug, stage_slug):
     context = _stage_base_context(request, tournament, stage)
     context.update({
         'active_page': 'games',
-        'active_sub_page': 'games',
         'games': page_obj,
         'page_obj': page_obj,
         'games_count': paginator.count,
@@ -4505,25 +4652,28 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
 
     rounds = stage.rounds.all().order_by('round_number')
     rounds_with_matches = rounds.prefetch_related(
-        'matches__series__player_group__tournament_players__profile',
+        'matches__series__player_group',
+        'matches__series__matches',
+        'matches__series__matchseat_set__stage_participant__tournament_player__profile',
+        'matches__series__winners__tournament_player__profile',
+        'matches__game__efforts__faction',
+        'matches__game__efforts__player',
         'series__player_group',
     )
     has_bracket = Match.objects.filter(round__stage=stage).exists()
-    print(has_bracket)
     context = _stage_base_context(request, tournament, stage)
     context.update({
-        'active_page': 'games',
-        'active_sub_page': 'bracket',
+        'active_page': 'bracket',
         'has_bracket': has_bracket,
         'rounds_with_matches': rounds_with_matches,
     })
     return render(request, 'the_warroom/stage_bracket.html', context)
 
 
-def stage_matches_page(request, tournament_slug, stage_slug):
-    tournament = get_object_or_404(Tournament, slug=tournament_slug)
-    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
-
+def _stage_matches_context(request, tournament, stage):
+    """Build the context for the scheduled-matches view of a stage's single
+    (default) round. Shared by the stage matches page and the tournament
+    bracket page when the tournament has no stages and the stage has no rounds."""
     round = stage.rounds.first()
     match_series = []
     recordable_match_ids = set()
@@ -4546,7 +4696,7 @@ def stage_matches_page(request, tournament_slug, stage_slug):
                 recordable_match_ids = set(
                     Match.objects.filter(round=round).values_list('id', flat=True)
                 )
-            elif tournament.players_can_record:
+            elif tournament.players_can_record_matches():
                 participant_series_ids = MatchSeat.objects.filter(
                     series__round=round,
                     stage_participant__tournament_player__profile=profile
@@ -4556,6 +4706,12 @@ def stage_matches_page(request, tournament_slug, stage_slug):
                         round=round, series_id__in=participant_series_ids
                     ).values_list('id', flat=True)
                 )
+            # Group moderators can always record their group's matches.
+            recordable_match_ids |= set(
+                Match.objects.filter(
+                    round=round, series__player_group__group_moderator=profile
+                ).values_list('id', flat=True)
+            )
             is_participant_series = set(MatchSeat.objects.filter(
                 series__round=round,
                 stage_participant__tournament_player__profile=profile
@@ -4563,8 +4719,7 @@ def stage_matches_page(request, tournament_slug, stage_slug):
 
     context = _stage_base_context(request, tournament, stage)
     context.update({
-        'active_page': 'games',
-        'active_sub_page': 'matches',
+        'active_page': 'bracket',
         'match_series': match_series,
         'recordable_match_ids': recordable_match_ids,
         'is_participant_series': is_participant_series,
@@ -4586,6 +4741,14 @@ def stage_matches_page(request, tournament_slug, stage_slug):
             'round_slug': round.slug,
         })
 
+    return context
+
+
+def stage_matches_page(request, tournament_slug, stage_slug):
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    context = _stage_matches_context(request, tournament, stage)
     return render(request, 'the_warroom/matches.html', context)
 
 
@@ -4694,7 +4857,6 @@ def round_games_page(request, tournament_slug, round_slug, stage_slug=None):
     context = _round_base_context(request, tournament, stage, round)
     context.update({
         'active_page': 'games',
-        'active_sub_page': 'games',
         'games': page_obj,
         'page_obj': page_obj,
         'games_count': paginator.count,
@@ -4785,6 +4947,56 @@ def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
     return render(request, 'the_warroom/round_details.html', context)
 
 
+def _attach_series_effort_grid(series):
+    """Attach per-player faction-icon data to a prefetched MatchSeries.
+
+    For each game in the series (match_number order), a player's effort contributes
+    one faction icon. The icons are shown to the right of each player's row.
+
+    Sets:
+      seat.effort_cells (on each MatchSeat) -> [(game_url, effort_or_None), ...]
+        aligned to the series' games, for the participant in that seat.
+      series.extra_player_rows -> [{'profile', 'cells': [...]}, ...]
+        for players who have an effort in a linked game but are NOT a listed
+        participant (no seat); rendered after the seat list, fainter.
+
+    Reads only prefetched data (matches__game__efforts__faction/player,
+    matchseat_set__...__profile) so it adds no queries and works in both the
+    full-page and edit re-render paths.
+    """
+    games = [m.game for m in series.matches.all() if m.game]   # match_number order = game order
+
+    # per game: player_id -> effort (faction efforts only)
+    per_game_efforts = [
+        {e.player_id: e for e in game.efforts.all() if e.player_id and e.faction_id}
+        for game in games
+    ]
+
+    def cells_for(profile_id):
+        return [
+            (game.get_absolute_url(), per_game_efforts[i].get(profile_id))
+            for i, game in enumerate(games)
+        ]
+
+    seen = set()
+    for seat in series.matchseat_set.all():
+        profile_id = seat.stage_participant.tournament_player.profile_id
+        seen.add(profile_id)
+        seat.effort_cells = cells_for(profile_id)
+
+    # non-participant effort players (have an effort but no seat), in game then seat order
+    extra_rows = []
+    for game in games:
+        for effort in game.efforts.all():
+            p = effort.player
+            if p and effort.faction_id and p.id not in seen:
+                seen.add(p.id)
+                extra_rows.append({'profile': p, 'cells': cells_for(p.id)})
+    series.extra_player_rows = extra_rows
+    series.num_games = len(games)
+    series.has_effort_grid = bool(games)
+
+
 def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     from the_warroom.utils import get_single_stage
 
@@ -4804,8 +5016,13 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     ).prefetch_related(
         'winners__tournament_player__profile',
         'matches__game',
+        'matches__game__efforts__faction',
+        'matches__game__efforts__player',
         'matchseat_set__stage_participant__tournament_player__profile',
     ).order_by('id')
+
+    for series in match_series:
+        _attach_series_effort_grid(series)
 
     recordable_match_ids = set()
     is_participant_series = set()
@@ -4815,7 +5032,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
             recordable_match_ids = set(
                 Match.objects.filter(round=round).values_list('id', flat=True)
             )
-        elif tournament.players_can_record:
+        elif tournament.players_can_record_matches():
             participant_series_ids = MatchSeat.objects.filter(
                 series__round=round,
                 stage_participant__tournament_player__profile=profile
@@ -4825,6 +5042,12 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
                     round=round, series_id__in=participant_series_ids
                 ).values_list('id', flat=True)
             )
+        # Group moderators can always record their group's matches.
+        recordable_match_ids |= set(
+            Match.objects.filter(
+                round=round, series__player_group__group_moderator=profile
+            ).values_list('id', flat=True)
+        )
         is_participant_series = set(MatchSeat.objects.filter(
             series__round=round,
             stage_participant__tournament_player__profile=profile
@@ -4832,8 +5055,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
 
     context = _round_base_context(request, tournament, stage, round)
     context.update({
-        'active_page': 'games',
-        'active_sub_page': 'matches',
+        'active_page': 'bracket',
         'match_series': match_series,
         'recordable_match_ids': recordable_match_ids,
         'is_participant_series': is_participant_series,
@@ -4842,6 +5064,16 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     # Add series edit modal context for managers
     if context.get('can_manage') and context.get('is_bracket_finalized'):
         context.update(_build_series_edit_context(tournament, stage, round))
+        context['create_series_url'] = reverse('round-create-series', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
+        context['delete_series_url'] = reverse('round-delete-series', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
 
     context.update({
         'page_name': round.name,
@@ -4853,72 +5085,42 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
 @player_onboard_required
 def stage_settings_hub(request, tournament_slug, stage_slug):
     """Settings hub page with links to all stage management tools."""
-    from the_tavern.models import Survey
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied()
 
-    survey_count = Survey.objects.filter(series=tournament, stage=stage).count()
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
-    has_games = Game.objects.filter(round__stage=stage).exists()
-    has_completed_round = stage.rounds.filter(status=CompetitionStatus.COMPLETED).exists()
-    has_match_series = MatchSeries.objects.filter(round__stage=stage).exists()
-    has_game_data = Effort.objects.filter(
-        game__round__stage=stage, game__test_match=False, game__final=True
-    ).exists()
-    has_advancement_data = has_match_series or has_game_data
 
-    grouping_step = None
-    hidden_round = None
-    if not tournament.use_rounds and tournament.classification == "Tournament":
-        hidden_round = stage.rounds.first()
-        if hidden_round:
-            has_groups = hidden_round.player_groups.exists()
-            grouping_is_finalized = hidden_round.grouping_status == Round.GroupingStatusChoices.FINALIZED
-            has_matches = hidden_round.matches.exists()
-            bracket_is_finalized = hidden_round.bracket_status == Round.BracketStatusChoices.FINALIZED
-            if bracket_is_finalized:
-                grouping_step = 'matches_finalized'
-            elif has_matches:
-                grouping_step = 'matches_draft'
-            elif grouping_is_finalized:
-                grouping_step = 'groups_finalized'
-            elif has_groups:
-                grouping_step = 'groups_draft'
-            else:
-                grouping_step = 'no_groups'
+    sections = [
+        _settings_level_context('stage', tournament, stage=stage, is_owner=is_owner),
+        _settings_level_context('series', tournament, is_owner=is_owner),
+    ]
+    _mark_deepest_schedule_section(sections)
 
     context = {
+        'object_type': 'Stage',
+        'object': stage,
         'tournament': tournament,
         'stage': stage,
-        'object': stage,
-        'object_type': 'Stage',
-        'survey_count': survey_count,
-        'can_manage': True,  # Already permission-gated above
-        'is_owner': is_owner,
-        'has_games': has_games,
-        'has_completed_round': has_completed_round,
-        'has_advancement_data': has_advancement_data,
+        'sections': sections,
         'status_hierarchy': build_status_hierarchy('stage', tournament, stage=stage),
-        'grouping_step': grouping_step,
-        'hidden_round': hidden_round,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
 
 @login_required
 def stage_grouping_setup_view(request, tournament_slug, stage_slug):
-    """Grouping entry point for stages in use_rounds=False tournaments."""
+    """Grouping entry point for stages with use_rounds=False."""
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied()
 
-    if tournament.use_rounds:
+    if stage.use_rounds:
         return redirect('stage-settings-hub', tournament_slug=tournament_slug, stage_slug=stage_slug)
 
     round = stage.rounds.first()
@@ -5101,31 +5303,48 @@ def stage_move_player(request, tournament_slug, stage_slug):
     })
 
 
-@player_onboard_required
-def tournament_bracket_view(request, slug):
-    """Read-only bracket overview — shows all stages and their bracket status."""
+def tournament_bracket_page(request, slug):
+    """Read-only bracket overview — shows all stages and their bracket status.
+
+    When the tournament has no stages and its single default stage has no
+    rounds, there is nothing to lay out as a bracket — instead show the fuller,
+    editable scheduled-matches view (the same one the stage matches page uses)
+    so moderators can add and edit matches directly."""
     tournament = get_object_or_404(Tournament, slug=slug)
 
-    if not tournament.has_permission(request.user.profile):
-        raise PermissionDenied()
+    if not tournament.use_stages:
+        single_stage = get_single_stage(tournament)
+        if single_stage and not single_stage.use_rounds:
+            context = _stage_matches_context(request, tournament, single_stage)
+            context.update({
+                'active_page': 'bracket',
+                'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
+                'breadcrumb_page': _('Bracket'),
+                # This is the tournament-level bracket URL; the single stage is
+                # hidden from the user, so show the series name, not the stage's.
+                'page_name': tournament.name,
+            })
+            return render(request, 'the_warroom/matches.html', context)
 
     stages = tournament.stages.order_by('order').prefetch_related(
         Prefetch(
             'rounds',
             queryset=Round.objects.order_by('round_number').prefetch_related(
-                'matches__series__player_group__tournament_players__profile',
+                'matches__series__player_group',
+                'matches__series__matches',
+                'matches__series__matchseat_set__stage_participant__tournament_player__profile',
                 'matches__series__winners__tournament_player__profile',
+                'matches__game__efforts__faction',
+                'matches__game__efforts__player',
             ),
         ),
     )
 
-    has_bracket = Match.objects.filter(round__stage__tournament=tournament).exists()
-
-    context = {
-        'tournament': tournament,
+    context = _tournament_base_context(request, tournament)
+    context.update({
+        'active_page': 'bracket',
         'stages': stages,
-        'has_bracket': has_bracket,
-    }
+    })
     return render(request, 'the_warroom/tournament_bracket.html', context)
 
 
@@ -5196,6 +5415,23 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
             round.save(update_fields=['grouping_status', 'grouping_notes', 'bracket_status'])
             messages.success(request, 'Groups reset successfully.')
             return redirect('round-grouping-setup', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
+
+        # Skip grouping - finalize grouping + bracket with no groups, go straight to manual matches
+        elif action == 'skip_grouping':
+            if (round.grouping_status == Round.GroupingStatusChoices.FINALIZED
+                    or round.bracket_status == Round.BracketStatusChoices.FINALIZED):
+                messages.error(request, 'Cannot skip grouping once grouping or the bracket is finalized.')
+                return redirect('round-grouping-setup', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
+            # Clear any draft groups/series/matches so we start clean
+            Match.objects.filter(round=round).delete()
+            MatchSeries.objects.filter(round=round).delete()
+            round.player_groups.all().delete()
+            round.grouping_status = Round.GroupingStatusChoices.FINALIZED
+            round.grouping_notes = ''
+            round.bracket_status = Round.BracketStatusChoices.FINALIZED
+            round.save(update_fields=['grouping_status', 'grouping_notes', 'bracket_status'])
+            messages.success(request, 'Grouping skipped. You can now add matches manually.')
+            return redirect('round-matches-page', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
 
         # Generate/regenerate groups with new settings
         elif action == 'generate':
@@ -5950,6 +6186,32 @@ def round_finalize_bracket(request, tournament_slug, stage_slug, round_slug):
     return JsonResponse({'success': True, 'status': 'finalized'})
 
 
+@login_required
+@require_http_methods(["POST"])
+def round_enable_matches(request, tournament_slug, stage_slug, round_slug):
+    """Enable manual match scheduling for a round without going through grouping.
+
+    Used by League and Game Group tournaments (any non-Tournament classification)
+    so moderators can add matches directly. Finalizes grouping + bracket on the
+    round and redirects to the matches page where the manual tools live.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied
+
+    # Idempotent: if already enabled, just go to the matches page
+    if round.bracket_status != Round.BracketStatusChoices.FINALIZED:
+        round.grouping_status = Round.GroupingStatusChoices.FINALIZED
+        round.bracket_status = Round.BracketStatusChoices.FINALIZED
+        round.save(update_fields=['grouping_status', 'bracket_status'])
+        messages.success(request, 'Match scheduling enabled. You can now add matches.')
+
+    return redirect('round-matches-page', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
+
+
 def _build_series_edit_context(tournament, stage, round):
     """Build context variables needed for the series edit modal on both pages."""
     edit_url = reverse('round-edit-series', kwargs={
@@ -5959,7 +6221,9 @@ def _build_series_edit_context(tournament, stage, round):
     })
 
     # Build series data map (keyed by series id)
-    all_series = MatchSeries.objects.filter(round=round).select_related('player_group').prefetch_related(
+    all_series = MatchSeries.objects.filter(round=round).select_related(
+        'player_group', 'player_group__group_moderator'
+    ).prefetch_related(
         'matchseat_set__stage_participant__tournament_player__profile',
         'matches__game',
     ).order_by('id')
@@ -5990,12 +6254,16 @@ def _build_series_edit_context(tournament, stage, round):
                 'game_final': m.game.final if m.game_id else False,
                 'status': m.status,
             })
+        mod = group.group_moderator if group else None
         series_map[s.id] = {
             'id': s.id,
             'name': group.name if group else (s.name or ''),
             'player_group_id': group.id if group else None,
             'discord_thread': group.discord_thread if group else '',
             'video_link': group.video_link if group else '',
+            'group_moderator_id': mod.id if mod else None,
+            'group_moderator_name': mod.display_name if mod else '',
+            'group_moderator_image': (mod.image.url if mod.image else '') if mod else '',
             'number_of_games': s.number_of_games,
             'is_bye': s.is_bye,
             'status': s.status,
@@ -6034,12 +6302,16 @@ def _build_series_response(series):
     matches = Match.objects.filter(series=series).select_related('game').order_by('match_number')
 
     group = series.player_group
+    mod = group.group_moderator if group else None
     return {
         'id': series.id,
         'name': group.name if group else (series.name or ''),
         'player_group_id': group.id if group else None,
         'discord_thread': group.discord_thread if group else '',
         'video_link': group.video_link if group else '',
+        'group_moderator_id': mod.id if mod else None,
+        'group_moderator_name': mod.display_name if mod else '',
+        'group_moderator_image': (mod.image.url if mod.image else '') if mod else '',
         'number_of_games': series.number_of_games,
         'is_bye': series.is_bye,
         'status': series.status,
@@ -6100,10 +6372,24 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             if video_link and not VIDEO_URL_PATTERN.match(video_link):
                 return JsonResponse({'error': 'Video link must be a YouTube or Twitch link'}, status=400)
 
+            # Group moderator (single Profile, optional). 'group_moderator_id'
+            # absent = leave unchanged; null/empty = clear.
+            update_fields = ['name', 'discord_thread', 'video_link', 'video_platform']
+            if 'group_moderator_id' in data:
+                mod_id = data.get('group_moderator_id')
+                if mod_id:
+                    mod_profile = Profile.objects.filter(pk=mod_id).first()
+                    if not mod_profile:
+                        return JsonResponse({'error': 'Selected group moderator not found'}, status=400)
+                    group.group_moderator = mod_profile
+                else:
+                    group.group_moderator = None
+                update_fields.append('group_moderator')
+
             group.name = name
             group.discord_thread = discord_thread
             group.video_link = video_link
-            group.save(update_fields=['name', 'discord_thread', 'video_link', 'video_platform'])
+            group.save(update_fields=update_fields)
 
         # --- Match scheduled_time updates ---
         for match_data in data.get('matches', []):
@@ -6202,8 +6488,11 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             ).prefetch_related(
                 'winners__tournament_player__profile',
                 'matches__game',
+                'matches__game__efforts__faction',
+                'matches__game__efforts__player',
                 'matchseat_set__stage_participant__tournament_player__profile',
             ).get(pk=series.pk)
+            _attach_series_effort_grid(series_fresh)
 
             if card_type == 'matches':
                 profile = request.user.profile
@@ -6211,7 +6500,7 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     recordable_match_ids = set(
                         Match.objects.filter(round=round).values_list('id', flat=True)
                     )
-                elif tournament.players_can_record:
+                elif tournament.players_can_record_matches():
                     participant_series_ids = MatchSeat.objects.filter(
                         series__round=round,
                         stage_participant__tournament_player__profile=profile
@@ -6223,6 +6512,12 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     )
                 else:
                     recordable_match_ids = set()
+                # Group moderators can always record their group's matches.
+                recordable_match_ids |= set(
+                    Match.objects.filter(
+                        round=round, series__player_group__group_moderator=profile
+                    ).values_list('id', flat=True)
+                )
                 series_index = data.get('series_index', 1)
                 is_participant_series = set(MatchSeat.objects.filter(
                     series__round=round,
@@ -6712,6 +7007,98 @@ def stage_create_quick(request, tournament_slug):
     )
 
     return JsonResponse({'success': True, 'stage_id': stage.id, 'stage_name': stage.name})
+
+
+@login_required
+@require_http_methods(["POST"])
+def tournament_enable_stages(request, tournament_slug):
+    """Enable stages on a tournament and return the rendered 'Stages' card."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if not tournament.use_stages:
+        tournament.use_stages = True
+        tournament.save(update_fields=['use_stages'])
+
+    return render(request, 'the_warroom/partials/stages_card.html', {
+        'tournament': tournament,
+        'tournament_stages': tournament.stages.all().order_by('order'),
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def stage_enable_rounds(request, tournament_slug, stage_slug):
+    """Enable rounds on a stage and return the rendered 'Rounds' card."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if not stage.use_rounds:
+        stage.use_rounds = True
+        stage.save(update_fields=['use_rounds'])
+
+    return render(request, 'the_warroom/partials/rounds_card.html', {
+        'tournament': tournament,
+        'stage': stage,
+        'stage_rounds': stage.rounds.all().order_by('round_number'),
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def tournament_disable_stages(request, tournament_slug):
+    """Disable stages on a tournament and return the rendered 'Enable Stages' card.
+
+    Only allowed when at most one stage exists; the remaining stage becomes the
+    hidden default stage and keeps its rounds/games.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if tournament.stages.count() > 1:
+        return HttpResponseBadRequest("Cannot disable stages while more than one stage exists.")
+
+    if tournament.use_stages:
+        tournament.use_stages = False
+        tournament.save(update_fields=['use_stages'])
+
+    return render(request, 'the_warroom/partials/enable_stages_card.html', {
+        'tournament': tournament,
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def stage_disable_rounds(request, tournament_slug, stage_slug):
+    """Disable rounds on a stage and return the rendered 'Enable Rounds' card.
+
+    Only allowed when at most one round exists; the remaining round becomes the
+    hidden default round and keeps its games.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if stage.rounds.count() > 1:
+        return HttpResponseBadRequest("Cannot disable rounds while more than one round exists.")
+
+    if stage.use_rounds:
+        stage.use_rounds = False
+        stage.save(update_fields=['use_rounds'])
+
+    return render(request, 'the_warroom/partials/enable_rounds_card.html', {
+        'tournament': tournament,
+        'stage': stage,
+    })
 
 
 @login_required

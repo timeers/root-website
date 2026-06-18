@@ -1,4 +1,4 @@
-{% load static i18n %}
+{% load static i18n custom_filters %}
 <tr {% if effort.win %} style="font-weight: bold;" {% endif %}>
     
     <td class="username">
@@ -22,7 +22,7 @@
         {% if effort.faction %}
             <div class="parent me-2 mb-1">
                 <!-- The first image -->
-                <img class="faction-icon image1" src="{{ effort.faction.small_icon.url }}" alt="Faction Icon">
+                <img class="faction-icon image1" src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}" alt="Faction Icon">
 
                 {% if effort.win %}
                     <!-- The second image (overlay) -->
@@ -51,7 +51,7 @@
             <div class="parent me-2">
                 <!-- The first image -->
                 <img class="faction-icon image1" 
-                src="{{ effort.coalition_with.small_icon.url }}"
+                src="{{ effort.coalition_with.small_icon|cache_bust:effort.coalition_with.small_icon_version }}"
                 alt="{{ effort.coalition_with.title }} Icon">
 
                 {% if effort.win %}

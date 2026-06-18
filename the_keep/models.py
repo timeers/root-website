@@ -299,12 +299,14 @@ class Expansion(models.Model):
         # Check if the image field has changed (only works if the instance is already saved)
         if self.pk:  # If the object already exists in the database
             old_instance = Expansion.objects.get(pk=self.pk)
-            # List of fields to check and delete old images if necessary
             field_name = 'picture'
 
             old_image = getattr(old_instance, field_name)
             new_image = getattr(self, field_name)
-            if old_image != new_image:
+            # Only delete the old file when it's being replaced by a different uploaded file.
+            # Comparing by .name avoids ImageFieldFile equality quirks that could
+            # otherwise delete the file when it wasn't actually changing.
+            if old_image and new_image and old_image.name != new_image.name:
                 delete_old_image(old_image)
 
         super().save(*args, **kwargs)
@@ -375,6 +377,7 @@ class Post(models.Model):
     card_image_version = models.PositiveIntegerField(default=0)
     board_2_image_version = models.PositiveIntegerField(default=0)
     card_2_image_version = models.PositiveIntegerField(default=0)
+    small_icon_version = models.PositiveIntegerField(default=0)
 
 
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedposts', through='PostBookmark')
@@ -530,6 +533,7 @@ class Post(models.Model):
                 'board_2_image': 'board_2_image_version',
                 'card_image': 'card_image_version',
                 'card_2_image': 'card_2_image_version',
+                'small_icon': 'small_icon_version',
             }
             for field_name in image_fields:
                 old_image = getattr(old_instance, field_name)
@@ -546,10 +550,13 @@ class Post(models.Model):
                         setattr(self, version_attr, (getattr(self, version_attr) or 0) + 1)
             if old_instance.status == StatusChoices.SUBMITTED and self.status != StatusChoices.SUBMITTED:
                 new_post = True
+                approved_from_submitted = True
             else:
                 new_post = False
+                approved_from_submitted = False
         else:
             new_post = True
+            approved_from_submitted = False
 
 
         if self.color:
@@ -580,7 +587,12 @@ class Post(models.Model):
                     'value': self.designers_list
                 })
             send_rich_discord_message_task.delay(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
-            
+
+            # DM the designer if their submission was just approved (submitted -> dev)
+            if approved_from_submitted:
+                from the_gatehouse.services.notifyservice import notify_post_approved
+                notify_post_approved(self)
+
             # If the designer is registered and the post was submitted by an admin, update the designer's profile
             if self.designer.group == "P":
                 self.designer.group = "E"
@@ -704,13 +716,22 @@ class Post(models.Model):
 
     def get_games_queryset(self):
         Game = apps.get_model('the_warroom', 'Game')
+        Effort = apps.get_model('the_warroom', 'Effort')
         match self.component:
             case "Map" | "Deck" | "Landmark" | "Tweak" | "Hireling":
                 return self.games.order_by('-date_posted')  # Return a queryset directly
             case "Vagabond":
-                return Game.objects.filter(efforts__vagabond=self, efforts__game__final=True)
+                # Use an id__in subquery so games with multiple matching efforts
+                # are not returned more than once (see Profile.get_games_queryset).
+                game_ids = Effort.objects.filter(
+                    vagabond=self, game__final=True
+                ).values_list('game', flat=True)
+                return Game.objects.filter(id__in=game_ids).order_by('-date_posted')
             case "Faction" | "Clockwork":
-                return Game.objects.filter(efforts__faction=self, efforts__game__final=True)
+                game_ids = Effort.objects.filter(
+                    faction=self, game__final=True
+                ).values_list('game', flat=True)
+                return Game.objects.filter(id__in=game_ids).order_by('-date_posted')
 
             case _:
                 return Game.objects.none()  # No games if no component matches

@@ -1,7 +1,8 @@
+{% load custom_filters %}
 <tr{% if can_edit %} data-href="{% url "add-deckgroup" post_slug=post.slug language_code=language_code piece_id=piece.id %}" class="clickable-row"{% endif %}>
     <td>
         {% if piece.small_icon %}
-        <img class="lg-faction-icon" src="{{ piece.small_icon.url }}" alt="{{ piece.name }} Card Back">
+        <img class="lg-faction-icon" src="{{ piece.small_icon|cache_bust:piece.front_version }}" alt="{{ piece.name }} Card Back">
         {% else %}
         None
         {% endif %}

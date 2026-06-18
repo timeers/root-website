@@ -14,35 +14,22 @@
                class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
                 {% trans 'Leaderboard' %}
             </a>
-            <div class="section-nav-tab-group">
-                <a href="{{ round.get_games_url }}"
-                   data-carry-filters="games"
-                   class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
-                    {% trans 'Games' %}
-                </a>
-                {% if has_matches and is_bracket_finalized and active_page == 'games' %}
-                <div class="section-sub-nav">
-                    <a href="{{ round.get_games_url }}"
-                       class="root-title section-sub-tab {% if active_sub_page == 'games' %}active{% endif %}">
-                        {% trans 'All Games' %}
-                    </a>
-                    <a href="{{ round.get_matches_url }}"
-                       class="root-title section-sub-tab {% if active_sub_page == 'matches' %}active{% endif %}">
-                        {% trans 'Scheduled Matches' %}
-                    </a>
-                </div>
-                {% endif %}
-            </div>
-            {% elif has_matches and is_bracket_finalized %}
-            <a href="{{ round.get_matches_url }}"
+            <a href="{{ round.get_games_url }}"
+               data-carry-filters="games"
                class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
                 {% trans 'Games' %}
+            </a>
+            {% endif %}
+            {% if has_matches and is_bracket_finalized %}
+            <a href="{{ round.get_matches_url }}"
+               class="section-nav-tab root-title {% if active_page == 'bracket' %}active{% endif %}">
+                {% trans 'Bracket' %}
             </a>
             {% endif %}
             {% if has_games or has_players %}
             <a href="{{ round.get_roster_url }}"
                class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
-                {% trans 'Roster' %}
+                {% trans 'Players' %}
             </a>
             {% endif %}
             <a href="{{ round.get_details_url }}"

@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n custom_filters %}
 <div class="table-responsive">
 <table>
     <thead>
@@ -16,7 +16,7 @@
             <td>{{ forloop.counter }}</td>
             <td>
 
-                    <img class="faction-icon" src="{{ faction.small_icon.url }}">
+                    <img class="faction-icon" src="{{ faction.small_icon|cache_bust:faction.small_icon_version }}">
                     {% comment %} <img class="faction-icon" src="{{ faction.image_url }}"> {% endcomment %}
 
                     {{ faction.title }}
@@ -26,10 +26,10 @@
                 {{ faction.win_rate|floatformat:2 }}%
             </td>
             <td>
-                {{ faction.tourney_points }}
+                {{ faction.tourney_points|intcomma }}
             </td>
             <td>
-                {{ faction.total_efforts }}
+                {{ faction.total_efforts|intcomma }}
             </td>
         </tr>
 

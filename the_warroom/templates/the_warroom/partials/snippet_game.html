@@ -1,3 +1,4 @@
+{% load custom_filters %}
 <a href="{% url 'game-detail' object.id %}">
 <article class="d-flex content-section">
 {% for effort in object.efforts.all %}
@@ -42,7 +43,7 @@
                         Against
                         {% for effort in object.efforts.all %}
                                 {% if not effort.win %}
-                                        <img class="faction-icon" src="{{ effort.faction.small_icon.url }}">
+                                        <img class="faction-icon" src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}">
                                         {% if effort.player %}
                                                 {{ effort.player.name }} as
                                         {% endif %}

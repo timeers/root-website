@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n custom_filters %}
 {% load survey_filters %}
 {% block title %}{% trans 'Preview Survey' %} - {{ survey.title }} | {% endblock %}
 
@@ -86,7 +86,7 @@
                                                id="q{{ question.id }}_p{{ post.id }}" disabled>
                                         <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
                                             {% if post.small_icon %}
-                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                <img src="{{ post.small_icon|cache_bust:post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                             {% endif %}
                                             {{ post.title }}
                                         </label>
@@ -100,7 +100,7 @@
                                                id="q{{ question.id }}_c{{ choice.id }}" disabled>
                                         <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
                                             {% if choice.post.small_icon %}
-                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                <img src="{{ choice.post.small_icon|cache_bust:choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                             {% endif %}
                                             {{ choice.get_display_text }}
                                         </label>
@@ -129,7 +129,7 @@
                                                id="q{{ question.id }}_p{{ post.id }}" disabled>
                                         <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_p{{ post.id }}">
                                             {% if post.small_icon %}
-                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                <img src="{{ post.small_icon|cache_bust:post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                             {% endif %}
                                             {{ post.title }}
                                         </label>
@@ -143,7 +143,7 @@
                                                id="q{{ question.id }}_c{{ choice.id }}" disabled>
                                         <label class="form-check-label d-flex align-items-center" for="q{{ question.id }}_c{{ choice.id }}">
                                             {% if choice.post.small_icon %}
-                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                <img src="{{ choice.post.small_icon|cache_bust:choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                             {% endif %}
                                             {{ choice.get_display_text }}
                                         </label>
@@ -252,7 +252,7 @@
                                         <div class="list-group-item d-flex align-items-center">
                                             <i class="bi bi-grip-vertical me-2"></i>
                                             {% if post.small_icon %}
-                                                <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                <img src="{{ post.small_icon|cache_bust:post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                             {% endif %}
                                             {{ post.title }}
                                         </div>
@@ -263,7 +263,7 @@
                                         <div class="list-group-item d-flex align-items-center">
                                             <i class="bi bi-grip-vertical me-2"></i>
                                             {% if choice.post.small_icon %}
-                                                <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                                <img src="{{ choice.post.small_icon|cache_bust:choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                             {% endif %}
                                             {{ choice.get_display_text }}
                                         </div>

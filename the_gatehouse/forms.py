@@ -79,6 +79,25 @@ class ProfileUpdateForm(forms.ModelForm):
 
         return cleaned_data
 
+class DiscordNotificationsForm(forms.ModelForm):
+    class Meta:
+        model = Profile
+        fields = [
+            'notify_survey_response',
+            'notify_game_recorded',
+            'notify_tournament_game_recorded',
+            'notify_post_game_recorded',
+            'notify_post_approved',
+        ]
+        labels = {
+            'notify_survey_response': _('Survey response received'),
+            'notify_game_recorded': _('A game I played in is recorded'),
+            'notify_tournament_game_recorded': _('A game is recorded for a tournament I host'),
+            'notify_post_game_recorded': _('A game using my component is recorded'),
+            'notify_post_approved': _('My submitted component is approved'),
+        }
+
+
 class UserManageForm(forms.ModelForm):
     STATUS_CHOICES = [
         ('B', 'Banned'),

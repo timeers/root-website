@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% block title %}In Progress | {% endblock %}
-{% load i18n %}
+{% load i18n custom_filters %}
 {% block content %}
 {% include 'the_warroom/partials/warroom_nav_header.html' with active_page='in-progress' %}
 
@@ -53,7 +53,7 @@
                     {% for object in in_progress_scorecards %}
                     <tr data-href="{{ object.get_absolute_url }}" class="clickable-row">
                         <td>
-                            <img class="faction-icon" src="{{ object.faction.small_icon.url }}">
+                            <img class="faction-icon" src="{{ object.faction.small_icon|cache_bust:object.faction.small_icon_version }}">
                             {% if object.selected_title %}
                                 {{ object.selected_title }}
                             {% else %}
@@ -101,9 +101,11 @@
 
         </div>
     </article>
+        <div class="game-grid">
         {% for game in in_progress_games %}
             {% include 'the_warroom/partials/game_detail_button.html' %}
         {% endfor %}
+        </div>
 
 {% endif %}
 

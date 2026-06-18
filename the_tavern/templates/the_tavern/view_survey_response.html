@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n survey_filters %}
+{% load i18n survey_filters custom_filters %}
 {% block title %}{% trans 'Your Response' %}: {{ survey.title }} | {% endblock %}
 
 {% block content %}
@@ -81,14 +81,14 @@
                             {% elif answer.selected_choice %}
                                 <div class="d-flex align-items-center">
                                     {% if answer.selected_choice.post and answer.selected_choice.post.small_icon %}
-                                        <img src="{{ answer.selected_choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                        <img src="{{ answer.selected_choice.post.small_icon|cache_bust:answer.selected_choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                     {% endif %}
                                     {{ answer.selected_choice.get_display_text }}
                                 </div>
                             {% elif answer.selected_post %}
                                 <div class="d-flex align-items-center">
                                     {% if answer.selected_post.small_icon %}
-                                        <img src="{{ answer.selected_post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                        <img src="{{ answer.selected_post.small_icon|cache_bust:answer.selected_post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                     {% endif %}
                                     {{ answer.selected_post.title }}
                                 </div>
@@ -100,7 +100,7 @@
                                 {% for choice in answer.selected_choices.all %}
                                     <li class="d-flex align-items-center mb-1">
                                         {% if choice.post and choice.post.small_icon %}
-                                            <img src="{{ choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            <img src="{{ choice.post.small_icon|cache_bust:choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                         {% endif %}
                                         {{ choice.get_display_text }}
                                     </li>
@@ -108,7 +108,7 @@
                                 {% for post in answer.selected_posts.all %}
                                     <li class="d-flex align-items-center mb-1">
                                         {% if post.small_icon %}
-                                            <img src="{{ post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            <img src="{{ post.small_icon|cache_bust:post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                         {% endif %}
                                         {{ post.title }}
                                     </li>
@@ -194,7 +194,7 @@
                                     <li class="d-flex align-items-center mb-1">
                                         <span class="ranking-number me-2">{{ forloop.counter }}</span>
                                         {% if ranked.choice.post and ranked.choice.post.small_icon %}
-                                            <img src="{{ ranked.choice.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            <img src="{{ ranked.choice.post.small_icon|cache_bust:ranked.choice.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                         {% endif %}
                                         {{ ranked.choice.get_display_text }}
                                     </li>
@@ -203,7 +203,7 @@
                                     <li class="d-flex align-items-center mb-1">
                                         <span class="ranking-number me-2">{{ forloop.counter }}</span>
                                         {% if ranked.post.small_icon %}
-                                            <img src="{{ ranked.post.small_icon.url }}" alt="" class="mx-2 md-faction-icon">
+                                            <img src="{{ ranked.post.small_icon|cache_bust:ranked.post.small_icon_version }}" alt="" class="mx-2 md-faction-icon">
                                         {% endif %}
                                         {{ ranked.post.title }}
                                     </li>

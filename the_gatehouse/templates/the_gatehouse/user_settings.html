@@ -67,5 +67,116 @@
         </form>
         </fieldset>
 
+    {% if user.profile.player %}
+    <div class="row g-3">
+      <div class="col-lg-6">
+    <fieldset class="mb-3 h-100">
+        <legend class="border-bottom mb-4 mt-2">{% trans 'Game List API Key' %}</legend>
+
+        <p class="text-secondary">
+            {% trans 'Use a personal API key to filter and download game data.' %}
+        </p>
+
+        {# The freshly generated key is injected here by JS; shown once, never re-fetched. #}
+        <div id="api-key-reveal" class="alert alert-warning" style="display:none;">
+            <strong><i class="bi bi-exclamation-triangle"></i> {% trans 'Copy your key now — it will not be shown again.' %}</strong>
+            <div class="input-group mt-2">
+                <input type="text" class="form-control" id="api-key-field" readonly>
+                <button type="button" class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('api-key-field').value)">
+                    <i class="bi bi-clipboard"></i> {% trans 'Copy' %}
+                </button>
+            </div>
+        </div>
+
+        <div id="api-key-status" class="alert alert-secondary" {% if new_api_key %}style="display:none;"{% endif %}>
+            {% if has_api_key %}
+                {% trans 'API key active.' %}
+                {% if api_key_created %}<span class="text-muted">({% trans 'generated' %} {{ api_key_created|date:"Y-m-d" }})</span>{% endif %}
+                <br>{% trans 'For security the key is stored hashed and cannot be shown again. Regenerate if you have lost it.' %}
+            {% else %}
+                {% trans 'You have not generated an API key yet.' %}
+            {% endif %}
+        </div>
+
+        <div class="d-flex gap-2 mb-3 justify-content-center">
+            <button type="button" id="generate-api-key-btn" class="btn btn-sm btn-primary"
+                    data-url="{% url 'generate-api-key' %}"
+                    data-has-key="{% if has_api_key %}1{% else %}0{% endif %}">
+                {% if has_api_key %}{% trans 'Regenerate Key' %}{% else %}{% trans 'Generate Key' %}{% endif %}
+            </button>
+            <a href="{% url 'api-game-list' %}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-box-arrow-up-right"></i> {% trans 'Go to API' %}
+            </a>
+        </div>
+
+        <script>
+        (function () {
+            var btn = document.getElementById('generate-api-key-btn');
+            btn.addEventListener('click', function () {
+                if (btn.dataset.hasKey === '1' &&
+                    !confirm('{% trans "Generating a new key will invalidate your current one. Continue?" %}')) {
+                    return;
+                }
+                btn.disabled = true;
+                fetch(btn.dataset.url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': '{{ csrf_token }}',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                })
+                .then(function (resp) { return resp.json(); })
+                .then(function (data) {
+                    document.getElementById('api-key-field').value = data.api_key;
+                    document.getElementById('api-key-reveal').style.display = '';
+                    document.getElementById('api-key-status').style.display = 'none';
+                    btn.textContent = '{% trans "Regenerate Key" %}';
+                    btn.dataset.hasKey = '1';
+                    btn.disabled = false;
+                })
+                .catch(function () {
+                    btn.disabled = false;
+                    alert('{% trans "Could not generate a key. Please try again." %}');
+                });
+            });
+        })();
+        </script>
+
+        <details class="text-secondary">
+            <summary>{% trans 'How to use' %}</summary>
+            <p class="mt-2">
+                {% trans 'Send your key in the Authorization header:' %}
+            </p>
+            <pre class="bg-light p-2"><code>curl -H "Authorization: Api-Key YOUR_KEY" \
+  "{{ request.scheme }}://{{ request.get_host }}{% url 'api-game-list' %}?page_size=50"</code></pre>
+            <p>
+                {% trans 'Filters (multi-select filters may be repeated):' %}<br>
+                <code>?factions=&vagabonds=&players=&landmarks=&hirelings=</code><br>
+                <code>?map=&deck=&tournament=&recorder=&type=&platform=</code><br>
+                <code>?landmarks_present=&hirelings_present=&date_after=&date_before=&official=</code><br>
+                {% trans 'Page through results by following the "next" URL until null.' %}
+                <br>
+                Max page size: 500
+            </p>
+
+        </details>
+    </fieldset>
+      </div>
+
+      <div class="col-lg-6">
+    <fieldset class="mb-3 h-100">
+        <legend class="border-bottom mb-4 mt-2">{% trans 'Discord Notifications' %}</legend>
+        <p class="text-secondary">
+            {% trans 'Choose which events you want to send you a Discord message.' %}
+        </p>
+        <div class="d-flex gap-2 mb-3 justify-content-center">
+            <a href="{% url 'discord-notifications' %}" class="btn btn-sm btn-primary">
+                <i class="bi bi-discord"></i> {% trans 'Manage Discord Notifications' %}
+            </a>
+        </div>
+    </fieldset>
+      </div>
+    </div>
+    {% endif %}
     </div>
 {% endblock content %}

@@ -1,8 +1,31 @@
 # api_views.py
 from django.http import JsonResponse
+from django.db.models import Q
 from .models import Round, StageParticipant, TournamentPlayer
 from the_gatehouse.models import Profile
 from django.shortcuts import get_object_or_404
+
+
+def search_profiles(request):
+    """JSON endpoint: search profiles by display name / discord for pickers."""
+    if not request.user.is_authenticated:
+        return JsonResponse({'results': []})
+    query = request.GET.get('q', '').strip()
+    if not query:
+        return JsonResponse({'results': []})
+    profiles = Profile.objects.filter(
+        Q(display_name__icontains=query) | Q(discord__icontains=query)
+    ).order_by('display_name')[:10]
+    return JsonResponse({
+        'results': [
+            {
+                'id': p.id,
+                'display_name': p.display_name,
+                'image_url': p.image.url if p.image else '',
+            }
+            for p in profiles
+        ]
+    })
 
 
 def get_options_for_tournament(request, pk):
@@ -65,4 +88,5 @@ def get_options_for_tournament(request, pk):
         'players': players_data,
         'platform': platform,
         'link_required': tournament.link_required,
+        'open_roster': tournament.open_roster,
     })

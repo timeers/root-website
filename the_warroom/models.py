@@ -145,6 +145,10 @@ class Tournament(models.Model):
         LEAGUE = "League"
         TOURNAMENT = "Tournament"
         GROUP = "Game Group"
+    class RecordingAccessTypes(models.TextChoices):
+        MODERATORS = "moderators", "Moderators Only"
+        SCHEDULED = "scheduled", "Scheduled Match Players"
+        REGISTERED = "registered_players", "Registered Players"
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
     designer = models.ForeignKey(
@@ -181,7 +185,17 @@ class Tournament(models.Model):
     # Access & Roster
     guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this League with a Guild to allow members to record games')
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to a game. If disabled, only registered players will be available.')
-    players_can_record = models.BooleanField(default=True, help_text='Allow registered players to record games. If disabled, only admins, the owner, and moderators can record games.')
+    recording_access = models.CharField(
+        max_length=20,
+        choices=RecordingAccessTypes.choices,
+        default=RecordingAccessTypes.MODERATORS,
+        help_text=(
+            'Who can record game results. Moderators Only: only admins, owner, and '
+            'moderators. Scheduled Match Players: the above, plus players in a scheduled '
+            'match can record that match. Registered Players: the above, plus registered '
+            'players can record standalone games for rounds.'
+        ),
+    )
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)
@@ -233,7 +247,6 @@ class Tournament(models.Model):
     slug = models.SlugField(unique=True, null=True, blank=True)
 
     use_stages = models.BooleanField(default=False, help_text='Enable if you want multiple stages.')
-    use_rounds = models.BooleanField(default=False, help_text='Enable if you want multiple rounds for each stage.')
 
     is_active = models.BooleanField(
         default=True,
@@ -289,6 +302,17 @@ class Tournament(models.Model):
     def has_permission(self, profile):
         """Check if profile is designer, moderator, or admin."""
         return profile.admin or profile == self.designer or self.moderators.filter(pk=profile.pk).exists()
+
+    def players_can_record_matches(self):
+        """Seated players may record their own scheduled match (SCHEDULED + REGISTERED)."""
+        return self.recording_access in (
+            self.RecordingAccessTypes.SCHEDULED,
+            self.RecordingAccessTypes.REGISTERED,
+        )
+
+    def players_can_record_standalone(self):
+        """Registered players may record standalone games for rounds (REGISTERED only)."""
+        return self.recording_access == self.RecordingAccessTypes.REGISTERED
 
     def __str__(self):
         return self.name
@@ -503,6 +527,8 @@ class Stage(models.Model):
 
     name = models.CharField(max_length=100)
     order = models.PositiveIntegerField()
+
+    use_rounds = models.BooleanField(default=False, help_text='Enable if this stage has multiple rounds.')
 
     stage_format = models.CharField(
         max_length=32,
@@ -983,6 +1009,12 @@ class Round(models.Model):
             return self.stage.tournament
         return self.tournament
 
+    @property
+    def is_bracket_finalized(self):
+        """True once this round's bracket is finalized and its matches are live.
+        Mirrors the gate used on the matches page (_stage_matches_context)."""
+        return self.bracket_status == self.BracketStatusChoices.FINALIZED
+
     def _stage_slug(self):
         return self.stage.slug if self.stage else None
 
@@ -996,11 +1028,11 @@ class Round(models.Model):
         tournament = self.stage.tournament
 
         # No stages and no rounds — link to tournament
-        if not tournament.use_stages and not tournament.use_rounds:
+        if not tournament.use_stages and not self.stage.use_rounds:
             return tournament.get_absolute_url()
 
         # No rounds — link to stage
-        if not tournament.use_rounds:
+        if not self.stage.use_rounds:
             return self.stage.get_absolute_url()
 
         # No stages (simple round mode) — use simplified URL
@@ -1239,9 +1271,9 @@ class Round(models.Model):
 
         if self.stage:
             tournament = self.stage.tournament
-            if tournament.use_rounds and tournament.use_stages:
+            if self.stage.use_rounds and tournament.use_stages:
                 return f"{self.stage.tournament.name} - {self.stage.name} - {self.name}"
-            elif tournament.use_rounds:
+            elif self.stage.use_rounds:
                 return f'{tournament.name} - {self.name}'
             elif tournament.use_stages:
                 return f'{tournament.name} - {self.stage.name}'
@@ -1363,6 +1395,30 @@ class Match(models.Model):
             raise ValidationError("The assigned game must belong to the same round as the match.")
 
     @property
+    def display_status(self):
+        """Status for display purposes. A match that hasn't started but has a
+        scheduled time reads as 'Scheduled' rather than the stored 'Pending'."""
+        if self.status == CompetitionStatus.PENDING and self.scheduled_time:
+            return "Scheduled"
+        return self.status
+
+    @property
+    def series_position(self):
+        """This match's 1-based game number within its multi-game series, or
+        None for single-game series. Reads from ``series.matches`` so a
+        prefetched set is reused instead of issuing a query."""
+        if not self.series_id or self.series.number_of_games <= 1:
+            return None
+        siblings = sorted(
+            self.series.matches.all(),
+            key=lambda m: (m.match_number is None, m.match_number),
+        )
+        for index, sibling in enumerate(siblings, start=1):
+            if sibling.pk == self.pk:
+                return index
+        return None
+
+    @property
     def winners(self):
         """Players who won the game linked to this match."""
         if not self.game_id:
@@ -1411,7 +1467,7 @@ class Game(models.Model):
 
 
     # Automatic
-    date_posted = models.DateTimeField(default=timezone.now)
+    date_posted = models.DateTimeField(default=timezone.now, db_index=True)
     date_modified = models.DateTimeField(auto_now=True)
     recorder = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='games_recorded')
 
@@ -1490,7 +1546,12 @@ class Game(models.Model):
         # Match participants can edit non-final match games (unless tournament restricts recording)
         if has_match and not self.final:
             tournament = self.get_tournament()
-            if not tournament or tournament.players_can_record:
+            # Group moderators can always edit their group's non-final match games,
+            # regardless of the tournament's recording_access tier.
+            group = self.match.player_group
+            if group and group.group_moderator_id == profile.id:
+                return EditPermission(True, 'group_moderator')
+            if not tournament or tournament.players_can_record_matches():
                 if Profile.objects.filter(
                     tournament_participations__stage_participations__matchseat__series=self.match.series,
                     pk=profile.pk
@@ -1760,6 +1821,13 @@ class PlayerGroup(models.Model):
         max_length=500,
         blank=True,
         help_text="Video stream/recording URL for this group"
+    )
+    group_moderator = models.ForeignKey(
+        Profile,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='moderated_player_groups',
+        help_text="Profile who can record scheduled games for this group, even if not a tournament moderator or group member."
     )
 
     class VideoPlatformChoices(models.TextChoices):

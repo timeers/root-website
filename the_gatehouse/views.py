@@ -23,7 +23,7 @@ from django.views.generic import ListView
 from the_warroom.models import Tournament, Round, Effort, Game
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday
 from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
@@ -87,11 +87,57 @@ def user_settings(request):
         p_form = ProfileUpdateForm(instance=request.user.profile)
 
     context = {
-        # 'u_form': u_form, 
-        'p_form': p_form
+        # 'u_form': u_form,
+        'p_form': p_form,
+        'has_api_key': bool(request.user.profile.api_key_hash),
+        'api_key_created': request.user.profile.api_key_created,
+        # Raw key is shown exactly once, right after generation; read-and-clear so a page
+        # refresh does not show it again (it is not stored anywhere we can re-read it).
+        'new_api_key': request.session.pop('new_api_key', None),
     }
 
     return render(request, 'the_gatehouse/user_settings.html', context)
+
+
+@login_required
+def discord_notification_settings(request):
+    profile = request.user.profile
+    if request.method == 'POST':
+        form = DiscordNotificationsForm(request.POST, instance=profile)
+        if form.is_valid():
+            form.save()
+            messages.success(request, _('Notification preferences updated!'))
+            return redirect('discord-notifications')
+    else:
+        form = DiscordNotificationsForm(instance=profile)
+
+    context = {
+        'form': form,
+        # The bot can only DM users who share a guild with it.
+        'can_receive_dms': profile.can_receive_dms,
+    }
+    return render(request, 'the_gatehouse/discord_notifications.html', context)
+
+
+@login_required
+def generate_api_key(request):
+    if request.method != 'POST':
+        return redirect('user-settings')
+
+    # generate_api_key() returns the raw key exactly once (only its hash is stored).
+    raw_key = request.user.profile.generate_api_key()
+
+    # AJAX: return the key inline so the page can show it without a reload or banner.
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        return JsonResponse({
+            'api_key': raw_key,
+            'created': request.user.profile.api_key_created.strftime('%Y-%m-%d'),
+        })
+
+    # Non-JS fallback: stash the key for a one-time display, then redirect (PRG).
+    request.session['new_api_key'] = raw_key
+    messages.success(request, _('A new API key has been generated. Copy it now — it will not be shown again.'))
+    return redirect('user-settings')
 
 
 
@@ -181,7 +227,7 @@ def editor_required_class_based_view(view_class):
 
 
 def forge_onboard_required(view_func):
-    @login_required
+    @player_onboard_required
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         profile = request.user.profile

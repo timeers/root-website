@@ -142,7 +142,7 @@
             </div>
             {% endif %}
 
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 align-items-center flex-wrap">
                 {% if groups %}
                 <button type="button" class="btn btn-primary btn-sm" onclick="confirmRegenerate()"
                         {% if total_players == 0 %}disabled{% endif %}>
@@ -153,8 +153,20 @@
                     <i class="bi bi-columns-gap"></i> {% trans 'Generate Groups' %}
                 </button>
                 {% endif %}
+                {% if not is_finalized and not is_bracket_finalized %}
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="confirmSkipGrouping()">
+                    <i class="bi bi-fast-forward"></i> {% trans 'Skip grouping & add matches manually' %}
+                </button>
+                {% endif %}
             </div>
         </form>
+
+        {% if not is_finalized and not is_bracket_finalized %}
+        <form method="post" id="skipGroupingForm" class="d-none">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="skip_grouping">
+        </form>
+        {% endif %}
     </div>
     </div>
 {% endif %}
@@ -253,6 +265,25 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
                 <button type="button" class="btn btn-primary" onclick="submitRegenerate()">{% trans 'Regenerate' %}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Skip Grouping Confirmation Modal -->
+<div class="modal fade" id="skipGroupingModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-fast-forward"></i> {% trans 'Skip Grouping' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>{% trans 'This skips player grouping and bracket generation. Any existing draft groups will be cleared, and you will be taken to the matches page where you can add matches manually.' %}</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" onclick="submitSkipGrouping()">{% trans 'Skip & Add Matches' %}</button>
             </div>
         </div>
     </div>
@@ -812,6 +843,16 @@ function submitClearGroups() {
     bootstrap.Modal.getInstance(document.getElementById('clearGroupsModal'))?.hide();
     document.querySelector('form [name="action"][value="reset_session"]')
         ?.closest('form').submit();
+}
+
+function confirmSkipGrouping() {
+    const modal = new bootstrap.Modal(document.getElementById('skipGroupingModal'));
+    modal.show();
+}
+
+function submitSkipGrouping() {
+    bootstrap.Modal.getInstance(document.getElementById('skipGroupingModal'))?.hide();
+    document.getElementById('skipGroupingForm')?.submit();
 }
 </script>
 {% endif %}

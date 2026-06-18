@@ -29,6 +29,7 @@
     <link rel="icon" href="{% static 'images/favicon.png' %}" type="image/png">
     <!-- Apple Bookmark Icon -->
     <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}" type="image/png">
+    <link rel="manifest" href="/manifest.json">
 
     {% block styles %}{% endblock styles %}
     {% block head %}{% endblock head %}
@@ -325,6 +326,14 @@
     document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('.alert-stack-wrapper').forEach(initAlertStack);
     });
+</script>
+
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+        });
+    }
 </script>
 
   </body>

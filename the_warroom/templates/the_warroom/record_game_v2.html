@@ -285,6 +285,10 @@
 const matchMode = {{ match_mode|yesno:"true,false" }};
 
 {% if not match_mode %}
+// Whether new players may be registered from the player dropdown. Disabled when
+// the selected round's tournament has open_roster=False.
+window.allowPlayerRegistration = true;
+
 // Reusable function to add register button listener to a select element
 function addRegisterButtonListener(selectElement) {
     selectElement.on('select2:open', function(e) {
@@ -297,7 +301,7 @@ function addRegisterButtonListener(selectElement) {
             setTimeout(() => {
                 $('.register-player-btn-container').remove();
 
-                if (searchTerm.length > 0) {
+                if (searchTerm.length > 0 && window.allowPlayerRegistration) {
                     const results = select2.$results.find('.select2-results__option:not(.select2-results__message)');
                     let hasExactMatch = false;
 
@@ -681,6 +685,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     linkNote.style.display = data.link_required ? '' : 'none';
                 }
 
+                // Disable the "Register new player" button when the tournament
+                // restricts its roster (open_roster=False).
+                window.allowPlayerRegistration = !!data.open_roster;
+
                 setTimeout(() => {
                     const platformValue = platformSelect.value;
                     const timingBlock = document.getElementById("timing-field");
@@ -802,6 +810,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Hide link required note when round is cleared
                 const linkNote = document.getElementById('link-required-note');
                 if (linkNote) linkNote.style.display = 'none';
+                // No tournament selected — allow registering new players again.
+                window.allowPlayerRegistration = true;
             }
         });
     }

@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n custom_filters %}
 {# Survey Basic Information Card - Shared between create and edit survey #}
 <div class="card mb-2">
     <div class="card-header">
@@ -231,7 +231,7 @@
                                     <option value="">{% trans 'No post association' %}</option>
                                     {% for post in user_posts %}
                                         {% if post.small_icon %}
-                                            <option value="{{ post.id }}" data-icon="{{ post.small_icon.url|default:'' }}" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
+                                            <option value="{{ post.id }}" data-icon="{{ post.small_icon|cache_bust:post.small_icon_version }}" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
                                         {% else %}
                                             <option value="{{ post.id }}" data-icon="" {% if survey.post_id == post.id %}selected{% endif %}>{{ post.title }}</option>
                                         {% endif %}

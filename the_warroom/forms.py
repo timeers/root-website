@@ -122,14 +122,8 @@ class GameCreateForm(forms.ModelForm):
                 ).exclude(
                     end_date__lt=now
                 ).exclude(
-                    # Hide bracket rounds from regular players (moderators/designers can still see them)
-                    Q(series__isnull=False),
-                    # Removed for now. Should add match creation in the Tournament instead of here
-                    # ~Q(stage__tournament__designer=user.profile),
-                    # ~Q(stage__tournament__moderators=user.profile),
-                ).exclude(
-                    # Hide rounds from tournaments where players cannot record games
-                    Q(stage__tournament__players_can_record=False),
+                    # Hide rounds from tournaments that don't allow standalone player recording
+                    ~Q(stage__tournament__recording_access=Tournament.RecordingAccessTypes.REGISTERED),
                     ~Q(stage__tournament__designer=user.profile),
                     ~Q(stage__tournament__moderators=user.profile),
                 ).distinct()
@@ -354,11 +348,14 @@ class GameCreateForm(forms.ModelForm):
                         faction = effort_form.cleaned_data.get('faction')
                         if faction:
                             validation_errors_to_display.append(f'Select a player for each faction')
-                # Check tournament's max and min player counts
-                if len(player_roster) > tournament.max_players:
-                    validation_errors_to_display.append(f'Over {tournament} maximum player count')
-                if len(player_roster) < tournament.min_players:
-                    validation_errors_to_display.append(f'Under {tournament} minimum player count')
+                # Check the round's effective max and min player counts, but only
+                # when the tournament enforces a player count (otherwise there is
+                # no limit, matching get_*_players_display()).
+                if tournament.enforce_player_count:
+                    if len(player_roster) > round.get_max_players():
+                        validation_errors_to_display.append(f'Over {tournament} maximum player count')
+                    if len(player_roster) < round.get_min_players():
+                        validation_errors_to_display.append(f'Under {tournament} minimum player count')
 
                 # Check each player in the player_roster
                 if not tournament.open_roster:
@@ -765,35 +762,13 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         label='Allowed Coalitions'
     )
     picture = forms.ImageField(required=False)
-    use_stages = forms.BooleanField(
-        required=False,
-        initial=False,
-        label='Use Stages',
-    )
-    stage_name = forms.CharField(
-        max_length=100,
-        initial='Stage 1',
-        required=False,
-        label='First Stage Name',
-    )
-    use_rounds = forms.BooleanField(
-        required=False,
-        initial=False,
-        label='Use Rounds',
-    )
-    round_name = forms.CharField(
-        max_length=100,
-        initial='Round 1',
-        required=False,
-        label='First Round Name',
-    )
 
     class Meta:
         model = Tournament
         fields = [
             'name', 'classification', 'designer', 'guild', 'description', 'rules',
             'start_date', 'end_date', 'publicly_visible', 'is_active',
-            'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'players_can_record',
+            'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
             'platform', 'default_format', 'link_required',
             'asset_mode', 'include_clockwork',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
@@ -815,7 +790,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'description': 'Description (Optional)',
             'rules': 'Rules (Optional)',
             'open_roster': 'Allow All Players',
-            'players_can_record': 'Allow Players to Record Games',
+            'recording_access': 'Who Can Record Games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
             'default_format': 'Default Round Format',
@@ -861,18 +836,6 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         # Remove admin-only fields for non-admins
         if user and not user.profile.admin:
             self.fields.pop('designer', None)
-
-    def clean(self):
-        cleaned_data = super().clean()
-        use_stages = cleaned_data.get('use_stages')
-        use_rounds = cleaned_data.get('use_rounds')
-        stage_name = cleaned_data.get('stage_name')
-        round_name = cleaned_data.get('round_name')
-        if use_stages and not stage_name:
-            self.add_error('stage_name', 'Stage name is required when Use Stages is enabled.')
-        if use_rounds and not round_name:
-            self.add_error('round_name', 'Round name is required when Use Rounds is enabled.')
-        return cleaned_data
 
     def save(self, commit=True):
         """Save tournament and set default assets based on platform"""
@@ -942,12 +905,11 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
         fields = [
             'name', 'classification', 'designer', 'guild', 'description', 'rules',
             'start_date', 'end_date', 'publicly_visible', 'is_active',
-            'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'players_can_record',
+            'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
             'platform', 'link_required',
             'asset_mode', 'include_clockwork',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
             'default_format',
-            'use_stages', 'use_rounds',
             'picture'
         ]
         labels = {
@@ -968,18 +930,12 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'link_required': 'Require Link with Game Submission',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'open_roster': 'Allow All Players',
-            'players_can_record': 'Allow Players to Record Games',
+            'recording_access': 'Who Can Record Games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
             'default_format': 'Default Round Format',
-            'use_stages': 'Use Stages',
-            'use_rounds': 'Use Rounds',
             'picture': 'Series Image',
         }
-        # help_texts = {
-        #     'use_stages': 'Enable if there are multiple stages (e.g. Swiss then Top 8 or 2026 then 2027).',
-        #     'use_rounds': 'Enable if stages in this tournament have multiple rounds.',
-        # }
 
     def __init__(self, *args, user=None, **kwargs):
         super(TournamentDynamicUpdateForm, self).__init__(*args, **kwargs)
@@ -1081,18 +1037,6 @@ class RoundCreateForm(forms.ModelForm):
 
 
 class StageCreateForm(forms.ModelForm):
-    use_rounds = forms.BooleanField(
-        required=False,
-        label='Use Rounds',
-        # help_text='Enable if stages in this tournament have multiple rounds.',
-    )
-    round_name = forms.CharField(
-        max_length=255,
-        initial='Round 1',
-        required=False,
-        label='First Round Name',
-    )
-
     class Meta:
         model = Stage
         fields = [
@@ -1125,9 +1069,7 @@ class StageCreateForm(forms.ModelForm):
             if tournament:
                 max_order = tournament.stages.aggregate(Max('order'))['order__max'] or 0
                 self.fields['order'].initial = max_order + 1
-        # Pre-populate use_rounds from the tournament's current setting
         if tournament:
-            self.fields['use_rounds'].initial = tournament.use_rounds
             # Limit FK stage choices to other stages in the same tournament
             other_stages = tournament.stages.exclude(pk=self.instance.pk) if self.instance.pk else tournament.stages.all()
             self.fields['winners_advance_to'].queryset = other_stages
@@ -1137,9 +1079,6 @@ class StageCreateForm(forms.ModelForm):
             # Default format to tournament's format when creating a new stage
             if not self.instance.pk and tournament.default_format and not self.initial.get('stage_format'):
                 self.fields['stage_format'].initial = tournament.default_format
-        # Only show round_name on create, not update
-        if self.instance.pk:
-            del self.fields['round_name']
 
     def clean(self):
         cleaned_data = super().clean()
@@ -1150,12 +1089,6 @@ class StageCreateForm(forms.ModelForm):
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise ValidationError(f"A stage with this name already exists in {self.tournament.name}")
-        # Validate round_name on create when use_rounds is enabled
-        if not self.instance.pk:
-            use_rounds = cleaned_data.get('use_rounds')
-            round_name = cleaned_data.get('round_name')
-            if use_rounds and not round_name:
-                self.add_error('round_name', 'Round name is required when Use Rounds is enabled.')
         return cleaned_data
 
 
@@ -1445,12 +1378,12 @@ class TournamentPlayerSettingsForm(forms.ModelForm):
     """Form for player-related tournament settings only."""
     class Meta:
         model = Tournament
-        fields = ['guild', 'open_roster', 'players_can_record', 'enforce_player_count', 'min_players', 'max_players']
+        fields = ['guild', 'open_roster', 'recording_access', 'enforce_player_count', 'min_players', 'max_players']
         labels = {
             'guild': 'Discord Guild',
             'enforce_player_count': 'Restrict Player Count',
             'open_roster': 'Allow All Players',
-            'players_can_record': 'Allow Players to Record Games',
+            'recording_access': 'Who Can Record Games',
         }
 
     def __init__(self, *args, user=None, **kwargs):

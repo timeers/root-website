@@ -1,0 +1,19 @@
+{% load static custom_filters %}
+{# One grid cell per game for a single player. Context: cells = [(game_url, effort_or_None), ...]. #}
+{% for game_url, effort in cells %}
+{% if effort %}
+<a href="{{ game_url }}" class="effort-grid-cell d-flex align-items-center justify-content-center"
+   title="{{ effort.faction.title }}" onclick="event.stopPropagation()">
+    <div class="parent">
+        <img class="faction-icon image1"
+             src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}"
+             alt="{{ effort.faction.title }}">
+        {% if effort.win %}
+        <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="Winner">
+        {% endif %}
+    </div>
+</a>
+{% else %}
+<span class="effort-grid-cell"></span>
+{% endif %}
+{% endfor %}

@@ -1,0 +1,46 @@
+{% extends "rest_framework/base.html" %}
+{% load static %}
+{# Custom browsable API template: adds Select2 to the filter form's dropdowns. #}
+{# Only affects the DRF browsable API page; the JSON API is unchanged. #}
+
+{% block style %}
+  {{ block.super }}
+  <link rel="icon" href="{% static 'images/favicon.png' %}" type="image/png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
+  <style>
+    /* Match Select2 to the surrounding Bootstrap form controls. */
+    #filtersModal .select2-container { width: 100% !important; }
+    #filtersModal .select2-selection { min-height: 38px; }
+  </style>
+{% endblock %}
+
+{% block script %}
+  {{ block.super }}
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script>
+    (function () {
+      // DRF already loads jQuery 3.7.1.
+      function initSelect2($scope) {
+        $scope.find('select').each(function () {
+          var $el = $(this);
+          if ($el.hasClass('select2-hidden-accessible')) { return; }  // already initialized
+          $el.select2({
+            width: '100%',
+            placeholder: $el.prop('multiple') ? 'Select one or more…' : 'Select…',
+            allowClear: !$el.prop('multiple'),
+            dropdownParent: $el.closest('.modal-body').length ? $el.closest('.modal-body') : $(document.body)
+          });
+        });
+      }
+      $(function () {
+        // The filter form lives inside the Filters modal; init when it opens so the
+        // dropdowns are visible and sized correctly. (Bootstrap 3 event used by DRF.)
+        $('#filtersModal').on('shown.bs.modal', function () {
+          initSelect2($(this));
+        });
+        // Also handle any filter selects rendered directly on the page.
+        initSelect2($('form'));
+      });
+    })();
+  </script>
+{% endblock %}

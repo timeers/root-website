@@ -7,7 +7,7 @@
         {% else %}
         <i class="bi bi-person-circle me-2 text-muted flex-shrink-0" style="font-size: 1.5rem;"></i>
         {% endif %}
-        <span class="text-truncate">{{ player.display_name }}</span>
+        <span class="text-truncate">{{ player.display_name }} ({{ player.discord }})</span>
         {% if group == 'available_stage' %}
             {% if player.tournament_status == 'registered' %}
                 <span class="badge bg-success ms-2 flex-shrink-0">Registered</span>

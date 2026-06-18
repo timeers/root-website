@@ -1069,6 +1069,33 @@ def ultimate_component_view(request, slug, component):
     )
     object_card_2_image_url = get_fresh_image_url(object_card_2_image)
 
+    object_picture_url = get_fresh_image_url(obj.picture)
+
+    # Hireling "other side": its own translated/timestamped images. The other
+    # side is a separate Hireling with its own translations, so look up its
+    # translation for the current language (picture has no translated variant).
+    other_side_picture_url = None
+    other_side_board_image_url = None
+    other_side_url = None
+    other_side_title = None
+    other_side = getattr(obj, 'other_side', None)
+    if other_side:
+        other_side_translation = other_side.translations.filter(language=language).first()
+        other_side_title = (
+            other_side_translation.translated_title
+            if other_side_translation and other_side_translation.translated_title
+            else other_side.title
+        )
+        other_side_picture_url = get_fresh_image_url(other_side.picture)
+        other_side_board_image = (
+            other_side_translation.translated_board_image
+            if other_side_translation and other_side_translation.translated_board_image
+            else other_side.board_image
+        )
+        other_side_board_image_url = get_fresh_image_url(other_side_board_image)
+        # Keep the link in the current language so it matches the image shown.
+        other_side_url = other_side.get_absolute_url(language_code=language_code)
+
 
     # Links
     tts_link = object_translation.tts_link if object_translation and object_translation.tts_link else obj.tts_link
@@ -1089,7 +1116,7 @@ def ultimate_component_view(request, slug, component):
 
 
     if request.user.is_authenticated:
-        print('here')
+        # print('here')
         send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed {obj.component}: {obj.title} ({language_code})')
     # else:
     #     send_discord_message_task.delay(f'{get_uuid(request)} viewed {obj.component}: {obj.title} ({language_code})')
@@ -1148,25 +1175,29 @@ def ultimate_component_view(request, slug, component):
     else:
         games_total = 0
 
+    # Pre-format counts with thousands separators so labels read "View 1,234 Games".
+    games_total_display = f"{games_total:,}"
+    playtests_display = f"{playtests:,}"
+
     if games_total == 1:
         if playtests:
             games_label = _("View 1 Playtest")
         else:
             games_label = _("View 1 Game")
     elif playtests == games_total and playtests != 0:
-        games_label = _("View %(count)d Playtests") % {'count': games_total}
+        games_label = _("View %(count)s Playtests") % {'count': games_total_display}
     elif playtests:
         if playtests == 1:
-            games_label = _("View %(count)d Games (1 Playtest)") % {
-                'count': games_total
+            games_label = _("View %(count)s Games (1 Playtest)") % {
+                'count': games_total_display
             }
         else:
-            games_label = _("View %(count)d Games (%(tests)d Playtests)") % {
-                'count': games_total,
-                'tests': playtests,
+            games_label = _("View %(count)s Games (%(tests)s Playtests)") % {
+                'count': games_total_display,
+                'tests': playtests_display,
             }
     else:
-        games_label = _("View %(count)d Games") % {'count': games_total}
+        games_label = _("View %(count)s Games") % {'count': games_total_display}
 
 
     
@@ -1293,6 +1324,11 @@ def ultimate_component_view(request, slug, component):
         'object_board_2_image_url': object_board_2_image_url,
         'object_card_image_url': object_card_image_url,
         'object_card_2_image_url': object_card_2_image_url,
+        'object_picture_url': object_picture_url,
+        'other_side_picture_url': other_side_picture_url,
+        'other_side_board_image_url': other_side_board_image_url,
+        'other_side_url': other_side_url,
+        'other_side_title': other_side_title,
 
         'small_board_image_url': small_board_image_url,
         'small_board_2_image_url': small_board_2_image_url,
@@ -2877,10 +2913,18 @@ def post_settings_hub(request, slug):
     # Only admin can delete
     can_delete = profile.admin
 
+    # Linked ForgedFaction (Forge source), if any. The reverse OneToOne
+    # accessor raises when unset, so catch that and fall back to None.
+    try:
+        forged_faction = obj.source_forged_faction
+    except (AttributeError, ObjectDoesNotExist):
+        forged_faction = None
+
     context = {
         'object': obj,
         'post': post,
         'object_component': obj.get_component_display(),
+        'forged_faction': forged_faction,
         'can_edit': can_edit,
         'is_designer': is_designer,
         'stable_ready': stable_ready,
@@ -3586,7 +3630,7 @@ def universal_search(request):
         games = Game.objects.filter(nickname__icontains=query)     
         tournaments = Tournament.objects.filter(name__icontains=query, publicly_visible=True)  
         stages = Stage.objects.filter(name__icontains=query, tournament__use_stages=True, tournament__publicly_visible=True)
-        rounds = Round.objects.filter(name__icontains=query, stage__isnull=False, stage__tournament__use_rounds=True, stage__tournament__publicly_visible=True)   
+        rounds = Round.objects.filter(name__icontains=query, stage__isnull=False, stage__use_rounds=True, stage__tournament__publicly_visible=True)
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
         pieces = Piece.objects.filter(name__icontains=query, parent__status__lte=view_status).order_by('parent__status')
         color_group = ColorChoices.get_color_by_name(color_name=query)
@@ -5397,7 +5441,7 @@ def view_deckgroup(request, post_slug, language_code, deckgroup_slug):
     if highlight_card_id:
         highlighted_card = Card.objects.filter(group=deckgroup, id=highlight_card_id).first()
         if highlighted_card:
-            print('highlight')
+            # print('highlight')
             absolute_uri = build_absolute_uri(request, highlighted_card.get_absolute_url())
             meta_image_url = highlighted_card.front_image.url
             if highlighted_card.name:

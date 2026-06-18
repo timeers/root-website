@@ -1,28 +1,34 @@
-{% load i18n %}
+{% load i18n custom_filters %}
+{% comment %}
+    On the first page we render the full chrome (#games-container / #search-contents).
+    The infinite-scroll trigger appends subsequent pages directly into #search-contents
+    with hx-swap="beforeend", so pages 2+ must render only the flat game cells (and the
+    spinner) — no wrapper divs — otherwise they would nest a second .game-grid inside a
+    single grid cell and break the column layout.
+{% endcomment %}
+{% if page_obj.number == 1 %}
+{% comment %} OOB carrier: updates the count text inside the persistent filter card header on htmx filter
+   swaps. Uses innerHTML so only the header span's text is replaced (its attributes are kept),
+   and the carrier itself is hidden since it renders inline on the initial full-page load. {% endcomment %}
+<span hx-swap-oob="innerHTML:#games-count-value" style="display:none;">{{ games_count|intcomma }}</span>
 <div id="games-container">
 
-    {% if page_obj.number == 1 %}
-        <article class="d-flex content-section">
-            <div class="w-100">
-                <h3 class='root-title'>{% trans 'Total Games' %} ({{ games_count }})</h3> 
-            </div>
-        </article>
-    {% endif %}
-<div id="search-contents">
+<div id="search-contents" class="game-grid">
+{% endif %}
+
 {% if games %}
     {% for game in games %}
 
-
         {% if forloop.last and games.has_next %}
             {% if not player_view %}
-                <div hx-trigger="revealed" 
+                <div hx-trigger="revealed"
                 hx-get="{% url 'games-home' %}?page={{ page_obj.number|add:1 }}"
                 hx-target="#search-contents"
                 hx-swap="beforeend"
                 hx-include="#gamefilterform"
                 hx-indicator="#spinner">
             {% else %}
-                <div hx-trigger="revealed" 
+                <div hx-trigger="revealed"
                 hx-get="{% url 'player-games' slug=player_slug %}?page={{ page_obj.number|add:1 }}"
                 hx-target="#search-contents"
                 hx-swap="beforeend"
@@ -34,9 +40,8 @@
         {% endif %}
 
 
-        
         {% include 'the_warroom/partials/game_detail_button.html' %}
-        
+
 
         </div>
 
@@ -45,16 +50,11 @@
         {% endif %}
 
     {% endfor %}
-
-{% comment %} <div id="spinner" class="d-flex justify-content-center htmx-indicator">
-    <div class="spinner-border" role="status">
-        <span class="visually-hidden">Loading...</span>
-    </div>
-</div> {% endcomment %}
-
-
-{% else %}
+{% elif page_obj.number == 1 %}
     {% trans 'No matching games recorded.' %}
 {% endif %}
+
+{% if page_obj.number == 1 %}
     </div>
 </div>
+{% endif %}

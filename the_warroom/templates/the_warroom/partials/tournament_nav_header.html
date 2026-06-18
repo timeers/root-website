@@ -20,10 +20,16 @@
                 {% trans 'Games' %}
             </a>
             {% endif %}
+            {% if has_bracket %}
+            <a href="{% url 'tournament-bracket-page' tournament.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'bracket' %}active{% endif %}">
+                {% trans 'Bracket' %}
+            </a>
+            {% endif %}
             {% if has_games or has_players %}
             <a href="{% url 'tournament-roster-page' tournament.slug %}"
                class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
-                {% trans 'Roster' %}
+                {% trans 'Players' %}
             </a>
             {% endif %}
             {% if has_surveys %}

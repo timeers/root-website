@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.12.5] - 2026-6-18 App Features
+
+### New Features
+- Added PWA support - Internet connection still required
+- Generate API key from profile for downloading game data
+- Schedule matches for a series without grouping players
+- Option to download survey responses as csv file
+- Discord bot for requested DMs
+
+### Improvements
+- Games show as columns on wide screens to save space
+- Removed confirmation dialogue when adding unregistered players to stages
+- New card in Faction settings to view the faction in the Forge if linked
+- Tournament Stages can now enable rounds independent of the Tournament
+- Reorganized Tournament settings pages
+- Record game access for Moderators/Scheduled/Registered Players for Series
+
+### Bug Fixes
+- Expansion image bug where the image could be unintentionally deleted
+- Faction header image now includes cache busting on detail page (thanks Tricholome). Cache intentionally does not update on list results for now.
+- Small icons for factions now has cache busting
+- Bug where games could show up twice in list views
+- Hirelings other_side image now has cache busting and respects language
+- Series player count limit bug restricting when null
+- Can no longer register a player in game of restricted series
+
 ## [1.12.4] - 2026-5-26 Forge Sync
 
 ### New Features

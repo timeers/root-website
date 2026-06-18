@@ -45,6 +45,13 @@
               <span>Submit your fan content</span>
             </div>
             <div class="ww-feature">
+              <span class="ww-feature-forge me-2"
+                    style="-webkit-mask-image: url('{% static 'the_forge/Forge_Logo.svg' %}');
+                           mask-image: url('{% static 'the_forge/Forge_Logo.svg' %}');"
+                    aria-hidden="true"></span>
+              <span>Build your Faction from scratch in the Forge</span>
+            </div>
+            <div class="ww-feature">
               <i class="bi bi-clipboard2-check text-info me-2"></i>
               <span>Create and take community surveys</span>
             </div>
@@ -139,6 +146,23 @@
 .ww-feature i {
   font-size: 18px;
   flex-shrink: 0;
+}
+
+/* Forge logo rendered as a masked icon, tinted with the off-black body color
+   (#333333) used for the Forge home hero logo. */
+.ww-feature-forge {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #333333;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-size: contain;
+          mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
 }
 
 .ww-how-title {

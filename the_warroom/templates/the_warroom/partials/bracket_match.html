@@ -1,0 +1,91 @@
+{% load i18n static warroom_tags custom_filters %}
+{% if match.game_id %}
+<a href="{{ match.game.get_absolute_url }}" class="card text-decoration-none text-body group-card">
+{% else %}
+<div class="card">
+{% endif %}
+    <div class="card-body py-2 px-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            {% if match.series.is_bye %}
+                <small class="fw-bold">{{ match.series.name }}</small>
+                <span class="badge bg-info">{% trans 'Bye' %}</span>
+            {% else %}
+                {% if match.player_group.name %}
+                    <small class="fw-bold">
+                        {{ match.player_group.name }}{% if match.series_position %} (Game {{ match.series_position }}){% endif %}
+                    </small>
+                {% else %}
+                    <small class="fw-bold">Match {{ match.match_number }}</small>
+                {% endif %}
+                {% if match.display_status == 'Completed' %}
+                    <span class="badge bg-success">{% trans 'Done' %}</span>
+                {% elif match.display_status == 'Active' %}
+                    <span class="badge bg-primary">{% trans 'Active' %}</span>
+                {% elif match.display_status == 'Scheduled' %}
+                    <span class="badge bg-info">{% trans 'Scheduled' %}</span>
+                {% else %}
+                    <span class="badge bg-secondary">{% trans 'TBD' %}</span>
+                {% endif %}
+            {% endif %}
+        </div>
+        {% if match.series.is_bye %}
+            {% for bye_winner in match.series.winners.all %}
+            <div class="d-flex align-items-center gap-1 small">
+                {% if bye_winner.tournament_player.profile.image %}
+                <img src="{{ bye_winner.tournament_player.profile.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
+                {% endif %}
+                <span>{{ bye_winner.tournament_player.profile.display_name }}</span>
+                <i class="bi bi-arrow-right-circle text-info ms-auto"></i>
+            </div>
+            {% endfor %}
+        {% elif match.game_id %}
+        {% comment %}
+        Linked to a game: list the players who actually played (the game's
+        efforts), not the series seats — a player may have played and then been
+        removed from the series.
+        {% endcomment %}
+        {% for effort in match.game.efforts.all %}
+        <div class="d-flex align-items-center gap-1 small">
+            {% if effort.player.image %}
+            <img src="{{ effort.player.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
+            {% endif %}
+            <span>{{ effort.player.display_name }}</span>
+            {% if effort.faction %}
+            <span class="ms-auto d-inline-block" title="{{ effort.faction.title }}">
+                <div class="parent">
+                    <img class="faction-icon image1"
+                         src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}"
+                         alt="{{ effort.faction.title }}">
+                    {% if effort.win %}
+                    <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="Winner">
+                    {% endif %}
+                </div>
+            </span>
+            {% endif %}
+        </div>
+        {% empty %}
+        <small class="text-muted">{% trans 'Players TBD' %}</small>
+        {% endfor %}
+        {% elif match.player_group %}
+
+        {% for seat in match.series.matchseat_set.all %}
+        {% with tp=seat.stage_participant.tournament_player %}
+        <div class="d-flex align-items-center gap-1 small">
+            {% if tp.profile.image %}
+            <img src="{{ tp.profile.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
+            {% endif %}
+            <span>{{ tp.profile.display_name }}</span>
+        </div>
+        {% endwith %}
+        {% empty %}
+        <small class="text-muted">{% trans 'Players TBD' %}</small>
+        {% endfor %}
+        {% else %}
+        <small class="text-muted">{% trans 'Players TBD' %}</small>
+        {% endif %}
+    </div>
+{% if match.game_id %}
+</a>
+{% else %}
+</div>
+{% endif %}

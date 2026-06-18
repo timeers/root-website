@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n custom_filters %}
 <div class="d-flex justify-content-between align-items-top">
 
     <div class="d-flex flex-nowrap ms-auto">
@@ -70,7 +70,7 @@
     <div class="d-flex justify-content-between align-items-top">
         <div class="d-flex">
             <div class="article-img-container">
-                <img class="article-img" src="{% if object.picture %}{{ object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
+                <img class="article-img" src="{% if object.picture %}{{ object_picture_url|default:object.picture.url }}{% else %}{{ object.designer.image.url }}{% endif %}">
             </div>
             <div class='d-flex flex-nowrap'>
                 <h1 class='root-title' {% if object_color or object.color %} style="text-decoration: underline; text-decoration-thickness: 7px; text-decoration-color: {% if object.color %}{{ object.color }}{% else %}{{ object_color }}{% endif %};"{% endif %}>{{ object_title }}</h1>
@@ -88,7 +88,7 @@
         <div class='mt-1'>
             {% if object_animal %}
                 {% if object.component == 'Faction' or object.component == 'Clockwork' %}
-                    <img class="faction-icon" src="{{ object.small_icon.url }}">
+                    <img class="faction-icon" src="{{ object.small_icon|cache_bust:object.small_icon_version }}">
                 {% endif %}
 
                 {% if object.component == 'Tweak' %}

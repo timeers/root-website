@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static i18n %}
+{% load static i18n custom_filters %}
 {% block title %}Game | {% endblock %}
 
 {% block meta %}    <!-- Open Graph tags -->
@@ -25,7 +25,7 @@
 <article class="d-flex content-section">
     <div class="w-100">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h2>{% if game.test_match %}
+            <h2 class='root-title'>{% if game.test_match %}
                 {% trans 'Playtest Details' %}
                 {% else %}
                 {% trans 'Game Details' %}
@@ -43,7 +43,7 @@
             {% trans 'Undrafted Faction' %}: 
             <span class='root-title'>
                 <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">
-                    <img class="faction-icon" src="{{ game.undrafted_faction.small_icon.url }}">
+                    <img class="faction-icon" src="{{ game.undrafted_faction.small_icon|cache_bust:game.undrafted_faction.small_icon_version }}">
                 </a>
                 <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">{{ game.undrafted_faction }}</a>
                 {% if game.undrafted_vagabond %}

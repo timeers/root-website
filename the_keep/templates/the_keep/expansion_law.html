@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load text_filters roman_numerals i18n static %}
+{% load text_filters roman_numerals i18n static custom_filters %}
 
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
@@ -90,7 +90,7 @@
             <h2 class='root-title'>{{ group.abbreviation }}. {{ prime_law.title }}
               {% if group.post %}
                 {% if group.post.component == 'Faction' or group.post.component == 'Clockwork' %}
-                    <img class="lg-faction-icon" src="{{ group.post.small_icon.url }}">
+                    <img class="lg-faction-icon" src="{{ group.post.small_icon|cache_bust:group.post.small_icon_version }}">
                 {% endif %}
               {% endif %}
 

@@ -6,7 +6,7 @@
         {% else %}
         <i class="bi bi-person-circle me-2 text-muted flex-shrink-0" style="font-size: 1.5rem;"></i>
         {% endif %}
-        <span class="text-truncate">{{ player.display_name }}</span>
+        <span class="text-truncate">{{ player.display_name }} ({{ player.discord }})</span>
         {% if group == 'available_round' %}
             {% if player.tournament_status == 'waitlist' %}
                 <span class="badge bg-warning text-dark ms-2 flex-shrink-0">Waitlist</span>

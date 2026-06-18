@@ -28,7 +28,14 @@
 <div class="content-section">
     {% include 'the_tavern/partials/survey_navigation.html' %}
 
-    <h1 class="root-title mb-2">{{ survey.title }}</h1>
+    <div class="d-flex justify-content-between align-items-start mb-2">
+        <h1 class="root-title mb-0">{{ survey.title }}</h1>
+        {% if can_edit_survey and responses %}
+            <a href="{% url 'survey-export-csv' survey.slug %}" class="btn btn-sm btn-outline-success">
+                <i class="bi bi-download"></i> {% trans 'Download CSV' %}
+            </a>
+        {% endif %}
+    </div>
     <div class='mb-4'>
         <div class="text-muted">
             <i class="bi bi-chat-left-text"></i> {{ responses|length }} {% trans 'Response' %}{{ responses|length|pluralize }}

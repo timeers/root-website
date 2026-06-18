@@ -1,9 +1,14 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
-from the_warroom.models import ScoreCard, TurnScore
+from rest_framework import status, generics
+from rest_framework.pagination import CursorPagination
+from rest_framework.permissions import IsAuthenticated
+from django_filters.rest_framework import DjangoFilterBackend
+from the_warroom.models import ScoreCard, TurnScore, Game
 from the_keep.models import Faction, PostTranslation
 from the_gatehouse.utils import generate_neon_color
+from .game_serializers import GameSerializer
+from .game_filters import GameFilter
 # from .serializers import ScoreCardDetailSerializer, FactionAverageTurnScoreSerializer
 from django.db.models import Avg, Sum, Count, Prefetch, F, FloatField, Q
 from django.db.models.functions import Cast
@@ -425,3 +430,42 @@ class PlayerScorecardView(APIView):
             average_data_by_faction[faction.title] = faction_average_data
 
         return Response(average_data_by_faction, status=status.HTTP_200_OK)
+
+
+class GameCursorPagination(CursorPagination):
+    """Cursor pagination for the game download API.
+
+    Keyset pagination on ``-date_posted`` keeps every page fast regardless of depth and
+    stays consistent if games are added mid-download. Clients page by following ``next``
+    until it is null.
+    """
+    ordering = '-date_posted'
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 500
+
+
+class GameListView(generics.ListAPIView):
+    """Filterable, paginated download of finalized game data (API key or session auth)."""
+    serializer_class = GameSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = GameCursorPagination
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = GameFilter
+
+    def get_queryset(self):
+        # No .distinct(): the base query has no row-multiplying joins (FKs are 1:1, M2M are
+        # fetched via separate prefetch queries), and the multi-select filters use
+        # conjoined=True which chains one JOIN per value without producing duplicate rows.
+        # A blanket DISTINCT would force Postgres to dedupe the whole table before applying
+        # the cursor limit, defeating keyset pagination (~240ms even for a 10-row page).
+        related = Game.with_efforts()
+        return (
+            Game.objects.filter(final=True)
+            .select_related(*related['select'], 'undrafted_faction', 'undrafted_vagabond')
+            .prefetch_related(
+                *related['prefetch'],
+                'landmarks',
+                'hirelings',
+            )
+        )

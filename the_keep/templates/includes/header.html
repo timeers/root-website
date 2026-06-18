@@ -1,5 +1,5 @@
 
-{% load allauth socialaccount i18n %}
+{% load allauth socialaccount i18n custom_filters %}
 {% get_providers as socialaccount_providers %}
 
 <header class="site-header">
@@ -116,16 +116,17 @@
                       <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection"></i> {% trans 'My Posts' %}</a></li>
                       {% endif %} {% endcomment %}
 
-                      {% if user.profile.player %}
-                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'New Post' %}</a></li>
-                      {% else %}
-                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'Request Post' %}</a></li>
-                      {% endif %}
+   
+                      <li><a class="dropdown-item" href="{% url 'new-components' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'New Post' %}</a></li>
+                      {% comment %} 
+                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'Request Post' %}</a></li> 
+                      {% endcomment %}
+
 
                       {% if user_recent_posts %}
                       {% comment %} <h6 class="dropdown-header">{% trans 'My Recent Posts' %}</h6> {% endcomment %}
                         {% for user_post in user_recent_posts %}
-                            <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon me-1" src="{{ user_post.small_icon.url }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
+                            <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon me-1" src="{{ user_post.small_icon|cache_bust:user_post.small_icon_version }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
                         {% endfor %}
                         
                       {% endif %}
