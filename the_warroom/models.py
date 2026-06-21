@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from django.db import models, transaction
-from django.db.models import Q, Sum, Max, Prefetch
+from django.db.models import Q, Sum, Max, Prefetch, Count
 
 from django.utils import timezone
 from django.urls import reverse
@@ -1654,7 +1654,36 @@ class Effort(models.Model):
 
     
     class Meta:
-        ordering = ['game', 'seat']    
+        ordering = ['game', 'seat']
+
+
+def filtered_winrate(player=None, faction=None, tournament=None, platform=None):
+    """Win rate over Efforts, filtered by any combination of player, faction,
+    tournament (series), and platform. Mirrors the leaderboard formula
+    (coalition wins count as half) in a single aggregate query so the result
+    matches the site's leaderboards. Returns {total, win_points, win_rate}."""
+    qs = Effort.objects.filter(game__final=True, game__test_match=False)
+    if player:
+        qs = qs.filter(player=player)
+    if faction:
+        qs = qs.filter(faction=faction)
+    if platform:
+        qs = qs.filter(game__platform=platform)
+    if tournament:
+        qs = qs.filter(
+            Q(game__round__stage__tournament=tournament)
+            | Q(game__round__tournament=tournament)
+        )
+    agg = qs.aggregate(
+        total=Count('id'),
+        wins=Count('id', filter=Q(win=True)),
+        coalition=Count('id', filter=Q(win=True, game__coalition_win=True)),
+    )
+    total = agg['total'] or 0
+    win_points = (agg['wins'] or 0) - (agg['coalition'] or 0) / 2
+    win_rate = (win_points / total * 100) if total else 0.0
+    return {'total': total, 'win_points': win_points, 'win_rate': win_rate}
+
 
 # This is a collection of Turns that makes up the detailed point breakdown of a game. It should be linked to an effort and is marked as final when the total score matches with the effort's score.
 class ScoreCard(models.Model):
