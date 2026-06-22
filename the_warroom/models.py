@@ -100,13 +100,24 @@ class RoundQuerySet(models.QuerySet):
         )
 
     def is_available(self):
-        """Filter for available rounds."""
+        """Filter for available rounds (cascades from stage and tournament)."""
         now = timezone.now().date()
         return self.exclude(
+            # Round's own fields
             Q(is_active=False) |
             Q(status=CompetitionStatus.COMPLETED) |
             Q(start_date__gt=now) |
-            Q(end_date__lt=now)
+            Q(end_date__lt=now) |
+            # Parent stage
+            Q(stage__is_active=False) |
+            Q(stage__status=CompetitionStatus.COMPLETED) |
+            Q(stage__start_date__gt=now) |
+            Q(stage__end_date__lt=now) |
+            # Parent tournament
+            Q(stage__tournament__is_active=False) |
+            Q(stage__tournament__status=CompetitionStatus.COMPLETED) |
+            Q(stage__tournament__start_date__gt=now) |
+            Q(stage__tournament__end_date__lt=now)
         )
 
     def not_available(self):

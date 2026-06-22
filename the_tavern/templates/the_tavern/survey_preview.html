@@ -92,6 +92,22 @@
                                         </label>
                                     </div>
                                 {% endfor %}
+                            {% elif question.question_type == 'MC' and question.display_as_dropdown %}
+                                {# Dropdown preview for long choice lists #}
+                                <select class="form-select" disabled>
+                                    <option selected>---------</option>
+                                    {% for choice in question.get_visible_choices %}
+                                        <option>{{ choice.get_display_text }}</option>
+                                    {% endfor %}
+                                    {% if question.allow_other %}
+                                        <option>{% trans 'Other' %}</option>
+                                    {% endif %}
+                                </select>
+                                {% if question.allow_other %}
+                                    <div class="mt-2">
+                                        <input type="text" class="form-control form-control-sm" placeholder="{% trans 'Please specify...' %}" disabled>
+                                    </div>
+                                {% endif %}
                             {% else %}
                                 {# Regular choices (text or Post-linked) #}
                                 {% for choice in question.get_visible_choices %}

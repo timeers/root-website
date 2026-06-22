@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.6] - 2026-6-22 RTM Optimizations
+
+### New Features
+- New bot commands with auto fill
+
+### Improvements
+- added display as dropdown to multiple choice questions
+- New game button on series page improved 
+
+### Bug Fixes
+- allow other option populates correctly when loading from template
+
 ## [1.12.5] - 2026-6-18 App Features
 
 ### New Features

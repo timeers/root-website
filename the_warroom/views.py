@@ -1656,22 +1656,15 @@ def _build_used_asset_types(games_qs):
 
 def _tournament_base_context(request, tournament):
     """Shared context for all tournament pages."""
+    playable_round = None
     if request.user.is_authenticated:
         active_rounds = Round.objects.filter(
             stage__tournament=tournament,
-            series__isnull=True,
-        ).filter(
-            Q(end_date__gt=timezone.now().date()) | Q(end_date__isnull=True),
-            start_date__lt=timezone.now().date()
-        )
-        playable_rounds = active_rounds.filter(
-            Q(stage__participants__tournament_player__profile=request.user.profile) |
-            Q(tournament__designer=request.user.profile) |
-            Q(tournament__moderators=request.user.profile)
-        ).distinct()
-        playable_round = playable_rounds.last()
-    else:
-        playable_round = None
+        ).is_available()
+        if active_rounds.count() == 1:
+            candidate = active_rounds.first()
+            if user_can_record_in_round(candidate, request.user):
+                playable_round = candidate
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
     has_bracket = Match.objects.filter(round__stage__tournament=tournament).exists()
@@ -1706,16 +1699,11 @@ def _stage_base_context(request, tournament, stage):
     """Shared context for all stage tab pages."""
     playable_round = None
     if request.user.is_authenticated:
-        active_rounds = stage.rounds.filter(
-            Q(end_date__gt=timezone.now().date()) | Q(end_date__isnull=True),
-            start_date__lt=timezone.now().date()
-        ).exclude(
-            series__isnull=False
-        )
-        for r in active_rounds:
-            if user_can_access_round(r, request.user):
-                playable_round = r
-                break
+        active_rounds = stage.rounds.is_available()
+        if active_rounds.count() == 1:
+            candidate = active_rounds.first()
+            if user_can_record_in_round(candidate, request.user):
+                playable_round = candidate
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
     has_bracket = Match.objects.filter(round__stage=stage).exists()
@@ -1749,10 +1737,7 @@ def _stage_base_context(request, tournament, stage):
 
 def _round_base_context(request, tournament, stage, round):
     """Shared context for all round tab pages."""
-    playable_round = None
-    if request.user.is_authenticated:
-        if user_can_access_round(round, request.user) and not round.series.exists():
-            playable_round = round
+    playable_round = round if user_can_record_in_round(round, request.user) else None
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
     has_matches = MatchSeries.objects.filter(round=round).exists()
@@ -3034,6 +3019,33 @@ def user_can_access_round(tournament_round, user):
 
     return is_active and (is_designer or is_player or is_open)
 
+
+def user_can_record_in_round(tournament_round, user):
+    """Whether the user may record a game in this round.
+
+    The round must be available. Moderators/designers/admins can always record.
+    Otherwise, an active stage participant can record when the tournament's
+    recording_access allows player recording (Scheduled Match Players or
+    Registered Players) -- the recording_access tier governs this, replacing the
+    old check for whether the round has a series.
+    """
+    from the_warroom.models import StageParticipant
+    if not user.is_authenticated:
+        return False
+    if not tournament_round.is_available():
+        return False
+
+    stage = tournament_round.stage
+    tournament = stage.tournament
+    if tournament.has_permission(user.profile):
+        return True
+    if not tournament.players_can_record_matches():
+        return False
+    return StageParticipant.objects.filter(
+        stage=stage,
+        tournament_player__profile=user.profile,
+        status=StageParticipant.ParticipantStatus.ACTIVE,
+    ).exists()
 
 
 def round_overview_page(request, tournament_slug, round_slug, stage_slug=None):

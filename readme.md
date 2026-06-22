@@ -26,4 +26,5 @@ A fan database website for the board game [Root](https://ledergames.com/products
 | `the_keep` | Content repository — factions, maps, decks, hirelings, vagabonds, landmarks, rules/FAQs, PNP assets |
 | `the_warroom` | Games, Scorecards, Series/Tournamentsg |
 | `the_tavern` | Surveys |
+| `the_forge` | Create pdf/pnd/json content |
 

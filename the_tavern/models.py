@@ -638,6 +638,7 @@ class Question(models.Model):
     help_text = models.CharField(max_length=300, blank=True, help_text="Optional help text shown to users")
     is_hidden = models.BooleanField(default=False, help_text="Hidden questions preserve data but are not shown to respondents")
     allow_other = models.BooleanField(default=False, help_text="Allow respondents to select 'Other' and type a custom response (MC/MS only)")
+    display_as_dropdown = models.BooleanField(default=False, help_text="Render a Multiple Choice question as a dropdown instead of radio buttons (good for long lists, e.g. timezones)")
 
     # Post-based choices configuration
     class PostSelectionMode(models.TextChoices):
@@ -1431,6 +1432,7 @@ class QuestionTemplate(models.Model):
     help_text = models.CharField(max_length=300, blank=True)
     required = models.BooleanField(default=True)
     allow_other = models.BooleanField(default=False, help_text="Allow 'Other' free-text option (MC/MS only)")
+    display_as_dropdown = models.BooleanField(default=False, help_text="Render a Multiple Choice question as a dropdown instead of radio buttons")
     choices_data = models.JSONField(default=list, blank=True, help_text="List of choice texts for choice-based questions")
     created_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='question_templates')
     created_at = models.DateTimeField(auto_now_add=True)
