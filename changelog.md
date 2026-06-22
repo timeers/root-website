@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.12.6] - 2026-6-22 RTM Optimizations
+
+### New Features
+- New bot commands with auto fill
+- Host option to view Series as X (moderator, player, logged out)
+
+### Improvements
+- added display as dropdown to multiple choice questions
+- New game button on series page improved 
+- Hide tabs on tournament
+- Hide asset list on tournament
+- Field for Rules Link added to tournament
+- Series record status = registered disables round auto complete
+
+### Bug Fixes
+- allow other option populates correctly when loading from template
+- Adding a new match reopens a Series Round
+
 ## [1.12.5] - 2026-6-18 App Features
 
 ### New Features

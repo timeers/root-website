@@ -207,6 +207,34 @@
                                             </label>
                                         </div>
                                     {% endfor %}
+                                {% elif question.display_as_dropdown %}
+                                    {# Dropdown rendering for long choice lists (e.g. timezones) #}
+                                    <select class="form-select" name="question_{{ question.id }}"
+                                            id="q{{ question.id }}_select"
+                                            {% if question.required %}required{% endif %}
+                                            onchange="if (this.value === 'other') { showOtherText('{{ question.id }}'); } else { hideOtherText('{{ question.id }}'); }">
+                                        <option value="" {% if not field.value %}selected{% endif %}>---------</option>
+                                        {% for choice in question.get_visible_choices %}
+                                            <option value="{{ choice.id }}"
+                                                    {% if field.value == choice.id|stringformat:"s" or field.value == choice.id %}selected{% endif %}>
+                                                {{ choice.get_display_text }}
+                                            </option>
+                                        {% endfor %}
+                                        {% if question.allow_other %}
+                                            <option value="other" {% if field.value == 'other' %}selected{% endif %}>{% trans 'Other' %}</option>
+                                        {% endif %}
+                                    </select>
+                                    {% if question.allow_other %}
+                                        {% with other_field=form|get_question_field_other:question.id %}
+                                        <div id="other_text_{{ question.id }}" class="mt-2 mb-2" style="{% if field.value != 'other' %}display: none;{% endif %}">
+                                            <input type="text" class="form-control" name="question_{{ question.id }}_other_text"
+                                                   placeholder="{% trans 'Please specify...' %}" maxlength="500"
+                                                   {% if other_field and other_field.value %}value="{{ other_field.value }}"{% endif %}
+                                                   oninput="clearOtherValidation(this)">
+                                            <div class="other-validation-error text-danger small mt-1" style="display: none;">{% trans 'Please specify your "Other" response.' %}</div>
+                                        </div>
+                                        {% endwith %}
+                                    {% endif %}
                                 {% else %}
                                     {# Regular choices (text or Post-linked) #}
                                     {% for choice in question.get_visible_choices %}
@@ -796,6 +824,17 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('input[type="radio"][value="other"]:checked').forEach(radio => {
                 const name = radio.name;
                 const otherInput = document.querySelector(`input[name="${name}_other_text"]`);
+                if (otherInput && !otherInput.value.trim()) {
+                    setOtherValidationError(otherInput);
+                    valid = false;
+                    if (!firstInvalid) firstInvalid = otherInput;
+                }
+            });
+
+            // MC dropdown: check if "Other" is selected in a <select> but text is empty
+            document.querySelectorAll('select').forEach(select => {
+                if (select.value !== 'other') return;
+                const otherInput = document.querySelector(`input[name="${select.name}_other_text"]`);
                 if (otherInput && !otherInput.value.trim()) {
                     setOtherValidationError(otherInput);
                     valid = false;

@@ -15,19 +15,55 @@ from django.core.management.base import BaseCommand
 from the_gatehouse.services.discordservice import DISCORD_API, _bot_headers, config
 
 # Slash-command definitions. Add new commands to this list.
-COMMANDS = [
-    {
-        "name": "faction",
-        "description": "Look up a Root faction by name",
+def _lookup_command(name, label):
+    """A /<name> command with a required, autocompleting 'name' option."""
+    return {
+        "name": name,
+        "description": f"Look up a Root {label} by name",
         "options": [
             {
                 "name": "name",
-                "description": "Faction name to search",
+                "description": f"{label.capitalize()} name to search",
                 "type": 3,  # STRING
                 "required": True,
+                "autocomplete": True,
             }
         ],
-    },
+    }
+
+
+STATS_COMMAND = {
+    "name": "stats",
+    "description": "Win rate filtered by player, faction, series, and/or platform",
+    "options": [
+        {"name": "player", "description": "Player", "type": 3, "required": False, "autocomplete": True},
+        {"name": "faction", "description": "Faction", "type": 3, "required": False, "autocomplete": True},
+        {"name": "series", "description": "Series / tournament", "type": 3, "required": False, "autocomplete": True},
+        {
+            "name": "platform",
+            "description": "Platform",
+            "type": 3,  # STRING
+            "required": False,
+            "choices": [
+                {"name": "Tabletop Simulator", "value": "Tabletop Simulator"},
+                {"name": "Root Digital", "value": "Root Digital"},
+                {"name": "In Person", "value": "In Person"},
+            ],
+        },
+    ],
+}
+
+
+COMMANDS = [
+    _lookup_command("faction", "faction"),
+    _lookup_command("clockwork", "clockwork faction"),
+    _lookup_command("map", "map"),
+    _lookup_command("deck", "deck"),
+    _lookup_command("vagabond", "vagabond"),
+    _lookup_command("landmark", "landmark"),
+    _lookup_command("hireling", "hireling"),
+    _lookup_command("houserule", "house rule"),
+    STATS_COMMAND,
 ]
 
 

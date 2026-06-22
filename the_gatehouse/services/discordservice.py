@@ -544,42 +544,146 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
 
 
 
-def build_faction_embed(faction):
-    """Build a Discord embed dict for a Faction (used by the /faction slash command)."""
+def _faction_fields(faction):
+    """Faction/Clockwork-specific embed fields (Type, Reach, style ratings)."""
+    fields = []
+    if faction.type:
+        fields.append({"name": "Type", "value": faction.get_type_display(), "inline": True})
+    fields.append({"name": "Reach", "value": str(faction.reach), "inline": True})
+    # Show the style ratings ("None" is a meaningful value), but skip them
+    # entirely when all four are unset so an unconfigured faction isn't padded
+    # with four redundant "None" fields.
+    NONE = faction.StyleChoices.NONE
+    style_values = (faction.complexity, faction.card_wealth, faction.aggression, faction.crafting_ability)
+    if any(value and value != NONE for value in style_values):
+        for label, display in (
+            ("Complexity", faction.get_complexity_display()),
+            ("Card Wealth", faction.get_card_wealth_display()),
+            ("Aggression", faction.get_aggression_display()),
+            ("Crafting Ability", faction.get_crafting_ability_display()),
+        ):
+            fields.append({"name": label, "value": display, "inline": True})
+    return fields
+
+
+def _vagabond_fields(vagabond):
+    fields = []
+    if vagabond.ability:
+        fields.append({"name": "Special Ability", "value": vagabond.ability, "inline": True})
+    if getattr(vagabond, "captain", False):
+        fields.append({"name": "Captain", "value": "Yes", "inline": True})
+    return fields
+
+
+def _component_fields(post):
+    """Return the subclass-specific embed fields for a Post, by component type."""
+    component = getattr(post, "component", None)
+    if component in ("Faction", "Clockwork"):
+        return _faction_fields(post)
+    if component == "Vagabond":
+        return _vagabond_fields(post)
+    if component == "Hireling" and post.type:
+        return [{"name": "Type", "value": post.get_type_display(), "inline": True}]
+    if component == "Landmark" and getattr(post, "card_text", None):
+        return [{"name": "Card Text", "value": post.card_text, "inline": False}]
+    return []
+
+
+def build_post_embed(post):
+    """Build a Discord embed dict for any Post (faction, map, deck, etc.).
+
+    Shared fields (title, link, description, color, thumbnail, designer) come
+    from the base Post; subclass-specific fields are added per component type.
+    """
     site_url = config.get("SITE_URL", "").rstrip("/")
 
     embed = {
-        "title": faction.title,
-        "url": f"{site_url}{faction.get_absolute_url()}" if site_url else None,
-        "description": faction.description or faction.lore or "",
+        "title": post.title,
+        "url": f"{site_url}{post.get_absolute_url()}" if site_url else None,
+        "description": post.description or post.lore or "",
     }
 
     # color field is a "#RRGGBB" string; Discord wants an int
-    if faction.color:
+    if post.color:
         try:
-            embed["color"] = int(faction.color.lstrip("#"), 16)
+            embed["color"] = int(post.color.lstrip("#"), 16)
         except (ValueError, AttributeError):
             pass
 
-    # Faction image as thumbnail (only resolvable on the public domain)
-    if site_url and getattr(faction, "picture", None):
+    # Post image as thumbnail (only resolvable on the public domain)
+    if site_url and getattr(post, "picture", None):
         try:
-            embed["thumbnail"] = {"url": f"{site_url}{faction.picture.url}"}
+            embed["thumbnail"] = {"url": f"{site_url}{post.picture.url}"}
         except ValueError:
             pass  # no file associated
 
     fields = []
-    if faction.designer:
-        fields.append({"name": "Designer", "value": faction.designer.display_name or "—", "inline": True})
-    if faction.type:
-        fields.append({"name": "Type", "value": faction.get_type_display(), "inline": True})
-    fields.append({"name": "Reach", "value": str(faction.reach), "inline": True})
-    if faction.complexity and faction.complexity != faction.StyleChoices.NONE:
-        fields.append({"name": "Complexity", "value": faction.get_complexity_display(), "inline": True})
+    if post.designer:
+        fields.append({"name": "Designer", "value": post.designer.display_name or "—", "inline": True})
+    fields.extend(_component_fields(post))
+
     if fields:
         embed["fields"] = fields
 
     # Drop None values Discord would reject
+    return {k: v for k, v in embed.items() if v is not None}
+
+
+# Back-compat alias: the embed builder is now generic over all Post types.
+build_faction_embed = build_post_embed
+
+
+def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None):
+    """Build a Discord embed dict for a /stats win-rate result.
+
+    `stats` is the dict from filtered_winrate (total, win_points, win_rate).
+    The remaining args are the resolved filter objects (or None) used to label
+    the result and, when a single subject is in focus, link/thumbnail it.
+    """
+    site_url = config.get("SITE_URL", "").rstrip("/")
+
+    # Human-readable filter summary
+    parts = []
+    if player:
+        parts.append(f"Player: {player.display_name or player.discord}")
+    if faction:
+        parts.append(f"Faction: {faction.title}")
+    if tournament:
+        parts.append(f"Series: {tournament.name}")
+    if platform:
+        parts.append(f"Platform: {platform}")
+    description = " · ".join(parts) if parts else "All games"
+
+    embed = {
+        "title": "Win Rate",
+        "description": description,
+        "fields": [
+            {"name": "Win Rate", "value": f"{stats['win_rate']:.1f}%", "inline": True},
+            {"name": "Games", "value": str(stats['total']), "inline": True},
+            {"name": "Win Points", "value": f"{stats['win_points']:g}", "inline": True},
+        ],
+    }
+
+    # When exactly one of player/faction is the subject, link + thumbnail it.
+    subject = player if (player and not faction) else (faction if (faction and not player) else None)
+    if subject is not None:
+        if subject is faction and faction.color:
+            try:
+                embed["color"] = int(faction.color.lstrip("#"), 16)
+            except (ValueError, AttributeError):
+                pass
+        if site_url:
+            try:
+                embed["url"] = f"{site_url}{subject.get_absolute_url()}"
+            except Exception:
+                pass
+            image = getattr(subject, "picture", None) or getattr(subject, "image", None)
+            if image:
+                try:
+                    embed["thumbnail"] = {"url": f"{site_url}{image.url}"}
+                except ValueError:
+                    pass
+
     return {k: v for k, v in embed.items() if v is not None}
 
 

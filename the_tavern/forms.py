@@ -66,12 +66,20 @@ class SurveyResponseForm(forms.Form):
                     choices = [(choice.id, choice.get_display_text()) for choice in question.get_visible_choices()]
                     if question.allow_other:
                         choices.append(('other', 'Other'))
+                if question.display_as_dropdown:
+                    # Dropdown for long choice lists (e.g. timezones). A blank
+                    # placeholder lets "required" actually force a selection.
+                    dropdown_choices = [('', '---------')] + list(choices)
+                    mc_widget = forms.Select(attrs={'class': 'form-select'})
+                else:
+                    dropdown_choices = choices
+                    mc_widget = forms.RadioSelect
                 self.fields[field_name] = forms.ChoiceField(
                     label=question.text,
-                    choices=choices,
+                    choices=dropdown_choices,
                     required=question.required,
                     help_text=question.help_text,
-                    widget=forms.RadioSelect
+                    widget=mc_widget
                 )
                 if question.allow_other and not question.post_component:
                     self.fields[f'{field_name}_other_text'] = forms.CharField(

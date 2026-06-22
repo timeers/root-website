@@ -8,40 +8,44 @@
                class="section-nav-tab root-title {% if active_page == 'overview' %}active{% endif %}">
                 {% trans 'Overview' %}
             </a>
-            {% if has_games %}
+            {% if has_games and tab_visible.leaderboard %}
             <a href="{% url 'tournament-leaderboard-page' tournament.slug %}"
                data-carry-filters="leaderboard"
                class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
                 {% trans 'Leaderboard' %}
             </a>
+            {% endif %}
+            {% if has_games and tab_visible.games %}
             <a href="{% url 'tournament-games-page' tournament.slug %}"
                data-carry-filters="games"
                class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
                 {% trans 'Games' %}
             </a>
             {% endif %}
-            {% if has_bracket %}
+            {% if has_bracket and tab_visible.bracket %}
             <a href="{% url 'tournament-bracket-page' tournament.slug %}"
                class="section-nav-tab root-title {% if active_page == 'bracket' %}active{% endif %}">
                 {% trans 'Bracket' %}
             </a>
             {% endif %}
-            {% if has_games or has_players %}
+            {% if has_games or has_players %}{% if tab_visible.players %}
             <a href="{% url 'tournament-roster-page' tournament.slug %}"
                class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
                 {% trans 'Players' %}
             </a>
-            {% endif %}
-            {% if has_surveys %}
+            {% endif %}{% endif %}
+            {% if has_surveys and tab_visible.surveys %}
             <a href="{% url 'tournament-surveys' tournament.slug %}"
                class="section-nav-tab root-title {% if active_page == 'surveys' %}active{% endif %}">
                 {% trans 'Surveys' %}
             </a>
             {% endif %}
+            {% if tab_visible.details %}
             <a href="{% url 'tournament-details-page' tournament.slug %}"
                class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
                 {% trans 'Details' %}
             </a>
+            {% endif %}
         </nav>
 
         <!-- Action Buttons -->

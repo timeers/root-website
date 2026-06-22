@@ -15,6 +15,7 @@ from the_warroom.models import (
     Round,
     Stage,
     StageParticipant,
+    Tournament,
     TournamentPlayer,
 )
 
@@ -230,7 +231,16 @@ class BracketService:
         """
         Check if all match series in the round are complete.
         If so, mark the round and potentially the stage as completed.
+
+        Skipped entirely when the tournament lets registered players record
+        games freely (recording_access = REGISTERED): completing the scheduled
+        matches no longer means the round is finished, so rounds/stages are
+        closed manually by moderators instead.
         """
+        tournament = round.get_tournament()
+        if tournament and tournament.recording_access == Tournament.RecordingAccessTypes.REGISTERED:
+            return
+
         all_series = list(round.series.prefetch_related('winners', 'matches').all())
         if not all_series:
             return
@@ -247,3 +257,43 @@ class BracketService:
                 if not remaining.exists():
                     round.stage.status = CompetitionStatus.COMPLETED
                     round.stage.save(update_fields=['status'])
+
+    @classmethod
+    @transaction.atomic
+    def reopen_round(cls, round):
+        """
+        Reopen a COMPLETED round back to ACTIVE after a match is explicitly
+        added (e.g. via the Schedule Match button), cascading to any parent
+        stage/tournament that had been completed.
+
+        The act of adding a match is the intent signal: the new slot is meant
+        to be played, so the round is no longer finished — even if every series
+        already has a recorded winner. PENDING/ACTIVE rounds are left untouched.
+        """
+        if round.status != CompetitionStatus.COMPLETED:
+            return
+
+        round.status = CompetitionStatus.ACTIVE
+        round.save(update_fields=['status'])
+
+        # Reactivate the parent stage/tournament if they were completed.
+        stage = round.stage
+        tournament = stage.tournament if stage else None
+        for obj in (stage, tournament):
+            if obj and obj.status == CompetitionStatus.COMPLETED:
+                obj.status = CompetitionStatus.ACTIVE
+                obj.save(update_fields=['status'])
+
+    @classmethod
+    @transaction.atomic
+    def reevaluate_round_status(cls, round):
+        """
+        Recompute an ACTIVE round's status after matches or series are removed,
+        completing it (and cascading the stage) if no playable work remains.
+
+        Used by the remove paths. Reopening on add is handled separately by
+        ``reopen_round`` — this method never reopens a COMPLETED round.
+        """
+        if round.status != CompetitionStatus.ACTIVE:
+            return
+        cls._check_round_complete(round)

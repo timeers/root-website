@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from django.db import models, transaction
-from django.db.models import Q, Sum, Max, Prefetch
+from django.db.models import Q, Sum, Max, Prefetch, Count
 
 from django.utils import timezone
 from django.urls import reverse
@@ -100,13 +100,24 @@ class RoundQuerySet(models.QuerySet):
         )
 
     def is_available(self):
-        """Filter for available rounds."""
+        """Filter for available rounds (cascades from stage and tournament)."""
         now = timezone.now().date()
         return self.exclude(
+            # Round's own fields
             Q(is_active=False) |
             Q(status=CompetitionStatus.COMPLETED) |
             Q(start_date__gt=now) |
-            Q(end_date__lt=now)
+            Q(end_date__lt=now) |
+            # Parent stage
+            Q(stage__is_active=False) |
+            Q(stage__status=CompetitionStatus.COMPLETED) |
+            Q(stage__start_date__gt=now) |
+            Q(stage__end_date__lt=now) |
+            # Parent tournament
+            Q(stage__tournament__is_active=False) |
+            Q(stage__tournament__status=CompetitionStatus.COMPLETED) |
+            Q(stage__tournament__start_date__gt=now) |
+            Q(stage__tournament__end_date__lt=now)
         )
 
     def not_available(self):
@@ -149,6 +160,15 @@ class Tournament(models.Model):
         MODERATORS = "moderators", "Moderators Only"
         SCHEDULED = "scheduled", "Scheduled Match Players"
         REGISTERED = "registered_players", "Registered Players"
+    class RulesPlatformChoices(models.TextChoices):
+        GOOGLE = 'google', 'Google Drive'
+        DROPBOX = 'dropbox', 'Dropbox'
+
+    # Nav tabs that moderators can hide (Overview is always shown). Drives both
+    # the settings form and the per-tab visibility passed to the nav headers, so
+    # adding a tab here makes it controllable everywhere without a migration.
+    HIDEABLE_TABS = ['leaderboard', 'games', 'bracket', 'players', 'surveys', 'details']
+
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
     designer = models.ForeignKey(
@@ -166,6 +186,15 @@ class Tournament(models.Model):
     )
     description = models.TextField(null=True, blank=True)
     rules = models.TextField(null=True, blank=True, help_text='Tournament rules that participants must agree to when registering.')
+    rules_link = models.URLField(
+        max_length=1000, null=True, blank=True,
+        help_text='Optional link to an external rules document. Must be a Google Drive or Dropbox link.'
+    )
+    rules_platform = models.CharField(
+        max_length=10, blank=True,
+        choices=RulesPlatformChoices.choices,
+        help_text='Auto-detected from rules_link URL.'
+    )
     picture = models.ImageField(upload_to='tournaments', null=True, blank=True)
 
     classification = models.CharField(
@@ -207,7 +236,21 @@ class Tournament(models.Model):
         help_text='Open: any asset. Official: all official assets. Selected: only chosen assets.'
     )
     include_clockwork = models.BooleanField(default=False)
-    
+    show_assets = models.BooleanField(
+        default=True,
+        help_text="Show the Allowed Assets section on detail pages."
+    )
+
+    # Nav tab visibility
+    hidden_tabs = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of nav tab keys to hide (e.g. ['leaderboard','surveys']). "
+            "Tabs not listed are shown. Overview is always shown."
+        ),
+    )
+
     factions = models.ManyToManyField(Faction, blank=True, related_name='tournaments')
     maps = models.ManyToManyField(Map, blank=True, related_name='tournaments')
     decks = models.ManyToManyField(Deck, blank=True, related_name='tournaments')
@@ -313,6 +356,10 @@ class Tournament(models.Model):
     def players_can_record_standalone(self):
         """Registered players may record standalone games for rounds (REGISTERED only)."""
         return self.recording_access == self.RecordingAccessTypes.REGISTERED
+
+    def tab_visible(self, key):
+        """Whether a nav tab is enabled (not in hidden_tabs). Unknown keys default visible."""
+        return key not in (self.hidden_tabs or [])
 
     def __str__(self):
         return self.name
@@ -488,6 +535,17 @@ class Tournament(models.Model):
         update_fields = kwargs.get('update_fields')
         if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
             self._recalculate_status()
+
+        # Auto-detect the rules link platform for icon display
+        if self.rules_link:
+            if 'dropbox.com' in self.rules_link:
+                self.rules_platform = self.RulesPlatformChoices.DROPBOX
+            elif 'drive.google.com' in self.rules_link or 'docs.google.com' in self.rules_link:
+                self.rules_platform = self.RulesPlatformChoices.GOOGLE
+            else:
+                self.rules_platform = ''
+        else:
+            self.rules_platform = ''
 
         # Track date changes for cascading to children
         old_start = None
@@ -1654,7 +1712,36 @@ class Effort(models.Model):
 
     
     class Meta:
-        ordering = ['game', 'seat']    
+        ordering = ['game', 'seat']
+
+
+def filtered_winrate(player=None, faction=None, tournament=None, platform=None):
+    """Win rate over Efforts, filtered by any combination of player, faction,
+    tournament (series), and platform. Mirrors the leaderboard formula
+    (coalition wins count as half) in a single aggregate query so the result
+    matches the site's leaderboards. Returns {total, win_points, win_rate}."""
+    qs = Effort.objects.filter(game__final=True, game__test_match=False)
+    if player:
+        qs = qs.filter(player=player)
+    if faction:
+        qs = qs.filter(faction=faction)
+    if platform:
+        qs = qs.filter(game__platform=platform)
+    if tournament:
+        qs = qs.filter(
+            Q(game__round__stage__tournament=tournament)
+            | Q(game__round__tournament=tournament)
+        )
+    agg = qs.aggregate(
+        total=Count('id'),
+        wins=Count('id', filter=Q(win=True)),
+        coalition=Count('id', filter=Q(win=True, game__coalition_win=True)),
+    )
+    total = agg['total'] or 0
+    win_points = (agg['wins'] or 0) - (agg['coalition'] or 0) / 2
+    win_rate = (win_points / total * 100) if total else 0.0
+    return {'total': total, 'win_points': win_points, 'win_rate': win_rate}
+
 
 # This is a collection of Turns that makes up the detailed point breakdown of a game. It should be linked to an effort and is marked as final when the total score matches with the effort's score.
 class ScoreCard(models.Model):

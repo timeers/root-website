@@ -1249,6 +1249,15 @@ function handleTypeChange(questionId, existingData = null) {
                     </label>
                 </div>
                 ` : ''}
+                ${type === 'MC' ? `
+                <div class="form-check mt-2">
+                    <input class="form-check-input display-dropdown-checkbox" type="checkbox" id="display_as_dropdown_${questionId}"
+                           ${existingData && existingData.display_as_dropdown ? 'checked' : ''}>
+                    <label class="form-check-label" for="display_as_dropdown_${questionId}">
+                        <i class="bi bi-menu-button-wide"></i> Display as dropdown (good for long lists)
+                    </label>
+                </div>
+                ` : ''}
             </div>
         `;
 
@@ -2171,6 +2180,11 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
             if (allowOtherCheckbox) {
                 questionData.allow_other = allowOtherCheckbox.checked;
             }
+            // Collect display_as_dropdown for MC questions
+            const displayDropdownCheckbox = card.querySelector('.display-dropdown-checkbox');
+            if (displayDropdownCheckbox) {
+                questionData.display_as_dropdown = displayDropdownCheckbox.checked;
+            }
         } else if (questionData.type === 'YN') {
             const choices = [];
             card.querySelectorAll('.choice-item').forEach(choiceItem => {
@@ -2664,6 +2678,11 @@ function saveQuestionTemplate() {
         const allowOtherCb = card.querySelector('.allow-other-checkbox');
         if (allowOtherCb) {
             questionData.allow_other = allowOtherCb.checked;
+        }
+        // Collect display_as_dropdown for MC template saving
+        const displayDropdownCb = card.querySelector('.display-dropdown-checkbox');
+        if (displayDropdownCb) {
+            questionData.display_as_dropdown = displayDropdownCb.checked;
         }
     } else if (questionData.question_type === 'YN') {
         questionData.choices_data = ['Yes', 'No'];

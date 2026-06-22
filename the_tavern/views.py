@@ -1589,6 +1589,7 @@ def save_question_template(request):
             'post_selection_mode': data.get('post_selection_mode'),
             'likert_scale_id': data.get('likert_scale_id'),
             'allow_other': data.get('allow_other', False),
+            'display_as_dropdown': data.get('display_as_dropdown', False),
         }
 
         # Only include ta_enabled_days if provided (to allow model default to work)
@@ -1691,6 +1692,8 @@ def get_question_template(request, template_id):
         'type': template.question_type,
         'required': template.required,
         'help_text': template.help_text,
+        'allow_other': template.allow_other,
+        'display_as_dropdown': template.display_as_dropdown,
     }
 
     if template.question_type == 'LK' and template.likert_scale:
@@ -2332,6 +2335,7 @@ def survey_edit_view(request, slug):
                         question.is_hidden = False  # Unhide if restoring
                         question.section = question_section
                         question.allow_other = q_data.get('allow_other', False)
+                        question.display_as_dropdown = q_data.get('display_as_dropdown', False)
 
                         # Update likert scale if needed
                         if q_data['type'] == 'LK' and q_data.get('likert_scale_id'):
@@ -2423,6 +2427,7 @@ def survey_edit_view(request, slug):
                             help_text=q_data.get('help_text', ''),
                             section=question_section,
                             allow_other=q_data.get('allow_other', False),
+                            display_as_dropdown=q_data.get('display_as_dropdown', False),
                         )
 
                         # Add likert scale if needed
@@ -2571,6 +2576,7 @@ def survey_edit_view(request, slug):
             'ta_enabled_days': question.ta_enabled_days if question.ta_enabled_days else TA_DAY_CODES,
             'section_id': question.section_id,
             'allow_other': question.allow_other,
+            'display_as_dropdown': question.display_as_dropdown,
         }
 
         # Add choices if applicable (only non-hidden)
@@ -2818,6 +2824,7 @@ def survey_create_view(request):
                         help_text=q_data.get('help_text', ''),
                         section=section,
                         allow_other=q_data.get('allow_other', False),
+                        display_as_dropdown=q_data.get('display_as_dropdown', False),
                     )
 
                     # Add likert scale if needed
