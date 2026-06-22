@@ -6563,6 +6563,7 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
 
         # --- Add matches ---
         add_matches = data.get('add_matches', [])
+        added_matches = bool(add_matches)
         if isinstance(add_matches, int):
             # Legacy format: just a count
             for _ in range(add_matches):
@@ -6621,6 +6622,14 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
         if series.status != new_status:
             series.status = new_status
             series.save(update_fields=['status'])
+
+        # Adding a match reopens a finished round (the new slot needs playing);
+        # otherwise removals may have left the round complete, so recompute.
+        from .services.bracket import BracketService
+        if added_matches:
+            BracketService.reopen_round(round)
+        else:
+            BracketService.reevaluate_round_status(round)
 
         # --- Return HTML partial if card_type provided ---
         card_type = data.get('card_type')
@@ -6725,6 +6734,11 @@ def round_create_series(request, tournament_slug, stage_slug, round_slug):
 
         Match.objects.create(round=round, series=series)
 
+        # A new series adds a match that needs playing, so reopen the round if
+        # a prior recording had auto-completed it.
+        from .services.bracket import BracketService
+        BracketService.reopen_round(round)
+
         return JsonResponse({
             'success': True,
             'series': _build_series_response(series),
@@ -6759,6 +6773,11 @@ def round_delete_series(request, tournament_slug, stage_slug, round_slug):
         series.delete()  # Cascades to Match, MatchSeat
         if group:
             group.delete()
+
+        # Removing a series can leave the round's remaining series all complete,
+        # so recompute the round's status.
+        from .services.bracket import BracketService
+        BracketService.reevaluate_round_status(round)
 
         return JsonResponse({'success': True, 'deleted_id': series_id})
 
