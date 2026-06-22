@@ -1689,6 +1689,7 @@ def _tournament_base_context(request, tournament):
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
+        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
         'user_in_guild': user_in_guild,
         'meta_title': tournament.name,
         'meta_description': tournament.description,
@@ -1729,6 +1730,7 @@ def _stage_base_context(request, tournament, stage):
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
+        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
         'user_in_guild': user_in_guild,
         'meta_title': f"{stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
@@ -1763,6 +1765,7 @@ def _round_base_context(request, tournament, stage, round):
         'has_games': has_games,
         'has_players': has_players,
         'is_bracket_finalized': is_bracket_finalized,
+        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
         'user_in_guild': user_in_guild,
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
@@ -2089,21 +2092,22 @@ def tournament_details_page(request, slug):
     context = _tournament_base_context(request, tournament)
     context['active_page'] = 'details'
 
-    if tournament.asset_mode != AssetModeChoices.OPEN:
-        assets = tournament.get_asset_querysets()
-        context['asset_types'] = [
-            ('faction', 'Factions', assets['factions'], 'bi-shield'),
-            ('map', 'Maps', assets['maps'], 'bi-map'),
-            ('deck', 'Decks', assets['decks'], 'bi-stack'),
-            ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
-            ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
-            ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
-            ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
-        ]
-    else:
-        games_qs = Game.objects.filter(round__stage__tournament=tournament, final=True)
-        if games_qs.exists():
-            context['asset_types'] = _build_used_asset_types(games_qs)
+    if tournament.show_assets:
+        if tournament.asset_mode != AssetModeChoices.OPEN:
+            assets = tournament.get_asset_querysets()
+            context['asset_types'] = [
+                ('faction', 'Factions', assets['factions'], 'bi-shield'),
+                ('map', 'Maps', assets['maps'], 'bi-map'),
+                ('deck', 'Decks', assets['decks'], 'bi-stack'),
+                ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
+                ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
+                ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
+                ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
+            ]
+        else:
+            games_qs = Game.objects.filter(round__stage__tournament=tournament, final=True)
+            if games_qs.exists():
+                context['asset_types'] = _build_used_asset_types(games_qs)
 
     return render(request, 'the_warroom/tournament_details.html', context)
 
@@ -4639,21 +4643,22 @@ def stage_details_page(request, tournament_slug, stage_slug):
     context['min_players'] = stage.get_min_players_display()
     context['max_players'] = stage.get_max_players_display()
 
-    if tournament.asset_mode != AssetModeChoices.OPEN:
-        assets = tournament.get_asset_querysets()
-        context['asset_types'] = [
-            ('faction', 'Factions', assets['factions'], 'bi-shield'),
-            ('map', 'Maps', assets['maps'], 'bi-map'),
-            ('deck', 'Decks', assets['decks'], 'bi-stack'),
-            ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
-            ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
-            ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
-            ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
-        ]
-    else:
-        games_qs = Game.objects.filter(round__stage=stage, final=True)
-        if games_qs.exists():
-            context['asset_types'] = _build_used_asset_types(games_qs)
+    if tournament.show_assets:
+        if tournament.asset_mode != AssetModeChoices.OPEN:
+            assets = tournament.get_asset_querysets()
+            context['asset_types'] = [
+                ('faction', 'Factions', assets['factions'], 'bi-shield'),
+                ('map', 'Maps', assets['maps'], 'bi-map'),
+                ('deck', 'Decks', assets['decks'], 'bi-stack'),
+                ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
+                ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
+                ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
+                ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
+            ]
+        else:
+            games_qs = Game.objects.filter(round__stage=stage, final=True)
+            if games_qs.exists():
+                context['asset_types'] = _build_used_asset_types(games_qs)
 
     return render(request, 'the_warroom/stage_details.html', context)
 
@@ -4940,21 +4945,22 @@ def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
     context['min_players'] = round.get_min_players_display()
     context['max_players'] = round.get_max_players_display()
 
-    if tournament.asset_mode != AssetModeChoices.OPEN:
-        assets = tournament.get_asset_querysets()
-        context['asset_types'] = [
-            ('faction', 'Factions', assets['factions'], 'bi-shield'),
-            ('map', 'Maps', assets['maps'], 'bi-map'),
-            ('deck', 'Decks', assets['decks'], 'bi-stack'),
-            ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
-            ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
-            ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
-            ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
-        ]
-    else:
-        games_qs = Game.objects.filter(round=round, final=True)
-        if games_qs.exists():
-            context['asset_types'] = _build_used_asset_types(games_qs)
+    if tournament.show_assets:
+        if tournament.asset_mode != AssetModeChoices.OPEN:
+            assets = tournament.get_asset_querysets()
+            context['asset_types'] = [
+                ('faction', 'Factions', assets['factions'], 'bi-shield'),
+                ('map', 'Maps', assets['maps'], 'bi-map'),
+                ('deck', 'Decks', assets['decks'], 'bi-stack'),
+                ('hireling', 'Hirelings', assets['hirelings'], 'bi-person-badge'),
+                ('landmark', 'Landmarks', assets['landmarks'], 'bi-geo-alt'),
+                ('tweak', 'House Rules', assets['tweaks'], 'bi-wrench'),
+                ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
+            ]
+        else:
+            games_qs = Game.objects.filter(round=round, final=True)
+            if games_qs.exists():
+                context['asset_types'] = _build_used_asset_types(games_qs)
 
     return render(request, 'the_warroom/round_details.html', context)
 

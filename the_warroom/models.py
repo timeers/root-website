@@ -160,6 +160,12 @@ class Tournament(models.Model):
         MODERATORS = "moderators", "Moderators Only"
         SCHEDULED = "scheduled", "Scheduled Match Players"
         REGISTERED = "registered_players", "Registered Players"
+
+    # Nav tabs that moderators can hide (Overview is always shown). Drives both
+    # the settings form and the per-tab visibility passed to the nav headers, so
+    # adding a tab here makes it controllable everywhere without a migration.
+    HIDEABLE_TABS = ['leaderboard', 'games', 'bracket', 'players', 'surveys', 'details']
+
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
     designer = models.ForeignKey(
@@ -218,7 +224,21 @@ class Tournament(models.Model):
         help_text='Open: any asset. Official: all official assets. Selected: only chosen assets.'
     )
     include_clockwork = models.BooleanField(default=False)
-    
+    show_assets = models.BooleanField(
+        default=True,
+        help_text="Show the Allowed Assets section on detail pages."
+    )
+
+    # Nav tab visibility
+    hidden_tabs = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of nav tab keys to hide (e.g. ['leaderboard','surveys']). "
+            "Tabs not listed are shown. Overview is always shown."
+        ),
+    )
+
     factions = models.ManyToManyField(Faction, blank=True, related_name='tournaments')
     maps = models.ManyToManyField(Map, blank=True, related_name='tournaments')
     decks = models.ManyToManyField(Deck, blank=True, related_name='tournaments')
@@ -324,6 +344,10 @@ class Tournament(models.Model):
     def players_can_record_standalone(self):
         """Registered players may record standalone games for rounds (REGISTERED only)."""
         return self.recording_access == self.RecordingAccessTypes.REGISTERED
+
+    def tab_visible(self, key):
+        """Whether a nav tab is enabled (not in hidden_tabs). Unknown keys default visible."""
+        return key not in (self.hidden_tabs or [])
 
     def __str__(self):
         return self.name

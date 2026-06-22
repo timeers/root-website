@@ -907,7 +907,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'start_date', 'end_date', 'publicly_visible', 'is_active',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
             'platform', 'link_required',
-            'asset_mode', 'include_clockwork',
+            'asset_mode', 'include_clockwork', 'show_assets',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
             'default_format',
             'picture'
@@ -933,12 +933,23 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'recording_access': 'Who Can Record Games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
+            'show_assets': 'Show Allowed Assets section',
             'default_format': 'Default Round Format',
             'picture': 'Series Image',
         }
 
     def __init__(self, *args, user=None, **kwargs):
         super(TournamentDynamicUpdateForm, self).__init__(*args, **kwargs)
+
+        # Visible-tabs checkboxes (mapped to/from the JSON `hidden_tabs` field).
+        # Each "show this tab" checkbox is checked when the tab is NOT hidden.
+        hidden = self.instance.hidden_tabs or [] if self.instance else []
+        for key in Tournament.HIDEABLE_TABS:
+            self.fields[f'show_tab_{key}'] = forms.BooleanField(
+                required=False,
+                initial=(key not in hidden),
+                label=f'Show {key.capitalize()} tab',
+            )
 
         # Use native HTML5 date picker
         self.fields['start_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
@@ -980,6 +991,18 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
                     self.fields['guild'].queryset = DiscordGuild.objects.filter(pk=self.instance.guild.pk)
                 else:
                     self.fields['guild'].queryset = DiscordGuild.objects.none()
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        # Translate the per-tab "show" checkboxes into the hidden_tabs list.
+        instance.hidden_tabs = [
+            key for key in Tournament.HIDEABLE_TABS
+            if not self.cleaned_data.get(f'show_tab_{key}')
+        ]
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
 
 
 class RoundCreateForm(forms.ModelForm):

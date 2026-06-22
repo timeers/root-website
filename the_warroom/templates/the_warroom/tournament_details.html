@@ -110,21 +110,21 @@
                 <dd class="col-sm-8">{{ tournament.get_default_format_display }}</dd>
                 {% endif %}
 
-                <dt class="col-sm-4 text-muted">{% trans 'Open Roster' %}</dt>
-                <dd class="col-sm-8">{% if tournament.open_roster %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
+                {% comment %} <dt class="col-sm-4 text-muted">{% trans 'Open Roster' %}</dt>
+                <dd class="col-sm-8">{% if tournament.open_roster %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd> {% endcomment %}
 
 
 
 
 
-                <dt class="col-sm-4 text-muted">{% trans 'Coalitions Allowed' %}</dt>
+                {% comment %} <dt class="col-sm-4 text-muted">{% trans 'Coalitions Allowed' %}</dt>
                 <dd class="col-sm-8">{{ tournament.get_coalition_type_display }}</dd>
 
                 <dt class="col-sm-4 text-muted">{% trans 'Link Required' %}</dt>
-                <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd>
+                <dd class="col-sm-8">{% if tournament.link_required %}{% trans 'Yes' %}{% else %}{% trans 'No' %}{% endif %}</dd> {% endcomment %}
             </dl>
 
-            {% include 'the_warroom/partials/details_leaderboard_settings.html' with game_threshold=tournament.game_threshold leaderboard_positions=tournament.leaderboard_positions %}
+            {% comment %} {% include 'the_warroom/partials/details_leaderboard_settings.html' with game_threshold=tournament.game_threshold leaderboard_positions=tournament.leaderboard_positions %} {% endcomment %}
 
             {% if tournament.description %}
             <hr class="my-3">

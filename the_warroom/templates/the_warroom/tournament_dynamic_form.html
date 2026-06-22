@@ -231,6 +231,27 @@
 
                             {% include 'the_warroom/partials/asset_mode_toggle.html' with tournament_form=form %}
 
+                            {{ form.show_assets|as_crispy_field }}
+
+                    </div>
+                </div>
+
+                <!-- Visible Tabs Card -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>{% trans 'Visible Tabs' %}</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">{% trans 'Choose which tabs appear in the navigation header. The Overview tab is always shown.' %}</p>
+                        <div class="row">
+                            {% for field in form %}
+                                {% if field.name|slice:":9" == "show_tab_" %}
+                                <div class="col-md-6 mb-2">
+                                    {{ field|as_crispy_field }}
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
                     </div>
                 </div>
 
