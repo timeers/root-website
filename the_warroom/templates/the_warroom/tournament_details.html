@@ -30,7 +30,7 @@
     <!-- Tournament Specifications -->
     <div class="card">
         <div class="card-body">
-            <h4 class="card-title mb-3">{{ tournament.get_classification_display }} Details</h4>
+            <h4 class="card-title mb-3 root-title">{{ tournament.get_classification_display }} Details</h4>
             <dl class="row mb-0">
                 <dt class="col-sm-4 text-muted">{% trans 'Status' %}</dt>
                 <dd class="col-sm-8">
@@ -128,18 +128,31 @@
 
             {% if tournament.description %}
             <hr class="my-3">
-            <h5 class="mb-3"><i class="bi bi-scroll me-2"></i>{% trans 'Description' %}</h5>
+            <h5 class="mb-3 root-title"><i class="bi bi-scroll me-2"></i>{% trans 'Description' %}</h5>
             <div style="max-height: 500px; overflow-y: auto;">
                 {{ tournament.description|linebreaks }}
             </div>
             {% endif %}
 
-            {% if tournament.rules %}
+            {% if tournament.rules or tournament.rules_link %}
             <hr class="my-3">
-            <h5 class="mb-3"><i class="bi bi-scroll me-2"></i>{% trans 'Rules' %}</h5>
+            <h5 class="mb-3 root-title"><i class="bi bi-scroll me-2"></i>{% trans 'Rules' %}</h5>
+            {% if tournament.rules %}
             <div style="max-height: 500px; overflow-y: auto;">
                 {{ tournament.rules|linebreaks }}
             </div>
+            {% endif %}
+            {% if tournament.rules_link %}
+            <a href="{{ tournament.rules_link }}" target="_blank" rel="noopener ugc"
+               class="btn btn-sm btn-outline-secondary mt-2">
+                {% if tournament.rules_platform == 'dropbox' %}
+                <i class="bi bi-dropbox me-1"></i>
+                {% else %}
+                <i class="bi bi-google me-1"></i>
+                {% endif %}
+                {% trans 'View Rules' %}
+            </a>
+            {% endif %}
             {% endif %}
 
             {% if asset_types %}

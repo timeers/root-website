@@ -160,6 +160,9 @@ class Tournament(models.Model):
         MODERATORS = "moderators", "Moderators Only"
         SCHEDULED = "scheduled", "Scheduled Match Players"
         REGISTERED = "registered_players", "Registered Players"
+    class RulesPlatformChoices(models.TextChoices):
+        GOOGLE = 'google', 'Google Drive'
+        DROPBOX = 'dropbox', 'Dropbox'
 
     # Nav tabs that moderators can hide (Overview is always shown). Drives both
     # the settings form and the per-tab visibility passed to the nav headers, so
@@ -183,6 +186,15 @@ class Tournament(models.Model):
     )
     description = models.TextField(null=True, blank=True)
     rules = models.TextField(null=True, blank=True, help_text='Tournament rules that participants must agree to when registering.')
+    rules_link = models.URLField(
+        max_length=1000, null=True, blank=True,
+        help_text='Optional link to an external rules document. Must be a Google Drive or Dropbox link.'
+    )
+    rules_platform = models.CharField(
+        max_length=10, blank=True,
+        choices=RulesPlatformChoices.choices,
+        help_text='Auto-detected from rules_link URL.'
+    )
     picture = models.ImageField(upload_to='tournaments', null=True, blank=True)
 
     classification = models.CharField(
@@ -523,6 +535,17 @@ class Tournament(models.Model):
         update_fields = kwargs.get('update_fields')
         if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
             self._recalculate_status()
+
+        # Auto-detect the rules link platform for icon display
+        if self.rules_link:
+            if 'dropbox.com' in self.rules_link:
+                self.rules_platform = self.RulesPlatformChoices.DROPBOX
+            elif 'drive.google.com' in self.rules_link or 'docs.google.com' in self.rules_link:
+                self.rules_platform = self.RulesPlatformChoices.GOOGLE
+            else:
+                self.rules_platform = ''
+        else:
+            self.rules_platform = ''
 
         # Track date changes for cascading to children
         old_start = None

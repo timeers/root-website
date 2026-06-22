@@ -8,6 +8,9 @@
 ### Improvements
 - added display as dropdown to multiple choice questions
 - New game button on series page improved 
+- Hide tabs on tournament
+- Hide asset list on tournament
+- Field for Rules Link added to tournament
 
 ### Bug Fixes
 - allow other option populates correctly when loading from template

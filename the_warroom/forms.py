@@ -4,13 +4,27 @@ from .models import Effort, Game, TurnScore, ScoreCard, Round, Stage, Tournament
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond, Tweak
 from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db.models import Max, Q
 from django.utils.translation import gettext as _
 
 
+def _validate_rules_link(form, cleaned_data):
+    """Restrict a tournament's rules_link to valid Google Drive or Dropbox URLs."""
+    rules_link = cleaned_data.get('rules_link')
+    if rules_link:
+        try:
+            URLValidator()(rules_link)
+        except ValidationError:
+            form.add_error('rules_link', 'Enter a valid URL.')
+        else:
+            if not ('dropbox.com' in rules_link
+                    or 'drive.google.com' in rules_link
+                    or 'docs.google.com' in rules_link):
+                form.add_error('rules_link', 'Rules links must be to Google Drive or Dropbox.')
 
 
-class GameCreateForm(forms.ModelForm):  
+class GameCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
     link = forms.CharField(help_text='Post link to Discord Thread (optional)', required=False)
     hirelings = forms.ModelMultipleChoiceField(required=False, 
@@ -766,7 +780,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
     class Meta:
         model = Tournament
         fields = [
-            'name', 'classification', 'designer', 'guild', 'description', 'rules',
+            'name', 'classification', 'designer', 'guild', 'description', 'rules', 'rules_link',
             'start_date', 'end_date', 'publicly_visible', 'is_active',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
             'platform', 'default_format', 'link_required',
@@ -789,6 +803,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'description': 'Description (Optional)',
             'rules': 'Rules (Optional)',
+            'rules_link': 'Rules Link (Optional)',
             'open_roster': 'Allow All Players',
             'recording_access': 'Who Can Record Games',
             'asset_mode': 'Asset Mode',
@@ -873,6 +888,11 @@ class TournamentDynamicCreateForm(forms.ModelForm):
 
         return instance
 
+    def clean(self):
+        cleaned_data = super().clean()
+        _validate_rules_link(self, cleaned_data)
+        return cleaned_data
+
 
 class TournamentDynamicUpdateForm(forms.ModelForm):
     PLATFORM_CHOICES = [
@@ -903,7 +923,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
     class Meta:
         model = Tournament
         fields = [
-            'name', 'classification', 'designer', 'guild', 'description', 'rules',
+            'name', 'classification', 'designer', 'guild', 'description', 'rules', 'rules_link',
             'start_date', 'end_date', 'publicly_visible', 'is_active',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
             'platform', 'link_required',
@@ -919,6 +939,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'guild': 'Discord Guild',
             'description': 'Description (Optional)',
             'rules': 'Rules (Optional)',
+            'rules_link': 'Rules Link (Optional)',
             'start_date': 'Start Date',
             'end_date': 'End Date',
             'publicly_visible': 'Display on Series home page',
@@ -1003,6 +1024,11 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             instance.save()
             self.save_m2m()
         return instance
+
+    def clean(self):
+        cleaned_data = super().clean()
+        _validate_rules_link(self, cleaned_data)
+        return cleaned_data
 
 
 class RoundCreateForm(forms.ModelForm):
