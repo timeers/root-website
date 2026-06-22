@@ -60,6 +60,7 @@ COMMANDS = [
     _lookup_command("map", "map"),
     _lookup_command("deck", "deck"),
     _lookup_command("vagabond", "vagabond"),
+    _lookup_command("captain", "knave captain"),
     _lookup_command("landmark", "landmark"),
     _lookup_command("hireling", "hireling"),
     _lookup_command("houserule", "house rule"),

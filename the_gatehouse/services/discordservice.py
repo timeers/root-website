@@ -547,9 +547,10 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
 def _faction_fields(faction):
     """Faction/Clockwork-specific embed fields (Type, Reach, style ratings)."""
     fields = []
-    if faction.type:
+    if faction.type and faction.type != faction.TypeChoices.UNKNOWN:
         fields.append({"name": "Type", "value": faction.get_type_display(), "inline": True})
-    fields.append({"name": "Reach", "value": str(faction.reach), "inline": True})
+    if faction.reach:
+        fields.append({"name": "Reach", "value": str(faction.reach), "inline": True})
     # Show the style ratings ("None" is a meaningful value), but skip them
     # entirely when all four are unset so an unconfigured faction isn't padded
     # with four redundant "None" fields.
@@ -566,24 +567,93 @@ def _faction_fields(faction):
     return fields
 
 
+# Application-owned emoji for vagabond starting items, by item name. These
+# render consistently in every server the app is installed in (unlike per-guild
+# emoji). Keep names in sync with the `starting_<item>` fields on Vagabond.
+VAGABOND_ITEM_EMOJI = {
+    "torch": "<:torch:1518747305589604452>",
+    "boots": "<:boots:1518747223708405770>",
+    "coins": "<:coins:1518747264494080020>",
+    "bag": "<:bag:1518747381947039874>",
+    "tea": "<:tea:1518747327362371615>",
+    "sword": "<:sword:1518747358547148800>",
+    "hammer": "<:hammer:1518747399475036210>",
+    "crossbow": "<:crossbow:1518747416763957298>",
+}
+
+# Cost item emoji, used for a vagabond's ability item. Keyed by
+# the lowercased `ability_item` value. `other_flip` is the fallback for an
+# ability not tied to a specific item.
+VAGABOND_ABILITY_EMOJI = {
+    "torch": "<:torch_flip:1518751223287644280>",
+    "boots": "<:boots_flip:1518751288622448772>",
+    "coins": "<:coins_flip:1518751176420626605>",
+    "bag": "<:bag_flip:1518751193323802856>",
+    "tea": "<:tea_flip:1518751209220214885>",
+    "sword": "<:sword_flip:1518751239305822409>",
+    "hammer": "<:hammer_flip:1518751254921084959>",
+    "crossbow": "<:crossbow_flip:1518751270595199046>",
+    "any": "<:any_flip:1518751311665954958>",
+    "other": "<:other_flip:1518751160075550953>",
+}
+VAGABOND_ABILITY_OTHER_EMOJI = VAGABOND_ABILITY_EMOJI["other"]
+
+
+def _item_emoji_value(vagabond, prefix):
+    """Emoji string for a vagabond's item counts, repeating each emoji by its
+    count. `prefix` is the field prefix, e.g. "starting" or "captain"."""
+    parts = []
+    for item, emoji_str in VAGABOND_ITEM_EMOJI.items():
+        count = getattr(vagabond, f"{prefix}_{item}", 0) or 0
+        parts.append(emoji_str * count)
+    return "".join(parts)
+
+
 def _vagabond_fields(vagabond):
     fields = []
+    # Ability: the ability name is the field title; the value is the ability
+    # item's (flipped) emoji, an arrow, then the description. Falls back to the
+    # "other" emoji when the ability isn't tied to a specific item.
     if vagabond.ability:
-        fields.append({"name": "Special Ability", "value": vagabond.ability, "inline": True})
+        emoji_str = VAGABOND_ABILITY_EMOJI.get(
+            (vagabond.ability_item or "").lower(), VAGABOND_ABILITY_OTHER_EMOJI
+        )
+        value = f"{emoji_str} → {vagabond.ability_description}" if vagabond.ability_description else emoji_str
+        fields.append({"name": vagabond.ability, "value": value, "inline": False})
+
+    items_value = _item_emoji_value(vagabond, "starting")
+    if items_value:
+        fields.append({"name": "Starting Items", "value": items_value, "inline": False})
+
     if getattr(vagabond, "captain", False):
         fields.append({"name": "Captain", "value": "Yes", "inline": True})
+    return fields
+
+
+def _hireling_fields(hireling):
+    fields = []
+    if hireling.type:
+        fields.append({"name": "Type", "value": hireling.get_type_display(), "inline": True})
+    # The flip side, labelled by its own type (e.g. "Demoted Side").
+    if hireling.other_side:
+        label = f"{hireling.other_side.get_type_display()} Side"
+        fields.append({"name": label, "value": hireling.other_side.title, "inline": True})
     return fields
 
 
 def _component_fields(post):
     """Return the subclass-specific embed fields for a Post, by component type."""
     component = getattr(post, "component", None)
-    if component in ("Faction", "Clockwork"):
+    if component == "Faction":
         return _faction_fields(post)
     if component == "Vagabond":
         return _vagabond_fields(post)
-    if component == "Hireling" and post.type:
-        return [{"name": "Type", "value": post.get_type_display(), "inline": True}]
+    if component == "Hireling":
+        return _hireling_fields(post)
+    if component == "Deck":
+        return [{"name": "Cards", "value": str(post.card_total), "inline": True}]
+    if component == "Map":
+        return [{"name": "Clearings", "value": str(post.clearings), "inline": True}]
     if component == "Landmark" and getattr(post, "card_text", None):
         return [{"name": "Card Text", "value": post.card_text, "inline": False}]
     return []
@@ -620,6 +690,8 @@ def build_post_embed(post):
     fields = []
     if post.designer:
         fields.append({"name": "Designer", "value": post.designer.display_name or "—", "inline": True})
+    if getattr(post, "based_on", None):
+        fields.append({"name": "Based on", "value": post.based_on.title, "inline": True})
     fields.extend(_component_fields(post))
 
     if fields:
@@ -631,6 +703,45 @@ def build_post_embed(post):
 
 # Back-compat alias: the embed builder is now generic over all Post types.
 build_faction_embed = build_post_embed
+
+
+def build_captain_embed(vagabond):
+    """Build a Discord embed for a vagabond's captain (Advanced) profile:
+    captain ability and captain starting items, rather than the base ones."""
+    site_url = config.get("SITE_URL", "").rstrip("/")
+
+    embed = {
+        "title": vagabond.title,
+        "url": f"{site_url}{vagabond.get_absolute_url()}" if site_url else None,
+        "description": vagabond.description or vagabond.lore or "",
+    }
+
+    if vagabond.color:
+        try:
+            embed["color"] = int(vagabond.color.lstrip("#"), 16)
+        except (ValueError, AttributeError):
+            pass
+
+    if site_url and getattr(vagabond, "picture", None):
+        try:
+            embed["thumbnail"] = {"url": f"{site_url}{vagabond.picture.url}"}
+        except ValueError:
+            pass
+
+    fields = []
+    if vagabond.designer:
+        fields.append({"name": "Designer", "value": vagabond.designer.display_name or "—", "inline": True})
+    if vagabond.captain_ability:
+        fields.append({"name": "Captain Ability", "value": vagabond.captain_ability, "inline": False})
+
+    items_value = _item_emoji_value(vagabond, "captain")
+    if items_value:
+        fields.append({"name": "Starting Items", "value": items_value, "inline": False})
+
+    if fields:
+        embed["fields"] = fields
+
+    return {k: v for k, v in embed.items() if v is not None}
 
 
 def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None):
@@ -660,29 +771,60 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         "fields": [
             {"name": "Win Rate", "value": f"{stats['win_rate']:.1f}%", "inline": True},
             {"name": "Games", "value": str(stats['total']), "inline": True},
-            {"name": "Win Points", "value": f"{stats['win_points']:g}", "inline": True},
+            {"name": "Wins", "value": f"{stats['win_points']:g}", "inline": True},
         ],
     }
 
-    # When exactly one of player/faction is the subject, link + thumbnail it.
+    def _absolute(subject):
+        """Site-absolute URL for a subject, or None."""
+        if not site_url:
+            return None
+        try:
+            return f"{site_url}{subject.get_absolute_url()}"
+        except Exception:
+            return None
+
+    def _image_url(subject):
+        """Site-absolute URL of a subject's image, or None."""
+        if not site_url:
+            return None
+        image = getattr(subject, "picture", None) or getattr(subject, "image", None)
+        if not image:
+            return None
+        try:
+            return f"{site_url}{image.url}"
+        except ValueError:
+            return None
+
+    if faction and faction.color:
+        try:
+            embed["color"] = int(faction.color.lstrip("#"), 16)
+        except (ValueError, AttributeError):
+            pass
+
+    # Player gets the author slot (icon + name + link); faction gets the
+    # thumbnail. Either may be present alone, or both together.
+    if player:
+        author = {"name": player.display_name or player.discord or "Player"}
+        player_url = _absolute(player)
+        if player_url:
+            author["url"] = player_url
+        player_image = _image_url(player)
+        if player_image:
+            author["icon_url"] = player_image
+        embed["author"] = author
+
+    if faction:
+        faction_image = _image_url(faction)
+        if faction_image:
+            embed["thumbnail"] = {"url": faction_image}
+
+    # When only one subject is in focus, also link the embed title to it.
     subject = player if (player and not faction) else (faction if (faction and not player) else None)
     if subject is not None:
-        if subject is faction and faction.color:
-            try:
-                embed["color"] = int(faction.color.lstrip("#"), 16)
-            except (ValueError, AttributeError):
-                pass
-        if site_url:
-            try:
-                embed["url"] = f"{site_url}{subject.get_absolute_url()}"
-            except Exception:
-                pass
-            image = getattr(subject, "picture", None) or getattr(subject, "image", None)
-            if image:
-                try:
-                    embed["thumbnail"] = {"url": f"{site_url}{image.url}"}
-                except ValueError:
-                    pass
+        subject_url = _absolute(subject)
+        if subject_url:
+            embed["url"] = subject_url
 
     return {k: v for k, v in embed.items() if v is not None}
 
