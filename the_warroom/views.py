@@ -21,7 +21,7 @@ from django.db import IntegrityError, models
 from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
-from django.utils.translation import get_language, gettext as _
+from django.utils.translation import get_language, gettext as _, gettext_lazy as _lazy
 from urllib.parse import quote
 
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
@@ -1654,8 +1654,87 @@ def _build_used_asset_types(games_qs):
     ]
 
 
+# Roles a tournament manager can preview a page as, ordered high -> low privilege.
+VIEW_AS_OPTIONS = (
+    ('moderator', _lazy('Moderator')),
+    ('player', _lazy('Registered Player')),
+    ('logged_in', _lazy('Logged In')),
+    ('logged_out', _lazy('Logged Out')),
+)
+VIEW_AS_ROLES = tuple(value for value, _ in VIEW_AS_OPTIONS)
+
+
+def get_view_as(request, tournament):
+    """Return the active 'view as' role for this tournament, or None.
+
+    Only honored when the REAL user has manage permission on the tournament.
+    Stored in session keyed by tournament id so it persists across tabs/stages/rounds.
+    """
+    if not request.user.is_authenticated:
+        return None
+    if not tournament.has_permission(request.user.profile):
+        return None
+    role = (request.session.get('view_as') or {}).get(str(tournament.id))
+    return role if role in VIEW_AS_ROLES else None
+
+
+def apply_view_as_can_manage(view_as, can_manage):
+    """Downgrade `can_manage` to match an emulated role (display-only, downgrade-only).
+
+    Only a moderator retains manage rights; all lower roles lose them. `playable_round`
+    is recomputed separately via ``user_can_record_in_round(..., as_role=view_as)``.
+    """
+    if not view_as or view_as == 'moderator':
+        return can_manage
+    return False
+
+
+# Preview roles that have no access to the manager-only settings hub (they would
+# get a 403). Previewing as one of these shows a "no access" notice instead of cards.
+VIEW_AS_NO_SETTINGS_ACCESS = ('player', 'logged_in', 'logged_out')
+
+
+def settings_view_as_context(request, tournament, is_owner):
+    """View-as context for the settings hub.
+
+    Returns (context_dict, no_access, is_owner). The settings hub is manager-only,
+    so previewing as a lower role renders a 'cannot view this page' notice; previewing
+    as a moderator hides owner-only cards by forcing is_owner False.
+    """
+    view_as = get_view_as(request, tournament)
+    no_access = view_as in VIEW_AS_NO_SETTINGS_ACCESS
+    if view_as == 'moderator':
+        is_owner = False
+    ctx = {
+        'can_view_as': request.user.is_authenticated and tournament.has_permission(request.user.profile),
+        'view_as': view_as,
+        'view_as_options': VIEW_AS_OPTIONS,
+        'view_as_no_access': no_access,
+    }
+    return ctx, no_access, is_owner
+
+
+@require_POST
+def set_view_as(request, slug):
+    """Set or clear the 'view as' preview role for a tournament (display-only)."""
+    tournament = get_object_or_404(Tournament, slug=slug.lower())
+    if not (request.user.is_authenticated and tournament.has_permission(request.user.profile)):
+        raise PermissionDenied
+    role = request.POST.get('role')
+    store = request.session.get('view_as') or {}
+    if role in VIEW_AS_ROLES:
+        store[str(tournament.id)] = role
+    else:
+        # 'designer' / reset / anything invalid clears the override.
+        store.pop(str(tournament.id), None)
+    request.session['view_as'] = store
+    request.session.modified = True
+    return redirect(request.POST.get('next') or tournament.get_absolute_url())
+
+
 def _tournament_base_context(request, tournament):
     """Shared context for all tournament pages."""
+    view_as = get_view_as(request, tournament)
     playable_round = None
     if request.user.is_authenticated:
         active_rounds = Round.objects.filter(
@@ -1663,10 +1742,12 @@ def _tournament_base_context(request, tournament):
         ).is_available()
         if active_rounds.count() == 1:
             candidate = active_rounds.first()
-            if user_can_record_in_round(candidate, request.user):
+            if user_can_record_in_round(candidate, request.user, as_role=view_as):
                 playable_round = candidate
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
+    can_view_as = request.user.is_authenticated and tournament.has_permission(request.user.profile)
+    can_manage = apply_view_as_can_manage(view_as, can_manage)
     has_bracket = Match.objects.filter(round__stage__tournament=tournament).exists()
     has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
     has_players = TournamentPlayer.objects.filter(tournament=tournament).exists()
@@ -1685,6 +1766,9 @@ def _tournament_base_context(request, tournament):
         'object': tournament,
         'playable_round': playable_round,
         'can_manage': can_manage,
+        'can_view_as': can_view_as,
+        'view_as': view_as,
+        'view_as_options': VIEW_AS_OPTIONS,
         'has_bracket': has_bracket,
         'has_games': has_games,
         'has_players': has_players,
@@ -1698,15 +1782,18 @@ def _tournament_base_context(request, tournament):
 
 def _stage_base_context(request, tournament, stage):
     """Shared context for all stage tab pages."""
+    view_as = get_view_as(request, tournament)
     playable_round = None
     if request.user.is_authenticated:
         active_rounds = stage.rounds.is_available()
         if active_rounds.count() == 1:
             candidate = active_rounds.first()
-            if user_can_record_in_round(candidate, request.user):
+            if user_can_record_in_round(candidate, request.user, as_role=view_as):
                 playable_round = candidate
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
+    can_view_as = request.user.is_authenticated and tournament.has_permission(request.user.profile)
+    can_manage = apply_view_as_can_manage(view_as, can_manage)
     has_bracket = Match.objects.filter(round__stage=stage).exists()
     has_games = Game.objects.filter(round__stage=stage).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
@@ -1726,6 +1813,9 @@ def _stage_base_context(request, tournament, stage):
         'object': stage,
         'playable_round': playable_round,
         'can_manage': can_manage,
+        'can_view_as': can_view_as,
+        'view_as': view_as,
+        'view_as_options': VIEW_AS_OPTIONS,
         'has_bracket': has_bracket,
         'has_games': has_games,
         'has_players': has_players,
@@ -1739,9 +1829,12 @@ def _stage_base_context(request, tournament, stage):
 
 def _round_base_context(request, tournament, stage, round):
     """Shared context for all round tab pages."""
-    playable_round = round if user_can_record_in_round(round, request.user) else None
+    view_as = get_view_as(request, tournament)
+    playable_round = round if user_can_record_in_round(round, request.user, as_role=view_as) else None
 
     can_manage = request.user.is_authenticated and tournament.has_permission(request.user.profile) and request.user.profile.player
+    can_view_as = request.user.is_authenticated and tournament.has_permission(request.user.profile)
+    can_manage = apply_view_as_can_manage(view_as, can_manage)
     has_matches = MatchSeries.objects.filter(round=round).exists()
     has_games = Game.objects.filter(round=round).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
@@ -1761,6 +1854,9 @@ def _round_base_context(request, tournament, stage, round):
         'object': round,
         'playable_round': playable_round,
         'can_manage': can_manage,
+        'can_view_as': can_view_as,
+        'view_as': view_as,
+        'view_as_options': VIEW_AS_OPTIONS,
         'has_matches': has_matches,
         'has_games': has_games,
         'has_players': has_players,
@@ -3024,7 +3120,7 @@ def user_can_access_round(tournament_round, user):
     return is_active and (is_designer or is_player or is_open)
 
 
-def user_can_record_in_round(tournament_round, user):
+def user_can_record_in_round(tournament_round, user, as_role=None):
     """Whether the user may record a game in this round.
 
     The round must be available. Moderators/designers/admins can always record.
@@ -3032,19 +3128,38 @@ def user_can_record_in_round(tournament_round, user):
     recording_access allows player recording (Scheduled Match Players or
     Registered Players) -- the recording_access tier governs this, replacing the
     old check for whether the round has a series.
+
+    ``as_role`` lets a manager preview the result as a lower role (see VIEW_AS_ROLES):
+    it suppresses the manager short-circuit so the answer matches what that role would
+    actually see. It only ever restricts the answer, never expands it.
     """
     from the_warroom.models import StageParticipant
-    if not user.is_authenticated:
+    if not user.is_authenticated or as_role == 'logged_out':
         return False
     if not tournament_round.is_available():
         return False
 
     stage = tournament_round.stage
     tournament = stage.tournament
-    if tournament.has_permission(user.profile):
+
+    # Moderators/designers/admins can always record. A manager previewing as
+    # 'moderator' keeps this, since a moderator could record here too.
+    if as_role in (None, 'moderator') and tournament.has_permission(user.profile):
         return True
+
+    # 'logged_out' is handled above; 'logged_in' has no tournament role.
+    if as_role == 'logged_in':
+        return False
+
+    # 'player' preview: the New Game button records a standalone game, which only
+    # REGISTERED access permits. Under SCHEDULED access players may only fill out a
+    # scheduled match, not start a free game, so the button stays hidden.
+    if as_role == 'player':
+        return tournament.players_can_record_standalone()
+
     if not tournament.players_can_record_matches():
         return False
+
     return StageParticipant.objects.filter(
         stage=stage,
         tournament_player__profile=user.profile,
@@ -4306,7 +4421,9 @@ def tournament_settings_hub(request, slug):
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
 
-    sections = [_settings_level_context('series', tournament, is_owner=is_owner)]
+    view_as_ctx, no_access, is_owner = settings_view_as_context(request, tournament, is_owner)
+
+    sections = [] if no_access else [_settings_level_context('series', tournament, is_owner=is_owner)]
     _mark_deepest_schedule_section(sections)
 
     context = {
@@ -4315,6 +4432,7 @@ def tournament_settings_hub(request, slug):
         'tournament': tournament,
         'sections': sections,
         'status_hierarchy': build_status_hierarchy('tournament', tournament),
+        **view_as_ctx,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
@@ -4343,12 +4461,16 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
 
+    view_as_ctx, no_access, is_owner = settings_view_as_context(request, tournament, is_owner)
+
     # Stacked sections, deepest object first. The Stage section only appears when
     # stages are enabled (otherwise the stage is the hidden default stage).
-    sections = [_settings_level_context('round', tournament, stage=stage, round=round, is_owner=is_owner)]
-    if tournament.use_stages:
-        sections.append(_settings_level_context('stage', tournament, stage=stage, is_owner=is_owner))
-    sections.append(_settings_level_context('series', tournament, is_owner=is_owner))
+    sections = []
+    if not no_access:
+        sections = [_settings_level_context('round', tournament, stage=stage, round=round, is_owner=is_owner)]
+        if tournament.use_stages:
+            sections.append(_settings_level_context('stage', tournament, stage=stage, is_owner=is_owner))
+        sections.append(_settings_level_context('series', tournament, is_owner=is_owner))
     _mark_deepest_schedule_section(sections)
 
     context = {
@@ -4359,6 +4481,7 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
         'stage': stage,
         'sections': sections,
         'status_hierarchy': build_status_hierarchy('round', tournament, stage=stage, round_obj=round),
+        **view_as_ctx,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 
@@ -4687,6 +4810,53 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
     return render(request, 'the_warroom/stage_bracket.html', context)
 
 
+def _recordable_match_ids(round, user, tournament, view_as=None):
+    """Match ids the user may record in this round, and the series they're seated in.
+
+    Returns (recordable_match_ids set, is_participant_series set).
+
+    Gating mirrors the record endpoint: managers can record any match; otherwise a
+    seated participant can record their own match when recording_access allows player
+    recording (SCHEDULED or REGISTERED); group moderators can always record their
+    group's matches. ``view_as`` lets a manager preview this as a lower role -- it
+    suppresses the manager short-circuit so the result matches what that role sees
+    (and only ever restricts it, never expands it).
+    """
+    recordable_match_ids = set()
+    is_participant_series = set()
+    if not user.is_authenticated or view_as in ('logged_in', 'logged_out'):
+        return recordable_match_ids, is_participant_series
+
+    profile = user.profile
+    is_manager = profile.admin or tournament.has_permission(profile)
+    # Previewing as a lower role drops manager privileges.
+    if is_manager and view_as in (None, 'moderator'):
+        recordable_match_ids = set(
+            Match.objects.filter(round=round).values_list('id', flat=True)
+        )
+    elif tournament.players_can_record_matches():
+        participant_series_ids = MatchSeat.objects.filter(
+            series__round=round,
+            stage_participant__tournament_player__profile=profile
+        ).values_list('series_id', flat=True)
+        recordable_match_ids = set(
+            Match.objects.filter(
+                round=round, series_id__in=participant_series_ids
+            ).values_list('id', flat=True)
+        )
+    # Group moderators can always record their group's matches.
+    recordable_match_ids |= set(
+        Match.objects.filter(
+            round=round, series__player_group__group_moderator=profile
+        ).values_list('id', flat=True)
+    )
+    is_participant_series = set(MatchSeat.objects.filter(
+        series__round=round,
+        stage_participant__tournament_player__profile=profile
+    ).values_list('series_id', flat=True))
+    return recordable_match_ids, is_participant_series
+
+
 def _stage_matches_context(request, tournament, stage):
     """Build the context for the scheduled-matches view of a stage's single
     (default) round. Shared by the stage matches page and the tournament
@@ -4707,32 +4877,9 @@ def _stage_matches_context(request, tournament, stage):
             'matchseat_set__stage_participant__tournament_player__profile',
         ).order_by('id')
 
-        if request.user.is_authenticated:
-            profile = request.user.profile
-            if profile.admin or tournament.has_permission(profile):
-                recordable_match_ids = set(
-                    Match.objects.filter(round=round).values_list('id', flat=True)
-                )
-            elif tournament.players_can_record_matches():
-                participant_series_ids = MatchSeat.objects.filter(
-                    series__round=round,
-                    stage_participant__tournament_player__profile=profile
-                ).values_list('series_id', flat=True)
-                recordable_match_ids = set(
-                    Match.objects.filter(
-                        round=round, series_id__in=participant_series_ids
-                    ).values_list('id', flat=True)
-                )
-            # Group moderators can always record their group's matches.
-            recordable_match_ids |= set(
-                Match.objects.filter(
-                    round=round, series__player_group__group_moderator=profile
-                ).values_list('id', flat=True)
-            )
-            is_participant_series = set(MatchSeat.objects.filter(
-                series__round=round,
-                stage_participant__tournament_player__profile=profile
-            ).values_list('series_id', flat=True))
+        recordable_match_ids, is_participant_series = _recordable_match_ids(
+            round, request.user, tournament, view_as=get_view_as(request, tournament)
+        )
 
     context = _stage_base_context(request, tournament, stage)
     context.update({
@@ -5042,34 +5189,9 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     for series in match_series:
         _attach_series_effort_grid(series)
 
-    recordable_match_ids = set()
-    is_participant_series = set()
-    if request.user.is_authenticated:
-        profile = request.user.profile
-        if profile.admin or tournament.has_permission(profile):
-            recordable_match_ids = set(
-                Match.objects.filter(round=round).values_list('id', flat=True)
-            )
-        elif tournament.players_can_record_matches():
-            participant_series_ids = MatchSeat.objects.filter(
-                series__round=round,
-                stage_participant__tournament_player__profile=profile
-            ).values_list('series_id', flat=True)
-            recordable_match_ids = set(
-                Match.objects.filter(
-                    round=round, series_id__in=participant_series_ids
-                ).values_list('id', flat=True)
-            )
-        # Group moderators can always record their group's matches.
-        recordable_match_ids |= set(
-            Match.objects.filter(
-                round=round, series__player_group__group_moderator=profile
-            ).values_list('id', flat=True)
-        )
-        is_participant_series = set(MatchSeat.objects.filter(
-            series__round=round,
-            stage_participant__tournament_player__profile=profile
-        ).values_list('series_id', flat=True))
+    recordable_match_ids, is_participant_series = _recordable_match_ids(
+        round, request.user, tournament, view_as=get_view_as(request, tournament)
+    )
 
     context = _round_base_context(request, tournament, stage, round)
     context.update({
@@ -5112,7 +5234,9 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
     profile = request.user.profile
     is_owner = profile.admin or profile == tournament.designer
 
-    sections = [
+    view_as_ctx, no_access, is_owner = settings_view_as_context(request, tournament, is_owner)
+
+    sections = [] if no_access else [
         _settings_level_context('stage', tournament, stage=stage, is_owner=is_owner),
         _settings_level_context('series', tournament, is_owner=is_owner),
     ]
@@ -5125,6 +5249,7 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
         'stage': stage,
         'sections': sections,
         'status_hierarchy': build_status_hierarchy('stage', tournament, stage=stage),
+        **view_as_ctx,
     }
     return render(request, 'the_warroom/settings_hub.html', context)
 

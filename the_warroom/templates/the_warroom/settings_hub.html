@@ -5,25 +5,35 @@
 {% block main_width_class %}col-md-12{% endblock %}
 
 {% block content %}
+{% load i18n %}
 <div class="container py-4">
-    <!-- Breadcrumb -->
+    <!-- Breadcrumb (includes the "view as" dropdown when can_view_as) -->
     {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page="Settings" %}
 
-    <div class="row g-4 mb-2">
-        <!-- Status Card -->
-        {% if status_hierarchy %}
-        {% include 'the_warroom/partials/status_card.html' %}
-        {% endif %}
-    </div>
-
-    <!-- Stacked settings sections (deepest object first, then ancestors) -->
-    {% for section in sections %}
-        {% if not forloop.first %}<hr class="my-4">{% endif %}
-        <h2 class="root-title mb-3"><i class="bi bi-gear me-2"></i>{{ section.heading }}</h2>
-        <div class="row g-4">
-            {% include 'the_warroom/partials/settings_cards.html' with section=section %}
+    {% if view_as_no_access %}
+        <div class="alert alert-warning d-flex align-items-center" role="alert">
+            <i class="bi bi-eye-slash me-2"></i>
+            <div>
+                {% blocktrans %}This page is only available to the tournament's designer and moderators. The role you are previewing cannot view it.{% endblocktrans %}
+            </div>
         </div>
-    {% endfor %}
+    {% else %}
+        <div class="row g-4 mb-2">
+            <!-- Status Card -->
+            {% if status_hierarchy %}
+            {% include 'the_warroom/partials/status_card.html' %}
+            {% endif %}
+        </div>
+
+        <!-- Stacked settings sections (deepest object first, then ancestors) -->
+        {% for section in sections %}
+            {% if not forloop.first %}<hr class="my-4">{% endif %}
+            <h2 class="root-title mb-3"><i class="bi bi-gear me-2"></i>{{ section.heading }}</h2>
+            <div class="row g-4">
+                {% include 'the_warroom/partials/settings_cards.html' with section=section %}
+            </div>
+        {% endfor %}
+    {% endif %}
 
 </div>
 {% endblock %}

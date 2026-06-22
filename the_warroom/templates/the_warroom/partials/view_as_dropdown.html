@@ -1,0 +1,43 @@
+{% load i18n %}
+{% comment %}
+  "View as" preview dropdown for tournament managers (designer/moderator/admin).
+  Display-only: posts the chosen role to `tournament-view-as`, which stores it in the
+  session (scoped per tournament) and reloads the page. Real write permissions are
+  unaffected. Requires `can_view_as`, `view_as`, and `tournament` in context.
+{% endcomment %}
+<div class="dropdown view-as-dropdown">
+  <button class="btn btn-sm {% if view_as %}btn-warning{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+          type="button" data-bs-toggle="dropdown" aria-expanded="false">
+    {% if view_as == 'moderator' %}{% trans 'Viewing as: Moderator' %}
+    {% elif view_as == 'player' %}{% trans 'Viewing as: Player' %}
+    {% elif view_as == 'logged_in' %}{% trans 'Viewing as: Logged In' %}
+    {% elif view_as == 'logged_out' %}{% trans 'Viewing as: Logged Out' %}
+    {% else %}{% trans 'View as' %}{% endif %}
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><h6 class="dropdown-header">{% trans 'Preview this page as' %}</h6></li>
+    {% for role_value, role_label in view_as_options %}
+    <li>
+      <form method="post" action="{% url 'tournament-view-as' slug=tournament.slug %}" class="m-0">
+        {% csrf_token %}
+        <input type="hidden" name="role" value="{{ role_value }}">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit" class="dropdown-item {% if view_as == role_value %}active{% endif %}">
+          {{ role_label }}
+        </button>
+      </form>
+    </li>
+    {% endfor %}
+    <li><hr class="dropdown-divider"></li>
+    <li>
+      <form method="post" action="{% url 'tournament-view-as' slug=tournament.slug %}" class="m-0">
+        {% csrf_token %}
+        <input type="hidden" name="role" value="designer">
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button type="submit" class="dropdown-item {% if not view_as %}active{% endif %}">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>{% trans 'Host (you)' %}
+        </button>
+      </form>
+    </li>
+  </ul>
+</div>

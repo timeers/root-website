@@ -9,6 +9,7 @@ from .views import (game_list_view, leaderboard_view,
                     scorecard_assign_view, scorecard_delete_view, scorecard_list_view, effort_assign_view,
                     scorecard_manage_view,
                     tournament_overview_page, round_overview_page,
+                    set_view_as,
                     TournamentDeleteView, tournaments_home,
                     tournament_dynamic_create, tournament_dynamic_update,
                     tournament_search_players, tournament_move_player, search_moderators,
@@ -84,6 +85,8 @@ urlpatterns = [
     path('series/<slug:slug>/assets/<str:asset_type>/<int:asset_id>/add/', tournament_add_asset, name='tournament-add-asset'),
     path('series/<slug:slug>/assets/<str:asset_type>/<int:asset_id>/remove/', tournament_remove_asset, name='tournament-remove-asset'),
     
+    path('series/<slug:slug>/view-as/', set_view_as, name='tournament-view-as'),
+
     path('series/<slug:slug>/bracket/', tournament_bracket_page, name='tournament-bracket-page'),
     path('series/<slug:slug>/leaderboard/', tournament_leaderboard_page, name='tournament-leaderboard-page'),
     path('series/<slug:tournament_slug>/component/<slug:post_slug>/', tournament_component_leaderboard, name='tournament-component-leaderboard'),

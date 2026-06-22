@@ -4,6 +4,7 @@
 
 ### New Features
 - New bot commands with auto fill
+- Host option to view Series as X (moderator, player, logged out)
 
 ### Improvements
 - added display as dropdown to multiple choice questions
