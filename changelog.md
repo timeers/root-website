@@ -12,9 +12,11 @@
 - Hide tabs on tournament
 - Hide asset list on tournament
 - Field for Rules Link added to tournament
+- Series record status = registered disables round auto complete
 
 ### Bug Fixes
 - allow other option populates correctly when loading from template
+- Adding a new match reopens a Series Round
 
 ## [1.12.5] - 2026-6-18 App Features
 
