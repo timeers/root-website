@@ -28,7 +28,7 @@ from django.views.decorators.http import require_POST
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak
 from the_warroom.models import Tournament, filtered_winrate
 from the_gatehouse.models import Profile
-from .services.discordservice import config, build_post_embed, build_stats_embed
+from .services.discordservice import config, build_post_embed, build_stats_embed, build_captain_embed
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,23 @@ _LOOKUP_LABELS = {
 }
 
 
+def _handle_captain_command(data):
+    """/captain: look up a captain-capable vagabond and show its captain
+    (Advanced) profile — captain ability and captain starting items."""
+    name = (_get_option(data, "name") or "").strip()
+    if not name:
+        return _ephemeral("Please provide a captain name to search.")
+
+    vagabond = _lookup_post(Vagabond.objects.filter(captain=True), name)
+    if not vagabond:
+        return _ephemeral(f'No captain found matching "{name}".')
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"embeds": [build_captain_embed(vagabond)]},
+    })
+
+
 def _handle_stats_command(data):
     """/stats: win rate filtered by player, faction, series, and/or platform."""
     player_slug = _get_option(data, "player")
@@ -171,6 +188,7 @@ COMMAND_HANDLERS = {
     for name, qs in LOOKUP_QUERYSETS.items()
 }
 COMMAND_HANDLERS["stats"] = _handle_stats_command
+COMMAND_HANDLERS["captain"] = _handle_captain_command
 
 
 # ── Autocomplete ──────────────────────────────────────────────────────────
@@ -181,9 +199,20 @@ def _title_ac(queryset_factory):
         qs = queryset_factory().filter(status__lte=4)
         if query:
             qs = qs.filter(title__icontains=query)
-        titles = qs.order_by("title").values_list("title", flat=True)[:25]
+        # No explicit order_by: use the model's default Meta.ordering so results
+        # match the site's listing order.
+        titles = qs.values_list("title", flat=True)[:25]
         return [{"name": t, "value": t} for t in titles]
     return ac
+
+
+def _ac_captains(query):
+    """Autocomplete for /captain: only published, captain-capable vagabonds."""
+    qs = Vagabond.objects.filter(status__lte=4, captain=True)
+    if query:
+        qs = qs.filter(title__icontains=query)
+    titles = qs.values_list("title", flat=True)[:25]
+    return [{"name": t, "value": t} for t in titles]
 
 
 def _ac_players(query):
@@ -198,7 +227,7 @@ def _ac_factions(query):
     qs = Faction.objects.filter(status__lte=4).exclude(slug__isnull=True)
     if query:
         qs = qs.filter(title__icontains=query)
-    rows = qs.order_by("title").values_list("title", "slug")[:25]
+    rows = qs.values_list("title", "slug")[:25]
     return [{"name": title, "value": slug} for title, slug in rows]
 
 
@@ -216,6 +245,7 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "player"): _ac_players,
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
+    ("captain", "name"): _ac_captains,
 }
 for _name, _qs in LOOKUP_QUERYSETS.items():
     AUTOCOMPLETE_HANDLERS[(_name, "name")] = _title_ac(_qs)
