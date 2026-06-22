@@ -197,7 +197,7 @@ def _ac_players(query):
 def _ac_factions(query):
     qs = Faction.objects.filter(status__lte=4).exclude(slug__isnull=True)
     if query:
-        qs = qs.filter(Q(title__icontains=query) | Q(animal__icontains=query))
+        qs = qs.filter(title__icontains=query)
     rows = qs.order_by("title").values_list("title", "slug")[:25]
     return [{"name": title, "value": slug} for title, slug in rows]
 
