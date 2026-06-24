@@ -4,7 +4,9 @@
 
 ### New Features
 - New bot commands with auto fill
+- Law of Root bot command
 - Host option to view Series as X (moderator, player, logged out)
+- Register for Series button displayed on top right of Series page when available
 
 ### Improvements
 - added display as dropdown to multiple choice questions
@@ -18,6 +20,9 @@
 - Added AI generated Art field
 - Better links on admin messages
 - Added rules link to registration surveys
+- Surveys check temporary guild membership when user takes survey
+- Option to auto enroll registration responses to Series
+- improvements to game detail page
 
 ### Bug Fixes
 - allow other option populates correctly when loading from template

@@ -1,5 +1,6 @@
 import requests
 import json
+import re
 import emoji
 
 from datetime import timedelta
@@ -14,6 +15,7 @@ from django.utils import timezone
 from the_gatehouse.models import DiscordGuild, DiscordGuildJoinRequest
 
 from django.urls import reverse
+from django.templatetags.static import static
 from django.utils.translation import gettext as _
 
 import logging
@@ -322,6 +324,35 @@ def update_user_guilds(user, guilds):
         invite.complete()
 
 
+def reconcile_tentative_membership(user, guild):
+    """If the user has an APPROVED (not COMPLETED) invite for `guild` — i.e. they
+    clicked 'Join Server' (optimistically granting access) but we haven't yet
+    verified they really joined — re-check against Discord's real guild list and
+    correct the record.
+
+    Returns True if the user is in the guild after reconciliation, else False.
+    No-op (returns None) when there's no pending APPROVED invite, so confirmed
+    memberships incur no Discord API call.
+    """
+    from the_gatehouse.models import DiscordGuildJoinRequest
+
+    if not user.is_authenticated:
+        return None
+
+    has_unverified_invite = DiscordGuildJoinRequest.objects.filter(
+        profile=user.profile,
+        guild=guild,
+        status=DiscordGuildJoinRequest.Status.APPROVED,
+    ).exists()
+    if not has_unverified_invite:
+        return None  # COMPLETED / none — trust cached profile.guilds, no API call
+
+    guilds = get_user_guilds(user)
+    if guilds is None:
+        return None  # API failure — don't punish the user; leave as-is
+    update_user_guilds(user, guilds)   # confirms (→COMPLETED) or removes phantom add
+    return user.profile.guilds.filter(pk=guild.pk).exists()
+
 
 def is_user_in_guild(user, guild_id):
     guilds = get_user_guilds(user)
@@ -604,6 +635,101 @@ VAGABOND_ABILITY_EMOJI = {
 VAGABOND_ABILITY_OTHER_EMOJI = VAGABOND_ABILITY_EMOJI["other"]
 
 
+# ── Law markup emoji ───────────────────────────────────────────────────────
+# Law titles/descriptions embed icons as {{keyword}} (see the_keep.utils
+# INLINE_ICON_MAP / text_filters.INLINE_IMAGES). We render each keyword as an
+# application emoji fetched from Discord at runtime, so the ~30 emoji IDs don't
+# have to be hardcoded. The emoji NAMES below must match the application emoji
+# uploaded to the bot: items are prefixed `item` (itemtorch, itembag, …), while
+# timing and faction icons use the bare keyword (cat, bird, daylight, …).
+LAW_EMOJI_NAMES = {
+    # items (note bag/sack and coin/coins share one emoji)
+    "torch": "itemtorch",
+    "tea": "itemtea",
+    "sword": "itemsword",
+    "bag": "itembag",
+    "sack": "itembag",
+    "hammer": "itemhammer",
+    "crossbow": "itemcrossbow",
+    "coins": "itemcoin",
+    "coin": "itemcoin",
+    "boot": "itemboot",
+    # timing / triggers
+    "hired": "hired",
+    "ability": "ability",
+    "daylight": "daylight",
+    "birdsong": "birdsong",
+    # factions (aliases point at one canonical emoji)
+    "cat": "cat",
+    "bird": "bird",
+    "bunny": "bunny",
+    "rabbit": "bunny",
+    "mouse": "bunny",
+    "rat": "rat",
+    "raccoon": "raccoon",
+    "vb": "raccoon",
+    "otter": "otter",
+    "mole": "mole",
+    "lizard": "lizard",
+    "crow": "crow",
+    "frog": "frog",
+    "bat": "bat",
+    "skunk": "skunk",
+}
+
+# Human-friendly label for a LawGroup.type, shown as a sub-header in the embed.
+LAW_GROUP_TYPE_LABELS = {
+    "Official": "Law of Root",
+    "Bot": "Law of Rootbotics",
+    "Fan": "Fan Content",
+    "Appendix": "Law of Root",
+}
+
+
+_APP_EMOJI = None  # cache: {emoji_name: "<:name:id>"}, populated once per process
+
+
+def _fetch_application_emoji():
+    """Fetch the bot's application-owned emoji from Discord, returning a
+    {name: "<:name:id>"} map (animated emoji use the "<a:name:id>" form).
+    Returns {} on any failure (network, auth, unexpected shape)."""
+    try:
+        url = f"{DISCORD_API}/applications/{config['DISCORD_ID']}/emojis"
+        response = requests.get(url, headers=_bot_headers(), timeout=10)
+        response.raise_for_status()
+        items = response.json().get("items", [])
+    except (requests.RequestException, ValueError, KeyError):
+        logger.exception("Failed to fetch application emoji")
+        return {}
+
+    emoji_map = {}
+    for item in items:
+        name = item.get("name")
+        emoji_id = item.get("id")
+        if not name or not emoji_id:
+            continue
+        prefix = "a" if item.get("animated") else ""
+        emoji_map[name] = f"<{prefix}:{name}:{emoji_id}>"
+    return emoji_map
+
+
+def get_application_emoji():
+    """Lazily fetch and cache the application emoji map for this process."""
+    global _APP_EMOJI
+    if _APP_EMOJI is None:
+        _APP_EMOJI = _fetch_application_emoji()
+    return _APP_EMOJI
+
+
+def law_emoji_for(keyword):
+    """Return the application-emoji string for a law {{keyword}}, or "" if the
+    keyword is unknown or its emoji hasn't been uploaded (icon is then dropped)."""
+    name = LAW_EMOJI_NAMES.get(keyword)
+    if not name:
+        return ""
+    return get_application_emoji().get(name, "")
+
+
 def _item_emoji_value(vagabond, prefix):
     """Emoji string for a vagabond's item counts, repeating each emoji by its
     count. `prefix` is the field prefix, e.g. "starting" or "captain"."""
@@ -619,6 +745,11 @@ def _vagabond_fields(vagabond):
     # Ability: the ability name is the field title; the value is the ability
     # item's (flipped) emoji, an arrow, then the description. Falls back to the
     # "other" emoji when the ability isn't tied to a specific item.
+
+    items_value = _item_emoji_value(vagabond, "starting")
+    if items_value:
+        fields.append({"name": "Starting Items", "value": items_value, "inline": False})
+
     if vagabond.ability:
         emoji_str = VAGABOND_ABILITY_EMOJI.get(
             (vagabond.ability_item or "").lower(), VAGABOND_ABILITY_OTHER_EMOJI
@@ -626,12 +757,6 @@ def _vagabond_fields(vagabond):
         value = f"{emoji_str} → {vagabond.ability_description}" if vagabond.ability_description else emoji_str
         fields.append({"name": vagabond.ability, "value": value, "inline": False})
 
-    items_value = _item_emoji_value(vagabond, "starting")
-    if items_value:
-        fields.append({"name": "Starting Items", "value": items_value, "inline": False})
-
-    if getattr(vagabond, "captain", False):
-        fields.append({"name": "Captain", "value": "Yes", "inline": True})
     return fields
 
 
@@ -708,6 +833,108 @@ def build_post_embed(post):
 
 # Back-compat alias: the embed builder is now generic over all Post types.
 build_faction_embed = build_post_embed
+
+
+# ── Law embeds ─────────────────────────────────────────────────────────────
+def format_law_for_discord(text):
+    """Convert stored law markup into embed-safe text.
+
+    Mirrors the site's `format_law_text` (the_keep/templatetags/text_filters.py)
+    but targets Discord rather than HTML:
+      {{keyword}}  -> application emoji (dropped if unavailable)
+      **TEXT**     -> **UPPERCASE** (Discord has no small-caps; bold caps is closest)
+      _text_       -> *text* (Discord italics)
+      markdown tables -> flattened to plain text (Discord embeds can't render them)
+    """
+    if not text:
+        return ""
+
+    text = str(text)
+
+    # {{keyword}} -> emoji (drop unknown/unuploaded)
+    text = re.sub(
+        r"\{\{\s*(\w+)\s*\}\}",
+        lambda m: law_emoji_for(m.group(1)),
+        text,
+    )
+
+    # **TEXT** (small-caps intent) -> bold uppercase
+    text = re.sub(
+        r"\*\*([^\*]+)\*\*",
+        lambda m: f"**{m.group(1).upper()}**",
+        text,
+    )
+
+    # _text_ -> *text* (italics)
+    text = re.sub(r"_(.+?)_", lambda m: f"*{m.group(1)}*", text)
+
+    # Flatten markdown tables: drop separator rows, turn pipes into spaces.
+    lines = []
+    for line in text.splitlines():
+        if re.match(r"^\s*\|?\s*:?-{2,}", line) and set(line.strip()) <= set("|-: "):
+            continue  # table separator row like |---|:--:|
+        lines.append(line.replace("|", " ").strip())
+    text = "\n".join(lines)
+
+    # Drop backslash escapes before parentheses, like replace_special_references.
+    text = text.replace(r"\(", "(").replace(r"\)", ")")
+
+    return text.strip()
+
+
+def build_law_embed(law):
+    """Build a Discord embed dict for a single Law.
+
+    The embed links back to the law on the site, renders {{keyword}} icons as
+    application emoji in the body, and shows the law group's prime-law title (in
+    the law's language) as the author, with the group's post icon — or the static
+    law icon when the group has no post.
+    """
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    group = law.group
+    post = group.post
+
+    plain_title = (law.plain_title or law.title or "").strip()
+    title = f"{law.law_code} {plain_title}".strip() if law.law_code else plain_title
+    title = format_law_for_discord(title)[:256]
+
+    embed = {
+        "title": title or "Law",
+        "url": f"{site_url}{law.get_absolute_url()}" if site_url else None,
+        "description": format_law_for_discord(law.description)[:4096] or None,
+    }
+
+    # Footer: the kind of law collection this belongs to (e.g. "Law of Root",
+    # "Fan Content"), kept out of the body so it doesn't break up the content.
+    type_label = LAW_GROUP_TYPE_LABELS.get(group.type)
+    if type_label:
+        embed["footer"] = {"text": type_label}
+
+    # color from the group's post, if any
+    if post and getattr(post, "color", None):
+        try:
+            embed["color"] = int(post.color.lstrip("#"), 16)
+        except (ValueError, AttributeError):
+            pass
+
+    # Author: prime law title of the group (in this language), with the post's
+    # small icon, falling back to the static law icon when there's no post.
+    prime = group.get_prime_law(law.language)
+    author_name = (prime.title if prime else (group.title or str(group))) or "Law"
+    author = {"name": author_name[:256]}
+    if site_url:
+        icon_path = None
+        if post and getattr(post, "small_icon", None):
+            try:
+                icon_path = post.small_icon.url
+            except ValueError:
+                icon_path = None
+        if not icon_path:
+            icon_path = static("images/law-icon.png")
+        author["icon_url"] = f"{site_url}{icon_path}"
+    embed["author"] = author
+
+    return {k: v for k, v in embed.items() if v is not None}
 
 
 def build_captain_embed(vagabond):

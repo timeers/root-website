@@ -1615,13 +1615,15 @@ class Game(models.Model):
                     pk=profile.pk
                 ).exists():
                     return EditPermission(True, 'participant')
+        # Admin: check before organizer so site admins are labeled "admin"
+        # rather than "organizer" (Tournament.has_permission also passes for
+        # admins, which would otherwise shadow this reason).
+        if profile.admin:
+            return EditPermission(True, 'admin')
         # Tournament organizer/moderator
         tournament = self.get_tournament()
         if tournament and tournament.has_permission(profile):
             return EditPermission(True, 'organizer')
-        # Admin
-        if profile.admin:
-            return EditPermission(True, 'admin')
         return EditPermission(False)
 
     class Meta:

@@ -652,9 +652,22 @@ def survey_take_view(request, slug):
             messages.warning(request, _('You have already taken this survey.'))
             return redirect('survey-user-response', slug=survey.slug, response_id=first_response.id)
 
+    # For guild-gated surveys, verify the user actually joined the Discord server.
+    # They may have clicked "Join Server" (optimistically granting access) without
+    # completing the join. The helper owns the "is there anything to verify?" check
+    # (an APPROVED, not-yet-COMPLETED invite) and no-ops with no API call otherwise.
+    if survey.guild:
+        from the_gatehouse.services.discordservice import reconcile_tentative_membership
+        reconciled = reconcile_tentative_membership(request.user, survey.guild)
+        if reconciled is not None:        # helper actually ran the sync
+            profile.refresh_from_db()     # guilds M2M change won't reflect in-memory
+
     # Check if there is any reason the user can't take the survey.
     if not survey.can_take_survey(profile):
-        messages.error(request, f'You do not have access to take this survey')
+        if survey.guild and not profile.guilds.filter(pk=survey.guild.pk).exists():
+            messages.error(request, _('You must join %(guild)s before taking this survey.') % {'guild': survey.guild.guild_name()})
+        else:
+            messages.error(request, _('You do not have access to take this survey.'))
         return redirect('survey-detail', slug=survey.slug)
 
 
@@ -886,6 +899,16 @@ def survey_take_view(request, slug):
             messages.success(request, _('Thank you for completing the survey!'))
             # Calculate the quiz score if needed
             survey_response.calculate_score()
+            # Auto-enroll respondents into the linked tournament if enabled.
+            # Wrapped so an enrollment failure never blocks the respondent's submission.
+            if survey.auto_enroll and survey.series_id:
+                try:
+                    GroupingService.sync_survey_responses_to_tournament(survey.series, survey)
+                except Exception:
+                    import logging as _logging
+                    _logging.getLogger(__name__).exception(
+                        "Auto-enroll failed for survey %s response %s", survey.id, survey_response.id
+                    )
             # Redirect to results if allowed
             if survey.show_results_to_respondents:
                 return redirect('survey-results', slug=survey.slug)
@@ -2194,6 +2217,7 @@ def survey_edit_view(request, slug):
             limit_responses = request.POST.get('limit_responses') == 'on'
             has_waitlist = request.POST.get('has_waitlist') == 'on'
             is_registration = request.POST.get('is_registration') == 'on'
+            auto_enroll = request.POST.get('auto_enroll') == 'on'
 
             # Get response limit threshold (validated client-side)
             waitlist_threshold = None
@@ -2218,6 +2242,10 @@ def survey_edit_view(request, slug):
             # Registration only makes sense with a tournament
             if is_registration and not series_id:
                 is_registration = False
+
+            # Auto-enroll only makes sense with a tournament
+            if auto_enroll and not series_id:
+                auto_enroll = False
 
             # Get date fields
             start_date = request.POST.get('start_date')
@@ -2256,6 +2284,7 @@ def survey_edit_view(request, slug):
             survey.limit_responses = limit_responses
             survey.has_waitlist = has_waitlist
             survey.is_registration = is_registration
+            survey.auto_enroll = auto_enroll
             survey.waitlist_threshold = waitlist_threshold
             survey.start_date = start_date_obj
             survey.end_date = end_date_obj
@@ -2712,6 +2741,7 @@ def survey_create_view(request):
             limit_responses = request.POST.get('limit_responses') == 'on'
             has_waitlist = request.POST.get('has_waitlist') == 'on'
             is_registration = request.POST.get('is_registration') == 'on'
+            auto_enroll = request.POST.get('auto_enroll') == 'on'
 
             # Get response limit threshold (validated client-side)
             waitlist_threshold = None
@@ -2759,6 +2789,10 @@ def survey_create_view(request):
             if is_registration and not series_id:
                 is_registration = False
 
+            # Auto-enroll only makes sense with a tournament
+            if auto_enroll and not series_id:
+                auto_enroll = False
+
             # Get invited players
             invited_players_str = request.POST.get('invited_players', '')
             invited_player_ids = [int(id) for id in invited_players_str.split(',') if id.strip()]
@@ -2777,6 +2811,7 @@ def survey_create_view(request):
                 limit_responses=limit_responses,
                 has_waitlist=has_waitlist,
                 is_registration=is_registration,
+                auto_enroll=auto_enroll,
                 waitlist_threshold=waitlist_threshold,
                 start_date=start_date_obj,
                 end_date=end_date_obj,
