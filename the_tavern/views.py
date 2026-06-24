@@ -1239,6 +1239,7 @@ def survey_user_response_edit_view(request, slug, response_id):
     }
     return render(request, 'the_tavern/take_survey.html', context)
 
+@login_required
 def survey_detail_view(request, slug):
     """Display the current user's responses to a survey."""
 
