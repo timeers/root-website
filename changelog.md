@@ -16,6 +16,7 @@
 - Static files now refresh cache on change with ManifestStaticFilesStorage
 - New factions require BGG post or Discord Thread on submittal
 - Added AI generated Art field
+- Better links on admin messages
 
 ### Bug Fixes
 - allow other option populates correctly when loading from template

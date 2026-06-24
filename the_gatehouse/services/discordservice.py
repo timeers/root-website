@@ -488,7 +488,7 @@ def send_discord_message(message, category=None):
             response.status_code, response.text[:200], webhook_url,
         )
 
-def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None):
+def send_rich_discord_message(message, category=None, author_name=None, author_icon_url=None, title=None, color=None, fields=None, url=None):
     # Check if DEBUG is False in the config (uncomment this to test it)
     if config["DEBUG_VALUE"] == "True":
         return  # Do nothing if DEBUG is True
@@ -509,6 +509,11 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
     # Add the title if provided
     if title:
         embed['title'] = title
+
+    # Add a URL to make the title a clickable link (Discord renders the title
+    # as a hyperlink only when both title and url are present)
+    if url:
+        embed['url'] = url
 
     # Add the color if provided (to override the default category color)
     if color:

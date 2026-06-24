@@ -1924,7 +1924,8 @@ def guild_join_request(request, guild_id):
                     'value': form.cleaned_data["agreement_message"]
                 })
                 message = f'{profile.discord} would like to join {guild.name}'
-                send_rich_discord_message_task.delay(message, author_name=None, category='weird-root', title=f'Invite Request', fields=fields)
+                invites_url = build_absolute_uri(request, reverse('pending-guild-invites'))
+                send_rich_discord_message_task.delay(message, author_name=None, category='weird-root', title=f'Invite Request', fields=fields, url=invites_url)
                 messages.info(request, "Your request has been submitted. Please check back here later.")
                 return redirect(next_url)
     else:

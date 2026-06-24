@@ -379,6 +379,7 @@ class PostCreateView(LoginRequiredMixin, CreateView):
         if response:
             post = self.object
             fields = []
+            post_url = build_absolute_uri(self.request, post.get_absolute_url())
             if post.status == '9':
                 fields.append({
                         'name': 'Submitted by:',
@@ -388,13 +389,14 @@ class PostCreateView(LoginRequiredMixin, CreateView):
                         'name': 'Designer:',
                         'value': post.designer.name
                     })
-                send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='report', title=f'Submitted {post.component}', fields=fields)
+                pending_url = build_absolute_uri(self.request, reverse('pending-posts'))
+                send_rich_discord_message_task.delay(f'[{post.title}]({post_url})', category='report', title=f'Submitted {post.component}', fields=fields, url=pending_url)
             else:
                 fields.append({
                         'name': 'Posted by:',
                         'value': self.request.user.profile.name
                     })
-                send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
+                send_rich_discord_message_task.delay(f'[{post.title}]({post_url})', category='Post Created', title=f'Posted {post.component}', fields=fields)
                 
         return response
 
