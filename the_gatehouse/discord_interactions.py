@@ -25,10 +25,12 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak
+from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post
 from the_warroom.models import Tournament, filtered_winrate
 from the_gatehouse.models import Profile
-from .services.discordservice import config, build_post_embed, build_stats_embed, build_captain_embed
+from .services.discordservice import (
+    config, build_post_embed, build_stats_embed, build_captain_embed, build_law_embed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,19 +185,76 @@ def _handle_stats_command(data):
     })
 
 
+def _lang_code(data):
+    """Selected `language` option value, defaulting to English."""
+    return _get_option(data, "language") or "en"
+
+
+def _public_laws(language_code="en"):
+    """Laws that are publicly viewable and linkable, scoped to one language. A
+    law needs a public group with a slug (for the URL) in the given language."""
+    return Law.objects.filter(
+        group__public=True, group__slug__isnull=False, language__code=language_code
+    )
+
+
+def _handle_law_command(data):
+    """/law: find a public law by code, title, post, and/or text (at least one),
+    optionally scoped by language, and reply with its embed."""
+    code = (_get_option(data, "code") or "").strip()
+    title = (_get_option(data, "title") or "").strip()
+    post_slug = (_get_option(data, "post") or "").strip()
+    text = (_get_option(data, "text") or "").strip()
+
+    if not (code or title or post_slug or text):
+        return _ephemeral("Type a law code, title, post, or some text to search.")
+
+    laws = _public_laws(_lang_code(data))
+
+    if code:
+        by_exact = laws.filter(law_code__iexact=code)
+        laws = by_exact if by_exact.exists() else laws.filter(law_code__icontains=code)
+    if post_slug:
+        post = Post.objects.filter(slug=post_slug).first()
+        if not post:
+            return _ephemeral("Couldn't find that post.")
+        laws = laws.filter(Q(group__post=post) | Q(linked_post=post))
+    if title:
+        laws = laws.filter(Q(plain_title__icontains=title) | Q(title__icontains=title))
+    if text:
+        laws = laws.filter(
+            Q(plain_description__icontains=text) | Q(description__icontains=text)
+        )
+
+    laws = laws.select_related("group", "group__post", "language")
+    # Prefer a prime law when several match (e.g. a post's top-level law).
+    law = laws.filter(prime_law=True).first() or laws.first()
+    if not law:
+        return _ephemeral("No matching law found.")
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"embeds": [build_law_embed(law)]},
+    })
+
+
 COMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
 }
 COMMAND_HANDLERS["stats"] = _handle_stats_command
 COMMAND_HANDLERS["captain"] = _handle_captain_command
+COMMAND_HANDLERS["law"] = _handle_law_command
 
 
 # ── Autocomplete ──────────────────────────────────────────────────────────
+# Every handler takes (query, data): `query` is the focused option's current
+# value; `data` is the full interaction data, which carries the other options
+# the user has already filled in (e.g. the chosen `language`).
 def _title_ac(queryset_factory):
     """Autocomplete handler for a lookup command's `name` option: suggests
     matching titles. Value is the title itself (unique by convention)."""
-    def ac(query):
+    def ac(query, _data):
         qs = queryset_factory().filter(status__lte=4)
         if query:
             qs = qs.filter(title__icontains=query)
@@ -206,7 +265,7 @@ def _title_ac(queryset_factory):
     return ac
 
 
-def _ac_captains(query):
+def _ac_captains(query, _data):
     """Autocomplete for /captain: only published, captain-capable vagabonds."""
     qs = Vagabond.objects.filter(status__lte=4, captain=True)
     if query:
@@ -215,7 +274,7 @@ def _ac_captains(query):
     return [{"name": t, "value": t} for t in titles]
 
 
-def _ac_players(query):
+def _ac_players(query, _data):
     qs = Profile.objects.exclude(slug__isnull=True)
     if query:
         qs = qs.filter(Q(display_name__icontains=query) | Q(discord__icontains=query))
@@ -223,7 +282,7 @@ def _ac_players(query):
     return [{"name": (dn or disc or slug), "value": slug} for dn, disc, slug in rows]
 
 
-def _ac_factions(query):
+def _ac_factions(query, _data):
     qs = Faction.objects.filter(status__lte=4).exclude(slug__isnull=True)
     if query:
         qs = qs.filter(title__icontains=query)
@@ -231,12 +290,46 @@ def _ac_factions(query):
     return [{"name": title, "value": slug} for title, slug in rows]
 
 
-def _ac_series(query):
+def _ac_series(query, _data):
     qs = Tournament.objects.exclude(slug__isnull=True)
     if query:
         qs = qs.filter(name__icontains=query)
     rows = qs.order_by("name").values_list("name", "slug")[:25]
     return [{"name": name, "value": slug} for name, slug in rows]
+
+
+def _ac_law_code(query, data):
+    qs = _public_laws(_lang_code(data))
+    if query:
+        qs = qs.filter(law_code__icontains=query)
+    codes = qs.exclude(law_code__isnull=True).values_list("law_code", flat=True).distinct()[:25]
+    return [{"name": code, "value": code} for code in codes]
+
+
+def _ac_law_title(query, data):
+    qs = _public_laws(_lang_code(data))
+    if query:
+        qs = qs.filter(Q(plain_title__icontains=query) | Q(title__icontains=query))
+    rows = qs.values_list("plain_title", "title")[:25]
+    seen, choices = set(), []
+    for plain, title in rows:
+        label = (plain or title or "").strip()
+        if label and label not in seen:
+            seen.add(label)
+            choices.append({"name": label[:100], "value": label[:100]})
+    return choices
+
+
+def _ac_law_post(query, data):
+    lang = _lang_code(data)
+    qs = Post.objects.filter(
+        Q(lawgroup__public=True, lawgroup__laws__language__code=lang)
+        | Q(linked_laws__group__public=True, linked_laws__language__code=lang)
+    ).distinct()
+    if query:
+        qs = qs.filter(title__icontains=query)
+    rows = qs.exclude(slug__isnull=True).values_list("title", "slug")[:25]
+    return [{"name": title, "value": slug} for title, slug in rows]
 
 
 # Keyed by (command_name, focused_option_name) — the lookup commands all share
@@ -246,6 +339,9 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
     ("captain", "name"): _ac_captains,
+    ("law", "code"): _ac_law_code,
+    ("law", "title"): _ac_law_title,
+    ("law", "post"): _ac_law_post,
 }
 for _name, _qs in LOOKUP_QUERYSETS.items():
     AUTOCOMPLETE_HANDLERS[(_name, "name")] = _title_ac(_qs)
@@ -288,7 +384,7 @@ def discord_interactions(request):
             handler = AUTOCOMPLETE_HANDLERS.get((command_name, focused["name"]))
             if handler:
                 try:
-                    choices = handler(focused.get("value", ""))
+                    choices = handler(focused.get("value", ""), data)
                 except Exception:
                     logger.exception(
                         "autocomplete error for /%s %s", command_name, focused.get("name")

@@ -12,6 +12,7 @@ import requests
 
 from django.core.management.base import BaseCommand
 
+from the_gatehouse.models import Language
 from the_gatehouse.services.discordservice import DISCORD_API, _bot_headers, config
 
 # Slash-command definitions. Add new commands to this list.
@@ -54,6 +55,29 @@ STATS_COMMAND = {
 }
 
 
+def _law_command():
+    """The /law command. Its `language` choices are read from the DB (only
+    languages that actually have public laws), so this is built at run time."""
+    languages = (
+        Language.objects.filter(law__group__public=True)
+        .distinct().order_by("id").values_list("name", "code")
+    )
+    lang_choices = [{"name": name, "value": code} for name, code in languages]
+    return {
+        "name": "law",
+        "description": "Look up a Root law by code, title, post, or text",
+        "options": [
+            {"name": "code", "description": "Law code (e.g. MdC.1.a)", "type": 3, "required": False, "autocomplete": True},
+            {"name": "title", "description": "Law title", "type": 3, "required": False, "autocomplete": True},
+            {"name": "post", "description": "Faction / component the law belongs to", "type": 3, "required": False, "autocomplete": True},
+            {"name": "text", "description": "Text to search within the law", "type": 3, "required": False},
+            {"name": "language", "description": "Language (defaults to English)", "type": 3, "required": False, "choices": lang_choices},
+        ],
+    }
+
+
+# Static command definitions. The /law command is appended at run time (its
+# language choices come from the DB) — see Command.handle().
 COMMANDS = [
     _lookup_command("faction", "faction"),
     _lookup_command("clockwork", "clockwork faction"),
@@ -83,6 +107,9 @@ class Command(BaseCommand):
         app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
         guild_id = options["guild"]
 
+        # Append the run-time /law command (DB-derived language choices).
+        commands = COMMANDS + [_law_command()]
+
         if guild_id:
             url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild_id}/commands"
             scope = f"guild {guild_id}"
@@ -91,12 +118,12 @@ class Command(BaseCommand):
             scope = "global"
 
         # PUT bulk-overwrites the full command set for this scope.
-        response = requests.put(url, headers=_bot_headers(), json=COMMANDS, timeout=10)
+        response = requests.put(url, headers=_bot_headers(), json=commands, timeout=10)
 
         if response.status_code in (200, 201):
-            names = ", ".join(f"/{c['name']}" for c in COMMANDS)
+            names = ", ".join(f"/{c['name']}" for c in commands)
             self.stdout.write(self.style.SUCCESS(
-                f"Registered {len(COMMANDS)} command(s) [{scope}]: {names}"
+                f"Registered {len(commands)} command(s) [{scope}]: {names}"
             ))
         else:
             self.stderr.write(self.style.ERROR(
