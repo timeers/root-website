@@ -748,6 +748,23 @@ function toggleRegistrationSurveyOption() {
     }
 }
 
+function toggleAutoEnrollOption() {
+    const seriesSelect = document.getElementById('series');
+    const seriesHidden = document.querySelector('input[type="hidden"][name="series"]');
+    const autoEnrollContainer = document.getElementById('auto-enroll-container');
+
+    if (!autoEnrollContainer) return;
+
+    const hasSeriesSelected = (seriesSelect && seriesSelect.value) || (seriesHidden && seriesHidden.value);
+    autoEnrollContainer.style.display = hasSeriesSelected ? 'block' : 'none';
+
+    // Uncheck auto_enroll if no series selected
+    if (!hasSeriesSelected) {
+        const autoEnroll = document.getElementById('auto_enroll');
+        if (autoEnroll) autoEnroll.checked = false;
+    }
+}
+
 // Initialize series dropdown on page load
 document.addEventListener('DOMContentLoaded', function() {
     const seriesSelect = document.getElementById('series');
@@ -766,6 +783,7 @@ document.addEventListener('DOMContentLoaded', function() {
         seriesSelectEl.addEventListener('change', function() {
             toggleTournamentAccessNote('series');
             toggleRegistrationSurveyOption();
+            toggleAutoEnrollOption();
         });
     }
 
@@ -786,6 +804,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // (stage will be called after loadSeriesStages completes)
     toggleTournamentAccessNote('series');
     toggleRegistrationSurveyOption();
+    toggleAutoEnrollOption();
 
     // Resolve locked stage name (when pre-filled and locked from settings hub)
     const prefillStageEl = document.getElementById('prefill-stage-name');
