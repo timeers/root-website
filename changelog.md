@@ -17,6 +17,7 @@
 - New factions require BGG post or Discord Thread on submittal
 - Added AI generated Art field
 - Better links on admin messages
+- Added rules link to registration surveys
 
 ### Bug Fixes
 - allow other option populates correctly when loading from template

@@ -1586,8 +1586,7 @@ def admin_dashboard(request):
                 {
                     "label": "Manage Updates",
                     "link": law_url,
-                    "class": 'primary',
-
+                    "class": 'primary' if new_rules > 0 else 'secondary',
                  },
             ],
         },
