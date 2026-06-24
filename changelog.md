@@ -19,6 +19,7 @@
 - Added AI generated Art field
 - Better links on admin messages
 - Added rules link to registration surveys
+- Surveys check temporary guild membership when user takes survey
 
 ### Bug Fixes
 - allow other option populates correctly when loading from template

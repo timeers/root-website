@@ -322,6 +322,35 @@ def update_user_guilds(user, guilds):
         invite.complete()
 
 
+def reconcile_tentative_membership(user, guild):
+    """If the user has an APPROVED (not COMPLETED) invite for `guild` — i.e. they
+    clicked 'Join Server' (optimistically granting access) but we haven't yet
+    verified they really joined — re-check against Discord's real guild list and
+    correct the record.
+
+    Returns True if the user is in the guild after reconciliation, else False.
+    No-op (returns None) when there's no pending APPROVED invite, so confirmed
+    memberships incur no Discord API call.
+    """
+    from the_gatehouse.models import DiscordGuildJoinRequest
+
+    if not user.is_authenticated:
+        return None
+
+    has_unverified_invite = DiscordGuildJoinRequest.objects.filter(
+        profile=user.profile,
+        guild=guild,
+        status=DiscordGuildJoinRequest.Status.APPROVED,
+    ).exists()
+    if not has_unverified_invite:
+        return None  # COMPLETED / none — trust cached profile.guilds, no API call
+
+    guilds = get_user_guilds(user)
+    if guilds is None:
+        return None  # API failure — don't punish the user; leave as-is
+    update_user_guilds(user, guilds)   # confirms (→COMPLETED) or removes phantom add
+    return user.profile.guilds.filter(pk=guild.pk).exists()
+
 
 def is_user_in_guild(user, guild_id):
     guilds = get_user_guilds(user)

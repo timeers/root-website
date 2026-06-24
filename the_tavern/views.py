@@ -652,9 +652,22 @@ def survey_take_view(request, slug):
             messages.warning(request, _('You have already taken this survey.'))
             return redirect('survey-user-response', slug=survey.slug, response_id=first_response.id)
 
+    # For guild-gated surveys, verify the user actually joined the Discord server.
+    # They may have clicked "Join Server" (optimistically granting access) without
+    # completing the join. The helper owns the "is there anything to verify?" check
+    # (an APPROVED, not-yet-COMPLETED invite) and no-ops with no API call otherwise.
+    if survey.guild:
+        from the_gatehouse.services.discordservice import reconcile_tentative_membership
+        reconciled = reconcile_tentative_membership(request.user, survey.guild)
+        if reconciled is not None:        # helper actually ran the sync
+            profile.refresh_from_db()     # guilds M2M change won't reflect in-memory
+
     # Check if there is any reason the user can't take the survey.
     if not survey.can_take_survey(profile):
-        messages.error(request, f'You do not have access to take this survey')
+        if survey.guild and not profile.guilds.filter(pk=survey.guild.pk).exists():
+            messages.error(request, _('You must join %(guild)s before taking this survey.') % {'guild': survey.guild.guild_name()})
+        else:
+            messages.error(request, _('You do not have access to take this survey.'))
         return redirect('survey-detail', slug=survey.slug)
 
 
