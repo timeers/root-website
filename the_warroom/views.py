@@ -1732,6 +1732,27 @@ def set_view_as(request, slug):
     return redirect(request.POST.get('next') or tournament.get_absolute_url())
 
 
+def _get_open_registration_survey(request, tournament):
+    """Return an open registration survey to prompt the current user to register
+    for, or None. Shown to anonymous visitors and to authenticated users who are
+    not already a TournamentPlayer for the tournament."""
+    from the_tavern.models import Survey
+    if request.user.is_authenticated:
+        already_player = TournamentPlayer.objects.filter(
+            tournament=tournament, profile=request.user.profile
+        ).exists()
+        if already_player:
+            return None
+    survey = (
+        Survey.objects.filter(series=tournament, is_registration=True)
+        .order_by('-is_pinned', '-created_at', 'id')
+        .first()
+    )
+    if survey and survey.is_available():
+        return survey
+    return None
+
+
 def _tournament_base_context(request, tournament):
     """Shared context for all tournament pages."""
     view_as = get_view_as(request, tournament)
@@ -1775,6 +1796,7 @@ def _tournament_base_context(request, tournament):
         'has_surveys': has_surveys,
         'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
         'user_in_guild': user_in_guild,
+        'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': tournament.name,
         'meta_description': tournament.description,
     }
@@ -1822,6 +1844,7 @@ def _stage_base_context(request, tournament, stage):
         'has_surveys': has_surveys,
         'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
         'user_in_guild': user_in_guild,
+        'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
     }
@@ -1863,6 +1886,7 @@ def _round_base_context(request, tournament, stage, round):
         'is_bracket_finalized': is_bracket_finalized,
         'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
         'user_in_guild': user_in_guild,
+        'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",
         'meta_description': tournament.description or '',
     }

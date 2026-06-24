@@ -5,6 +5,7 @@
 ### New Features
 - New bot commands with auto fill
 - Host option to view Series as X (moderator, player, logged out)
+- Register for Series button displayed on top right of Series page when available
 
 ### Improvements
 - added display as dropdown to multiple choice questions

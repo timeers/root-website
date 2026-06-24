@@ -32,7 +32,14 @@
     </ol>
 </nav>
 
-    {% if can_view_as %}
-        {% include 'the_warroom/partials/view_as_dropdown.html' %}
-    {% endif %}
+    <div class="d-flex align-items-start gap-2">
+        {% if registration_survey %}
+            <a href="{{ registration_survey.get_absolute_url }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-pencil-square me-1"></i>{% trans 'Register' %}
+            </a>
+        {% endif %}
+        {% if can_view_as %}
+            {% include 'the_warroom/partials/view_as_dropdown.html' %}
+        {% endif %}
+    </div>
 </div>
