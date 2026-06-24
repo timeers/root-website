@@ -514,7 +514,17 @@
 <script src="{% static 'the_forge/forge_editor.js' %}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-  const csrftoken = document.cookie.match(/csrftoken=([^;]+)/)[1];
+  // Read the CSRF token fresh on every request. Logging in rotates the token
+  // (Django's rotate_token), so a value captured once at page load goes stale
+  // and every subsequent POST/DELETE 403s. Prefer the server-rendered hidden
+  // input (always present) and fall back to the cookie; never throws when the
+  // cookie is absent.
+  function getCsrfToken() {
+    const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+    if (input && input.value) return input.value;
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
 
   // ----- Rich-text length cap + counter (scoped to [data-richtext-cap]) -----
   // Length is measured against visible text (editor.textContent), not the
@@ -623,7 +633,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const order = [...abilityList.querySelectorAll('[data-row]')].map(r => r.dataset.id);
         await fetch(abilityList.dataset.reorderUrl, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
           body: JSON.stringify({order}),
         });
       }
@@ -686,7 +696,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const order = [...list.querySelectorAll('[data-row]')].map(r => r.dataset.id);
         await fetch(list.dataset.reorderUrl, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
           body: JSON.stringify({order}),
         });
         renumberCardSlots(list);
@@ -713,7 +723,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const order = [...cardPileList.querySelectorAll('[data-row]')].map(r => r.dataset.id);
         await fetch(cardPileList.dataset.reorderUrl, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
           body: JSON.stringify({order}),
         });
         renumberCardPiles(cardPileList);
@@ -769,7 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const resp = await fetch(decreeToggle.dataset.decreeToggleUrl, {
         method: 'POST',
         body: fd,
-        headers: {'X-CSRFToken': csrftoken},
+        headers: {'X-CSRFToken': getCsrfToken()},
       });
       if (!resp.ok) {
         alert('Failed to update decree.');
@@ -804,7 +814,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const order = [...list.children].filter(el => el.matches('[data-row]')).map(r => r.dataset.id);
     await fetch(list.dataset.reorderUrl, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
       body: JSON.stringify({order}),
     });
   }
@@ -845,7 +855,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const order = [...contentBoxList.querySelectorAll(':scope > [data-row]')].map(r => r.dataset.id);
         await fetch(contentBoxList.dataset.reorderUrl, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrftoken},
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
           body: JSON.stringify({order}),
         });
         renumberContentBoxes(contentBoxList);

@@ -417,7 +417,8 @@ class PostCreateForm(forms.ModelForm):
             'version': "Version (Optional)",
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
-        
+        self.user = user
+
         super().__init__(*args, **kwargs)
         # If a user is provided, filter the queryset for the `expansion` field
         if user:
@@ -547,9 +548,16 @@ class PostCreateForm(forms.ModelForm):
             designer = cleaned_data.get('designer')
 
             # Check that at least one of the links are filled
-            if not any([bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link, rootjam_link]):
-                self.add_error(None, "Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
-                # raise ValidationError("Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
+            is_admin = self.user and self.user.profile.admin
+            if is_admin:
+                required_links = [bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link, rootjam_link]
+            else:
+                required_links = [bgg_link, ww_link, wr_link, fr_link, rootjam_link]
+            if not any(required_links):
+                if is_admin:
+                    self.add_error(None, "Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
+                else:
+                    self.add_error(None, "Please include a link to a Board Game Geek post or Discord Thread.")
             
             # Validate URLs
             url_validator = URLValidator()
