@@ -22,6 +22,7 @@
 - Added rules link to registration surveys
 - Surveys check temporary guild membership when user takes survey
 - Option to auto enroll registration responses to Series
+- improvements to game detail page
 
 ### Bug Fixes
 - allow other option populates correctly when loading from template
