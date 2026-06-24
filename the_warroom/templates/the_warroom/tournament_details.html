@@ -19,11 +19,6 @@
     <!-- Header -->
     {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}
 
-
-    {% if tournament.description %}
-    <p class="sub-data mb-3"><small>{{ tournament.description }}</small></p>
-    {% endif %}
-
     <!-- Nav Header -->
     {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='details' %}
 
@@ -89,8 +84,20 @@
                 {% endif %}
 
                 {% if tournament.guild and user_in_guild %}
-                <dt class="col-sm-4 text-muted">{% trans 'Guild' %}</dt>
-                <dd class="col-sm-8">{{ tournament.guild.name }}</dd>
+                <dt class="col-sm-4 text-muted">{% trans 'Discord' %}</dt>
+                <dd class="col-sm-8 d-flex align-items-center">
+                    {% if tournament.guild.get_discord_url %}
+                    <a href="{{ tournament.guild.get_discord_url }}" target="_blank" rel="noopener"
+                       class="d-flex align-items-center text-decoration-none">
+                    {% endif %}
+                        {% if tournament.guild.get_icon_url %}
+                        <img src="{{ tournament.guild.get_icon_url }}" alt="{{ tournament.guild.guild_name }}" class="avatar-icon me-1">
+                        {% endif %}
+                        {{ tournament.guild.name }}
+                    {% if tournament.guild.get_discord_url %}
+                    </a>
+                    {% endif %}
+                </dd>
                 {% endif %}
 
 

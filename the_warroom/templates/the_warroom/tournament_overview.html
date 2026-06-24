@@ -17,11 +17,6 @@
     <!-- Header -->
     {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}
 
-
-    {% if tournament.description %}
-    <p class="sub-data mb-3"><small>{{ tournament.description }}</small></p>
-    {% endif %}
-
     <!-- Nav Header -->
     {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='overview' %}
 
