@@ -3635,7 +3635,9 @@ def universal_search(request):
         pieces = Piece.objects.filter(name__icontains=query, parent__status__lte=view_status).order_by('parent__status')
         color_group = ColorChoices.get_color_by_name(color_name=query)
         if len(query) > 3:
-            translations = PostTranslation.objects.filter(translated_title__icontains=query).exclude(language=language_object)
+            translations = PostTranslation.objects.filter(
+                translated_title__icontains=query,
+                post__status__lte=view_status,).exclude(language=language_object)
             translated_posts = Post.objects.filter(
                 title__icontains=query,
                 language__isnull=False,

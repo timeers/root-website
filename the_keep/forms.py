@@ -21,7 +21,7 @@ from .models import (
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
 top_fields = ['designer', 'co_designers', 'co_designers_can_edit', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
-bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'language']
+bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'ai_generated_art', 'language']
 
 
 class PostSearchForm(forms.ModelForm):
@@ -414,6 +414,7 @@ class PostCreateForm(forms.ModelForm):
             'rootjam_link': "RootJam itch.io Entry",
             'leder_games_link': "Leder Games",
             'art_by_kyle_ferrin': "Art by Kyle Ferrin",
+            'ai_generated_art': "Uses AI Generated Art",
             'version': "Version (Optional)",
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
