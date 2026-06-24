@@ -974,7 +974,7 @@ COST_ICON_PATHS = {
     'card_nonbird': static('pdf/inline/other_cards.png'),
     'card_vertical': static('pdf/inline/card_vertical.png'),
     # Action (default faction icon)
-    'action': static('pdf/inline/faction-lord of the hundreds.png'),
+    'action': static('pdf/inline/default_faction_icon.png'),
 }
 
 
