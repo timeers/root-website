@@ -379,6 +379,7 @@ class PostCreateView(LoginRequiredMixin, CreateView):
         if response:
             post = self.object
             fields = []
+            post_url = build_absolute_uri(self.request, post.get_absolute_url())
             if post.status == '9':
                 fields.append({
                         'name': 'Submitted by:',
@@ -388,13 +389,14 @@ class PostCreateView(LoginRequiredMixin, CreateView):
                         'name': 'Designer:',
                         'value': post.designer.name
                     })
-                send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='report', title=f'Submitted {post.component}', fields=fields)
+                pending_url = build_absolute_uri(self.request, reverse('pending-posts'))
+                send_rich_discord_message_task.delay(f'[{post.title}]({post_url})', category='report', title=f'Submitted {post.component}', fields=fields, url=pending_url)
             else:
                 fields.append({
                         'name': 'Posted by:',
                         'value': self.request.user.profile.name
                     })
-                send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Created', title=f'Posted {post.component}', fields=fields)
+                send_rich_discord_message_task.delay(f'[{post.title}]({post_url})', category='Post Created', title=f'Posted {post.component}', fields=fields)
                 
         return response
 
@@ -3635,7 +3637,9 @@ def universal_search(request):
         pieces = Piece.objects.filter(name__icontains=query, parent__status__lte=view_status).order_by('parent__status')
         color_group = ColorChoices.get_color_by_name(color_name=query)
         if len(query) > 3:
-            translations = PostTranslation.objects.filter(translated_title__icontains=query).exclude(language=language_object)
+            translations = PostTranslation.objects.filter(
+                translated_title__icontains=query,
+                post__status__lte=view_status,).exclude(language=language_object)
             translated_posts = Post.objects.filter(
                 title__icontains=query,
                 language__isnull=False,

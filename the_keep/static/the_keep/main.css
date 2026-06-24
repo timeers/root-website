@@ -1291,7 +1291,7 @@ tr.clickable-row:hover {
 }
 
 .hero-image {
-  background-image: url("{% static 'images/homepage/Archive.png' %}");
+  background-image: url("../images/homepage/Archive.webp");
   background-position: center; /* Center the image */
   background-size: cover; /* Cover the entire container */
   width: 100%;
@@ -3966,14 +3966,14 @@ body.forge-modal-open { overflow: hidden; }
   /* Default: tall/portrait container — upright Phase_Box.
      A JS ResizeObserver on .forge-detail-frame swaps in a data-box-shape
      attribute ("square" or "wide") to override based on the live aspect ratio. */
-  border-image: url('/static/pdf/boxes/Phase_Box.svg') 30 fill / 24px / 0 stretch;
+  border-image: url('../pdf/boxes/Phase_Box.svg') 30 fill / 24px / 0 stretch;
   padding: 1.25rem;
 }
 .forge-detail-frame[data-box-shape="square"] .forge-detail-frame__box {
-  border-image: url('/static/pdf/boxes/Medium_Box.svg') 30 fill / 24px / 0 stretch;
+  border-image: url('../pdf/boxes/Medium_Box.svg') 30 fill / 24px / 0 stretch;
 }
 .forge-detail-frame[data-box-shape="wide"] .forge-detail-frame__box {
-  border-image: url('/static/pdf/boxes/Phase_Rotated_Box.svg') 30 fill / 24px / 0 stretch;
+  border-image: url('../pdf/boxes/Phase_Rotated_Box.svg') 30 fill / 24px / 0 stretch;
 }
 .forge-detail-columns {
   display: grid;

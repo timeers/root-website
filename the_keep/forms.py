@@ -21,7 +21,7 @@ from .models import (
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
 top_fields = ['designer', 'co_designers', 'co_designers_can_edit', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
-bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'language']
+bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'ai_generated_art', 'language']
 
 
 class PostSearchForm(forms.ModelForm):
@@ -414,10 +414,12 @@ class PostCreateForm(forms.ModelForm):
             'rootjam_link': "RootJam itch.io Entry",
             'leder_games_link': "Leder Games",
             'art_by_kyle_ferrin': "Art by Kyle Ferrin",
+            'ai_generated_art': "Uses AI Generated Art",
             'version': "Version (Optional)",
         }
     def __init__(self, *args, user=None, expansion=None, **kwargs):
-        
+        self.user = user
+
         super().__init__(*args, **kwargs)
         # If a user is provided, filter the queryset for the `expansion` field
         if user:
@@ -547,9 +549,16 @@ class PostCreateForm(forms.ModelForm):
             designer = cleaned_data.get('designer')
 
             # Check that at least one of the links are filled
-            if not any([bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link, rootjam_link]):
-                self.add_error(None, "Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
-                # raise ValidationError("Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
+            is_admin = self.user and self.user.profile.admin
+            if is_admin:
+                required_links = [bgg_link, tts_link, ww_link, wr_link, fr_link, leder_games_link, pnp_link, rootjam_link]
+            else:
+                required_links = [bgg_link, ww_link, wr_link, fr_link, rootjam_link]
+            if not any(required_links):
+                if is_admin:
+                    self.add_error(None, "Please include a link to one of the following: a Board Game Geek post, Steam Community Mod, PNP File or Discord Thread.")
+                else:
+                    self.add_error(None, "Please include a link to a Board Game Geek post or Discord Thread.")
             
             # Validate URLs
             url_validator = URLValidator()

@@ -35,6 +35,10 @@ media/uploads/
 media/forge/
 
 # Django stuff:
+# Collected static output (STATIC_ROOT). Built by `collectstatic` on each
+# deploy; the leading slash anchors this to the repo root so per-app source
+# dirs like the_keep/static/ are NOT ignored.
+/static/
 *.log
 local_settings.py
 db.sqlite3

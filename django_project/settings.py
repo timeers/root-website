@@ -252,6 +252,25 @@ STATIC_URL = '/static/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
 
+# Storage backends. In production, hash static filenames (e.g.
+# forge_editor.4f2a9c1b.js) so changing a file changes its URL and browsers are
+# forced to refetch — no more stale JS/CSS after a deploy. Requires
+# `collectstatic` on every deploy to (re)build the staticfiles.json manifest.
+# Left as the plain storage in DEBUG so local dev works without collectstatic.
+# Media (uploads) always uses the filesystem backend, unaffected by hashing.
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+            if not DEBUG
+            else "django.contrib.staticfiles.storage.StaticFilesStorage"
+        ),
+    },
+}
+
 LOCALE_PATHS = [
     BASE_DIR / 'locale',  # This is the folder where you'll store your translation files
 ]

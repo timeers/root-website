@@ -5,7 +5,15 @@
     const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]+)'));
     return m ? decodeURIComponent(m[1]) : '';
   }
-  const csrftoken = getCookie('csrftoken');
+  // Read the CSRF token fresh on every request. Logging in rotates the token
+  // (Django's rotate_token), so a value captured once at page load goes stale
+  // and every subsequent DELETE/POST 403s. Prefer the server-rendered hidden
+  // input (always present, updated on re-render) and fall back to the cookie.
+  function getCsrfToken() {
+    const input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+    if (input && input.value) return input.value;
+    return getCookie('csrftoken');
+  }
 
   // Validate [data-required] inputs (which may have been swapped to type=hidden
   // by the icon-picker init, so the browser skips its `required` check).
@@ -81,7 +89,7 @@
       const resp = await fetch(url, {
         method: 'POST',
         body: fd,
-        headers: { 'X-CSRFToken': csrftoken },
+        headers: { 'X-CSRFToken': getCsrfToken()},
       });
       if (!resp.ok) {
         alert('Failed to add: ' + await resp.text());
@@ -211,7 +219,7 @@
     const url = btn.dataset.deleteUrl;
     const resp = await fetch(url, {
       method: 'DELETE',
-      headers: { 'X-CSRFToken': csrftoken },
+      headers: { 'X-CSRFToken': getCsrfToken()},
     });
     if (!resp.ok) {
       alert('Failed to delete');
@@ -238,7 +246,7 @@
       const resp = await fetch(url, {
         method: 'POST',
         body: fd,
-        headers: { 'X-CSRFToken': csrftoken },
+        headers: { 'X-CSRFToken': getCsrfToken()},
       });
       if (!resp.ok) {
         alert('Save failed: ' + await resp.text());
@@ -341,7 +349,7 @@
       const resp = await fetch(url, {
         method: 'POST',
         body: fd,
-        headers: { 'X-CSRFToken': csrftoken },
+        headers: { 'X-CSRFToken': getCsrfToken()},
       });
       if (!resp.ok) throw new Error(await resp.text());
       flashStatus(statusEl, 'Saved ✓', false);
@@ -711,7 +719,7 @@
           })).filter(o => ['box', 'track', 'legend', 'scale'].includes(o.kind));
           await fetch(list.dataset.reorderUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
             body: JSON.stringify({ order }),
           });
         }
@@ -731,7 +739,7 @@
           const order = [...list.querySelectorAll('[data-row]')].map(r => parseInt(r.dataset.id, 10));
           await fetch(list.dataset.reorderUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
             body: JSON.stringify({ order }),
           });
         }
@@ -811,7 +819,7 @@
     fd.append('action_type', sel.value);
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'X-CSRFToken': csrftoken },
+      headers: { 'X-CSRFToken': getCsrfToken()},
       body: fd,
     });
     if (!res.ok) {
@@ -859,7 +867,7 @@
     const fd = new FormData(form);
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'X-CSRFToken': csrftoken },
+      headers: { 'X-CSRFToken': getCsrfToken()},
       body: fd,
     });
     if (!res.ok) {
@@ -1029,7 +1037,7 @@
     const resp = await fetch(url, {
       method: 'POST',
       body: fd,
-      headers: { 'X-CSRFToken': csrftoken },
+      headers: { 'X-CSRFToken': getCsrfToken()},
     });
     if (!resp.ok) {
       alert('Failed to save slot: ' + await resp.text());

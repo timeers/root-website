@@ -13,10 +13,17 @@
 - Hide asset list on tournament
 - Field for Rules Link added to tournament
 - Series record status = registered disables round auto complete
+- Static files now refresh cache on change with ManifestStaticFilesStorage
+- New factions require BGG post or Discord Thread on submittal
+- Added AI generated Art field
+- Better links on admin messages
+- Added rules link to registration surveys
 
 ### Bug Fixes
 - allow other option populates correctly when loading from template
 - Adding a new match reopens a Series Round
+- Forge editor no longer returns a 403 when deleting steps after logging back in (CSRF token now read fresh per request)
+- Translations for submitted factions no longer show in universal search
 
 ## [1.12.5] - 2026-6-18 App Features
 

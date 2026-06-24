@@ -150,7 +150,14 @@
                     {% if object.art_by_kyle_ferrin %}
                         Kyle Ferrin
                     {% endif %}
+                    {% if object.ai_generated_art %}
+                        {% trans ' with AI Generated Art'%}
+                    {% endif %}
                 </div>
+                {% elif object.ai_generated_art %}
+                    <div>
+                        {% trans 'AI Generated Art'%}
+                    </div>
                 {% endif %}
                 {% if object.based_on %}
                     <a href="{% url object.based_on.component|lower|add:'-detail' object.based_on.slug %}">

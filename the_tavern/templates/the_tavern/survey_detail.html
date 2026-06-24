@@ -279,12 +279,25 @@
                     </div>
                 </div>
             </a>
+        {% elif survey.guild %}
+            <div class="alert alert-warning d-flex align-items-center">
+                <i class="bi bi-shield-exclamation fs-4 me-3"></i>
+                <div>
+                    <h5 class="alert-heading mb-1">{% trans 'Private Survey' %}</h5>
+                    <p class="mb-0">{% blocktrans with guild_name=survey.guild.guild_name %}You must be a member of {{ guild_name }} to take this survey.{% endblocktrans %}</p>
+                    {% if survey.guild.auto_approve_invite %}
+                        <a href="{% url 'guild-request' survey.guild.guild_id %}" class="btn btn-sm btn-primary mt-2">
+                            <i class="bi bi-discord"></i> {% blocktrans with guild_name=survey.guild.guild_name %}Join {{ guild_name }}{% endblocktrans %}
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
         {% else %}
             <div class="alert alert-warning d-flex align-items-center">
                 <i class="bi bi-shield-exclamation fs-4 me-3"></i>
                 <div>
-                    <h5 class="alert-heading mb-1">Private Survey</h5>
-                    <p class="mb-0">You must have an invite to take this survey.</p>
+                    <h5 class="alert-heading mb-1">{% trans 'Private Survey' %}</h5>
+                    <p class="mb-0">{% trans 'You must have an invite to take this survey.' %}</p>
                 </div>
             </div>
         {% endif %}

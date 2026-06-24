@@ -14,7 +14,7 @@ from django.contrib.auth.models import Group
 
 from .models import Profile, ForegroundImage, BackgroundImage, Changelog
 from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds, update_discord_avatar
-from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title
+from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
 from .tasks import send_discord_message_task
 
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
@@ -272,7 +272,7 @@ def user_logged_in_handler(request, user, **kwargs):
         profile.save()
 
     if new_user:
-        send_discord_message_task.delay(f'Profile created for {profile.discord} ({profile.group})', category='user_updates')
+        send_discord_message_task.delay(f'Profile created for [{profile.user}]({build_absolute_uri(request, profile.get_absolute_url())}) ({profile.group})', category='user_updates')
         if profile.group == "O":
             messages.info(request, f'Welcome, {user.profile.display_name}! You can now bookmark posts for quick access. Join the Woodland Warriors Discord and log back in to record games.')
         else:
