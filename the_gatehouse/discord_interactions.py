@@ -29,7 +29,8 @@ from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tw
 from the_warroom.models import Tournament, filtered_winrate
 from the_gatehouse.models import Profile
 from .services.discordservice import (
-    config, build_post_embed, build_stats_embed, build_captain_embed, build_law_embed,
+    config, build_post_embed, build_post_image_embed, build_stats_embed,
+    build_captain_embed, build_law_embed,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,9 +98,16 @@ def _make_lookup_handler(label, queryset_factory):
         if not post:
             return _ephemeral(f'No {label} found matching "{name}".')
 
+        # Append a standalone board/card image embed when the post has one, so it
+        # renders as a large click-to-enlarge image below the main embed.
+        embeds = [build_post_embed(post)]
+        image_embed = build_post_image_embed(post)
+        if image_embed:
+            embeds.append(image_embed)
+
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": {"embeds": [build_post_embed(post)]},
+            "data": {"embeds": embeds},
         })
     return handler
 
@@ -220,7 +228,13 @@ def _handle_law_command(data):
             return _ephemeral("Couldn't find that post.")
         laws = laws.filter(Q(group__post=post) | Q(linked_post=post))
     if title:
-        laws = laws.filter(Q(plain_title__icontains=title) | Q(title__icontains=title))
+        # Autocomplete sends the law's id as the value, so an all-digit `title`
+        # that resolves to a public law pins the result to exactly that law.
+        # Otherwise treat it as free-typed text and search by title substring.
+        by_id = laws.filter(id=title) if title.isdigit() else laws.none()
+        laws = by_id if by_id.exists() else laws.filter(
+            Q(plain_title__icontains=title) | Q(title__icontains=title)
+        )
     if text:
         laws = laws.filter(
             Q(plain_description__icontains=text) | Q(description__icontains=text)
@@ -310,13 +324,18 @@ def _ac_law_title(query, data):
     qs = _public_laws(_lang_code(data))
     if query:
         qs = qs.filter(Q(plain_title__icontains=query) | Q(title__icontains=query))
-    rows = qs.values_list("plain_title", "title")[:25]
-    seen, choices = set(), []
-    for plain, title in rows:
-        label = (plain or title or "").strip()
-        if label and label not in seen:
-            seen.add(label)
-            choices.append({"name": label[:100], "value": label[:100]})
+    # Label as "CODE - Title" so laws sharing a title stay distinguishable, but
+    # send the law's id as the value so picking a suggestion resolves to exactly
+    # that law (mirrors how `post` sends a slug). The code makes each row unique,
+    # so no dedup is needed.
+    rows = qs.values_list("id", "law_code", "plain_title", "title")[:25]
+    choices = []
+    for law_id, code, plain, title in rows:
+        name = (plain or title or "").strip()
+        if not name:
+            continue
+        label = (f"{code} - {name}" if code else name)[:100]
+        choices.append({"name": label, "value": str(law_id)})
     return choices
 
 

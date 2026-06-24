@@ -835,6 +835,45 @@ def build_post_embed(post):
 build_faction_embed = build_post_embed
 
 
+# Which large image to show as a standalone follow-up embed, by component. Board
+# components show their board; card components show their card. Anything absent
+# here (e.g. Tweak) gets no standalone image.
+_STANDALONE_IMAGE_FIELD = {
+    "Faction": "board_image",
+    "Clockwork": "board_image",
+    "Map": "board_image",
+    "Hireling": "board_image",
+    "Vagabond": "card_image",
+    "Landmark": "card_image",
+    "Deck": "card_image",
+}
+
+
+def build_post_image_embed(post, language=None):
+    """Build a second, image-only embed for a Post's board or card image, so it
+    renders as a large standalone (click-to-enlarge) image after the main embed.
+
+    Returns None when the post's component has no standalone image or the file is
+    missing/unresolvable. The URL is only resolvable on the public domain.
+    """
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    if not site_url:
+        return None
+
+    field = _STANDALONE_IMAGE_FIELD.get(getattr(post, "component", None))
+    if not field:
+        return None
+
+    image_url = post.get_translated_image_url(field, language)
+    if not image_url:
+        return None
+
+    # An image-only embed renders as a large, click-to-enlarge standalone image.
+    # We deliberately omit `url`: sharing the main embed's url would make Discord
+    # merge the two into one gallery card instead of a separate image below.
+    return {"image": {"url": f"{site_url}{image_url}"}}
+
+
 # ── Law embeds ─────────────────────────────────────────────────────────────
 def format_law_for_discord(text):
     """Convert stored law markup into embed-safe text.
@@ -882,6 +921,68 @@ def format_law_for_discord(text):
     return text.strip()
 
 
+def format_law_title_for_discord(text):
+    """Like `format_law_for_discord`, but for an embed *title*.
+
+    Discord embed titles render custom emoji but NOT markdown, so {{keyword}}
+    becomes an emoji while **bold**/_italics_ markup is stripped to plain text
+    (leaving the asterisks/underscores would show literally in the title).
+    """
+    if not text:
+        return ""
+
+    text = str(text)
+
+    # {{keyword}} -> emoji (drop unknown/unuploaded), same as the body.
+    text = re.sub(
+        r"\{\{\s*(\w+)\s*\}\}",
+        lambda m: law_emoji_for(m.group(1)),
+        text,
+    )
+
+    # **bold** / _italics_ -> plain text (titles can't render either).
+    text = re.sub(r"\*\*([^\*]+)\*\*", lambda m: m.group(1), text)
+    text = re.sub(r"_(.+?)_", lambda m: m.group(1), text)
+
+    text = text.replace(r"\(", "(").replace(r"\)", ")")
+    return text.strip()
+
+
+def _law_author_breadcrumb(law, prime, group):
+    """Build the embed author line for a law: the group's prime-law title plus a
+    breadcrumb of the selected law's two nearest ancestors (immediate parent and
+    grandparent), top-down, e.g. "Vagabond ... Relationships - Improving
+    Relationships". A " ... " separates the prime law from the ancestors when
+    levels are skipped between them; shallow laws just show what exists.
+
+    Titles use plain_title since the author line can't render markup/emoji.
+    """
+    def label(node):
+        return ((node.plain_title or node.title) or "").strip()
+
+    base = label(prime) if prime else (group.title or str(group)).strip()
+
+    # Walk up from the selected law, collecting ancestors above it. Stop at (and
+    # exclude) the prime law — it's already the base of the breadcrumb.
+    ancestors = []
+    node = law.parent
+    while node is not None and not node.prime_law:
+        ancestors.append(node)
+        node = node.parent
+    # `ancestors` is bottom-up (parent, grandparent, …); the two nearest are the
+    # first two. Render them top-down.
+    nearest = ancestors[:2]
+    # Skipped levels exist when we trimmed ancestors, or the chain never reached
+    # the prime law (so `base` sits outside this law's lineage).
+    skipped = len(ancestors) > len(nearest) or node is None
+    crumb_titles = [t for t in (label(a) for a in reversed(nearest)) if t]
+
+    if not crumb_titles:
+        return base
+    sep = " ... " if (base and skipped) else (" - " if base else "")
+    return f"{base}{sep}{' - '.join(crumb_titles)}"
+
+
 def build_law_embed(law):
     """Build a Discord embed dict for a single Law.
 
@@ -894,9 +995,11 @@ def build_law_embed(law):
     group = law.group
     post = group.post
 
-    plain_title = (law.plain_title or law.title or "").strip()
-    title = f"{law.law_code} {plain_title}".strip() if law.law_code else plain_title
-    title = format_law_for_discord(title)[:256]
+    # Use the raw title (not plain_title) so {{keyword}} markup survives to be
+    # rendered as emoji in the embed title; bold/italics markup is stripped.
+    raw_title = (law.title or law.plain_title or "").strip()
+    title = f"{law.law_code} {raw_title}".strip() if law.law_code else raw_title
+    title = format_law_title_for_discord(title)[:256]
 
     embed = {
         "title": title or "Law",
@@ -917,10 +1020,12 @@ def build_law_embed(law):
         except (ValueError, AttributeError):
             pass
 
-    # Author: prime law title of the group (in this language), with the post's
-    # small icon, falling back to the static law icon when there's no post.
+    # Author: the prime law title of the group (in this language), followed by a
+    # breadcrumb of the selected law's two nearest ancestors so e.g. 9.2.9.Ia
+    # reads "Vagabond ... Relationships - Improving Relationships". A " ... "
+    # marks any skipped levels between the prime law and the shown ancestors.
     prime = group.get_prime_law(law.language)
-    author_name = (prime.title if prime else (group.title or str(group))) or "Law"
+    author_name = _law_author_breadcrumb(law, prime, group) or "Law"
     author = {"name": author_name[:256]}
     if site_url:
         icon_path = None
@@ -930,7 +1035,7 @@ def build_law_embed(law):
             except ValueError:
                 icon_path = None
         if not icon_path:
-            icon_path = static("images/law-icon.png")
+            icon_path = static("images/law-icon-square.png")
         author["icon_url"] = f"{site_url}{icon_path}"
     embed["author"] = author
 
