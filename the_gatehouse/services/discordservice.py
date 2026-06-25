@@ -1174,6 +1174,32 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     return {k: v for k, v in embed.items() if v is not None}
 
 
+def build_help_embed():
+    """Build a Discord embed listing the bot's commands, grouped by category.
+
+    Driven by the shared command definitions (the_gatehouse.services.
+    discord_commands), so any command registered with Discord automatically
+    appears here. Imported inside the function to avoid an import cycle
+    (discord_commands imports models that pull in this package).
+    """
+    from the_gatehouse.services.discord_commands import grouped_commands
+
+    site_url = config.get("SITE_URL", "").rstrip("/")
+
+    fields = []
+    for group_name, rows in grouped_commands():
+        value = "\n".join(f"`/{name}` — {desc}" for name, desc in rows)
+        fields.append({"name": group_name, "value": value, "inline": False})
+
+    embed = {
+        "title": "Bot Commands",
+        "description": "Here are the commands you can use:",
+        "fields": fields,
+        "url": site_url or None,
+    }
+    return {k: v for k, v in embed.items() if v is not None}
+
+
 def get_discord_invite_info(invite_code):
     """Fetch Discord server info from invite code"""
     try:

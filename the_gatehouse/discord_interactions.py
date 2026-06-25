@@ -11,7 +11,7 @@ Currently handles:
   APPLICATION_COMMAND (type 2)         -> dispatches by command name (e.g.
                                           /faction, /clockwork, /map, /deck,
                                           /vagabond, /landmark, /hireling,
-                                          /houserule, /stats)
+                                          /houserule, /stats, /law, /help)
   APPLICATION_COMMAND_AUTOCOMPLETE (4) -> live option suggestions (type 8)
 """
 import json
@@ -30,7 +30,7 @@ from the_warroom.models import Tournament, filtered_winrate
 from the_gatehouse.models import Profile
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
-    build_captain_embed, build_law_embed,
+    build_captain_embed, build_law_embed, build_help_embed,
 )
 
 logger = logging.getLogger(__name__)
@@ -259,6 +259,15 @@ def _handle_law_command(data):
     })
 
 
+def _handle_help_command(data):
+    """/help: list the bot's available commands, grouped by category. Ephemeral
+    so the listing only shows to the invoking user and doesn't clutter the channel."""
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"embeds": [build_help_embed()], "flags": EPHEMERAL},
+    })
+
+
 COMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
@@ -266,6 +275,7 @@ COMMAND_HANDLERS = {
 COMMAND_HANDLERS["stats"] = _handle_stats_command
 COMMAND_HANDLERS["captain"] = _handle_captain_command
 COMMAND_HANDLERS["law"] = _handle_law_command
+COMMAND_HANDLERS["help"] = _handle_help_command
 
 
 # ── Autocomplete ──────────────────────────────────────────────────────────

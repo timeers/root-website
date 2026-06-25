@@ -7,89 +7,16 @@ Run after deploying (or changing) the command definitions:
     python manage.py register_discord_commands --guild 123  # instant, for a test server
 
 Global commands propagate slowly; register against a test guild while iterating.
+
+Command definitions live in the_gatehouse.services.discord_commands (shared with
+the /help listing), so this command only handles the registration call.
 """
 import requests
 
 from django.core.management.base import BaseCommand
 
-from the_gatehouse.models import Language
+from the_gatehouse.services.discord_commands import all_command_definitions
 from the_gatehouse.services.discordservice import DISCORD_API, _bot_headers, config
-
-# Slash-command definitions. Add new commands to this list.
-def _lookup_command(name, label):
-    """A /<name> command with a required, autocompleting 'name' option."""
-    return {
-        "name": name,
-        "description": f"Look up a Root {label} by name",
-        "options": [
-            {
-                "name": "name",
-                "description": f"{label.capitalize()} name to search",
-                "type": 3,  # STRING
-                "required": True,
-                "autocomplete": True,
-            }
-        ],
-    }
-
-
-STATS_COMMAND = {
-    "name": "stats",
-    "description": "Win rate filtered by player, faction, series, and/or platform",
-    "options": [
-        {"name": "player", "description": "Player", "type": 3, "required": False, "autocomplete": True},
-        {"name": "faction", "description": "Faction", "type": 3, "required": False, "autocomplete": True},
-        {"name": "series", "description": "Series / tournament", "type": 3, "required": False, "autocomplete": True},
-        {
-            "name": "platform",
-            "description": "Platform",
-            "type": 3,  # STRING
-            "required": False,
-            "choices": [
-                {"name": "Tabletop Simulator", "value": "Tabletop Simulator"},
-                {"name": "Root Digital", "value": "Root Digital"},
-                {"name": "In Person", "value": "In Person"},
-            ],
-        },
-    ],
-}
-
-
-def _law_command():
-    """The /law command. Its `language` choices are read from the DB (only
-    languages that actually have public laws), so this is built at run time."""
-    languages = (
-        Language.objects.filter(law__group__public=True)
-        .distinct().order_by("id").values_list("name", "code")
-    )
-    lang_choices = [{"name": name, "value": code} for name, code in languages]
-    return {
-        "name": "law",
-        "description": "Look up a Root law by code, title, post, or text",
-        "options": [
-            {"name": "code", "description": "Law code (e.g. MdC.1.a)", "type": 3, "required": False, "autocomplete": True},
-            {"name": "title", "description": "Law title", "type": 3, "required": False, "autocomplete": True},
-            {"name": "post", "description": "Faction / component the law belongs to", "type": 3, "required": False, "autocomplete": True},
-            {"name": "text", "description": "Text to search within the law", "type": 3, "required": False},
-            {"name": "language", "description": "Language (defaults to English)", "type": 3, "required": False, "choices": lang_choices},
-        ],
-    }
-
-
-# Static command definitions. The /law command is appended at run time (its
-# language choices come from the DB) — see Command.handle().
-COMMANDS = [
-    _lookup_command("faction", "faction"),
-    _lookup_command("clockwork", "clockwork faction"),
-    _lookup_command("map", "map"),
-    _lookup_command("deck", "deck"),
-    _lookup_command("vagabond", "vagabond"),
-    _lookup_command("captain", "knave captain"),
-    _lookup_command("landmark", "landmark"),
-    _lookup_command("hireling", "hireling"),
-    _lookup_command("houserule", "house rule"),
-    STATS_COMMAND,
-]
 
 
 class Command(BaseCommand):
@@ -107,8 +34,7 @@ class Command(BaseCommand):
         app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
         guild_id = options["guild"]
 
-        # Append the run-time /law command (DB-derived language choices).
-        commands = COMMANDS + [_law_command()]
+        commands = all_command_definitions()
 
         if guild_id:
             url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild_id}/commands"
