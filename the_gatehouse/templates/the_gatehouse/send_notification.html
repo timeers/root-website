@@ -157,7 +157,7 @@
 
     <div class="mb-3">
       <label class="form-label fw-semibold">Recipients</label>
-      <p class="text-muted small mb-1">Hold Ctrl / Cmd to select multiple users.</p>
+      <p class="text-muted small mb-1">Search and select one or more users.</p>
       {{ form.recipients }}
       {% for error in form.recipients.errors %}
         <div class="text-danger small">{{ error }}</div>
@@ -205,6 +205,14 @@
 
 <script>
 (function () {
+  // Turn the native multi-select into a searchable select2 field
+  if (typeof $ !== 'undefined' && $('#id_recipients').length) {
+    $('#id_recipients').select2({
+      placeholder: 'Select recipients',
+      width: '100%'
+    });
+  }
+
   const multiTypeInput = document.getElementById('multi-msg-type');
   const multiPreview   = document.getElementById('multi-msg-preview');
   document.querySelectorAll('.multi-type-picker .notif-type-btn').forEach(function (btn) {
