@@ -74,6 +74,16 @@ STATS_COMMAND = {
 }
 
 
+UPCOMING_COMMAND = {
+    "name": "upcoming",
+    "description": "Show the next scheduled match for a series",
+    "options": [
+        {"name": "series", "description": "Series / tournament", "type": 3, "required": True, "autocomplete": True},
+        {"name": "player", "description": "Filter to a player", "type": 3, "required": False, "autocomplete": True},
+    ],
+}
+
+
 HELP_COMMAND = {
     "name": "help",
     "description": "List the bot's available commands",
@@ -105,6 +115,7 @@ COMMANDS = [
     _lookup_command("hireling", "hireling"),
     _lookup_command("houserule", "house rule"),
     STATS_COMMAND,
+    UPCOMING_COMMAND,
     LAW_COMMAND,
 ]
 
@@ -117,6 +128,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule"]),
     ("Stats", ["stats"]),
+    ("Tournaments", ["upcoming"]),
     ("Law", ["law"]),
 ]
 

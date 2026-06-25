@@ -11,7 +11,8 @@ Currently handles:
   APPLICATION_COMMAND (type 2)         -> dispatches by command name (e.g.
                                           /faction, /clockwork, /map, /deck,
                                           /vagabond, /landmark, /hireling,
-                                          /houserule, /stats, /law, /help)
+                                          /houserule, /stats, /upcoming, /law,
+                                          /help)
   APPLICATION_COMMAND_AUTOCOMPLETE (4) -> live option suggestions (type 8)
 """
 import json
@@ -20,17 +21,18 @@ import logging
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
-from django.db.models import Q
+from django.db.models import Q, Exists, OuterRef
 from django.http import JsonResponse, HttpResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post
-from the_warroom.models import Tournament, filtered_winrate
+from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate
 from the_gatehouse.models import Profile
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
-    build_captain_embed, build_law_embed, build_help_embed,
+    build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
 )
 from .services.discord_commands import DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE
 
@@ -218,6 +220,47 @@ def _handle_stats_command(data):
     })
 
 
+def _handle_upcoming_command(data):
+    """/upcoming: the next scheduled match for a series, optionally filtered to a
+    player. Replies publicly with an embed linking to the matches page."""
+    series_slug = _get_option(data, "series")
+    player_slug = _get_option(data, "player")
+
+    tournament = Tournament.objects.filter(slug=series_slug).first()
+    if not tournament:
+        return _ephemeral("Couldn't find that series.")
+
+    # A round links to its tournament directly (no-stage tournaments) or through
+    # its stage, so match either path.
+    matches = Match.objects.filter(
+        Q(round__stage__tournament=tournament) | Q(round__tournament=tournament),
+        scheduled_time__isnull=False,
+        scheduled_time__gt=timezone.now(),
+    ).exclude(status=CompetitionStatus.COMPLETED)
+
+    if player_slug:
+        player = Profile.objects.filter(slug=player_slug).first()
+        if not player:
+            return _ephemeral("Couldn't find that player.")
+        matches = matches.filter(series__player_group__tournament_players__profile=player)
+
+    match = (
+        matches.select_related(
+            "round", "round__stage", "round__stage__tournament",
+            "round__tournament", "series__player_group",
+        )
+        .order_by("scheduled_time")
+        .first()
+    )
+    if not match:
+        return _ephemeral("No upcoming matches found.")
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"embeds": [build_upcoming_embed(match)]},
+    })
+
+
 def _public_laws(language_code="en"):
     """Laws that are publicly viewable and linkable, scoped to one language. A
     law needs a public group with a slug (for the URL) in the given language.
@@ -301,6 +344,7 @@ COMMAND_HANDLERS["stats"] = _handle_stats_command
 COMMAND_HANDLERS["captain"] = _handle_captain_command
 COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
+COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 
 
 # ── Autocomplete ──────────────────────────────────────────────────────────
@@ -354,6 +398,22 @@ def _ac_series(query, _data):
     return [{"name": name, "value": slug} for name, slug in rows]
 
 
+def _ac_upcoming_series(query, _data):
+    """Autocomplete for /upcoming `series`: only tournaments that have at least
+    one upcoming (future, not completed) scheduled match — so you can't pick a
+    series with nothing scheduled. A round links to its tournament directly or
+    through its stage, so match either path."""
+    upcoming = Match.objects.filter(
+        Q(round__stage__tournament=OuterRef("pk")) | Q(round__tournament=OuterRef("pk")),
+        scheduled_time__gt=timezone.now(),
+    ).exclude(status=CompetitionStatus.COMPLETED)
+    qs = Tournament.objects.exclude(slug__isnull=True).filter(Exists(upcoming))
+    if query:
+        qs = qs.filter(name__icontains=query)
+    rows = qs.order_by("name").values_list("name", "slug")[:25]
+    return [{"name": name, "value": slug} for name, slug in rows]
+
+
 def _ac_law(query, _data):
     """Autocomplete for the combined /law `law` option: matches on code or title
     so typing either surfaces suggestions. Labels as "CODE - Title" and sends the
@@ -395,6 +455,8 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
     ("captain", "name"): _ac_captains,
+    ("upcoming", "series"): _ac_upcoming_series,
+    ("upcoming", "player"): _ac_players,
     ("law", "law"): _ac_law,
     ("law", "post"): _ac_law_post,
 }

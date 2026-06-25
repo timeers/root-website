@@ -1508,6 +1508,34 @@ class Match(models.Model):
         """Convenience accessor — equivalent to match.round.stage."""
         return self.round.stage
 
+    def get_matches_url(self):
+        """URL of the page that lists this match, accounting for the variable
+        tournament layout: a stage may skip rounds, and a tournament may skip
+        stages. Mirrors the branching in Round.get_absolute_url(); extends
+        Round.get_matches_url() with the stage-level (no-rounds) case."""
+        round = self.round
+        tournament = round.get_tournament()
+        stage = round.stage
+
+        # Stage without rounds — matches live at the stage level.
+        if stage and not stage.use_rounds:
+            return reverse('stage-matches-page', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': stage.slug,
+            })
+        # Tournament without stages — simplified round URL (no stage_slug).
+        if not tournament.use_stages:
+            return reverse('round-matches-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': round.slug,
+            })
+        # Full hierarchy.
+        return reverse('round-matches-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        })
+
     def __str__(self):
         return self.name or f"Match {self.id}"
 

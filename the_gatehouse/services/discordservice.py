@@ -1174,6 +1174,59 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     return {k: v for k, v in embed.items() if v is not None}
 
 
+def build_upcoming_embed(match):
+    """Build a Discord embed for the next scheduled match.
+
+    Links to the matches page that contains the match (via
+    Match.get_matches_url, which adapts to the tournament's stage/round layout),
+    lists the players in the match, and shows the platform only when the
+    tournament requires one (tournament.platform is set).
+    """
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    round = match.round
+    tournament = round.get_tournament()
+
+    embed = {
+        "title": match.name or "Upcoming Match",
+        "url": f"{site_url}{match.get_matches_url()}" if site_url else None,
+    }
+    if tournament:
+        embed["author"] = {"name": tournament.name}
+
+    fields = []
+
+    # Scheduled time as a Discord timestamp so each viewer sees it localized,
+    # plus a relative "in X" hint.
+    if match.scheduled_time:
+        ts = int(match.scheduled_time.timestamp())
+        fields.append({
+            "name": "Scheduled",
+            "value": f"<t:{ts}:F> (<t:{ts}:R>)",
+            "inline": False,
+        })
+
+    # Players in the match, from the series' player group.
+    group = match.series.player_group if match.series_id else None
+    members = list(group.members) if group else []
+    if members:
+        names = [(p.display_name or p.discord or p.slug or "—") for p in members]
+        fields.append({"name": "Players", "value": "\n".join(names), "inline": False})
+    else:
+        fields.append({"name": "Players", "value": "TBD", "inline": False})
+
+    # Platform only when the tournament requires one. The stored value is already
+    # the human-readable label (e.g. "In Person"), matching how /stats treats it.
+    if tournament and tournament.platform:
+        fields.append({
+            "name": "Platform",
+            "value": tournament.platform,
+            "inline": True,
+        })
+
+    embed["fields"] = fields
+    return {k: v for k, v in embed.items() if v is not None}
+
+
 def build_help_embed():
     """Build a Discord embed listing the bot's commands, grouped by category.
 
