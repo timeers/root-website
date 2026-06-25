@@ -69,8 +69,10 @@
                 {% if tournament.designer %}
                 <dt class="col-sm-4 text-muted">{% trans 'Host' %}</dt>
                 <dd class="col-sm-8">
-                    <a href="{{ tournament.designer.get_absolute_url }}">{{ tournament.designer.display_name }}</a>
-
+                    <a href="{{ tournament.designer.get_absolute_url }}" class="d-inline-flex align-items-center text-decoration-none">
+                        <img src="{{ tournament.designer.image.url }}" alt="" class="rounded-circle me-1" style="width: 24px; height: 24px;">
+                        <span>{{ tournament.designer.display_name }}</span>
+                    </a>
                 </dd>
                 {% endif %}
 
@@ -78,7 +80,10 @@
                 <dt class="col-sm-4 text-muted">{% trans 'Moderators' %}</dt>
                 <dd class="col-sm-8">
                     {% for mod in tournament.moderators.all %}
-                    <a href="{{ mod.get_absolute_url }}">{{ mod.display_name }}</a>{% if not forloop.last %}, {% endif %}
+                    <a href="{{ mod.get_absolute_url }}" class="d-inline-flex align-items-center text-decoration-none me-2">
+                        <img src="{{ mod.image.url }}" alt="" class="rounded-circle me-1" style="width: 24px; height: 24px;">
+                        <span>{{ mod.display_name }}</span>
+                    </a>
                     {% endfor %}
                 </dd>
                 {% endif %}

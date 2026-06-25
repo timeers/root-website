@@ -160,6 +160,7 @@ class Tournament(models.Model):
         MODERATORS = "moderators", "Moderators Only"
         SCHEDULED = "scheduled", "Scheduled Match Players"
         REGISTERED = "registered_players", "Registered Players"
+        GUILD = "guild", "Guild Members"
     class RulesPlatformChoices(models.TextChoices):
         GOOGLE = 'google', 'Google Drive'
         DROPBOX = 'dropbox', 'Dropbox'
@@ -222,7 +223,8 @@ class Tournament(models.Model):
             'Who can record game results. Moderators Only: only admins, owner, and '
             'moderators. Scheduled Match Players: the above, plus players in a scheduled '
             'match can record that match. Registered Players: the above, plus registered '
-            'players can record standalone games for rounds.'
+            'players can record standalone games for rounds. Guild Members: the above, '
+            'plus any member of the linked guild can record games for rounds.'
         ),
     )
     # Player management handled via TournamentPlayer
@@ -347,15 +349,28 @@ class Tournament(models.Model):
         return profile.admin or profile == self.designer or self.moderators.filter(pk=profile.pk).exists()
 
     def players_can_record_matches(self):
-        """Seated players may record their own scheduled match (SCHEDULED + REGISTERED)."""
+        """Seated players may record their own scheduled match (SCHEDULED, REGISTERED, GUILD)."""
         return self.recording_access in (
             self.RecordingAccessTypes.SCHEDULED,
             self.RecordingAccessTypes.REGISTERED,
+            self.RecordingAccessTypes.GUILD,
         )
 
     def players_can_record_standalone(self):
-        """Registered players may record standalone games for rounds (REGISTERED only)."""
-        return self.recording_access == self.RecordingAccessTypes.REGISTERED
+        """Registered players may record standalone games for rounds (REGISTERED, GUILD)."""
+        return self.recording_access in (
+            self.RecordingAccessTypes.REGISTERED,
+            self.RecordingAccessTypes.GUILD,
+        )
+
+    def guild_members_can_record(self, profile):
+        """Under GUILD access, any member of the linked guild may record games
+        for this tournament's rounds, even if not a stage participant."""
+        if self.recording_access != self.RecordingAccessTypes.GUILD:
+            return False
+        if not self.guild_id:
+            return False
+        return profile.guilds.filter(pk=self.guild_id).exists()
 
     def tab_visible(self, key):
         """Whether a nav tab is enabled (not in hidden_tabs). Unknown keys default visible."""
@@ -1609,6 +1624,10 @@ class Game(models.Model):
             group = self.match.player_group
             if group and group.group_moderator_id == profile.id:
                 return EditPermission(True, 'group_moderator')
+            # Guild members can edit non-final match games under GUILD access,
+            # even if they are not seated in the match.
+            if tournament and tournament.guild_members_can_record(profile):
+                return EditPermission(True, 'guild_member')
             if not tournament or tournament.players_can_record_matches():
                 if Profile.objects.filter(
                     tournament_participations__stage_participations__matchseat__series=self.match.series,

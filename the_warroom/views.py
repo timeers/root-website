@@ -778,6 +778,9 @@ def _can_record_match(profile, match):
     # regardless of the tournament's recording_access tier.
     if _is_group_moderator(profile, match):
         return True
+    # Guild members can record any match under GUILD access.
+    if tournament.guild_members_can_record(profile):
+        return True
     if not tournament.players_can_record_matches():
         return False
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
@@ -3181,6 +3184,11 @@ def user_can_record_in_round(tournament_round, user, as_role=None):
     if as_role == 'player':
         return tournament.players_can_record_standalone()
 
+    # Guild members can record in this round under GUILD access, even if they
+    # are not an active stage participant.
+    if tournament.guild_members_can_record(user.profile):
+        return True
+
     if not tournament.players_can_record_matches():
         return False
 
@@ -4867,6 +4875,11 @@ def _recordable_match_ids(round, user, tournament, view_as=None):
             Match.objects.filter(
                 round=round, series_id__in=participant_series_ids
             ).values_list('id', flat=True)
+        )
+    # Guild members can record any match in the round under GUILD access.
+    if tournament.guild_members_can_record(profile):
+        recordable_match_ids |= set(
+            Match.objects.filter(round=round).values_list('id', flat=True)
         )
     # Group moderators can always record their group's matches.
     recordable_match_ids |= set(
@@ -6688,6 +6701,11 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     )
                 else:
                     recordable_match_ids = set()
+                # Guild members can record any match in the round under GUILD access.
+                if tournament.guild_members_can_record(profile):
+                    recordable_match_ids |= set(
+                        Match.objects.filter(round=round).values_list('id', flat=True)
+                    )
                 # Group moderators can always record their group's matches.
                 recordable_match_ids |= set(
                     Match.objects.filter(
