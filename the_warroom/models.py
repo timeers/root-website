@@ -2042,9 +2042,9 @@ class PlayerGroup(models.Model):
     def save(self, *args, **kwargs):
         if self.video_link:
             if 'twitch.tv' in self.video_link:
-                self.video_platform = self.VideoPlatformChoices.TWITCH
+                self.video_platform = VideoPlatformChoices.TWITCH
             elif 'youtube.com' in self.video_link or 'youtu.be' in self.video_link:
-                self.video_platform = self.VideoPlatformChoices.YOUTUBE
+                self.video_platform = VideoPlatformChoices.YOUTUBE
             else:
                 self.video_platform = ''
         else:
