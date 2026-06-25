@@ -12,7 +12,6 @@ Add a new command by defining it here and adding it to COMMANDS (and, if it has
 behaviour, a handler in discord_interactions.py). Keeping definitions here means
 `/help` picks the command up automatically.
 """
-from the_gatehouse.models import Language
 
 
 def _lookup_command(name, label):
@@ -61,29 +60,18 @@ HELP_COMMAND = {
 }
 
 
-def _law_command():
-    """The /law command. Its `language` choices are read from the DB (only
-    languages that actually have public laws), so this is built at run time."""
-    languages = (
-        Language.objects.filter(law__group__public=True)
-        .distinct().order_by("id").values_list("name", "code")
-    )
-    lang_choices = [{"name": name, "value": code} for name, code in languages]
-    return {
-        "name": "law",
-        "description": "Look up a Root law by code, title, post, or text",
-        "options": [
-            {"name": "code", "description": "Law code (e.g. MdC.1.a)", "type": 3, "required": False, "autocomplete": True},
-            {"name": "title", "description": "Law title", "type": 3, "required": False, "autocomplete": True},
-            {"name": "post", "description": "Faction / component the law belongs to", "type": 3, "required": False, "autocomplete": True},
-            {"name": "text", "description": "Text to search within the law", "type": 3, "required": False},
-            {"name": "language", "description": "Language (defaults to English)", "type": 3, "required": False, "choices": lang_choices},
-        ],
-    }
+LAW_COMMAND = {
+    "name": "law",
+    "description": "Look up a Root law by code/title, post, or text",
+    "options": [
+        {"name": "law", "description": "Law code or title", "type": 3, "required": False, "autocomplete": True},
+        {"name": "text", "description": "Text to search within the law", "type": 3, "required": False},
+        {"name": "post", "description": "Faction / component the law belongs to", "type": 3, "required": False, "autocomplete": True},
+    ],
+}
 
 
-# Static command definitions. The /law command is DB-dependent and appended at
-# run time by all_command_definitions().
+# All command definitions registered with Discord.
 COMMANDS = [
     HELP_COMMAND,
     _lookup_command("faction", "faction"),
@@ -96,6 +84,7 @@ COMMANDS = [
     _lookup_command("hireling", "hireling"),
     _lookup_command("houserule", "house rule"),
     STATS_COMMAND,
+    LAW_COMMAND,
 ]
 
 
@@ -112,8 +101,8 @@ COMMAND_GROUPS = [
 
 
 def all_command_definitions():
-    """Every command definition, including the run-time /law command."""
-    return COMMANDS + [_law_command()]
+    """Every command definition."""
+    return list(COMMANDS)
 
 
 def grouped_commands():

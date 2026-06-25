@@ -200,48 +200,55 @@ def _handle_stats_command(data):
     })
 
 
-def _lang_code(data):
-    """Selected `language` option value, defaulting to English."""
-    return _get_option(data, "language") or "en"
-
-
 def _public_laws(language_code="en"):
     """Laws that are publicly viewable and linkable, scoped to one language. A
-    law needs a public group with a slug (for the URL) in the given language."""
+    law needs a public group with a slug (for the URL) in the given language.
+    Defaults to English; the /law command is English-only for now."""
     return Law.objects.filter(
         group__public=True, group__slug__isnull=False, language__code=language_code
     )
 
 
 def _handle_law_command(data):
-    """/law: find a public law by code, title, post, and/or text (at least one),
-    optionally scoped by language, and reply with its embed."""
-    code = (_get_option(data, "code") or "").strip()
-    title = (_get_option(data, "title") or "").strip()
+    """/law: find a public English law by the combined `law` (code/title), post,
+    and/or text option (at least one), and reply with its embed."""
+    law_value = (_get_option(data, "law") or "").strip()
     post_slug = (_get_option(data, "post") or "").strip()
     text = (_get_option(data, "text") or "").strip()
 
-    if not (code or title or post_slug or text):
-        return _ephemeral("Type a law code, title, post, or some text to search.")
+    if not (law_value or post_slug or text):
+        return _ephemeral("Type a law code/title, post, or some text to search.")
 
-    laws = _public_laws(_lang_code(data))
+    laws = _public_laws()
 
-    if code:
-        by_exact = laws.filter(law_code__iexact=code)
-        laws = by_exact if by_exact.exists() else laws.filter(law_code__icontains=code)
+    if law_value:
+        # Autocomplete sends the law's id as the value, so an all-digit value
+        # that resolves to a public law pins the result to exactly that law.
+        by_id = laws.filter(id=law_value) if law_value.isdigit() else laws.none()
+        if by_id.exists():
+            laws = by_id
+        else:
+            # Free-typed: prefer exact matches (code, then title) before any
+            # substring match (code, then title). First tier that matches wins.
+            title_exact = Q(plain_title__iexact=law_value) | Q(title__iexact=law_value)
+            title_contains = Q(plain_title__icontains=law_value) | Q(title__icontains=law_value)
+            for criterion in (
+                Q(law_code__iexact=law_value),
+                title_exact,
+                Q(law_code__icontains=law_value),
+                title_contains,
+            ):
+                matched = laws.filter(criterion)
+                if matched.exists():
+                    laws = matched
+                    break
+            else:
+                laws = laws.none()
     if post_slug:
         post = Post.objects.filter(slug=post_slug).first()
         if not post:
             return _ephemeral("Couldn't find that post.")
         laws = laws.filter(Q(group__post=post) | Q(linked_post=post))
-    if title:
-        # Autocomplete sends the law's id as the value, so an all-digit `title`
-        # that resolves to a public law pins the result to exactly that law.
-        # Otherwise treat it as free-typed text and search by title substring.
-        by_id = laws.filter(id=title) if title.isdigit() else laws.none()
-        laws = by_id if by_id.exists() else laws.filter(
-            Q(plain_title__icontains=title) | Q(title__icontains=title)
-        )
     if text:
         laws = laws.filter(
             Q(plain_description__icontains=text) | Q(description__icontains=text)
@@ -329,22 +336,18 @@ def _ac_series(query, _data):
     return [{"name": name, "value": slug} for name, slug in rows]
 
 
-def _ac_law_code(query, data):
-    qs = _public_laws(_lang_code(data))
+def _ac_law(query, _data):
+    """Autocomplete for the combined /law `law` option: matches on code or title
+    so typing either surfaces suggestions. Labels as "CODE - Title" and sends the
+    law's id as the value, so picking a suggestion resolves to exactly that law
+    (the code keeps rows unique, so no dedup is needed)."""
+    qs = _public_laws()
     if query:
-        qs = qs.filter(law_code__icontains=query)
-    codes = qs.exclude(law_code__isnull=True).values_list("law_code", flat=True).distinct()[:25]
-    return [{"name": code, "value": code} for code in codes]
-
-
-def _ac_law_title(query, data):
-    qs = _public_laws(_lang_code(data))
-    if query:
-        qs = qs.filter(Q(plain_title__icontains=query) | Q(title__icontains=query))
-    # Label as "CODE - Title" so laws sharing a title stay distinguishable, but
-    # send the law's id as the value so picking a suggestion resolves to exactly
-    # that law (mirrors how `post` sends a slug). The code makes each row unique,
-    # so no dedup is needed.
+        qs = qs.filter(
+            Q(law_code__icontains=query)
+            | Q(plain_title__icontains=query)
+            | Q(title__icontains=query)
+        )
     rows = qs.values_list("id", "law_code", "plain_title", "title")[:25]
     choices = []
     for law_id, code, plain, title in rows:
@@ -356,11 +359,10 @@ def _ac_law_title(query, data):
     return choices
 
 
-def _ac_law_post(query, data):
-    lang = _lang_code(data)
+def _ac_law_post(query, _data):
     qs = Post.objects.filter(
-        Q(lawgroup__public=True, lawgroup__laws__language__code=lang)
-        | Q(linked_laws__group__public=True, linked_laws__language__code=lang)
+        Q(lawgroup__public=True, lawgroup__laws__language__code="en")
+        | Q(linked_laws__group__public=True, linked_laws__language__code="en")
     ).distinct()
     if query:
         qs = qs.filter(title__icontains=query)
@@ -375,8 +377,7 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
     ("captain", "name"): _ac_captains,
-    ("law", "code"): _ac_law_code,
-    ("law", "title"): _ac_law_title,
+    ("law", "law"): _ac_law,
     ("law", "post"): _ac_law_post,
 }
 for _name, _qs in LOOKUP_QUERYSETS.items():
