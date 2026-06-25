@@ -6,7 +6,7 @@
         <nav class="section-nav-tabs">
             <a href="{% url 'asset-list' %}"
                class="section-nav-tab root-title {% if active_page == 'workshop' %}active{% endif %}">
-                {% trans 'Workshop' %}
+                {% trans 'Community Resources' %}
             </a>
             {% if user.is_authenticated and shared_assets %}
                 <a href="{% url 'my-resources' %}"
@@ -38,7 +38,7 @@
                         </a>
          
 
-                {% else %}
+                {% elif active_page == 'my-resources' %}
                     <a href="{% url 'asset-new' %}" class="btn btn-success btn-sm">
                         <i class="bi bi-plus-circle"></i>
                         <span class="d-none d-sm-inline">{% trans 'New Resource' %}</span>

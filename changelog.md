@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.7] - 2026-6-24 Bot Improvements
+
+### New Features
+- /upcoming bot command for scheduled games
+- /help bot command for summary of bots
+
+### Improvements
+- simplified and improved /law command
+- choose link and/or image for search commands
+- video link for Games (Twitch or Youtube)
+- renamed Workshop tab to Community Resources and removed add button
+
 ## [1.12.6] - 2026-6-22 RTM Optimizations
 
 ### New Features

@@ -11,7 +11,8 @@ Currently handles:
   APPLICATION_COMMAND (type 2)         -> dispatches by command name (e.g.
                                           /faction, /clockwork, /map, /deck,
                                           /vagabond, /landmark, /hireling,
-                                          /houserule, /stats)
+                                          /houserule, /stats, /upcoming, /law,
+                                          /help)
   APPLICATION_COMMAND_AUTOCOMPLETE (4) -> live option suggestions (type 8)
 """
 import json
@@ -20,18 +21,20 @@ import logging
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
-from django.db.models import Q
+from django.db.models import Q, Exists, OuterRef
 from django.http import JsonResponse, HttpResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post
-from the_warroom.models import Tournament, filtered_winrate
+from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate
 from the_gatehouse.models import Profile
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
-    build_captain_embed, build_law_embed,
+    build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
 )
+from .services.discord_commands import DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +89,22 @@ def _lookup_post(queryset, name):
     )
 
 
+def _select_embeds(link_embed, image_embed, display):
+    """Pick which embeds to send for a lookup based on the `display` choice
+    (both / link only / image only; defaults to both). `image_embed` may be None
+    when the post has no image.
+
+    Returns the list of embeds to send, or None to signal "image only" was asked
+    for but no image exists (the caller replies with a friendly message).
+    """
+    if display == DISPLAY_LINK:
+        return [link_embed]
+    if display == DISPLAY_IMAGE:
+        return [image_embed] if image_embed else None
+    # DISPLAY_BOTH or anything unset/unexpected: link first, image after if any.
+    return [link_embed, image_embed] if image_embed else [link_embed]
+
+
 def _make_lookup_handler(label, queryset_factory):
     """Build a slash-command handler that looks up a Post by title and replies
     with its embed. `queryset_factory` returns the base queryset to search."""
@@ -98,12 +117,12 @@ def _make_lookup_handler(label, queryset_factory):
         if not post:
             return _ephemeral(f'No {label} found matching "{name}".')
 
-        # Append a standalone board/card image embed when the post has one, so it
-        # renders as a large click-to-enlarge image below the main embed.
-        embeds = [build_post_embed(post)]
-        image_embed = build_post_image_embed(post)
-        if image_embed:
-            embeds.append(image_embed)
+        # Link embed is the main info card; the image embed renders as a large
+        # standalone (click-to-enlarge) board/card image below it.
+        display = _get_option(data, "display") or DISPLAY_BOTH
+        embeds = _select_embeds(build_post_embed(post), build_post_image_embed(post), display)
+        if embeds is None:
+            return _ephemeral(f'No image available for "{post.title}".')
 
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
@@ -151,10 +170,11 @@ def _handle_captain_command(data):
 
     # Captain is the vagabond's flip side, so show its card_2_image rather than
     # the base card image.
-    embeds = [build_captain_embed(vagabond)]
+    display = _get_option(data, "display") or DISPLAY_BOTH
     image_embed = build_post_image_embed(vagabond, field="card_2_image")
-    if image_embed:
-        embeds.append(image_embed)
+    embeds = _select_embeds(build_captain_embed(vagabond), image_embed, display)
+    if embeds is None:
+        return _ephemeral(f'No image available for "{vagabond.title}".')
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
@@ -200,48 +220,96 @@ def _handle_stats_command(data):
     })
 
 
-def _lang_code(data):
-    """Selected `language` option value, defaulting to English."""
-    return _get_option(data, "language") or "en"
+def _handle_upcoming_command(data):
+    """/upcoming: the next scheduled match for a series, optionally filtered to a
+    player. Replies publicly with an embed linking to the matches page."""
+    series_slug = _get_option(data, "series")
+    player_slug = _get_option(data, "player")
+
+    tournament = Tournament.objects.filter(slug=series_slug).first()
+    if not tournament:
+        return _ephemeral("Couldn't find that series.")
+
+    # A round links to its tournament directly (no-stage tournaments) or through
+    # its stage, so match either path.
+    matches = Match.objects.filter(
+        Q(round__stage__tournament=tournament) | Q(round__tournament=tournament),
+        scheduled_time__isnull=False,
+        scheduled_time__gt=timezone.now(),
+    ).exclude(status=CompetitionStatus.COMPLETED)
+
+    if player_slug:
+        player = Profile.objects.filter(slug=player_slug).first()
+        if not player:
+            return _ephemeral("Couldn't find that player.")
+        matches = matches.filter(series__player_group__tournament_players__profile=player)
+
+    match = (
+        matches.select_related(
+            "round", "round__stage", "round__stage__tournament",
+            "round__tournament", "series__player_group",
+        )
+        .order_by("scheduled_time")
+        .first()
+    )
+    if not match:
+        return _ephemeral("No upcoming matches found.")
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"embeds": [build_upcoming_embed(match)]},
+    })
 
 
 def _public_laws(language_code="en"):
     """Laws that are publicly viewable and linkable, scoped to one language. A
-    law needs a public group with a slug (for the URL) in the given language."""
+    law needs a public group with a slug (for the URL) in the given language.
+    Defaults to English; the /law command is English-only for now."""
     return Law.objects.filter(
         group__public=True, group__slug__isnull=False, language__code=language_code
     )
 
 
 def _handle_law_command(data):
-    """/law: find a public law by code, title, post, and/or text (at least one),
-    optionally scoped by language, and reply with its embed."""
-    code = (_get_option(data, "code") or "").strip()
-    title = (_get_option(data, "title") or "").strip()
+    """/law: find a public English law by the combined `law` (code/title), post,
+    and/or text option (at least one), and reply with its embed."""
+    law_value = (_get_option(data, "law") or "").strip()
     post_slug = (_get_option(data, "post") or "").strip()
     text = (_get_option(data, "text") or "").strip()
 
-    if not (code or title or post_slug or text):
-        return _ephemeral("Type a law code, title, post, or some text to search.")
+    if not (law_value or post_slug or text):
+        return _ephemeral("Type a law code/title, post, or some text to search.")
 
-    laws = _public_laws(_lang_code(data))
+    laws = _public_laws()
 
-    if code:
-        by_exact = laws.filter(law_code__iexact=code)
-        laws = by_exact if by_exact.exists() else laws.filter(law_code__icontains=code)
+    if law_value:
+        # Autocomplete sends the law's id as the value, so an all-digit value
+        # that resolves to a public law pins the result to exactly that law.
+        by_id = laws.filter(id=law_value) if law_value.isdigit() else laws.none()
+        if by_id.exists():
+            laws = by_id
+        else:
+            # Free-typed: prefer exact matches (code, then title) before any
+            # substring match (code, then title). First tier that matches wins.
+            title_exact = Q(plain_title__iexact=law_value) | Q(title__iexact=law_value)
+            title_contains = Q(plain_title__icontains=law_value) | Q(title__icontains=law_value)
+            for criterion in (
+                Q(law_code__iexact=law_value),
+                title_exact,
+                Q(law_code__icontains=law_value),
+                title_contains,
+            ):
+                matched = laws.filter(criterion)
+                if matched.exists():
+                    laws = matched
+                    break
+            else:
+                laws = laws.none()
     if post_slug:
         post = Post.objects.filter(slug=post_slug).first()
         if not post:
             return _ephemeral("Couldn't find that post.")
         laws = laws.filter(Q(group__post=post) | Q(linked_post=post))
-    if title:
-        # Autocomplete sends the law's id as the value, so an all-digit `title`
-        # that resolves to a public law pins the result to exactly that law.
-        # Otherwise treat it as free-typed text and search by title substring.
-        by_id = laws.filter(id=title) if title.isdigit() else laws.none()
-        laws = by_id if by_id.exists() else laws.filter(
-            Q(plain_title__icontains=title) | Q(title__icontains=title)
-        )
     if text:
         laws = laws.filter(
             Q(plain_description__icontains=text) | Q(description__icontains=text)
@@ -259,6 +327,15 @@ def _handle_law_command(data):
     })
 
 
+def _handle_help_command(data):
+    """/help: list the bot's available commands, grouped by category. Ephemeral
+    so the listing only shows to the invoking user and doesn't clutter the channel."""
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"embeds": [build_help_embed()], "flags": EPHEMERAL},
+    })
+
+
 COMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
@@ -266,6 +343,8 @@ COMMAND_HANDLERS = {
 COMMAND_HANDLERS["stats"] = _handle_stats_command
 COMMAND_HANDLERS["captain"] = _handle_captain_command
 COMMAND_HANDLERS["law"] = _handle_law_command
+COMMAND_HANDLERS["help"] = _handle_help_command
+COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 
 
 # ── Autocomplete ──────────────────────────────────────────────────────────
@@ -319,22 +398,34 @@ def _ac_series(query, _data):
     return [{"name": name, "value": slug} for name, slug in rows]
 
 
-def _ac_law_code(query, data):
-    qs = _public_laws(_lang_code(data))
+def _ac_upcoming_series(query, _data):
+    """Autocomplete for /upcoming `series`: only tournaments that have at least
+    one upcoming (future, not completed) scheduled match — so you can't pick a
+    series with nothing scheduled. A round links to its tournament directly or
+    through its stage, so match either path."""
+    upcoming = Match.objects.filter(
+        Q(round__stage__tournament=OuterRef("pk")) | Q(round__tournament=OuterRef("pk")),
+        scheduled_time__gt=timezone.now(),
+    ).exclude(status=CompetitionStatus.COMPLETED)
+    qs = Tournament.objects.exclude(slug__isnull=True).filter(Exists(upcoming))
     if query:
-        qs = qs.filter(law_code__icontains=query)
-    codes = qs.exclude(law_code__isnull=True).values_list("law_code", flat=True).distinct()[:25]
-    return [{"name": code, "value": code} for code in codes]
+        qs = qs.filter(name__icontains=query)
+    rows = qs.order_by("name").values_list("name", "slug")[:25]
+    return [{"name": name, "value": slug} for name, slug in rows]
 
 
-def _ac_law_title(query, data):
-    qs = _public_laws(_lang_code(data))
+def _ac_law(query, _data):
+    """Autocomplete for the combined /law `law` option: matches on code or title
+    so typing either surfaces suggestions. Labels as "CODE - Title" and sends the
+    law's id as the value, so picking a suggestion resolves to exactly that law
+    (the code keeps rows unique, so no dedup is needed)."""
+    qs = _public_laws()
     if query:
-        qs = qs.filter(Q(plain_title__icontains=query) | Q(title__icontains=query))
-    # Label as "CODE - Title" so laws sharing a title stay distinguishable, but
-    # send the law's id as the value so picking a suggestion resolves to exactly
-    # that law (mirrors how `post` sends a slug). The code makes each row unique,
-    # so no dedup is needed.
+        qs = qs.filter(
+            Q(law_code__icontains=query)
+            | Q(plain_title__icontains=query)
+            | Q(title__icontains=query)
+        )
     rows = qs.values_list("id", "law_code", "plain_title", "title")[:25]
     choices = []
     for law_id, code, plain, title in rows:
@@ -346,11 +437,10 @@ def _ac_law_title(query, data):
     return choices
 
 
-def _ac_law_post(query, data):
-    lang = _lang_code(data)
+def _ac_law_post(query, _data):
     qs = Post.objects.filter(
-        Q(lawgroup__public=True, lawgroup__laws__language__code=lang)
-        | Q(linked_laws__group__public=True, linked_laws__language__code=lang)
+        Q(lawgroup__public=True, lawgroup__laws__language__code="en")
+        | Q(linked_laws__group__public=True, linked_laws__language__code="en")
     ).distinct()
     if query:
         qs = qs.filter(title__icontains=query)
@@ -365,8 +455,9 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
     ("captain", "name"): _ac_captains,
-    ("law", "code"): _ac_law_code,
-    ("law", "title"): _ac_law_title,
+    ("upcoming", "series"): _ac_upcoming_series,
+    ("upcoming", "player"): _ac_players,
+    ("law", "law"): _ac_law,
     ("law", "post"): _ac_law_post,
 }
 for _name, _qs in LOOKUP_QUERYSETS.items():

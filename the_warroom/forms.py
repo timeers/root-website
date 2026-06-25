@@ -1,3 +1,4 @@
+import re
 from django import forms
 from django.utils import timezone
 from .models import Effort, Game, TurnScore, ScoreCard, Round, Stage, Tournament, Match, MatchSeat, AssetModeChoices, PlatformChoices
@@ -7,6 +8,9 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Max, Q
 from django.utils.translation import gettext as _
+
+
+DISCORD_URL_PATTERN = re.compile(r'^https://(discord\.com|discordapp\.com)/')
 
 
 def _validate_rules_link(form, cleaned_data):
@@ -26,7 +30,8 @@ def _validate_rules_link(form, cleaned_data):
 
 class GameCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
-    link = forms.CharField(help_text='Post link to Discord Thread (optional)', required=False)
+    link = forms.CharField(label='Discord Thread',
+                           help_text='Post link to Discord Thread (optional)', required=False)
     hirelings = forms.ModelMultipleChoiceField(required=False, 
                 queryset=Hireling.objects.all(),
                 widget=forms.SelectMultiple
@@ -55,7 +60,7 @@ class GameCreateForm(forms.ModelForm):
         fields = ['solo', 'coop', 'official', 'test_match', 'round', 
                   'platform', 'type', 'deck', 'map', 'random_clearing', 
                   'undrafted_faction', 'undrafted_vagabond', 'landmarks', 
-                  'hirelings', 'link', 'tweaks', 'final', 'notes', 'nickname', 'reach_value', 'date_posted']
+                  'hirelings', 'link', 'video_link', 'tweaks', 'final', 'notes', 'nickname', 'reach_value', 'date_posted']
         widgets = {
             'type': forms.RadioSelect,
         }
@@ -84,8 +89,12 @@ class GameCreateForm(forms.ModelForm):
             'class': 'form-control full-width', 
         })
         self.fields['link'].widget.attrs.update({
-            'placeholder': 'Link to Game Thread',
-            'class': 'form-control full-width', 
+            'placeholder': 'Discord Thread Link',
+            'class': 'form-control full-width',
+        })
+        self.fields['video_link'].widget.attrs.update({
+            'placeholder': 'Twitch/YouTube Link',
+            'class': 'form-control full-width',
         })
         self.fields['nickname'].widget.attrs.update({
             'placeholder': _('Game Nickname (optional)'),
@@ -157,6 +166,12 @@ class GameCreateForm(forms.ModelForm):
                 self.fields['round'].empty_label = None
                 # self.fields['round'].initial = round
 
+
+    def clean_link(self):
+        link = self.cleaned_data.get('link')
+        if link and not DISCORD_URL_PATTERN.match(link):
+            raise forms.ValidationError('Link must be a Discord thread URL.')
+        return link
 
     def clean(self):
         validation_errors_to_display = []  # List to store error messages
