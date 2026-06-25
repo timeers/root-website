@@ -254,6 +254,18 @@
             </div>
             {% endif %}
         </div>
+        <div class="mt-2" id="game-video-link-field">
+            {{ form.video_link }}
+            {% if form.video_link.errors %}
+            <div class="alert alert-warning" role="alert">
+                <ul>
+                    {% for error in form.video_link.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+        </div>
         <div class="mt-2" id="game-notes-field">
             {{ form.notes }}
         </div>

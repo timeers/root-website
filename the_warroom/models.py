@@ -51,6 +51,10 @@ class FormatChoices(models.TextChoices):
     POOL_PLAY = 'Pool Play', 'Pool Play'
     CUSTOM = 'Custom', 'Custom'
 
+class VideoPlatformChoices(models.TextChoices):
+    YOUTUBE = 'youtube', 'YouTube'
+    TWITCH = 'twitch', 'Twitch'
+
 class GameQuerySet(models.QuerySet):
     def only_official_components(self):
         return self.filter(official=True)
@@ -1561,6 +1565,18 @@ class Game(models.Model):
     undrafted_faction = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     link = models.URLField(max_length=1000, null=True, blank=True)
+    video_link = models.URLField(
+        max_length=500,
+        blank=True,
+        help_text="Video stream/recording URL for this group"
+    )
+    video_platform = models.CharField(
+        max_length=10,
+        blank=True,
+        choices=VideoPlatformChoices.choices,
+        help_text="Auto-detected from video_link URL"
+    )
+
     nickname = models.CharField(max_length=50, null=True, blank=True)
     random_clearing = models.BooleanField(default=True)
     notes = models.TextField(null=True, blank=True)
@@ -1608,6 +1624,18 @@ class Game(models.Model):
                 ),
             ],
         }
+
+    def save(self, *args, **kwargs):
+        if self.video_link:
+            if 'twitch.tv' in self.video_link:
+                self.video_platform = VideoPlatformChoices.TWITCH
+            elif 'youtube.com' in self.video_link or 'youtu.be' in self.video_link:
+                self.video_platform = VideoPlatformChoices.YOUTUBE
+            else:
+                self.video_platform = ''
+        else:
+            self.video_platform = ''
+        super().save(*args, **kwargs)
 
     def clean(self):
         # Check for duplicates among non-blank links
@@ -1966,9 +1994,7 @@ class PlayerGroup(models.Model):
         help_text="Profile who can record scheduled games for this group, even if not a tournament moderator or group member."
     )
 
-    class VideoPlatformChoices(models.TextChoices):
-        YOUTUBE = 'youtube', 'YouTube'
-        TWITCH = 'twitch', 'Twitch'
+
 
     video_platform = models.CharField(
         max_length=10,
