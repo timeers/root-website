@@ -4,24 +4,29 @@
 <!-- Hidden form field for recording_access -->
 <input type="hidden" name="recording_access" id="recording_access_input" value="{{ tournament_form.recording_access.value|default:'moderators' }}">
 
-<div id="recording-access-toggle-container">
+<div id="recording-access-toggle-container" data-has-guild="{% if tournament_form.instance.guild_id %}1{% else %}0{% endif %}">
     <label class="form-label fw-bold mb-3">Who Can Record Games</label>
-    <div class="option-toggle option-toggle-3">
+    <div class="option-toggle option-toggle-3" id="recording-access-toggle-slider-wrap">
         <div class="option-slider position-1" id="recording-access-slider"></div>
-        <div class="option-item" data-value="moderators" data-position="1">
+        <div class="option-item" data-value="moderators" data-pos3="1" data-pos4="0">
             <i class="bi bi-shield-lock me-1"></i>
             <span class="toggle-text-full">Moderators</span>
             <span class="toggle-text-short">Mods</span>
         </div>
-        <div class="option-item" data-value="scheduled" data-position="2">
+        <div class="option-item" data-value="scheduled" data-pos3="2" data-pos4="1">
             <i class="bi bi-calendar-check me-1"></i>
             <span class="toggle-text-full">Scheduled</span>
             <span class="toggle-text-short">Sched</span>
         </div>
-        <div class="option-item" data-value="registered_players" data-position="3">
+        <div class="option-item" data-value="registered_players" data-pos3="3" data-pos4="2">
             <i class="bi bi-people me-1"></i>
             <span class="toggle-text-full">Registered</span>
             <span class="toggle-text-short">Players</span>
+        </div>
+        <div class="option-item recording-access-guild-item d-none" data-value="guild" data-pos3="4" data-pos4="3">
+            <i class="bi bi-discord me-1"></i>
+            <span class="toggle-text-full">Guild</span>
+            <span class="toggle-text-short">Guild</span>
         </div>
     </div>
     <div class="toggle-description" id="recording-access-description">
@@ -31,15 +36,80 @@
 </div>
 
 <script>
-initToggle({
-    containerId: 'recording-access-toggle-container',
-    inputId: 'recording_access_input',
-    sliderId: 'recording-access-slider',
-    descriptionId: 'recording-access-description-text',
-    descriptions: {
+(function () {
+    const container = document.getElementById('recording-access-toggle-container');
+    if (!container) return;
+    const wrap = document.getElementById('recording-access-toggle-slider-wrap');
+    const input = document.getElementById('recording_access_input');
+    const guildItem = container.querySelector('.recording-access-guild-item');
+    const guildSelect = document.getElementById('id_guild');
+
+    const DESCRIPTIONS = {
         'moderators': 'Only admins, the owner, and moderators can record games.',
         'scheduled': 'Moderators, plus players in a scheduled match can record that match.',
-        'registered_players': 'Moderators, Scheduled, plus registered players can record standalone games for rounds.'
+        'registered_players': 'Moderators, Scheduled, plus registered players can record standalone games.',
+        'guild': 'Moderators, Scheduled, Registered, plus any member of the Discord guild can record games.'
+    };
+
+    function hasGuild() {
+        // Prefer the live dropdown value on edit forms; fall back to the
+        // server-rendered state where #id_guild may be absent.
+        if (guildSelect) return !!guildSelect.value;
+        return container.dataset.hasGuild === '1';
     }
-});
+
+    function applyLayout() {
+        const guild = hasGuild();
+        // Reset to a safe default if Guild was selected but no guild is linked.
+        if (!guild && input && input.value === 'guild') {
+            input.value = 'moderators';
+        }
+        if (guildItem) guildItem.classList.toggle('d-none', !guild);
+        wrap.classList.toggle('option-toggle-4', guild);
+        wrap.classList.toggle('option-toggle-3', !guild);
+        // Stamp the active layout's position onto each item, and clear any
+        // stale selected styling. initToggle only adds `active` to the matching
+        // item (it never clears others), so without this the newly-revealed
+        // Guild option could render with the selected (light) text color.
+        container.querySelectorAll('.option-item').forEach(function (it) {
+            it.dataset.position = guild ? it.dataset.pos4 : it.dataset.pos3;
+            it.classList.remove('active');
+        });
+        initToggle({
+            containerId: 'recording-access-toggle-container',
+            inputId: 'recording_access_input',
+            sliderId: 'recording-access-slider',
+            descriptionId: 'recording-access-description-text',
+            descriptions: DESCRIPTIONS
+        });
+    }
+
+    applyLayout();
+
+    function bindGuildListener() {
+        if (!guildSelect) return;
+        // Select2 dispatches its selection via jQuery's .trigger('change'),
+        // so bind through jQuery when it's available; otherwise fall back to
+        // the native event. Bind here (after DOM ready) so jQuery/Select2 are
+        // already initialized.
+        if (typeof window.jQuery !== 'undefined') {
+            window.jQuery(guildSelect).off('change.recordingAccess')
+                .on('change.recordingAccess', applyLayout);
+        } else {
+            guildSelect.addEventListener('change', applyLayout);
+        }
+    }
+
+    // Re-evaluate and (re)bind once the rest of the form (jQuery, Select2,
+    // classification toggle) has initialized, since this partial runs first.
+    function ready() {
+        bindGuildListener();
+        applyLayout();
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', ready);
+    } else {
+        ready();
+    }
+})();
 </script>

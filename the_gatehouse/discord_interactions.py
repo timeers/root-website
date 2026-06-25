@@ -149,9 +149,16 @@ def _handle_captain_command(data):
     if not vagabond:
         return _ephemeral(f'No captain found matching "{name}".')
 
+    # Captain is the vagabond's flip side, so show its card_2_image rather than
+    # the base card image.
+    embeds = [build_captain_embed(vagabond)]
+    image_embed = build_post_image_embed(vagabond, field="card_2_image")
+    if image_embed:
+        embeds.append(image_embed)
+
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"embeds": [build_captain_embed(vagabond)]},
+        "data": {"embeds": embeds},
     })
 
 

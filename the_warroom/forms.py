@@ -126,7 +126,12 @@ class GameCreateForm(forms.ModelForm):
                     Q(
                         Q(stage__participants__tournament_player__profile=user.profile) |  # player is a participant of the stage
                         Q(stage__tournament__designer=user.profile) |  # or the creator of the tournament
-                        Q(stage__tournament__guild__in=user_guilds)  # or in the tournament's guild
+                        # or in the tournament's guild, but only when the tournament
+                        # actually grants guild recording access
+                        Q(
+                            stage__tournament__guild__in=user_guilds,
+                            stage__tournament__recording_access=Tournament.RecordingAccessTypes.GUILD,
+                        )
                     ),
                     is_active=True,
                     stage__is_active=True,
@@ -137,7 +142,10 @@ class GameCreateForm(forms.ModelForm):
                     end_date__lt=now
                 ).exclude(
                     # Hide rounds from tournaments that don't allow standalone player recording
-                    ~Q(stage__tournament__recording_access=Tournament.RecordingAccessTypes.REGISTERED),
+                    ~Q(stage__tournament__recording_access__in=[
+                        Tournament.RecordingAccessTypes.REGISTERED,
+                        Tournament.RecordingAccessTypes.GUILD,
+                    ]),
                     ~Q(stage__tournament__designer=user.profile),
                     ~Q(stage__tournament__moderators=user.profile),
                 ).distinct()

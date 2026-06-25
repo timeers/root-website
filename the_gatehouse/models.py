@@ -143,6 +143,13 @@ class DiscordGuild(models.Model):
             return f"https://cdn.discordapp.com/banners/{self.guild_id}/{self.banner_hash}.png?size=512"
         return None
 
+    def get_discord_url(self):
+        """Deep link that opens this server in Discord for a logged-in member
+        (as opposed to server_invite, which is the join flow)."""
+        if self.guild_id:
+            return f"https://discord.com/channels/{self.guild_id}"
+        return None
+
 class Holiday(models.Model):
     name = models.CharField(max_length=100)
     start_date = models.DateField(default=timezone.now)

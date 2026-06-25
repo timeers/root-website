@@ -789,6 +789,18 @@ def _component_fields(post):
     return []
 
 
+def _embed_color(obj):
+    """Discord embed color (int) from an object's "#RRGGBB" `color` string, or
+    None when unset/malformed."""
+    color = getattr(obj, "color", None)
+    if not color:
+        return None
+    try:
+        return int(color.lstrip("#"), 16)
+    except (ValueError, AttributeError):
+        return None
+
+
 def build_post_embed(post):
     """Build a Discord embed dict for any Post (faction, map, deck, etc.).
 
@@ -801,14 +813,8 @@ def build_post_embed(post):
         "title": post.title,
         "url": f"{site_url}{post.get_absolute_url()}" if site_url else None,
         "description": post.description or post.lore or "",
+        "color": _embed_color(post),
     }
-
-    # color field is a "#RRGGBB" string; Discord wants an int
-    if post.color:
-        try:
-            embed["color"] = int(post.color.lstrip("#"), 16)
-        except (ValueError, AttributeError):
-            pass
 
     # Post image as thumbnail (only resolvable on the public domain)
     if site_url and getattr(post, "picture", None):
@@ -849,18 +855,20 @@ _STANDALONE_IMAGE_FIELD = {
 }
 
 
-def build_post_image_embed(post, language=None):
+def build_post_image_embed(post, language=None, field=None):
     """Build a second, image-only embed for a Post's board or card image, so it
     renders as a large standalone (click-to-enlarge) image after the main embed.
 
-    Returns None when the post's component has no standalone image or the file is
-    missing/unresolvable. The URL is only resolvable on the public domain.
+    `field` overrides the per-component image (e.g. "card_2_image" for a captain's
+    flip side); otherwise it's chosen from the post's component. Returns None when
+    there's no image for this post or the file is missing/unresolvable. The URL is
+    only resolvable on the public domain.
     """
     site_url = config.get("SITE_URL", "").rstrip("/")
     if not site_url:
         return None
 
-    field = _STANDALONE_IMAGE_FIELD.get(getattr(post, "component", None))
+    field = field or _STANDALONE_IMAGE_FIELD.get(getattr(post, "component", None))
     if not field:
         return None
 
@@ -870,8 +878,13 @@ def build_post_image_embed(post, language=None):
 
     # An image-only embed renders as a large, click-to-enlarge standalone image.
     # We deliberately omit `url`: sharing the main embed's url would make Discord
-    # merge the two into one gallery card instead of a separate image below.
-    return {"image": {"url": f"{site_url}{image_url}"}}
+    # merge the two into one gallery card instead of a separate image below. The
+    # color matches the main embed so the pair reads as one unit.
+    embed = {"image": {"url": f"{site_url}{image_url}"}}
+    color = _embed_color(post)
+    if color is not None:
+        embed["color"] = color
+    return embed
 
 
 # ── Law embeds ─────────────────────────────────────────────────────────────
@@ -1051,13 +1064,8 @@ def build_captain_embed(vagabond):
         "title": vagabond.title,
         "url": f"{site_url}{vagabond.get_absolute_url()}" if site_url else None,
         "description": vagabond.description or vagabond.lore or "",
+        "color": _embed_color(vagabond),
     }
-
-    if vagabond.color:
-        try:
-            embed["color"] = int(vagabond.color.lstrip("#"), 16)
-        except (ValueError, AttributeError):
-            pass
 
     if site_url and getattr(vagabond, "picture", None):
         try:
