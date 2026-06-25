@@ -15,9 +15,9 @@
                                 {% endif %}
                                 {% if item.guild.get_icon_url %}
                                     <img src="{{ item.guild.get_icon_url }}" alt="{{ item.guild.guild_name }}"
-                                         class="avatar-icon me-1">
+                                         class="faction-icon me-1">
                                 {% else %}
-                                    <i class="bi bi-people me-1"></i>
+                                    <i class="bi bi-discord me-1"></i>
                                 {% endif %}
                                 <small class="text-secondary">{{ item.guild.guild_name }}</small>
                                 {% if item.guild.get_discord_url %}
