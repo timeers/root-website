@@ -32,6 +32,7 @@ from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed,
 )
+from .services.discord_commands import DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,22 @@ def _lookup_post(queryset, name):
     )
 
 
+def _select_embeds(link_embed, image_embed, display):
+    """Pick which embeds to send for a lookup based on the `display` choice
+    (both / link only / image only; defaults to both). `image_embed` may be None
+    when the post has no image.
+
+    Returns the list of embeds to send, or None to signal "image only" was asked
+    for but no image exists (the caller replies with a friendly message).
+    """
+    if display == DISPLAY_LINK:
+        return [link_embed]
+    if display == DISPLAY_IMAGE:
+        return [image_embed] if image_embed else None
+    # DISPLAY_BOTH or anything unset/unexpected: link first, image after if any.
+    return [link_embed, image_embed] if image_embed else [link_embed]
+
+
 def _make_lookup_handler(label, queryset_factory):
     """Build a slash-command handler that looks up a Post by title and replies
     with its embed. `queryset_factory` returns the base queryset to search."""
@@ -98,12 +115,12 @@ def _make_lookup_handler(label, queryset_factory):
         if not post:
             return _ephemeral(f'No {label} found matching "{name}".')
 
-        # Append a standalone board/card image embed when the post has one, so it
-        # renders as a large click-to-enlarge image below the main embed.
-        embeds = [build_post_embed(post)]
-        image_embed = build_post_image_embed(post)
-        if image_embed:
-            embeds.append(image_embed)
+        # Link embed is the main info card; the image embed renders as a large
+        # standalone (click-to-enlarge) board/card image below it.
+        display = _get_option(data, "display") or DISPLAY_BOTH
+        embeds = _select_embeds(build_post_embed(post), build_post_image_embed(post), display)
+        if embeds is None:
+            return _ephemeral(f'No image available for "{post.title}".')
 
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
@@ -151,10 +168,11 @@ def _handle_captain_command(data):
 
     # Captain is the vagabond's flip side, so show its card_2_image rather than
     # the base card image.
-    embeds = [build_captain_embed(vagabond)]
+    display = _get_option(data, "display") or DISPLAY_BOTH
     image_embed = build_post_image_embed(vagabond, field="card_2_image")
-    if image_embed:
-        embeds.append(image_embed)
+    embeds = _select_embeds(build_captain_embed(vagabond), image_embed, display)
+    if embeds is None:
+        return _ephemeral(f'No image available for "{vagabond.title}".')
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
