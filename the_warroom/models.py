@@ -1629,6 +1629,34 @@ class Game(models.Model):
     def get_winners(self):
         return self.get_efforts().filter(win=True)
 
+    @property
+    def video_source(self):
+        """Resolve the video link to show for this game, preferring the game's
+        own recording link and falling back to the player group's stream link.
+
+        Returns a dict with ``link``, ``platform`` and ``action`` ('watch' for a
+        game recording, 'stream' for a player group's live link), or ``None``
+        when no link is available. Accessing the related match/series/player
+        group is guarded so games without a tournament match return ``None``.
+        """
+        if self.video_link:
+            return {
+                'link': self.video_link,
+                'platform': self.video_platform,
+                'action': 'watch',
+            }
+        try:
+            group = self.match.series.player_group
+        except (Match.DoesNotExist, AttributeError):
+            group = None
+        if group and group.video_link:
+            return {
+                'link': group.video_link,
+                'platform': group.video_platform,
+                'action': 'stream',
+            }
+        return None
+
     @staticmethod
     def with_efforts():
         """Standard select/prefetch for game list views."""

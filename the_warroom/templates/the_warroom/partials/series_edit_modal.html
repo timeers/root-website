@@ -70,7 +70,7 @@
                 <div class="mb-3">
                     <label for="editSeriesVideoLink" class="form-label fw-bold"><i class="bi bi-play-btn-fill"></i> {% trans 'Streaming Link' %}</label>
                     <input type="url" class="form-control" id="editSeriesVideoLink" placeholder="https://youtube.com/... or https://twitch.tv/...">
-                    <small class="text-muted">{% trans 'Must be a YouTube or Twitch link' %}</small>
+                    <small class="text-muted">{% trans 'Must be a YouTube or Twitch link. Remember to clear this link if it expires.' %}</small>
                     <div class="invalid-feedback" id="seriesVideoError"></div>
                 </div>
 
@@ -528,7 +528,7 @@ function _seriesValidateUrls() {
 
     if (vVal && !_SERIES_VIDEO_RE.test(vVal)) {
         videoInput.classList.add('is-invalid');
-        document.getElementById('seriesVideoError').textContent = 'Must be a YouTube or Twitch link';
+        document.getElementById('seriesVideoError').textContent = 'Must be a YouTube or Twitch link. Remember to clear this link if it expires.';
         valid = false;
     } else {
         videoInput.classList.remove('is-invalid');
