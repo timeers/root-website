@@ -904,6 +904,24 @@ def survey_take_view(request, slug):
             if survey.auto_enroll and survey.series_id:
                 try:
                     GroupingService.sync_survey_responses_to_tournament(survey.series, survey)
+                    # No linked stage → add respondents to every open stage of the series.
+                    if not survey.stage_id:
+                        from the_warroom.models import StageParticipant, CompetitionStatus, TournamentPlayer
+                        open_stages = survey.series.stages.filter(
+                            status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                        )
+                        if open_stages.exists():
+                            registered = TournamentPlayer.objects.filter(
+                                tournament=survey.series,
+                                status=TournamentPlayer.StatusChoices.REGISTERED,
+                            )
+                            for tp in registered:
+                                for stage in open_stages:
+                                    StageParticipant.objects.get_or_create(
+                                        tournament_player=tp,
+                                        stage=stage,
+                                        defaults={'status': StageParticipant.ParticipantStatus.ACTIVE},
+                                    )
                 except Exception:
                     import logging as _logging
                     _logging.getLogger(__name__).exception(

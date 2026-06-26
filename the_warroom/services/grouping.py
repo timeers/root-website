@@ -12,6 +12,7 @@ from the_warroom.models import (
     PlayerGroup,
     TournamentPlayer,
     Stage,
+    StageParticipant,
 )
 from the_gatehouse.utils import generate_name, NameConvention
 
@@ -1062,6 +1063,7 @@ class GroupingService:
 
         created_count = 0
         updated_count = 0
+        synced_profile_ids = set()
 
         for response in accepted_responses:
             profile = response.profile
@@ -1083,6 +1085,8 @@ class GroupingService:
                 }
             )
 
+            synced_profile_ids.add(profile.id)
+
             if created:
                 created_count += 1
             else:
@@ -1092,6 +1096,22 @@ class GroupingService:
                 tp.survey_response = response
                 tp.save(update_fields=['availability_hours', 'survey_response'])
                 updated_count += 1
+
+        # If the survey is tied to a specific stage, add REGISTERED respondents to it.
+        # Additive + idempotent; never demotes/removes. Open-stage fan-out (no linked
+        # stage) is handled by the caller, not here, so the manual "none" path is unaffected.
+        if survey.stage_id and synced_profile_ids:
+            registered_players = TournamentPlayer.objects.filter(
+                tournament=tournament,
+                profile_id__in=synced_profile_ids,
+                status=TournamentPlayer.StatusChoices.REGISTERED,
+            )
+            for tp in registered_players:
+                StageParticipant.objects.get_or_create(
+                    tournament_player=tp,
+                    stage_id=survey.stage_id,
+                    defaults={'status': StageParticipant.ParticipantStatus.ACTIVE},
+                )
 
         return {
             'created': created_count,

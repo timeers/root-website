@@ -15,6 +15,7 @@
 ### Bug Fixes
 - Reference to PlayerGroup.VideoPlatformChoices cleaned up
 - Faction icons appear on completed games on bracket page 
+- auto-enroll registration adds respondents to stage as well as series
 
 ## [1.12.7] - 2026-6-24 Bot Improvements
 
