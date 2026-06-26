@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.12.8] - 2026-6-25 RTM Bug Hunting
+
+### New Features
+
+### Improvements
+- merge profile admin command improvements
+
+### Bug Fixes
+- Reference to PlayerGroup.VideoPlatformChoices cleaned up
+
 ## [1.12.7] - 2026-6-24 Bot Improvements
 
 ### New Features
