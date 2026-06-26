@@ -1174,17 +1174,21 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     return {k: v for k, v in embed.items() if v is not None}
 
 
-def _upcoming_summary(tournament, player):
+def _upcoming_summary(series, player):
     """One-line summary naming the active /upcoming filters, e.g.
     "The next scheduled Brand New Series game for MrMirz". Drops whichever
-    parts aren't filtered ("The next scheduled game" with neither)."""
-    series_part = f" {tournament.name}" if tournament else ""
+    parts weren't filtered ("The next scheduled game" with neither).
+
+    `series` and `player` are the filters the user actually supplied — not
+    derived from the match — so an unfiltered search reads "The next scheduled
+    game" even though the resulting match belongs to some tournament."""
+    series_part = f" {series.name}" if series else ""
     player_name = (player.display_name or player.discord or player.slug) if player else None
     player_part = f" for {player_name}" if player_name else ""
     return f"The next scheduled{series_part} game{player_part}"
 
 
-def build_upcoming_embed(match, player=None):
+def build_upcoming_embed(match, series=None, player=None):
     """Build a Discord embed for the next scheduled match.
 
     Links to the matches page that contains the match (via
@@ -1192,10 +1196,11 @@ def build_upcoming_embed(match, player=None):
     lists the players in the match, and shows the platform only when the
     tournament requires one (tournament.platform is set).
 
-    `player` is the optional player the /upcoming result was filtered to; when
-    given (and/or when the match belongs to a tournament), a summary line names
-    the active filters, e.g. "The next scheduled Brand New Series game for
-    MrMirz".
+    `series` and `player` are the optional filters the /upcoming result was
+    narrowed by (each None when not supplied); a summary line names them, e.g.
+    "The next scheduled Brand New Series game for MrMirz". They reflect the
+    user's filters, not the match — so an unfiltered search omits the series
+    even though the match belongs to a tournament.
     """
     site_url = config.get("SITE_URL", "").rstrip("/")
     round = match.round
@@ -1204,7 +1209,7 @@ def build_upcoming_embed(match, player=None):
     embed = {
         "title": match.name or "Upcoming Match",
         "url": f"{site_url}{match.get_matches_url()}" if site_url else None,
-        "description": _upcoming_summary(tournament, player),
+        "description": _upcoming_summary(series, player),
     }
     if tournament:
         embed["author"] = {"name": tournament.name}

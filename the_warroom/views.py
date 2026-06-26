@@ -436,10 +436,11 @@ def game_detail_view(request, id=None, league_id=None):
 
     language_code = get_language()
 
+    game_qs = Game.objects.select_related('match__series__player_group')
     if id:
-        game = get_object_or_404(Game, id=id)
+        game = get_object_or_404(game_qs, id=id)
     elif league_id:
-        game = get_object_or_404(Game, league_id=league_id)
+        game = get_object_or_404(game_qs, league_id=league_id)
     else:
         raise Http404('Game not found.')
     # _vlog.warning(f"[game_detail_view] get game: {_time.time()-_t0:.3f}s")

@@ -8,6 +8,7 @@
 ### Improvements
 - merge profile admin command improvements
 - /upcoming command no longer requires series
+- a matches streaming link now shows on the game detail page if no video link is provided
 
 ### Bug Fixes
 - Reference to PlayerGroup.VideoPlatformChoices cleaned up
