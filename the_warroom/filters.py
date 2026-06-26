@@ -1,6 +1,7 @@
 import django_filters
 from django.db.models import Q, Count
-from .models import Game
+from .models import (Game, effort_counts_for_round_q, effort_counts_for_stage_q,
+                     effort_counts_for_tournament_q)
 from the_keep.models import Faction, Deck, Map, Vagabond
 from the_gatehouse.models import Profile
 from django import forms
@@ -179,14 +180,14 @@ class TournamentGameFilter(BaseGameFilter):
         self._round = round
 
         if round:
-            game_filter = Q(games__round=round, games__final=True)
-            effort_filter = Q(efforts__game__round=round, efforts__game__final=True)
+            game_filter = effort_counts_for_round_q(round, prefix='games') & Q(games__final=True)
+            effort_filter = effort_counts_for_round_q(round, prefix='efforts__game') & Q(efforts__game__final=True)
         elif stage:
-            game_filter = Q(games__round__stage=stage, games__final=True)
-            effort_filter = Q(efforts__game__round__stage=stage, efforts__game__final=True)
+            game_filter = effort_counts_for_stage_q(stage, prefix='games') & Q(games__final=True)
+            effort_filter = effort_counts_for_stage_q(stage, prefix='efforts__game') & Q(efforts__game__final=True)
         elif tournament:
-            game_filter = Q(games__round__stage__tournament=tournament, games__final=True)
-            effort_filter = Q(efforts__game__round__stage__tournament=tournament, efforts__game__final=True)
+            game_filter = effort_counts_for_tournament_q(tournament, prefix='games') & Q(games__final=True)
+            effort_filter = effort_counts_for_tournament_q(tournament, prefix='efforts__game') & Q(efforts__game__final=True)
         else:
             return
 

@@ -2019,7 +2019,7 @@ def survey_export_csv(request, slug):
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
     writer = csv.writer(response)
-    header = ['Respondent', 'Submitted At', 'Position'] + [q.text for q in questions]
+    header = ['Respondent', 'Display Name', 'Submitted At', 'Position'] + [q.text for q in questions]
     if survey.is_quiz:
         header += ['Score', 'Total', 'Relative Score']
     writer.writerow(header)
@@ -2036,6 +2036,7 @@ def survey_export_csv(request, slug):
         answers_by_q = {a.question_id: a for a in resp.answers.all()}
         row = [
             resp.profile.discord if resp.profile else 'Anonymous',
+            resp.profile.display_name if resp.profile else '',
             resp.submitted_at.strftime('%Y-%m-%d %H:%M'),
             resp.response_position,
         ]

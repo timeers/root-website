@@ -1,9 +1,10 @@
 from django.contrib.auth.models import User
 from django.test import TestCase
+from django.urls import reverse
 
 from the_gatehouse.models import DiscordGuild, Profile
 from the_warroom.forms import GameCreateForm
-from the_warroom.models import Round, Stage, Tournament
+from the_warroom.models import Effort, Game, Round, Stage, Tournament
 from the_warroom.views import user_can_record_in_round
 
 
@@ -117,3 +118,128 @@ class PlayableRoundGuildTests(TestCase):
         self.tournament.recording_access = Tournament.RecordingAccessTypes.REGISTERED
         self.tournament.save()
         self.assertFalse(user_can_record_in_round(self.round, self.member))
+
+
+class ExtraRoundsCountingTests(TestCase):
+    """A game in tournament A's round can also be counted in tournament B via
+    extra_rounds, without joining B's bracket/primary-round relations."""
+
+    def setUp(self):
+        # Tournament A (the game's primary home)
+        self.tour_a = Tournament.objects.create(name="Discord Tournament", is_active=True)
+        self.stage_a = Stage.objects.create(tournament=self.tour_a, name="A1", order=1, is_active=True)
+        self.round_a = Round.objects.create(stage=self.stage_a, round_number=1, is_active=True)
+
+        # Tournament B (the aggregate that should also count the game)
+        self.tour_b = Tournament.objects.create(name="2026 Games", is_active=True)
+        self.stage_b = Stage.objects.create(tournament=self.tour_b, name="B1", order=1, is_active=True)
+        self.round_b = Round.objects.create(stage=self.stage_b, round_number=1, is_active=True)
+
+        self.player = Profile.objects.create(discord="player1")
+        self.game = Game.objects.create(round=self.round_a, final=True)
+        Effort.objects.create(game=self.game, player=self.player)
+
+    def test_baseline_counts_only_primary(self):
+        self.assertEqual(self.tour_a.game_count(), 1)
+        self.assertEqual(self.tour_b.game_count(), 0)
+
+    def test_extra_round_counts_in_both_tournaments(self):
+        self.game.extra_rounds.add(self.round_b)
+        self.assertEqual(self.tour_a.game_count(), 1)
+        self.assertEqual(self.tour_b.game_count(), 1)
+        self.assertEqual(self.round_b.game_count(), 1)
+        self.assertEqual(self.stage_b.game_count(), 1)
+
+    def test_extra_round_counts_players(self):
+        self.game.extra_rounds.add(self.round_b)
+        self.assertEqual(self.tour_b.all_player_count(), 1)
+        self.assertEqual(self.round_b.all_player_count, 1)
+
+    def test_no_double_count_when_both_rounds_same_tournament(self):
+        # An extra round within the SAME tournament must not double-count the game.
+        other_round_a = Round.objects.create(stage=self.stage_a, round_number=2, is_active=True)
+        self.game.extra_rounds.add(other_round_a)
+        self.assertEqual(self.tour_a.game_count(), 1)
+
+    def test_extra_round_excluded_from_primary_relations(self):
+        self.game.extra_rounds.add(self.round_b)
+        # Bucket B (primary-only) relations must ignore the extra association.
+        self.assertNotIn(self.game, self.round_b.games.all())
+        self.assertFalse(Game.objects.filter(round=self.round_b).exists())
+        self.assertEqual(self.game.get_tournament(), self.tour_a)
+
+
+class ExtraRoundsControlTests(TestCase):
+    """Add/remove extra-round endpoints authorize against the round's tournament.
+
+    The user_logged_in signal handler builds absolute URIs and adds messages,
+    neither of which a bare force_login request supports; disconnect it for these
+    auth-flow tests.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        super().setUp()
+        self._build()
+
+    @staticmethod
+    def _make_player(username):
+        user = User.objects.create_user(username=username, password="x")
+        profile = user.profile
+        profile.group = Profile.GroupChoices.PLAYER
+        profile.player_onboard = True
+        profile.save()
+        return user
+
+    def _build(self):
+        # Designer of tournament B
+        self.designer = self._make_player("designer")
+        self.tour_b = Tournament.objects.create(
+            name="2026 Games", designer=self.designer.profile, is_active=True
+        )
+        self.stage_b = Stage.objects.create(tournament=self.tour_b, name="B1", order=1, is_active=True)
+        self.round_b = Round.objects.create(stage=self.stage_b, round_number=1, is_active=True)
+
+        # A game living in an unrelated tournament A
+        self.tour_a = Tournament.objects.create(name="Discord", is_active=True)
+        self.stage_a = Stage.objects.create(tournament=self.tour_a, name="A1", order=1, is_active=True)
+        self.round_a = Round.objects.create(stage=self.stage_a, round_number=1, is_active=True)
+        self.game = Game.objects.create(round=self.round_a, final=True)
+
+        self.outsider = self._make_player("outsider")
+
+    def _add_url(self):
+        return reverse('game-add-extra-round', args=[self.game.id])
+
+    def _remove_url(self):
+        return reverse('game-remove-extra-round', args=[self.game.id, self.round_b.id])
+
+    def test_designer_can_add_extra_round(self):
+        self.client.force_login(self.designer)
+        resp = self.client.post(self._add_url(), {'round_id': self.round_b.id})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(self.round_b, self.game.extra_rounds.all())
+
+    def test_non_designer_forbidden(self):
+        self.client.force_login(self.outsider)
+        resp = self.client.post(self._add_url(), {'round_id': self.round_b.id})
+        self.assertEqual(resp.status_code, 403)
+        self.assertNotIn(self.round_b, self.game.extra_rounds.all())
+
+    def test_designer_can_remove_extra_round(self):
+        self.game.extra_rounds.add(self.round_b)
+        self.client.force_login(self.designer)
+        resp = self.client.post(self._remove_url())
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn(self.round_b, self.game.extra_rounds.all())
+
+    def test_non_designer_cannot_remove(self):
+        self.game.extra_rounds.add(self.round_b)
+        self.client.force_login(self.outsider)
+        resp = self.client.post(self._remove_url())
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn(self.round_b, self.game.extra_rounds.all())

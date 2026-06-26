@@ -27,7 +27,11 @@ from urllib.parse import quote
 
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
                      TournamentPlayer, PlayerGroup, Stage, StageParticipant, FormatChoices,
-                     Match, MatchSeries, MatchSeat, CompetitionStatus, EditPermission)
+                     Match, MatchSeries, MatchSeat, CompetitionStatus, EditPermission,
+                     effort_counts_for_round_q, effort_counts_for_stage_q,
+                     effort_counts_for_tournament_q,
+                     game_counts_for_round_q, game_counts_for_stage_q,
+                     game_counts_for_tournament_q)
 from .services.grouping import GroupingService, build_opponent_history
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
@@ -513,10 +517,90 @@ def game_detail_view(request, id=None, league_id=None):
         'all_players': all_players,
         'open_roster': open_roster,
     }
+    if request.user.is_authenticated:
+        context.update(_extra_rounds_control_context(game, request.user.profile))
     # _vlog.warning(f"[game_detail_view] before render: {_time.time()-_t0:.3f}s")
     result = render(request, "the_warroom/game_detail_page.html", context)
     # _vlog.warning(f"[game_detail_view] total: {_time.time()-_t0:.3f}s")
     return result
+
+
+def _rounds_user_designs(profile):
+    """Rounds whose tournament the profile can manage (designer/moderator/admin).
+
+    Mirrors Tournament.has_permission so the rounds offered match the rounds the
+    add/remove endpoints will authorize.
+    """
+    if getattr(profile, 'admin', False):
+        return Round.objects.all()
+    return Round.objects.filter(
+        Q(stage__tournament__designer=profile)
+        | Q(stage__tournament__moderators=profile)
+    ).distinct()
+
+
+def _extra_rounds_control_context(game, profile):
+    """Context for the game-detail 'extra rounds' control.
+
+    - ``extra_rounds_owned``: the game's current extra rounds this user can manage
+      (remove buttons render for these).
+    - ``addable_rounds``: rounds the user designs that the game is not already in
+      (primary or extra), offered in the add dropdown.
+    The control is shown only when there is something to add or remove.
+    """
+    designed = _rounds_user_designs(profile)
+    extra_rounds_owned = list(
+        game.extra_rounds.filter(pk__in=designed.values('pk'))
+        .select_related('stage__tournament')
+    )
+    addable_rounds = designed.exclude(pk=game.round_id).exclude(extra_games=game) \
+        .select_related('stage__tournament').order_by('stage__tournament__name', 'round_number')
+    return {
+        'extra_rounds_owned': extra_rounds_owned,
+        'addable_rounds': addable_rounds,
+        'show_extra_rounds_control': bool(extra_rounds_owned) or addable_rounds.exists(),
+    }
+
+
+def _render_extra_rounds_control(request, game):
+    """Render the extra-rounds control partial for HTMX swaps."""
+    context = {'game': game}
+    context.update(_extra_rounds_control_context(game, request.user.profile))
+    return render(request, 'the_warroom/partials/game_extra_rounds_control.html', context)
+
+
+@player_onboard_required
+@require_http_methods(['POST'])
+def game_add_extra_round(request, id):
+    """HTMX endpoint: add this game to an extra round the user designs (counting only)."""
+    game = get_object_or_404(Game, id=id)
+    round = get_object_or_404(Round, id=request.POST.get('round_id'))
+
+    tournament = round.get_tournament()
+    if not tournament or not tournament.has_permission(request.user.profile):
+        return HttpResponse("Permission denied", status=403)
+
+    # The primary round is managed via the game form, not here.
+    if round.id != game.round_id:
+        game.extra_rounds.add(round)
+
+    return _render_extra_rounds_control(request, game)
+
+
+@player_onboard_required
+@require_http_methods(['POST'])
+def game_remove_extra_round(request, id, round_id):
+    """HTMX endpoint: remove this game from an extra round the user designs."""
+    game = get_object_or_404(Game, id=id)
+    round = get_object_or_404(Round, id=round_id)
+
+    tournament = round.get_tournament()
+    if not tournament or not tournament.has_permission(request.user.profile):
+        return HttpResponse("Permission denied", status=403)
+
+    game.extra_rounds.remove(round)
+
+    return _render_extra_rounds_control(request, game)
 
 @player_onboard_required
 def game_delete_view(request, id=None):
@@ -1775,7 +1859,7 @@ def _tournament_base_context(request, tournament):
     can_view_as = request.user.is_authenticated and tournament.has_permission(request.user.profile)
     can_manage = apply_view_as_can_manage(view_as, can_manage)
     has_bracket = Match.objects.filter(round__stage__tournament=tournament).exists()
-    has_games = Game.objects.filter(round__stage__tournament=tournament).exists()
+    has_games = Game.objects.counting_for_tournament(tournament).exists()
     has_players = TournamentPlayer.objects.filter(tournament=tournament).exists()
 
     from the_tavern.models import Survey
@@ -1822,7 +1906,7 @@ def _stage_base_context(request, tournament, stage):
     can_view_as = request.user.is_authenticated and tournament.has_permission(request.user.profile)
     can_manage = apply_view_as_can_manage(view_as, can_manage)
     has_bracket = Match.objects.filter(round__stage=stage).exists()
-    has_games = Game.objects.filter(round__stage=stage).exists()
+    has_games = Game.objects.counting_for_stage(stage).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
 
     from the_tavern.models import Survey
@@ -1864,7 +1948,7 @@ def _round_base_context(request, tournament, stage, round):
     can_view_as = request.user.is_authenticated and tournament.has_permission(request.user.profile)
     can_manage = apply_view_as_can_manage(view_as, can_manage)
     has_matches = MatchSeries.objects.filter(round=round).exists()
-    has_games = Game.objects.filter(round=round).exists()
+    has_games = Game.objects.counting_for_round(round).exists()
     has_players = StageParticipant.objects.filter(stage=stage).exists()
 
     is_bracket_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
@@ -1897,6 +1981,19 @@ def _round_base_context(request, tournament, stage, round):
     }
 
 
+def _attach_counted_game_player_counts(children):
+    """Set ``annotated_game_count`` / ``unique_players_count`` on overview cards
+    (Stage or Round objects) using the counting helpers so games from a child's
+    ``extra_rounds`` are included. Done in Python rather than as DB annotations
+    because the primary and extra reverse relations can't be distinct-counted and
+    summed without double-counting a game that is both within the same parent.
+    """
+    for child in children:
+        child.annotated_game_count = child.game_count()
+        child.unique_players_count = child.all_player_count
+    return children
+
+
 def tournament_overview_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
@@ -1905,15 +2002,6 @@ def tournament_overview_page(request, slug):
 
     if tournament.use_stages:
         children = Stage.objects.filter(tournament=tournament).select_related('tournament').annotate(
-            annotated_game_count=Count(
-                'rounds__games',
-                filter=Q(rounds__games__final=True),
-                distinct=True
-            ),
-            unique_players_count=Count(
-                'rounds__games__efforts__player',
-                distinct=True
-            ),
             annotated_scheduled_count=Count(
                 'rounds__series__matches',
                 filter=Q(
@@ -1933,6 +2021,7 @@ def tournament_overview_page(request, slug):
                 distinct=True
             ),
         ).order_by('order')
+        children = _attach_counted_game_player_counts(list(children))
         context['children'] = children
         context['children_type'] = 'stages'
     else:
@@ -1940,15 +2029,6 @@ def tournament_overview_page(request, slug):
         if single_stage:
             if single_stage.use_rounds:
                 children = Round.objects.filter(stage=single_stage).select_related('stage__tournament').annotate(
-                    annotated_game_count=Count(
-                        'games',
-                        filter=Q(games__final=True),
-                        distinct=True
-                    ),
-                    unique_players_count=Count(
-                        'games__efforts__player',
-                        distinct=True
-                    ),
                     annotated_scheduled_count=Count(
                         'series__matches',
                         filter=Q(
@@ -1968,6 +2048,7 @@ def tournament_overview_page(request, slug):
                         distinct=True
                     ),
                 ).order_by('round_number')
+                children = _attach_counted_game_player_counts(list(children))
                 context['children'] = children
                 context['children_type'] = 'rounds'
                 context['single_stage'] = single_stage
@@ -1996,8 +2077,8 @@ def tournament_leaderboard_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
     opts = Game.with_efforts()
-    games_qs = Game.objects.filter(
-        round__stage__tournament=tournament, final=True
+    games_qs = Game.objects.counting_for_tournament(tournament).filter(
+        final=True
     ).select_related(*opts['select']).prefetch_related(*opts['prefetch'])
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, tournament=tournament)
@@ -2051,8 +2132,8 @@ def tournament_games_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
     opts = Game.with_efforts()
-    games_qs = Game.objects.filter(
-        round__stage__tournament=tournament, final=True
+    games_qs = Game.objects.counting_for_tournament(tournament).filter(
+        final=True
     ).select_related(*opts['select']).prefetch_related(*opts['prefetch']).order_by('-date_posted')
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, tournament=tournament)
@@ -2086,23 +2167,21 @@ def tournament_games_page(request, slug):
 
 def _tournament_roster_queryset(tournament):
     """Build annotated roster queryset for a tournament."""
+    counts_q = effort_counts_for_tournament_q(tournament, prefix='efforts__game')
     return Profile.objects.filter(
-        Q(efforts__game__round__stage__tournament=tournament) |
+        counts_q |
         Q(tournament_participations__tournament=tournament)
     ).distinct().annotate(
-        total_efforts=Count('efforts', distinct=True, filter=Q(
-            efforts__game__round__stage__tournament=tournament,
+        total_efforts=Count('efforts', distinct=True, filter=counts_q & Q(
             efforts__game__final=True
         )),
-        win_count=Count('efforts', distinct=True, filter=Q(
+        win_count=Count('efforts', distinct=True, filter=counts_q & Q(
             efforts__win=True,
-            efforts__game__round__stage__tournament=tournament,
             efforts__game__final=True
         )),
-        coalition_count=Count('efforts', distinct=True, filter=Q(
+        coalition_count=Count('efforts', distinct=True, filter=counts_q & Q(
             efforts__win=True,
             efforts__game__coalition_win=True,
-            efforts__game__round__stage__tournament=tournament,
             efforts__game__final=True
         ))
     ).annotate(
@@ -2123,18 +2202,19 @@ def _stage_roster_queryset(stage):
         stage=stage
     ).values_list('tournament_player__profile_id', flat=True)
 
+    counts_q = effort_counts_for_stage_q(stage, prefix='efforts__game')
     return Profile.objects.filter(
-        Q(efforts__game__round__stage=stage) | Q(id__in=stage_participant_ids)
+        counts_q | Q(id__in=stage_participant_ids)
     ).distinct().annotate(
-        total_efforts=Count('efforts', distinct=True, filter=Q(
-            efforts__game__round__stage=stage, efforts__game__final=True
+        total_efforts=Count('efforts', distinct=True, filter=counts_q & Q(
+            efforts__game__final=True
         )),
-        win_count=Count('efforts', distinct=True, filter=Q(
-            efforts__win=True, efforts__game__round__stage=stage, efforts__game__final=True
+        win_count=Count('efforts', distinct=True, filter=counts_q & Q(
+            efforts__win=True, efforts__game__final=True
         )),
-        coalition_count=Count('efforts', distinct=True, filter=Q(
+        coalition_count=Count('efforts', distinct=True, filter=counts_q & Q(
             efforts__win=True, efforts__game__coalition_win=True,
-            efforts__game__round__stage=stage, efforts__game__final=True
+            efforts__game__final=True
         ))
     ).annotate(
         win_rate=Case(
@@ -2154,18 +2234,19 @@ def _round_roster_queryset(round):
         stage=round.stage
     ).values_list('tournament_player__profile_id', flat=True)
 
+    counts_q = effort_counts_for_round_q(round, prefix='efforts__game')
     return Profile.objects.filter(
-        Q(efforts__game__round=round) | Q(id__in=stage_participant_ids)
+        counts_q | Q(id__in=stage_participant_ids)
     ).distinct().annotate(
-        total_efforts=Count('efforts', distinct=True, filter=Q(
-            efforts__game__round=round, efforts__game__final=True
+        total_efforts=Count('efforts', distinct=True, filter=counts_q & Q(
+            efforts__game__final=True
         )),
-        win_count=Count('efforts', distinct=True, filter=Q(
-            efforts__win=True, efforts__game__round=round, efforts__game__final=True
+        win_count=Count('efforts', distinct=True, filter=counts_q & Q(
+            efforts__win=True, efforts__game__final=True
         )),
-        coalition_count=Count('efforts', distinct=True, filter=Q(
+        coalition_count=Count('efforts', distinct=True, filter=counts_q & Q(
             efforts__win=True, efforts__game__coalition_win=True,
-            efforts__game__round=round, efforts__game__final=True
+            efforts__game__final=True
         ))
     ).annotate(
         win_rate=Case(
@@ -2230,7 +2311,7 @@ def tournament_details_page(request, slug):
                 ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
             ]
         else:
-            games_qs = Game.objects.filter(round__stage__tournament=tournament, final=True)
+            games_qs = Game.objects.counting_for_tournament(tournament).filter(final=True)
             if games_qs.exists():
                 context['asset_types'] = _build_used_asset_types(games_qs)
 
@@ -2902,16 +2983,31 @@ def _get_series_base_queryset(classification, profile=None):
     qs = Tournament.objects.filter(classification=classification)
 
     now = timezone.now().date()
+    # Game/player counts via subqueries on the counting helpers so games linked to a
+    # tournament through extra_rounds are included (and not double-counted) — a plain
+    # annotation can't union the primary and extra reverse relations.
+    game_count_subquery = Subquery(
+        Game.objects.counting_for_tournament(OuterRef('pk'))
+        .filter(final=True)
+        .order_by()
+        .annotate(group=Value(1))
+        .values('group')
+        .annotate(c=Count('pk', distinct=True))
+        .values('c')[:1],
+        output_field=IntegerField()
+    )
+    player_count_subquery = Subquery(
+        Effort.objects.filter(effort_counts_for_tournament_q(OuterRef('pk')))
+        .order_by()
+        .annotate(group=Value(1))
+        .values('group')
+        .annotate(c=Count('player', distinct=True))
+        .values('c')[:1],
+        output_field=IntegerField()
+    )
     qs = qs.annotate(
-        annotated_game_count=Count(
-            'stages__rounds__games',
-            filter=Q(stages__rounds__games__final=True),
-            distinct=True
-        ),
-        unique_players_count=Count(
-            'stages__rounds__games__efforts__player',
-            distinct=True
-        ),
+        annotated_game_count=Coalesce(game_count_subquery, Value(0)),
+        unique_players_count=Coalesce(player_count_subquery, Value(0)),
         annotated_scheduled_count=Count(
             'stages__rounds__series__matches',
             filter=Q(
@@ -3281,11 +3377,11 @@ def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_
     # Build game queryset scoped to tournament/stage/round
     game_filter = Q(final=True)
     if round:
-        game_filter &= Q(round=round)
+        game_filter &= game_counts_for_round_q(round)
     elif stage:
-        game_filter &= Q(round__stage=stage)
+        game_filter &= game_counts_for_stage_q(stage)
     else:
-        game_filter &= Q(round__stage__tournament=tournament)
+        game_filter &= game_counts_for_tournament_q(tournament)
 
     # Add component-specific game filter
     component = object.component
@@ -3463,11 +3559,11 @@ def tournament_player_leaderboard(request, tournament_slug, profile_slug, stage_
     # Build game queryset scoped to tournament/stage/round for this player
     game_filter = Q(final=True, efforts__player=player)
     if round:
-        game_filter &= Q(round=round)
+        game_filter &= game_counts_for_round_q(round)
     elif stage:
-        game_filter &= Q(round__stage=stage)
+        game_filter &= game_counts_for_stage_q(stage)
     else:
-        game_filter &= Q(round__stage__tournament=tournament)
+        game_filter &= game_counts_for_tournament_q(tournament)
 
     opts = Game.with_efforts()
     games_qs = Game.objects.filter(game_filter).select_related(*opts['select']).prefetch_related(*opts['prefetch']).distinct()
@@ -3567,14 +3663,15 @@ def stage_players_pagination(request, id):
     stage = get_object_or_404(Stage, id=id)
 
     stage_participant_ids = StageParticipant.objects.filter(stage=stage).values_list('tournament_player__profile_id', flat=True)
+    counts_q = effort_counts_for_stage_q(stage, prefix='efforts__game')
     players = Profile.objects.filter(
-        Q(efforts__game__round__stage=stage) | Q(id__in=stage_participant_ids)
+        counts_q | Q(id__in=stage_participant_ids)
     ).distinct()
 
     players = players.annotate(
-        total_efforts=Count('efforts', distinct=True, filter=Q(efforts__game__round__stage=stage, efforts__game__final=True)),
-        win_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__round__stage=stage, efforts__game__final=True)),
-        coalition_count=Count('efforts', distinct=True, filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__round__stage=stage, efforts__game__final=True))
+        total_efforts=Count('efforts', distinct=True, filter=counts_q & Q(efforts__game__final=True)),
+        win_count=Count('efforts', distinct=True, filter=counts_q & Q(efforts__win=True, efforts__game__final=True)),
+        coalition_count=Count('efforts', distinct=True, filter=counts_q & Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True))
     )
     players = players.annotate(
         win_rate=Case(
@@ -3612,7 +3709,7 @@ def round_games_pagination(request, id):
         return HttpResponse(status=404)
     round = get_object_or_404(Round, id=id)
 
-    games = round.games.filter(final=True)
+    games = Game.objects.counting_for_round(round).filter(final=True)
 
     # Paginate games
     paginator = Paginator(games, settings.PAGE_SIZE)  # Use the queryset directly
@@ -4616,15 +4713,6 @@ def stage_overview_page(request, tournament_slug, stage_slug):
 
     if stage.use_rounds:
         children = Round.objects.filter(stage=stage).select_related('stage__tournament').annotate(
-            annotated_game_count=Count(
-                'games',
-                filter=Q(games__final=True),
-                distinct=True
-            ),
-            unique_players_count=Count(
-                'games__efforts__player',
-                distinct=True
-            ),
             annotated_scheduled_count=Count(
                 'series__matches',
                 filter=Q(
@@ -4644,6 +4732,7 @@ def stage_overview_page(request, tournament_slug, stage_slug):
                 distinct=True
             ),
         ).order_by('round_number')
+        children = _attach_counted_game_player_counts(list(children))
         context['children'] = children
         context['children_type'] = 'rounds'
     else:
@@ -4671,8 +4760,8 @@ def stage_leaderboard_page(request, tournament_slug, stage_slug):
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
     opts = Game.with_efforts()
-    games_qs = Game.objects.filter(
-        round__stage=stage, final=True
+    games_qs = Game.objects.counting_for_stage(stage).filter(
+        final=True
     ).select_related(*opts['select']).prefetch_related(*opts['prefetch'])
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, stage=stage)
@@ -4727,8 +4816,8 @@ def stage_games_page(request, tournament_slug, stage_slug):
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
     opts = Game.with_efforts()
-    games_qs = Game.objects.filter(
-        round__stage=stage, final=True
+    games_qs = Game.objects.counting_for_stage(stage).filter(
+        final=True
     ).select_related(*opts['select']).prefetch_related(*opts['prefetch']).order_by('-date_posted')
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, stage=stage)
@@ -4813,7 +4902,7 @@ def stage_details_page(request, tournament_slug, stage_slug):
                 ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
             ]
         else:
-            games_qs = Game.objects.filter(round__stage=stage, final=True)
+            games_qs = Game.objects.counting_for_stage(stage).filter(final=True)
             if games_qs.exists():
                 context['asset_types'] = _build_used_asset_types(games_qs)
 
@@ -5041,8 +5130,8 @@ def round_leaderboard_page(request, tournament_slug, round_slug, stage_slug=None
         round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     opts = Game.with_efforts()
-    games_qs = Game.objects.filter(
-        round=round, final=True
+    games_qs = Game.objects.counting_for_round(round).filter(
+        final=True
     ).select_related(*opts['select']).prefetch_related(*opts['prefetch'])
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, round=round)
@@ -5107,8 +5196,8 @@ def round_games_page(request, tournament_slug, round_slug, stage_slug=None):
         round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     opts = Game.with_efforts()
-    games_qs = Game.objects.filter(
-        round=round, final=True
+    games_qs = Game.objects.counting_for_round(round).filter(
+        final=True
     ).select_related(*opts['select']).prefetch_related(*opts['prefetch']).order_by('-date_posted')
 
     filterset = TournamentGameFilter(request.GET, queryset=games_qs, round=round)
@@ -5213,7 +5302,7 @@ def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
                 ('vagabond', 'Vagabonds', assets['vagabonds'], 'bi-person-walking'),
             ]
         else:
-            games_qs = Game.objects.filter(round=round, final=True)
+            games_qs = Game.objects.counting_for_round(round).filter(final=True)
             if games_qs.exists():
                 context['asset_types'] = _build_used_asset_types(games_qs)
 

@@ -4,11 +4,13 @@
 
 ### New Features
 - Scheduled match page accessed from bracket
+- Add game to additional Series on game detail page
 
 ### Improvements
 - merge profile admin command improvements
 - /upcoming command no longer requires series
 - a matches streaming link now shows on the game detail page if no video link is provided
+- display name shown in survey results export
 
 ### Bug Fixes
 - Reference to PlayerGroup.VideoPlatformChoices cleaned up

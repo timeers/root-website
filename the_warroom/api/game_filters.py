@@ -4,7 +4,7 @@ from django.db.models import Count, Q
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, HTML
 
-from the_warroom.models import Game, Tournament, PlatformChoices
+from the_warroom.models import Game, Tournament, PlatformChoices, game_counts_for_tournament_q
 from the_keep.models import Faction, Vagabond, Landmark, Hireling, Deck, Map
 from the_gatehouse.models import Profile
 
@@ -41,7 +41,7 @@ class GameFilter(django_filters.FilterSet):
         queryset=Deck.objects.all(), label='Deck',
     )
     tournament = django_filters.ModelChoiceFilter(
-        field_name='round__tournament', to_field_name='slug',
+        method='filter_tournament', to_field_name='slug',
         queryset=Tournament.objects.all(), label='Tournament',
     )
     recorder = django_filters.ModelChoiceFilter(
@@ -71,6 +71,13 @@ class GameFilter(django_filters.FilterSet):
         if value == 'false':
             return queryset.filter(official=False)
         return queryset
+
+    @staticmethod
+    def filter_tournament(queryset, name, value):
+        # Match games linked to the tournament via their primary round OR an extra round.
+        if value is None:
+            return queryset
+        return queryset.filter(game_counts_for_tournament_q(value)).distinct()
 
     # Presence dropdowns. Blank = any game; 'none' = games without; 'has' = games with at
     # least one. A single labelled dropdown avoids the confusing yes/no-to-"no landmarks"
