@@ -2,6 +2,7 @@ import re
 import time
 import json
 
+from datetime import timedelta
 from itertools import groupby
 from django.shortcuts import render
 from django.views.generic import DeleteView
@@ -4838,8 +4839,66 @@ def stage_bracket_page(request, tournament_slug, stage_slug):
         'active_page': 'bracket',
         'has_bracket': has_bracket,
         'rounds_with_matches': rounds_with_matches,
+        'schedule_count': _upcoming_scheduled_matches({'round__stage': stage}).count(),
+        'schedule_url': stage.get_schedule_url(),
     })
     return render(request, 'the_warroom/stage_bracket.html', context)
+
+
+def _upcoming_scheduled_matches(match_filter):
+    """Upcoming, not-yet-recorded scheduled matches under the given filter.
+
+    ``match_filter`` is a dict of Match field lookups scoping the object
+    (e.g. {'round__stage__tournament': tournament}). Returns a queryset ordered
+    by scheduled_time. A match counts as upcoming when its round's bracket is
+    finalized, it has a scheduled_time in the future (6h leeway), and it has no
+    finalized game."""
+    cutoff = timezone.now() - timedelta(hours=6)
+    return (
+        Match.objects.filter(**match_filter)
+        .filter(
+            round__bracket_status=Round.BracketStatusChoices.FINALIZED,
+            scheduled_time__isnull=False,
+            scheduled_time__gte=cutoff,
+        )
+        .exclude(status=CompetitionStatus.COMPLETED)
+        .exclude(game__final=True)
+        .select_related(
+            'round', 'round__stage', 'round__stage__tournament',
+            'series', 'series__player_group', 'series__player_group__group_moderator',
+            'game',
+        )
+        .prefetch_related(
+            'series__matchseat_set__stage_participant__tournament_player__profile',
+        )
+        .order_by('scheduled_time')
+    )
+
+
+def _schedule_context(request, match_filter):
+    """Context for a schedule page: the upcoming match list, total count, and the
+    'my games' toggle. 'My games' keys off the series the user is seated in (not
+    match ids) so a best-of-N series doesn't pull in sibling matches outside the
+    upcoming set."""
+    matches = list(_upcoming_scheduled_matches(match_filter))
+    mine_series = set()
+    if request.user.is_authenticated:
+        series_ids = {m.series_id for m in matches}
+        mine_series = set(
+            MatchSeat.objects.filter(
+                series_id__in=series_ids,
+                stage_participant__tournament_player__profile=request.user.profile,
+            ).values_list('series_id', flat=True)
+        )
+    mine = [m for m in matches if m.series_id in mine_series]
+    show_mine = request.GET.get('mine') == '1'
+    return {
+        'schedule_matches': mine if show_mine else matches,
+        'schedule_count': len(matches),
+        'has_my_games': bool(mine),
+        'show_mine': show_mine,
+        'my_games_count': len(mine),
+    }
 
 
 def _recordable_match_ids(round, user, tournament, view_as=None):
@@ -4911,8 +4970,15 @@ def _stage_matches_context(request, tournament, stage):
         ).prefetch_related(
             'winners__tournament_player__profile',
             'matches__game',
+            'matches__game__efforts__faction',
+            'matches__game__efforts__player',
             'matchseat_set__stage_participant__tournament_player__profile',
         ).order_by('id')
+
+        # Attach the effort/faction grid so cards render icons on initial load,
+        # matching what round_matches_page and the edit-swap endpoint do.
+        for series in match_series:
+            _attach_series_effort_grid(series)
 
         recordable_match_ids, is_participant_series = _recordable_match_ids(
             round, request.user, tournament, view_as=get_view_as(request, tournament)
@@ -4927,6 +4993,10 @@ def _stage_matches_context(request, tournament, stage):
         'is_bracket_finalized': is_bracket_finalized,
         'page_name': stage.name,
         'nav_partial': 'the_warroom/partials/stage_nav_header.html',
+        # Schedule button (stage scope). The simple-tournament bracket page that
+        # reuses this context overrides schedule_url with the tournament URL.
+        'schedule_count': _upcoming_scheduled_matches({'round__stage': stage}).count(),
+        'schedule_url': stage.get_schedule_url(),
     })
 
     if context.get('can_manage') and is_bracket_finalized and round:
@@ -5255,8 +5325,76 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     context.update({
         'page_name': round.name,
         'nav_partial': 'the_warroom/partials/round_nav_header.html',
+        'schedule_count': _upcoming_scheduled_matches({'round': round}).count(),
+        'schedule_url': round.get_schedule_url(),
     })
     return render(request, 'the_warroom/matches.html', context)
+
+
+# ── Schedule pages ─────────────────────────────────────────────────────────────
+
+def tournament_schedule_page(request, slug):
+    """Upcoming scheduled matches across every round in the tournament."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+    context = _tournament_base_context(request, tournament)
+    context.update(_schedule_context(request, {'round__stage__tournament': tournament}))
+    context.update({
+        'active_page': 'bracket',
+        'breadcrumb_page': _('Schedule'),
+        'page_name': tournament.name,
+        'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
+        'bracket_url': reverse('tournament-bracket-page', kwargs={'slug': tournament.slug}),
+    })
+    return render(request, 'the_warroom/schedule.html', context)
+
+
+def stage_schedule_page(request, tournament_slug, stage_slug):
+    """Upcoming scheduled matches across every round in the stage."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    context = _stage_base_context(request, tournament, stage)
+    context.update(_schedule_context(request, {'round__stage': stage}))
+    # The stage "bracket" is the per-round bracket view when the stage uses
+    # rounds, otherwise the flat matches view (mirrors stage_nav_header.html).
+    if stage.use_rounds:
+        bracket_url = reverse('stage-bracket-page', kwargs={
+            'tournament_slug': tournament.slug, 'stage_slug': stage.slug})
+    else:
+        bracket_url = reverse('stage-matches-page', kwargs={
+            'tournament_slug': tournament.slug, 'stage_slug': stage.slug})
+    context.update({
+        'active_page': 'bracket',
+        'breadcrumb_page': _('Schedule'),
+        'page_name': stage.name,
+        'nav_partial': 'the_warroom/partials/stage_nav_header.html',
+        'bracket_url': bracket_url,
+    })
+    return render(request, 'the_warroom/schedule.html', context)
+
+
+def round_schedule_page(request, tournament_slug, round_slug, stage_slug=None):
+    """Upcoming scheduled matches in a single round."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+        round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    context = _round_base_context(request, tournament, stage, round)
+    context.update(_schedule_context(request, {'round': round}))
+    context.update({
+        'active_page': 'bracket',
+        'breadcrumb_page': _('Schedule'),
+        'page_name': round.name,
+        'nav_partial': 'the_warroom/partials/round_nav_header.html',
+        'bracket_url': round.get_matches_url(),
+    })
+    return render(request, 'the_warroom/schedule.html', context)
 
 
 @player_onboard_required
@@ -5503,6 +5641,10 @@ def tournament_bracket_page(request, slug):
                 # This is the tournament-level bracket URL; the single stage is
                 # hidden from the user, so show the series name, not the stage's.
                 'page_name': tournament.name,
+                # Override the stage-scoped schedule defaults with tournament scope.
+                'schedule_count': _upcoming_scheduled_matches(
+                    {'round__stage__tournament': tournament}).count(),
+                'schedule_url': tournament.get_schedule_url(),
             })
             return render(request, 'the_warroom/matches.html', context)
 
@@ -5524,6 +5666,9 @@ def tournament_bracket_page(request, slug):
     context.update({
         'active_page': 'bracket',
         'stages': stages,
+        'schedule_count': _upcoming_scheduled_matches(
+            {'round__stage__tournament': tournament}).count(),
+        'schedule_url': tournament.get_schedule_url(),
     })
     return render(request, 'the_warroom/tournament_bracket.html', context)
 

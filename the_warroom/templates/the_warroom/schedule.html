@@ -1,0 +1,127 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static %}
+
+{% block title %}{{ page_name }} - {% trans 'Schedule' %} | {% endblock %}
+
+{% block meta %}
+{% trans "Schedule" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
+{% block main_width_class %}col-md-12{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+    <!-- Breadcrumb -->
+    {% trans "Schedule" as default_bc_page %}
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page=breadcrumb_page|default:default_bc_page %}
+
+    <!-- Header -->
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=page_name %}
+
+    <!-- Nav Header -->
+    {% include nav_partial %}
+
+    <!-- Back to bracket + My Games toggle -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ bracket_url }}">
+            <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to Bracket' %}
+        </a>
+        {% if has_my_games %}
+        {% if show_mine %}
+        <a class="btn btn-sm btn-outline-secondary" href="?">{% trans 'All Scheduled Games' %}</a>
+        {% else %}
+        <a class="btn btn-sm btn-outline-primary" href="?mine=1">{% trans 'My Scheduled Games' %} ({{ my_games_count }})</a>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <!-- Upcoming scheduled matches -->
+    {% if not schedule_matches %}
+    <p class="text-muted mb-3">
+        {% if show_mine %}
+        {% trans 'You have no upcoming scheduled games.' %}
+        {% else %}
+        {% trans 'No upcoming scheduled games.' %}
+        {% endif %}
+    </p>
+    {% else %}
+    <div class="row g-3 mb-1">
+        {% for match in schedule_matches %}
+        <div class="col-md-6 col-lg-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>{% firstof match.name match.series.player_group.name %}{% if not match.name and not match.series.player_group.name %}{% trans 'Match' %}{% endif %}</strong>
+                    {% with group=match.series.player_group %}
+                    {% if group.video_link %}
+                    <a href="{{ group.video_link }}" target="_blank" rel="noopener"
+                       class="btn btn-sm btn-outline-secondary p-0 px-1"
+                       data-bs-toggle="tooltip" title="{% trans 'Stream' %}">
+                        {% if group.video_platform == 'twitch' %}
+                        <i class="bi bi-twitch"></i>
+                        {% else %}
+                        <i class="bi bi-youtube"></i>
+                        {% endif %}
+                    </a>
+                    {% endif %}
+                    {% endwith %}
+                </div>
+                <div class="card-body">
+                    {% for seat in match.series.matchseat_set.all %}
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        {% if seat.stage_participant.tournament_player.profile.image %}
+                        <img src="{{ seat.stage_participant.tournament_player.profile.image.url }}" alt="" class="rounded-circle" style="width:22px;height:22px;">
+                        {% else %}
+                        <i class="bi bi-person-circle"></i>
+                        {% endif %}
+                        <span>{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
+                    </div>
+                    {% empty %}
+                    <p class="text-muted mb-1">{% trans 'Players TBD' %}</p>
+                    {% endfor %}
+
+                    {% with mod=match.series.player_group.group_moderator %}
+                    {% if mod %}
+                    <hr class="my-2">
+                    <div class="text-muted text-uppercase fw-semibold mb-1" style="font-size:0.7rem; letter-spacing:0.05em;">
+                        {% trans 'Moderator' %}
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if mod.image %}
+                        <img src="{{ mod.image.url }}" alt="" class="rounded-circle" style="width:22px;height:22px;">
+                        {% else %}
+                        <i class="bi bi-person-circle"></i>
+                        {% endif %}
+                        <span>{{ mod.display_name }}</span>
+                    </div>
+                    {% endif %}
+                    {% endwith %}
+                </div>
+                <div class="card-footer">
+                    <span class="text-muted small scheduled-time" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+</div>
+<script>
+// Format scheduled match times (UTC -> viewer's local time).
+function _initScheduledTimes() {
+    var fmt = new Intl.DateTimeFormat(undefined, {
+        weekday: 'short',
+        month: 'numeric', day: 'numeric', year: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+        timeZoneName: 'short'
+    });
+    document.querySelectorAll('.scheduled-time[data-utc]').forEach(function(el) {
+        var d = new Date(el.dataset.utc);
+        if (!isNaN(d)) el.textContent = fmt.format(d);
+    });
+}
+document.addEventListener('DOMContentLoaded', _initScheduledTimes);
+</script>
+{% endblock %}

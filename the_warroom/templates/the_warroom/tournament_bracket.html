@@ -22,6 +22,9 @@
     <!-- Nav Header -->
     {% include 'the_warroom/partials/tournament_nav_header.html' %}
 
+    <!-- Schedule button -->
+    {% include 'the_warroom/partials/schedule_button.html' %}
+
     {% if not has_bracket %}
     <div class="alert alert-info">
         <i class="bi bi-info-circle me-2"></i>{% trans 'No bracket matches have been generated yet. Finalize grouping for a round to generate matches.' %}

@@ -389,6 +389,9 @@ class Tournament(models.Model):
     def get_settings_url(self):
         return reverse('tournament-settings', kwargs={'slug': self.slug})
 
+    def get_schedule_url(self):
+        return reverse('tournament-schedule-page', kwargs={'slug': self.slug})
+
     def get_edit_url(self):
         return reverse('tournament-dynamic-update', kwargs={'slug': self.slug})
 
@@ -829,6 +832,9 @@ class Stage(models.Model):
     def get_create_round_url(self):
         return reverse('round-create', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
 
+    def get_schedule_url(self):
+        return reverse('stage-schedule-page', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+
     def add_player(self, profile):
         """Add a profile to this stage, creating a TournamentPlayer if needed."""
         tp, _ = TournamentPlayer.objects.get_or_create(
@@ -1256,6 +1262,19 @@ class Round(models.Model):
                 'round_slug': self.slug
             })
         return reverse('round-matches-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
+
+    def get_schedule_url(self):
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-schedule-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-schedule-page', kwargs={
             'tournament_slug': tournament.slug,
             'stage_slug': self.stage.slug,
             'round_slug': self.slug

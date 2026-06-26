@@ -23,6 +23,9 @@
     <!-- Nav Header -->
     {% include nav_partial %}
 
+    <!-- Schedule button -->
+    {% include 'the_warroom/partials/schedule_button.html' %}
+
     <!-- Match Series -->
     {% if not is_bracket_finalized %}
     <p class="text-muted">{% trans 'No matches have been scheduled yet.' %}</p>
