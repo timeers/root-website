@@ -1,65 +1,40 @@
-{% extends "account/base_entrance.html" %}
-{% load i18n %}
-{% load allauth account %}
-{% block head_title %}
-    {% trans "Sign In" %}
-{% endblock head_title %}
+{% extends 'the_keep/base.html' %}
+{% load crispy_forms_tags static i18n %}
+{% block title %}{% trans "Sign In" %} | {% endblock %}
+
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="Sign In - The Root Database">
+<meta property="og:description" content="Log in to the Root Database to record games and update your profile.">
+<meta name="description" content="Log in to the Root Database to record games and update your profile.">
+{% endblock meta%}
+
 {% block content %}
-<article class="d-flex content-section">
-    <div class="w-100">
-    {% element h1 %}
-        {% trans "Sign In" %}
-    {% endelement %}
-    {% if not SOCIALACCOUNT_ONLY %}
-        {% setvar link %}
-            <a href="{{ signup_url }}">
-            {% endsetvar %}
-            {% setvar end_link %}
-            </a>
-        {% endsetvar %}
-        {% element p %}
-            {% blocktranslate %}If you have not created an account yet, then please {{ link }}sign up{{ end_link }} first.{% endblocktranslate %}
-        {% endelement %}
-        {% url 'account_login' as login_url %}
-        {% element form form=form method="post" action=login_url tags="entrance,login" %}
-            {% slot body %}
-                {% csrf_token %}
-                {% element fields form=form unlabeled=True %}
-                {% endelement %}
-                {{ redirect_field }}
-            {% endslot %}
-            {% slot actions %}
-                {% element button type="submit" tags="prominent,login" %}
-                    {% trans "Sign In" %}
-                {% endelement %}
-            {% endslot %}
-        {% endelement %}
-    {% endif %}
-    {% if LOGIN_BY_CODE_ENABLED or PASSKEY_LOGIN_ENABLED %}
-        {% element hr %}
-        {% endelement %}
-        {% element button_group vertical=True %}
-            {% if PASSKEY_LOGIN_ENABLED %}
-                {% element button type="submit" form="mfa_login" id="passkey_login" tags="prominent,login,outline,primary" %}
-                    {% trans "Sign in with a passkey" %}
-                {% endelement %}
+<div class="discord-login-page">
+    <div class="login-card">
+
+        <h1 class="root-title">{% trans "Sign In" %}</h1>
+
+        <form method="POST" action="{% url 'account_login' %}">
+            {% csrf_token %}
+            {{ form | crispy }}
+            {% if redirect_field_value %}
+                <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
             {% endif %}
-            {% if LOGIN_BY_CODE_ENABLED %}
-                {% element button href=request_login_code_url tags="prominent,login,outline,primary" %}
-                    {% trans "Mail me a sign-in code" %}
-                {% endelement %}
-            {% endif %}
-        {% endelement %}
-    {% endif %}
-    {% if SOCIALACCOUNT_ENABLED %}
-        {% include "socialaccount/snippets/login.html" with page_layout="entrance" %}
-    {% endif %}
-{% endblock content %}
-{% block extra_body %}
-    {{ block.super }}
-    {% if PASSKEY_LOGIN_ENABLED %}
-        {% include "mfa/webauthn/snippets/login_script.html" with button_id="passkey_login" %}
-    {% endif %}
+            <button class="custom-btn w-100 mt-2" style="--button-color: var(--theme-color);" type="submit">{% trans "Sign In" %}</button>
+        </form>
+
+        {% if SOCIALACCOUNT_ENABLED %}
+        <a href="{% url 'discord_login' %}{% if redirect_field_value %}?{{ redirect_field_name }}={{ redirect_field_value|urlencode }}{% endif %}"
+           class="btn btn-discord w-100 mt-3">
+            <i class="bi bi-discord"></i> {% trans "Login with Discord" %}
+        </a>
+        {% endif %}
+
     </div>
-</article>
-{% endblock %}
+</div>
+{% endblock content %}

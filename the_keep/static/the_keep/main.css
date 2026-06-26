@@ -2337,7 +2337,8 @@ tr.clickable-row:hover {
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 60vh;
+    min-height: 60vh;
+    padding: var(--header-padding) 1rem 2rem;
     margin: 0;
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
     color: #dcddde;
