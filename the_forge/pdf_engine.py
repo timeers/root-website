@@ -896,16 +896,32 @@ PHASE_HEADERS = {
     },
 }
 
+# Matches the content-hash segment ManifestStaticFilesStorage inserts before
+# the final extension (name.<12-hex-hash>.ext). Used to reverse the hashing
+# so staticfiles finders — which search source dirs with un-hashed names —
+# can locate the file.
+_HASH_RE = re.compile(r'\.[0-9a-f]{12}(\.[^.]+)$')
+
+
 def _resolve_static_url(url):
-    """Resolve a `static()` URL back to a filesystem path for ReportLab.
-    `static()` URL-encodes special characters (e.g. '+' → '%2B'), so we
-    decode before handing the relative path to staticfiles finders."""
+    """Resolve a `static()` URL back to a source filesystem path for ReportLab.
+
+    `static()` URL-encodes special characters (e.g. '+' → '%2B'), so we decode
+    first. Under ManifestStaticFilesStorage the URL carries a content hash
+    (name.<hash>.ext) that the staticfiles finders (which search source dirs
+    with un-hashed names) won't match, so we strip the hash and retry.
+    """
     if not url:
         return None
     from django.contrib.staticfiles import finders
     from urllib.parse import unquote
     rel = unquote(url.split('/static/', 1)[-1])
-    return finders.find(rel)
+    path = finders.find(rel)
+    if path is None:
+        unhashed = _HASH_RE.sub(r'\1', rel)
+        if unhashed != rel:
+            path = finders.find(unhashed)
+    return path
 
 
 def _sheet_of(obj):
