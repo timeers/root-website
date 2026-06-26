@@ -52,7 +52,7 @@
     </div>
     <div class="card-body">
         {% if series.matchseat_set.all %}
-        <div class="effort-layout d-flex align-items-stretch">
+        <div class="effort-layout d-flex align-items-stretch w-100">
             {# Fixed names column (never scrolls) #}
             <div class="effort-names flex-shrink-0">
                 {% for seat in series.matchseat_set.all %}
