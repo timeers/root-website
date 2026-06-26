@@ -222,6 +222,10 @@
 </div>
 {% endif %}
 
+{% if show_extra_rounds_control %}
+    {% include 'the_warroom/partials/game_extra_rounds_control.html' %}
+{% endif %}
+
 {% if user.profile.player %}
 
     <!-- Show option to send Feedback -->

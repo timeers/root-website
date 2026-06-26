@@ -20,7 +20,9 @@ from django.utils.translation import activate, get_language
 from django.urls import reverse
 from django.views.generic import ListView
 
-from the_warroom.models import Tournament, Round, Effort, Game
+from the_warroom.models import (Tournament, Round, Effort, Game,
+                                 effort_counts_for_round_q,
+                                 effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm
@@ -710,9 +712,15 @@ def player_stats(request, slug):
             tournament_round = get_object_or_404(Round, tournament=tournament, slug=round_slug)
 
     if tournament_round:
-        efforts = Effort.objects.filter(player=player, game__round=tournament_round, game__final=True)
+        efforts = Effort.objects.filter(
+            effort_counts_for_round_q(tournament_round),
+            player=player, game__final=True
+        ).distinct()
     elif tournament:
-        efforts = Effort.objects.filter(player=player, game__round__stage__tournament=tournament, game__final=True)
+        efforts = Effort.objects.filter(
+            effort_counts_for_tournament_q(tournament),
+            player=player, game__final=True
+        ).distinct()
     else:
         efforts = Effort.objects.filter(player=player, game__test_match=False, game__final=True)
 

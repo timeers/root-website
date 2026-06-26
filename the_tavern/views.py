@@ -904,6 +904,24 @@ def survey_take_view(request, slug):
             if survey.auto_enroll and survey.series_id:
                 try:
                     GroupingService.sync_survey_responses_to_tournament(survey.series, survey)
+                    # No linked stage → add respondents to every open stage of the series.
+                    if not survey.stage_id:
+                        from the_warroom.models import StageParticipant, CompetitionStatus, TournamentPlayer
+                        open_stages = survey.series.stages.filter(
+                            status__in=[CompetitionStatus.PENDING, CompetitionStatus.ACTIVE]
+                        )
+                        if open_stages.exists():
+                            registered = TournamentPlayer.objects.filter(
+                                tournament=survey.series,
+                                status=TournamentPlayer.StatusChoices.REGISTERED,
+                            )
+                            for tp in registered:
+                                for stage in open_stages:
+                                    StageParticipant.objects.get_or_create(
+                                        tournament_player=tp,
+                                        stage=stage,
+                                        defaults={'status': StageParticipant.ParticipantStatus.ACTIVE},
+                                    )
                 except Exception:
                     import logging as _logging
                     _logging.getLogger(__name__).exception(
@@ -1284,8 +1302,23 @@ def survey_detail_view(request, slug):
     can_take_survey = survey.can_take_survey(profile)
     can_view_survey = survey.can_view_survey(profile)
 
-    return_to = reverse('survey-list')
-    return_title = 'Back to Surveys'
+    # Build a dynamic "Back" target based on where the user came from. The
+    # `from` query param marks the origin; the destination is reconstructed from
+    # the survey's own FKs so the URL stays minimal and slugs aren't trusted from
+    # the query string. Falls back to the global survey list when absent/invalid.
+    came_from = request.GET.get('from')
+    if came_from == 'stage' and survey.stage:
+        return_to = reverse('stage-surveys', args=[survey.stage.tournament.slug, survey.stage.slug])
+        return_title = f'Back to {survey.stage.name}'
+    elif came_from == 'series' and survey.series:
+        return_to = reverse('tournament-surveys', args=[survey.series.slug])
+        return_title = f'Back to {survey.series.name}'
+    elif came_from == 'post' and survey.post:
+        return_to = reverse('post-surveys', args=[survey.post.slug])
+        return_title = 'Back to Surveys'
+    else:
+        return_to = reverse('survey-list')
+        return_title = 'Back to Surveys'
 
     meta_title = survey.title
     survey_description = f' | {survey.description}' if survey.description else ''
@@ -2019,7 +2052,7 @@ def survey_export_csv(request, slug):
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
     writer = csv.writer(response)
-    header = ['Respondent', 'Submitted At', 'Position'] + [q.text for q in questions]
+    header = ['Respondent', 'Display Name', 'Submitted At', 'Position'] + [q.text for q in questions]
     if survey.is_quiz:
         header += ['Score', 'Total', 'Relative Score']
     writer.writerow(header)
@@ -2036,6 +2069,7 @@ def survey_export_csv(request, slug):
         answers_by_q = {a.question_id: a for a in resp.answers.all()}
         row = [
             resp.profile.discord if resp.profile else 'Anonymous',
+            resp.profile.display_name if resp.profile else '',
             resp.submitted_at.strftime('%Y-%m-%d %H:%M'),
             resp.response_position,
         ]
@@ -3039,6 +3073,7 @@ def tournament_surveys_view(request, tournament_slug, stage_slug=None):
         'create_url': create_url,
         'show_status': True,
         'active_page': 'surveys',
+        'survey_back_qs': '?from=stage' if stage else '?from=series',
     })
     return render(request, 'the_tavern/tournament_surveys.html', context)
 
@@ -3061,6 +3096,7 @@ def post_surveys_view(request, slug):
         'create_url': create_url,
         'can_create': can_create,
         'show_status': True,
+        'survey_back_qs': '?from=post',
         'meta_title': f"{post.title} - Surveys",
         'meta_description': f"Surveys for {post.title}",
     }

@@ -4,15 +4,19 @@
 
 ### New Features
 - Scheduled match page accessed from bracket
+- Add game to additional Series on game detail page
 
 ### Improvements
 - merge profile admin command improvements
 - /upcoming command no longer requires series
 - a matches streaming link now shows on the game detail page if no video link is provided
+- display name shown in survey results export
+- Survey back button now links to SurveyHome/Series/Stage/Post depending on origin
 
 ### Bug Fixes
 - Reference to PlayerGroup.VideoPlatformChoices cleaned up
 - Faction icons appear on completed games on bracket page 
+- auto-enroll registration adds respondents to stage as well as series
 
 ## [1.12.7] - 2026-6-24 Bot Improvements
 

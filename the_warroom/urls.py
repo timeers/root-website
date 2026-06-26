@@ -2,6 +2,7 @@ from django.urls import path
 # from .views import
 from .views import (game_list_view, leaderboard_view,
                     game_detail_view,
+                    game_add_extra_round, game_remove_extra_round,
                     game_delete_view, effort_hx_delete, game_hx_delete,
                     bookmark_game, manage_game,
                     manage_game_v2, about_series_view, about_games_view,
@@ -50,6 +51,8 @@ urlpatterns = [
     path("game/<int:id>/edit/v2/", manage_game_v2, name='game-update-v2'),
     path("rootleague/match/<int:league_id>/", game_detail_view, name='rdl-game-detail'),
     path("game/<int:id>/delete/", game_delete_view, name='game-delete'),
+    path("game/<int:id>/extra-round/add/", game_add_extra_round, name='game-add-extra-round'),
+    path("game/<int:id>/extra-round/<int:round_id>/remove/", game_remove_extra_round, name='game-remove-extra-round'),
     path("game/<int:id>/edit/", manage_game, name='game-update'),
     path("game/<int:id>/", game_detail_view, name='game-detail'),
     

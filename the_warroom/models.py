@@ -67,6 +67,58 @@ class GameQuerySet(models.QuerySet):
         #     Q(landmarks__official=False)
         # )
 
+    def counting_for_round(self, round):
+        """Games that count toward a round, via the primary FK or an extra round."""
+        return self.filter(Q(round=round) | Q(extra_rounds=round)).distinct()
+
+    def counting_for_stage(self, stage):
+        """Games that count toward a stage, via the primary FK or an extra round."""
+        return self.filter(Q(round__stage=stage) | Q(extra_rounds__stage=stage)).distinct()
+
+    def counting_for_tournament(self, tournament):
+        """Games that count toward a tournament, via the primary FK or an extra round.
+
+        Only the ``__stage__tournament`` path is used (the direct ``round__tournament``
+        path is no longer used). Counting-only: this does NOT imply bracket/match/
+        grouping participation in the extra round's tournament.
+        """
+        return self.filter(
+            Q(round__stage__tournament=tournament)
+            | Q(extra_rounds__stage__tournament=tournament)
+        ).distinct()
+
+
+def game_counts_for_round_q(round):
+    """Q on Game matching its primary or extra round."""
+    return Q(round=round) | Q(extra_rounds=round)
+
+
+def game_counts_for_stage_q(stage):
+    """Q on Game matching a stage via its primary or extra round."""
+    return Q(round__stage=stage) | Q(extra_rounds__stage=stage)
+
+
+def game_counts_for_tournament_q(tournament):
+    """Q on Game matching a tournament via its primary or extra round."""
+    return Q(round__stage__tournament=tournament) | Q(extra_rounds__stage__tournament=tournament)
+
+
+def effort_counts_for_round_q(round, prefix='game'):
+    """Q matching efforts whose game counts toward a round (primary or extra)."""
+    return Q(**{f'{prefix}__round': round}) | Q(**{f'{prefix}__extra_rounds': round})
+
+
+def effort_counts_for_stage_q(stage, prefix='game'):
+    """Q matching efforts whose game counts toward a stage (primary or extra)."""
+    return (Q(**{f'{prefix}__round__stage': stage})
+            | Q(**{f'{prefix}__extra_rounds__stage': stage}))
+
+
+def effort_counts_for_tournament_q(tournament, prefix='game'):
+    """Q matching efforts whose game counts toward a tournament (primary or extra)."""
+    return (Q(**{f'{prefix}__round__stage__tournament': tournament})
+            | Q(**{f'{prefix}__extra_rounds__stage__tournament': tournament}))
+
 
 class TournamentQuerySet(models.QuerySet):
     def open(self):
@@ -423,16 +475,16 @@ class Tournament(models.Model):
         return assets
 
     def game_count(self):
-        # Counts the number of games associated with this tournament
-        return Game.objects.filter(round__stage__tournament=self, final=True).count()
+        # Counts the number of games associated with this tournament (primary or extra round)
+        return Game.objects.counting_for_tournament(self).filter(final=True).count()
 
     def get_game_queryset(self):
-        games = Game.objects.filter(round__stage__tournament=self, final=True).all()
+        games = Game.objects.counting_for_tournament(self).filter(final=True)
         return games
 
 
     def all_player_count(self):
-        return Effort.objects.filter(game__round__stage__tournament=self).values('player').distinct().count()
+        return Effort.objects.filter(effort_counts_for_tournament_q(self)).values('player').distinct().count()
 
 
     def all_player_queryset(self):
@@ -853,11 +905,11 @@ class Stage(models.Model):
         return self.stage_format or self.tournament.default_format
 
     def game_count(self):
-        return Game.objects.filter(round__stage=self, final=True).count()
+        return Game.objects.counting_for_stage(self).filter(final=True).count()
 
     @property
     def all_player_count(self):
-        return Effort.objects.filter(game__round__stage=self).values('player').distinct().count()
+        return Effort.objects.filter(effort_counts_for_stage_q(self)).values('player').distinct().count()
 
     def clean(self):
         """Validate stage dates against tournament dates."""
@@ -1380,10 +1432,10 @@ class Round(models.Model):
 
     @property
     def all_player_count(self):
-        return Effort.objects.filter(game__round=self).values('player').distinct().count() 
-     
+        return Effort.objects.filter(effort_counts_for_round_q(self)).values('player').distinct().count()
+
     def game_count(self):
-        return Game.objects.filter(round=self, final=True).count()
+        return Game.objects.counting_for_round(self).filter(final=True).count()
 
     class Meta:
         ordering = ['-round_number']
@@ -1576,7 +1628,12 @@ class Game(models.Model):
     map = models.ForeignKey(Map, on_delete=models.PROTECT,blank=True, null=True, related_name='games')
 
     round = models.ForeignKey(Round, on_delete=models.SET_NULL, null=True, blank=True, related_name='games')
-    
+    extra_rounds = models.ManyToManyField(
+        Round, blank=True, related_name='extra_games',
+        help_text="Additional rounds this game also counts toward (counting only — "
+                  "no bracket/match/grouping participation)."
+    )
+
     # Optional
     landmarks = models.ManyToManyField(Landmark, blank=True, related_name='games')
     tweaks = models.ManyToManyField(Tweak, blank=True, related_name='games')
@@ -1852,14 +1909,11 @@ def filtered_winrate(player=None, faction=None, tournament=None, platform=None):
     if platform:
         qs = qs.filter(game__platform=platform)
     if tournament:
-        qs = qs.filter(
-            Q(game__round__stage__tournament=tournament)
-            | Q(game__round__tournament=tournament)
-        )
+        qs = qs.filter(effort_counts_for_tournament_q(tournament)).distinct()
     agg = qs.aggregate(
-        total=Count('id'),
-        wins=Count('id', filter=Q(win=True)),
-        coalition=Count('id', filter=Q(win=True, game__coalition_win=True)),
+        total=Count('id', distinct=True),
+        wins=Count('id', filter=Q(win=True), distinct=True),
+        coalition=Count('id', filter=Q(win=True, game__coalition_win=True), distinct=True),
     )
     total = agg['total'] or 0
     win_points = (agg['wins'] or 0) - (agg['coalition'] or 0) / 2

@@ -728,20 +728,24 @@ class Profile(models.Model):
         Otherwise, get the top players across all factions.
         The `limit` parameter controls how many players to return.
         """
+        from the_warroom.models import (effort_counts_for_round_q,
+                                         effort_counts_for_tournament_q)
+
         # Start with the base queryset for players
         queryset = cls.objects.filter(efforts__game__final=True, efforts__game__test_match=False)
 
         # If a tournament is provided, filter efforts that are related to that tournament
+        # (via the game's primary round OR an extra round it counts toward)
         if tournament:
             queryset = queryset.filter(
-                efforts__game__round__stage__tournament=tournament  # Filter efforts linked to a specific tournament
-            )
+                effort_counts_for_tournament_q(tournament, prefix='efforts__game')
+            ).distinct()
 
         # If a round is provided, filter efforts that are related to that round
         if round:
             queryset = queryset.filter(
-                efforts__game__round=round  # Filter efforts linked to a specific round
-            )
+                effort_counts_for_round_q(round, prefix='efforts__game')
+            ).distinct()
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
             total_efforts=Count('efforts', filter=Q(efforts__faction_id=faction_id) if faction_id else Q()),

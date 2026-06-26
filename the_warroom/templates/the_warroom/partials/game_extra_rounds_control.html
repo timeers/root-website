@@ -1,0 +1,48 @@
+{% load i18n %}
+<div id="extra-rounds-control" class="text-center my-2">
+{% if show_extra_rounds_control %}
+<div class="card d-inline-block">
+    <div class="card-header bg-transparent text-center">
+        <small class="root-title text-muted">{% trans 'Also count in your tournaments' %}</small>
+    </div>
+    <div class="card-body text-center">
+        {% if extra_rounds_owned %}
+        <ul class="list-unstyled mb-2">
+            {% for round in extra_rounds_owned %}
+            <li class="d-flex align-items-center justify-content-center gap-2 mb-1">
+                <span class="root-title">{{ round.get_tournament.name }} — {{ round }}</span>
+                <button
+                    class="btn btn-outline-danger btn-sm"
+                    hx-post="{% url 'game-remove-extra-round' id=game.id round_id=round.id %}"
+                    hx-target="#extra-rounds-control"
+                    hx-swap="outerHTML"
+                    hx-confirm="{% trans 'Stop counting this game in' %} {{ round }}?"
+                    hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+                    title="{% trans 'Remove' %}">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if addable_rounds %}
+        <form
+            hx-post="{% url 'game-add-extra-round' id=game.id %}"
+            hx-target="#extra-rounds-control"
+            hx-swap="outerHTML"
+            hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
+            class="d-flex align-items-center justify-content-center gap-2">
+            <select name="round_id" class="form-select form-select-sm w-auto" required>
+                <option value="" selected disabled>{% trans 'Add to a round…' %}</option>
+                {% for round in addable_rounds %}
+                <option value="{{ round.id }}">{{ round.get_tournament.name }} — {{ round }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-outline-secondary btn-sm">{% trans 'Add' %}</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+</div>
