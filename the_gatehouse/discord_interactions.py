@@ -221,23 +221,28 @@ def _handle_stats_command(data):
 
 
 def _handle_upcoming_command(data):
-    """/upcoming: the next scheduled match for a series, optionally filtered to a
-    player. Replies publicly with an embed linking to the matches page."""
+    """/upcoming: the next scheduled match, optionally filtered to a series and/or
+    a player. With no series, searches across all tournaments. Replies publicly
+    with an embed linking to the matches page."""
     series_slug = _get_option(data, "series")
     player_slug = _get_option(data, "player")
 
-    tournament = Tournament.objects.filter(slug=series_slug).first()
-    if not tournament:
-        return _ephemeral("Couldn't find that series.")
-
-    # A round links to its tournament directly (no-stage tournaments) or through
-    # its stage, so match either path.
     matches = Match.objects.filter(
-        Q(round__stage__tournament=tournament) | Q(round__tournament=tournament),
         scheduled_time__isnull=False,
         scheduled_time__gt=timezone.now(),
     ).exclude(status=CompetitionStatus.COMPLETED)
 
+    if series_slug:
+        tournament = Tournament.objects.filter(slug=series_slug).first()
+        if not tournament:
+            return _ephemeral("Couldn't find that series.")
+        # A round links to its tournament directly (no-stage tournaments) or
+        # through its stage, so match either path.
+        matches = matches.filter(
+            Q(round__stage__tournament=tournament) | Q(round__tournament=tournament),
+        )
+
+    player = None
     if player_slug:
         player = Profile.objects.filter(slug=player_slug).first()
         if not player:
@@ -257,7 +262,7 @@ def _handle_upcoming_command(data):
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"embeds": [build_upcoming_embed(match)]},
+        "data": {"embeds": [build_upcoming_embed(match, player=player)]},
     })
 
 

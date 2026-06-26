@@ -1,9 +1,9 @@
 {% load i18n %}
 {# Right-aligned link to the schedule page, shown below the nav header on bracket/matches pages. Context: schedule_count, schedule_url #}
-{% if schedule_count %}
+
 <div class="d-flex justify-content-end mb-2">
   <a class="btn btn-outline-primary btn-sm" href="{{ schedule_url }}">
     <i class="bi bi-calendar-event me-1"></i>{% blocktrans count counter=schedule_count %}Scheduled ({{ counter }} game){% plural %}Scheduled ({{ counter }} games){% endblocktrans %}
   </a>
 </div>
-{% endif %}
+
