@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.8] - 2026-6-25 RTM Bug Hunting
+## [1.12.8] - 2026-6-26 RTM Bug Hunting
 
 ### New Features
 - Scheduled match page accessed from bracket
