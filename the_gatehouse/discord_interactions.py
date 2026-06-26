@@ -232,6 +232,7 @@ def _handle_upcoming_command(data):
         scheduled_time__gt=timezone.now(),
     ).exclude(status=CompetitionStatus.COMPLETED)
 
+    tournament = None
     if series_slug:
         tournament = Tournament.objects.filter(slug=series_slug).first()
         if not tournament:
@@ -262,7 +263,7 @@ def _handle_upcoming_command(data):
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"embeds": [build_upcoming_embed(match, player=player)]},
+        "data": {"embeds": [build_upcoming_embed(match, series=tournament, player=player)]},
     })
 
 
@@ -387,6 +388,31 @@ def _ac_players(query, _data):
     return [{"name": (dn or disc or slug), "value": slug} for dn, disc, slug in rows]
 
 
+def _ac_upcoming_player(query, data):
+    """Autocomplete for /upcoming `player`: only players who appear in at least
+    one upcoming (future, not completed) scheduled match, so you can't pick a
+    player with nothing scheduled. If a series is already selected, narrows to
+    players with an upcoming match in that series. Mirrors the player path used
+    by the /upcoming handler (series__player_group__tournament_players)."""
+    matches = Match.objects.filter(
+        series__player_group__tournament_players__profile=OuterRef("pk"),
+        scheduled_time__gt=timezone.now(),
+    ).exclude(status=CompetitionStatus.COMPLETED)
+
+    series_slug = _get_option(data, "series")
+    if series_slug:
+        matches = matches.filter(
+            Q(round__stage__tournament__slug=series_slug)
+            | Q(round__tournament__slug=series_slug),
+        )
+
+    qs = Profile.objects.exclude(slug__isnull=True).filter(Exists(matches))
+    if query:
+        qs = qs.filter(Q(display_name__icontains=query) | Q(discord__icontains=query))
+    rows = qs.order_by("display_name").values_list("display_name", "discord", "slug")[:25]
+    return [{"name": (dn or disc or slug), "value": slug} for dn, disc, slug in rows]
+
+
 def _ac_factions(query, _data):
     qs = Faction.objects.filter(status__lte=4).exclude(slug__isnull=True)
     if query:
@@ -461,7 +487,7 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "series"): _ac_series,
     ("captain", "name"): _ac_captains,
     ("upcoming", "series"): _ac_upcoming_series,
-    ("upcoming", "player"): _ac_players,
+    ("upcoming", "player"): _ac_upcoming_player,
     ("law", "law"): _ac_law,
     ("law", "post"): _ac_law_post,
 }
