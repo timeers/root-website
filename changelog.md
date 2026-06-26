@@ -11,6 +11,7 @@
 - /upcoming command no longer requires series
 - a matches streaming link now shows on the game detail page if no video link is provided
 - display name shown in survey results export
+- Survey back button now links to SurveyHome/Series/Stage/Post depending on origin
 
 ### Bug Fixes
 - Reference to PlayerGroup.VideoPlatformChoices cleaned up

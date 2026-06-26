@@ -1302,8 +1302,23 @@ def survey_detail_view(request, slug):
     can_take_survey = survey.can_take_survey(profile)
     can_view_survey = survey.can_view_survey(profile)
 
-    return_to = reverse('survey-list')
-    return_title = 'Back to Surveys'
+    # Build a dynamic "Back" target based on where the user came from. The
+    # `from` query param marks the origin; the destination is reconstructed from
+    # the survey's own FKs so the URL stays minimal and slugs aren't trusted from
+    # the query string. Falls back to the global survey list when absent/invalid.
+    came_from = request.GET.get('from')
+    if came_from == 'stage' and survey.stage:
+        return_to = reverse('stage-surveys', args=[survey.stage.tournament.slug, survey.stage.slug])
+        return_title = f'Back to {survey.stage.name}'
+    elif came_from == 'series' and survey.series:
+        return_to = reverse('tournament-surveys', args=[survey.series.slug])
+        return_title = f'Back to {survey.series.name}'
+    elif came_from == 'post' and survey.post:
+        return_to = reverse('post-surveys', args=[survey.post.slug])
+        return_title = 'Back to Surveys'
+    else:
+        return_to = reverse('survey-list')
+        return_title = 'Back to Surveys'
 
     meta_title = survey.title
     survey_description = f' | {survey.description}' if survey.description else ''
@@ -3058,6 +3073,7 @@ def tournament_surveys_view(request, tournament_slug, stage_slug=None):
         'create_url': create_url,
         'show_status': True,
         'active_page': 'surveys',
+        'survey_back_qs': '?from=stage' if stage else '?from=series',
     })
     return render(request, 'the_tavern/tournament_surveys.html', context)
 
@@ -3080,6 +3096,7 @@ def post_surveys_view(request, slug):
         'create_url': create_url,
         'can_create': can_create,
         'show_status': True,
+        'survey_back_qs': '?from=post',
         'meta_title': f"{post.title} - Surveys",
         'meta_description': f"Surveys for {post.title}",
     }
