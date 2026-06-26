@@ -12,11 +12,13 @@
 - a matches streaming link now shows on the game detail page if no video link is provided
 - display name shown in survey results export
 - Survey back button now links to SurveyHome/Series/Stage/Post depending on origin
+- non discord login page styling improvements
 
 ### Bug Fixes
 - Reference to PlayerGroup.VideoPlatformChoices cleaned up
 - Faction icons appear on completed games on bracket page 
 - auto-enroll registration adds respondents to stage as well as series
+- static inline images display bug found by Blaise
 
 ## [1.12.7] - 2026-6-24 Bot Improvements
 
