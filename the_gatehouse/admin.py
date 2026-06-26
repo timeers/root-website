@@ -11,6 +11,7 @@ from .models import (Profile, PlayerBookmark,
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
+from django.db.models import UniqueConstraint
 from django.utils.translation import gettext_lazy as _
 
 
@@ -121,68 +122,226 @@ class ProfileAdmin(admin.ModelAdmin):
             self.message_user(request, f"Player(s) merged successfully with {user}")
             # messages.error(request, "No user was selected to inherit selected players.")
 
+    # ------------------------------------------------------------------
+    # Dynamic merge internals
+    #
+    # Instead of hardcoding each relationship, we walk Profile._meta at
+    # runtime so that every inbound ForeignKey / ManyToMany (including ones
+    # added in the future) is reassigned from the merged-in profile to the
+    # survivor automatically. See the plan/docstrings below for the handling
+    # of unique constraints, self-references and CASCADE children.
+    # ------------------------------------------------------------------
+
+    def _inbound_relations(self):
+        """Classify every relation pointing at Profile into reverse FKs and
+        reverse (auto-through) M2Ms, discovered from the model meta API.
+
+        Forward fields on Profile (user, theme, language, guilds, bookmarks,
+        admin_nominated, admin_dismiss) have auto_created=False and are skipped
+        - they live on the survivor/loser row itself and don't need moving.
+
+        Explicit-through M2Ms (PlayerBookmark/PostBookmark/GameBookmark) are
+        skipped here because Django forbids .add()/.remove() on them; they are
+        instead reassigned through their reverse FK (which is also discovered).
+        """
+        reverse_fks = []
+        reverse_m2ms = []
+        for f in Profile._meta.get_fields():
+            if not f.is_relation or not f.auto_created or f.concrete:
+                continue
+            if f.one_to_many:
+                reverse_fks.append(f)
+            elif f.many_to_many and f.field.remote_field.through._meta.auto_created:
+                reverse_m2ms.append(f)
+        return reverse_fks, reverse_m2ms
+
+    def _profile_unique_groups(self, model, fk_field_name):
+        """Return, for every uniqueness rule on `model` that includes the
+        profile FK, the tuple of OTHER fields in that rule.
+
+        e.g. TournamentPlayer unique_together=('tournament', 'profile') with
+        fk_field_name='profile' yields [('tournament',)]. These are the fields
+        that, together with the survivor, decide whether a loser's row would
+        collide with an existing survivor row.
+        """
+        groups = []
+        for ut in (model._meta.unique_together or ()):
+            if fk_field_name in ut:
+                groups.append(tuple(c for c in ut if c != fk_field_name))
+        for con in model._meta.constraints:
+            if isinstance(con, UniqueConstraint) and fk_field_name in con.fields:
+                groups.append(tuple(c for c in con.fields if c != fk_field_name))
+        return groups
+
+    def _other_profile_fk_names(self, model, fk_field_name):
+        """Names of OTHER FK fields on `model` that also point at Profile.
+
+        Used to detect rows that would become self-references after the merge
+        (e.g. PlayerBookmark.player reassigned to survivor while friend is
+        already the survivor, or Profile.admin_nominated self-loops).
+        """
+        names = []
+        for field in model._meta.get_fields():
+            # Only single-valued concrete relations have an `_id` attname to
+            # compare; skip M2M (e.g. Profile.bookmarks) which would raise.
+            if (getattr(field, 'concrete', False) and field.is_relation
+                    and not field.many_to_many
+                    and field.related_model is Profile
+                    and field.name != fk_field_name):
+                names.append(field.name)
+        return names
+
+    def _merge_reverse_fk(self, request, rel, loser, survivor):
+        """Reassign all rows of one reverse FK from loser -> survivor.
+
+        Fast path (no profile-FK uniqueness and no other Profile FK on the
+        model): a single bulk UPDATE. This also covers Effort.player (PROTECT)
+        - PROTECT only blocks deletes, and we reassign before deleting the loser.
+
+        Careful path (uniqueness rule involving the FK, or the model has another
+        FK pointing at Profile - e.g. PlayerBookmark.player/friend, or Profile's
+        own admin_nominated/admin_dismiss self-FKs): walk row by row and discard
+        the loser's row when moving it would create a self-reference or duplicate
+        an existing survivor row.
+        """
+        model = rel.related_model
+        field_name = rel.field.name
+        qs = model.objects.filter(**{field_name: loser})
+
+        unique_groups = self._profile_unique_groups(model, field_name)
+        other_fk_names = self._other_profile_fk_names(model, field_name)
+
+        if not unique_groups and not other_fk_names:
+            moved = qs.update(**{field_name: survivor})
+            return moved, 0
+
+        moved = 0
+        discarded = 0
+        for obj in qs:
+            # Would this row become a self-reference once reassigned? (covers
+            # PlayerBookmark player==friend and admin_nominated==self loops)
+            if any(getattr(obj, name + '_id') == survivor.pk for name in other_fk_names):
+                self._report_discard(request, obj, reason="self-reference")
+                obj.delete()
+                discarded += 1
+                continue
+
+            # Would this row collide with an existing survivor row? Check both
+            # declared unique groups (e.g. TournamentPlayer (tournament,)) and,
+            # for models with other Profile FKs, the full set of Profile FKs so
+            # duplicate relationships (e.g. a repeated follow) are deduped even
+            # without a DB constraint. Use attname so FK/plain fields look up alike.
+            collides = False
+            collision_groups = list(unique_groups)
+            if other_fk_names:
+                collision_groups.append(tuple(other_fk_names))
+            for group in collision_groups:
+                lookup = {field_name: survivor}
+                for other in group:
+                    attname = model._meta.get_field(other).attname
+                    lookup[attname] = getattr(obj, attname)
+                if model.objects.filter(**lookup).exclude(pk=obj.pk).exists():
+                    collides = True
+                    break
+
+            if collides:
+                self._handle_collision(request, model, obj, survivor, field_name)
+                obj.delete()
+                discarded += 1
+                continue
+
+            setattr(obj, field_name, survivor)
+            obj.save(update_fields=[field_name])
+            moved += 1
+        return moved, discarded
+
+    def _handle_collision(self, request, model, obj, survivor, field_name):
+        """Hook for collision rows that carry children worth preserving.
+
+        TournamentPlayer is the notable case: deleting it would CASCADE-delete
+        its StageParticipant rows (and their MatchSeat rows). Re-point those
+        children onto the survivor's TournamentPlayer for the same tournament
+        before the loser's row is discarded.
+        """
+        if model.__name__ == 'TournamentPlayer':
+            survivor_tp = model.objects.filter(
+                tournament=obj.tournament, **{field_name: survivor}
+            ).first()
+            if survivor_tp is not None:
+                from the_warroom.models import StageParticipant
+                reparented = StageParticipant.objects.filter(
+                    tournament_player=obj
+                ).update(tournament_player=survivor_tp)
+                if reparented:
+                    messages.warning(
+                        request,
+                        f"Re-pointed {reparented} stage participation(s) from the "
+                        f"discarded {model.__name__} (pk={obj.pk}) to the survivor's "
+                        f"entry in tournament {obj.tournament}."
+                    )
+        self._report_discard(request, obj, reason="duplicate")
+
+    def _report_discard(self, request, obj, reason):
+        messages.warning(
+            request,
+            f"Discarded {obj._meta.label} (pk={obj.pk}) during merge "
+            f"[{reason}]: {obj}."
+        )
+
+    def _merge_reverse_m2m(self, rel, loser, survivor):
+        """Move membership in an auto-through M2M from loser -> survivor."""
+        field_name = rel.field.name
+        moved = 0
+        for obj in rel.related_model.objects.filter(**{field_name: loser}):
+            manager = getattr(obj, field_name)
+            manager.add(survivor)
+            manager.remove(loser)
+            moved += 1
+        return moved
+
     # This should makes it so that if the full merge is not successful it will undo the changes.
     @transaction.atomic
     def merge_user_with_players(self, request, user, players):
+        # `user` is the surviving Profile (named for historical reasons).
+        survivor = user
+        no_dwd_username = survivor.dwd is None
 
-        no_dwd_username = user.dwd is None
-
+        reverse_fks, reverse_m2ms = self._inbound_relations()
 
         for player in players:
-            efforts = player.efforts.all()
-            # Transfer all efforts to the User
-            if efforts.exists():
-                for effort in efforts:
-                    effort.player = user
-                    effort.save()
-                self.message_user(request, f"Player {player}'s games merged with {user}.")
-            designer_posts = player.posts.all()
-            # Transfer all posts to the User
-            if designer_posts.exists():
-                for post in designer_posts:
-                    post.designer = user
-                    post.save()
-                self.message_user(request, f"Designer {player}'s components merged with {user}.")
-            artist_posts = player.artist_posts.all()
-            # Transfer all Art Credits to the User
-            if artist_posts.exists():
-                for art in artist_posts:
-                    art.artist = user
-                    art.save()
-                self.message_user(request, f"Artist {player}'s art credit merged with {user}.")
-            games_recorded = player.games_recorded.all()
-            # Transfer all recorded games to the User
-            if games_recorded:
-                for game in games_recorded:
-                    game.recorder = user
-                    game.save()
-                self.message_user(request, f"Player {player}'s recorded games merged with {user}.")
-            assets = player.assets.all()
-            # Transfer all PNP assets to the User
-            if assets:
-                for asset in assets:
-                    asset.shared_by = user
-                    asset.save()
-                self.message_user(request, f"{player}'s shared assets merged with {user}.")
-            translations = player.translations.all()
-            # Transfer all Translations to the User
-            if translations:
-                for translation in translations:
-                    translation.designer = user
-                    translation.save()
-                self.message_user(request, f"{player}'s translations merged with {user}.")
-            # Add the player's DWD username to the User
+            summary = {}
+
+            # Reassign every inbound FK before deleting, so CASCADE children
+            # (comments, bookmarks, notifications, ...) are moved, not destroyed.
+            for rel in reverse_fks:
+                moved, discarded = self._merge_reverse_fk(request, rel, player, survivor)
+                if moved or discarded:
+                    summary[rel.get_accessor_name()] = moved
+
+            for rel in reverse_m2ms:
+                moved = self._merge_reverse_m2m(rel, player, survivor)
+                if moved:
+                    summary[rel.get_accessor_name()] = moved
+
+            # Preserve the DWD username on the survivor if it has none. Null it
+            # on the loser first to free the unique column before reassigning.
             if no_dwd_username and player.dwd:
                 dwd_name = player.dwd
                 player.dwd = None
-                player.save()
-                user.dwd = dwd_name
-                user.save()
+                player.save(update_fields=['dwd'])
+                survivor.dwd = dwd_name
+                survivor.save(update_fields=['dwd'])
                 no_dwd_username = False
-                self.message_user(request, f"{player}'s DWD Username ({dwd_name}) added to {user}.")
-            
-            # Delete the player
+                self.message_user(request, f"{player}'s DWD Username ({dwd_name}) added to {survivor}.")
+
+            # Delete the merged-in profile.
             player.delete()
+
+            if summary:
+                detail = ", ".join(f"{name}: {count}" for name, count in summary.items() if count)
+                self.message_user(request, f"Merged {player} into {survivor} ({detail}).")
+            else:
+                self.message_user(request, f"Merged {player} into {survivor}.")
 
 
     def get_urls(self):

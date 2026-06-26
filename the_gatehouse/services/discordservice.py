@@ -1174,13 +1174,28 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     return {k: v for k, v in embed.items() if v is not None}
 
 
-def build_upcoming_embed(match):
+def _upcoming_summary(tournament, player):
+    """One-line summary naming the active /upcoming filters, e.g.
+    "The next scheduled Brand New Series game for MrMirz". Drops whichever
+    parts aren't filtered ("The next scheduled game" with neither)."""
+    series_part = f" {tournament.name}" if tournament else ""
+    player_name = (player.display_name or player.discord or player.slug) if player else None
+    player_part = f" for {player_name}" if player_name else ""
+    return f"The next scheduled{series_part} game{player_part}"
+
+
+def build_upcoming_embed(match, player=None):
     """Build a Discord embed for the next scheduled match.
 
     Links to the matches page that contains the match (via
     Match.get_matches_url, which adapts to the tournament's stage/round layout),
     lists the players in the match, and shows the platform only when the
     tournament requires one (tournament.platform is set).
+
+    `player` is the optional player the /upcoming result was filtered to; when
+    given (and/or when the match belongs to a tournament), a summary line names
+    the active filters, e.g. "The next scheduled Brand New Series game for
+    MrMirz".
     """
     site_url = config.get("SITE_URL", "").rstrip("/")
     round = match.round
@@ -1189,6 +1204,7 @@ def build_upcoming_embed(match):
     embed = {
         "title": match.name or "Upcoming Match",
         "url": f"{site_url}{match.get_matches_url()}" if site_url else None,
+        "description": _upcoming_summary(tournament, player),
     }
     if tournament:
         embed["author"] = {"name": tournament.name}

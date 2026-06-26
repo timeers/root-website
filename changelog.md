@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.8] - 2026-6-26 RTM Bug Hunting
+
+### New Features
+- Scheduled match page accessed from bracket
+
+### Improvements
+- merge profile admin command improvements
+- /upcoming command no longer requires series
+
+### Bug Fixes
+- Reference to PlayerGroup.VideoPlatformChoices cleaned up
+- Faction icons appear on completed games on bracket page 
+
 ## [1.12.7] - 2026-6-24 Bot Improvements
 
 ### New Features

@@ -52,7 +52,7 @@
     </div>
     <div class="card-body">
         {% if series.matchseat_set.all %}
-        <div class="effort-layout d-flex align-items-stretch">
+        <div class="effort-layout d-flex align-items-stretch w-100">
             {# Fixed names column (never scrolls) #}
             <div class="effort-names flex-shrink-0">
                 {% for seat in series.matchseat_set.all %}
@@ -143,6 +143,23 @@
         </div>
         {% endfor %}
         {% endif %}
+
+        {% with mod=series.player_group.group_moderator %}
+        {% if mod %}
+        <hr class="my-2">
+        <div class="text-muted text-uppercase fw-semibold mb-1" style="font-size:0.7rem; letter-spacing:0.05em;">
+            {% trans 'Moderator' %}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            {% if mod.image %}
+            <img src="{{ mod.image.url }}" alt="" class="rounded-circle" style="width:22px;height:22px;">
+            {% else %}
+            <i class="bi bi-person-circle"></i>
+            {% endif %}
+            <span>{{ mod.display_name }}</span>
+        </div>
+        {% endif %}
+        {% endwith %}
     </div>
 
     {% if series.number_of_games == 1 %}
