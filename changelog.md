@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.9] - 2026-6-28 Game Form Improvements
+
+### New Features
+- Brazen Demogogue
+- Selected Captains
+- Undrafted Captains
+
+
+### Improvements
+
+### Bug Fixes
+
 ## [1.12.8] - 2026-6-26 RTM Bug Hunting
 
 ### New Features

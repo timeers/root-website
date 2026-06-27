@@ -180,7 +180,7 @@
                 <div class="score-field">{% trans 'Score' %}: {{ form.score }}</div>
                 <div class="win-field">{% trans 'Win' %}: {{ form.win }}</div>
                 <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ form.coalition_with }}</div>
-                <div class="dominance-field">{% trans 'Dominance' %}: {{ form.dominance }}</div>
+                <div class="dominance-field">{% trans 'Dominance' %}: {{ form.dominance }}<span class="brazen-demogogue-field" style="display:none; margin-left:0.5rem;">{{ form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
 
                 {% if not match_mode %}
                 <button class="btn btn-warning btn-sm" type="button" onclick="deleteForm(this)">
@@ -218,7 +218,7 @@
         <div class="score-field">{% trans 'Score' %}: {{ formset.empty_form.score }}</div>
         <div class="win-field">{% trans 'Win' %}: {{ formset.empty_form.win }}</div>
         <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ formset.empty_form.coalition_with }}</div>
-        <div class="dominance-field">{% trans 'Dominance' %}: {{ formset.empty_form.dominance }}</div>
+        <div class="dominance-field">{% trans 'Dominance' %}: {{ formset.empty_form.dominance }}<span class="brazen-demogogue-field" style="display:none; margin-left:0.5rem;">{{ formset.empty_form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
         <button class="btn btn-warning btn-sm" type="button" onclick="clearForm(this)">
             {% trans 'Remove' %}
         </button>
@@ -579,6 +579,30 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // ── Brazen Demagogue conditional visibility ──
+    function deckIsSquiresAndDisciples() {
+        return $('#id_deck').find('option:selected').text() === 'Squires & Disciples';
+    }
+
+    function updateBrazenVisibility(index) {
+        const domSelector = "#id_form-" + index + "-dominance";
+        const factionSelector = "#id_form-" + index + "-faction";
+        const $brazenWrap = $(domSelector).closest('.drag-card-content').find('.brazen-demogogue-field');
+        const $brazenInput = $brazenWrap.find('input[id$="-brazen_demogogue"]');
+        const hasDominance = !!$(domSelector).val();
+        const isVagabond = $(factionSelector + ' option:selected').text() === 'Vagabond';
+        if (deckIsSquiresAndDisciples() && hasDominance && !isVagabond) {
+            $brazenWrap.show();
+        } else {
+            $brazenWrap.hide();
+            $brazenInput.prop('checked', false);   // clear stale state when hidden
+        }
+    }
+
+    function updateAllBrazenVisibility() {
+        $('.effort-form').each((index) => updateBrazenVisibility(index));
+    }
+
     // ── Faction change handler per effort row ──
     function setupSelector(index, element) {
         var selector = "#id_form-" + index.toString() + "-faction";
@@ -607,6 +631,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 $(VBselector).val(null).trigger('change');
                 $(coalitionSelector).val(null).trigger('change');
             }
+            updateBrazenVisibility(index);
+        });
+
+        $(dominanceSelector).on('change', function(e) {
+            updateBrazenVisibility(index);
         });
     }
 
@@ -836,6 +865,7 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             updateDominance('Dark', false);
         }
+        updateAllBrazenVisibility();
     });
 
     // ── Initial load ──

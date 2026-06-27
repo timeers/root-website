@@ -1066,6 +1066,9 @@ def manage_game_v2(request, id=None):
                             game_status = max(game_status, child.vagabond.status)
                         child.faction_status = child.faction.status
                         child.game = parent
+                        # Brazen Demagogue is only valid with the Squires & Disciples deck.
+                        if not (parent.deck and parent.deck.title == 'Squires & Disciples'):
+                            child.brazen_demogogue = False
                         saved_efforts.append((idx, child))
 
             # Assign seats based on seat_order or sequential

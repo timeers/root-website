@@ -487,7 +487,7 @@ class EffortCreateForm(forms.ModelForm):
     delete = forms.BooleanField(required=False, initial=False, widget=forms.CheckboxInput(attrs={'class': 'delete-form-checkbox'}))
     class Meta:
         model = Effort
-        fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with']
+        fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with', 'brazen_demogogue']
         captains = forms.ModelMultipleChoiceField(
             queryset=Vagabond.objects.all(),
             widget=forms.SelectMultiple(attrs={'class': 'select2'}),
@@ -553,6 +553,11 @@ class EffortCreateForm(forms.ModelForm):
         if not dominance and score is None and not coalition:
             # raise ValidationError(f"Score or Dominance required")
             validation_errors_to_display.append('Score or Dominance required')
+
+        # Brazen Demagogue only valid when a dominance is selected.
+        # (Deck restriction is enforced via the deck-level check in the view.)
+        if not dominance:
+            cleaned_data['brazen_demogogue'] = False
 
         # print(cleaned_data)
             
