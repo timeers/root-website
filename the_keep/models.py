@@ -1357,7 +1357,7 @@ class Vagabond(Post):
         OTHER = 'Other'
 
 
-    
+    is_vagabond = models.BooleanField(default=True)
     ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, default=AbilityChoices.NONE)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)

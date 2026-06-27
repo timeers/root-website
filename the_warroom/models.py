@@ -1640,6 +1640,7 @@ class Game(models.Model):
     hirelings = models.ManyToManyField(Hireling, blank=True, related_name='games')
     undrafted_faction = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
     undrafted_vagabond = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_games')
+    undrafted_captains = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='undrafted_captain_games')
     link = models.URLField(max_length=1000, null=True, blank=True)
     video_link = models.URLField(
         max_length=500,
@@ -1839,6 +1840,7 @@ class Effort(models.Model):
     captains = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='efforts_as_captain')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts_in_coalition')
     dominance = models.CharField(max_length=20, choices=DominanceChoices.choices, null=True, blank=True)
+    brazen_demogogue = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='efforts')
