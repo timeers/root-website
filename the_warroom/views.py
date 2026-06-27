@@ -1069,7 +1069,9 @@ def manage_game_v2(request, id=None):
                         # Brazen Demagogue is only valid with the Squires & Disciples deck.
                         if not (parent.deck and parent.deck.title == 'Squires & Disciples'):
                             child.brazen_demogogue = False
-                        saved_efforts.append((idx, child))
+                        # captains is a M2M relation; capture now and set after save().
+                        captains = effort_form.cleaned_data.get('captains')
+                        saved_efforts.append((idx, child, captains))
 
             # Assign seats based on seat_order or sequential
             if seat_order:
@@ -1079,13 +1081,15 @@ def manage_game_v2(request, id=None):
                         form_index_to_seat[int(form_idx_str)] = seat_num
                     except (ValueError, TypeError):
                         pass
-                for idx, child in saved_efforts:
+                for idx, child, captains in saved_efforts:
                     child.seat = form_index_to_seat.get(idx, idx + 1)
                     child.save()
+                    child.captains.set(captains or [])
             else:
-                for seat_num, (idx, child) in enumerate(saved_efforts, start=1):
+                for seat_num, (idx, child, captains) in enumerate(saved_efforts, start=1):
                     child.seat = seat_num
                     child.save()
+                    child.captains.set(captains or [])
             _vlog.warning(f"[manage_game_v2] after effort saves: {_time.time()-_t0:.3f}s")
 
             parent.status = StatusChoices(game_status)
@@ -1107,7 +1111,7 @@ def manage_game_v2(request, id=None):
                 _vlog.warning(f"[manage_game_v2] after on_game_complete: {_time.time()-_t0:.3f}s")
 
             # ScoreCard consistency checks
-            for idx, child in saved_efforts:
+            for idx, child, captains in saved_efforts:
                 try:
                     scorecard = child.scorecard
                 except ScoreCard.DoesNotExist:

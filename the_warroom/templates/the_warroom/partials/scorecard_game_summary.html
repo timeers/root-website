@@ -97,8 +97,8 @@
                     {% if effort.vagabond %}
                         ({{ effort.vagabond }})
                     {% endif %}
-                    {% if effort.captains %}
-                        ({{ effort.captains }})
+                    {% if effort.captains.all %}
+                        ({% for captain in effort.captains.all %}{{ captain }}{% if not forloop.last %}, {% endif %}{% endfor %})
                     {% endif %}
                 {% else %}
                     {% trans 'Faction N/A' %}

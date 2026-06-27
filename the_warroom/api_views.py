@@ -70,6 +70,7 @@ def get_options_for_tournament(request, pk):
     maps_data = [{'id': map.id, 'name': f'{map.title}'} for map in maps.all()]
     factions_data = [{'id': faction.id, 'name': faction.title} for faction in factions.all()]
     vagabonds_data = [{'id': vagabond.id, 'name': vagabond.title} for vagabond in vagabonds.all()]
+    captains_data = [{'id': vagabond.id, 'name': vagabond.title} for vagabond in vagabonds.filter(captain=True)]
     landmarks_data = [{'id': landmark.id, 'name': landmark.title} for landmark in landmarks.all()]
     tweaks_data = [{'id': tweak.id, 'name': tweak.title} for tweak in tweaks.all()]
     hirelings_data = [{'id': hireling.id, 'name': hireling.title} for hireling in hirelings.all()]
@@ -82,6 +83,7 @@ def get_options_for_tournament(request, pk):
         'maps': maps_data,
         'factions': factions_data,
         'vagabonds': vagabonds_data,
+        'captains': captains_data,
         'landmarks': landmarks_data,
         'tweaks': tweaks_data,
         'hirelings': hirelings_data,

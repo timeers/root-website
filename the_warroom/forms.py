@@ -485,13 +485,14 @@ class EffortCreateForm(forms.ModelForm):
         initial=0 
     )
     delete = forms.BooleanField(required=False, initial=False, widget=forms.CheckboxInput(attrs={'class': 'delete-form-checkbox'}))
+    captains = forms.ModelMultipleChoiceField(
+        queryset=Vagabond.objects.filter(captain=True),
+        required=False,
+        widget=forms.SelectMultiple(attrs={'class': 'select2'}),
+    )
     class Meta:
         model = Effort
         fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with', 'brazen_demogogue']
-        captains = forms.ModelMultipleChoiceField(
-            queryset=Vagabond.objects.all(),
-            widget=forms.SelectMultiple(attrs={'class': 'select2'}),
-        )
     def __init__(self, *args, **kwargs):
         # Check if 'game' is passed in kwargs and set it
         self.game = kwargs.pop('game', None)
@@ -543,11 +544,14 @@ class EffortCreateForm(forms.ModelForm):
             if faction.title != 'Chameleander':
                 cleaned_data['coalition_with'] = None
 
-        # If captains are assigned ensure no more than 3 captains are assigned
-        # if faction.title == "Knaves of the Deepwood" and not captains:
-        #     validation_errors_to_display.append('Please select a Captain')
-        # Captains cannot be recorded
-        cleaned_data['captains'] = None
+        # Captains only apply to Knaves of the Deepwood: require exactly 3 (a full
+        # complement) or none. Clear them for any other faction.
+        if faction and faction.title == 'Knaves of the Deepwood':
+            count = len(captains) if captains else 0
+            if count not in (0, 3):
+                validation_errors_to_display.append('Select exactly 3 captains (or none).')
+        else:
+            cleaned_data['captains'] = Vagabond.objects.none()
 
         # print(score)
         if not dominance and score is None and not coalition:
