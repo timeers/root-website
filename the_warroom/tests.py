@@ -203,6 +203,8 @@ class ExtraRoundsControlTests(TestCase):
         )
         self.stage_b = Stage.objects.create(tournament=self.tour_b, name="B1", order=1, is_active=True)
         self.round_b = Round.objects.create(stage=self.stage_b, round_number=1, is_active=True)
+        # A second round in the same tournament B (used for one-per-tournament tests).
+        self.round_b2 = Round.objects.create(stage=self.stage_b, round_number=2, is_active=True)
 
         # A game living in an unrelated tournament A
         self.tour_a = Tournament.objects.create(name="Discord", is_active=True)
@@ -243,3 +245,22 @@ class ExtraRoundsControlTests(TestCase):
         resp = self.client.post(self._remove_url())
         self.assertEqual(resp.status_code, 403)
         self.assertIn(self.round_b, self.game.extra_rounds.all())
+
+    def test_cannot_add_second_round_from_same_tournament(self):
+        # Game already counts in tournament B via round_b; adding round_b2 (same
+        # tournament) must be rejected and leave extra_rounds unchanged.
+        self.game.extra_rounds.add(self.round_b)
+        self.client.force_login(self.designer)
+        resp = self.client.post(self._add_url(), {'round_id': self.round_b2.id})
+        self.assertEqual(resp.status_code, 400)
+        self.assertNotIn(self.round_b2, self.game.extra_rounds.all())
+        self.assertIn(self.round_b, self.game.extra_rounds.all())
+
+    def test_addable_rounds_excludes_occupied_tournament(self):
+        from the_warroom.views import _extra_rounds_control_context
+        self.game.extra_rounds.add(self.round_b)
+        context = _extra_rounds_control_context(self.game, self.designer.profile)
+        addable = list(context['addable_rounds'])
+        # round_b is already added; round_b2 shares its tournament, so neither is offered.
+        self.assertNotIn(self.round_b, addable)
+        self.assertNotIn(self.round_b2, addable)

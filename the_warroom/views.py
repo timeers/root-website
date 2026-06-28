@@ -553,7 +553,21 @@ def _extra_rounds_control_context(game, profile):
         game.extra_rounds.filter(pk__in=designed.values('pk'))
         .select_related('stage__tournament')
     )
+
+    # A game may count in at most one round per tournament. Collect the tournaments
+    # the game already participates in (its primary round + all existing extra rounds)
+    # and exclude every round belonging to those tournaments from the add dropdown.
+    existing_rounds = list(game.extra_rounds.select_related('stage__tournament'))
+    if game.round_id:
+        existing_rounds.append(game.round)
+    occupied_tournament_ids = {
+        t.id for r in existing_rounds
+        if (t := r.get_tournament()) is not None
+    }
+
     addable_rounds = designed.exclude(pk=game.round_id).exclude(extra_games=game) \
+        .exclude(stage__tournament_id__in=occupied_tournament_ids) \
+        .exclude(tournament_id__in=occupied_tournament_ids) \
         .select_related('stage__tournament').order_by('stage__tournament__name', 'round_number')
     return {
         'extra_rounds_owned': extra_rounds_owned,
@@ -579,6 +593,15 @@ def game_add_extra_round(request, id):
     tournament = round.get_tournament()
     if not tournament or not tournament.has_permission(request.user.profile):
         return HttpResponse("Permission denied", status=403)
+
+    # A game may count in at most one round per tournament. Reject if it already
+    # participates in this tournament via its primary round or an existing extra round.
+    existing_rounds = list(game.extra_rounds.select_related('stage__tournament'))
+    if game.round_id:
+        existing_rounds.append(game.round)
+    if any((t := r.get_tournament()) is not None and t.id == tournament.id
+           for r in existing_rounds):
+        return HttpResponse("This game already counts in this tournament", status=400)
 
     # The primary round is managed via the game form, not here.
     if round.id != game.round_id:
