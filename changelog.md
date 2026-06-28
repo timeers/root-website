@@ -11,6 +11,7 @@
 - Page for games played with specific captain
 
 ### Improvements
+- Added spinner when filtering games
 
 ### Bug Fixes
 

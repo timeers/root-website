@@ -108,7 +108,13 @@
         </div>
         {% endif %}
 
-        <button class="btn btn-primary mb-1">{% trans 'Filter' %}</button>
+        <button class="btn btn-primary mb-1" id="gamefilter-submit-btn">
+            <span class="gamefilter-btn-idle">{% trans 'Filter' %}</span>
+            <span class="gamefilter-btn-loading d-none">
+                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                <span class="ms-1">{% trans 'Filtering…' %}</span>
+            </span>
+        </button>
 
     </form>
 
@@ -143,6 +149,12 @@
 
     </div>
 </article>
+
+<style>
+    #gamefilterform.htmx-request #gamefilter-submit-btn { pointer-events: none; opacity: 0.85; }
+    #gamefilterform.htmx-request .gamefilter-btn-idle { display: none; }
+    #gamefilterform.htmx-request .gamefilter-btn-loading { display: inline-flex !important; align-items: center; }
+</style>
 
 <script>
 (function () {
