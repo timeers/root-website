@@ -112,6 +112,9 @@
                             {% if game.undrafted_vagabond %}
                                 (<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)
                             {% endif %}
+                            {% if game.undrafted_captains.all %}
+                                ({% for captain in game.undrafted_captains.all %}<a href="{% url 'captain-detail' slug=captain.slug %}">{{ captain }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})
+                            {% endif %}
                         </div>
                     </div>
                     {% endif %}

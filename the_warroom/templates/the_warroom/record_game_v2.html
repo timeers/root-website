@@ -182,6 +182,7 @@
                 <div class="faction-field">{% trans 'Faction' %}: {{ form.faction }}</div>
                 <div class="vagabond-field" style="display:none;">{% trans 'Vagabond' %}: {{ form.vagabond }}</div>
                 <div class="captains-field" style="display:none;">{% trans 'Captains' %}: {{ form.captains }}</div>
+                <div class="discarded-captain-field" style="display:none;">{% trans 'Discarded Captain' %}: {{ form.discarded_captain }}</div>
                 <div class="score-field">{% trans 'Score' %}: {{ form.score }}</div>
                 <div class="win-field">{% trans 'Win' %}: {{ form.win }}</div>
                 <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ form.coalition_with }}</div>
@@ -220,6 +221,7 @@
         <div class="faction-field">{% trans 'Faction' %}: {{ formset.empty_form.faction }}</div>
         <div class="vagabond-field" style="display:none;">{% trans 'Vagabond' %}: {{ formset.empty_form.vagabond }}</div>
         <div class="captains-field" style="display:none;">{% trans 'Captains' %}: {{ formset.empty_form.captains }}</div>
+        <div class="discarded-captain-field" style="display:none;">{% trans 'Discarded Captain' %}: {{ formset.empty_form.discarded_captain }}</div>
         <div class="score-field">{% trans 'Score' %}: {{ formset.empty_form.score }}</div>
         <div class="win-field">{% trans 'Win' %}: {{ formset.empty_form.win }}</div>
         <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ formset.empty_form.coalition_with }}</div>
@@ -241,6 +243,9 @@
         </div>
         <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
             {{ form.undrafted_vagabond.label_tag }} {{ form.undrafted_vagabond }}
+        </div>
+        <div class="undrafted-captains-field" id="undrafted-captains-field" style="display:none;">
+            {{ form.undrafted_captains.label_tag }} {{ form.undrafted_captains }}
         </div>
         <div class="mt-2" id="game-tweaks-field">
             {{ form.tweaks.label_tag }} {{ form.tweaks }}
@@ -365,6 +370,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const hirelingsSelect = document.getElementById('id_hirelings');
     const undraftedFactionSelect = document.getElementById('id_undrafted_faction');
     const undraftedVagabondSelect = document.getElementById('id_undrafted_vagabond');
+    const undraftedCaptainsSelect = document.getElementById('id_undrafted_captains');
 
     // Uncheck all delete fields on load
     var deleteFields = document.querySelectorAll('input[name$="-delete"]');
@@ -486,6 +492,36 @@ document.addEventListener('DOMContentLoaded', function() {
         vagabondFields.forEach(vagabondField => {
             updateSelectOptions(vagabondField, vagabondsData);
         });
+    }
+
+    // The full pool of captains from the most recent API response, used to rebuild
+    // the discarded-captain lists while excluding already-selected captains.
+    let captainsPool = [];
+
+    function updateDiscardedCaptainsFields(captainsData) {
+        captainsPool = captainsData || [];
+        const discardedFields = document.querySelectorAll('[id$="-discarded_captain"]');
+        discardedFields.forEach(discardedField => {
+            const match = discardedField.id.match(/^id_form-(\d+)-discarded_captain$/);
+            if (match) {
+                refreshDiscardedOptions(parseInt(match[1], 10));
+            } else {
+                updateSelectOptions(discardedField, captainsPool, '----------');
+            }
+        });
+    }
+
+    // Rebuild a single effort's discarded-captain options from the captains pool,
+    // omitting any captains currently selected in that effort's captains field.
+    function refreshDiscardedOptions(index) {
+        const captainsSelect = document.getElementById('id_form-' + index + '-captains');
+        const discardedSelect = document.getElementById('id_form-' + index + '-discarded_captain');
+        if (!discardedSelect) return;
+        const selectedCaptainIds = captainsSelect
+            ? Array.from(captainsSelect.selectedOptions).map(o => o.value)
+            : [];
+        const available = captainsPool.filter(c => !selectedCaptainIds.includes(String(c.id)));
+        updateSelectOptions(discardedSelect, available, '----------');
     }
 
     function updatePlatformField(platform) {
@@ -613,13 +649,20 @@ document.addEventListener('DOMContentLoaded', function() {
         var selector = "#id_form-" + index.toString() + "-faction";
         var VBselector = "#id_form-" + index.toString() + "-vagabond";
         var captainsSelector = "#id_form-" + index.toString() + "-captains";
+        var discardedSelector = "#id_form-" + index.toString() + "-discarded_captain";
         var dominanceSelector = "#id_form-" + index.toString() + "-dominance";
         var coalitionSelector = "#id_form-" + index.toString() + "-coalition_with";
+
+        // Keep the discarded-captain list in sync (exclude selected captains).
+        $(captainsSelector).on('change', function(e) {
+            refreshDiscardedOptions(index);
+        });
 
         $(selector).on('change', function(e) {
             var selectedText = $(selector + ' option:selected').text();
             var vagabondBlock = document.querySelector(VBselector)?.closest('.vagabond-field');
             var captainsBlock = document.querySelector(captainsSelector)?.closest('.captains-field');
+            var discardedBlock = document.querySelector(discardedSelector)?.closest('.discarded-captain-field');
             var dominanceBlock = document.querySelector(dominanceSelector)?.closest('.dominance-field');
             var coalitionBlock = document.querySelector(coalitionSelector)?.closest('.coalition-field');
             updateFactionSpecificLists();
@@ -640,10 +683,15 @@ document.addEventListener('DOMContentLoaded', function() {
             // Captains only apply to Knaves of the Deepwood.
             if (selectedText == 'Knaves of the Deepwood') {
                 if (captainsBlock) captainsBlock.style.display = "block";
+                if (discardedBlock) discardedBlock.style.display = "block";
                 $(captainsSelector).select2();
+                $(discardedSelector).select2();
+                refreshDiscardedOptions(index);
             } else {
                 if (captainsBlock) captainsBlock.style.display = "none";
+                if (discardedBlock) discardedBlock.style.display = "none";
                 $(captainsSelector).val(null).trigger('change');
+                $(discardedSelector).val(null).trigger('change');
             }
             updateBrazenVisibility(index);
         });
@@ -684,17 +732,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSelectOptions(hirelingsSelect, data.hirelings);
                 updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
                 updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
+                updateSelectOptions(undraftedCaptainsSelect, data.captains);
 
                 if (!matchMode) {
                     updatePlayerFields(data.players);
                     updateFactionFields(data.factions);
                     updateVagabondsFields(data.vagabonds);
                     updateCaptainsFields(data.captains);
+                    updateDiscardedCaptainsFields(data.captains);
                 } else {
                     // Match mode: only update faction/vagabond lists on effort forms
                     updateFactionFields(data.factions);
                     updateVagabondsFields(data.vagabonds);
                     updateCaptainsFields(data.captains);
+                    updateDiscardedCaptainsFields(data.captains);
                 }
                 updateFactionSpecificLists();
             })
@@ -719,18 +770,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSelectOptions(hirelingsSelect, data.hirelings);
                 updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
                 updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
+                updateSelectOptions(undraftedCaptainsSelect, data.captains);
 
                 if (!matchMode) {
                     updatePlayerFields(data.players);
                     updateFactionFields(data.factions);
                     updateVagabondsFields(data.vagabonds);
                     updateCaptainsFields(data.captains);
+                    updateDiscardedCaptainsFields(data.captains);
                     updatePlatformField(data.platform);
                 } else {
                     // Match mode: only update faction/vagabond lists
                     updateFactionFields(data.factions);
                     updateVagabondsFields(data.vagabonds);
                     updateCaptainsFields(data.captains);
+                    updateDiscardedCaptainsFields(data.captains);
                 }
                 updateFactionSpecificLists();
 
@@ -917,11 +971,13 @@ document.addEventListener('DOMContentLoaded', function() {
     $('#id_landmarks').select2();
     $('#id_undrafted_faction').select2();
     $('#id_undrafted_vagabond').select2();
+    $('#id_undrafted_captains').select2();
     $('#id_map').select2();
     $('#id_deck').select2();
 
     // ── Undrafted faction toggle ──
     var undrafted_vagabondBlock = document.getElementById("undrafted-vagabond-field");
+    var undrafted_captainsBlock = document.getElementById("undrafted-captains-field");
     $('#id_undrafted_faction').on('change', function(e) {
         var selectedText = $('#id_undrafted_faction option:selected').text();
         if (selectedText == 'Vagabond') {
@@ -930,6 +986,14 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             undrafted_vagabondBlock.style.display = "none";
             $('#id_undrafted_vagabond').val(null).trigger('change');
+        }
+        // Captains only apply to Knaves of the Deepwood.
+        if (selectedText == 'Knaves of the Deepwood') {
+            undrafted_captainsBlock.style.display = "block";
+            $('#id_undrafted_captains').select2();
+        } else {
+            undrafted_captainsBlock.style.display = "none";
+            $('#id_undrafted_captains').val(null).trigger('change');
         }
     });
 
@@ -950,6 +1014,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         $("#id_form-" + index.toString() + "-vagabond").select2();
         $("#id_form-" + index.toString() + "-captains").select2();
+        $("#id_form-" + index.toString() + "-discarded_captain").select2();
         $("#id_form-" + index.toString() + "-coalition_with").select2();
     });
 
@@ -1016,7 +1081,9 @@ document.addEventListener('DOMContentLoaded', function() {
         $('#id_form-' + nextFormIndex + '-faction').select2();
         $('#id_form-' + nextFormIndex + '-vagabond').select2();
         $('#id_form-' + nextFormIndex + '-captains').select2();
+        $('#id_form-' + nextFormIndex + '-discarded_captain').select2();
         $('#id_form-' + nextFormIndex + '-coalition_with').select2();
+        refreshDiscardedOptions(nextFormIndex);
 
         // Refresh sortable
         $('#effort-form-list').sortable('refresh');

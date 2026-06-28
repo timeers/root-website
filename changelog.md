@@ -3,10 +3,11 @@
 ## [1.12.9] - 2026-6-28 Game Form Improvements
 
 ### New Features
-- Brazen Demogogue
+- New options when recording games:
+- Brazen Demogogue when Dominance played
 - Selected Captains
-- Undrafted Captains
-
+- Discarded Captain when Knaves selected
+- Undrafted Captains when Knaves undrafted
 
 ### Improvements
 

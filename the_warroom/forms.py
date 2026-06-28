@@ -40,10 +40,15 @@ class GameCreateForm(forms.ModelForm):
                 queryset=Landmark.objects.all(),
                 widget=forms.SelectMultiple
                 )
-    tweaks = forms.ModelMultipleChoiceField(required=False, 
+    tweaks = forms.ModelMultipleChoiceField(required=False,
                 queryset=Tweak.objects.all(),
                 widget=forms.SelectMultiple,
                 label="House Rules",
+                )
+    undrafted_captains = forms.ModelMultipleChoiceField(
+                queryset=Vagabond.objects.filter(captain=True),
+                required=False,
+                widget=forms.SelectMultiple(attrs={'class': 'select2'}),
                 )
     PLATFORM_CHOICES = [
         ('Tabletop Simulator', 'Tabletop Simulator'),
@@ -59,7 +64,7 @@ class GameCreateForm(forms.ModelForm):
         model = Game
         fields = ['solo', 'coop', 'official', 'test_match', 'round', 
                   'platform', 'type', 'deck', 'map', 'random_clearing', 
-                  'undrafted_faction', 'undrafted_vagabond', 'landmarks', 
+                  'undrafted_faction', 'undrafted_vagabond', 'undrafted_captains', 'landmarks',
                   'hirelings', 'link', 'video_link', 'tweaks', 'final', 'notes', 'nickname', 'reach_value', 'date_posted']
         widgets = {
             'type': forms.RadioSelect,
@@ -109,6 +114,7 @@ class GameCreateForm(forms.ModelForm):
             self.fields['map'].queryset = Map.objects.filter(official=True)
             self.fields['undrafted_faction'].queryset = Faction.objects.filter(official=True)
             self.fields['undrafted_vagabond'].queryset = Vagabond.objects.filter(official=True)
+            self.fields['undrafted_captains'].queryset = Vagabond.objects.filter(official=True, captain=True)
             self.fields['landmarks'].queryset = Landmark.objects.filter(official=True)
             self.fields['tweaks'].queryset = Tweak.objects.filter(official=True)
             self.fields['hirelings'].queryset = Hireling.objects.filter(official=True)
@@ -407,11 +413,23 @@ class GameCreateForm(forms.ModelForm):
                         if vagabond not in tournament_vagabonds:
                             validation_errors_to_display.append(f'The Vagabond {vagabond} is not playable in {tournament}')
 
+        # Undrafted captains only apply to Knaves of the Deepwood: require exactly 4
+        # (a full complement) or none. Clear them for any other undrafted faction.
+        undrafted_faction = cleaned_data.get('undrafted_faction')
+        undrafted_captains = cleaned_data.get('undrafted_captains')
+        if undrafted_faction and undrafted_faction.title == 'Knaves of the Deepwood':
+            count = len(undrafted_captains) if undrafted_captains else 0
+            if count not in (0, 4):
+                validation_errors_to_display.append('Select exactly 4 captains (or none).')
+                progress_errors_to_display.append('Select exactly 4 captains (or none).')
+        else:
+            cleaned_data['undrafted_captains'] = Vagabond.objects.none()
+
         if not final:
             if not deck:
-                progress_errors_to_display.append(f"Select a deck") 
+                progress_errors_to_display.append(f"Select a deck")
             if not map:
-                progress_errors_to_display.append(f"Select a map") 
+                progress_errors_to_display.append(f"Select a map")
             if progress_errors_to_display:
                 raise ValidationError(progress_errors_to_display)
             return cleaned_data
@@ -490,9 +508,14 @@ class EffortCreateForm(forms.ModelForm):
         required=False,
         widget=forms.SelectMultiple(attrs={'class': 'select2'}),
     )
+    discarded_captain = forms.ModelChoiceField(
+        queryset=Vagabond.objects.filter(captain=True),
+        required=False,
+        widget=forms.Select(attrs={'class': 'select2'}),
+    )
     class Meta:
         model = Effort
-        fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with', 'brazen_demogogue']
+        fields = ['player', 'faction', 'vagabond', 'captains', 'discarded_captain', 'score', 'win', 'dominance', 'coalition_with', 'brazen_demogogue']
     def __init__(self, *args, **kwargs):
         # Check if 'game' is passed in kwargs and set it
         self.game = kwargs.pop('game', None)
@@ -507,6 +530,7 @@ class EffortCreateForm(forms.ModelForm):
         score = cleaned_data.get('score', None)
         vagabond = cleaned_data.get('vagabond')
         captains = cleaned_data.get('captains')
+        discarded_captain = cleaned_data.get('discarded_captain')
         coalition = cleaned_data.get('coalition_with')
         if score is None or score == "":
             cleaned_data['score'] = 0 
@@ -550,8 +574,12 @@ class EffortCreateForm(forms.ModelForm):
             count = len(captains) if captains else 0
             if count not in (0, 3):
                 validation_errors_to_display.append('Select exactly 3 captains (or none).')
+            # The discarded captain (optional) cannot also be an active captain.
+            if discarded_captain and captains and discarded_captain in captains:
+                validation_errors_to_display.append('The discarded captain cannot also be an active captain.')
         else:
             cleaned_data['captains'] = Vagabond.objects.none()
+            cleaned_data['discarded_captain'] = None
 
         # print(score)
         if not dominance and score is None and not coalition:
