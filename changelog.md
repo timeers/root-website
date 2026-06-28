@@ -8,6 +8,7 @@
 - Selected Captains
 - Discarded Captain when Knaves selected
 - Undrafted Captains when Knaves undrafted
+- Page for games played with specific captain
 
 ### Improvements
 

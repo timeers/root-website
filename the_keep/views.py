@@ -1154,8 +1154,12 @@ def ultimate_component_view(request, slug, component):
             )
         ).distinct()
     
-    # Start with the base queryset
-    games = obj.get_games_queryset()
+    # Start with the base queryset. The Captain view counts games where this
+    # vagabond was selected as one of an effort's captains.
+    if component == 'Captain':
+        games = obj.get_captain_games_queryset()
+    else:
+        games = obj.get_games_queryset()
 
     stable_ready = None
     testing_ready = None
@@ -1172,10 +1176,11 @@ def ultimate_component_view(request, slug, component):
             games = games.filter(official=True)
 
     playtests = games.filter(test_match=True).count()
-    if component != 'Captain':
-        games_total = games.count()
-    else:
-        games_total = 0
+    games_total = games.count()
+
+    # The "Games" leaderboard card links here; on the captain view it must point
+    # at the captain games page instead of the regular vagabond games page.
+    games_url = obj.get_captain_games_url() if component == 'Captain' else obj.get_games_url()
 
     # Pre-format counts with thousands separators so labels read "View 1,234 Games".
     games_total_display = f"{games_total:,}"
@@ -1303,6 +1308,7 @@ def ultimate_component_view(request, slug, component):
     context = {
         'object': obj,
         'component': component,
+        'games_url': games_url,
         'games_total': games_total,
         'games_label': games_label,
         'top_players': top_players,
@@ -1547,10 +1553,15 @@ def component_games(request, slug, component):
     post = get_object_or_404(Post, slug=slug)
 
     Klass = COMPONENT_MAPPING.get(post.component)
-    obj = get_object_or_404(Klass, slug=slug, component=component)
+    # "Captain" is a view of a Vagabond, so match on the underlying component.
+    obj_component = post.component if component == "Captain" else component
+    obj = get_object_or_404(Klass, slug=slug, component=obj_component)
 
     # Start with the base queryset
-    games = obj.get_games_queryset()
+    if component == "Captain":
+        games = obj.get_captain_games_queryset()
+    else:
+        games = obj.get_games_queryset()
 
     # Apply the conditional filter if needed
     if request.user.is_authenticated:
@@ -1581,7 +1592,9 @@ def component_games(request, slug, component):
     # print(page_number)
     if not page_number:
         
-        if obj.component == "Faction":
+        if component == "Captain":
+            efforts = Effort.objects.filter(game__in=filtered_games.values('id'), captains=obj)
+        elif obj.component == "Faction":
             efforts = Effort.objects.filter(game__in=filtered_games.values('id'), faction=obj)
         elif obj.component == "Vagabond":
             efforts = Effort.objects.filter(game__in=filtered_games.values('id'), vagabond=obj)
@@ -1594,7 +1607,7 @@ def component_games(request, slug, component):
             coalition_count=Count('id', filter=Q(win=True, game__coalition_win=True))
         )
 
-        if obj.component == "Faction" or obj.component == "Vagabond":
+        if component == "Captain" or obj.component == "Faction" or obj.component == "Vagabond":
             # Access the aggregated values from the dictionary returned by .aggregate()
             total_efforts = game_values['total_efforts']
             win_count = game_values['win_count']
@@ -1615,10 +1628,17 @@ def component_games(request, slug, component):
     language_code = get_language()
     language = Language.objects.filter(code=language_code).first()
 
+    is_captain = component == "Captain"
+    games_url = obj.get_captain_games_url() if is_captain else obj.get_games_url()
+
     # Meta Tags
-    absolute_uri = build_absolute_uri(request, obj.get_absolute_url())
-    meta_title = f'{obj.title} Games'
-    meta_description = f'Games recorded with {obj.title}'
+    absolute_uri = build_absolute_uri(request, games_url)
+    games_noun = 'Captain Games' if is_captain else 'Games'
+    meta_title = f'{obj.title} {games_noun}'
+    meta_description = (
+        f'Games recorded with {obj.title} as a captain' if is_captain
+        else f'Games recorded with {obj.title}'
+    )
     meta_image_url = obj.get_meta_image_url(language)
 
     filtered_count = paginator.count
@@ -1627,6 +1647,8 @@ def component_games(request, slug, component):
 
     context = {
         'object': obj,
+        'is_captain': is_captain,
+        'games_url': games_url,
         'games_total': games_total,
         'filtered_games': filtered_count,
         'games': page_obj,  # Pagination applied here

@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %}{{ object.title }} Games | {% endblock %}
+{% block title %}{{ object.title }} {% if is_captain %}Captain {% endif %}Games | {% endblock %}
 
 {% block meta %}
     {% include 'the_keep/partials/component_meta.html' %}
@@ -8,11 +8,11 @@
 
 {% block content %}
 
-<h1 class='root-title'>{{ object.title }} {% trans 'Games' %}</h1>
+<h1 class='root-title'>{{ object.title }} {% if is_captain %}{% trans 'Captain Games' %}{% else %}{% trans 'Games' %}{% endif %}</h1>
 
 {% if games %}
 
-    {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=object.get_games_url swap_method='innerHTML' %}
+    {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=games_url swap_method='innerHTML' %}
 
     <div id="games-container">
 

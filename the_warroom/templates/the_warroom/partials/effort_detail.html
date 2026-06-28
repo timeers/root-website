@@ -58,7 +58,7 @@
             (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
         {% endif %}
         {% if effort.captains.all %}
-            ({% for captain in effort.captains.all %}<a href="{% url 'vagabond-detail' captain.slug %}">{{ captain }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})
+            ({% for captain in effort.captains.all %}<a href="{% url 'captain-detail' slug=captain.slug %}">{{ captain }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})
         {% endif %}
     </span>
     {% else %}
