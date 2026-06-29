@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% block title %}{% if match_mode %}Record Match{% elif object.id %}Update Game{% else %}Record Game{% endif %} | {% endblock %}
-{% load crispy_forms_tags i18n %}
+{% load crispy_forms_tags i18n static %}
 
 {% block styles %}
 <style>
@@ -46,6 +46,62 @@
     .captains-field .select2-container {
         width: 100% !important;
         min-width: 220px;
+    }
+    /* Make the effort-row selects (player/faction/vagabond/discarded captain)
+       fill their column. The per-row .select2() inits don't set width. */
+    .player-field .select2-container,
+    .faction-field .select2-container,
+    .vagabond-field .select2-container,
+    .discarded-captain-field .select2-container,
+    .dominance-field .select2-container,
+    .coalition-field .select2-container {
+        width: 100% !important;
+    }
+    /* Keep the Series (round) select within its card; long option text
+       should be clipped by the box rather than overflowing the container. */
+    #game-round-field select {
+        width: 100%;
+        max-width: 100%;
+        text-overflow: ellipsis;
+    }
+    /* Make the Deck/Map/Landmarks/Hirelings select2 widgets fill their
+       50% column. The bare .select2() re-inits don't set width, so force it. */
+    #game-deck-field .select2-container,
+    #game-map-field .select2-container,
+    #game-landmarks-field .select2-container,
+    #hireling-field .select2-container,
+    #game-tweaks-field .select2-container,
+    #game-undrafted_faction-field .select2-container,
+    #undrafted-vagabond-field .select2-container,
+    #undrafted-captains-field .select2-container {
+        width: 100% !important;
+    }
+    /* Normalize select2 height so the multi-select (captains) matches the
+       single-select faction/vagabond fields. The multi-select uses flex to
+       vertically center its tags; the single selects keep select2's default
+       layout so the clear (×) button stays on the right. */
+    #game-undrafted_faction-field .select2-selection,
+    #undrafted-vagabond-field .select2-selection,
+    #undrafted-captains-field .select2-selection {
+        min-height: calc(1.5em + 0.75rem + 2px);
+    }
+    /* Vertically center the text in the single-select faction/vagabond fields
+       by matching the rendered line-height to the field height. */
+    #game-undrafted_faction-field .select2-selection--single .select2-selection__rendered,
+    #undrafted-vagabond-field .select2-selection--single .select2-selection__rendered {
+        line-height: calc(1.5em + 0.75rem);
+    }
+    #undrafted-captains-field .select2-selection--multiple {
+        padding-top: 0;
+        padding-bottom: 0;
+        display: flex;
+        align-items: center;
+    }
+    #undrafted-captains-field .select2-selection--multiple .select2-selection__rendered {
+        padding: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
     }
 </style>
 {% endblock styles %}
@@ -126,8 +182,7 @@
             {% endif %}
         </div>
 
-        <div id="game-round-field">
-            {{ form.round.label_tag }}
+        <div id="game-round-field" class="mb-2">
             {% if match_mode %}
                 <select name="round" id="id_round" class="form-control" disabled>
                     <option value="{{ match.round.id }}" selected>{{ match.round }}</option>
@@ -138,34 +193,55 @@
             {% endif %}
         </div>
 
-        <div id="game-platform-field">
-            {{ form.platform.label_tag }}
-            {% if platform_locked %}
-                <select name="platform" id="id_platform" class="form-control" disabled>
-                    <option value="{{ locked_platform }}" selected>{{ locked_platform }}</option>
-                </select>
-                <input type="hidden" name="platform" value="{{ locked_platform }}">
-            {% else %}
-                {{ form.platform }}
-            {% endif %}
+        <div class="row g-2 align-items-end mb-2">
+            <div class="col-6" id="game-platform-field">
+                {% if platform_locked %}
+                    <select name="platform" id="id_platform" class="form-select" disabled>
+                        <option value="{{ locked_platform }}" selected>{{ locked_platform }}</option>
+                    </select>
+                    <input type="hidden" name="platform" value="{{ locked_platform }}">
+                {% else %}
+                    {{ form.platform }}
+                {% endif %}
+            </div>
+
+            <div class="col-6 timing-field" id="timing-field" {% if object.platform != "Root Digital" %}style="display:none;"{% endif %}>
+                <div class="btn-group d-flex" role="group" aria-label="{% trans 'Game type' %}">
+                    {% for radio in form.type %}
+                        <input type="radio" class="btn-check" name="{{ radio.data.name }}"
+                               id="{{ radio.id_for_label }}" value="{{ radio.data.value }}"
+                               autocomplete="off" {% if radio.data.selected %}checked{% endif %}>
+                        <label class="btn btn-outline-dark" for="{{ radio.id_for_label }}">
+                            {% if radio.data.value == 'Live' %}<i class="bi bi-stopwatch-fill me-1"></i>
+                            {% elif radio.data.value == 'Async' %}<i class="bi bi-calendar2-week-fill me-1"></i>{% endif %}
+                            {{ radio.data.label }}
+                        </label>
+                    {% endfor %}
+                </div>
+            </div>
         </div>
 
-        <div class="timing-field" id="timing-field" {% if object.platform != "Root Digital" %}style="display:none;"{% endif %}>
-            {{ form.type.label_tag }} {{ form.type }}
+        <div class="row g-2 mb-2">
+            <div class="col-12 col-md-6" id="game-deck-field">
+                {{ form.deck }}
+            </div>
+            <div class="col-6 col-md-3" id="game-map-field">
+                {{ form.map }}
+
+            </div>
+            <div class="col-6 col-md-3 form-check">
+                    {{ form.random_clearing }}
+                    <label class="form-check-label" for="{{ form.random_clearing.id_for_label }}">{% trans 'Random Clearings' %}</label>
+            </div>
         </div>
 
-        <div id="game-deck-field">
-            {{ form.deck.label_tag }} {{ form.deck }}
-        </div>
-        <div id="game-map-field">
-            {{ form.map.label_tag }} {{ form.map }} {{ form.random_clearing }} {% trans 'Random Clearings' %}
-        </div>
-
-        <div id="game-landmarks-field">
-            {{ form.landmarks.label_tag }} {{ form.landmarks }}
-        </div>
-        <div class="hireling-field" id="hireling-field">
-            {{ form.hirelings.label_tag }} {{ form.hirelings }}
+        <div class="row g-2">
+            <div class="col-12 col-md-6" id="game-landmarks-field">
+                {{ form.landmarks }}
+            </div>
+            <div class="col-12 col-md-6 hireling-field" id="hireling-field">
+                {{ form.hirelings }}
+            </div>
         </div>
     </div>
 
@@ -177,16 +253,44 @@
                 <div class="drag-bar sortable-handle"></div>
                 <div class="drag-card-content">
 
-                <div class="player-field">{% trans 'Player' %}: {{ form.player }}</div>
+                <div class="player-field mb-2">{{ form.player }}</div>
 
-                <div class="faction-field">{% trans 'Faction' %}: {{ form.faction }}</div>
-                <div class="vagabond-field" style="display:none;">{% trans 'Vagabond' %}: {{ form.vagabond }}</div>
-                <div class="captains-field" style="display:none;">{% trans 'Captains' %}: {{ form.captains }}</div>
-                <div class="discarded-captain-field" style="display:none;">{% trans 'Discarded Captain' %}: {{ form.discarded_captain }}</div>
-                <div class="score-field">{% trans 'Score' %}: {{ form.score }}</div>
-                <div class="win-field">{% trans 'Win' %}: {{ form.win }}</div>
-                <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ form.coalition_with }}</div>
-                <div class="dominance-field">{% trans 'Dominance' %}: {{ form.dominance }}<span class="brazen-demogogue-field" style="display:none; margin-left:0.5rem;">{{ form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
+                <div class="row g-2 mb-2">
+                    <div class="col-12 col-md-6 faction-field">{{ form.faction }}</div>
+                    <div class="col-12 col-md-6">
+                        <div class="vagabond-field" style="display:none;">{{ form.vagabond }}</div>
+                    </div>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-12 col-md-6 captains-field" style="display:none;">
+                        <div class="d-flex align-items-center gap-1">
+                            <i class="bi bi-check-circle-fill text-success" title="{% trans 'Active Captains' %}"></i>
+                            <div class="flex-grow-1">{{ form.captains }}</div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6 discarded-captain-field" style="display:none;">
+                        <div class="d-flex align-items-center gap-1">
+                            <i class="bi bi-x-circle-fill text-danger" title="{% trans 'Discarded Captain' %}"></i>
+                            <div class="flex-grow-1">{{ form.discarded_captain }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-2 mb-2 align-items-center">
+                    <div class="col-6 score-field">
+                        <div class="input-group">
+                            <span class="input-group-text"><img src="{% static 'pdf/inline/VP.png' %}" alt="{% trans 'Score' %}" style="height:1.2em; width:auto;"></span>
+                            {{ form.score }}
+                        </div>
+                    </div>
+                    <div class="col-6 win-field">{% trans 'Win' %}: {{ form.win }}</div>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-12 col-md-6 coalition-field" style="display:none;">{{ form.coalition_with }}</div>
+                </div>
+                <div class="row g-2 align-items-center mb-2">
+                    <div class="col-6 dominance-field">{{ form.dominance }}</div>
+                    <div class="col-6"><span class="brazen-demogogue-field" style="display:none;">{{ form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
+                </div>
 
                 {% if not match_mode %}
                 <button class="btn btn-warning btn-sm" type="button" onclick="deleteForm(this)">
@@ -217,15 +321,43 @@
     <div id="empty-form" class="hidden effort-form form-control drag-card">
         <div class="drag-bar sortable-handle"></div>
         <div class="drag-card-content">
-        <div class="player-field">{% trans 'Player' %}: {{ formset.empty_form.player }}</div>
-        <div class="faction-field">{% trans 'Faction' %}: {{ formset.empty_form.faction }}</div>
-        <div class="vagabond-field" style="display:none;">{% trans 'Vagabond' %}: {{ formset.empty_form.vagabond }}</div>
-        <div class="captains-field" style="display:none;">{% trans 'Captains' %}: {{ formset.empty_form.captains }}</div>
-        <div class="discarded-captain-field" style="display:none;">{% trans 'Discarded Captain' %}: {{ formset.empty_form.discarded_captain }}</div>
-        <div class="score-field">{% trans 'Score' %}: {{ formset.empty_form.score }}</div>
-        <div class="win-field">{% trans 'Win' %}: {{ formset.empty_form.win }}</div>
-        <div class="coalition-field" style="display:none;">{% trans 'Coalition' %}: {{ formset.empty_form.coalition_with }}</div>
-        <div class="dominance-field">{% trans 'Dominance' %}: {{ formset.empty_form.dominance }}<span class="brazen-demogogue-field" style="display:none; margin-left:0.5rem;">{{ formset.empty_form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
+        <div class="player-field mb-2">{{ formset.empty_form.player }}</div>
+        <div class="row g-2 mb-2">
+            <div class="col-12 col-md-6 faction-field">{{ formset.empty_form.faction }}</div>
+            <div class="col-12 col-md-6">
+                <div class="vagabond-field" style="display:none;">{{ formset.empty_form.vagabond }}</div>
+            </div>
+        </div>
+        <div class="row g-2 mb-2">
+            <div class="col-12 col-md-6 captains-field" style="display:none;">
+                <div class="d-flex align-items-center gap-1">
+                    <i class="bi bi-check-circle-fill text-success" title="{% trans 'Active Captains' %}"></i>
+                    <div class="flex-grow-1">{{ formset.empty_form.captains }}</div>
+                </div>
+            </div>
+            <div class="col-12 col-md-6 discarded-captain-field" style="display:none;">
+                <div class="d-flex align-items-center gap-1">
+                    <i class="bi bi-x-circle-fill text-danger" title="{% trans 'Discarded Captain' %}"></i>
+                    <div class="flex-grow-1">{{ formset.empty_form.discarded_captain }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="row g-2 mb-2 align-items-center">
+            <div class="col-6 score-field">
+                <div class="input-group">
+                    <span class="input-group-text"><img src="{% static 'pdf/inline/VP.png' %}" alt="{% trans 'Score' %}" style="height:1.2em; width:auto;"></span>
+                    {{ formset.empty_form.score }}
+                </div>
+            </div>
+            <div class="col-6 win-field">{% trans 'Win' %}: {{ formset.empty_form.win }}</div>
+        </div>
+        <div class="row g-2 mb-2">
+            <div class="col-12 col-md-6 coalition-field" style="display:none;">{{ formset.empty_form.coalition_with }}</div>
+        </div>
+        <div class="row g-2 align-items-center mb-2">
+            <div class="col-12 col-md-6 dominance-field">{{ formset.empty_form.dominance }}</div>
+            <div class="col-12 col-md-6"><span class="brazen-demogogue-field" style="display:none;">{{ formset.empty_form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
+        </div>
         <button class="btn btn-warning btn-sm" type="button" onclick="clearForm(this)">
             {% trans 'Remove' %}
         </button>
@@ -238,49 +370,72 @@
 
     <h2>{% trans 'Misc.' %}</h2>
     <div class="form-control">
-        <div id="game-undrafted_faction-field">
-            {{ form.undrafted_faction.label_tag }} {{ form.undrafted_faction }}
-        </div>
-        <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
-            {{ form.undrafted_vagabond.label_tag }} {{ form.undrafted_vagabond }}
-        </div>
-        <div class="undrafted-captains-field" id="undrafted-captains-field" style="display:none;">
-            {{ form.undrafted_captains.label_tag }} {{ form.undrafted_captains }}
+        <div class="card border-secondary mb-2" id="undrafted-container">
+            <div class="card-header py-1 px-2 d-flex align-items-center gap-1">
+                <i class="bi bi-x-lg"></i>
+                <small class="fw-bold">{% trans 'Undrafted' %}</small>
+            </div>
+            <div class="card-body p-2">
+                <div class="row g-2">
+                    <div class="col-12 col-md-6" id="game-undrafted_faction-field">
+                        {{ form.undrafted_faction }}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="undrafted-vagabond-field" id="undrafted-vagabond-field" style="display:none;">
+                            {{ form.undrafted_vagabond }}
+                        </div>
+                        <div class="undrafted-captains-field" id="undrafted-captains-field" style="display:none;">
+                            {{ form.undrafted_captains }}
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="mt-2" id="game-tweaks-field">
-            {{ form.tweaks.label_tag }} {{ form.tweaks }}
+            {{ form.tweaks }}
         </div>
 
-        <div class="mt-2" id="game-link-field">
-            {{ form.link }}
-            <small class="text-warning" id="link-required-note" style="display:none;"><i class="bi bi-exclamation-triangle"></i> {% trans 'Link is required for this tournament' %}</small>
-            {% if form.link.errors %}
-            <div class="alert alert-warning" role="alert">
-                <ul>
-                    {% for error in form.link.errors %}
-                        <li>{{ error }}</li>
-                    {% endfor %}
-                </ul>
+        <div class="row g-2 mt-2">
+            <div class="col-12 col-md-6" id="game-link-field">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-discord"></i></span>
+                    {{ form.link }}
+                </div>
+                <small class="text-warning" id="link-required-note" style="display:none;"><i class="bi bi-exclamation-triangle"></i> {% trans 'Link is required for this tournament' %}</small>
+                {% if form.link.errors %}
+                <div class="alert alert-warning" role="alert">
+                    <ul>
+                        {% for error in form.link.errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
             </div>
-            {% endif %}
-        </div>
-        <div class="mt-2" id="game-video-link-field">
-            {{ form.video_link }}
-            {% if form.video_link.errors %}
-            <div class="alert alert-warning" role="alert">
-                <ul>
-                    {% for error in form.video_link.errors %}
-                        <li>{{ error }}</li>
-                    {% endfor %}
-                </ul>
+            <div class="col-12 col-md-6" id="game-video-link-field">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-play-btn-fill"></i></span>
+                    {{ form.video_link }}
+                </div>
+                {% if form.video_link.errors %}
+                <div class="alert alert-warning" role="alert">
+                    <ul>
+                        {% for error in form.video_link.errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
             </div>
-            {% endif %}
         </div>
         <div class="mt-2" id="game-notes-field">
             {{ form.notes }}
         </div>
         <div class="mt-2" id="date-posted-field">
-            {% trans 'Date' %}: {{ form.date_posted }}
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-calendar2-date-fill"></i></span>
+                {{ form.date_posted }}
+            </div>
         </div>
     </div>
 
@@ -305,6 +460,63 @@
 {% block scripts %}
 <script>
 const matchMode = {{ match_mode|yesno:"true,false" }};
+
+// ── Dominance select2 with icons ──
+// Resolve each icon's full static URL via static so it works with both
+// the DEBUG cache-busting (?v=) and the production manifest (hashed names)
+// storages — string concatenation on a base path breaks under both.
+const DOMINANCE_ICONS = {
+    'Mouse': "{% static 'images/dominance/Mouse_Icon.png' %}",
+    'Fox': "{% static 'images/dominance/Fox_Icon.png' %}",
+    'Rabbit': "{% static 'images/dominance/Rabbit_Icon.png' %}",
+    'Bird': "{% static 'images/dominance/Bird_Icon.png' %}",
+    'Dark': "{% static 'images/dominance/Dark_Icon.png' %}",
+    'Frog': "{% static 'images/dominance/Frog_Icon.png' %}",
+    'Mountain King': "{% static 'images/dominance/Mountain King_Icon.png' %}",
+};
+// Render a dominance option as "<icon> <text>". Used for both the dropdown
+// results and the selected value so the icon shows in the closed select too.
+function formatDominanceOption(option) {
+    const iconUrl = option.id ? DOMINANCE_ICONS[option.id] : null;
+    if (!iconUrl) {
+        // Placeholder / empty option (or unknown value) — render text as-is.
+        return option.text;
+    }
+    const $img = $('<span></span>');
+    $img.append(
+        $('<img>')
+            .attr('src', iconUrl)
+            .attr('alt', option.text)
+            .css({ height: '1.2em', width: 'auto', 'margin-right': '0.4em', 'vertical-align': 'text-bottom' })
+    );
+    $img.append(document.createTextNode(option.text));
+    return $img;
+}
+function initDominanceSelect2(selector) {
+    $(selector).select2({
+        placeholder: '{% trans "Dominance" %}',
+        allowClear: true,
+        width: '100%',
+        // Only a handful of options — no need for a search box.
+        minimumResultsForSearch: Infinity,
+        templateResult: formatDominanceOption,
+        templateSelection: formatDominanceOption,
+    });
+}
+function initCoalitionSelect2(selector) {
+    $(selector).select2({
+        placeholder: '{% trans "Select a Coalition Partner" %}',
+        allowClear: true,
+        width: '100%',
+    });
+}
+function initDiscardedCaptainSelect2(selector) {
+    $(selector).select2({
+        placeholder: '{% trans "Select a Discarded Captain" %}',
+        allowClear: true,
+        width: '100%',
+    });
+}
 
 {% if not match_mode %}
 // Whether new players may be registered from the player dropdown. Disabled when
@@ -361,6 +573,17 @@ document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal',
 {% endif %}
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Prevent the mouse wheel from changing score number inputs (it's easy to
+    // scroll over a focused field and accidentally alter the value). Delegated
+    // so it also covers dynamically-added effort rows. passive:false lets us
+    // call preventDefault.
+    document.addEventListener('wheel', function(event) {
+        const el = event.target;
+        if (el && el.type === 'number' && el.id && el.id.endsWith('-score') && el === document.activeElement) {
+            event.preventDefault();
+        }
+    }, { passive: false });
+
     const platformSelect = document.getElementById('id_platform');
     const tournamentSelect = document.getElementById('id_round');
     const deckSelect = document.getElementById('id_deck');
@@ -469,21 +692,21 @@ document.addEventListener('DOMContentLoaded', function() {
     function updatePlayerFields(playersData) {
         const playerFields = document.querySelectorAll('[id$="-player"]');
         playerFields.forEach(playerField => {
-            updateSelectOptions(playerField, playersData, '----------');
+            updateSelectOptions(playerField, playersData, ' ');
         });
     }
 
     function updateFactionFields(factionsData) {
         const factionFields = document.querySelectorAll('[id$="-faction"]');
         factionFields.forEach(factionField => {
-            updateSelectOptions(factionField, factionsData, '----------');
+            updateSelectOptions(factionField, factionsData, ' ');
         });
     }
 
     function updateVagabondsFields(vagabondsData) {
         const vagabondFields = document.querySelectorAll('[id$="-vagabond"]');
         vagabondFields.forEach(vagabondField => {
-            updateSelectOptions(vagabondField, vagabondsData, '----------');
+            updateSelectOptions(vagabondField, vagabondsData, ' ');
         });
     }
 
@@ -506,7 +729,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (match) {
                 refreshDiscardedOptions(parseInt(match[1], 10));
             } else {
-                updateSelectOptions(discardedField, captainsPool, '----------');
+                updateSelectOptions(discardedField, captainsPool, ' ');
             }
         });
     }
@@ -521,7 +744,7 @@ document.addEventListener('DOMContentLoaded', function() {
             ? Array.from(captainsSelect.selectedOptions).map(o => o.value)
             : [];
         const available = captainsPool.filter(c => !selectedCaptainIds.includes(String(c.id)));
-        updateSelectOptions(discardedSelect, available, '----------');
+        updateSelectOptions(discardedSelect, available, ' ');
     }
 
     function updatePlatformField(platform) {
@@ -613,9 +836,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const coalitionFields = document.querySelectorAll('[id$="-coalition_with"]');
         coalitionFields.forEach(coalitionField => {
-            updateSelectOptions(coalitionField, coalitionObjectList, '----------');
+            updateSelectOptions(coalitionField, coalitionObjectList, ' ');
             if ($(coalitionField).is(":visible")) {
-                $(coalitionField).select2();
+                initCoalitionSelect2(coalitionField);
             }
         });
     }
@@ -672,7 +895,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (dominanceBlock) dominanceBlock.style.display = "none";
                 $(dominanceSelector).val(null).trigger('change');
                 $(VBselector).select2();
-                $(coalitionSelector).select2();
+                initCoalitionSelect2(coalitionSelector);
             } else {
                 if (vagabondBlock) vagabondBlock.style.display = "none";
                 if (coalitionBlock) coalitionBlock.style.display = "none";
@@ -685,7 +908,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (captainsBlock) captainsBlock.style.display = "block";
                 if (discardedBlock) discardedBlock.style.display = "block";
                 $(captainsSelector).select2();
-                $(discardedSelector).select2();
+                initDiscardedCaptainSelect2(discardedSelector);
                 refreshDiscardedOptions(index);
             } else {
                 if (captainsBlock) captainsBlock.style.display = "none";
@@ -725,13 +948,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 return response.json();
             })
             .then(data => {
-                updateSelectOptions(deckSelect, data.decks, '{% trans "Choose a deck" %}');
-                updateSelectOptions(mapSelect, data.maps, '{% trans "Choose a map" %}');
+                updateSelectOptions(deckSelect, data.decks, ' ');
+                updateSelectOptions(mapSelect, data.maps, ' ');
                 updateSelectOptions(landmarksSelect, data.landmarks);
                 updateSelectOptions(tweaksSelect, data.tweaks);
                 updateSelectOptions(hirelingsSelect, data.hirelings);
-                updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
-                updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
+                updateSelectOptions(undraftedFactionSelect, data.factions, ' ');
+                updateSelectOptions(undraftedVagabondSelect, data.vagabonds, ' ');
                 updateSelectOptions(undraftedCaptainsSelect, data.captains);
 
                 if (!matchMode) {
@@ -763,13 +986,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 return response.json();
             })
             .then(data => {
-                updateSelectOptions(deckSelect, data.decks, '{% trans "Choose a deck" %}');
-                updateSelectOptions(mapSelect, data.maps, '{% trans "Choose a map" %}');
+                updateSelectOptions(deckSelect, data.decks, ' ');
+                updateSelectOptions(mapSelect, data.maps, ' ');
                 updateSelectOptions(landmarksSelect, data.landmarks);
                 updateSelectOptions(tweaksSelect, data.tweaks);
                 updateSelectOptions(hirelingsSelect, data.hirelings);
-                updateSelectOptions(undraftedFactionSelect, data.factions, '----------');
-                updateSelectOptions(undraftedVagabondSelect, data.vagabonds, '----------');
+                updateSelectOptions(undraftedFactionSelect, data.factions, ' ');
+                updateSelectOptions(undraftedVagabondSelect, data.vagabonds, ' ');
                 updateSelectOptions(undraftedCaptainsSelect, data.captains);
 
                 if (!matchMode) {
@@ -969,11 +1192,11 @@ document.addEventListener('DOMContentLoaded', function() {
     $('#id_hirelings').select2();
     $('#id_tweaks').select2();
     $('#id_landmarks').select2();
-    $('#id_undrafted_faction').select2();
+    $('#id_undrafted_faction').select2({ placeholder: '{% trans "Undrafted Faction" %}', allowClear: true, width: '100%' });
     $('#id_undrafted_vagabond').select2();
     $('#id_undrafted_captains').select2();
-    $('#id_map').select2();
-    $('#id_deck').select2();
+    $('#id_map').select2({ placeholder: '{% trans "Select a Map" %}', allowClear: true, width: '100%' });
+    $('#id_deck').select2({ placeholder: '{% trans "Select a Deck" %}', allowClear: true, width: '100%' });
 
     // ── Undrafted faction toggle ──
     var undrafted_vagabondBlock = document.getElementById("undrafted-vagabond-field");
@@ -1014,8 +1237,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         $("#id_form-" + index.toString() + "-vagabond").select2();
         $("#id_form-" + index.toString() + "-captains").select2();
-        $("#id_form-" + index.toString() + "-discarded_captain").select2();
-        $("#id_form-" + index.toString() + "-coalition_with").select2();
+        initDiscardedCaptainSelect2("#id_form-" + index.toString() + "-discarded_captain");
+        initCoalitionSelect2("#id_form-" + index.toString() + "-coalition_with");
+        initDominanceSelect2("#id_form-" + index.toString() + "-dominance");
     });
 
     // Trigger initial faction changes
@@ -1081,8 +1305,9 @@ document.addEventListener('DOMContentLoaded', function() {
         $('#id_form-' + nextFormIndex + '-faction').select2();
         $('#id_form-' + nextFormIndex + '-vagabond').select2();
         $('#id_form-' + nextFormIndex + '-captains').select2();
-        $('#id_form-' + nextFormIndex + '-discarded_captain').select2();
-        $('#id_form-' + nextFormIndex + '-coalition_with').select2();
+        initDiscardedCaptainSelect2('#id_form-' + nextFormIndex + '-discarded_captain');
+        initCoalitionSelect2('#id_form-' + nextFormIndex + '-coalition_with');
+        initDominanceSelect2('#id_form-' + nextFormIndex + '-dominance');
         refreshDiscardedOptions(nextFormIndex);
 
         // Refresh sortable

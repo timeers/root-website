@@ -3,7 +3,7 @@
 {% if show_extra_rounds_control %}
 <div class="card d-inline-block">
     <div class="card-header bg-transparent text-center">
-        <small class="root-title text-muted">{% trans 'Also count in your series' %}</small>
+        <small class="root-title text-muted">{% trans 'Add Results To:' %}</small>
     </div>
     <div class="card-body text-center">
         {% if extra_rounds_owned %}
@@ -34,7 +34,7 @@
             hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
             class="d-flex align-items-center justify-content-center gap-2">
             <select name="round_id" class="form-select form-select-sm w-auto" required>
-                <option value="" selected disabled>{% trans 'Add to a round…' %}</option>
+                <option value="" selected disabled>{% trans 'Select…' %}</option>
                 {% for round in addable_rounds %}
                 <option value="{{ round.id }}">{{ round.get_tournament.name }} — {{ round }}</option>
                 {% endfor %}

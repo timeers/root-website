@@ -57,7 +57,8 @@ class GameCreateForm(forms.ModelForm):
     ]
     platform = forms.ChoiceField(
         choices=PLATFORM_CHOICES, initial="Tabletop Simulator",
-        required=True
+        required=True,
+        widget=forms.Select(attrs={'class': 'form-select'}),
     )
     
     class Meta:
@@ -103,10 +104,37 @@ class GameCreateForm(forms.ModelForm):
         })
         self.fields['nickname'].widget.attrs.update({
             'placeholder': _('Game Nickname (optional)'),
-            'class': 'form-control full-width', 
+            'class': 'form-control full-width',
         })
+        # Constrain the Series (round) select to its container so long option
+        # text doesn't overflow the form card. The empty option doubles as the
+        # field's label, so no external label is rendered.
+        self.fields['round'].widget.attrs.update({
+            'class': 'form-control full-width',
+        })
+        self.fields['round'].empty_label = _('Select a League, Group or Tournament')
+        # Deck and Map are labeled by their select2 placeholder rather than an
+        # external label. Use a blank empty option so the placeholder shows.
+        self.fields['deck'].empty_label = ''
+        self.fields['map'].empty_label = ''
+        self.fields['deck'].widget.attrs.update({'class': 'form-control'})
+        self.fields['map'].widget.attrs.update({'class': 'form-control'})
+        self.fields['random_clearing'].widget.attrs.update({'class': 'form-check-input'})
+        # Landmarks and Hirelings are multi-selects labeled by their select2
+        # placeholder. data-placeholder is read automatically by every
+        # .select2() call, including the bare re-inits in record_game_v2.html.
+        self.fields['landmarks'].widget.attrs.update({'data-placeholder': _('Select Landmarks')})
+        self.fields['hirelings'].widget.attrs.update({'data-placeholder': _('Select Hirelings')})
+        self.fields['tweaks'].widget.attrs.update({'data-placeholder': _('Select House Rules')})
+        # Undrafted faction/vagabond/captains are labeled by their select2
+        # placeholder. data-placeholder is read by every .select2() re-init.
+        self.fields['undrafted_faction'].empty_label = ''
+        self.fields['undrafted_vagabond'].empty_label = ''
+        self.fields['undrafted_faction'].widget.attrs.update({'data-placeholder': _('Undrafted Faction')})
+        self.fields['undrafted_vagabond'].widget.attrs.update({'data-placeholder': _('Undrafted Vagabond')})
+        self.fields['undrafted_captains'].widget.attrs.update({'data-placeholder': _('Undrafted Captains')})
 
-        self.effort_formset = effort_formset 
+        self.effort_formset = effort_formset
 
         # Filter for only Official content if not a member of Weird Root
         if not user.profile.weird:
@@ -498,9 +526,9 @@ class GameCreateFormV2(GameCreateForm):
 class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
     score = forms.IntegerField(
-        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'min': 0, 'step': 1}),
+        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'min': 0, 'step': 1, 'class': 'form-control'}),
         required=False,
-        initial=0 
+        initial=0
     )
     delete = forms.BooleanField(required=False, initial=False, widget=forms.CheckboxInput(attrs={'class': 'delete-form-checkbox'}))
     captains = forms.ModelMultipleChoiceField(
@@ -520,6 +548,27 @@ class EffortCreateForm(forms.ModelForm):
         # Check if 'game' is passed in kwargs and set it
         self.game = kwargs.pop('game', None)
         super().__init__(*args, **kwargs)
+        # Effort fields are labeled by their select2 placeholder rather than an
+        # external label. Single selects use a blank empty option so the
+        # placeholder shows; data-placeholder is read by every .select2() init.
+        self.fields['player'].empty_label = ''
+        self.fields['faction'].empty_label = ''
+        self.fields['vagabond'].empty_label = ''
+        self.fields['discarded_captain'].empty_label = ''
+        self.fields['player'].widget.attrs.update({'data-placeholder': _('Select a Player')})
+        self.fields['faction'].widget.attrs.update({'data-placeholder': _('Select a Faction')})
+        self.fields['vagabond'].widget.attrs.update({'data-placeholder': _('Select a Vagabond')})
+        self.fields['captains'].widget.attrs.update({'data-placeholder': _('Select Captains')})
+        self.fields['discarded_captain'].widget.attrs.update({'data-placeholder': _('Select a Discarded Captain')})
+        self.fields['coalition_with'].empty_label = ''
+        self.fields['coalition_with'].widget.attrs.update({'data-placeholder': _('Select a Coalition Partner')})
+        # Dominance is labeled by its select2 placeholder; blank the empty
+        # choice's label so the placeholder shows instead of "---------".
+        self.fields['dominance'].widget.attrs.update({'data-placeholder': _('Dominance')})
+        dominance_choices = list(self.fields['dominance'].choices)
+        if dominance_choices and dominance_choices[0][0] == '':
+            dominance_choices[0] = ('', '')
+            self.fields['dominance'].choices = dominance_choices
 
     def clean(self):
         validation_errors_to_display = []

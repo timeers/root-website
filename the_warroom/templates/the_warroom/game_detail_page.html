@@ -203,7 +203,9 @@
     </div>
 </article>
 
-
+{% if show_extra_rounds_control %}
+    {% include 'the_warroom/partials/game_extra_rounds_control.html' %}
+{% endif %}
 
 {% if edit_permission %}
 <div class="text-center my-2">
@@ -225,9 +227,7 @@
 </div>
 {% endif %}
 
-{% if show_extra_rounds_control %}
-    {% include 'the_warroom/partials/game_extra_rounds_control.html' %}
-{% endif %}
+
 
 {% if user.profile.player %}
 

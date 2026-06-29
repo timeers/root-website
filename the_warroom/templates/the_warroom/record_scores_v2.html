@@ -707,6 +707,17 @@
 {% block scripts %}
 <script>
 $(document).ready(function () {
+    // Prevent the mouse wheel from changing number inputs (it's easy to scroll
+    // over a focused field and accidentally alter the value). Delegated on the
+    // document so it also covers dynamically-added turn rows. passive:false
+    // lets us call preventDefault.
+    document.addEventListener('wheel', function(event) {
+        const el = event.target;
+        if (el && el.type === 'number' && el === document.activeElement) {
+            event.preventDefault();
+        }
+    }, { passive: false });
+
     $('#id_faction').select2();
 
     // Configuration
