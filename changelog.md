@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.9] - 2026-6-28 Game Form Improvements
+## [1.12.9] - 2026-6-29 Game Form Improvements
 
 ### New Features
 - New options when recording games:
@@ -15,6 +15,7 @@
 - Added spinner when filtering games
 - Auto fill video link from scheduled match
 - Better header for mobile
+- Cleaner record game layout
 
 ### Bug Fixes
 - When viewing the series bracket clicking on a stage without any rounds brings you to the match page instead of the bracket page

@@ -97,42 +97,50 @@ class GameCreateForm(forms.ModelForm):
         self.fields['link'].widget.attrs.update({
             'placeholder': 'Discord Thread Link',
             'class': 'form-control full-width',
+            'aria-label': _('Discord Thread Link'),
         })
         self.fields['video_link'].widget.attrs.update({
             'placeholder': 'Twitch/YouTube Link',
             'class': 'form-control full-width',
+            'aria-label': _('Twitch/YouTube Link'),
         })
         self.fields['nickname'].widget.attrs.update({
             'placeholder': _('Game Nickname (optional)'),
             'class': 'form-control full-width',
+            'aria-label': _('Game Nickname'),
         })
         # Constrain the Series (round) select to its container so long option
         # text doesn't overflow the form card. The empty option doubles as the
-        # field's label, so no external label is rendered.
+        # field's label, so no external label is rendered. We still set an
+        # aria-label on each placeholder-labeled field so it has an accessible
+        # name (the visible label was removed in favor of the placeholder).
         self.fields['round'].widget.attrs.update({
             'class': 'form-control full-width',
+            'aria-label': _('Series'),
         })
         self.fields['round'].empty_label = _('Select a League, Group or Tournament')
         # Deck and Map are labeled by their select2 placeholder rather than an
         # external label. Use a blank empty option so the placeholder shows.
         self.fields['deck'].empty_label = ''
         self.fields['map'].empty_label = ''
-        self.fields['deck'].widget.attrs.update({'class': 'form-control'})
-        self.fields['map'].widget.attrs.update({'class': 'form-control'})
+        self.fields['deck'].widget.attrs.update({'class': 'form-control', 'aria-label': _('Deck')})
+        self.fields['map'].widget.attrs.update({'class': 'form-control', 'aria-label': _('Map')})
         self.fields['random_clearing'].widget.attrs.update({'class': 'form-check-input'})
         # Landmarks and Hirelings are multi-selects labeled by their select2
         # placeholder. data-placeholder is read automatically by every
         # .select2() call, including the bare re-inits in record_game_v2.html.
-        self.fields['landmarks'].widget.attrs.update({'data-placeholder': _('Select Landmarks')})
-        self.fields['hirelings'].widget.attrs.update({'data-placeholder': _('Select Hirelings')})
-        self.fields['tweaks'].widget.attrs.update({'data-placeholder': _('Select House Rules')})
+        self.fields['landmarks'].widget.attrs.update({'data-placeholder': _('Select Landmarks'), 'aria-label': _('Landmarks')})
+        self.fields['hirelings'].widget.attrs.update({'data-placeholder': _('Select Hirelings'), 'aria-label': _('Hirelings')})
+        self.fields['tweaks'].widget.attrs.update({'data-placeholder': _('Select House Rules'), 'aria-label': _('House Rules')})
+        self.fields['platform'].widget.attrs.update({'aria-label': _('Platform')})
+        self.fields['notes'].widget.attrs.update({'aria-label': _('Notes')})
         # Undrafted faction/vagabond/captains are labeled by their select2
         # placeholder. data-placeholder is read by every .select2() re-init.
         self.fields['undrafted_faction'].empty_label = ''
         self.fields['undrafted_vagabond'].empty_label = ''
-        self.fields['undrafted_faction'].widget.attrs.update({'data-placeholder': _('Undrafted Faction')})
-        self.fields['undrafted_vagabond'].widget.attrs.update({'data-placeholder': _('Undrafted Vagabond')})
-        self.fields['undrafted_captains'].widget.attrs.update({'data-placeholder': _('Undrafted Captains')})
+        self.fields['undrafted_faction'].widget.attrs.update({'data-placeholder': _('Undrafted Faction'), 'aria-label': _('Undrafted Faction')})
+        self.fields['undrafted_vagabond'].widget.attrs.update({'data-placeholder': _('Undrafted Vagabond'), 'aria-label': _('Undrafted Vagabond')})
+        self.fields['undrafted_captains'].widget.attrs.update({'data-placeholder': _('Undrafted Captains'), 'aria-label': _('Undrafted Captains')})
 
         self.effort_formset = effort_formset
 
@@ -555,16 +563,18 @@ class EffortCreateForm(forms.ModelForm):
         self.fields['faction'].empty_label = ''
         self.fields['vagabond'].empty_label = ''
         self.fields['discarded_captain'].empty_label = ''
-        self.fields['player'].widget.attrs.update({'data-placeholder': _('Select a Player')})
-        self.fields['faction'].widget.attrs.update({'data-placeholder': _('Select a Faction')})
-        self.fields['vagabond'].widget.attrs.update({'data-placeholder': _('Select a Vagabond')})
-        self.fields['captains'].widget.attrs.update({'data-placeholder': _('Select Captains')})
-        self.fields['discarded_captain'].widget.attrs.update({'data-placeholder': _('Select a Discarded Captain')})
+        self.fields['player'].widget.attrs.update({'data-placeholder': _('Select a Player'), 'aria-label': _('Player')})
+        self.fields['faction'].widget.attrs.update({'data-placeholder': _('Select a Faction'), 'aria-label': _('Faction')})
+        self.fields['vagabond'].widget.attrs.update({'data-placeholder': _('Select a Vagabond'), 'aria-label': _('Vagabond')})
+        self.fields['captains'].widget.attrs.update({'data-placeholder': _('Select Captains'), 'aria-label': _('Captains')})
+        self.fields['discarded_captain'].widget.attrs.update({'data-placeholder': _('Select a Discarded Captain'), 'aria-label': _('Discarded Captain')})
         self.fields['coalition_with'].empty_label = ''
-        self.fields['coalition_with'].widget.attrs.update({'data-placeholder': _('Select a Coalition Partner')})
+        self.fields['coalition_with'].widget.attrs.update({'data-placeholder': _('Select a Coalition Partner'), 'aria-label': _('Coalition Partner')})
+        self.fields['score'].widget.attrs.update({'aria-label': _('Score')})
+        self.fields['win'].widget.attrs.update({'aria-label': _('Win')})
         # Dominance is labeled by its select2 placeholder; blank the empty
         # choice's label so the placeholder shows instead of "---------".
-        self.fields['dominance'].widget.attrs.update({'data-placeholder': _('Dominance')})
+        self.fields['dominance'].widget.attrs.update({'data-placeholder': _('Dominance'), 'aria-label': _('Dominance')})
         dominance_choices = list(self.fields['dominance'].choices)
         if dominance_choices and dominance_choices[0][0] == '':
             dominance_choices[0] = ('', '')
