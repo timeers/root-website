@@ -9,6 +9,7 @@
 - Discarded Captain when Knaves selected
 - Undrafted Captains when Knaves undrafted
 - Page for games played with specific captain
+- Next Scheduled Match in header dropdown
 
 ### Improvements
 - Added spinner when filtering games

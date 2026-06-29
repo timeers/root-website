@@ -256,7 +256,9 @@ MEDIA_URL = '/media/'
 # forge_editor.4f2a9c1b.js) so changing a file changes its URL and browsers are
 # forced to refetch — no more stale JS/CSS after a deploy. Requires
 # `collectstatic` on every deploy to (re)build the staticfiles.json manifest.
-# Left as the plain storage in DEBUG so local dev works without collectstatic.
+# In DEBUG we use DevCacheBustStorage, which appends ?v=<file-mtime> to each
+# static URL so local edits bust the browser cache automatically (Safari caches
+# plain dev-served static files aggressively) without needing collectstatic.
 # Media (uploads) always uses the filesystem backend, unaffected by hashing.
 STORAGES = {
     "default": {
@@ -266,7 +268,7 @@ STORAGES = {
         "BACKEND": (
             "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
             if not DEBUG
-            else "django.contrib.staticfiles.storage.StaticFilesStorage"
+            else "the_gatehouse.storage.DevCacheBustStorage"
         ),
     },
 }

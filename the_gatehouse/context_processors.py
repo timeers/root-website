@@ -1,7 +1,10 @@
 # Context Processors
+from datetime import timedelta
+
 from django.db.models import Q
+from django.utils import timezone
 from the_keep.models import Post
-from the_warroom.models import Game, ScoreCard
+from the_warroom.models import Game, ScoreCard, Match, Round, CompetitionStatus
 from .models import Website
 from .services.context_service import get_theme
 
@@ -33,6 +36,7 @@ def active_user_data(request):
         bookmarks = 0
         approved_invites = []
         user_notifications = []
+        next_scheduled_matches = []
 
         if hasattr(request, 'user') and request.user.is_authenticated:
             try:
@@ -65,6 +69,27 @@ def active_user_data(request):
                     is_dismissed=False
                 ).order_by('-created_at')
 
+                # Next upcoming scheduled matches the player is seated in. Mirrors
+                # _upcoming_scheduled_matches() in the_warroom.views: finalized
+                # bracket, a future scheduled_time (6h leeway), and no recorded
+                # result yet. Scoped to this player's seats across all tournaments.
+                # distinct() guards against duplicate rows when the player holds
+                # more than one seat in a series; the first 2 are kept.
+                schedule_cutoff = timezone.now() - timedelta(hours=6)
+                next_scheduled_matches = list(
+                    Match.objects.filter(
+                        series__matchseat__stage_participant__tournament_player__profile=profile,
+                        round__bracket_status=Round.BracketStatusChoices.FINALIZED,
+                        scheduled_time__isnull=False,
+                        scheduled_time__gte=schedule_cutoff,
+                    )
+                    .exclude(status=CompetitionStatus.COMPLETED)
+                    .exclude(game__final=True)
+                    .select_related('round', 'round__stage', 'round__stage__tournament', 'series')
+                    .order_by('scheduled_time')
+                    .distinct()[:2]
+                )
+
             except ObjectDoesNotExist:
                 pass  # profile or related object not found
             except Exception:
@@ -87,6 +112,7 @@ def active_user_data(request):
             'user_scorecard_count': scorecard_count,
             'approved_invites': approved_invites,
             'user_notifications': user_notifications,
+            'next_scheduled_matches': next_scheduled_matches,
             'theme': theme,
             'theme_artists': theme_artists,
             'global_message': global_message,

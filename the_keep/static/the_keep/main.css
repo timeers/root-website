@@ -323,13 +323,39 @@ em, i {
       border: 2px solid rgba(255, 255, 255, 0.5);
     }
 
-    /* Section dividers between groups of links */
+    /* Section dividers between groups of links. The user-menu dividers are
+       <li><hr class="dropdown-divider"></li> inside a flex-column .navbar-nav,
+       so the wrapping <li> items must span full width or the <hr> collapses to
+       content width (i.e. shows as nothing). */
+    .site-header .offcanvas .navbar-nav > li {
+      width: 100%;
+    }
+
+    /* .dropdown-divider colours its line from --bs-dropdown-divider-bg, which
+       is only defined inside a .dropdown-menu — in the offcanvas it's empty, so
+       the border renders transparent. Set the full border-top explicitly. */
     .site-header .offcanvas .dropdown-divider,
     .site-header .offcanvas .mobile-section-divider {
-      border-top-color: rgba(255, 255, 255, 0.25);
+      width: 100%;
+      height: 0;
+      border: 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.25);
       opacity: 1;
       margin: 0.5rem 0;
     }
+
+    /* "Next Scheduled Match" header + time read against the dark panel. */
+    .site-header .offcanvas .dropdown-header,
+    .site-header .offcanvas .scheduled-time {
+      color: rgba(255, 255, 255, 0.65);
+    }
+  }
+
+  /* Scheduled-match time in the desktop dropdown (white background): keep it a
+     muted gray. text-muted was dropped from the markup so the mobile panel can
+     override the color without specificity fights. */
+  .site-header .dropdown-menu .scheduled-time {
+    color: #6c757d;
   }
 
   .content-section {
