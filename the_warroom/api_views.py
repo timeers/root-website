@@ -1,7 +1,7 @@
 # api_views.py
 from django.http import JsonResponse
 from django.db.models import Q
-from .models import Round, StageParticipant, TournamentPlayer
+from .models import Round, StageParticipant, TournamentPlayer, PlatformChoices
 from the_gatehouse.models import Profile
 from django.shortcuts import get_object_or_404
 
@@ -34,6 +34,16 @@ def get_options_for_tournament(request, pk):
         tournament = round.get_tournament()
 
         assets = tournament.get_asset_querysets()
+
+        # When the tournament doesn't fix a platform, the game recorder can pick
+        # one at record time. If they pick Root Digital, additionally restrict
+        # the tournament's allowed assets to those available digitally
+        # (intersection). get_asset_querysets already applies this when the
+        # tournament itself is Root Digital, so this only matters otherwise.
+        requested_platform = request.GET.get('platform')
+        if requested_platform == PlatformChoices.DWD and tournament.platform != PlatformChoices.DWD:
+            assets = {key: qs.filter(in_root_digital=True) for key, qs in assets.items()}
+
         maps = assets['maps']
         factions = assets['factions']
         decks = assets['decks']
