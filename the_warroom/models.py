@@ -1841,7 +1841,7 @@ class Effort(models.Model):
     discarded_captain = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='discarded_efforts')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts_in_coalition')
     dominance = models.CharField(max_length=20, choices=DominanceChoices.choices, null=True, blank=True)
-    brazen_demogogue = models.BooleanField(default=False)
+    brazen_demagogue = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='efforts')

@@ -4,7 +4,7 @@ from rest_framework import status, generics
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
-from the_warroom.models import ScoreCard, TurnScore, Game
+from the_warroom.models import ScoreCard, TurnScore, Game, Effort
 from the_keep.models import Faction, PostTranslation
 from the_gatehouse.utils import generate_neon_color
 from .game_serializers import GameSerializer
@@ -464,8 +464,16 @@ class GameListView(generics.ListAPIView):
             Game.objects.filter(final=True)
             .select_related(*related['select'], 'undrafted_faction', 'undrafted_vagabond')
             .prefetch_related(
-                *related['prefetch'],
+                # Override the standard efforts prefetch so the Knaves captain
+                # fields (FK discarded_captain, M2M captains) are loaded too.
+                Prefetch(
+                    'efforts',
+                    queryset=Effort.objects.select_related(
+                        'player', 'faction', 'vagabond', 'coalition_with', 'discarded_captain'
+                    ).prefetch_related('captains'),
+                ),
                 'landmarks',
                 'hirelings',
+                'undrafted_captains',
             )
         )

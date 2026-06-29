@@ -289,7 +289,7 @@
                 </div>
                 <div class="row g-2 align-items-center mb-2">
                     <div class="col-6 dominance-field">{{ form.dominance }}</div>
-                    <div class="col-6"><span class="brazen-demogogue-field" style="display:none;">{{ form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
+                    <div class="col-6"><span class="brazen-demagogue-field" style="display:none;">{{ form.brazen_demagogue }} {% trans 'Brazen Demagogue' %}</span></div>
                 </div>
 
                 {% if not match_mode %}
@@ -356,7 +356,7 @@
         </div>
         <div class="row g-2 align-items-center mb-2">
             <div class="col-12 col-md-6 dominance-field">{{ formset.empty_form.dominance }}</div>
-            <div class="col-12 col-md-6"><span class="brazen-demogogue-field" style="display:none;">{{ formset.empty_form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
+            <div class="col-12 col-md-6"><span class="brazen-demagogue-field" style="display:none;">{{ formset.empty_form.brazen_demagogue }} {% trans 'Brazen Demagogue' %}</span></div>
         </div>
         <button class="btn btn-warning btn-sm" type="button" onclick="clearForm(this)">
             {% trans 'Remove' %}
@@ -852,8 +852,8 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateBrazenVisibility(index) {
         const domSelector = "#id_form-" + index + "-dominance";
         const factionSelector = "#id_form-" + index + "-faction";
-        const $brazenWrap = $(domSelector).closest('.drag-card-content').find('.brazen-demogogue-field');
-        const $brazenInput = $brazenWrap.find('input[id$="-brazen_demogogue"]');
+        const $brazenWrap = $(domSelector).closest('.drag-card-content').find('.brazen-demagogue-field');
+        const $brazenInput = $brazenWrap.find('input[id$="-brazen_demagogue"]');
         const hasDominance = !!$(domSelector).val();
         const isVagabond = $(factionSelector + ' option:selected').text() === 'Vagabond';
         if (deckIsSquiresAndDisciples() && hasDominance && !isVagabond) {

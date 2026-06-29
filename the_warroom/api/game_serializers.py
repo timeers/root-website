@@ -11,6 +11,9 @@ class ParticipantSerializer(serializers.ModelSerializer):
     faction = serializers.SerializerMethodField()
     game_score = serializers.IntegerField(source='score', read_only=True)
     vagabond = serializers.SerializerMethodField()
+    captains = serializers.SerializerMethodField()
+    discarded_captain = serializers.SerializerMethodField()
+    brazen_demagogue = serializers.BooleanField(read_only=True)
     tournament_score = serializers.SerializerMethodField()
     turn_order = serializers.IntegerField(source='seat', read_only=True)
 
@@ -18,7 +21,8 @@ class ParticipantSerializer(serializers.ModelSerializer):
         model = Effort
         fields = [
             'id', 'player', 'player_id', 'coalition', 'faction',
-            'game_score', 'dominance', 'vagabond', 'tournament_score', 'turn_order',
+            'game_score', 'dominance', 'vagabond', 'captains', 'discarded_captain',
+            'brazen_demagogue', 'tournament_score', 'turn_order',
         ]
 
     def get_player(self, obj):
@@ -32,6 +36,12 @@ class ParticipantSerializer(serializers.ModelSerializer):
 
     def get_vagabond(self, obj):
         return obj.vagabond.slug if obj.vagabond else None
+
+    def get_captains(self, obj):
+        return [vagabond.slug for vagabond in obj.captains.all()]
+
+    def get_discarded_captain(self, obj):
+        return obj.discarded_captain.slug if obj.discarded_captain else None
 
     def get_tournament_score(self, obj):
         # 1 for a solo win, 0.5 for a coalition win, 0 for a loss.
@@ -52,6 +62,7 @@ class GameSerializer(serializers.ModelSerializer):
     table_talk_url = serializers.URLField(source='link', read_only=True)
     undrafted_faction = serializers.SerializerMethodField()
     undrafted_vagabond = serializers.SerializerMethodField()
+    undrafted_captains = serializers.SerializerMethodField()
     deck = serializers.SerializerMethodField()
     board_map = serializers.SerializerMethodField()
     random_suits = serializers.BooleanField(source='random_clearing', read_only=True)
@@ -62,7 +73,7 @@ class GameSerializer(serializers.ModelSerializer):
             'id', 'participants', 'tournament', 'hirelings', 'landmarks',
             'title', 'date_registered', 'date_modified', 'date_closed',
             'turn_timing', 'table_talk_url', 'undrafted_faction', 'undrafted_vagabond',
-            'deck', 'board_map', 'random_suits',
+            'undrafted_captains', 'deck', 'board_map', 'random_suits',
         ]
 
     def get_tournament(self, obj):
@@ -82,6 +93,9 @@ class GameSerializer(serializers.ModelSerializer):
 
     def get_undrafted_vagabond(self, obj):
         return obj.undrafted_vagabond.slug if obj.undrafted_vagabond else None
+
+    def get_undrafted_captains(self, obj):
+        return [vagabond.slug for vagabond in obj.undrafted_captains.all()]
 
     def get_deck(self, obj):
         return obj.deck.slug if obj.deck else None
