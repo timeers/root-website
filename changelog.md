@@ -12,6 +12,7 @@
 
 ### Improvements
 - Added spinner when filtering games
+- Auto fill video link from scheduled match
 
 ### Bug Fixes
 
