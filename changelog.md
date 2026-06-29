@@ -13,6 +13,7 @@
 ### Improvements
 - Added spinner when filtering games
 - Auto fill video link from scheduled match
+- Better header for mobile
 
 ### Bug Fixes
 - When viewing the series bracket clicking on a stage without any rounds brings you to the match page instead of the bracket page

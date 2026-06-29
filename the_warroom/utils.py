@@ -41,10 +41,10 @@ def clean_nickname(raw_title):
     nickname = ' '.join(nickname.split()).strip()
 
     # If nickname contains profanity, censor it
-    if profanity.contains_profanity(nickname):
-        new_nickname = profanity.censor(nickname)
-        send_discord_message_task.delay(f'Nickname "{nickname}" replaced with "{new_nickname}"')
-        nickname = new_nickname
+    # if profanity.contains_profanity(nickname):
+    #     new_nickname = profanity.censor(nickname)
+    #     send_discord_message_task.delay(f'Nickname "{nickname}" replaced with "{new_nickname}"')
+    #     nickname = new_nickname
         
 
     return nickname[:50]  # Truncate to 50 characters
