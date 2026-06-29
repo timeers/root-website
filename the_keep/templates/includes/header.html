@@ -1,21 +1,26 @@
 
-{% load allauth socialaccount i18n custom_filters %}
+{% load allauth socialaccount i18n custom_filters static %}
 {% get_providers as socialaccount_providers %}
 
 <header class="site-header">
     <nav class="navbar navbar-expand-lg navbar-dark bg-steel fixed-top" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
       <div class="container">
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarToggle" aria-controls="navbarToggle" aria-expanded="false" aria-label="Toggle navigation">
+        <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#navbarMain" aria-controls="navbarMain" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
-        <h1><a class="navbar-brand me-4 root-title" href="{% url 'site-home' %}">{{site_title}}</a></h1>
+        <h1><a class="navbar-brand me-4 root-title" href="{% url 'site-home' %}"><img class="brand-icon" src="{% static 'images/favicon.png' %}" alt="">{{site_title}}</a></h1>
                   <!-- Middle: Search Bar -->
-          
+
                   {% include 'the_keep/partials/universal_search.html' %}
 
-      
-        <div class="collapse navbar-collapse" id="navbarToggle">
-          <div class="navbar-nav align-items-center me-auto">
+
+        <div class="offcanvas offcanvas-start" tabindex="-1" id="navbarMain" aria-labelledby="navbarMainLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title root-title" id="navbarMainLabel"><img class="brand-icon" src="{% static 'images/favicon.png' %}" alt="">{{ site_title }}</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+          <div class="navbar-nav align-items-lg-center me-auto">
             <a class="nav-item nav-link" href="{% url 'archive-home' %}">
               {% trans 'Archive' %}
             </a>
@@ -34,129 +39,42 @@
           </div>
 
 
-
-          
-
-
           <!-- Navbar Right Side -->
-          <div class="navbar-nav ms-auto align-items-center"> 
+          <div class="navbar-nav ms-auto align-items-lg-center">
 
               {% if user.is_authenticated %}
 
                 {{ django_language }}
 
-                  <li class="nav-item dropdown">
+                  <!-- Desktop: avatar dropdown (lg and up) -->
+                  <li class="nav-item dropdown d-none d-lg-block">
                     <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                       <img class="md-avatar-icon img-fluid me-1" src="{{ user.profile.image.url }}">
                       {{ user.profile.name }}
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end">
-                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle me-1"></i> {% trans 'Profile' %}</a></li>
-                      <li><a class="dropdown-item" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill me-1"></i> {% trans 'My Bookmarks' %} ({{ user_bookmarks_count }})</a></li>
-
-                      {% if approved_invites %}
-                        {% for invite in approved_invites %}
-                          <li>
-                            <a class="dropdown-item d-flex align-items-center" href="{% url 'guild-invite' invite.guild.guild_id %}">
-                              <span class="position-relative">
-                                <i class="bi bi-envelope-fill me-1"></i>
-                                <span class="notification-badge">!</span>
-                              </span>
-                              <span class='ms-1'>
-                                {% trans 'Join' %} {{ invite.guild.name }}
-                              </span>
-                            </a>
-                          </li>
-                        {% endfor %}
-                      {% endif %}
-
-                      {% if user_games_count or user_active_games_count %}
-                        <li>
-                          <a class="dropdown-item d-flex align-items-center" href="{% url 'player-games' user.profile.slug %}">
-                            <span class="position-relative">
-                              <i class="bi bi-collection-play-fill me-1"></i>
-                              {% if user_active_games_count %}
-                                <span class="notification-badge">
-                                  {{ user_active_games_count }}
-                                </span>
-                              {% endif %}
-                            </span>
-                            <span class='ms-1'>
-                            {% trans 'My Games' %} ({{ user_games_count }})
-                            </span>
-                          </a>
-                        </li>
-                      {% endif %}
-                      {% if user_scorecard_count or user_active_scorecards_count %}
-                        
-                        <li>
-                          <a class="dropdown-item d-flex align-items-center" href="{% url 'scorecard-home' %}">
-                            <span class="position-relative">
-                              <i class="bi bi-graph-up me-1"></i>
-                              {% if user_active_scorecards_count %}
-                                <span class="notification-badge">
-                                  {{ user_active_scorecards_count }}
-                                </span>
-                              {% endif %}
-                            </span>
-                            <span class='ms-1'>
-                            {% trans 'My Scorecards' %} ({{ user_scorecard_count }})
-                            </span>
-                          </a>
-                        </li>
-                      
-                      {% endif %}
-
-                      
-                      {% if user_recent_posts or user.profile.designer %}
-                      <li><hr class="dropdown-divider"></li>
-                      {% endif %}
-
-                      {% comment %} {% if user_recent_posts %}
-                      <li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-collection"></i> {% trans 'My Posts' %}</a></li>
-                      {% endif %} {% endcomment %}
-
-   
-                      <li><a class="dropdown-item" href="{% url 'new-components' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'New Post' %}</a></li>
-                      {% comment %} 
-                      <li><a class="dropdown-item" href="{% url 'post-request' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'Request Post' %}</a></li> 
-                      {% endcomment %}
-
-
-                      {% if user_recent_posts %}
-                      {% comment %} <h6 class="dropdown-header">{% trans 'My Recent Posts' %}</h6> {% endcomment %}
-                        {% for user_post in user_recent_posts %}
-                            <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon me-1" src="{{ user_post.small_icon|cache_bust:user_post.small_icon_version }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
-                        {% endfor %}
-                        
-                      {% endif %}
-                      <li><hr class="dropdown-divider"></li>
-
-                      {% if user.profile.admin %}
-                          <li><a class="dropdown-item" href="{% url 'admin-dashboard' %}"><i class="bi bi-shield-lock-fill me-1"></i> {% trans 'Admin Dashboard' %}</a></li>
-                      {% endif %}
-
-                      <li><a class="dropdown-item" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected me-1"></i> {% trans 'Settings' %}</a></li>
-                      <li><a class="dropdown-item" href="{% url 'account_logout' %}"><i class="bi bi-door-open me-1"></i> {% trans 'Sign Out' %}</a></li>
+                      {% include 'includes/_user_menu_items.html' %}
                     </ul>
                   </li>
 
-
-
+                  <!-- Mobile: flat user list inside the offcanvas (below lg) -->
+                  <div class="d-lg-none w-100 mobile-user-menu">
+                    <hr class="mobile-section-divider">
+                    <div class="mobile-user-header d-flex align-items-center">
+                      <img class="lg-avatar-icon img-fluid me-2" src="{{ user.profile.image.url }}">
+                      <span class="fw-bold">{{ user.profile.name }}</span>
+                    </div>
+                    <ul class="navbar-nav">
+                      {% include 'includes/_user_menu_items.html' %}
+                    </ul>
+                  </div>
 
               {% else %}
 
-  
-
-
                   <a class="nav-item nav-link" href="{% provider_login_url 'discord' %}">{% trans 'Login' %}</a>
                   <a class="nav-item nav-link" href="{% url 'general-feedback' %}">{% trans 'Feedback' %}</a>
-
-
-                  
                   <a class="nav-item nav-link" href="{% url 'keep-about' %}">{% trans 'About' %}</a>
-                  
-                  
+
               {% get_current_language as LANGUAGE_CODE %}
               {% get_available_languages as LANGUAGES %}
 
@@ -182,8 +100,9 @@
 
 
               {% endif %}
-   
 
+
+          </div>
           </div>
         </div>
       </div>
