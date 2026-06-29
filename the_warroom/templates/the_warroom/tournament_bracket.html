@@ -34,9 +34,15 @@
     {% for stage in stages %}
         {% if tournament.use_stages %}
             <div class="card mb-4 bracket-section position-relative">
+                {% if stage.use_rounds %}
                 <a href="{% url 'stage-bracket-page' tournament_slug=tournament.slug stage_slug=stage.slug %}"
                    class="stretched-link bracket-stretched-link"
                    aria-label="{{ stage.name }}"></a>
+                {% else %}
+                <a href="{% url 'stage-matches-page' tournament_slug=tournament.slug stage_slug=stage.slug %}"
+                   class="stretched-link bracket-stretched-link"
+                   aria-label="{{ stage.name }}"></a>
+                {% endif %}
                 <div class="card-header d-flex justify-content-between align-items-center bracket-section-header">
                     <h5 class="mb-0 root-title">
                         {{ stage.name }}

@@ -97,8 +97,8 @@
                     {% if effort.vagabond %}
                         ({{ effort.vagabond }})
                     {% endif %}
-                    {% if effort.captains %}
-                        ({{ effort.captains }})
+                    {% if effort.captains.all %}
+                        ({% for captain in effort.captains.all %}{{ captain }}{% if not forloop.last %}, {% endif %}{% endfor %})
                     {% endif %}
                 {% else %}
                     {% trans 'Faction N/A' %}
@@ -106,9 +106,11 @@
             </td>
             <td>
                 {% if effort.dominance %}
-                    <img class="faction-icon"  
-                        src="{% static 'images/dominance/' %}{{ effort.dominance }}_Icon.png" 
+                    {% with dom_icon='images/dominance/'|add:effort.dominance|add:'_Icon.png' %}
+                    <img class="faction-icon"
+                        src="{% static dom_icon %}"
                         alt="{{ effort.dominance }} Dominance">
+                    {% endwith %}
                 {% elif effort.coalition_with %}
                     <img class="faction-icon" 
                         src="{{ effort.coalition_with.small_icon|cache_bust:effort.coalition_with.small_icon_version }}"

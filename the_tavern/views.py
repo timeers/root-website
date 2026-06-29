@@ -1288,6 +1288,9 @@ def survey_detail_view(request, slug):
 
     if request.user.is_authenticated:
         profile = request.user.profile
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed survey: {survey.title}'
+        )
     else:
         profile = None
 

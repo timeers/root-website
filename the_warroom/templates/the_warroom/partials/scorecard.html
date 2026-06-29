@@ -50,9 +50,11 @@
             {% if turn.dominance %}
 
                 {% if object.effort and object.effort.dominance %}
-                    <img class="faction-icon"  
-                    src="{% static 'images/dominance/' %}{{ object.effort.dominance }}_Icon.png" 
+                    {% with dom_icon='images/dominance/'|add:object.effort.dominance|add:'_Icon.png' %}
+                    <img class="faction-icon"
+                    src="{% static dom_icon %}"
                     alt="{{ object.effort.dominance }} Dominance">
+                    {% endwith %}
                 {% elif object.effort and object.effort.coalition_with %}
                     <img class="faction-icon"  
                     src="{{ object.effort.coalition_with.small_icon|cache_bust:object.effort.coalition_with.small_icon_version }}"

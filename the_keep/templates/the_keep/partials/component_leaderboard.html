@@ -4,9 +4,9 @@
 
 <article class="d-flex content-section post-card">
 
-    <a href="{{ object.get_games_url }}" class="w-100">
+    <a href="{{ games_url|default:object.get_games_url }}" class="w-100">
         <div>
-            <h3 class='root-title'>{% trans 'Games' %}</h3>
+            <h3 class='root-title'>{% if component == 'Captain' %}{% trans 'Captain Games' %}{% else %}{% trans 'Games' %}{% endif %}</h3>
         </div>
         <div>
             {{ games_label }}

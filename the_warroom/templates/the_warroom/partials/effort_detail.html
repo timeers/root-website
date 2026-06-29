@@ -57,8 +57,8 @@
         {% if effort.vagabond %}
             (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
         {% endif %}
-        {% if effort.captains %}
-            (<a href="{% url 'vagabond-detail' effort.captains.slug %}">{{ effort.captains }}</a>)
+        {% if effort.captains.all %}
+            ({% for captain in effort.captains.all %}<a href="{% url 'captain-detail' slug=captain.slug %}">{{ captain }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})
         {% endif %}
     </span>
     {% else %}
@@ -67,9 +67,11 @@
 </td>
 <td>
     {% if effort.dominance %}
-        <img class="faction-icon"  
-            src="{% static 'images/dominance/' %}{{ effort.dominance }}_Icon.png" 
+        {% with dom_icon='images/dominance/'|add:effort.dominance|add:'_Icon.png' %}
+        <img class="faction-icon"
+            src="{% static dom_icon %}"
             alt="{{ effort.dominance }} Dominance">
+        {% endwith %}
         {% if effort.score %}
             ({{ effort.score }})
         {% endif %}

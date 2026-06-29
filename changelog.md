@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.12.9] - 2026-6-29 Game Form Improvements
+
+### New Features
+- New options when recording games:
+- Brazen Demogogue when Dominance played
+- Selected Captains
+- Discarded Captain when Knaves selected
+- Undrafted Captains when Knaves undrafted
+- Page for games played with specific captain
+- Next Scheduled Match in header dropdown
+
+### Improvements
+- Added spinner when filtering games
+- Auto fill video link from scheduled match
+- Better header for mobile
+- Cleaner record game layout
+
+### Bug Fixes
+- When viewing the series bracket clicking on a stage without any rounds brings you to the match page instead of the bracket page
+
 ## [1.12.8] - 2026-6-26 RTM Bug Hunting
 
 ### New Features

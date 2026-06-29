@@ -113,6 +113,7 @@ urlpatterns = [
     path('landmark/<slug:slug>/games/', views.component_games, {'component': "Landmark"}, name='landmark-games'),
     path('tweak/<slug:slug>/games/', views.component_games, {'component': "Tweak"}, name='tweak-games'),
     path('vagabond/<slug:slug>/games/', views.component_games, {'component': "Vagabond"}, name='vagabond-games'),
+    path('vagabond/<slug:slug>/captain/games/', views.component_games, {'component': "Captain"}, name='captain-games'),
     path('faction/<slug:slug>/games/', views.component_games, {'component': "Faction"}, name='faction-games'),
     path('clockwork/<slug:slug>/games/', views.component_games, {'component': "Clockwork"}, name='clockwork-games'),
 

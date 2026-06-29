@@ -1357,7 +1357,7 @@ class Vagabond(Post):
         OTHER = 'Other'
 
 
-    
+    is_vagabond = models.BooleanField(default=True)
     ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, default=AbilityChoices.NONE)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)
@@ -1525,6 +1525,20 @@ class Vagabond(Post):
         Returns the captain law for that language if any
         """""
         return self.linked_laws.filter(language=language).first()
+
+    def get_captain_games_url(self):
+        # Games where this vagabond was selected as one of an effort's captains
+        # (Knaves of the Deepwood). Mirrors Post.get_games_url for the captain view.
+        return reverse('captain-games', kwargs={'slug': self.slug})
+
+    def get_captain_games_queryset(self):
+        # Final games containing an effort that selected this vagabond as a captain.
+        Game = apps.get_model('the_warroom', 'Game')
+        Effort = apps.get_model('the_warroom', 'Effort')
+        game_ids = Effort.objects.filter(
+            captains=self, game__final=True
+        ).values_list('game', flat=True)
+        return Game.objects.filter(id__in=game_ids).order_by('-date_posted')
 
 class Faction(Post):
     class TypeChoices(models.TextChoices):

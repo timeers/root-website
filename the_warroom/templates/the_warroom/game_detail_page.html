@@ -112,6 +112,9 @@
                             {% if game.undrafted_vagabond %}
                                 (<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)
                             {% endif %}
+                            {% if game.undrafted_captains.all %}
+                                ({% for captain in game.undrafted_captains.all %}<a href="{% url 'captain-detail' slug=captain.slug %}">{{ captain }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})
+                            {% endif %}
                         </div>
                     </div>
                     {% endif %}
@@ -200,7 +203,9 @@
     </div>
 </article>
 
-
+{% if show_extra_rounds_control %}
+    {% include 'the_warroom/partials/game_extra_rounds_control.html' %}
+{% endif %}
 
 {% if edit_permission %}
 <div class="text-center my-2">
@@ -222,9 +227,7 @@
 </div>
 {% endif %}
 
-{% if show_extra_rounds_control %}
-    {% include 'the_warroom/partials/game_extra_rounds_control.html' %}
-{% endif %}
+
 
 {% if user.profile.player %}
 

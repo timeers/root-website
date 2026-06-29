@@ -1,0 +1,96 @@
+{% load i18n custom_filters %}
+{% comment %}
+  Shared user account menu items.
+  Rendered inside the desktop dropdown (<ul class="dropdown-menu">) and the
+  mobile offcanvas flat list (<ul class="navbar-nav">). Each item is a top-level
+  <li> with a `.dropdown-item` link so it styles consistently in both contexts.
+{% endcomment %}
+<li><a class="dropdown-item" href="{% url 'player-detail' user.profile.slug %}"><i class="bi bi-person-circle me-1"></i> {% trans 'Profile' %}</a></li>
+<li><a class="dropdown-item" href="{% url 'user-bookmarks' %}"><i class="bi bi-bookmark-check-fill me-1"></i> {% trans 'My Bookmarks' %} ({{ user_bookmarks_count }})</a></li>
+
+{% if approved_invites %}
+  {% for invite in approved_invites %}
+    <li>
+      <a class="dropdown-item d-flex align-items-center" href="{% url 'guild-invite' invite.guild.guild_id %}">
+        <span class="position-relative">
+          <i class="bi bi-envelope-fill me-1"></i>
+          <span class="notification-badge">!</span>
+        </span>
+        <span class='ms-1'>
+          {% trans 'Join' %} {{ invite.guild.name }}
+        </span>
+      </a>
+    </li>
+  {% endfor %}
+{% endif %}
+
+{% if user_games_count or user_active_games_count %}
+  <li>
+    <a class="dropdown-item d-flex align-items-center" href="{% url 'player-games' user.profile.slug %}">
+      <span class="position-relative">
+        <i class="bi bi-collection-play-fill me-1"></i>
+        {% if user_active_games_count %}
+          <span class="notification-badge">
+            {{ user_active_games_count }}
+          </span>
+        {% endif %}
+      </span>
+      <span class='ms-1'>
+      {% trans 'My Games' %} ({{ user_games_count }})
+      </span>
+    </a>
+  </li>
+{% endif %}
+{% if user_scorecard_count or user_active_scorecards_count %}
+  <li>
+    <a class="dropdown-item d-flex align-items-center" href="{% url 'scorecard-home' %}">
+      <span class="position-relative">
+        <i class="bi bi-graph-up me-1"></i>
+        {% if user_active_scorecards_count %}
+          <span class="notification-badge">
+            {{ user_active_scorecards_count }}
+          </span>
+        {% endif %}
+      </span>
+      <span class='ms-1'>
+      {% trans 'My Scorecards' %} ({{ user_scorecard_count }})
+      </span>
+    </a>
+  </li>
+{% endif %}
+
+{% if next_scheduled_matches %}
+  <li><hr class="dropdown-divider"></li>
+  <li><h6 class="dropdown-header">{% trans 'Next Scheduled Match' %}</h6></li>
+  {% for match in next_scheduled_matches %}
+    <li>
+      <a class="dropdown-item d-flex align-items-center" href="{{ match.round.stage.tournament.get_schedule_url }}?mine=1">
+        <i class="bi bi-calendar2-week me-1"></i>
+        <span class="ms-1 d-flex flex-column">
+          <span>{{ match.round }}</span>
+          <span class="scheduled-time small" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
+        </span>
+      </a>
+    </li>
+  {% endfor %}
+{% endif %}
+
+{% if user_recent_posts or user.profile.designer %}
+<li><hr class="dropdown-divider"></li>
+{% endif %}
+
+<li><a class="dropdown-item" href="{% url 'new-components' %}"><i class="bi bi-plus-square me-1"></i> {% trans 'New Post' %}</a></li>
+
+{% if user_recent_posts %}
+  {% for user_post in user_recent_posts %}
+    <li><a class="dropdown-item" href="{{ user_post.get_absolute_url }}">{% if user_post.small_icon %}<img class="faction-icon me-1" src="{{ user_post.small_icon|cache_bust:user_post.small_icon_version }}">{% endif %}{{ user_post.title }} - {{ user_post.component }}</a></li>
+  {% endfor %}
+{% endif %}
+<li><hr class="dropdown-divider"></li>
+
+{% if user.profile.admin %}
+    <li><a class="dropdown-item" href="{% url 'admin-dashboard' %}"><i class="bi bi-shield-lock-fill me-1"></i> {% trans 'Admin Dashboard' %}</a></li>
+{% endif %}
+
+<li><a class="dropdown-item" href="{% url 'user-settings' %}"><i class="bi bi-gear-wide-connected me-1"></i> {% trans 'Settings' %}</a></li>
+<li><a class="dropdown-item" href="{% url 'account_logout' %}"><i class="bi bi-door-open me-1"></i> {% trans 'Sign Out' %}</a></li>

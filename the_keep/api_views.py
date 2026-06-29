@@ -203,6 +203,7 @@ def get_options_for_platform(request, platform):
     maps_data = [{'id': map.id, 'name': f'{map.display_title}'} for map in maps]
     factions_data = [{'id': faction.id, 'name': faction.display_title} for faction in factions]
     vagabonds_data = [{'id': vagabond.id, 'name': vagabond.display_title} for vagabond in vagabonds]
+    captains_data = [{'id': vagabond.id, 'name': vagabond.display_title} for vagabond in vagabonds if vagabond.captain]
     landmarks_data = [{'id': landmark.id, 'name': landmark.display_title} for landmark in landmarks]
     tweaks_data = [{'id': tweak.id, 'name': tweak.display_title} for tweak in tweaks]
     hirelings_data = [{'id': hireling.id, 'name': hireling.display_title} for hireling in hirelings]
@@ -218,6 +219,7 @@ def get_options_for_platform(request, platform):
         'maps': maps_data,
         'factions': factions_data,
         'vagabonds': vagabonds_data,
+        'captains': captains_data,
         'landmarks': landmarks_data,
         'tweaks': tweaks_data,
         'hirelings': hirelings_data,

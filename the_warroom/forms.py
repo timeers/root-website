@@ -40,10 +40,15 @@ class GameCreateForm(forms.ModelForm):
                 queryset=Landmark.objects.all(),
                 widget=forms.SelectMultiple
                 )
-    tweaks = forms.ModelMultipleChoiceField(required=False, 
+    tweaks = forms.ModelMultipleChoiceField(required=False,
                 queryset=Tweak.objects.all(),
                 widget=forms.SelectMultiple,
                 label="House Rules",
+                )
+    undrafted_captains = forms.ModelMultipleChoiceField(
+                queryset=Vagabond.objects.filter(captain=True),
+                required=False,
+                widget=forms.SelectMultiple(attrs={'class': 'select2'}),
                 )
     PLATFORM_CHOICES = [
         ('Tabletop Simulator', 'Tabletop Simulator'),
@@ -52,14 +57,15 @@ class GameCreateForm(forms.ModelForm):
     ]
     platform = forms.ChoiceField(
         choices=PLATFORM_CHOICES, initial="Tabletop Simulator",
-        required=True
+        required=True,
+        widget=forms.Select(attrs={'class': 'form-select'}),
     )
     
     class Meta:
         model = Game
         fields = ['solo', 'coop', 'official', 'test_match', 'round', 
                   'platform', 'type', 'deck', 'map', 'random_clearing', 
-                  'undrafted_faction', 'undrafted_vagabond', 'landmarks', 
+                  'undrafted_faction', 'undrafted_vagabond', 'undrafted_captains', 'landmarks',
                   'hirelings', 'link', 'video_link', 'tweaks', 'final', 'notes', 'nickname', 'reach_value', 'date_posted']
         widgets = {
             'type': forms.RadioSelect,
@@ -91,17 +97,52 @@ class GameCreateForm(forms.ModelForm):
         self.fields['link'].widget.attrs.update({
             'placeholder': 'Discord Thread Link',
             'class': 'form-control full-width',
+            'aria-label': _('Discord Thread Link'),
         })
         self.fields['video_link'].widget.attrs.update({
             'placeholder': 'Twitch/YouTube Link',
             'class': 'form-control full-width',
+            'aria-label': _('Twitch/YouTube Link'),
         })
         self.fields['nickname'].widget.attrs.update({
             'placeholder': _('Game Nickname (optional)'),
-            'class': 'form-control full-width', 
+            'class': 'form-control full-width',
+            'aria-label': _('Game Nickname'),
         })
+        # Constrain the Series (round) select to its container so long option
+        # text doesn't overflow the form card. The empty option doubles as the
+        # field's label, so no external label is rendered. We still set an
+        # aria-label on each placeholder-labeled field so it has an accessible
+        # name (the visible label was removed in favor of the placeholder).
+        self.fields['round'].widget.attrs.update({
+            'class': 'form-control full-width',
+            'aria-label': _('Series'),
+        })
+        self.fields['round'].empty_label = _('Select a League, Group or Tournament')
+        # Deck and Map are labeled by their select2 placeholder rather than an
+        # external label. Use a blank empty option so the placeholder shows.
+        self.fields['deck'].empty_label = ''
+        self.fields['map'].empty_label = ''
+        self.fields['deck'].widget.attrs.update({'class': 'form-control', 'aria-label': _('Deck')})
+        self.fields['map'].widget.attrs.update({'class': 'form-control', 'aria-label': _('Map')})
+        self.fields['random_clearing'].widget.attrs.update({'class': 'form-check-input'})
+        # Landmarks and Hirelings are multi-selects labeled by their select2
+        # placeholder. data-placeholder is read automatically by every
+        # .select2() call, including the bare re-inits in record_game_v2.html.
+        self.fields['landmarks'].widget.attrs.update({'data-placeholder': _('Select Landmarks'), 'aria-label': _('Landmarks')})
+        self.fields['hirelings'].widget.attrs.update({'data-placeholder': _('Select Hirelings'), 'aria-label': _('Hirelings')})
+        self.fields['tweaks'].widget.attrs.update({'data-placeholder': _('Select House Rules'), 'aria-label': _('House Rules')})
+        self.fields['platform'].widget.attrs.update({'aria-label': _('Platform')})
+        self.fields['notes'].widget.attrs.update({'aria-label': _('Notes')})
+        # Undrafted faction/vagabond/captains are labeled by their select2
+        # placeholder. data-placeholder is read by every .select2() re-init.
+        self.fields['undrafted_faction'].empty_label = ''
+        self.fields['undrafted_vagabond'].empty_label = ''
+        self.fields['undrafted_faction'].widget.attrs.update({'data-placeholder': _('Undrafted Faction'), 'aria-label': _('Undrafted Faction')})
+        self.fields['undrafted_vagabond'].widget.attrs.update({'data-placeholder': _('Undrafted Vagabond'), 'aria-label': _('Undrafted Vagabond')})
+        self.fields['undrafted_captains'].widget.attrs.update({'data-placeholder': _('Undrafted Captains'), 'aria-label': _('Undrafted Captains')})
 
-        self.effort_formset = effort_formset 
+        self.effort_formset = effort_formset
 
         # Filter for only Official content if not a member of Weird Root
         if not user.profile.weird:
@@ -109,6 +150,7 @@ class GameCreateForm(forms.ModelForm):
             self.fields['map'].queryset = Map.objects.filter(official=True)
             self.fields['undrafted_faction'].queryset = Faction.objects.filter(official=True)
             self.fields['undrafted_vagabond'].queryset = Vagabond.objects.filter(official=True)
+            self.fields['undrafted_captains'].queryset = Vagabond.objects.filter(official=True, captain=True)
             self.fields['landmarks'].queryset = Landmark.objects.filter(official=True)
             self.fields['tweaks'].queryset = Tweak.objects.filter(official=True)
             self.fields['hirelings'].queryset = Hireling.objects.filter(official=True)
@@ -407,11 +449,23 @@ class GameCreateForm(forms.ModelForm):
                         if vagabond not in tournament_vagabonds:
                             validation_errors_to_display.append(f'The Vagabond {vagabond} is not playable in {tournament}')
 
+        # Undrafted captains only apply to Knaves of the Deepwood: require exactly 4
+        # (a full complement) or none. Clear them for any other undrafted faction.
+        undrafted_faction = cleaned_data.get('undrafted_faction')
+        undrafted_captains = cleaned_data.get('undrafted_captains')
+        if undrafted_faction and undrafted_faction.title == 'Knaves of the Deepwood':
+            count = len(undrafted_captains) if undrafted_captains else 0
+            if count not in (0, 4):
+                validation_errors_to_display.append('Select exactly 4 captains (or none).')
+                progress_errors_to_display.append('Select exactly 4 captains (or none).')
+        else:
+            cleaned_data['undrafted_captains'] = Vagabond.objects.none()
+
         if not final:
             if not deck:
-                progress_errors_to_display.append(f"Select a deck") 
+                progress_errors_to_display.append(f"Select a deck")
             if not map:
-                progress_errors_to_display.append(f"Select a map") 
+                progress_errors_to_display.append(f"Select a map")
             if progress_errors_to_display:
                 raise ValidationError(progress_errors_to_display)
             return cleaned_data
@@ -480,22 +534,51 @@ class GameCreateFormV2(GameCreateForm):
 class EffortCreateForm(forms.ModelForm):
     required_css_class = 'required-field'
     score = forms.IntegerField(
-        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'min': 0, 'step': 1}),
+        widget=forms.NumberInput(attrs={'type': 'number', 'inputmode': 'numeric', 'min': 0, 'step': 1, 'class': 'form-control'}),
         required=False,
-        initial=0 
+        initial=0
     )
     delete = forms.BooleanField(required=False, initial=False, widget=forms.CheckboxInput(attrs={'class': 'delete-form-checkbox'}))
+    captains = forms.ModelMultipleChoiceField(
+        queryset=Vagabond.objects.filter(captain=True),
+        required=False,
+        widget=forms.SelectMultiple(attrs={'class': 'select2'}),
+    )
+    discarded_captain = forms.ModelChoiceField(
+        queryset=Vagabond.objects.filter(captain=True),
+        required=False,
+        widget=forms.Select(attrs={'class': 'select2'}),
+    )
     class Meta:
         model = Effort
-        fields = ['player', 'faction', 'vagabond', 'captains', 'score', 'win', 'dominance', 'coalition_with']
-        captains = forms.ModelMultipleChoiceField(
-            queryset=Vagabond.objects.all(),
-            widget=forms.SelectMultiple(attrs={'class': 'select2'}),
-        )
+        fields = ['player', 'faction', 'vagabond', 'captains', 'discarded_captain', 'score', 'win', 'dominance', 'coalition_with', 'brazen_demogogue']
     def __init__(self, *args, **kwargs):
         # Check if 'game' is passed in kwargs and set it
         self.game = kwargs.pop('game', None)
         super().__init__(*args, **kwargs)
+        # Effort fields are labeled by their select2 placeholder rather than an
+        # external label. Single selects use a blank empty option so the
+        # placeholder shows; data-placeholder is read by every .select2() init.
+        self.fields['player'].empty_label = ''
+        self.fields['faction'].empty_label = ''
+        self.fields['vagabond'].empty_label = ''
+        self.fields['discarded_captain'].empty_label = ''
+        self.fields['player'].widget.attrs.update({'data-placeholder': _('Select a Player'), 'aria-label': _('Player')})
+        self.fields['faction'].widget.attrs.update({'data-placeholder': _('Select a Faction'), 'aria-label': _('Faction')})
+        self.fields['vagabond'].widget.attrs.update({'data-placeholder': _('Select a Vagabond'), 'aria-label': _('Vagabond')})
+        self.fields['captains'].widget.attrs.update({'data-placeholder': _('Select Captains'), 'aria-label': _('Captains')})
+        self.fields['discarded_captain'].widget.attrs.update({'data-placeholder': _('Select a Discarded Captain'), 'aria-label': _('Discarded Captain')})
+        self.fields['coalition_with'].empty_label = ''
+        self.fields['coalition_with'].widget.attrs.update({'data-placeholder': _('Select a Coalition Partner'), 'aria-label': _('Coalition Partner')})
+        self.fields['score'].widget.attrs.update({'aria-label': _('Score')})
+        self.fields['win'].widget.attrs.update({'aria-label': _('Win')})
+        # Dominance is labeled by its select2 placeholder; blank the empty
+        # choice's label so the placeholder shows instead of "---------".
+        self.fields['dominance'].widget.attrs.update({'data-placeholder': _('Dominance'), 'aria-label': _('Dominance')})
+        dominance_choices = list(self.fields['dominance'].choices)
+        if dominance_choices and dominance_choices[0][0] == '':
+            dominance_choices[0] = ('', '')
+            self.fields['dominance'].choices = dominance_choices
 
     def clean(self):
         validation_errors_to_display = []
@@ -506,6 +589,7 @@ class EffortCreateForm(forms.ModelForm):
         score = cleaned_data.get('score', None)
         vagabond = cleaned_data.get('vagabond')
         captains = cleaned_data.get('captains')
+        discarded_captain = cleaned_data.get('discarded_captain')
         coalition = cleaned_data.get('coalition_with')
         if score is None or score == "":
             cleaned_data['score'] = 0 
@@ -543,16 +627,28 @@ class EffortCreateForm(forms.ModelForm):
             if faction.title != 'Chameleander':
                 cleaned_data['coalition_with'] = None
 
-        # If captains are assigned ensure no more than 3 captains are assigned
-        # if faction.title == "Knaves of the Deepwood" and not captains:
-        #     validation_errors_to_display.append('Please select a Captain')
-        # Captains cannot be recorded
-        cleaned_data['captains'] = None
+        # Captains only apply to Knaves of the Deepwood: require exactly 3 (a full
+        # complement) or none. Clear them for any other faction.
+        if faction and faction.title == 'Knaves of the Deepwood':
+            count = len(captains) if captains else 0
+            if count not in (0, 3):
+                validation_errors_to_display.append('Select exactly 3 captains (or none).')
+            # The discarded captain (optional) cannot also be an active captain.
+            if discarded_captain and captains and discarded_captain in captains:
+                validation_errors_to_display.append('The discarded captain cannot also be an active captain.')
+        else:
+            cleaned_data['captains'] = Vagabond.objects.none()
+            cleaned_data['discarded_captain'] = None
 
         # print(score)
         if not dominance and score is None and not coalition:
             # raise ValidationError(f"Score or Dominance required")
             validation_errors_to_display.append('Score or Dominance required')
+
+        # Brazen Demagogue only valid when a dominance is selected.
+        # (Deck restriction is enforced via the deck-level check in the view.)
+        if not dominance:
+            cleaned_data['brazen_demogogue'] = False
 
         # print(cleaned_data)
             

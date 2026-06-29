@@ -553,7 +553,21 @@ def _extra_rounds_control_context(game, profile):
         game.extra_rounds.filter(pk__in=designed.values('pk'))
         .select_related('stage__tournament')
     )
+
+    # A game may count in at most one round per tournament. Collect the tournaments
+    # the game already participates in (its primary round + all existing extra rounds)
+    # and exclude every round belonging to those tournaments from the add dropdown.
+    existing_rounds = list(game.extra_rounds.select_related('stage__tournament'))
+    if game.round_id:
+        existing_rounds.append(game.round)
+    occupied_tournament_ids = {
+        t.id for r in existing_rounds
+        if (t := r.get_tournament()) is not None
+    }
+
     addable_rounds = designed.exclude(pk=game.round_id).exclude(extra_games=game) \
+        .exclude(stage__tournament_id__in=occupied_tournament_ids) \
+        .exclude(tournament_id__in=occupied_tournament_ids) \
         .select_related('stage__tournament').order_by('stage__tournament__name', 'round_number')
     return {
         'extra_rounds_owned': extra_rounds_owned,
@@ -579,6 +593,15 @@ def game_add_extra_round(request, id):
     tournament = round.get_tournament()
     if not tournament or not tournament.has_permission(request.user.profile):
         return HttpResponse("Permission denied", status=403)
+
+    # A game may count in at most one round per tournament. Reject if it already
+    # participates in this tournament via its primary round or an existing extra round.
+    existing_rounds = list(game.extra_rounds.select_related('stage__tournament'))
+    if game.round_id:
+        existing_rounds.append(game.round)
+    if any((t := r.get_tournament()) is not None and t.id == tournament.id
+           for r in existing_rounds):
+        return HttpResponse("This game already counts in this tournament", status=400)
 
     # The primary round is managed via the game form, not here.
     if round.id != game.round_id:
@@ -988,7 +1011,10 @@ def manage_game_v2(request, id=None):
 
     # Auto-fill nickname with match name in match mode
     if match_mode and not obj.pk:
-        form.fields['nickname'].initial = (f'{match.round} {match.name}' or '')[:50]
+        form.initial['nickname'] = (f'{match.round} {match.name}' or '')[:50]
+        player_group = match.series.player_group
+        if player_group and player_group.video_link:
+            form.initial['video_link'] = player_group.video_link
 
     # Determine platform lock status for template rendering
     platform_locked = False
@@ -1066,7 +1092,12 @@ def manage_game_v2(request, id=None):
                             game_status = max(game_status, child.vagabond.status)
                         child.faction_status = child.faction.status
                         child.game = parent
-                        saved_efforts.append((idx, child))
+                        # Brazen Demagogue is only valid with the Squires & Disciples deck.
+                        if not (parent.deck and parent.deck.title == 'Squires & Disciples'):
+                            child.brazen_demogogue = False
+                        # captains is a M2M relation; capture now and set after save().
+                        captains = effort_form.cleaned_data.get('captains')
+                        saved_efforts.append((idx, child, captains))
 
             # Assign seats based on seat_order or sequential
             if seat_order:
@@ -1076,13 +1107,15 @@ def manage_game_v2(request, id=None):
                         form_index_to_seat[int(form_idx_str)] = seat_num
                     except (ValueError, TypeError):
                         pass
-                for idx, child in saved_efforts:
+                for idx, child, captains in saved_efforts:
                     child.seat = form_index_to_seat.get(idx, idx + 1)
                     child.save()
+                    child.captains.set(captains or [])
             else:
-                for seat_num, (idx, child) in enumerate(saved_efforts, start=1):
+                for seat_num, (idx, child, captains) in enumerate(saved_efforts, start=1):
                     child.seat = seat_num
                     child.save()
+                    child.captains.set(captains or [])
             _vlog.warning(f"[manage_game_v2] after effort saves: {_time.time()-_t0:.3f}s")
 
             parent.status = StatusChoices(game_status)
@@ -1104,7 +1137,7 @@ def manage_game_v2(request, id=None):
                 _vlog.warning(f"[manage_game_v2] after on_game_complete: {_time.time()-_t0:.3f}s")
 
             # ScoreCard consistency checks
-            for idx, child in saved_efforts:
+            for idx, child, captains in saved_efforts:
                 try:
                     scorecard = child.scorecard
                 except ScoreCard.DoesNotExist:
@@ -1997,6 +2030,11 @@ def _attach_counted_game_player_counts(children):
 def tournament_overview_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed tournament: {tournament.name}'
+        )
+
     context = _tournament_base_context(request, tournament)
     context['active_page'] = 'overview'
 
@@ -2130,6 +2168,11 @@ def tournament_leaderboard_page(request, slug):
 
 def tournament_games_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
+
+    if request.user.is_authenticated and not (hasattr(request, 'htmx') and request.htmx):
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed tournament games: {tournament.name}'
+        )
 
     opts = Game.with_efforts()
     games_qs = Game.objects.counting_for_tournament(tournament).filter(
@@ -3313,6 +3356,11 @@ def round_overview_page(request, tournament_slug, round_slug, stage_slug=None):
             # Tournament uses stages - simplified URL not allowed
             return redirect(tournament.get_absolute_url())
         round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed round: {round} ({tournament.name})'
+        )
 
     context = _round_base_context(request, tournament, stage, round)
     context['active_page'] = 'overview'
@@ -4708,6 +4756,11 @@ def stage_overview_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed stage: {stage.name} ({tournament.name})'
+        )
+
     context = _stage_base_context(request, tournament, stage)
     context['active_page'] = 'overview'
 
@@ -4815,6 +4868,11 @@ def stage_games_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
+    if request.user.is_authenticated and not (hasattr(request, 'htmx') and request.htmx):
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed stage games: {stage.name} ({tournament.name})'
+        )
+
     opts = Game.with_efforts()
     games_qs = Game.objects.counting_for_stage(stage).filter(
         final=True
@@ -4912,6 +4970,11 @@ def stage_details_page(request, tournament_slug, stage_slug):
 def stage_bracket_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed stage bracket: {stage.name} ({tournament.name})'
+        )
 
     rounds = stage.rounds.all().order_by('round_number')
     rounds_with_matches = rounds.prefetch_related(
@@ -5109,6 +5172,11 @@ def stage_matches_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
 
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed stage matches: {stage.name} ({tournament.name})'
+        )
+
     context = _stage_matches_context(request, tournament, stage)
     return render(request, 'the_warroom/matches.html', context)
 
@@ -5194,6 +5262,11 @@ def round_games_page(request, tournament_slug, round_slug, stage_slug=None):
         if not stage:
             return redirect(tournament.get_absolute_url())
         round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if request.user.is_authenticated and not (hasattr(request, 'htmx') and request.htmx):
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed round games: {round} ({tournament.name})'
+        )
 
     opts = Game.with_efforts()
     games_qs = Game.objects.counting_for_round(round).filter(
@@ -5372,6 +5445,11 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
         if not stage:
             return redirect(tournament.get_absolute_url())
         round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed round matches: {round} ({tournament.name})'
+        )
 
     match_series = MatchSeries.objects.filter(round=round).select_related(
         'player_group',
@@ -5719,6 +5797,11 @@ def tournament_bracket_page(request, slug):
     editable scheduled-matches view (the same one the stage matches page uses)
     so moderators can add and edit matches directly."""
     tournament = get_object_or_404(Tournament, slug=slug)
+
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed tournament bracket: {tournament.name}'
+        )
 
     if not tournament.use_stages:
         single_stage = get_single_stage(tournament)
