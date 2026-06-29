@@ -15,6 +15,7 @@
 - Auto fill video link from scheduled match
 
 ### Bug Fixes
+- When viewing the series bracket clicking on a stage without any rounds brings you to the match page instead of the bracket page
 
 ## [1.12.8] - 2026-6-26 RTM Bug Hunting
 
