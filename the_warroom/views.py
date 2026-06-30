@@ -1094,7 +1094,7 @@ def manage_game_v2(request, id=None):
                         child.game = parent
                         # Brazen Demagogue is only valid with the Squires & Disciples deck.
                         if not (parent.deck and parent.deck.title == 'Squires & Disciples'):
-                            child.brazen_demogogue = False
+                            child.brazen_demagogue = False
                         # captains is a M2M relation; capture now and set after save().
                         captains = effort_form.cleaned_data.get('captains')
                         saved_efforts.append((idx, child, captains))

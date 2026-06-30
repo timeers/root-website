@@ -551,7 +551,7 @@ class EffortCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Effort
-        fields = ['player', 'faction', 'vagabond', 'captains', 'discarded_captain', 'score', 'win', 'dominance', 'coalition_with', 'brazen_demogogue']
+        fields = ['player', 'faction', 'vagabond', 'captains', 'discarded_captain', 'score', 'win', 'dominance', 'coalition_with', 'brazen_demagogue']
     def __init__(self, *args, **kwargs):
         # Check if 'game' is passed in kwargs and set it
         self.game = kwargs.pop('game', None)
@@ -648,7 +648,7 @@ class EffortCreateForm(forms.ModelForm):
         # Brazen Demagogue only valid when a dominance is selected.
         # (Deck restriction is enforced via the deck-level check in the view.)
         if not dominance:
-            cleaned_data['brazen_demogogue'] = False
+            cleaned_data['brazen_demagogue'] = False
 
         # print(cleaned_data)
             

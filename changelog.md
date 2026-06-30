@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.12.10] - 2026-6-30 Small Bugs Need Squashing Too
+
+### Bug Fixes
+- fixed spelling of demagogue
+- selecting DWD from record match page filters factions etc
+- Hide hamburger on mobile when search bar expands
+- Finally remove white line from universal search results when no results
+
 ## [1.12.9] - 2026-6-29 Game Form Improvements
 
 ### New Features

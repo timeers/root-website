@@ -289,7 +289,7 @@
                 </div>
                 <div class="row g-2 align-items-center mb-2">
                     <div class="col-6 dominance-field">{{ form.dominance }}</div>
-                    <div class="col-6"><span class="brazen-demogogue-field" style="display:none;">{{ form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
+                    <div class="col-6"><span class="brazen-demagogue-field" style="display:none;">{{ form.brazen_demagogue }} {% trans 'Brazen Demagogue' %}</span></div>
                 </div>
 
                 {% if not match_mode %}
@@ -356,7 +356,7 @@
         </div>
         <div class="row g-2 align-items-center mb-2">
             <div class="col-12 col-md-6 dominance-field">{{ formset.empty_form.dominance }}</div>
-            <div class="col-12 col-md-6"><span class="brazen-demogogue-field" style="display:none;">{{ formset.empty_form.brazen_demogogue }} {% trans 'Brazen Demagogue' %}</span></div>
+            <div class="col-12 col-md-6"><span class="brazen-demagogue-field" style="display:none;">{{ formset.empty_form.brazen_demagogue }} {% trans 'Brazen Demagogue' %}</span></div>
         </div>
         <button class="btn btn-warning btn-sm" type="button" onclick="clearForm(this)">
             {% trans 'Remove' %}
@@ -651,8 +651,9 @@ document.addEventListener('DOMContentLoaded', function() {
         return urls[platformValue] || '';
     }
 
-    function getAllOptionsUrlForTournament(tournamentValue) {
-        return `/api/tournament/${tournamentValue}/`;
+    function getAllOptionsUrlForTournament(tournamentValue, platformValue) {
+        const base = `/api/tournament/${tournamentValue}/`;
+        return platformValue ? `${base}?platform=${encodeURIComponent(platformValue)}` : base;
     }
 
     // ── updateSelectOptions — core helper from record_game.html ──
@@ -851,8 +852,8 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateBrazenVisibility(index) {
         const domSelector = "#id_form-" + index + "-dominance";
         const factionSelector = "#id_form-" + index + "-faction";
-        const $brazenWrap = $(domSelector).closest('.drag-card-content').find('.brazen-demogogue-field');
-        const $brazenInput = $brazenWrap.find('input[id$="-brazen_demogogue"]');
+        const $brazenWrap = $(domSelector).closest('.drag-card-content').find('.brazen-demagogue-field');
+        const $brazenInput = $brazenWrap.find('input[id$="-brazen_demagogue"]');
         const hasDominance = !!$(domSelector).val();
         const isVagabond = $(factionSelector + ' option:selected').text() === 'Vagabond';
         if (deckIsSquiresAndDisciples() && hasDominance && !isVagabond) {
@@ -977,8 +978,8 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
-    function updateTournamentOptions(tournamentValue) {
-        const url = getAllOptionsUrlForTournament(tournamentValue);
+    function updateTournamentOptions(tournamentValue, platformValue) {
+        const url = getAllOptionsUrlForTournament(tournamentValue, platformValue);
 
         return fetch(url)
             .then(response => {
@@ -1097,6 +1098,64 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // ── Platform change (match mode) ──
+    // The tournament/round is fixed, but if the tournament doesn't lock a
+    // platform the recorder can change it. Re-fetch tournament assets filtered
+    // by the chosen platform and toggle the async/live timing field.
+    if (matchMode && platformSelect) {
+        platformSelect.addEventListener('change', function() {
+            const platformValue = platformSelect.value;
+
+            updateTournamentOptions(tournamentSelect.value, platformValue).then(() => {
+                let hirelingsCount = hirelingsSelect ? hirelingsSelect.options.length : 0;
+                let tweaksCount = tweaksSelect ? tweaksSelect.options.length : 0;
+                let landmarksCount = landmarksSelect ? landmarksSelect.options.length : 0;
+
+                var hirelingsBlock = document.getElementById("hireling-field");
+                var tweaksBlock = document.getElementById("game-tweaks-field");
+                var landmarksBlock = document.getElementById("game-landmarks-field");
+                var timingBlock = document.getElementById("timing-field");
+
+                if (platformValue == "Root Digital") {
+                    var asyn = document.getElementById("id_type_0");
+                    if (asyn) asyn.checked = true;
+                    var live = document.getElementById("id_type_1");
+                    if (live) live.checked = false;
+                    if (timingBlock) timingBlock.style.display = "block";
+                } else {
+                    var asyn = document.getElementById("id_type_0");
+                    if (asyn) asyn.checked = false;
+                    var live = document.getElementById("id_type_1");
+                    if (live) live.checked = true;
+                    if (timingBlock) timingBlock.style.display = "none";
+                }
+                if (hirelingsCount < 1) {
+                    if (hirelingsBlock) hirelingsBlock.style.display = "none";
+                    $('#id_hirelings').val(null).trigger('change');
+                } else {
+                    if (hirelingsBlock) hirelingsBlock.style.display = "block";
+                    $('#id_hirelings').select2();
+                }
+                if (tweaksCount < 1) {
+                    if (tweaksBlock) tweaksBlock.style.display = "none";
+                    $('#id_tweaks').val(null).trigger('change');
+                } else {
+                    if (tweaksBlock) tweaksBlock.style.display = "block";
+                    $('#id_tweaks').select2();
+                }
+                if (landmarksCount < 1) {
+                    if (landmarksBlock) landmarksBlock.style.display = "none";
+                    $('#id_landmarks').val(null).trigger('change');
+                } else {
+                    if (landmarksBlock) landmarksBlock.style.display = "block";
+                    $('#id_landmarks').select2();
+                }
+
+                $('#id_deck').trigger('change');
+            });
+        });
+    }
+
     // ── Round/Tournament change event ──
     if (!matchMode && tournamentSelect) {
         tournamentSelect.addEventListener('change', function() {
@@ -1161,8 +1220,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ── Initial load ──
     if (matchMode) {
-        // Match mode: tournament/round is locked, fetch tournament-filtered assets
-        updateTournamentOptions(tournamentSelect.value).then(() => {
+        // Match mode: tournament/round is locked, fetch tournament-filtered
+        // assets (intersected with the selected platform, e.g. Root Digital).
+        updateTournamentOptions(tournamentSelect.value, platformSelect ? platformSelect.value : null).then(() => {
             let hirelingsCount = hirelingsSelect ? hirelingsSelect.options.length : 0;
             let tweaksCount = tweaksSelect ? tweaksSelect.options.length : 0;
             let landmarksCount = landmarksSelect ? landmarksSelect.options.length : 0;
