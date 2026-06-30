@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.10] - 2026-6-29 Small Bugs Need Squashing Too
+## [1.12.10] - 2026-6-30 Small Bugs Need Squashing Too
 
 ### Bug Fixes
 - fixed spelling of demagogue
