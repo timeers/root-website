@@ -1181,9 +1181,11 @@ tr.clickable-row:hover {
   display: none;  /* Initially hidden */
 }
 
-/* Show search popup when results are present */
+/* Hidden by default; JS (showSearchResults / htmx:afterSwap) sets
+   display:block only when there are actual results to show. Keeping this as
+   display:none avoids the empty popup rendering as a thin bordered line. */
 #universal-search-results {
-  display: block;
+  display: none;
 }
 
 
@@ -1209,6 +1211,32 @@ tr.clickable-row:hover {
   .search-bar-submit {
     margin-left: auto;
     margin-right: 0;
+  }
+}
+
+/* The hamburger toggler only shows on mobile and always sits in the top-right.
+   Position it absolutely (relative to the fixed-top navbar) so it's out of the
+   flex flow — that way the expanding search bar never pushes it onto a second
+   line. */
+.site-header .navbar-toggler {
+  position: absolute;
+  right: 1rem;
+  top: 1.25rem;
+  /* keep the toggler narrow so it hugs the icon */
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+
+/* Only on narrow screens (below Bootstrap's sm) does the expanded search bar
+   reach the right-anchored toggler. There, hide the toggler while the search
+   is focused so they don't overlap; above sm there's room, so leave it shown.
+   focus-within bubbles to the search wrapper, a preceding sibling of the
+   toggler. */
+@media (max-width: 429.98px) {
+  .universal-search-wrap:focus-within ~ .navbar-toggler {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 200ms ease;
   }
 }
 

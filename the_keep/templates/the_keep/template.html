@@ -168,9 +168,13 @@
             searchResults.style.display = 'none';
         }
 
-        // Function to show search results
+        // Function to show search results — only when there's actually
+        // something to show. Showing an empty popup renders as a thin bordered
+        // line below the header.
         function showSearchResults() {
-            searchResults.style.display = 'block';
+            if (searchResults.textContent.trim() !== '') {
+                searchResults.style.display = 'block';
+            }
         }
 
         // Event listener for the search input to show the results when typing
@@ -196,6 +200,16 @@
         });
 
         document.body.addEventListener('htmx:afterSwap', function(event) {
+
+            // When search results are swapped in, show the popup only if there's
+            // content (empty results keep it hidden so no bordered line shows).
+            if (event.target.id === 'universal-search-results') {
+                if (event.target.textContent.trim() !== '') {
+                    event.target.style.display = 'block';
+                } else {
+                    event.target.style.display = 'none';
+                }
+            }
 
             // Only remove the spinner if the event is targeting the specific content area
             if (event.target.id === 'search-contents') {
