@@ -1,7 +1,7 @@
 {% load i18n %}
 <div id="extra-rounds-control" class="text-center my-2">
 {% if show_extra_rounds_control %}
-<div class="card d-inline-block">
+<div class="card d-inline-block mw-100">
     <div class="card-header bg-transparent text-center">
         <small class="root-title text-muted">{% trans 'Add Results To:' %}</small>
     </div>
@@ -10,7 +10,17 @@
         <ul class="list-unstyled mb-2">
             {% for round in extra_rounds_owned %}
             <li class="d-flex align-items-center justify-content-center gap-2 mb-1">
-                <span class="root-title">{{ round.get_tournament.name }} — {{ round }}</span>
+                {% with round_tournament=round.get_tournament %}
+                <a href="{{ round.get_absolute_url }}"
+                   class="d-inline-flex align-items-center gap-2 px-3 py-1 border rounded-pill text-decoration-none">
+                    {% if round_tournament.picture %}
+                        <img src="{{ round_tournament.picture.url }}"
+                             alt="{{ round_tournament.name }}"
+                             class="lg-faction-icon">
+                    {% endif %}
+                    <span class="root-title text-break">{{ round }}</span>
+                </a>
+                {% endwith %}
                 <button
                     class="btn btn-outline-danger btn-sm"
                     hx-post="{% url 'game-remove-extra-round' id=game.id round_id=round.id %}"
@@ -33,10 +43,10 @@
             hx-swap="outerHTML"
             hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
             class="d-flex align-items-center justify-content-center gap-2">
-            <select name="round_id" class="form-select form-select-sm w-auto" required>
+            <select name="round_id" class="form-select form-select-sm" style="max-width: 100%;" required>
                 <option value="" selected disabled>{% trans 'Select…' %}</option>
                 {% for round in addable_rounds %}
-                <option value="{{ round.id }}">{{ round.get_tournament.name }} — {{ round }}</option>
+                <option value="{{ round.id }}">{{ round }}</option>
                 {% endfor %}
             </select>
             <button type="submit" class="btn btn-outline-secondary btn-sm">{% trans 'Add' %}</button>
