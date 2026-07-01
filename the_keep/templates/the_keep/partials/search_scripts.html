@@ -41,9 +41,13 @@ let isInitialLoad = true;
             $('#status').val('');
             $('#search_type').val('');
 
-            // Clear Select2 dropdown (designer only)
-            $('#designer-select').val(null).trigger('change');
+            // Clear Select2 dropdown (designer only) without triggering an
+            // extra submit; we issue a single HTMX request below.
+            $('#designer-select').val(null).trigger('change.select2');
 
+            // Ask HTMX (not jQuery) to submit the form so it routes through
+            // /hx/search/ and applies the HX-Push-Url header.
+            htmx.trigger($('#designer-select').closest('form')[0], 'submit');
         });
 
 
@@ -58,7 +62,7 @@ let isInitialLoad = true;
                 return;  // Exit early without submitting the form
             }
             // Manually trigger htmx to perform the GET request
-            $(this).closest('form').trigger('submit');
+            htmx.trigger($(this).closest('form')[0], 'submit');
         });
 
 
