@@ -604,7 +604,8 @@
             <small>{% trans 'Click the Dominance icon to show when a Dominance was played. Subsequent turns will be filled in. To unapply, click the Dominance icon on the last turn. You will need to select the Dominance type on the other page.' %}</small>
         </div>
 
-        <div class="alert alert-secondary d-flex align-items-center gap-2 mt-2" id="grid-locked-msg" style="display:none;">
+        {# d-none (display:none !important) is required to override d-flex !important; toggled in JS via updateLockedMessage() when a locked row is present. #}
+        <div class="alert alert-secondary d-flex align-items-center gap-2 mt-2 d-none" id="grid-locked-msg">
             <i class="bi bi-lock-fill"></i>
             <small>{% trans "Detailed scorecards are locked and can be edited from the Game's detail page." %}</small>
         </div>
@@ -740,6 +741,7 @@ window.ScorecardGrid = (function () {
             }
         });
         reorder(liveIndices);
+        updateLockedMessage();
     }
 
     function refreshFactionLabel(formIndex) {
@@ -922,7 +924,10 @@ window.ScorecardGrid = (function () {
     function updateLockedMessage() {
         const msg = document.getElementById('grid-locked-msg');
         if (!msg) return;
-        msg.style.display = document.querySelector('.grid-row.grid-locked') ? '' : 'none';
+        // Toggle d-none (display:none !important) — a plain inline display style
+        // can't override the alert's d-flex !important.
+        const hasLocked = !!document.querySelector('.grid-row.grid-locked');
+        msg.classList.toggle('d-none', !hasLocked);
     }
 
     // Validate + serialize. Returns true if OK to submit, false to hard-block.
