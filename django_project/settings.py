@@ -142,11 +142,15 @@ SOCIALACCOUNT_PROVIDERS = {
         'SCOPE': [
             'identify',              # Basic user info
             'guilds',               # List of guilds the user is a member of
-            # 'guilds.members.read', # This permission is not needed
+            'guilds.members.read',  # Used only to get the WW nickname
         ],
 
         'AUTH_PARAMS': {
-            # 'prompt': 'consent'  # Optional
+            # Discord defaults to prompt=consent, re-showing the authorization
+            # screen on every login. prompt=none skips it for users who have
+            # already approved the current scope set (they still see it once
+            # when scopes change, e.g. adding guilds.members.read).
+            'prompt': 'none'
         }
     }
 }

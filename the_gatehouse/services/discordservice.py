@@ -163,14 +163,59 @@ def sync_bot_guilds():
     return len(bot_guild_ids)
 
 
+def get_ww_guild_nickname(user):
+    """Return the user's server nickname in the Woodland Warriors guild, or None.
+
+    Uses the user's own OAuth token (scope ``guilds.members.read``) to read their
+    member object in the WW guild; the ``nick`` field is the per-guild nickname and
+    is null when unset. Returns None on any failure — not in the guild, no nickname,
+    missing scope (older tokens), or API/network error — so callers fall back to the
+    global display name.
+    """
+    guild_id = config.get("WW_GUILD_ID")
+    if not guild_id:
+        return None
+
+    access_token = get_valid_discord_token(user)
+    if access_token is None:
+        return None
+
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/users/@me/guilds/{guild_id}/member",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=5,
+        )
+    except requests.RequestException as e:
+        logger.warning("Failed to fetch WW nickname for user %s: %s", user, e)
+        return None
+
+    # 404: not a member of the WW guild. 401/403: token lacks the
+    # guilds.members.read scope (e.g. hasn't re-consented yet). All expected —
+    # fall back quietly rather than logging noise.
+    if response.status_code in (401, 403, 404):
+        return None
+    if response.status_code != 200:
+        logger.warning(
+            "Unexpected status fetching WW nickname for user %s: %s %s",
+            user, response.status_code, response.text,
+        )
+        return None
+
+    nick = (response.json() or {}).get("nick")
+    return nick.strip() if nick and nick.strip() else None
+
+
 def get_discord_display_name(user):
     try:
         social = SocialAccount.objects.get(user=user, provider="discord")
         data = social.extra_data or {}
 
-        # Prefer Discord global_name then username then fallback to Django username
+        # Prefer the user's Woodland Warriors server nickname; fall back to the
+        # Discord global_name, then username, then the Django username.
         display_name = (
-            data.get("global_name")
+            get_ww_guild_nickname(user)
+            or data.get("global_name")
             or data.get("username")
             or data.get("user", {}).get("username")
             or user.username   # fallback
