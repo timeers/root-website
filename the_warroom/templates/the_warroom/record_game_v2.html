@@ -468,17 +468,18 @@
         </button>
         </div>
     </div>
-    <div class="d-flex align-items-center justify-content-between">
+    <div>
         <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">{% trans 'Add Player' %} +</button>
-
-        <button class="btn btn-outline-primary" id="open-grid-btn" type="button">
-            <i class="bi bi-grid-3x3-gap"></i> {% trans 'Scorecard Grid' %}
-        </button>
     </div>
 
-
-
     {% endif %}
+
+    {# Scorecard grid is available in both standalone and match mode. #}
+    <div class="mb-2">
+        <button class="btn btn-outline-primary" id="open-grid-btn" type="button">
+            <i class="bi bi-grid-3x3-gap"></i> {% trans 'Box Score' %}
+        </button>
+    </div>
 
     <h2>{% trans 'Misc.' %}</h2>
     <div class="form-control">
@@ -568,7 +569,7 @@
             <button class="btn btn-outline-secondary btn-sm" id="grid-back-btn" type="button">
                 <i class="bi bi-arrow-left"></i> {% trans 'Back to Game' %}
             </button>
-            <h2 class='root-title text-center flex-grow-1 mb-0'>{% trans 'Scorecard Grid' %}</h2>
+            <h2 class='root-title text-center flex-grow-1 mb-0'>{% trans 'Box Score' %}</h2>
             {# Spacer matching the button so the title stays centered #}
             <span class="btn btn-sm invisible" aria-hidden="true">
                 <i class="bi bi-arrow-left"></i> {% trans 'Back to Game' %}
