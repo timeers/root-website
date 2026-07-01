@@ -10,6 +10,7 @@
 - Merging players didn't merge their stage membership
 - Get display name from WW on login
 - width for extra rounds form
+- show assets field error on series create
 
 ## [1.12.10] - 2026-6-30 Small Bugs Need Squashing Too
 

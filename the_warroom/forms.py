@@ -903,7 +903,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'start_date', 'end_date', 'publicly_visible', 'is_active',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
             'platform', 'default_format', 'link_required',
-            'asset_mode', 'include_clockwork',
+            'asset_mode', 'include_clockwork', 'show_assets',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
             'picture'
         ]
@@ -927,6 +927,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'recording_access': 'Who Can Record Games',
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
+            'show_assets': 'Show Allowed Assets section',
             'default_format': 'Default Round Format',
             'picture': 'Series Image',
         }
