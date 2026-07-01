@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.12.11] - 2026-1-01 Player Merge Fixes
+
+### Improvements
+- Get display name from WW
+- AllAuth consent should be a one time approval
+
+### Bug Fixes
+- Merging players didn't merge their stage membership
+- Get display name from WW on login
+- width for extra rounds form
+
 ## [1.12.10] - 2026-6-30 Small Bugs Need Squashing Too
 
 ### Bug Fixes

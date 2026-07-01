@@ -268,18 +268,70 @@ class ProfileAdmin(admin.ModelAdmin):
                 tournament=obj.tournament, **{field_name: survivor}
             ).first()
             if survivor_tp is not None:
-                from the_warroom.models import StageParticipant
-                reparented = StageParticipant.objects.filter(
-                    tournament_player=obj
-                ).update(tournament_player=survivor_tp)
-                if reparented:
+                reparented, deduped = self._reparent_stage_participations(
+                    obj, survivor_tp
+                )
+                if reparented or deduped:
+                    detail = f"Re-pointed {reparented} stage participation(s)"
+                    if deduped:
+                        detail += (
+                            f" and merged {deduped} duplicate(s) into the "
+                            f"survivor's existing stage entries"
+                        )
                     messages.warning(
                         request,
-                        f"Re-pointed {reparented} stage participation(s) from the "
-                        f"discarded {model.__name__} (pk={obj.pk}) to the survivor's "
-                        f"entry in tournament {obj.tournament}."
+                        f"{detail} from the discarded {model.__name__} "
+                        f"(pk={obj.pk}) to the survivor's entry in tournament "
+                        f"{obj.tournament}."
                     )
         self._report_discard(request, obj, reason="duplicate")
+
+    def _reparent_stage_participations(self, loser_tp, survivor_tp):
+        """Move a losing TournamentPlayer's StageParticipant rows onto the
+        survivor's TournamentPlayer, treating (stage, tournament_player) as
+        unique (there is no DB constraint, but the app assumes it everywhere).
+
+        For each losing StageParticipant:
+        - If the survivor's TournamentPlayer has no participant in that stage,
+          simply re-point it (fast, preserves its MatchSeat children).
+        - If the survivor already participates in that stage, re-point the
+          loser's MatchSeat rows onto the survivor's StageParticipant, then
+          delete the now-duplicate loser row. This is what prevents the same
+          player appearing twice in a single stage after a merge.
+        """
+        from the_warroom.models import StageParticipant, MatchSeat
+
+        reparented = 0
+        deduped = 0
+        for sp in StageParticipant.objects.filter(tournament_player=loser_tp):
+            survivor_sp = StageParticipant.objects.filter(
+                stage_id=sp.stage_id, tournament_player=survivor_tp
+            ).first()
+            if survivor_sp is None:
+                sp.tournament_player = survivor_tp
+                sp.save(update_fields=['tournament_player'])
+                reparented += 1
+                continue
+
+            # Survivor is already in this stage: fold the loser's seats in,
+            # skipping any that would duplicate a seat the survivor already
+            # holds in the same series, then drop the duplicate participant.
+            for seat in MatchSeat.objects.filter(stage_participant=sp):
+                if MatchSeat.objects.filter(
+                    series_id=seat.series_id, stage_participant=survivor_sp
+                ).exists():
+                    seat.delete()
+                else:
+                    seat.stage_participant = survivor_sp
+                    seat.save(update_fields=['stage_participant'])
+            # Transfer any "series winner" records off the loser before it is
+            # deleted, otherwise the through-row CASCADEs away and the win is lost.
+            for series in sp.won_series.all():
+                series.winners.remove(sp)
+                series.winners.add(survivor_sp)
+            sp.delete()
+            deduped += 1
+        return reparented, deduped
 
     def _report_discard(self, request, obj, reason):
         messages.warning(
