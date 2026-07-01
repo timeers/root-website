@@ -154,10 +154,14 @@
         position: relative;
     }
     .grid-cell-input {
-        width: 52px;
+        width: 48px;
+        padding: 0.15rem 0.25rem;
         text-align: center;
-        border: none;
-        background: transparent;
+        /* Visible input area so cells read as editable fields. */
+        border: 1px solid var(--bs-border-color, #ced4da);
+        border-radius: 0.25rem;
+        background: var(--bs-body-bg, #fff);
+        color: var(--bs-body-color, inherit);
         /* Hide the number-input spinner arrows (Firefox). */
         -moz-appearance: textfield;
         appearance: textfield;
@@ -169,7 +173,9 @@
         margin: 0;
     }
     .grid-cell-input:focus {
-        outline: 1px solid var(--bs-primary, #0d6efd);
+        outline: none;
+        border-color: var(--bs-primary, #0d6efd);
+        box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.25);
     }
     .dom-tag {
         position: absolute;
@@ -192,9 +198,13 @@
     .grid-row.grid-locked > td {
         background: var(--bs-secondary-bg, rgba(108, 117, 125, 0.12));
     }
+    /* Locked rows are read-only — flatten the input so it doesn't look editable. */
     .grid-row.grid-locked .grid-cell-input {
         color: var(--bs-secondary, #6c757d);
         cursor: not-allowed;
+        border-color: transparent;
+        background: transparent;
+        box-shadow: none;
     }
     .grid-row.grid-locked .grid-faction-cell {
         color: var(--bs-secondary, #6c757d);
@@ -468,15 +478,14 @@
         </button>
         </div>
     </div>
-    <div>
-        <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">{% trans 'Add Player' %} +</button>
-    </div>
-
     {% endif %}
 
-    {# Scorecard grid is available in both standalone and match mode. #}
-    <div class="mb-2">
-        <button class="btn btn-outline-primary" id="open-grid-btn" type="button">
+    {# Add Player is standalone-only; Box Score (scorecard grid) shows in both modes. #}
+    <div class="d-flex align-items-center gap-2 mb-2 mt-2">
+        {% if not match_mode %}
+        <button class="btn btn-info" id="add-more" type="button">{% trans 'Add Player' %} +</button>
+        {% endif %}
+        <button class="btn btn-outline-primary ms-auto" id="open-grid-btn" type="button">
             <i class="bi bi-grid-3x3-gap"></i> {% trans 'Box Score' %}
         </button>
     </div>
