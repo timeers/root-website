@@ -6,6 +6,7 @@ import os
 import json
 
 from collections import defaultdict
+from urllib.parse import urlparse, urlencode
 
 from django.utils import timezone 
 from django.utils.translation import gettext as _
@@ -1803,8 +1804,19 @@ def search_view(request, slug=None):
         'expansions': expansions,
         }
 
-    
-    return render(request, "the_keep/partials/search_results.html", context)
+
+    response = render(request, "the_keep/partials/search_results.html", context)
+
+    # Push the filters onto the browser URL using the page's own path (not the
+    # /hx/search/ endpoint). HTMX sends the current page URL in HX-Current-URL.
+    current_url = request.headers.get('HX-Current-URL')
+    page_path = urlparse(current_url).path if current_url else reverse('archive-home')
+    # Only keep parameters that actually have a value so the pushed URL stays clean.
+    # Exclude 'page' so infinite-scroll requests don't leak ?page=N into the URL.
+    query_string = urlencode({k: v for k, v in request.GET.items() if v and k != 'page'})
+    response['HX-Push-Url'] = f'{page_path}?{query_string}' if query_string else page_path
+
+    return response
 
 
 def _search_components(request, slug=None):
