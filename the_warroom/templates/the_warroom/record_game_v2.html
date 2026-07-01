@@ -103,12 +103,123 @@
         flex-wrap: wrap;
         align-items: center;
     }
+    /* ── Scorecard grid slide panel ── */
+    #form-slider-viewport {
+        overflow: hidden;
+    }
+    #form-slider-track {
+        display: flex;
+        width: 200%;
+        /* Don't stretch panels to match each other's height — each panel keeps
+           its own content height so switching to the grid isn't padded out by
+           the taller game form. */
+        align-items: flex-start;
+        transition: transform 0.3s ease;
+    }
+    #form-slider-track.show-grid {
+        transform: translateX(-50%);
+    }
+    .slider-panel {
+        flex: 0 0 50%;
+        max-width: 50%;
+    }
+    /* The inactive panel collapses so the viewport height follows the visible
+       panel only (and its scroll position doesn't leak between the two). */
+    #form-slider-track:not(.show-grid) #grid-panel,
+    #form-slider-track.show-grid #main-panel {
+        height: 0;
+        overflow: hidden;
+    }
+    /* ── Scorecard grid ── */
+    #scorecard-grid {
+        border-collapse: collapse;
+        width: 100%;
+        margin-bottom: 0;
+    }
+    #scorecard-grid th,
+    #scorecard-grid td {
+        border: 1px solid var(--bs-border-color, #dee2e6);
+        padding: 2px;
+        text-align: center;
+        vertical-align: middle;
+        min-width: 60px;
+    }
+    #scorecard-grid th.grid-faction-col,
+    #scorecard-grid td.grid-faction-cell {
+        text-align: left;
+        min-width: 120px;
+        white-space: nowrap;
+    }
+    .grid-cell {
+        position: relative;
+    }
+    .grid-cell-input {
+        width: 52px;
+        text-align: center;
+        border: none;
+        background: transparent;
+        /* Hide the number-input spinner arrows (Firefox). */
+        -moz-appearance: textfield;
+        appearance: textfield;
+    }
+    /* Hide the number-input spinner arrows (WebKit/Blink). */
+    .grid-cell-input::-webkit-outer-spin-button,
+    .grid-cell-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    .grid-cell-input:focus {
+        outline: 1px solid var(--bs-primary, #0d6efd);
+    }
+    .dom-tag {
+        position: absolute;
+        top: 1px;
+        right: 1px;
+        height: 1em;
+        width: auto;
+        cursor: pointer;
+    }
+    .dom-tag.dom-off {
+        filter: grayscale(1);
+        opacity: 0.35;
+    }
+    .dom-tag.dom-on {
+        filter: none;
+        opacity: 1;
+    }
+    /* Locked rows (a detailed scorecard exists) are read-only — shade them and
+       dim the text so it's clear they can't be edited here. */
+    .grid-row.grid-locked > td {
+        background: var(--bs-secondary-bg, rgba(108, 117, 125, 0.12));
+    }
+    .grid-row.grid-locked .grid-cell-input {
+        color: var(--bs-secondary, #6c757d);
+        cursor: not-allowed;
+    }
+    .grid-row.grid-locked .grid-faction-cell {
+        color: var(--bs-secondary, #6c757d);
+    }
+    .grid-score {
+        font-weight: bold;
+    }
 </style>
 {% endblock styles %}
 
 {% block content %}
 
 
+<form method="POST" action="" id="game-form-v2">
+    {% csrf_token %}
+    {% if match_mode %}
+    <input type="hidden" name="match_id" value="{{ match.id }}">
+    {% endif %}
+    <input type="hidden" name="seat_order" id="seat-order" value="">
+    <input type="hidden" id="final" name="final" value="True">
+    <input type="hidden" name="scorecard_grid" id="scorecard-grid-data" value="">
+
+    <div id="form-slider-viewport">
+    <div id="form-slider-track">
+    <div class="slider-panel" id="main-panel">
 
 <div style="display: flex; justify-content: space-between; align-items: center;">
     <legend>
@@ -161,15 +272,7 @@
 </div>
 {% endif %}
 
-
-<div style="margin-top: 30px;">
-<form method="POST" action="" id="game-form-v2">
-    {% csrf_token %}
-    {% if match_mode %}
-    <input type="hidden" name="match_id" value="{{ match.id }}">
-    {% endif %}
-    <input type="hidden" name="seat_order" id="seat-order" value="">
-    <input type="hidden" id="final" name="final" value="True">
+    <div style="margin-top: 30px;"></div>
 
     <h2>{% trans 'Game Details' %}</h2>
     <div class="form-control mb-1">
@@ -245,7 +348,9 @@
         </div>
     </div>
 
-    <h2>{% trans 'Players' %}</h2>
+    <div class="d-flex align-items-center justify-content-between">
+        <h2>{% trans 'Players' %}</h2>
+    </div>
     <div class="hidden">{{ formset.management_form }}</div>
     <div id="effort-form-list">
         {% for form in formset %}
@@ -363,9 +468,16 @@
         </button>
         </div>
     </div>
-    <div>
+    <div class="d-flex align-items-center justify-content-between">
         <button class="btn btn-info mb-2 mt-2" id="add-more" type="button">{% trans 'Add Player' %} +</button>
+
+        <button class="btn btn-outline-primary" id="open-grid-btn" type="button">
+            <i class="bi bi-grid-3x3-gap"></i> {% trans 'Scorecard Grid' %}
+        </button>
     </div>
+
+
+
     {% endif %}
 
     <h2>{% trans 'Misc.' %}</h2>
@@ -448,8 +560,61 @@
     {% else %}
         <a class="btn btn-secondary mb-2 mt-2" href="{% url 'games-home' %}">{% trans 'Cancel' %}</a>
     {% endif %}
+    </div>{# /#main-panel #}
+
+    <div class="slider-panel" id="grid-panel">
+
+        <div class="d-flex align-items-center my-2">
+            <button class="btn btn-outline-secondary btn-sm" id="grid-back-btn" type="button">
+                <i class="bi bi-arrow-left"></i> {% trans 'Back to Game' %}
+            </button>
+            <h2 class='root-title text-center flex-grow-1 mb-0'>{% trans 'Scorecard Grid' %}</h2>
+            {# Spacer matching the button so the title stays centered #}
+            <span class="btn btn-sm invisible" aria-hidden="true">
+                <i class="bi bi-arrow-left"></i> {% trans 'Back to Game' %}
+            </span>
+        </div>
+        <div style="overflow-x:auto;">
+            <table id="scorecard-grid">
+                <thead>
+                    <tr id="grid-header-row">
+                        <th class="grid-faction-col">{% trans 'Faction' %}</th>
+                        <th class="grid-turn-col" data-turn="1">T1</th>
+                        <th class="grid-turn-col" data-turn="2">T2</th>
+                        <th class="grid-turn-col" data-turn="3">T3</th>
+                        <th class="grid-score-col">{% trans 'Final' %}</th>
+                    </tr>
+                </thead>
+                <tbody id="grid-body"></tbody>
+            </table>
+        </div>
+        <div class="mt-2 d-flex justify-content-end gap-2">
+            <button class="btn btn-outline-danger btn-sm" id="remove-turn-btn" type="button">&minus; {% trans 'Remove Turn' %}</button>
+            <button class="btn btn-outline-success btn-sm" id="add-turn-btn" type="button">{% trans 'Add Turn' %} +</button>
+        </div>
+
+
+        <div class="alert alert-info d-flex align-items-center gap-2 mt-2" role="alert">
+            <i class="bi bi-info-circle"></i>
+            <small>{% trans "Enter each Faction\'s score at the end of each turn. The Score will automatically update on the other page. If you would like to record points by category (cardboard, crafting, etc) you can do so from the Game's detail page or by recording a new Scorecard in the Battlefield." %}</small>
+        </div>
+
+        <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
+            <img src='{% static "images/tags/Dominance_Tag.png" %}' alt="{% trans 'Dominance' %}" style="height:1.4em; width:auto; flex-shrink:0;">
+            <small>{% trans 'Click the Dominance icon to show when a Dominance was played. Subsequent turns will be filled in. To unapply, click the Dominance icon on the last turn. You will need to select the Dominance type on the other page.' %}</small>
+        </div>
+
+        <div class="alert alert-secondary d-flex align-items-center gap-2 mt-2" id="grid-locked-msg" style="display:none;">
+            <i class="bi bi-lock-fill"></i>
+            <small>{% trans "Detailed scorecards are locked and can be edited from the Game's detail page." %}</small>
+        </div>
+
+
+    </div>{# /#grid-panel #}
+
+    </div>{# /#form-slider-track #}
+    </div>{# /#form-slider-viewport #}
 </form>
-</div>
 
 {% if not match_mode %}
 {% include 'the_keep/partials/register_player_modal.html' %}
@@ -460,6 +625,441 @@
 {% block scripts %}
 <script>
 const matchMode = {{ match_mode|yesno:"true,false" }};
+
+// ══════════════════════════════════════════════════════════════════
+// Scorecard Grid — turn-by-turn cumulative scoring for every effort.
+// One row per effort (keyed by formset index). Each turn cell holds the
+// cumulative game points; the last non-blank cell is written to the
+// effort's Score field. Persisted server-side as ScoreCard + TurnScores.
+// ══════════════════════════════════════════════════════════════════
+// Exposed on window so the guarded hooks below (add_new_form, deleteForm,
+// clearForm, updateSeatOrder, submit) can reach it — a top-level `const`
+// is script-scoped and would NOT appear as window.ScorecardGrid.
+window.ScorecardGrid = (function () {
+    const MAX_TURNS = 30;
+    const MIN_TURNS = 1;
+    const DOM_TAG_SRC = "{% static 'images/tags/Dominance_Tag.png' %}";
+    // Server-provided pre-fill: {rows: {formIndex: {detailed, cells:[{turn,value,dominance}]}}, has_detailed}
+    let PREFILL = {rows: {}, has_detailed: false};
+    try {
+        PREFILL = JSON.parse('{{ grid_prefill_json|escapejs }}') || PREFILL;
+    } catch (e) { /* keep default */ }
+
+    let turnCount = 3;
+
+    function body() { return document.getElementById('grid-body'); }
+    function headerRow() { return document.getElementById('grid-header-row'); }
+
+    // Read the faction label for an effort from its Select2/select field.
+    function factionLabel(formIndex) {
+        const sel = document.getElementById('id_form-' + formIndex + '-faction');
+        if (!sel) return '';
+        const opt = sel.options ? sel.options[sel.selectedIndex] : null;
+        return (opt && opt.value) ? opt.text : '';
+    }
+
+    function makeCell(formIndex, turn) {
+        const td = document.createElement('td');
+        td.className = 'grid-cell';
+        td.setAttribute('data-turn', turn);
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'grid-cell-input';
+        input.setAttribute('data-turn', turn);
+        // Suppress mouse-wheel scroll changing the value (mirror record_scores_v2).
+        input.addEventListener('wheel', function () { this.blur(); });
+        td.appendChild(input);
+
+        const tag = document.createElement('img');
+        tag.className = 'dom-tag dom-off';
+        tag.src = DOM_TAG_SRC;
+        tag.setAttribute('data-dominance', '0');
+        tag.setAttribute('alt', 'Dominance');
+        tag.addEventListener('click', function () { toggleDominance(td); });
+        td.appendChild(tag);
+
+        return td;
+    }
+
+    function addRow(formIndex) {
+        if (document.querySelector('.grid-row[data-form-index="' + formIndex + '"]')) return;
+        const tr = document.createElement('tr');
+        tr.className = 'grid-row';
+        tr.setAttribute('data-form-index', formIndex);
+
+        const factionCell = document.createElement('td');
+        factionCell.className = 'grid-faction-cell';
+        // Label lives in its own span so a lock icon (added for locked rows)
+        // and the label can coexist without one wiping the other.
+        const label = document.createElement('span');
+        label.className = 'grid-faction-label';
+        label.textContent = factionLabel(formIndex) || ('Seat ' + (parseInt(formIndex, 10) + 1));
+        factionCell.appendChild(label);
+        tr.appendChild(factionCell);
+
+        for (let t = 1; t <= turnCount; t++) {
+            tr.appendChild(makeCell(formIndex, t));
+        }
+
+        const scoreCell = document.createElement('td');
+        scoreCell.className = 'grid-score';
+        tr.appendChild(scoreCell);
+
+        body().appendChild(tr);
+        return tr;
+    }
+
+    function removeRow(formIndex) {
+        const tr = document.querySelector('.grid-row[data-form-index="' + formIndex + '"]');
+        if (tr) tr.remove();
+    }
+
+    // Reconcile grid rows against the currently-visible efforts: add rows for
+    // new efforts, drop rows for efforts that were removed, and mirror their
+    // order. Idempotent — safe to call whenever the seat list may have changed.
+    function syncRows() {
+        const efforts = document.querySelectorAll('#effort-form-list .effort-form:not(.hidden)');
+        const liveIndices = [];
+        efforts.forEach(function (el) {
+            const id = el.getAttribute('id');
+            if (!id) return;
+            const formIndex = id.replace('form-', '');
+            liveIndices.push(formIndex);
+            if (!document.querySelector('.grid-row[data-form-index="' + formIndex + '"]')) {
+                const tr = addRow(formIndex);
+                applyPrefill(formIndex, tr);
+            } else {
+                refreshFactionLabel(formIndex);
+            }
+        });
+        // Remove grid rows whose effort no longer exists (deleted seats).
+        document.querySelectorAll('.grid-row').forEach(function (tr) {
+            if (liveIndices.indexOf(tr.getAttribute('data-form-index')) === -1) {
+                tr.remove();
+            }
+        });
+        reorder(liveIndices);
+    }
+
+    function refreshFactionLabel(formIndex) {
+        const tr = document.querySelector('.grid-row[data-form-index="' + formIndex + '"]');
+        if (!tr) return;
+        const label = tr.querySelector('.grid-faction-label');
+        if (label) label.textContent = factionLabel(formIndex) || ('Seat ' + (parseInt(formIndex, 10) + 1));
+    }
+
+    // Reorder grid rows to mirror the visual effort order (cosmetic only;
+    // form_index stays authoritative for persistence).
+    function reorder(orderedIndices) {
+        const b = body();
+        orderedIndices.forEach(function (idx) {
+            const tr = b.querySelector('.grid-row[data-form-index="' + idx + '"]');
+            if (tr) b.appendChild(tr);
+        });
+    }
+
+    // The grid's ending score for a row = value of the last non-blank cell
+    // (empty string if the row has no entries). Read-only, no side effects.
+    function endingScoreOf(tr) {
+        let lastValue = '';
+        tr.querySelectorAll('.grid-cell').forEach(function (td) {
+            const input = td.querySelector('.grid-cell-input');
+            if (input && input.value.trim() !== '') {
+                lastValue = input.value.trim();
+            }
+        });
+        return lastValue;
+    }
+
+    // Recompute the Score column (last non-blank cell) and write it into the
+    // effort's real score field. Used on live grid input for convenience; the
+    // recorder can still hand-edit the score afterwards (validation catches a
+    // mismatch on submit).
+    function recalcRow(tr) {
+        const lastValue = endingScoreOf(tr);
+        const scoreCell = tr.querySelector('.grid-score');
+        if (scoreCell) scoreCell.textContent = lastValue;
+        const formIndex = tr.getAttribute('data-form-index');
+        const scoreField = document.getElementById('id_form-' + formIndex + '-score');
+        if (scoreField && lastValue !== '') scoreField.value = lastValue;
+    }
+
+    // Dominance toggle mirroring selectDominance: activating forward-fills all
+    // later cells in the row; deactivating reverse-clears all earlier cells.
+    function toggleDominance(td) {
+        const tr = td.closest('.grid-row');
+        if (!tr || tr.classList.contains('grid-locked')) return;
+        const tag = td.querySelector('.dom-tag');
+        const turn = parseInt(td.getAttribute('data-turn'), 10);
+        const turning_on = tag.classList.contains('dom-off');
+
+        tr.querySelectorAll('.grid-cell').forEach(function (cell) {
+            const cellTurn = parseInt(cell.getAttribute('data-turn'), 10);
+            const cellTag = cell.querySelector('.dom-tag');
+            if (turning_on) {
+                if (cellTurn >= turn) setDom(cellTag, true);
+            } else {
+                if (cellTurn <= turn) setDom(cellTag, false);
+            }
+        });
+    }
+
+    function setDom(tag, on) {
+        if (on) {
+            tag.classList.remove('dom-off');
+            tag.classList.add('dom-on');
+            tag.setAttribute('data-dominance', '1');
+        } else {
+            tag.classList.remove('dom-on');
+            tag.classList.add('dom-off');
+            tag.setAttribute('data-dominance', '0');
+        }
+    }
+
+    // Enable/disable the Add/Remove Turn buttons at the column-count limits.
+    function updateTurnButtons() {
+        const addBtn = document.getElementById('add-turn-btn');
+        const removeBtn = document.getElementById('remove-turn-btn');
+        if (addBtn) addBtn.disabled = (turnCount >= MAX_TURNS);
+        if (removeBtn) removeBtn.disabled = (turnCount <= MIN_TURNS);
+    }
+
+    function addTurn() {
+        if (turnCount >= MAX_TURNS) return;
+        turnCount += 1;
+        // Header
+        const th = document.createElement('th');
+        th.className = 'grid-turn-col';
+        th.setAttribute('data-turn', turnCount);
+        th.textContent = 'T' + turnCount;
+        const scoreHeader = headerRow().querySelector('.grid-score-col');
+        headerRow().insertBefore(th, scoreHeader);
+        // Each row
+        document.querySelectorAll('.grid-row').forEach(function (tr) {
+            const formIndex = tr.getAttribute('data-form-index');
+            const scoreCell = tr.querySelector('.grid-score');
+            const cell = makeCell(formIndex, turnCount);
+            if (tr.classList.contains('grid-locked')) {
+                cell.querySelector('.grid-cell-input').setAttribute('readonly', 'readonly');
+            }
+            // Inherit dominance from the cell to the left so a new turn keeps
+            // the row's existing dominance state (dominance is a forward-fill).
+            const prevCell = tr.querySelector('.grid-cell[data-turn="' + (turnCount - 1) + '"]');
+            if (prevCell) {
+                const prevOn = prevCell.querySelector('.dom-tag').getAttribute('data-dominance') === '1';
+                setDom(cell.querySelector('.dom-tag'), prevOn);
+            }
+            tr.insertBefore(cell, scoreCell);
+        });
+        updateTurnButtons();
+    }
+
+    // Remove the last (right-most) turn column from the header and every row,
+    // then refresh each row's score (in case the removed cell held the value).
+    function removeTurn() {
+        if (turnCount <= MIN_TURNS) return;
+        const th = headerRow().querySelector('.grid-turn-col[data-turn="' + turnCount + '"]');
+        if (th) th.remove();
+        document.querySelectorAll('.grid-row').forEach(function (tr) {
+            const cell = tr.querySelector('.grid-cell[data-turn="' + turnCount + '"]');
+            if (cell) cell.remove();
+            recalcRow(tr);
+        });
+        turnCount -= 1;
+        updateTurnButtons();
+    }
+
+    // Ensure the grid has at least `n` turn columns.
+    function ensureTurns(n) {
+        while (turnCount < n && turnCount < MAX_TURNS) addTurn();
+    }
+
+    // (Re)build every grid row from the current visible efforts, then apply
+    // any server pre-fill (generic pre-fill or detailed read-only lock).
+    function rebuild() {
+        body().innerHTML = '';
+        // Determine max turns needed from prefill.
+        let maxTurn = 3;
+        Object.keys(PREFILL.rows || {}).forEach(function (k) {
+            (PREFILL.rows[k].cells || []).forEach(function (c) {
+                if (c.turn > maxTurn) maxTurn = c.turn;
+            });
+        });
+        ensureTurns(maxTurn);
+
+        document.querySelectorAll('#effort-form-list .effort-form:not(.hidden)').forEach(function (el) {
+            const id = el.getAttribute('id');
+            if (!id) return;
+            const formIndex = id.replace('form-', '');
+            const tr = addRow(formIndex);
+            applyPrefill(formIndex, tr);
+        });
+        updateLockedMessage();
+    }
+
+    function applyPrefill(formIndex, tr) {
+        const data = (PREFILL.rows || {})[formIndex];
+        if (!data || !tr) return;
+        (data.cells || []).forEach(function (c) {
+            const cell = tr.querySelector('.grid-cell[data-turn="' + c.turn + '"]');
+            if (!cell) return;
+            cell.querySelector('.grid-cell-input').value = c.value;
+            if (c.dominance) setDom(cell.querySelector('.dom-tag'), true);
+        });
+        if (data.detailed) {
+            tr.classList.add('grid-locked');
+            tr.querySelectorAll('.grid-cell-input').forEach(function (inp) {
+                inp.setAttribute('readonly', 'readonly');
+            });
+            tr.querySelectorAll('.dom-tag').forEach(function (tag) {
+                tag.style.cursor = 'default';
+            });
+        }
+        recalcRow(tr);
+    }
+
+    function updateLockedMessage() {
+        const msg = document.getElementById('grid-locked-msg');
+        if (!msg) return;
+        msg.style.display = document.querySelector('.grid-row.grid-locked') ? '' : 'none';
+    }
+
+    // Validate + serialize. Returns true if OK to submit, false to hard-block.
+    function validateAndSerialize() {
+        clearErrors();
+        let firstError = null;
+
+        document.querySelectorAll('.grid-row').forEach(function (tr) {
+            if (tr.classList.contains('grid-locked')) return;
+            const formIndex = tr.getAttribute('data-form-index');
+
+            // Refresh the Score column display (read-only; do NOT overwrite the
+            // effort's score field here, or the mismatch check below is a no-op).
+            const endingScore = endingScoreOf(tr);
+            const scoreCell = tr.querySelector('.grid-score');
+            if (scoreCell) scoreCell.textContent = endingScore;
+
+            // Any active dominance in the row requires an effort dominance choice.
+            const hasDom = !!tr.querySelector('.dom-tag.dom-on');
+            if (hasDom) {
+                const domField = document.getElementById('id_form-' + formIndex + '-dominance');
+                if (domField && !domField.value) {
+                    markError(domField, "{% trans 'Select dominance to match with scorecard' %}");
+                    if (!firstError) firstError = domField;
+                }
+            }
+
+            // The effort's game-form score must match the grid's ending score.
+            const scoreField = document.getElementById('id_form-' + formIndex + '-score');
+            if (endingScore !== '' && scoreField) {
+                if (String(scoreField.value).trim() !== endingScore) {
+                    markError(scoreField, "{% trans 'Score does not match scorecard grid' %}");
+                    if (!firstError) firstError = scoreField;
+                }
+            }
+        });
+
+        if (firstError) {
+            // The dominance/score fields being flagged live on the game form,
+            // not the grid — stay on (return to) the game form so the recorder
+            // sees the highlighted field instead of sliding to the grid.
+            closeGrid();
+            try { firstError.scrollIntoView({behavior: 'smooth', block: 'center'}); } catch (e) {}
+            return false;
+        }
+
+        // Build payload — skip locked (detailed) rows and blank rows.
+        const rows = [];
+        document.querySelectorAll('.grid-row').forEach(function (tr) {
+            if (tr.classList.contains('grid-locked')) return;
+            const formIndex = parseInt(tr.getAttribute('data-form-index'), 10);
+            const cells = [];
+            tr.querySelectorAll('.grid-cell').forEach(function (td) {
+                const input = td.querySelector('.grid-cell-input');
+                if (!input || input.value.trim() === '') return;
+                cells.push({
+                    turn: parseInt(td.getAttribute('data-turn'), 10),
+                    value: parseInt(input.value, 10),
+                    dominance: td.querySelector('.dom-tag').getAttribute('data-dominance') === '1'
+                });
+            });
+            if (cells.length) rows.push({form_index: formIndex, cells: cells});
+        });
+        document.getElementById('scorecard-grid-data').value = JSON.stringify({rows: rows});
+        return true;
+    }
+
+    function markError(field, message) {
+        field.classList.add('is-invalid');
+        // Show message once per field.
+        if (!field.parentNode.querySelector('.grid-error-msg')) {
+            const small = document.createElement('div');
+            small.className = 'grid-error-msg text-danger';
+            small.innerHTML = '<small>' + message + '</small>';
+            field.parentNode.appendChild(small);
+        }
+    }
+
+    function clearErrors() {
+        document.querySelectorAll('.is-invalid').forEach(function (f) { f.classList.remove('is-invalid'); });
+        document.querySelectorAll('.grid-error-msg').forEach(function (m) { m.remove(); });
+    }
+
+    // Scroll to the very top of the page when switching panels, so the panel
+    // we switch to always starts at the top regardless of the other's scroll.
+    function scrollToGridTop() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function openGrid() {
+        // Reconcile rows to the current seats before showing the grid.
+        syncRows();
+        document.getElementById('form-slider-track').classList.add('show-grid');
+    }
+    function closeGrid() {
+        document.getElementById('form-slider-track').classList.remove('show-grid');
+    }
+
+    function init() {
+        rebuild();
+        // Cell input → recompute score.
+        document.getElementById('grid-body').addEventListener('input', function (e) {
+            if (e.target.classList.contains('grid-cell-input')) {
+                const tr = e.target.closest('.grid-row');
+                if (tr) recalcRow(tr);
+            }
+        });
+        // Faction change → refresh row label.
+        $('#effort-form-list').on('change', '[id$="-faction"]', function () {
+            const id = (this.id || '').match(/^id_form-(\d+)-faction$/);
+            if (id) refreshFactionLabel(id[1]);
+        });
+        // The open/back buttons are explicit navigation, so align the viewport
+        // with the top of the window when switching between panels.
+        const openBtn = document.getElementById('open-grid-btn');
+        if (openBtn) openBtn.addEventListener('click', function () { openGrid(); scrollToGridTop(); });
+        const backBtn = document.getElementById('grid-back-btn');
+        if (backBtn) backBtn.addEventListener('click', function () { closeGrid(); scrollToGridTop(); });
+        const addTurnBtn = document.getElementById('add-turn-btn');
+        if (addTurnBtn) addTurnBtn.addEventListener('click', addTurn);
+        const removeTurnBtn = document.getElementById('remove-turn-btn');
+        if (removeTurnBtn) removeTurnBtn.addEventListener('click', removeTurn);
+        updateTurnButtons();
+    }
+
+    return {
+        init: init,
+        addRow: addRow,
+        removeRow: removeRow,
+        syncRows: syncRows,
+        reorder: reorder,
+        refreshFactionLabel: refreshFactionLabel,
+        validateAndSerialize: validateAndSerialize,
+        openGrid: openGrid,
+        closeGrid: closeGrid
+    };
+})();
 
 // ── Dominance select2 with icons ──
 // Resolve each icon's full static URL via static so it works with both
@@ -621,11 +1221,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         $('#seat-order').val(order.join(','));
+        // Mirror the visual order in the scorecard grid (cosmetic).
+        if (window.ScorecardGrid) ScorecardGrid.reorder(order);
     }
 
+    // ── Initialize the scorecard grid once efforts are rendered ──
+    ScorecardGrid.init();
+
     // ── Re-enable disabled fields on form submit ──
-    $('form#game-form-v2').on('submit', function() {
+    $('form#game-form-v2').on('submit', function(e) {
         updateSeatOrder();
+        // Hard-block on scorecard grid validation errors before submit.
+        if (window.ScorecardGrid && !ScorecardGrid.validateAndSerialize()) {
+            e.preventDefault();
+            return false;
+        }
         $(this).find('[disabled]').prop('disabled', false);
     });
 
@@ -1372,6 +1982,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Refresh sortable
         $('#effort-form-list').sortable('refresh');
+        // Keep the scorecard grid in sync with the new effort.
+        if (window.ScorecardGrid) ScorecardGrid.syncRows();
         nextFormIndex++;
     }
     {% endif %}
@@ -1412,11 +2024,14 @@ function deleteForm(button) {
         deleteField.checked = true;
     }
     formDiv.classList.add('hidden');
+    // Keep the scorecard grid in sync (drop the removed effort's row).
+    if (window.ScorecardGrid) ScorecardGrid.syncRows();
 }
 
 function clearForm(button) {
     var formDiv = button.closest('.effort-form');
     formDiv.remove();
+    if (window.ScorecardGrid) ScorecardGrid.syncRows();
 }
 
 {% if not match_mode %}

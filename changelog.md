@@ -1,6 +1,9 @@
 # Changelog
 
-## [1.12.11] - 2026-1-01 Player Merge Fixes
+## [1.12.11] - 2026-1-01 Scorecard Grid
+
+### New Features
+- New scorecard grid to record turn by turn score in the game form
 
 ### Improvements
 - Get display name from WW
@@ -12,6 +15,7 @@
 - width for extra rounds form
 - show assets field error on series create
 - If series recording access is GUILD any guild members can be added to game
+- Validation failed when recording non registered guild member
 
 ## [1.12.10] - 2026-6-30 Small Bugs Need Squashing Too
 

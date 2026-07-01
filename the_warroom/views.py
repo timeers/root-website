@@ -1025,6 +1025,69 @@ def manage_game_v2(request, id=None):
             platform_locked = True
             locked_platform = tournament.platform
 
+    # ── Scorecard grid pre-fill data (keyed by effort formset index) ──
+    # For each existing effort with a ScoreCard, classify it so the grid can
+    # pre-fill (generic-only), lock (detailed), or start blank (none). Detailed
+    # means any battle/crafting/faction/other total is non-zero.
+    grid_rows = {}
+    grid_has_detailed = False
+    for idx, effort_form in enumerate(formset.forms):
+        effort_instance = effort_form.instance
+        if not effort_instance or not effort_instance.pk:
+            continue
+        try:
+            scorecard = effort_instance.scorecard
+        except ScoreCard.DoesNotExist:
+            scorecard = None
+        if scorecard is None:
+            continue
+        is_detailed = any([
+            scorecard.total_battle_points,
+            scorecard.total_crafting_points,
+            scorecard.total_faction_points,
+            scorecard.total_other_points,
+        ])
+        cells = [
+            {'turn': t.turn_number, 'value': t.game_points_total, 'dominance': t.dominance}
+            for t in scorecard.turns.all().order_by('turn_number')
+        ]
+        if not cells:
+            continue
+        grid_rows[idx] = {'detailed': is_detailed, 'cells': cells}
+        if is_detailed:
+            grid_has_detailed = True
+
+    # On a POST that fails validation the form re-renders, but the grid's cell
+    # values live only in the DOM and would be lost. Re-hydrate the grid from the
+    # posted payload so the recorder's in-flight entries survive. Posted values
+    # take precedence over saved-scorecard prefill; detailed (read-only) rows are
+    # never in the payload, so they keep their saved prefill.
+    if request.method == 'POST':
+        try:
+            posted_grid = json.loads(request.POST.get('scorecard_grid') or '{"rows":[]}')
+        except (ValueError, TypeError):
+            posted_grid = {'rows': []}
+        for row in posted_grid.get('rows', []):
+            try:
+                form_index = int(row.get('form_index'))
+            except (TypeError, ValueError):
+                continue
+            # Never override a detailed (locked) row's prefill.
+            if grid_rows.get(form_index, {}).get('detailed'):
+                continue
+            posted_cells = []
+            for cell in row.get('cells', []):
+                try:
+                    posted_cells.append({
+                        'turn': int(cell.get('turn')),
+                        'value': int(cell.get('value')),
+                        'dominance': bool(cell.get('dominance')),
+                    })
+                except (TypeError, ValueError):
+                    continue
+            if posted_cells:
+                grid_rows[form_index] = {'detailed': False, 'cells': posted_cells}
+
     context = {
         'form': form,
         'formset': formset,
@@ -1036,6 +1099,7 @@ def manage_game_v2(request, id=None):
         'player_form': player_form,
         'platform_locked': platform_locked,
         'locked_platform': locked_platform,
+        'grid_prefill_json': json.dumps({'rows': grid_rows, 'has_detailed': grid_has_detailed}),
     }
 
     if request.method == 'POST':
@@ -1136,8 +1200,110 @@ def manage_game_v2(request, id=None):
                     BracketService.on_game_complete(match)
                 _vlog.warning(f"[manage_game_v2] after on_game_complete: {_time.time()-_t0:.3f}s")
 
+            # ── Scorecard grid → ScoreCard + TurnScore persistence ──
+            # Each grid row maps to one effort by its formset index. Turn cells
+            # hold cumulative game points; per-turn generic/total points are the
+            # delta from the previous non-blank cell so the model's running-sum
+            # recalculation reproduces game_points_total.
+            grid_touched_effort_ids = set()
+            try:
+                grid_payload = json.loads(request.POST.get('scorecard_grid') or '{"rows":[]}')
+            except (ValueError, TypeError):
+                grid_payload = {'rows': []}
+
+            idx_to_child = {idx: child for idx, child, _ in saved_efforts}
+            for row in grid_payload.get('rows', []):
+                try:
+                    form_index = int(row.get('form_index'))
+                except (TypeError, ValueError):
+                    continue
+                child = idx_to_child.get(form_index)
+                if child is None:
+                    continue
+
+                # Parse and sort valid (numeric) cells by turn.
+                cells = []
+                for cell in row.get('cells', []):
+                    try:
+                        turn = int(cell.get('turn'))
+                        value = int(cell.get('value'))
+                    except (TypeError, ValueError):
+                        continue
+                    cells.append({
+                        'turn': turn,
+                        'value': value,
+                        'dominance': bool(cell.get('dominance')),
+                    })
+                cells.sort(key=lambda c: c['turn'])
+                if not cells:
+                    continue
+
+                # Load any existing scorecard; skip detailed ones defensively so
+                # grid submission never clobbers battle/crafting/faction/other data.
+                try:
+                    existing_scorecard = child.scorecard
+                except ScoreCard.DoesNotExist:
+                    existing_scorecard = None
+                if existing_scorecard and any([
+                    existing_scorecard.total_battle_points,
+                    existing_scorecard.total_crafting_points,
+                    existing_scorecard.total_faction_points,
+                    existing_scorecard.total_other_points,
+                ]):
+                    continue
+
+                scorecard, _ = ScoreCard.objects.get_or_create(
+                    effort=child,
+                    defaults={'faction': child.faction, 'recorder': user.profile},
+                )
+                last_value = cells[-1]['value']
+                any_dominance = any(c['dominance'] for c in cells)
+                scorecard.faction = child.faction
+                if scorecard.recorder_id is None:
+                    scorecard.recorder = user.profile
+                scorecard.total_points = last_value
+                scorecard.total_generic_points = last_value
+                scorecard.total_battle_points = 0
+                scorecard.total_crafting_points = 0
+                scorecard.total_faction_points = 0
+                scorecard.total_other_points = 0
+                scorecard.dominance = any_dominance
+                scorecard.final = True
+                scorecard.save()
+
+                # Upsert TurnScores by turn_number; delete turns no longer present.
+                existing_turns = {t.turn_number: t for t in scorecard.turns.all()}
+                desired_turn_numbers = set()
+                prev_value = 0
+                for cell in cells:
+                    delta = cell['value'] - prev_value
+                    prev_value = cell['value']
+                    desired_turn_numbers.add(cell['turn'])
+                    turn = existing_turns.get(cell['turn']) or TurnScore(
+                        scorecard=scorecard, turn_number=cell['turn']
+                    )
+                    turn.generic_points = delta
+                    turn.total_points = delta
+                    turn.battle_points = 0
+                    turn.crafting_points = 0
+                    turn.faction_points = 0
+                    turn.other_points = 0
+                    turn.dominance = cell['dominance']
+                    turn.game_points_total = cell['value']
+                    turn.save()
+                # Remove stale turns (shrinking grid)
+                stale = [n for n in existing_turns if n not in desired_turn_numbers]
+                if stale:
+                    scorecard.turns.filter(turn_number__in=stale).delete()
+
+                scorecard.save(recalculate_game_points=True)
+                grid_touched_effort_ids.add(child.id)
+
             # ScoreCard consistency checks
             for idx, child, captains in saved_efforts:
+                # Grid-created scorecards already set score/dominance/final consistently.
+                if child.id in grid_touched_effort_ids:
+                    continue
                 try:
                     scorecard = child.scorecard
                 except ScoreCard.DoesNotExist:

@@ -439,7 +439,10 @@ class GameCreateForm(forms.ModelForm):
                 # Check each player in the player_roster
                 if not tournament.open_roster:
                     for player in player_roster:
-                        if player not in current_players:
+                        # Under GUILD recording access, a member of the linked
+                        # guild may be added even if not registered (mirrors the
+                        # player dropdown in api_views.get_options_for_tournament).
+                        if player not in current_players and not tournament.guild_members_can_record(player):
                             validation_errors_to_display.append(f'{player} is not registered for {tournament}')
                 if not tournament.asset_mode == AssetModeChoices.OPEN:
                     for faction in faction_roster:
