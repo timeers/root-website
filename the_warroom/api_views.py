@@ -1,7 +1,7 @@
 # api_views.py
 from django.http import JsonResponse
 from django.db.models import Q
-from .models import Round, StageParticipant, TournamentPlayer, PlatformChoices
+from .models import Round, StageParticipant, TournamentPlayer, Tournament, PlatformChoices
 from the_gatehouse.models import Profile
 from django.shortcuts import get_object_or_404
 
@@ -66,6 +66,14 @@ def get_options_for_tournament(request, pk):
                     tournament_participations__tournament=tournament,
                     tournament_participations__status=TournamentPlayer.StatusChoices.REGISTERED,
                 )
+
+            # Under GUILD recording access, any member of the linked guild may
+            # record games even if they aren't a stage participant or registered,
+            # so include them alongside the participation-based list above.
+            if (tournament.recording_access == Tournament.RecordingAccessTypes.GUILD
+                    and tournament.guild_id):
+                guild_members = Profile.objects.filter(guilds__pk=tournament.guild_id)
+                players = (players | guild_members).distinct()
         platform = tournament.platform
 
 
