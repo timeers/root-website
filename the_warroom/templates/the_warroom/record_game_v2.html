@@ -693,6 +693,23 @@ window.ScorecardGrid = (function () {
         return td;
     }
 
+    // Move focus to the same turn column one row down, skipping locked rows and
+    // wrapping from the last row back to the top.
+    function focusCellBelow(input) {
+        const turn = input.getAttribute('data-turn');
+        const rows = Array.prototype.slice.call(document.querySelectorAll('.grid-row'));
+        const currentRow = input.closest('.grid-row');
+        const start = rows.indexOf(currentRow);
+        if (start === -1) return;
+        for (let step = 1; step <= rows.length; step++) {
+            const next = rows[(start + step) % rows.length];
+            if (next === currentRow) break;
+            if (next.classList.contains('grid-locked')) continue;
+            const cell = next.querySelector('.grid-cell[data-turn="' + turn + '"] .grid-cell-input');
+            if (cell) { cell.focus(); cell.select(); return; }
+        }
+    }
+
     function addRow(formIndex) {
         if (document.querySelector('.grid-row[data-form-index="' + formIndex + '"]')) return;
         const tr = document.createElement('tr');
@@ -1044,6 +1061,14 @@ window.ScorecardGrid = (function () {
                 const tr = e.target.closest('.grid-row');
                 if (tr) recalcRow(tr);
             }
+        });
+        // Enter/Return: never submit — move to the cell below in the same turn
+        // column, wrapping from the last row back to the top.
+        document.getElementById('grid-body').addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter') return;
+            if (!e.target.classList.contains('grid-cell-input')) return;
+            e.preventDefault();
+            focusCellBelow(e.target);
         });
         // Faction change → refresh row label.
         $('#effort-form-list').on('change', '[id$="-faction"]', function () {
