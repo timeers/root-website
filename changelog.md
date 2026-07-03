@@ -6,10 +6,15 @@
 - option to require box score on Series game submission
 - box score on game detail page
 
+### Improvements
+- Primary leaderboard page uses model winrates instead of calculated winrates for faster loading
+- pdf engine scales user submitted images when rendering
+
 ### Bug Fixes
 - box scores with blank cells count as the value of the previous turn
 - Blank Dominance box scores fill in to match game's ending turn
 - submitted games page scroll bug
+- static image error in pdf engine on dev
 
 ## [1.12.11] - 2026-7-01 Scorecard Grid
 

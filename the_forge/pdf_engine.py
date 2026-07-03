@@ -954,13 +954,16 @@ def _resolve_static_url(url):
     `static()` URL-encodes special characters (e.g. '+' → '%2B'), so we decode
     first. Under ManifestStaticFilesStorage the URL carries a content hash
     (name.<hash>.ext) that the staticfiles finders (which search source dirs
-    with un-hashed names) won't match, so we strip the hash and retry.
+    with un-hashed names) won't match, so we strip the hash and retry. In dev,
+    DevCacheBustStorage appends a `?v=<mtime>` cache-bust query that the finders
+    also won't match, so we strip the query string first.
     """
     if not url:
         return None
     from django.contrib.staticfiles import finders
     from urllib.parse import unquote
     rel = unquote(url.split('/static/', 1)[-1])
+    rel = rel.split('?', 1)[0].split('#', 1)[0]  # drop cache-bust query / fragment
     path = finders.find(rel)
     if path is None:
         unhashed = _HASH_RE.sub(r'\1', rel)
