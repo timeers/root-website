@@ -496,12 +496,18 @@ def game_detail_view(request, id=None, league_id=None):
         row_max = max(turns)
         if row_max > scorecard_grid_max_turn:
             scorecard_grid_max_turn = row_max
+        # Vagabonds play a coalition instead of dominance — a dominance turn shows
+        # the coalition partner's faction icon rather than a dominance-type icon.
+        coalition = effort.coalition_with
         scorecard_grid_rows.append({
             'faction': getattr(effort, 'translated_faction_title', effort.faction.title),
             'small_icon': effort.faction.small_icon,
             'small_icon_version': effort.faction.small_icon_version,
             'color': effort.faction.color,
             'effort_dominance': effort.dominance,  # e.g. 'Mouse' (or None)
+            'coalition_icon': coalition.small_icon if coalition else None,
+            'coalition_icon_version': coalition.small_icon_version if coalition else 0,
+            'coalition_name': coalition.title if coalition else None,
             'effort_win': effort.win,
             'brazen': bool(effort.brazen_demagogue),
             'row_max': row_max,  # this scorecard's own last turn number
@@ -518,14 +524,20 @@ def game_detail_view(request, id=None, league_id=None):
     scorecard_grid = []
     for row in scorecard_grid_rows:
         cells = []
+        has_coalition = bool(row['coalition_icon'])
         for n in range(1, scorecard_grid_max_turn + 1):
             t = row['turns'].get(n)
             is_dom = bool(t.dominance) if t else False
             has_dom_type = is_dom and bool(row['effort_dominance'])
+            has_coalition_dom = is_dom and has_coalition
             is_winner_cell = bool(row['effort_win']) and n == row['row_max']
             value = t.game_points_total if t else None
 
-            if not has_dom_type:
+            if has_coalition_dom:
+                # Vagabond coalition: show the partner's faction icon (vagabonds
+                # can't be Brazen Demagogue, so it's always icon-in-place).
+                mode = 'coalition_icon'
+            elif not has_dom_type:
                 mode = 'score'
             elif row['brazen']:
                 if is_winner_cell:
@@ -548,6 +560,9 @@ def game_detail_view(request, id=None, league_id=None):
             'small_icon': row['small_icon'],
             'small_icon_version': row['small_icon_version'],
             'color': row['color'],
+            'coalition_icon': row['coalition_icon'],
+            'coalition_icon_version': row['coalition_icon_version'],
+            'coalition_name': row['coalition_name'],
             'cells': cells,
         })
     scorecard_grid_turns = list(range(1, scorecard_grid_max_turn + 1))
@@ -1302,7 +1317,11 @@ def manage_game_v2(request, id=None):
             idx_to_child = {idx: child for idx, child, _ in saved_efforts}
 
             # ── Phase 1: parse every row into contiguous cells (T1..N) ──
+            # Editable rows carry full cells (score + dominance); locked (detailed)
+            # rows carry dominance-only cells and are collected separately so we
+            # only update their dominance, never their scores/turns.
             parsed_rows = []
+            locked_dominance = {}  # form_index -> {turn_number: bool}
             for row in grid_payload.get('rows', []):
                 try:
                     form_index = int(row.get('form_index'))
@@ -1312,7 +1331,21 @@ def manage_game_v2(request, id=None):
                 if child is None:
                     continue
 
-                # Parse and sort valid (numeric) cells by turn.
+                if row.get('locked'):
+                    dom_by_turn = {}
+                    for cell in row.get('cells', []):
+                        try:
+                            turn = int(cell.get('turn'))
+                        except (TypeError, ValueError):
+                            continue
+                        dom_by_turn[turn] = bool(cell.get('dominance'))
+                    if dom_by_turn:
+                        locked_dominance[form_index] = dom_by_turn
+                    continue
+
+                # Parse and sort valid (numeric) cells by turn. `carried` marks a
+                # cell that has no entered score (a blank cell toggled dominant),
+                # so it may be trimmed if it runs past the game-end point.
                 cells = []
                 for cell in row.get('cells', []):
                     try:
@@ -1324,6 +1357,7 @@ def manage_game_v2(request, id=None):
                         'turn': turn,
                         'value': value,
                         'dominance': bool(cell.get('dominance')),
+                        'carried': bool(cell.get('carried')),
                     })
                 cells.sort(key=lambda c: c['turn'])
                 if not cells:
@@ -1340,7 +1374,8 @@ def manage_game_v2(request, id=None):
                 for turn in range(1, cells[-1]['turn'] + 1):
                     cell = by_turn.get(turn)
                     if cell is None:
-                        cell = {'turn': turn, 'value': prev_value, 'dominance': prev_dominance}
+                        cell = {'turn': turn, 'value': prev_value,
+                                'dominance': prev_dominance, 'carried': True}
                     prev_value = cell['value']
                     prev_dominance = cell['dominance']
                     filled.append(cell)
@@ -1363,7 +1398,15 @@ def manage_game_v2(request, id=None):
                 def _has_dom(r):
                     return any(c['dominance'] for c in r['cells'])
 
-                winner_row = next((r for r in _pad_rows_present if r['child'].win), None)
+                # Pick the winner reference row. With multiple winners (a vagabond
+                # winning alongside its coalition partner), prefer the winner that
+                # is NOT in a coalition — the coalition vagabond isn't a valid
+                # reference and shouldn't drive the "winner + 1 turn" padding.
+                winner_rows = [r for r in _pad_rows_present if r['child'].win]
+                winner_row = next(
+                    (r for r in winner_rows if not r['child'].coalition_with_id),
+                    winner_rows[0] if winner_rows else None,
+                )
                 winner_seat = winner_row['child'].seat if winner_row else None
 
                 # The reference for the target turn count must be a non-dominance
@@ -1389,35 +1432,44 @@ def manage_game_v2(request, id=None):
                         # Winner seated after → same; seated before → one less.
                         r['pad_target'] = winner_count if winner_seat > dom_seat else winner_count - 1
                 elif winner_seat is not None:
-                    # All-dominance regime. Anchor on the longest row.
+                    # All-dominance regime (the winner reference itself has
+                    # dominance). Anchor on the longest entered row — the game's
+                    # length — and split by the winner's seat: seats up to and
+                    # including the winner get the full count, later seats one
+                    # less. We never exceed the longest real entry (no +1 bump)
+                    # and never truncate, so no turns are invented past the game.
                     max_turns = max(_row_count(r) for r in _pad_rows_present)
-                    longest_seat = max(
-                        (r['child'].seat for r in _pad_rows_present
-                         if _row_count(r) == max_turns and r['child'].seat is not None),
-                        default=winner_seat,
-                    )
-                    # If the longest row sits after the winner (the "-1" tier),
-                    # bump the full count so it isn't truncated.
-                    full = max_turns + 1 if longest_seat > winner_seat else max_turns
                     for r in _pad_rows_present:
                         if not _has_dom(r):
                             continue
                         seat = r['child'].seat
                         if seat is None:
                             continue
-                        r['pad_target'] = full if seat <= winner_seat else full - 1
+                        r['pad_target'] = max_turns if seat <= winner_seat else max_turns - 1
 
-                # Apply targets: only add trailing turns (never truncate). Padded
-                # cells carry the last cumulative value and stay dominant.
+                # Apply targets to the dominance streak, but only when the row's
+                # LAST entered cell is dominant (we're extending/capping an active
+                # streak; non-dominant trailing turns are intentionally blank).
+                #   • Short of target → add trailing dominant cells (carried value).
+                #   • Past target → trim trailing cells down to target, but ONLY
+                #     `carried` cells (no entered score). Stop at the first cell
+                #     with a real value so entered data is never removed.
                 for r in _pad_rows_present:
                     target = r.get('pad_target')
                     if not target:
                         continue
                     cells = r['cells']
+                    if not cells[-1]['dominance']:
+                        continue
                     if target > len(cells):
                         last = cells[-1]
                         for turn in range(len(cells) + 1, target + 1):
-                            cells.append({'turn': turn, 'value': last['value'], 'dominance': True})
+                            cells.append({'turn': turn, 'value': last['value'],
+                                          'dominance': True, 'carried': True})
+                    elif target < len(cells):
+                        # Trim trailing carried (no-score) cells down to target.
+                        while len(cells) > target and cells[-1].get('carried'):
+                            cells.pop()
 
             # ── Phase 2: persist each row as ScoreCard + TurnScores ──
             for _row in parsed_rows:
@@ -1484,6 +1536,35 @@ def manage_game_v2(request, id=None):
 
                 scorecard.save(recalculate_game_points=True)
                 grid_touched_effort_ids.add(child.id)
+
+            # ── Detailed (locked) rows: update dominance only ──
+            # The user can toggle dominance on a detailed scorecard without
+            # editing its scores. Apply those toggles to each turn and the
+            # scorecard's dominance flag, leaving all point values untouched.
+            for form_index, dom_by_turn in locked_dominance.items():
+                child = idx_to_child.get(form_index)
+                if child is None:
+                    continue
+                try:
+                    scorecard = child.scorecard
+                except ScoreCard.DoesNotExist:
+                    scorecard = None
+                if scorecard is None:
+                    continue
+                changed = False
+                for turn in scorecard.turns.all():
+                    new_dom = bool(dom_by_turn.get(turn.turn_number, turn.dominance))
+                    if turn.dominance != new_dom:
+                        turn.dominance = new_dom
+                        turn.save(update_fields=['dominance'])
+                        changed = True
+                any_dom = any(dom_by_turn.values())
+                if scorecard.dominance != any_dom:
+                    scorecard.dominance = any_dom
+                    scorecard.save(update_fields=['dominance'])
+                    changed = True
+                if changed:
+                    grid_touched_effort_ids.add(child.id)
 
             # ScoreCard consistency checks
             for idx, child, captains in saved_efforts:

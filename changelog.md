@@ -1,9 +1,10 @@
 # Changelog
 
-## [1.12.12] - 2026-7-02 4th of July
+## [1.12.12] - 2026-7-02 Box Scores
 
 ### New Features
 - option to require box score on Series game submission
+- box score on game detail page
 
 ### Bug Fixes
 - box scores with blank cells count as the value of the previous turn

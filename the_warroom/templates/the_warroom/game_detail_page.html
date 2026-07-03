@@ -18,7 +18,7 @@
         padding: 2px 2px;
         text-align: center;
         vertical-align: middle;
-        min-width: 38px;
+        min-width: 40px;
         height: 38px;
     }
     .scorecard-score-grid th {
@@ -34,7 +34,7 @@
         height: 0.9em;
         width: auto;
     }
-    /* Dominance-type icon shown in place of the score on a dominant turn. */
+    /* Dominance-type icon shown in place of the score on a dominance turn. */
     .scorecard-score-grid .sg-dom-icon {
         height: 1.4em;
         width: auto;
@@ -262,14 +262,18 @@
                                     </td>
                                     {% for cell in row.cells %}
                                     <td class="sg-cell">
-                                        {% if cell.mode == 'icon' %}
-                                        {# Dominant turn: dominance-type icon in place of the score. #}
+                                        {% if cell.mode == 'coalition_icon' %}
+                                        {# Vagabond coalition turn: partner's faction icon in place of the score. #}
+                                        <img src="{{ row.coalition_icon|cache_bust:row.coalition_icon_version }}"
+                                             alt="{{ row.coalition_name }} {% trans 'Coalition' %}" class="sg-dom-icon">
+                                        {% elif cell.mode == 'icon' %}
+                                        {# Dominance turn: dominance-type icon in place of the score. #}
                                         {% with dom_icon='images/dominance/'|add:cell.dom_type|add:'_Icon.png' %}
                                         <img src="{% static dom_icon %}"
                                              alt="{{ cell.dom_type }} {% trans 'Dominance' %}" class="sg-dom-icon">
                                         {% endwith %}
                                         {% elif cell.mode == 'both' %}
-                                        {# Brazen Demagogue dominant turn: score bottom-left, icon top-right (behind). #}
+                                        {# Brazen Demagogue Dominance turn: score bottom-left, icon top-right (behind). #}
                                         {% with dom_icon='images/dominance/'|add:cell.dom_type|add:'_Icon.png' %}
                                         <img src="{% static dom_icon %}"
                                              alt="{{ cell.dom_type }} {% trans 'Dominance' %}" class="sg-dom-icon-corner">
