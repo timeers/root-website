@@ -324,6 +324,8 @@ class Tournament(models.Model):
     # Submission Settings
     platform = models.CharField(max_length=20, choices=PlatformChoices.choices, default=None, null=True, blank=True)
     link_required = models.BooleanField(default=False)
+    video_link_required = models.BooleanField(default=False)
+    box_score_required = models.BooleanField(default=False)
 
     # Leaderboard Settings
     game_threshold = models.IntegerField(default=0,validators=[MinValueValidator(0)])

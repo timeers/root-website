@@ -481,7 +481,7 @@
     {% endif %}
 
     {# Add Player is standalone-only; Box Score (scorecard grid) shows in both modes. #}
-    <div class="d-flex align-items-center gap-2 mb-2 mt-2">
+    <div id="box-score-btn-row" class="d-flex flex-wrap align-items-center gap-2 mb-2 mt-2">
         {% if not match_mode %}
         <button class="btn btn-info" id="add-more" type="button">{% trans 'Add Player' %} +</button>
         {% endif %}
@@ -636,6 +636,7 @@
 {% block scripts %}
 <script>
 const matchMode = {{ match_mode|yesno:"true,false" }};
+const boxScoreRequired = {{ box_score_required|yesno:"true,false" }};
 
 // ══════════════════════════════════════════════════════════════════
 // Scorecard Grid — turn-by-turn cumulative scoring for every effort.
@@ -992,6 +993,31 @@ window.ScorecardGrid = (function () {
             }
         });
 
+        // Box score required: every effort with a faction must have grid data
+        // whose final score matches the effort's score (a detailed/locked row
+        // counts as already having box-score data). Highlight the Box Score
+        // button and hard-block if any seat is missing.
+        clearBoxScoreError();
+        if (boxScoreRequired) {
+            let boxScoreMissing = false;
+            document.querySelectorAll('.grid-row').forEach(function (tr) {
+                const formIndex = tr.getAttribute('data-form-index');
+                const factionField = document.getElementById('id_form-' + formIndex + '-faction');
+                if (!factionField || !factionField.value) return;  // empty row exempt
+                if (tr.classList.contains('grid-locked')) return;   // detailed scorecard present
+                const endingScore = endingScoreOf(tr);
+                const scoreField = document.getElementById('id_form-' + formIndex + '-score');
+                const score = scoreField ? String(scoreField.value).trim() : '';
+                if (endingScore === '' || endingScore !== score) {
+                    boxScoreMissing = true;
+                }
+            });
+            if (boxScoreMissing) {
+                markBoxScoreError();
+                if (!firstError) firstError = document.getElementById('open-grid-btn');
+            }
+        }
+
         if (firstError) {
             // The dominance/score fields being flagged live on the game form,
             // not the grid — stay on (return to) the game form so the recorder
@@ -1036,6 +1062,30 @@ window.ScorecardGrid = (function () {
     function clearErrors() {
         document.querySelectorAll('.is-invalid').forEach(function (f) { f.classList.remove('is-invalid'); });
         document.querySelectorAll('.grid-error-msg').forEach(function (m) { m.remove(); });
+    }
+
+    // Highlight the Box Score button when a required box score is missing.
+    function markBoxScoreError() {
+        const btn = document.getElementById('open-grid-btn');
+        if (!btn) return;
+        btn.classList.remove('btn-outline-primary');
+        btn.classList.add('btn-danger');
+        if (!document.getElementById('box-score-required-msg')) {
+            const msg = document.createElement('div');
+            msg.id = 'box-score-required-msg';
+            msg.className = 'text-danger w-100 text-end';
+            msg.innerHTML = '<small>{% trans "A Box Score is required for every seat." %}</small>';
+            btn.parentNode.appendChild(msg);
+        }
+    }
+    function clearBoxScoreError() {
+        const btn = document.getElementById('open-grid-btn');
+        if (btn) {
+            btn.classList.remove('btn-danger');
+            btn.classList.add('btn-outline-primary');
+        }
+        const msg = document.getElementById('box-score-required-msg');
+        if (msg) msg.remove();
     }
 
     // Scroll to the very top of the page when switching panels, so the panel

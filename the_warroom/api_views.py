@@ -108,5 +108,6 @@ def get_options_for_tournament(request, pk):
         'players': players_data,
         'platform': platform,
         'link_required': tournament.link_required,
+        'box_score_required': tournament.box_score_required,
         'open_roster': tournament.open_roster,
     })

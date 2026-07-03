@@ -2,6 +2,81 @@
 {% load static i18n custom_filters %}
 {% block title %}Game | {% endblock %}
 
+{% block styles %}
+<style>
+    /* Read-only game score grid (rows = factions, columns = turns) */
+    .scorecard-score-grid {
+        border-collapse: collapse;
+        width: auto;
+        font-size: 0.9rem;
+        /* Override the global `table { margin-bottom: 20px }` in main.css. */
+        margin-bottom: 0;
+    }
+    .scorecard-score-grid th,
+    .scorecard-score-grid td {
+        border: 1px solid var(--bs-border-color, #dee2e6);
+        padding: 2px 2px;
+        text-align: center;
+        vertical-align: middle;
+        min-width: 38px;
+        height: 38px;
+    }
+    .scorecard-score-grid th {
+        font-weight: 600;
+    }
+    .scorecard-score-grid .sg-cell {
+        position: relative;
+    }
+    .scorecard-score-grid .sg-dom-tag {
+        position: absolute;
+        top: 1px;
+        right: 1px;
+        height: 0.9em;
+        width: auto;
+    }
+    /* Dominance-type icon shown in place of the score on a dominant turn. */
+    .scorecard-score-grid .sg-dom-icon {
+        height: 1.4em;
+        width: auto;
+        vertical-align: middle;
+    }
+    /* Brazen Demagogue: show both, clustered around the cell centre so they
+       read as one unit and occupy about the same footprint as a lone score or
+       icon. Icon sits up-and-right (behind), score down-and-left (in front).
+       Absolutely positioned so the cell size doesn't change. */
+    .scorecard-score-grid .sg-dom-icon-corner {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-20%, -65%);
+        height: 1.1em;
+        width: auto;
+        z-index: 1;
+    }
+    .scorecard-score-grid .sg-both-score {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-110%, -5%);
+        font-size: 0.8em;
+        line-height: 1;
+        z-index: 2;
+    }
+    /* Winner badge overlaid on the winning seat's last-turn cell. Absolutely
+       positioned + centered so it doesn't change the cell/grid dimensions. */
+    .scorecard-score-grid .sg-winner {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        height: 1.9em;
+        width: auto;
+        pointer-events: none;
+        z-index: 5;
+    }
+</style>
+{% endblock styles %}
+
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
@@ -162,6 +237,65 @@
         </div>
 
         {% if scorecard_count %}
+            {% if scorecard_grid %}
+            {# Grid sizes to its content (capped at 100%) rather than the chart's column width. #}
+            <div class="d-flex justify-content-center mt-2">
+                <div id="scorecard-grid-view" style="overflow-x:auto; max-width:100%;">
+                    <table class="scorecard-score-grid">
+                            <thead>
+                                <tr>
+                                    <th class="sg-cell"></th>
+                                    {% for n in scorecard_grid_turns %}
+                                    <th>T{{ n }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in scorecard_grid %}
+                                <tr>
+                                    <td class="sg-cell">
+                                        {% if row.small_icon %}
+                                        <img src="{{ row.small_icon|cache_bust:row.small_icon_version }}"
+                                             alt="{{ row.faction }}" class="md-faction-icon">
+                                        {% endif %}
+                                    
+                                    </td>
+                                    {% for cell in row.cells %}
+                                    <td class="sg-cell">
+                                        {% if cell.mode == 'icon' %}
+                                        {# Dominant turn: dominance-type icon in place of the score. #}
+                                        {% with dom_icon='images/dominance/'|add:cell.dom_type|add:'_Icon.png' %}
+                                        <img src="{% static dom_icon %}"
+                                             alt="{{ cell.dom_type }} {% trans 'Dominance' %}" class="sg-dom-icon">
+                                        {% endwith %}
+                                        {% elif cell.mode == 'both' %}
+                                        {# Brazen Demagogue dominant turn: score bottom-left, icon top-right (behind). #}
+                                        {% with dom_icon='images/dominance/'|add:cell.dom_type|add:'_Icon.png' %}
+                                        <img src="{% static dom_icon %}"
+                                             alt="{{ cell.dom_type }} {% trans 'Dominance' %}" class="sg-dom-icon-corner">
+                                        {% endwith %}
+                                        {% if cell.value is not None %}<span class="sg-both-score">{{ cell.value }}</span>{% endif %}
+                                        {% else %}
+                                        {% if cell.value is not None %}{{ cell.value }}{% endif %}
+                                        {% if cell.dominance and not cell.dom_type %}
+                                        <img src="{% static 'images/tags/Dominance_Tag.png' %}"
+                                             alt="{% trans 'Dominance' %}" class="sg-dom-tag">
+                                        {% endif %}
+                                        {% endif %}
+                                        {% if cell.winner %}
+                                        {# Winner's last turn: overlay the winner badge without affecting cell size. #}
+                                        <img src="{% static 'images/winner.png' %}"
+                                             alt="{% trans 'Winner' %}" class="sg-winner">
+                                        {% endif %}
+                                    </td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                </div>
+            </div>
+            {% endif %}
             <div class="row justify-content-center">
                 <div class="col-md-8">
                     <div class='chart-container' id='game-chart-container'>

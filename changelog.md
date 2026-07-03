@@ -1,6 +1,15 @@
 # Changelog
 
-## [1.12.11] - 2026-1-01 Scorecard Grid
+## [1.12.12] - 2026-7-02 4th of July
+
+### New Features
+- option to require box score on Series game submission
+
+### Bug Fixes
+- box scores with blank cells count as the value of the previous turn
+- Blank Dominance box scores fill in to match game's ending turn
+
+## [1.12.11] - 2026-7-01 Scorecard Grid
 
 ### New Features
 - New scorecard grid to record turn by turn score in the game form
