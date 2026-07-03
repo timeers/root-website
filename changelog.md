@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.12] - 2026-7-02 Box Scores
+## [1.12.12] - 2026-7-03 Box Scores
 
 ### New Features
 - option to require box score on Series game submission
@@ -15,6 +15,7 @@
 - Blank Dominance box scores fill in to match game's ending turn
 - submitted games page scroll bug
 - static image path errors in dev
+- /upcoming bot command populates players correctly
 
 ## [1.12.11] - 2026-7-01 Scorecard Grid
 

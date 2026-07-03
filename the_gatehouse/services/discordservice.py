@@ -1271,11 +1271,20 @@ def build_upcoming_embed(match, series=None, player=None):
             "inline": False,
         })
 
-    # Players in the match, from the series' player group.
-    group = match.series.player_group if match.series_id else None
-    members = list(group.members) if group else []
-    if members:
-        names = [(p.display_name or p.discord or p.slug or "—") for p in members]
+    # Players in the match, from the seated participants (MatchSeat records).
+    # Seats are the authoritative source once a game is scheduled; the player
+    # group's M2M members isn't always populated for a specific series.
+    from the_warroom.models import MatchSeat
+    names = []
+    if match.series_id:
+        seats = MatchSeat.objects.filter(series_id=match.series_id).select_related(
+            'stage_participant__tournament_player__profile'
+        ).order_by('seat_number')
+        names = [
+            (p.display_name or p.discord or p.slug or "—")
+            for p in (seat.stage_participant.tournament_player.profile for seat in seats)
+        ]
+    if names:
         fields.append({"name": "Players", "value": "\n".join(names), "inline": False})
     else:
         fields.append({"name": "Players", "value": "TBD", "inline": False})
