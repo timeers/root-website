@@ -167,8 +167,43 @@ def game_list_view(request):
 
 
 
+def _default_player_board(threshold, limit, order):
+    """Global player leaderboard from the cached fields (coalition formula).
+
+    Aliases the cached_* columns to the win_rate/tourney_points/total_efforts
+    names the row templates expect, and sets leaderboard_link. Used only for
+    the default anonymous, unfiltered /leaderboard/ board.
+    """
+    qs = (Profile.objects.filter(cached_plays__gte=threshold)
+          .annotate(win_rate=F('cached_winrate'),
+                    tourney_points=F('cached_tourney_points'),
+                    total_efforts=F('cached_plays'))
+          .order_by(*order)[:limit])
+    out = list(qs)
+    for p in out:
+        p.leaderboard_link = reverse('player-detail', kwargs={'slug': p.slug})
+    return out
+
+
+def _default_faction_board(threshold, limit, order):
+    """Global faction leaderboard from the cached fields (coalition formula).
+
+    Clockwork factions are excluded (component='Faction' only), matching the
+    live Faction.leaderboard() classmethod.
+    """
+    qs = (Faction.objects.filter(cached_plays__gte=threshold, component='Faction')
+          .annotate(win_rate=F('cached_winrate'),
+                    tourney_points=F('cached_tourney_points'),
+                    total_efforts=F('cached_plays'))
+          .order_by(*order)[:limit])
+    out = list(qs)
+    for f in out:
+        f.leaderboard_link = reverse('faction-detail', kwargs={'slug': f.slug})
+    return out
+
+
 def leaderboard_view(request):
-    
+
 
     try:
         leaderboard_threshold = int(request.GET.get("threshold", 0))
@@ -204,24 +239,31 @@ def leaderboard_view(request):
     filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
     games = filterset.qs.order_by('-date_posted')
     games_count = games.count()
-    
+
+    # The default anonymous, unfiltered board (what crawlers hammer) is served
+    # from the cached leaderboard fields as plain indexed queries — no
+    # aggregation, always fresh. Logged-in users and any filtered request fall
+    # back to the live .leaderboard() aggregation (same coalition formula).
+    default_case = (
+        not request.user.is_authenticated
+        and not request.GET  # no filters, threshold, or limit params
+    )
+
     # Build context
     context = {}
-    
+
     # Theme
     theme = get_theme(request)
     background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
         theme=theme, page='games'
     )
-    
+
     context['background_image'] = background_image
     context['foreground_images'] = foreground_images
     context['background_pattern'] = background_pattern
     context['page_artists'] = theme_artists
 
-    
-    # Leaderboard thresholds
-    efforts = Effort.objects.filter(game__in=games)
+    # Leaderboard threshold (min qualifying plays), scaled by dataset size.
     if leaderboard_threshold == 0:
         if games_count > 5000:
             leaderboard_threshold = 25
@@ -235,29 +277,43 @@ def leaderboard_view(request):
             leaderboard_threshold = 3
         else:
             leaderboard_threshold = 1
-        
-    top_players = Profile.leaderboard(
-        limit=leaderboard_places, 
-        effort_qs=efforts, 
-        game_threshold=leaderboard_threshold, 
-        as_json=False)
-    most_players = Profile.leaderboard(
-        limit=leaderboard_places, 
-        effort_qs=efforts, 
-        top_quantity=True, 
-        game_threshold=leaderboard_threshold, 
-        as_json=False)
-    top_factions = Faction.leaderboard(
-        limit=leaderboard_places, 
-        effort_qs=efforts, 
-        game_threshold=leaderboard_threshold, 
-        as_json=False)
-    most_factions = Faction.leaderboard(
-        limit=leaderboard_places, 
-        effort_qs=efforts, 
-        top_quantity=True, 
-        game_threshold=leaderboard_threshold, 
-        as_json=False)
+
+    if default_case:
+        # Fast path: indexed queries against the cached fields.
+        top_players = _default_player_board(
+            leaderboard_threshold, leaderboard_places, ['-cached_winrate', '-cached_plays'])
+        most_players = _default_player_board(
+            leaderboard_threshold, leaderboard_places, ['-cached_tourney_points', '-cached_winrate'])
+        top_factions = _default_faction_board(
+            leaderboard_threshold, leaderboard_places, ['-cached_winrate', '-cached_plays'])
+        most_factions = _default_faction_board(
+            leaderboard_threshold, leaderboard_places, ['-cached_tourney_points', '-cached_winrate'])
+    else:
+        # Live path: filtered/logged-in requests aggregate over the scoped efforts.
+        efforts = Effort.objects.filter(game__in=games)
+        top_players = Profile.leaderboard(
+            limit=leaderboard_places,
+            effort_qs=efforts,
+            game_threshold=leaderboard_threshold,
+            as_json=False)
+        most_players = Profile.leaderboard(
+            limit=leaderboard_places,
+            effort_qs=efforts,
+            top_quantity=True,
+            game_threshold=leaderboard_threshold,
+            as_json=False)
+        top_factions = Faction.leaderboard(
+            limit=leaderboard_places,
+            effort_qs=efforts,
+            game_threshold=leaderboard_threshold,
+            as_json=False)
+        most_factions = Faction.leaderboard(
+            limit=leaderboard_places,
+            effort_qs=efforts,
+            top_quantity=True,
+            game_threshold=leaderboard_threshold,
+            as_json=False)
+
     # Leaderboard data
     context.update({
         'top_players': top_players,

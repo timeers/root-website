@@ -1361,7 +1361,10 @@ class Vagabond(Post):
     ability_item = models.CharField(max_length=150, choices=AbilityChoices.choices, default=AbilityChoices.NONE)
     ability = models.CharField(max_length=150)
     ability_description = models.TextField(null=True, blank=True)
-    cached_winrate = models.FloatField(null=True, blank=True)
+    # Cached leaderboard inputs (coalition formula); see calculate_and_cache_winrate.
+    cached_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_tourney_points = models.FloatField(null=True, blank=True)
     starting_coins = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_boots = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_bag = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
@@ -1409,17 +1412,11 @@ class Vagabond(Post):
 
     @property
     def winrate(self):
-        points = 0
-        wins = self.get_wins_queryset()
+        # Coalition-based leaderboard formula (coalition wins count as half),
+        # the site's single source of truth. See filtered_winrate().
+        from the_warroom.models import filtered_winrate
+        return filtered_winrate(vagabond=self)['win_rate']
 
-        for effort in wins:
-            winners_count = effort.game.get_winners().count()
-            if winners_count > 0:
-                points += 1 / winners_count
-
-        total_plays = self.get_plays_queryset().filter(game__test_match=False, game__final=True).count()
-        return points / total_plays * 100 if total_plays > 0 else 0
-    
     def stable_check(self):
 
         game_threshold = get_game_threshold()
@@ -1559,7 +1556,10 @@ class Faction(Post):
     card_wealth = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     aggression = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
     crafting_ability = models.CharField(max_length=1, choices=StyleChoices.choices, default=StyleChoices.NONE)
-    cached_winrate = models.FloatField(null=True, blank=True)
+    # Cached leaderboard inputs (coalition formula); see calculate_and_cache_winrate.
+    cached_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_tourney_points = models.FloatField(null=True, blank=True)
 
 
     def __add__(self, other):
@@ -1610,16 +1610,10 @@ class Faction(Post):
 
     @property
     def winrate(self):
-        points = 0
-        wins = self.get_wins_queryset()
-        # print(len(wins))
-        for effort in wins:
-            winners_count = effort.game.get_winners().count()
-            if winners_count > 0:
-                points += 1 / winners_count
-
-        total_plays = self.get_plays_queryset().filter(game__test_match=False, game__final=True).count()
-        return points / total_plays * 100 if total_plays > 0 else 0
+        # Coalition-based leaderboard formula (coalition wins count as half),
+        # the site's single source of truth. See filtered_winrate().
+        from the_warroom.models import filtered_winrate
+        return filtered_winrate(faction=self)['win_rate']
 
 
     @classmethod

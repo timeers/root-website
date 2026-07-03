@@ -1901,16 +1901,20 @@ class Effort(models.Model):
         ordering = ['game', 'seat']
 
 
-def filtered_winrate(player=None, faction=None, tournament=None, platform=None):
+def filtered_winrate(player=None, faction=None, vagabond=None, deck=None, tournament=None, platform=None):
     """Win rate over Efforts, filtered by any combination of player, faction,
-    tournament (series), and platform. Mirrors the leaderboard formula
-    (coalition wins count as half) in a single aggregate query so the result
-    matches the site's leaderboards. Returns {total, win_points, win_rate}."""
+    vagabond, deck, tournament (series), and platform. Mirrors the leaderboard
+    formula (coalition wins count as half) in a single aggregate query so the
+    result matches the site's leaderboards. Returns {total, win_points, win_rate}."""
     qs = Effort.objects.filter(game__final=True, game__test_match=False)
     if player:
         qs = qs.filter(player=player)
     if faction:
         qs = qs.filter(faction=faction)
+    if vagabond:
+        qs = qs.filter(vagabond=vagabond)
+    if deck:
+        qs = qs.filter(game__deck=deck)
     if platform:
         qs = qs.filter(game__platform=platform)
     if tournament:

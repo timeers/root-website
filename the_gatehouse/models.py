@@ -436,7 +436,12 @@ class Profile(models.Model):
     notify_post_game_recorded = models.BooleanField(default=False)
     notify_post_approved = models.BooleanField(default=False)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
-    cached_winrate = models.FloatField(null=True, blank=True)
+    # Cached leaderboard inputs (coalition formula), maintained by
+    # calculate_and_cache_winrate via Effort/Game signals. Let the default
+    # /leaderboard/ board be a plain indexed query with no aggregation.
+    cached_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_tourney_points = models.FloatField(null=True, blank=True)
     # Only a hash of the API key is stored, never the key itself (like GitHub/Discord
     # tokens). The raw key is shown once at generation and is not retrievable afterwards;
     # a DB leak therefore does not expose usable keys. API keys are high-entropy random
@@ -600,23 +605,12 @@ class Profile(models.Model):
         
 
     def winrate(self, faction = None, deck = None, tournament = None, round = None):
-        # efforts = self.efforts.all()  # Access the related Effort objects for this player
-        efforts = self.efforts.filter(game__test_match=False, game__final=True)
-
-        if faction:
-            efforts = efforts.filter(faction=faction)
-
-        if deck:
-            efforts = efforts.filter(game__deck=deck)
-
-        all_games = efforts.count()
-        wins = efforts.filter(win=True)
-        points = 0
-        for effort in wins:
-            points += (1 / effort.game.get_winners().count())        
-        if all_games > 0:
-            return points / all_games * 100  # Calculate winrate
-        return 0
+        # Coalition-based leaderboard formula (coalition wins count as half),
+        # the site's single source of truth. See filtered_winrate().
+        from the_warroom.models import filtered_winrate
+        return filtered_winrate(
+            player=self, faction=faction, deck=deck, tournament=tournament
+        )['win_rate']
     
     def get_games_queryset(self, faction=None):
         # Get the model for Game
