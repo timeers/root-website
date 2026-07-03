@@ -481,7 +481,7 @@
     {% endif %}
 
     {# Add Player is standalone-only; Box Score (scorecard grid) shows in both modes. #}
-    <div class="d-flex align-items-center gap-2 mb-2 mt-2">
+    <div id="box-score-btn-row" class="d-flex flex-wrap align-items-center gap-2 mb-2 mt-2">
         {% if not match_mode %}
         <button class="btn btn-info" id="add-more" type="button">{% trans 'Add Player' %} +</button>
         {% endif %}
@@ -636,6 +636,7 @@
 {% block scripts %}
 <script>
 const matchMode = {{ match_mode|yesno:"true,false" }};
+const boxScoreRequired = {{ box_score_required|yesno:"true,false" }};
 
 // ══════════════════════════════════════════════════════════════════
 // Scorecard Grid — turn-by-turn cumulative scoring for every effort.
@@ -818,7 +819,9 @@ window.ScorecardGrid = (function () {
     // later cells in the row; deactivating reverse-clears all earlier cells.
     function toggleDominance(td) {
         const tr = td.closest('.grid-row');
-        if (!tr || tr.classList.contains('grid-locked')) return;
+        // Dominance is toggleable even on locked (detailed) rows — only the
+        // score inputs are read-only there, so dominance can still be corrected.
+        if (!tr) return;
         const tag = td.querySelector('.dom-tag');
         const turn = parseInt(td.getAttribute('data-turn'), 10);
         const turning_on = tag.classList.contains('dom-off');
@@ -938,11 +941,10 @@ window.ScorecardGrid = (function () {
         });
         if (data.detailed) {
             tr.classList.add('grid-locked');
+            // Only the score inputs are read-only on detailed rows; dominance
+            // tags stay clickable so dominance can be corrected/enforced.
             tr.querySelectorAll('.grid-cell-input').forEach(function (inp) {
                 inp.setAttribute('readonly', 'readonly');
-            });
-            tr.querySelectorAll('.dom-tag').forEach(function (tag) {
-                tag.style.cursor = 'default';
             });
         }
         recalcRow(tr);
@@ -957,13 +959,32 @@ window.ScorecardGrid = (function () {
         msg.classList.toggle('d-none', !hasLocked);
     }
 
+    // An effort "has a dominance selection" if it has a dominance choice OR a
+    // coalition partner (vagabonds play coalition in place of dominance). Returns
+    // the field element to flag on a mismatch, or null if neither is set.
+    function effortDominanceField(formIndex) {
+        const domField = document.getElementById('id_form-' + formIndex + '-dominance');
+        const coalitionField = document.getElementById('id_form-' + formIndex + '-coalition_with');
+        if (domField && domField.value) return domField;
+        if (coalitionField && coalitionField.value) return coalitionField;
+        // Neither set: prefer the visible field to flag (coalition for vagabonds).
+        const coalitionShown = coalitionField && coalitionField.closest('.coalition-field')
+            && coalitionField.closest('.coalition-field').style.display !== 'none';
+        return coalitionShown ? coalitionField : (domField || coalitionField);
+    }
+    function effortHasDominance(formIndex) {
+        const domField = document.getElementById('id_form-' + formIndex + '-dominance');
+        const coalitionField = document.getElementById('id_form-' + formIndex + '-coalition_with');
+        return !!((domField && domField.value) || (coalitionField && coalitionField.value));
+    }
+
     // Validate + serialize. Returns true if OK to submit, false to hard-block.
     function validateAndSerialize() {
         clearErrors();
         let firstError = null;
 
         document.querySelectorAll('.grid-row').forEach(function (tr) {
-            if (tr.classList.contains('grid-locked')) return;
+            const locked = tr.classList.contains('grid-locked');
             const formIndex = tr.getAttribute('data-form-index');
 
             // Refresh the Score column display (read-only; do NOT overwrite the
@@ -972,25 +993,70 @@ window.ScorecardGrid = (function () {
             const scoreCell = tr.querySelector('.grid-score');
             if (scoreCell) scoreCell.textContent = endingScore;
 
-            // Any active dominance in the row requires an effort dominance choice.
+            const hasGridData = !!tr.querySelector('.grid-cell-input') &&
+                Array.prototype.some.call(tr.querySelectorAll('.grid-cell-input'),
+                    function (i) { return i.value.trim() !== ''; });
             const hasDom = !!tr.querySelector('.dom-tag.dom-on');
-            if (hasDom) {
-                const domField = document.getElementById('id_form-' + formIndex + '-dominance');
-                if (domField && !domField.value) {
-                    markError(domField, "{% trans 'Select dominance to match with scorecard' %}");
-                    if (!firstError) firstError = domField;
+            const hasEffortDom = effortHasDominance(formIndex);
+
+            // Dominance must agree between the box score and the effort:
+            //   • box score dominance → effort must have dominance/coalition
+            //   • effort has dominance/coalition → box score must be dominance
+            //     (only when the row has box-score data to toggle)
+            if (hasDom && !hasEffortDom) {
+                const field = effortDominanceField(formIndex);
+                if (field) {
+                    const isCoalition = /-coalition_with$/.test(field.id);
+                    markError(field, isCoalition
+                        ? "{% trans 'Select a coalition partner to match with box score' %}"
+                        : "{% trans 'Select dominance to match with box score' %}");
+                    if (!firstError) firstError = field;
+                }
+            } else if (hasEffortDom && !hasDom && (hasGridData || locked)) {
+                const field = effortDominanceField(formIndex);
+                if (field) {
+                    markError(field, "{% trans 'Toggle dominance on the Box Score to match this seat' %}");
+                    if (!firstError) firstError = field;
                 }
             }
 
             // The effort's game-form score must match the grid's ending score.
-            const scoreField = document.getElementById('id_form-' + formIndex + '-score');
-            if (endingScore !== '' && scoreField) {
-                if (String(scoreField.value).trim() !== endingScore) {
-                    markError(scoreField, "{% trans 'Score does not match scorecard grid' %}");
-                    if (!firstError) firstError = scoreField;
+            // Locked (detailed) rows keep their scores read-only, so skip.
+            if (!locked) {
+                const scoreField = document.getElementById('id_form-' + formIndex + '-score');
+                if (endingScore !== '' && scoreField) {
+                    if (String(scoreField.value).trim() !== endingScore) {
+                        markError(scoreField, "{% trans 'Score does not match scorecard grid' %}");
+                        if (!firstError) firstError = scoreField;
+                    }
                 }
             }
         });
+
+        // Box score required: every effort with a faction must have grid data
+        // whose final score matches the effort's score (a detailed/locked row
+        // counts as already having box-score data). Highlight the Box Score
+        // button and hard-block if any seat is missing.
+        clearBoxScoreError();
+        if (boxScoreRequired) {
+            let boxScoreMissing = false;
+            document.querySelectorAll('.grid-row').forEach(function (tr) {
+                const formIndex = tr.getAttribute('data-form-index');
+                const factionField = document.getElementById('id_form-' + formIndex + '-faction');
+                if (!factionField || !factionField.value) return;  // empty row exempt
+                if (tr.classList.contains('grid-locked')) return;   // detailed scorecard present
+                const endingScore = endingScoreOf(tr);
+                const scoreField = document.getElementById('id_form-' + formIndex + '-score');
+                const score = scoreField ? String(scoreField.value).trim() : '';
+                if (endingScore === '' || endingScore !== score) {
+                    boxScoreMissing = true;
+                }
+            });
+            if (boxScoreMissing) {
+                markBoxScoreError();
+                if (!firstError) firstError = document.getElementById('open-grid-btn');
+            }
+        }
 
         if (firstError) {
             // The dominance/score fields being flagged live on the game form,
@@ -1001,22 +1067,40 @@ window.ScorecardGrid = (function () {
             return false;
         }
 
-        // Build payload — skip locked (detailed) rows and blank rows.
+        // Build payload. Editable rows send full cells; locked (detailed) rows
+        // are flagged `locked` and send only per-cell dominance so the server can
+        // update dominance without touching their scores/turns.
         const rows = [];
         document.querySelectorAll('.grid-row').forEach(function (tr) {
-            if (tr.classList.contains('grid-locked')) return;
+            const locked = tr.classList.contains('grid-locked');
             const formIndex = parseInt(tr.getAttribute('data-form-index'), 10);
             const cells = [];
+            // Track the running cumulative score so a blank cell marked dominant
+            // (a user toggling dominance without re-entering the unchanged score)
+            // is still captured, carrying the previous cumulative value.
+            let lastValue = 0;
             tr.querySelectorAll('.grid-cell').forEach(function (td) {
                 const input = td.querySelector('.grid-cell-input');
-                if (!input || input.value.trim() === '') return;
-                cells.push({
-                    turn: parseInt(td.getAttribute('data-turn'), 10),
-                    value: parseInt(input.value, 10),
-                    dominance: td.querySelector('.dom-tag').getAttribute('data-dominance') === '1'
-                });
+                const dominance = td.querySelector('.dom-tag').getAttribute('data-dominance') === '1';
+                const turn = parseInt(td.getAttribute('data-turn'), 10);
+                if (locked) {
+                    // Include every cell (dominance only) for a locked row.
+                    cells.push({turn: turn, dominance: dominance});
+                    return;
+                }
+                const raw = input ? input.value.trim() : '';
+                if (raw !== '') {
+                    lastValue = parseInt(raw, 10);
+                    cells.push({turn: turn, value: lastValue, dominance: dominance});
+                } else if (dominance) {
+                    // Blank but dominant → treat as a real turn at the carried
+                    // value. `carried` marks it as having no entered score, so the
+                    // server may trim it if it runs past the game-end point.
+                    cells.push({turn: turn, value: lastValue, dominance: true, carried: true});
+                }
+                // Blank and non-dominant → skipped (may be intentionally empty).
             });
-            if (cells.length) rows.push({form_index: formIndex, cells: cells});
+            if (cells.length) rows.push({form_index: formIndex, cells: cells, locked: locked});
         });
         document.getElementById('scorecard-grid-data').value = JSON.stringify({rows: rows});
         return true;
@@ -1036,6 +1120,30 @@ window.ScorecardGrid = (function () {
     function clearErrors() {
         document.querySelectorAll('.is-invalid').forEach(function (f) { f.classList.remove('is-invalid'); });
         document.querySelectorAll('.grid-error-msg').forEach(function (m) { m.remove(); });
+    }
+
+    // Highlight the Box Score button when a required box score is missing.
+    function markBoxScoreError() {
+        const btn = document.getElementById('open-grid-btn');
+        if (!btn) return;
+        btn.classList.remove('btn-outline-primary');
+        btn.classList.add('btn-danger');
+        if (!document.getElementById('box-score-required-msg')) {
+            const msg = document.createElement('div');
+            msg.id = 'box-score-required-msg';
+            msg.className = 'text-danger w-100 text-end';
+            msg.innerHTML = '<small>{% trans "A Box Score is required for every seat." %}</small>';
+            btn.parentNode.appendChild(msg);
+        }
+    }
+    function clearBoxScoreError() {
+        const btn = document.getElementById('open-grid-btn');
+        if (btn) {
+            btn.classList.remove('btn-danger');
+            btn.classList.add('btn-outline-primary');
+        }
+        const msg = document.getElementById('box-score-required-msg');
+        if (msg) msg.remove();
     }
 
     // Scroll to the very top of the page when switching panels, so the panel

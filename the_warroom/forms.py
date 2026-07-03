@@ -1,3 +1,4 @@
+import json
 import re
 from django import forms
 from django.utils import timezone
@@ -452,6 +453,50 @@ class GameCreateForm(forms.ModelForm):
                         if vagabond not in tournament_vagabonds:
                             validation_errors_to_display.append(f'The Vagabond {vagabond} is not playable in {tournament}')
 
+                # Box score requirement: every effort with a faction must have
+                # box-score data — either a submitted grid row whose final cell
+                # matches the effort's score, or an existing scorecard that
+                # matches. Empty rows (no faction) are exempt.
+                if tournament.box_score_required:
+                    grid_final_by_index = {}
+                    try:
+                        _grid = json.loads(self.data.get('scorecard_grid') or '{"rows":[]}')
+                    except (ValueError, TypeError):
+                        _grid = {'rows': []}
+                    for _row in _grid.get('rows', []):
+                        try:
+                            _fi = int(_row.get('form_index'))
+                        except (TypeError, ValueError):
+                            continue
+                        _cells = [c for c in _row.get('cells', [])
+                                  if str(c.get('value', '')).strip() != '']
+                        if _cells:
+                            try:
+                                grid_final_by_index[_fi] = int(_cells[-1].get('value'))
+                            except (TypeError, ValueError):
+                                pass
+
+                    missing_box_score = False
+                    for idx, effort_form in enumerate(self.effort_formset.forms):
+                        if not effort_form.cleaned_data.get('faction'):
+                            continue
+                        score = effort_form.cleaned_data.get('score')
+                        # Satisfied by a grid row whose final value matches score.
+                        if grid_final_by_index.get(idx) == score:
+                            continue
+                        # Or by an existing scorecard that matches the score.
+                        try:
+                            scorecard = effort_form.instance.scorecard
+                        except ScoreCard.DoesNotExist:
+                            scorecard = None
+                        if scorecard and scorecard.total_points == score:
+                            continue
+                        missing_box_score = True
+                    if missing_box_score:
+                        validation_errors_to_display.append(
+                            f'{tournament} requires a Box Score for every seat matching the final score'
+                        )
+
         # Undrafted captains only apply to Knaves of the Deepwood: require exactly 4
         # (a full complement) or none. Clear them for any other undrafted faction.
         undrafted_faction = cleaned_data.get('undrafted_faction')
@@ -905,7 +950,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'name', 'classification', 'designer', 'guild', 'description', 'rules', 'rules_link',
             'start_date', 'end_date', 'publicly_visible', 'is_active',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
-            'platform', 'default_format', 'link_required',
+            'platform', 'default_format', 'link_required', 'box_score_required',
             'asset_mode', 'include_clockwork', 'show_assets',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
             'picture'
@@ -922,6 +967,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'leaderboard_positions': 'Leaderboard Positions',
             'game_threshold': 'Leaderboard Game Threshold',
             'link_required': 'Require Link with Game Submission',
+            'box_score_required': 'Require Box Score for Each Seat',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'description': 'Description (Optional)',
             'rules': 'Rules (Optional)',
@@ -1049,7 +1095,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'name', 'classification', 'designer', 'guild', 'description', 'rules', 'rules_link',
             'start_date', 'end_date', 'publicly_visible', 'is_active',
             'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
-            'platform', 'link_required',
+            'platform', 'link_required', 'box_score_required',
             'asset_mode', 'include_clockwork', 'show_assets',
             'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
             'default_format',
@@ -1072,6 +1118,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'coalition_type': 'Allowed Coalitions',
             'platform': 'Required Platform',
             'link_required': 'Require Link with Game Submission',
+            'box_score_required': 'Require Box Score for Each Seat',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
             'open_roster': 'Allow All Players',
             'recording_access': 'Who Can Record Games',

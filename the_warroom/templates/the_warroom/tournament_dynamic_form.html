@@ -293,6 +293,9 @@
                             <div class="col-md-6 mb-2">
                                 {{ form.link_required|as_crispy_field }}
                             </div>
+                            <div class="col-md-6 mb-2">
+                                {{ form.box_score_required|as_crispy_field }}
+                            </div>
                         </div>
                         {% include 'the_warroom/partials/coalition_toggle.html' with tournament_form=form %}
 
