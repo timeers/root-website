@@ -9,6 +9,7 @@
 ### Bug Fixes
 - box scores with blank cells count as the value of the previous turn
 - Blank Dominance box scores fill in to match game's ending turn
+- submitted games page scroll bug
 
 ## [1.12.11] - 2026-7-01 Scorecard Grid
 

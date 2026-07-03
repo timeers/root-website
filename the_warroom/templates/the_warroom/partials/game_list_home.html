@@ -20,16 +20,23 @@
     {% for game in games %}
 
         {% if forloop.last and games.has_next %}
-            {% if not player_view %}
+            {% if submitted_view %}
                 <div hx-trigger="revealed"
-                hx-get="{% url 'games-home' %}?page={{ page_obj.number|add:1 }}"
+                hx-get="{% url 'my-submitted-games' %}?page={{ page_obj.number|add:1 }}"
+                hx-target="#search-contents"
+                hx-swap="beforeend"
+                hx-include="#gamefilterform"
+                hx-indicator="#spinner">
+            {% elif player_view %}
+                <div hx-trigger="revealed"
+                hx-get="{% url 'player-games' slug=player_slug %}?page={{ page_obj.number|add:1 }}"
                 hx-target="#search-contents"
                 hx-swap="beforeend"
                 hx-include="#gamefilterform"
                 hx-indicator="#spinner">
             {% else %}
                 <div hx-trigger="revealed"
-                hx-get="{% url 'player-games' slug=player_slug %}?page={{ page_obj.number|add:1 }}"
+                hx-get="{% url 'games-home' %}?page={{ page_obj.number|add:1 }}"
                 hx-target="#search-contents"
                 hx-swap="beforeend"
                 hx-include="#gamefilterform"
