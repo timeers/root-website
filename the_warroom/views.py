@@ -5486,11 +5486,13 @@ def _upcoming_scheduled_matches(match_filter):
     )
 
 
-def _schedule_context(request, match_filter):
-    """Context for a schedule page: the upcoming match list, total count, and the
-    'my games' toggle. 'My games' keys off the series the user is seated in (not
-    match ids) so a best-of-N series doesn't pull in sibling matches outside the
-    upcoming set."""
+def _schedule_context(request, match_filter, tournament=None, view_as=None):
+    """Context for a schedule page: the upcoming match list, total count, the
+    'my games' toggle, and the record-button gating. 'My games' keys off the series
+    the user is seated in (not match ids) so a best-of-N series doesn't pull in
+    sibling matches outside the upcoming set. ``recordable_match_ids`` is computed
+    over the full match list (not the 'my games' subset) so it's stable across the
+    toggle."""
     matches = list(_upcoming_scheduled_matches(match_filter))
     mine_series = set()
     if request.user.is_authenticated:
@@ -5503,12 +5505,18 @@ def _schedule_context(request, match_filter):
         )
     mine = [m for m in matches if m.series_id in mine_series]
     show_mine = request.GET.get('mine') == '1'
+    recordable_match_ids = set()
+    if tournament is not None:
+        recordable_match_ids = _recordable_ids_for_matches(
+            matches, request.user, tournament, view_as=view_as
+        )
     return {
         'schedule_matches': mine if show_mine else matches,
         'schedule_count': len(matches),
         'has_my_games': bool(mine),
         'show_mine': show_mine,
         'my_games_count': len(mine),
+        'recordable_match_ids': recordable_match_ids,
     }
 
 
@@ -5562,6 +5570,44 @@ def _recordable_match_ids(round, user, tournament, view_as=None):
         stage_participant__tournament_player__profile=profile
     ).values_list('series_id', flat=True))
     return recordable_match_ids, is_participant_series
+
+
+def _recordable_ids_for_matches(matches, user, tournament, view_as=None):
+    """Match ids from ``matches`` the user may record. Mirrors the gating of
+    ``_recordable_match_ids`` but scopes to a given match list (which all belong to
+    one tournament) rather than a single round -- used by the schedule pages, whose
+    stage/tournament scopes span multiple rounds.
+
+    ``matches`` are expected to have ``series``/``series.player_group`` prefetched
+    (as ``_upcoming_scheduled_matches`` provides), so the moderator check is in-Python.
+    """
+    recordable = set()
+    if not user.is_authenticated or view_as in ('logged_in', 'logged_out'):
+        return recordable
+
+    profile = user.profile
+    all_ids = {m.id for m in matches}
+    is_manager = profile.admin or tournament.has_permission(profile)
+    # Previewing as a lower role drops manager privileges.
+    if is_manager and view_as in (None, 'moderator'):
+        return all_ids
+    # Guild members can record any shown match under GUILD access.
+    if tournament.guild_members_can_record(profile):
+        return all_ids
+    # Seated players can record their own match when recording_access allows.
+    if tournament.players_can_record_matches():
+        seated_series = set(MatchSeat.objects.filter(
+            series_id__in={m.series_id for m in matches},
+            stage_participant__tournament_player__profile=profile,
+        ).values_list('series_id', flat=True))
+        recordable |= {m.id for m in matches if m.series_id in seated_series}
+    # Group moderators can always record their group's matches.
+    recordable |= {
+        m.id for m in matches
+        if m.series and m.series.player_group
+        and m.series.player_group.group_moderator_id == profile.id
+    }
+    return recordable
 
 
 def _stage_matches_context(request, tournament, stage):
@@ -5963,7 +6009,10 @@ def tournament_schedule_page(request, slug):
     """Upcoming scheduled matches across every round in the tournament."""
     tournament = get_object_or_404(Tournament, slug=slug)
     context = _tournament_base_context(request, tournament)
-    context.update(_schedule_context(request, {'round__stage__tournament': tournament}))
+    context.update(_schedule_context(
+        request, {'round__stage__tournament': tournament},
+        tournament=tournament, view_as=get_view_as(request, tournament),
+    ))
     context.update({
         'active_page': 'bracket',
         'breadcrumb_page': _('Schedule'),
@@ -5979,7 +6028,10 @@ def stage_schedule_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     context = _stage_base_context(request, tournament, stage)
-    context.update(_schedule_context(request, {'round__stage': stage}))
+    context.update(_schedule_context(
+        request, {'round__stage': stage},
+        tournament=tournament, view_as=get_view_as(request, tournament),
+    ))
     # The stage "bracket" is the per-round bracket view when the stage uses
     # rounds, otherwise the flat matches view (mirrors stage_nav_header.html).
     if stage.use_rounds:
@@ -6012,7 +6064,10 @@ def round_schedule_page(request, tournament_slug, round_slug, stage_slug=None):
         round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     context = _round_base_context(request, tournament, stage, round)
-    context.update(_schedule_context(request, {'round': round}))
+    context.update(_schedule_context(
+        request, {'round': round},
+        tournament=tournament, view_as=get_view_as(request, tournament),
+    ))
     context.update({
         'active_page': 'bracket',
         'breadcrumb_page': _('Schedule'),

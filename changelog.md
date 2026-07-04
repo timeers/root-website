@@ -5,6 +5,7 @@
 ### New Features
 - option to require box score on Series game submission
 - box score on game detail page
+- record game from the schedule page (suggested by MrDrouf)
 
 ### Improvements
 - Primary leaderboard page uses model winrates instead of calculated winrates for faster loading

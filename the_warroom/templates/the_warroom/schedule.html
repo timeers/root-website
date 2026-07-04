@@ -112,8 +112,11 @@
                     {% endif %}
                     {% endwith %}
                 </div>
-                <div class="card-footer">
+                <div class="card-footer d-flex align-items-center">
                     <span class="text-muted small scheduled-time" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
+                    {% if match.id in recordable_match_ids %}
+                    <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm p-0 px-1 ms-auto">{% trans 'Record' %}</a>
+                    {% endif %}
                 </div>
             </div>
         </div>
