@@ -241,13 +241,16 @@ def leaderboard_view(request):
     games = filterset.qs.order_by('-date_posted')
     games_count = games.count()
 
-    # The default anonymous, unfiltered board (what crawlers hammer) is served
-    # from the cached leaderboard fields as plain indexed queries — no
-    # aggregation, always fresh. Logged-in users and any filtered request fall
-    # back to the live .leaderboard() aggregation (same coalition formula).
+    # The default, unfiltered board (what crawlers hammer) is served from the
+    # cached leaderboard fields as plain indexed queries — no aggregation,
+    # always fresh. The cache is computed over all final games, so it's valid
+    # for anyone whose board covers that same set: anonymous visitors and
+    # authenticated "weird" users. Non-weird users see official-only games (a
+    # different set) and any filtered request both fall back to the live
+    # .leaderboard() aggregation (same coalition formula).
     default_case = (
-        not request.user.is_authenticated
-        and not request.GET  # no filters, threshold, or limit params
+        not request.GET  # no filters, threshold, or limit params
+        and (not request.user.is_authenticated or request.user.profile.weird)
     )
 
     # Build context
