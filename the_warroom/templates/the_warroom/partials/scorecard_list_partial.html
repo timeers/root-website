@@ -2,13 +2,13 @@
 {% for object in complete_scorecards %}
 
     {% if forloop.last and complete_scorecards.has_next %}
-    <tr data-href="{{ object.get_absolute_url }}" id="load-more-row" hx-get="{% url 'scorecard-home' %}?page={{ complete_scorecards.number|add:1 }}"
+    <tr data-href="{{ object.get_absolute_url }}?from=scorecards" id="load-more-row" hx-get="{% url 'scorecard-home' %}?page={{ complete_scorecards.number|add:1 }}"
     hx-trigger="revealed" 
     hx-target="this" 
     hx-swap="afterend">
             <!-- hx-include="#gamefilterform"> -->
     {% else %}
-        <tr data-href="{{ object.get_absolute_url }}" class="clickable-row">
+        <tr data-href="{{ object.get_absolute_url }}?from=scorecards" class="clickable-row">
     {% endif %}
 
 
@@ -26,7 +26,7 @@
             {{ object.total_points }}
         </td>
         <td style="text-align: center;">
-            {{ object.turns.count }}
+            {{ object.turn_count }}
         </td>
 
         <td>

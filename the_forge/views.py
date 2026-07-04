@@ -2356,10 +2356,12 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
         return
     from django.core.files.base import ContentFile
     from django.utils import timezone
-    from .pdf_engine import pdf_bytes_to_webp_bytes
+    from .pdf_engine import pdf_bytes_to_webp_bytes, PREVIEW_DPI, CARD_PREVIEW_DPI
     # SetupCard previews are also embedded in the printable Components sheet,
-    # so render them at higher DPI for crisp print output.
-    dpi = 250 if field_prefix == 'card' else 150
+    # so render them at higher DPI for crisp print output. These must match the
+    # target_dpi passed into build() in the _ensure_*_preview helpers so the
+    # pre-scaled art and the rasterization DPI stay in sync.
+    dpi = CARD_PREVIEW_DPI if field_prefix == 'card' else PREVIEW_DPI
     try:
         webp = pdf_bytes_to_webp_bytes(pdf_bytes, dpi=dpi)
     except Exception:
@@ -2388,9 +2390,10 @@ def _ensure_sheet_preview(sheet):
     fp = fingerprint_sheet(sheet)
     if sheet.preview_fingerprint == fp and sheet.image_preview:
         return
+    from .pdf_engine import PREVIEW_DPI
     engine = SheetLayoutEngine(sheet)
     buffer = BytesIO()
-    engine.build(buffer)
+    engine.build(buffer, target_dpi=PREVIEW_DPI)
     data = buffer.getvalue()
     _maybe_save_image_preview(sheet, data, fp, 'sheet')
     sheet.snap_points = list(engine.collected_snap_points)
@@ -2428,14 +2431,14 @@ def _ensure_decree_preview(sheet):
 
 def _ensure_back_preview(back):
     from io import BytesIO
-    from .pdf_engine import FactionBackLayoutEngine
+    from .pdf_engine import FactionBackLayoutEngine, PREVIEW_DPI
     from .pdf_cache import cache_key, fingerprint_back, get_or_build
     fp = fingerprint_back(back)
     if back.preview_fingerprint == fp and back.image_preview:
         return
     def build():
         buffer = BytesIO()
-        FactionBackLayoutEngine(back).build(buffer)
+        FactionBackLayoutEngine(back).build(buffer, target_dpi=PREVIEW_DPI)
         return buffer.getvalue()
     data = get_or_build(cache_key('back', back.pk, fp), build)
     _maybe_save_image_preview(back, data, fp, 'back')
@@ -2443,14 +2446,14 @@ def _ensure_back_preview(back):
 
 def _ensure_setup_card_preview(card):
     from io import BytesIO
-    from .pdf_engine import SetupCardLayoutEngine
+    from .pdf_engine import SetupCardLayoutEngine, CARD_PREVIEW_DPI
     from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
     fp = fingerprint_setup_card(card)
     if card.preview_fingerprint == fp and card.image_preview:
         return
     def build():
         buffer = BytesIO()
-        SetupCardLayoutEngine(card).build(buffer)
+        SetupCardLayoutEngine(card).build(buffer, target_dpi=CARD_PREVIEW_DPI)
         return buffer.getvalue()
     data = get_or_build(cache_key('setup_card', card.pk, fp), build)
     _maybe_save_image_preview(card, data, fp, 'card')

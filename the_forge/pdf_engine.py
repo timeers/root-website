@@ -184,20 +184,54 @@ def _canvas_set_layer_tag_noop(self, tag):
 rl_canvas.Canvas.set_layer_tag = _canvas_set_layer_tag_noop
 
 
-_TILE_DPI = 150  # px-per-inch the resized tile is rasterized at (150/72 ≈ 2.08 px/pt)
+# Target rasterization DPI for the render in progress. The engines don't know at
+# build() time whether their PDF is destined for a webp preview or a print
+# download, so build() stamps the target DPI onto the canvas (see
+# _tag_canvas_dpi) and the image draw sites read it back (see _canvas_target_dpi)
+# to downscale user art to a sensible size for that target.
+PREVIEW_DPI = 150       # sheet/back webp previews
+CARD_PREVIEW_DPI = 250  # setup-card webp (also embedded in printed Components sheet)
+PRINT_DPI = 300         # default for print PDFs; also the cap for huge uploads
 
 
-def _prepare_tile_image(src_path, draw_w_pt, draw_h_pt):
-    """Resize src once to the target tile pixel size at _TILE_DPI and cache by
-    content hash + dims. ReportLab embeds an image asset once per file path and
+def _tag_canvas_dpi(c, target_dpi):
+    """Stamp the render's target DPI onto the canvas so draw sites can read it.
+
+    Mirrors the set_layer_tag monkey-patch pattern: a bit of cross-cutting render
+    context rides on the canvas rather than being threaded through every draw
+    function and Flowable constructor.
+    """
+    c._forge_target_dpi = target_dpi
+    return c
+
+
+def _canvas_target_dpi(c):
+    """Return the canvas's target DPI, or None when scaling should be skipped.
+
+    _NoOpCanvas.__getattr__ fabricates a callable for any attribute, so a plain
+    getattr(..., PRINT_DPI) default would return a function rather than the
+    number. The layout-probe canvas sets _is_noop=True; we use that to skip
+    scaling entirely (the probe does no real drawing)."""
+    if getattr(c, '_is_noop', False):
+        return None
+    return getattr(c, '_forge_target_dpi', PRINT_DPI)
+
+
+def _prepare_scaled_image(src_path, draw_w_pt, draw_h_pt, dpi=PRINT_DPI):
+    """Resize src once to the target pixel size for `dpi` and cache by content
+    hash + dims. ReportLab embeds an image asset once per file path and
     references it elsewhere, so reusing a single small file across many drawImage
-    calls keeps the PDF small even when tiling densely."""
+    calls keeps the PDF small. thumbnail() only shrinks, so sources already at or
+    below the target size are returned re-encoded but not upscaled.
+
+    The cache filename keys on the target pixel dims (which derive from dpi), so
+    150/250/300 variants of the same source never collide."""
     from PIL import Image as PILImage
-    target_px_w = max(1, int(round(draw_w_pt * _TILE_DPI / 72)))
-    target_px_h = max(1, int(round(draw_h_pt * _TILE_DPI / 72)))
+    target_px_w = max(1, int(round(draw_w_pt * dpi / 72)))
+    target_px_h = max(1, int(round(draw_h_pt * dpi / 72)))
     with open(src_path, 'rb') as f:
         digest = hashlib.md5(f.read()).hexdigest()[:12]
-    cache_dir = os.path.join(tempfile.gettempdir(), 'forge_tiles')
+    cache_dir = os.path.join(tempfile.gettempdir(), 'forge_scaled')
     os.makedirs(cache_dir, exist_ok=True)
     out_path = os.path.join(cache_dir, f'{digest}_{target_px_w}x{target_px_h}.png')
     if not os.path.exists(out_path):
@@ -207,6 +241,19 @@ def _prepare_tile_image(src_path, draw_w_pt, draw_h_pt):
             im.thumbnail((target_px_w, target_px_h), PILImage.LANCZOS)
             im.save(out_path, optimize=True)
     return out_path
+
+
+def _scaled_for_canvas(c, src_path, draw_w_pt, draw_h_pt):
+    """Downscale src_path for the canvas's target DPI, falling back to the
+    original path when scaling is skipped (probe) or fails. Shared by all the
+    user-art draw sites."""
+    dpi = _canvas_target_dpi(c)
+    if not dpi:
+        return src_path
+    try:
+        return _prepare_scaled_image(src_path, draw_w_pt, draw_h_pt, dpi=dpi)
+    except Exception:
+        return src_path
 
 
 def draw_faction_background(c, faction):
@@ -248,10 +295,7 @@ def draw_faction_background(c, faction):
         else:
             draw_w = iw
             draw_h = ih
-        try:
-            tile_path = _prepare_tile_image(img_path, draw_w, draw_h)
-        except Exception:
-            tile_path = img_path
+        tile_path = _scaled_for_canvas(c, img_path, draw_w, draw_h)
         row = 0
         y = PAGE_H - draw_h
         while y > -draw_h:
@@ -268,7 +312,8 @@ def draw_faction_background(c, faction):
         draw_h = ih * scale
         draw_x = (PAGE_W - draw_w) / 2
         draw_y = (PAGE_H - draw_h) / 2
-        c.drawImage(img_path, draw_x, draw_y, width=draw_w, height=draw_h, mask='auto')
+        cover_path = _scaled_for_canvas(c, img_path, draw_w, draw_h)
+        c.drawImage(cover_path, draw_x, draw_y, width=draw_w, height=draw_h, mask='auto')
 
 
 X_MARGIN = 0.25 * inch
@@ -909,13 +954,16 @@ def _resolve_static_url(url):
     `static()` URL-encodes special characters (e.g. '+' → '%2B'), so we decode
     first. Under ManifestStaticFilesStorage the URL carries a content hash
     (name.<hash>.ext) that the staticfiles finders (which search source dirs
-    with un-hashed names) won't match, so we strip the hash and retry.
+    with un-hashed names) won't match, so we strip the hash and retry. In dev,
+    DevCacheBustStorage appends a `?v=<mtime>` cache-bust query that the finders
+    also won't match, so we strip the query string first.
     """
     if not url:
         return None
     from django.contrib.staticfiles import finders
     from urllib.parse import unquote
     rel = unquote(url.split('/static/', 1)[-1])
+    rel = rel.split('?', 1)[0].split('#', 1)[0]  # drop cache-bust query / fragment
     path = finders.find(rel)
     if path is None:
         unhashed = _HASH_RE.sub(r'\1', rel)
@@ -2217,7 +2265,8 @@ class TrackFlowable(Flowable):
             p.roundRect(x, y, s, s, s * 0.15)
         c.clipPath(p, stroke=0, fill=0)
         c.setFillAlpha(TRACK_SLOT_BG_OPACITY)
-        c.drawImage(img_path, x, y, width=s, height=s, mask='auto',
+        scaled = _scaled_for_canvas(c, img_path, s, s)
+        c.drawImage(scaled, x, y, width=s, height=s, mask='auto',
                     preserveAspectRatio=True, anchor='c')
         c.restoreState()
 
@@ -2273,7 +2322,8 @@ class TrackFlowable(Flowable):
             # Center within allocated position
             offset_x = (img_size - draw_w) / 2
             offset_y = (img_size - draw_h) / 2
-            c.drawImage(img_path, ix + offset_x, iy + offset_y,
+            scaled = _scaled_for_canvas(c, img_path, draw_w, draw_h)
+            c.drawImage(scaled, ix + offset_x, iy + offset_y,
                         width=draw_w, height=draw_h, mask='auto')
 
 
@@ -2558,7 +2608,8 @@ class LegendFlowable(Flowable):
             image_top_y = row_top - title_block_h
             if has_left_visual:
                 image_x = (left_w - img_w) / 2.0
-                c.drawImage(img_path, image_x, image_top_y - img_h, width=img_w, height=img_h,
+                scaled = _scaled_for_canvas(c, img_path, img_w, img_h)
+                c.drawImage(scaled, image_x, image_top_y - img_h, width=img_w, height=img_h,
                             preserveAspectRatio=True, mask='auto')
 
             # Body placement:
@@ -2846,7 +2897,8 @@ class StepActionFlowable(Flowable):
             if self.icon_drawing is not None:
                 renderPDF.draw(self.icon_drawing, c, icon_x, icon_y)
             else:
-                c.drawImage(self.icon_path, icon_x, icon_y,
+                scaled = _scaled_for_canvas(c, self.icon_path, self.icon_w, self.icon_h)
+                c.drawImage(scaled, icon_x, icon_y,
                             width=self.icon_w, height=self.icon_h, mask='auto')
 
         # Draw arrow centered on first line (only for item and card costs)
@@ -2969,7 +3021,8 @@ class CardGroupFlowable(Flowable):
             if self.icon_drawing is not None:
                 renderPDF.draw(self.icon_drawing, c, icon_x, icon_y)
             else:
-                c.drawImage(self.icon_path, icon_x, icon_y,
+                scaled = _scaled_for_canvas(c, self.icon_path, self.icon_w, self.icon_h)
+                c.drawImage(scaled, icon_x, icon_y,
                             width=self.icon_w, height=self.icon_h, mask='auto')
 
         # Arrow geometry
@@ -4514,7 +4567,7 @@ class SheetLayoutEngine:
         frozenset({'fg'}),
     )
 
-    def build(self, output_path, layered=False):
+    def build(self, output_path, layered=False, target_dpi=PRINT_DPI):
         self.collected_snap_points = []
         if getattr(self, '_skip_drawing', False):
             c = _NoOpCanvas()
@@ -4524,11 +4577,13 @@ class SheetLayoutEngine:
 
         if not layered:
             c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+            _tag_canvas_dpi(c, target_dpi)
             self._run_draw_pipeline(c)
             c.save()
             return
 
         real = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+        _tag_canvas_dpi(real, target_dpi)
         proxy = LayerFilterCanvas(real)
         # _prepare_ability_bar_layout (called from _draw_top_band) mutates
         # self.phases_top_y in place. Snapshot it so each layered pass starts
@@ -5536,7 +5591,8 @@ class SheetLayoutEngine:
                     hiw, hih = hdr_reader.getSize()
                     if hiw > 0 and hih > 0:
                         hdr_h = bar_w * hih / hiw
-                        c.drawImage(hdr_path, bar_x, self.title_bar_y,
+                        hdr_draw = _scaled_for_canvas(c, hdr_path, bar_w, hdr_h)
+                        c.drawImage(hdr_draw, bar_x, self.title_bar_y,
                                     width=bar_w, height=hdr_h, mask='auto')
                         try:
                             header_image_url = self.sheet.header_image.url
@@ -6480,7 +6536,8 @@ class SheetLayoutEngine:
             y = ov_y * inch if ov_y is not None else default_y
 
             try:
-                c.drawImage(path, x, y, width=w, height=h, mask='auto')
+                scaled = _scaled_for_canvas(c, path, w, h)
+                c.drawImage(scaled, x, y, width=w, height=h, mask='auto')
             except Exception:
                 pass
 
@@ -7030,14 +7087,16 @@ class FactionBackLayoutEngine:
         frozenset({'box', 'fg'}),
     )
 
-    def build(self, output_path, layered=False):
+    def build(self, output_path, layered=False, target_dpi=PRINT_DPI):
         if not layered:
             c = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+            _tag_canvas_dpi(c, target_dpi)
             self._run_draw_pipeline(c)
             c.save()
             return
 
         real = rl_canvas.Canvas(output_path, pagesize=landscape(letter))
+        _tag_canvas_dpi(real, target_dpi)
         proxy = LayerFilterCanvas(real)
         for group in self.LAYER_GROUPS:
             proxy._active_layers = group
@@ -7407,6 +7466,7 @@ class FactionBackLayoutEngine:
                 """Buildings clip to a 15%-radius rounded rect; tokens clip to a
                 circle inscribed in the image bounds. Other piece types draw
                 unclipped."""
+                img = _scaled_for_canvas(c, img, iw_, ih_)
                 if is_building:
                     radius = min(iw_, ih_) * 0.15
                     c.saveState()
@@ -7680,7 +7740,8 @@ class FactionBackLayoutEngine:
         if img_path:
             img_x = PAGE_W - img_w
             img_y = 0
-            c.drawImage(img_path, img_x, img_y, width=img_w, height=img_h,
+            scaled = _scaled_for_canvas(c, img_path, img_w, img_h)
+            c.drawImage(scaled, img_x, img_y, width=img_w, height=img_h,
                         preserveAspectRatio=True, mask='auto')
 
         if body_h <= 0 or not body:
@@ -7903,15 +7964,17 @@ class SetupCardLayoutEngine:
         frozenset({'fg'}),
     )
 
-    def build(self, output_path, layered=False):
+    def build(self, output_path, layered=False, target_dpi=PRINT_DPI):
         if not layered:
             c = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+            _tag_canvas_dpi(c, target_dpi)
             self._run_draw_pipeline(c)
             c.showPage()
             c.save()
             return
 
         real = rl_canvas.Canvas(output_path, pagesize=(CARD_SLOT_W, CARD_SLOT_H))
+        _tag_canvas_dpi(real, target_dpi)
         proxy = LayerFilterCanvas(real)
         for group in self.LAYER_GROUPS:
             proxy._active_layers = group
@@ -8094,7 +8157,8 @@ class SetupCardLayoutEngine:
             draw_h = SETUP_CARD_HEADER_MAX_H
             draw_w = iw * (draw_h / ih)
         # Bottom-left of image aligned to bottom-left of band
-        c.drawImage(path, band_x, band_y, draw_w, draw_h,
+        scaled = _scaled_for_canvas(c, path, draw_w, draw_h)
+        c.drawImage(scaled, band_x, band_y, draw_w, draw_h,
                     preserveAspectRatio=True, mask='auto')
         return True
 
@@ -8356,7 +8420,8 @@ class ComponentsSheetLayoutEngine:
             radius = min(dw, dh) * 0.15
             p.roundRect(dx, dy, dw, dh, radius)
         c.clipPath(p, stroke=0, fill=0)
-        c.drawImage(path, dx, dy, width=dw, height=dh,
+        scaled = _scaled_for_canvas(c, path, dw, dh)
+        c.drawImage(scaled, dx, dy, width=dw, height=dh,
                     preserveAspectRatio=True, mask='auto')
         c.restoreState()
 
@@ -8370,7 +8435,7 @@ class ComponentsSheetLayoutEngine:
             c.roundRect(x, y, cell, cell, radius, stroke=0, fill=1)
         c.restoreState()
 
-    def build(self, output_path):
+    def build(self, output_path, target_dpi=PRINT_DPI):
         slots = self._build_grid_slots()
         pages, has_card, card_x, card_y = self._paginate(slots)
 
@@ -8381,6 +8446,7 @@ class ComponentsSheetLayoutEngine:
             pages = [[]]
 
         c = rl_canvas.Canvas(output_path, pagesize=(COMPONENTS_PAGE_W, COMPONENTS_PAGE_H))
+        _tag_canvas_dpi(c, target_dpi)
         page_w = COMPONENTS_PAGE_W
 
         adset_path = COMPONENTS_ADSET_STATIC if os.path.exists(COMPONENTS_ADSET_STATIC) else None
@@ -8468,14 +8534,16 @@ class ForgedCardsLayoutEngine:
     def _draw_card(self, c, path, x, y):
         # No corner radius — cards butt against each other and get cut along
         # straight gridlines.
+        scaled = _scaled_for_canvas(c, path, CARD_SLOT_W, CARD_SLOT_H)
         c.drawImage(
-            path, x, y,
+            scaled, x, y,
             width=CARD_SLOT_W, height=CARD_SLOT_H,
             preserveAspectRatio=True, mask='auto',
         )
 
-    def build(self, output_path):
+    def build(self, output_path, target_dpi=PRINT_DPI):
         c = rl_canvas.Canvas(output_path, pagesize=(self.page_w, self.page_h))
+        _tag_canvas_dpi(c, target_dpi)
         per_page = self.cols * self.rows
         any_drawn = False
         slot_on_page = 0

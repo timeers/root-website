@@ -1889,7 +1889,7 @@ class Effort(models.Model):
                 Q(recorder=user.profile) &
                 Q(effort=None) &
                 Q(faction=self.faction) &
-                Q(turns__dominance=True)
+                Q(dominance=True)
             )
             return dominance_scorecards.exists()
 
@@ -1901,16 +1901,20 @@ class Effort(models.Model):
         ordering = ['game', 'seat']
 
 
-def filtered_winrate(player=None, faction=None, tournament=None, platform=None):
+def filtered_winrate(player=None, faction=None, vagabond=None, deck=None, tournament=None, platform=None):
     """Win rate over Efforts, filtered by any combination of player, faction,
-    tournament (series), and platform. Mirrors the leaderboard formula
-    (coalition wins count as half) in a single aggregate query so the result
-    matches the site's leaderboards. Returns {total, win_points, win_rate}."""
+    vagabond, deck, tournament (series), and platform. Mirrors the leaderboard
+    formula (coalition wins count as half) in a single aggregate query so the
+    result matches the site's leaderboards. Returns {total, win_points, win_rate}."""
     qs = Effort.objects.filter(game__final=True, game__test_match=False)
     if player:
         qs = qs.filter(player=player)
     if faction:
         qs = qs.filter(faction=faction)
+    if vagabond:
+        qs = qs.filter(vagabond=vagabond)
+    if deck:
+        qs = qs.filter(game__deck=deck)
     if platform:
         qs = qs.filter(game__platform=platform)
     if tournament:
@@ -1944,6 +1948,66 @@ class ScoreCard(models.Model):
     dominance = models.BooleanField(default=False)
     final = models.BooleanField(default=False)
 
+    # Per-turn point breakdown, stored as a list of dicts sorted by turn_number.
+    # Replaces the TurnScore child model. See get_turns()/set_turns() below.
+    turns_data = models.JSONField(default=list, blank=True)
+    # True when turns use the detailed category points (battle/crafting/faction/other)
+    # rather than generic points. Recomputed by set_turns().
+    is_detailed = models.BooleanField(default=False)
+
+    # Fields carried on each turn dict (game_points_total is derived and appended).
+    TURN_POINT_FIELDS = (
+        'battle_points', 'crafting_points', 'faction_points',
+        'other_points', 'generic_points', 'total_points',
+    )
+    DETAIL_POINT_FIELDS = ('battle_points', 'crafting_points', 'faction_points', 'other_points')
+
+    def get_turns(self):
+        """Return the turn dicts sorted by turn_number. Each already carries a
+        cumulative ``game_points_total``; a ``game_points`` alias is added for the
+        API/chart consumers that expect that key. Single source of truth for reads."""
+        turns = sorted(self.turns_data or [], key=lambda t: t.get('turn_number', 0))
+        out = []
+        for t in turns:
+            d = dict(t)
+            d['game_points'] = d.get('game_points_total', 0)
+            out.append(d)
+        return out
+
+    @property
+    def turn_count(self):
+        return len(self.turns_data or [])
+
+    def any_turn_dominance(self):
+        return any(t.get('dominance') for t in (self.turns_data or []))
+
+    def set_turns(self, turns):
+        """Single write entry point for turns_data. Normalizes/zero-fills point
+        fields, sorts by the given order, renumbers contiguously from 1, recomputes
+        each cumulative ``game_points_total`` from ``total_points``, and syncs the
+        ``dominance``/``is_detailed`` flags. Does NOT recompute ``total_points`` from
+        the category fields — it is stored verbatim as entered."""
+        normalized = []
+        for turn in turns:
+            row = {f: int(turn.get(f) or 0) for f in self.TURN_POINT_FIELDS}
+            row['dominance'] = bool(turn.get('dominance'))
+            normalized.append((turn.get('turn_number', 0), row))
+
+        # Preserve incoming order for equal turn_numbers, then renumber 1..N.
+        normalized.sort(key=lambda pair: pair[0])
+        running = 0
+        rebuilt = []
+        for index, (_orig_number, row) in enumerate(normalized, start=1):
+            running += row['total_points']
+            row['turn_number'] = index
+            row['game_points_total'] = running
+            rebuilt.append(row)
+
+        self.turns_data = rebuilt
+        self.dominance = any(r['dominance'] for r in rebuilt)
+        self.is_detailed = any(
+            any(r[f] for f in self.DETAIL_POINT_FIELDS) for r in rebuilt
+        )
 
     def efforts_available(self):
         if self.effort:

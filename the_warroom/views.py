@@ -9,6 +9,7 @@ from django.views.generic import DeleteView
 from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
+from django.forms import formset_factory
 from django.http import HttpResponse, HttpResponseBadRequest, Http404, HttpResponseRedirect
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -17,7 +18,7 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.db import IntegrityError, models
+from django.db import IntegrityError, models, transaction
 
 from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce
@@ -34,14 +35,14 @@ from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, Asse
                      game_counts_for_tournament_q)
 from .services.grouping import GroupingService, build_opponent_history
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
-                    TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
+                    TurnScoreCreateForm, TurnScoreForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
                     RoundCreateForm, StageCreateForm,
                     TournamentDynamicCreateForm, TournamentDynamicUpdateForm,
                     TournamentPlayerSettingsForm, TournamentAssetSettingsForm,
                     )
 from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter
 
-from .utils import get_single_round, get_single_stage
+from .utils import get_single_round, get_single_stage, build_scorecard_grid, build_single_scorecard_grid
 
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 
@@ -167,8 +168,43 @@ def game_list_view(request):
 
 
 
+def _default_player_board(threshold, limit, order):
+    """Global player leaderboard from the cached fields (coalition formula).
+
+    Aliases the cached_* columns to the win_rate/tourney_points/total_efforts
+    names the row templates expect, and sets leaderboard_link. Used only for
+    the default anonymous, unfiltered /leaderboard/ board.
+    """
+    qs = (Profile.objects.filter(cached_plays__gte=threshold)
+          .annotate(win_rate=F('cached_winrate'),
+                    tourney_points=F('cached_tourney_points'),
+                    total_efforts=F('cached_plays'))
+          .order_by(*order)[:limit])
+    out = list(qs)
+    for p in out:
+        p.leaderboard_link = reverse('player-detail', kwargs={'slug': p.slug})
+    return out
+
+
+def _default_faction_board(threshold, limit, order):
+    """Global faction leaderboard from the cached fields (coalition formula).
+
+    Clockwork factions are excluded (component='Faction' only), matching the
+    live Faction.leaderboard() classmethod.
+    """
+    qs = (Faction.objects.filter(cached_plays__gte=threshold, component='Faction')
+          .annotate(win_rate=F('cached_winrate'),
+                    tourney_points=F('cached_tourney_points'),
+                    total_efforts=F('cached_plays'))
+          .order_by(*order)[:limit])
+    out = list(qs)
+    for f in out:
+        f.leaderboard_link = reverse('faction-detail', kwargs={'slug': f.slug})
+    return out
+
+
 def leaderboard_view(request):
-    
+
 
     try:
         leaderboard_threshold = int(request.GET.get("threshold", 0))
@@ -204,24 +240,31 @@ def leaderboard_view(request):
     filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
     games = filterset.qs.order_by('-date_posted')
     games_count = games.count()
-    
+
+    # The default anonymous, unfiltered board (what crawlers hammer) is served
+    # from the cached leaderboard fields as plain indexed queries — no
+    # aggregation, always fresh. Logged-in users and any filtered request fall
+    # back to the live .leaderboard() aggregation (same coalition formula).
+    default_case = (
+        not request.user.is_authenticated
+        and not request.GET  # no filters, threshold, or limit params
+    )
+
     # Build context
     context = {}
-    
+
     # Theme
     theme = get_theme(request)
     background_image, foreground_images, theme_artists, background_pattern = get_thematic_images(
         theme=theme, page='games'
     )
-    
+
     context['background_image'] = background_image
     context['foreground_images'] = foreground_images
     context['background_pattern'] = background_pattern
     context['page_artists'] = theme_artists
 
-    
-    # Leaderboard thresholds
-    efforts = Effort.objects.filter(game__in=games)
+    # Leaderboard threshold (min qualifying plays), scaled by dataset size.
     if leaderboard_threshold == 0:
         if games_count > 5000:
             leaderboard_threshold = 25
@@ -235,29 +278,43 @@ def leaderboard_view(request):
             leaderboard_threshold = 3
         else:
             leaderboard_threshold = 1
-        
-    top_players = Profile.leaderboard(
-        limit=leaderboard_places, 
-        effort_qs=efforts, 
-        game_threshold=leaderboard_threshold, 
-        as_json=False)
-    most_players = Profile.leaderboard(
-        limit=leaderboard_places, 
-        effort_qs=efforts, 
-        top_quantity=True, 
-        game_threshold=leaderboard_threshold, 
-        as_json=False)
-    top_factions = Faction.leaderboard(
-        limit=leaderboard_places, 
-        effort_qs=efforts, 
-        game_threshold=leaderboard_threshold, 
-        as_json=False)
-    most_factions = Faction.leaderboard(
-        limit=leaderboard_places, 
-        effort_qs=efforts, 
-        top_quantity=True, 
-        game_threshold=leaderboard_threshold, 
-        as_json=False)
+
+    if default_case:
+        # Fast path: indexed queries against the cached fields.
+        top_players = _default_player_board(
+            leaderboard_threshold, leaderboard_places, ['-cached_winrate', '-cached_plays'])
+        most_players = _default_player_board(
+            leaderboard_threshold, leaderboard_places, ['-cached_tourney_points', '-cached_winrate'])
+        top_factions = _default_faction_board(
+            leaderboard_threshold, leaderboard_places, ['-cached_winrate', '-cached_plays'])
+        most_factions = _default_faction_board(
+            leaderboard_threshold, leaderboard_places, ['-cached_tourney_points', '-cached_winrate'])
+    else:
+        # Live path: filtered/logged-in requests aggregate over the scoped efforts.
+        efforts = Effort.objects.filter(game__in=games)
+        top_players = Profile.leaderboard(
+            limit=leaderboard_places,
+            effort_qs=efforts,
+            game_threshold=leaderboard_threshold,
+            as_json=False)
+        most_players = Profile.leaderboard(
+            limit=leaderboard_places,
+            effort_qs=efforts,
+            top_quantity=True,
+            game_threshold=leaderboard_threshold,
+            as_json=False)
+        top_factions = Faction.leaderboard(
+            limit=leaderboard_places,
+            effort_qs=efforts,
+            game_threshold=leaderboard_threshold,
+            as_json=False)
+        most_factions = Faction.leaderboard(
+            limit=leaderboard_places,
+            effort_qs=efforts,
+            top_quantity=True,
+            game_threshold=leaderboard_threshold,
+            as_json=False)
+
     # Leaderboard data
     context.update({
         'top_players': top_players,
@@ -481,91 +538,7 @@ def game_detail_view(request, id=None, league_id=None):
     # Build a read-only grid of the game score per turn (rows = factions,
     # columns = turns) shown above the scorecard chart. Mirrors the chart's
     # data source (every effort with a scorecard) so the two stay consistent.
-    scorecard_grid_rows = []
-    scorecard_grid_max_turn = 0
-    for effort in efforts:
-        try:
-            scorecard = effort.scorecard
-        except ScoreCard.DoesNotExist:
-            scorecard = None
-        if not scorecard:
-            continue
-        turns = {t.turn_number: t for t in scorecard.turns.all()}
-        if not turns:
-            continue
-        row_max = max(turns)
-        if row_max > scorecard_grid_max_turn:
-            scorecard_grid_max_turn = row_max
-        # Vagabonds play a coalition instead of dominance — a dominance turn shows
-        # the coalition partner's faction icon rather than a dominance-type icon.
-        coalition = effort.coalition_with
-        scorecard_grid_rows.append({
-            'faction': getattr(effort, 'translated_faction_title', effort.faction.title),
-            'small_icon': effort.faction.small_icon,
-            'small_icon_version': effort.faction.small_icon_version,
-            'color': effort.faction.color,
-            'effort_dominance': effort.dominance,  # e.g. 'Mouse' (or None)
-            'coalition_icon': coalition.small_icon if coalition else None,
-            'coalition_icon_version': coalition.small_icon_version if coalition else 0,
-            'coalition_name': coalition.title if coalition else None,
-            'effort_win': effort.win,
-            'brazen': bool(effort.brazen_demagogue),
-            'row_max': row_max,  # this scorecard's own last turn number
-            'turns': turns,
-        })
-    # Expand each row into a dense list of cells aligned to the max turn so the
-    # template can render columns without gaps. Each cell gets a `mode`:
-    #   'score' → show the score only
-    #   'icon'  → show the dominance-type icon in place of the score
-    #   'both'  → show the score (bottom-left) and the icon (top-right, behind)
-    # Brazen Demagogue efforts show both on dominant turns; the deciding
-    # winner cell shows the icon unless the score reached 30 (a points win).
-    # Non-brazen efforts keep icon-in-place-of-score on dominant turns.
-    scorecard_grid = []
-    for row in scorecard_grid_rows:
-        cells = []
-        has_coalition = bool(row['coalition_icon'])
-        for n in range(1, scorecard_grid_max_turn + 1):
-            t = row['turns'].get(n)
-            is_dom = bool(t.dominance) if t else False
-            has_dom_type = is_dom and bool(row['effort_dominance'])
-            has_coalition_dom = is_dom and has_coalition
-            is_winner_cell = bool(row['effort_win']) and n == row['row_max']
-            value = t.game_points_total if t else None
-
-            if has_coalition_dom:
-                # Vagabond coalition: show the partner's faction icon (vagabonds
-                # can't be Brazen Demagogue, so it's always icon-in-place).
-                mode = 'coalition_icon'
-            elif not has_dom_type:
-                mode = 'score'
-            elif row['brazen']:
-                if is_winner_cell:
-                    # Deciding cell: score only if a points win (>=30), else icon.
-                    mode = 'score' if (value is not None and value >= 30) else 'icon'
-                else:
-                    mode = 'both'
-            else:
-                mode = 'icon'
-
-            cells.append({
-                'value': value,
-                'dominance': is_dom,
-                'dom_type': row['effort_dominance'] if has_dom_type else None,
-                'mode': mode,
-                'winner': is_winner_cell,
-            })
-        scorecard_grid.append({
-            'faction': row['faction'],
-            'small_icon': row['small_icon'],
-            'small_icon_version': row['small_icon_version'],
-            'color': row['color'],
-            'coalition_icon': row['coalition_icon'],
-            'coalition_icon_version': row['coalition_icon_version'],
-            'coalition_name': row['coalition_name'],
-            'cells': cells,
-        })
-    scorecard_grid_turns = list(range(1, scorecard_grid_max_turn + 1))
+    scorecard_grid, scorecard_grid_turns = build_scorecard_grid(efforts)
 
     if request.user.is_authenticated:
         for effort in efforts:
@@ -1132,15 +1105,10 @@ def manage_game_v2(request, id=None):
             scorecard = None
         if scorecard is None:
             continue
-        is_detailed = any([
-            scorecard.total_battle_points,
-            scorecard.total_crafting_points,
-            scorecard.total_faction_points,
-            scorecard.total_other_points,
-        ])
+        is_detailed = scorecard.is_detailed
         cells = [
-            {'turn': t.turn_number, 'value': t.game_points_total, 'dominance': t.dominance}
-            for t in scorecard.turns.all().order_by('turn_number')
+            {'turn': t['turn_number'], 'value': t['game_points'], 'dominance': t['dominance']}
+            for t in scorecard.get_turns()
         ]
         if not cells:
             continue
@@ -1471,7 +1439,7 @@ def manage_game_v2(request, id=None):
                         while len(cells) > target and cells[-1].get('carried'):
                             cells.pop()
 
-            # ── Phase 2: persist each row as ScoreCard + TurnScores ──
+            # ── Phase 2: persist each row as ScoreCard + turns_data ──
             for _row in parsed_rows:
                 child = _row['child']
                 cells = _row['cells']
@@ -1482,12 +1450,7 @@ def manage_game_v2(request, id=None):
                     existing_scorecard = child.scorecard
                 except ScoreCard.DoesNotExist:
                     existing_scorecard = None
-                if existing_scorecard and any([
-                    existing_scorecard.total_battle_points,
-                    existing_scorecard.total_crafting_points,
-                    existing_scorecard.total_faction_points,
-                    existing_scorecard.total_other_points,
-                ]):
+                if existing_scorecard and existing_scorecard.is_detailed:
                     continue
 
                 scorecard, _ = ScoreCard.objects.get_or_create(
@@ -1495,7 +1458,6 @@ def manage_game_v2(request, id=None):
                     defaults={'faction': child.faction, 'recorder': user.profile},
                 )
                 last_value = cells[-1]['value']
-                any_dominance = any(c['dominance'] for c in cells)
                 scorecard.faction = child.faction
                 if scorecard.recorder_id is None:
                     scorecard.recorder = user.profile
@@ -1505,36 +1467,28 @@ def manage_game_v2(request, id=None):
                 scorecard.total_crafting_points = 0
                 scorecard.total_faction_points = 0
                 scorecard.total_other_points = 0
-                scorecard.dominance = any_dominance
                 scorecard.final = True
-                scorecard.save()
 
-                # Upsert TurnScores by turn_number; delete turns no longer present.
-                existing_turns = {t.turn_number: t for t in scorecard.turns.all()}
-                desired_turn_numbers = set()
+                # Each cell holds a cumulative value; store the per-turn delta as
+                # generic/total points. set_turns recomputes game_points_total
+                # (== the cell's cumulative value) and the dominance/is_detailed flags.
+                new_turns = []
                 prev_value = 0
                 for cell in cells:
                     delta = cell['value'] - prev_value
                     prev_value = cell['value']
-                    desired_turn_numbers.add(cell['turn'])
-                    turn = existing_turns.get(cell['turn']) or TurnScore(
-                        scorecard=scorecard, turn_number=cell['turn']
-                    )
-                    turn.generic_points = delta
-                    turn.total_points = delta
-                    turn.battle_points = 0
-                    turn.crafting_points = 0
-                    turn.faction_points = 0
-                    turn.other_points = 0
-                    turn.dominance = cell['dominance']
-                    turn.game_points_total = cell['value']
-                    turn.save()
-                # Remove stale turns (shrinking grid)
-                stale = [n for n in existing_turns if n not in desired_turn_numbers]
-                if stale:
-                    scorecard.turns.filter(turn_number__in=stale).delete()
-
-                scorecard.save(recalculate_game_points=True)
+                    new_turns.append({
+                        'turn_number': cell['turn'],
+                        'generic_points': delta,
+                        'total_points': delta,
+                        'battle_points': 0,
+                        'crafting_points': 0,
+                        'faction_points': 0,
+                        'other_points': 0,
+                        'dominance': cell['dominance'],
+                    })
+                scorecard.set_turns(new_turns)
+                scorecard.save()
                 grid_touched_effort_ids.add(child.id)
 
             # ── Detailed (locked) rows: update dominance only ──
@@ -1552,18 +1506,19 @@ def manage_game_v2(request, id=None):
                 if scorecard is None:
                     continue
                 changed = False
-                for turn in scorecard.turns.all():
-                    new_dom = bool(dom_by_turn.get(turn.turn_number, turn.dominance))
-                    if turn.dominance != new_dom:
-                        turn.dominance = new_dom
-                        turn.save(update_fields=['dominance'])
+                turns = scorecard.turns_data or []
+                for turn in turns:
+                    new_dom = bool(dom_by_turn.get(turn['turn_number'], turn.get('dominance')))
+                    if bool(turn.get('dominance')) != new_dom:
+                        turn['dominance'] = new_dom
                         changed = True
                 any_dom = any(dom_by_turn.values())
                 if scorecard.dominance != any_dom:
                     scorecard.dominance = any_dom
-                    scorecard.save(update_fields=['dominance'])
                     changed = True
                 if changed:
+                    scorecard.turns_data = turns
+                    scorecard.save(update_fields=['turns_data', 'dominance'])
                     grid_touched_effort_ids.add(child.id)
 
             # ScoreCard consistency checks
@@ -1985,6 +1940,28 @@ def scorecard_detail_view(request, id=None):
     object_translation = obj.faction.translations.filter(language=language_object).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.faction.title
 
+    # Top-left back button. ?from=scorecards forces a return to "My Scorecards";
+    # otherwise fall back to the game (if linked) or "My Scorecards".
+    origin = request.GET.get('from')
+    if origin == 'scorecards':
+        back_url, back_label = reverse('scorecard-home'), _('My Scorecards')
+    elif obj.effort:
+        game = obj.effort.game
+        back_url = reverse('game-detail', args=[game.id])
+        back_label = game.nickname or _('Game')
+    else:
+        back_url, back_label = reverse('scorecard-home'), _('My Scorecards')
+
+    # Box-score grid: the whole game's grid when the scorecard is linked to a game,
+    # otherwise just this scorecard's own single row.
+    if obj.effort:
+        efforts = obj.effort.game.efforts.all().prefetch_related(
+            'faction', 'vagabond', 'scorecard', 'coalition_with'
+        )
+        scorecard_grid, scorecard_grid_turns = build_scorecard_grid(efforts)
+    else:
+        scorecard_grid, scorecard_grid_turns = build_single_scorecard_grid(obj, object_title)
+
     # next_scorecard = None   
     # previous_scorecard = None
     # if not obj.effort:
@@ -2010,6 +1987,10 @@ def scorecard_detail_view(request, id=None):
         # 'previous_scorecard': previous_scorecard,
         # 'next_scorecard': next_scorecard,
         'object_title': object_title,
+        'back_url': back_url,
+        'back_label': back_label,
+        'scorecard_grid': scorecard_grid,
+        'scorecard_grid_turns': scorecard_grid_turns,
     }
 
     return render(request, "the_warroom/score_detail.html", context)
@@ -2135,7 +2116,7 @@ def scorecard_list_view(request):
     active_profile = request.user.profile
     language_code = get_language()
     language_object = Language.objects.filter(code=language_code).first()
-    complete_scorecards = ScoreCard.objects.filter(recorder=request.user.profile, final=True).prefetch_related('turns', 'faction', 'effort', 'effort__game', 'effort__player', 'effort__faction')
+    complete_scorecards = ScoreCard.objects.filter(recorder=request.user.profile, final=True).prefetch_related('faction', 'effort', 'effort__game', 'effort__player', 'effort__faction')
 
 
     complete_scorecards = complete_scorecards.annotate(
@@ -4524,41 +4505,34 @@ def scorecard_manage_view(request, id=None):
 
     user = request.user
 
-    # Handle TurnScore deletion via HTMX
+    # Handle turn deletion via HTMX (removes one turn from turns_data by number)
     if request.method == 'DELETE':
-        turn_id = request.GET.get('turn_id')
-        if turn_id and id:
+        turn_number = request.GET.get('turn_number')
+        if turn_number and id:
             try:
-                turn = TurnScore.objects.get(id=turn_id, scorecard=obj)
-                turn_number = turn.turn_number
-                turn.delete()
-
-                # Renumber remaining turns
-                remaining_turns = obj.turns.filter(turn_number__gt=turn_number).order_by('turn_number')
-                for t in remaining_turns:
-                    t.turn_number -= 1
-                    t.save()
-
-                # Recalculate totals
-                obj.save(recalculate_game_points=True)
-
-                # Return success response for HTMX
-                return HttpResponse(status=200, headers={'HX-Trigger': 'turnDeleted'})
-            except TurnScore.DoesNotExist:
+                target = int(turn_number)
+            except (TypeError, ValueError):
+                return HttpResponse(status=400)
+            remaining = [t for t in obj.get_turns() if t['turn_number'] != target]
+            if len(remaining) == len(obj.turns_data or []):
                 return HttpResponse(status=404)
+            with transaction.atomic():
+                # set_turns renumbers 1..N and recomputes cumulative game points.
+                obj.set_turns(remaining)
+                obj.save()
+            return HttpResponse(status=200, headers={'HX-Trigger': 'turnDeleted'})
         return HttpResponse(status=400)
 
     if id:
-        existing_turns = obj.turns.all()
-        existing_count = existing_turns.count()
+        existing_count = obj.turn_count
         extra_forms = 0
     else:
         existing_count = 0
         extra_forms = 1
 
-    TurnFormset = modelformset_factory(TurnScore, form=TurnScoreCreateForm, extra=extra_forms, can_delete=True)
-    qs = obj.turns.all() if id else TurnScore.objects.none()
-    formset = TurnFormset(request.POST or None, queryset=qs)
+    TurnFormset = formset_factory(TurnScoreForm, extra=extra_forms, can_delete=True)
+    initial_turns = obj.get_turns() if id else []
+    formset = TurnFormset(request.POST or None, initial=initial_turns)
     form_count = extra_forms + existing_count
     form = ScoreCardCreateForm(request.POST or None, instance=obj, user=user, faction=faction)
 
@@ -4567,10 +4541,7 @@ def scorecard_manage_view(request, id=None):
     else:
         score = None
 
-    if not obj.total_generic_points and obj.id and obj.total_points and obj.total_points != 0:
-        generic_view = False
-    else:
-        generic_view = True
+    generic_view = not obj.is_detailed
 
     context = {
         'form': form,
@@ -4597,20 +4568,31 @@ def scorecard_manage_view(request, id=None):
     }
 
     if form.is_valid() and formset.is_valid():
-        # warning_message = False
         parent = form.save(commit=False)
         parent.recorder = request.user.profile
         parent.effort = effort
-        parent.save()
-        dominance = False
 
-        total_points = 0
+        # Assemble turn dicts from the formset, skipping empty/deleted rows.
+        turns = []
+        for cd in formset.cleaned_data:
+            if not cd or cd.get('DELETE'):
+                continue
+            turns.append({
+                'turn_number': cd.get('turn_number') or 0,
+                'faction_points': cd.get('faction_points', 0),
+                'crafting_points': cd.get('crafting_points', 0),
+                'battle_points': cd.get('battle_points', 0),
+                'other_points': cd.get('other_points', 0),
+                'generic_points': cd.get('generic_points', 0),
+                'total_points': cd.get('total_points', 0),
+                'dominance': bool(cd.get('dominance')),
+            })
 
-        for turn_form in formset:
-            turn_dominance = turn_form.cleaned_data.get('dominance')
-            if turn_dominance:
-                dominance = True
-            total_points += turn_form.cleaned_data.get('total_points', 0)
+        # set_turns renumbers 1..N, recomputes cumulative game points, and syncs
+        # parent.dominance / parent.is_detailed.
+        parent.set_turns(turns)
+        dominance = parent.dominance
+        total_points = sum(t['total_points'] for t in parent.turns_data)
 
         if effort:
             final_scorecard = True
@@ -4629,25 +4611,10 @@ def scorecard_manage_view(request, id=None):
         if (effort and dominance and not effort.dominance and not effort.coalition_with) or (effort and not dominance and effort.dominance) or (effort and not dominance and effort.coalition_with):
             final_scorecard = False
 
-        for turn_form in formset:
-            child = turn_form.save(commit=False)
-            child.scorecard = parent
-            child.save()
+        parent.final = final_scorecard
 
-        if parent.dominance != dominance:
-            parent.dominance = dominance
-
-        if parent.final != final_scorecard:
-            parent.final = final_scorecard
-
-        parent.save(recalculate_game_points=True)
-
-        # Renumber turns after deletions
-        turns = parent.turns.all().order_by('turn_number')
-        for i, turn in enumerate(turns, start=1):
-            if turn.turn_number != i:
-                turn.turn_number = i
-                turn.save()
+        with transaction.atomic():
+            parent.save()
 
         if request.POST.get('next'):
             return redirect('update-scorecard', next_scorecard.id)
@@ -5461,11 +5428,13 @@ def _upcoming_scheduled_matches(match_filter):
     )
 
 
-def _schedule_context(request, match_filter):
-    """Context for a schedule page: the upcoming match list, total count, and the
-    'my games' toggle. 'My games' keys off the series the user is seated in (not
-    match ids) so a best-of-N series doesn't pull in sibling matches outside the
-    upcoming set."""
+def _schedule_context(request, match_filter, tournament=None, view_as=None):
+    """Context for a schedule page: the upcoming match list, total count, the
+    'my games' toggle, and the record-button gating. 'My games' keys off the series
+    the user is seated in (not match ids) so a best-of-N series doesn't pull in
+    sibling matches outside the upcoming set. ``recordable_match_ids`` is computed
+    over the full match list (not the 'my games' subset) so it's stable across the
+    toggle."""
     matches = list(_upcoming_scheduled_matches(match_filter))
     mine_series = set()
     if request.user.is_authenticated:
@@ -5478,12 +5447,18 @@ def _schedule_context(request, match_filter):
         )
     mine = [m for m in matches if m.series_id in mine_series]
     show_mine = request.GET.get('mine') == '1'
+    recordable_match_ids = set()
+    if tournament is not None:
+        recordable_match_ids = _recordable_ids_for_matches(
+            matches, request.user, tournament, view_as=view_as
+        )
     return {
         'schedule_matches': mine if show_mine else matches,
         'schedule_count': len(matches),
         'has_my_games': bool(mine),
         'show_mine': show_mine,
         'my_games_count': len(mine),
+        'recordable_match_ids': recordable_match_ids,
     }
 
 
@@ -5537,6 +5512,44 @@ def _recordable_match_ids(round, user, tournament, view_as=None):
         stage_participant__tournament_player__profile=profile
     ).values_list('series_id', flat=True))
     return recordable_match_ids, is_participant_series
+
+
+def _recordable_ids_for_matches(matches, user, tournament, view_as=None):
+    """Match ids from ``matches`` the user may record. Mirrors the gating of
+    ``_recordable_match_ids`` but scopes to a given match list (which all belong to
+    one tournament) rather than a single round -- used by the schedule pages, whose
+    stage/tournament scopes span multiple rounds.
+
+    ``matches`` are expected to have ``series``/``series.player_group`` prefetched
+    (as ``_upcoming_scheduled_matches`` provides), so the moderator check is in-Python.
+    """
+    recordable = set()
+    if not user.is_authenticated or view_as in ('logged_in', 'logged_out'):
+        return recordable
+
+    profile = user.profile
+    all_ids = {m.id for m in matches}
+    is_manager = profile.admin or tournament.has_permission(profile)
+    # Previewing as a lower role drops manager privileges.
+    if is_manager and view_as in (None, 'moderator'):
+        return all_ids
+    # Guild members can record any shown match under GUILD access.
+    if tournament.guild_members_can_record(profile):
+        return all_ids
+    # Seated players can record their own match when recording_access allows.
+    if tournament.players_can_record_matches():
+        seated_series = set(MatchSeat.objects.filter(
+            series_id__in={m.series_id for m in matches},
+            stage_participant__tournament_player__profile=profile,
+        ).values_list('series_id', flat=True))
+        recordable |= {m.id for m in matches if m.series_id in seated_series}
+    # Group moderators can always record their group's matches.
+    recordable |= {
+        m.id for m in matches
+        if m.series and m.series.player_group
+        and m.series.player_group.group_moderator_id == profile.id
+    }
+    return recordable
 
 
 def _stage_matches_context(request, tournament, stage):
@@ -5938,7 +5951,10 @@ def tournament_schedule_page(request, slug):
     """Upcoming scheduled matches across every round in the tournament."""
     tournament = get_object_or_404(Tournament, slug=slug)
     context = _tournament_base_context(request, tournament)
-    context.update(_schedule_context(request, {'round__stage__tournament': tournament}))
+    context.update(_schedule_context(
+        request, {'round__stage__tournament': tournament},
+        tournament=tournament, view_as=get_view_as(request, tournament),
+    ))
     context.update({
         'active_page': 'bracket',
         'breadcrumb_page': _('Schedule'),
@@ -5954,7 +5970,10 @@ def stage_schedule_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
     context = _stage_base_context(request, tournament, stage)
-    context.update(_schedule_context(request, {'round__stage': stage}))
+    context.update(_schedule_context(
+        request, {'round__stage': stage},
+        tournament=tournament, view_as=get_view_as(request, tournament),
+    ))
     # The stage "bracket" is the per-round bracket view when the stage uses
     # rounds, otherwise the flat matches view (mirrors stage_nav_header.html).
     if stage.use_rounds:
@@ -5987,7 +6006,10 @@ def round_schedule_page(request, tournament_slug, round_slug, stage_slug=None):
         round = get_object_or_404(Round, slug=round_slug, stage=stage)
 
     context = _round_base_context(request, tournament, stage, round)
-    context.update(_schedule_context(request, {'round': round}))
+    context.update(_schedule_context(
+        request, {'round': round},
+        tournament=tournament, view_as=get_view_as(request, tournament),
+    ))
     context.update({
         'active_page': 'bracket',
         'breadcrumb_page': _('Schedule'),
