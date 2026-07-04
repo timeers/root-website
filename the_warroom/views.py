@@ -42,7 +42,7 @@ from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     )
 from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter
 
-from .utils import get_single_round, get_single_stage
+from .utils import get_single_round, get_single_stage, build_scorecard_grid, build_single_scorecard_grid
 
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 
@@ -538,91 +538,7 @@ def game_detail_view(request, id=None, league_id=None):
     # Build a read-only grid of the game score per turn (rows = factions,
     # columns = turns) shown above the scorecard chart. Mirrors the chart's
     # data source (every effort with a scorecard) so the two stay consistent.
-    scorecard_grid_rows = []
-    scorecard_grid_max_turn = 0
-    for effort in efforts:
-        try:
-            scorecard = effort.scorecard
-        except ScoreCard.DoesNotExist:
-            scorecard = None
-        if not scorecard:
-            continue
-        turns = {t['turn_number']: t for t in scorecard.get_turns()}
-        if not turns:
-            continue
-        row_max = max(turns)
-        if row_max > scorecard_grid_max_turn:
-            scorecard_grid_max_turn = row_max
-        # Vagabonds play a coalition instead of dominance — a dominance turn shows
-        # the coalition partner's faction icon rather than a dominance-type icon.
-        coalition = effort.coalition_with
-        scorecard_grid_rows.append({
-            'faction': getattr(effort, 'translated_faction_title', effort.faction.title),
-            'small_icon': effort.faction.small_icon,
-            'small_icon_version': effort.faction.small_icon_version,
-            'color': effort.faction.color,
-            'effort_dominance': effort.dominance,  # e.g. 'Mouse' (or None)
-            'coalition_icon': coalition.small_icon if coalition else None,
-            'coalition_icon_version': coalition.small_icon_version if coalition else 0,
-            'coalition_name': coalition.title if coalition else None,
-            'effort_win': effort.win,
-            'brazen': bool(effort.brazen_demagogue),
-            'row_max': row_max,  # this scorecard's own last turn number
-            'turns': turns,
-        })
-    # Expand each row into a dense list of cells aligned to the max turn so the
-    # template can render columns without gaps. Each cell gets a `mode`:
-    #   'score' → show the score only
-    #   'icon'  → show the dominance-type icon in place of the score
-    #   'both'  → show the score (bottom-left) and the icon (top-right, behind)
-    # Brazen Demagogue efforts show both on dominant turns; the deciding
-    # winner cell shows the icon unless the score reached 30 (a points win).
-    # Non-brazen efforts keep icon-in-place-of-score on dominant turns.
-    scorecard_grid = []
-    for row in scorecard_grid_rows:
-        cells = []
-        has_coalition = bool(row['coalition_icon'])
-        for n in range(1, scorecard_grid_max_turn + 1):
-            t = row['turns'].get(n)
-            is_dom = bool(t['dominance']) if t else False
-            has_dom_type = is_dom and bool(row['effort_dominance'])
-            has_coalition_dom = is_dom and has_coalition
-            is_winner_cell = bool(row['effort_win']) and n == row['row_max']
-            value = t['game_points'] if t else None
-
-            if has_coalition_dom:
-                # Vagabond coalition: show the partner's faction icon (vagabonds
-                # can't be Brazen Demagogue, so it's always icon-in-place).
-                mode = 'coalition_icon'
-            elif not has_dom_type:
-                mode = 'score'
-            elif row['brazen']:
-                if is_winner_cell:
-                    # Deciding cell: score only if a points win (>=30), else icon.
-                    mode = 'score' if (value is not None and value >= 30) else 'icon'
-                else:
-                    mode = 'both'
-            else:
-                mode = 'icon'
-
-            cells.append({
-                'value': value,
-                'dominance': is_dom,
-                'dom_type': row['effort_dominance'] if has_dom_type else None,
-                'mode': mode,
-                'winner': is_winner_cell,
-            })
-        scorecard_grid.append({
-            'faction': row['faction'],
-            'small_icon': row['small_icon'],
-            'small_icon_version': row['small_icon_version'],
-            'color': row['color'],
-            'coalition_icon': row['coalition_icon'],
-            'coalition_icon_version': row['coalition_icon_version'],
-            'coalition_name': row['coalition_name'],
-            'cells': cells,
-        })
-    scorecard_grid_turns = list(range(1, scorecard_grid_max_turn + 1))
+    scorecard_grid, scorecard_grid_turns = build_scorecard_grid(efforts)
 
     if request.user.is_authenticated:
         for effort in efforts:
@@ -2024,6 +1940,28 @@ def scorecard_detail_view(request, id=None):
     object_translation = obj.faction.translations.filter(language=language_object).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.faction.title
 
+    # Top-left back button. ?from=scorecards forces a return to "My Scorecards";
+    # otherwise fall back to the game (if linked) or "My Scorecards".
+    origin = request.GET.get('from')
+    if origin == 'scorecards':
+        back_url, back_label = reverse('scorecard-home'), _('My Scorecards')
+    elif obj.effort:
+        game = obj.effort.game
+        back_url = reverse('game-detail', args=[game.id])
+        back_label = game.nickname or _('Game')
+    else:
+        back_url, back_label = reverse('scorecard-home'), _('My Scorecards')
+
+    # Box-score grid: the whole game's grid when the scorecard is linked to a game,
+    # otherwise just this scorecard's own single row.
+    if obj.effort:
+        efforts = obj.effort.game.efforts.all().prefetch_related(
+            'faction', 'vagabond', 'scorecard', 'coalition_with'
+        )
+        scorecard_grid, scorecard_grid_turns = build_scorecard_grid(efforts)
+    else:
+        scorecard_grid, scorecard_grid_turns = build_single_scorecard_grid(obj, object_title)
+
     # next_scorecard = None   
     # previous_scorecard = None
     # if not obj.effort:
@@ -2049,6 +1987,10 @@ def scorecard_detail_view(request, id=None):
         # 'previous_scorecard': previous_scorecard,
         # 'next_scorecard': next_scorecard,
         'object_title': object_title,
+        'back_url': back_url,
+        'back_label': back_label,
+        'scorecard_grid': scorecard_grid,
+        'scorecard_grid_turns': scorecard_grid_turns,
     }
 
     return render(request, "the_warroom/score_detail.html", context)

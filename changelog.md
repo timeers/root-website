@@ -11,6 +11,7 @@
 - Primary leaderboard page uses model winrates instead of calculated winrates for faster loading
 - pdf engine scales user submitted images when rendering
 - move scorecard backend to json for simplicity
+- scorecard detail page improvements
 
 ### Bug Fixes
 - box scores with blank cells count as the value of the previous turn

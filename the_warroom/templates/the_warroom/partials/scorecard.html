@@ -90,6 +90,8 @@
 </tfoot>
 
 </table>
+{# score_detail.html renders its own notes/recorded-on outside the table, so it passes hide_notes=True. #}
+{% if not hide_notes %}
 <div>
 
     {% if object.description %}
@@ -102,3 +104,4 @@
 
 
 </div>
+{% endif %}
