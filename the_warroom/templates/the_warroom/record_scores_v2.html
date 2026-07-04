@@ -539,8 +539,8 @@
             {% for form in formset %}
                 <div id="form-{{ forloop.counter0 }}" class="turn-form active-form">
                     <div class="turn-column delete-column">
-                        {% if form.instance.id %}
-                        <button type="button" class="delete-turn-btn" data-turn-id="{{ form.instance.id }}" title="{% trans 'Delete this turn' %}">
+                        {% if form.initial.turn_number %}
+                        <button type="button" class="delete-turn-btn" data-turn-number="{{ form.initial.turn_number }}" title="{% trans 'Delete this turn' %}">
                             <i class="bi bi-trash"></i>
                         </button>
                         {% else %}
@@ -553,11 +553,6 @@
                         {{ forloop.counter0|add:1 }}
                         <input type="hidden" name="form-{{ forloop.counter0 }}-turn_number" value="{{ forloop.counter0|add:1 }}"
                         id="id_form-{{ forloop.counter0 }}-turn_number"/>
-                        {% if form.instance.id %}
-                            <input type="hidden" name="form-{{ forloop.counter0 }}-id" value="{{ form.instance.id }}"
-                            id="id_form-{{ forloop.counter0 }}-id"/>
-                        {% endif %}
-
                     </div>
                     <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ form.faction_points }}</div>
                     <div class="turn-column detail-column{% if generic_view %} hidden{% endif %}">{{ form.crafting_points }}</div>
@@ -753,9 +748,9 @@ $(document).ready(function () {
         removeUnsavedTurn($(this).closest('.turn-form'));
     });
 
-    $('#form-turn-list').on('click', '.delete-turn-btn[data-turn-id]', function(event) {
+    $('#form-turn-list').on('click', '.delete-turn-btn[data-turn-number]', function(event) {
         event.preventDefault();
-        deleteSavedTurn($(this).data('turn-id'), $(this).closest('.turn-form'));
+        deleteSavedTurn($(this).data('turn-number'), $(this).closest('.turn-form'));
     });
 
 
@@ -773,13 +768,13 @@ $(document).ready(function () {
         show_hide_remove();
     }
 
-    function deleteSavedTurn(turnId, $row) {
+    function deleteSavedTurn(turnNumber, $row) {
         if (!confirm('{% trans "Are you sure you want to delete this turn? This cannot be undone." %}')) {
             return;
         }
 
         $.ajax({
-            url: window.location.href + '?turn_id=' + turnId,
+            url: window.location.href + '?turn_number=' + turnNumber,
             method: 'DELETE',
             headers: {
                 'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val()

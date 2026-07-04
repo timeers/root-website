@@ -791,6 +791,45 @@ class TurnScoreCreateForm(forms.ModelForm):
 
         return cleaned_data
     
+def _turn_number_widget():
+    return forms.NumberInput(attrs={
+        'type': 'number', 'step': 1,
+        'style': 'text-align: right; max-width: 50px;', 'placeholder': '0',
+    })
+
+
+class TurnScoreForm(forms.Form):
+    """Non-model form for a single turn row in the scorecard editor formset.
+
+    Mirrors the point fields of the retired TurnScore model. The view assembles
+    the valid rows into ``ScoreCard.turns_data`` via ``ScoreCard.set_turns()`` —
+    turn numbering and cumulative game points are recomputed there, so this form
+    only validates the per-turn point values."""
+    turn_number = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    total_points = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    dominance = forms.BooleanField(required=False)
+    faction_points = forms.IntegerField(required=False, widget=_turn_number_widget())
+    crafting_points = forms.IntegerField(required=False, widget=_turn_number_widget())
+    battle_points = forms.IntegerField(required=False, widget=_turn_number_widget())
+    other_points = forms.IntegerField(required=False, widget=_turn_number_widget())
+    generic_points = forms.IntegerField(required=False, widget=_turn_number_widget())
+
+    def clean_turn_number(self):
+        turn_number = self.cleaned_data.get('turn_number')
+        if turn_number is not None and turn_number < 1:
+            raise forms.ValidationError("Turn number must be greater than or equal to 1.")
+        return turn_number
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # Blank point inputs count as zero.
+        for field in ('faction_points', 'crafting_points', 'battle_points',
+                      'other_points', 'generic_points', 'total_points'):
+            if not cleaned_data.get(field):
+                cleaned_data[field] = 0
+        return cleaned_data
+
+
 class ScoreCardCreateForm(forms.ModelForm):
     class Meta:
         model = ScoreCard
@@ -888,7 +927,7 @@ class AssignScorecardForm(forms.ModelForm):
                 Q(recorder=user.profile) &
                 Q(effort=None) &
                 Q(faction=faction) &
-                Q(turns__dominance=True)
+                Q(dominance=True)
             )
             # Combine the regular and dominance querysets, ensuring distinct results
             queryset = queryset | dominance_queryset

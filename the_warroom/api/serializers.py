@@ -1,17 +1,19 @@
 from rest_framework import serializers
-from the_warroom.models import ScoreCard, TurnScore
+from the_warroom.models import ScoreCard
 
-class TurnScoreSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TurnScore
-        fields = ['turn_number', 'faction_points', 'crafting_points', 'battle_points', 'other_points', 'total_points']
+TURN_SERIALIZER_FIELDS = ('turn_number', 'faction_points', 'crafting_points',
+                          'battle_points', 'other_points', 'total_points')
+
 
 class ScoreCardDetailSerializer(serializers.ModelSerializer):
-    turns = TurnScoreSerializer(many=True)  # Serialize the related TurnScore objects
+    turns = serializers.SerializerMethodField()  # Serialize the turns_data JSON
 
     class Meta:
         model = ScoreCard
         fields = ['faction', 'recorder', 'turns', 'total_points']
+
+    def get_turns(self, obj):
+        return [{k: t.get(k, 0) for k in TURN_SERIALIZER_FIELDS} for t in obj.get_turns()]
 
 
 class AverageTurnScoreSerializer(serializers.Serializer):

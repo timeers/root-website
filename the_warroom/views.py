@@ -9,6 +9,7 @@ from django.views.generic import DeleteView
 from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
+from django.forms import formset_factory
 from django.http import HttpResponse, HttpResponseBadRequest, Http404, HttpResponseRedirect
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -17,7 +18,7 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.db import IntegrityError, models
+from django.db import IntegrityError, models, transaction
 
 from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce
@@ -34,7 +35,7 @@ from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, Asse
                      game_counts_for_tournament_q)
 from .services.grouping import GroupingService, build_opponent_history
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
-                    TurnScoreCreateForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
+                    TurnScoreCreateForm, TurnScoreForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
                     RoundCreateForm, StageCreateForm,
                     TournamentDynamicCreateForm, TournamentDynamicUpdateForm,
                     TournamentPlayerSettingsForm, TournamentAssetSettingsForm,
@@ -546,7 +547,7 @@ def game_detail_view(request, id=None, league_id=None):
             scorecard = None
         if not scorecard:
             continue
-        turns = {t.turn_number: t for t in scorecard.turns.all()}
+        turns = {t['turn_number']: t for t in scorecard.get_turns()}
         if not turns:
             continue
         row_max = max(turns)
@@ -583,11 +584,11 @@ def game_detail_view(request, id=None, league_id=None):
         has_coalition = bool(row['coalition_icon'])
         for n in range(1, scorecard_grid_max_turn + 1):
             t = row['turns'].get(n)
-            is_dom = bool(t.dominance) if t else False
+            is_dom = bool(t['dominance']) if t else False
             has_dom_type = is_dom and bool(row['effort_dominance'])
             has_coalition_dom = is_dom and has_coalition
             is_winner_cell = bool(row['effort_win']) and n == row['row_max']
-            value = t.game_points_total if t else None
+            value = t['game_points'] if t else None
 
             if has_coalition_dom:
                 # Vagabond coalition: show the partner's faction icon (vagabonds
@@ -1188,15 +1189,10 @@ def manage_game_v2(request, id=None):
             scorecard = None
         if scorecard is None:
             continue
-        is_detailed = any([
-            scorecard.total_battle_points,
-            scorecard.total_crafting_points,
-            scorecard.total_faction_points,
-            scorecard.total_other_points,
-        ])
+        is_detailed = scorecard.is_detailed
         cells = [
-            {'turn': t.turn_number, 'value': t.game_points_total, 'dominance': t.dominance}
-            for t in scorecard.turns.all().order_by('turn_number')
+            {'turn': t['turn_number'], 'value': t['game_points'], 'dominance': t['dominance']}
+            for t in scorecard.get_turns()
         ]
         if not cells:
             continue
@@ -1527,7 +1523,7 @@ def manage_game_v2(request, id=None):
                         while len(cells) > target and cells[-1].get('carried'):
                             cells.pop()
 
-            # ── Phase 2: persist each row as ScoreCard + TurnScores ──
+            # ── Phase 2: persist each row as ScoreCard + turns_data ──
             for _row in parsed_rows:
                 child = _row['child']
                 cells = _row['cells']
@@ -1538,12 +1534,7 @@ def manage_game_v2(request, id=None):
                     existing_scorecard = child.scorecard
                 except ScoreCard.DoesNotExist:
                     existing_scorecard = None
-                if existing_scorecard and any([
-                    existing_scorecard.total_battle_points,
-                    existing_scorecard.total_crafting_points,
-                    existing_scorecard.total_faction_points,
-                    existing_scorecard.total_other_points,
-                ]):
+                if existing_scorecard and existing_scorecard.is_detailed:
                     continue
 
                 scorecard, _ = ScoreCard.objects.get_or_create(
@@ -1551,7 +1542,6 @@ def manage_game_v2(request, id=None):
                     defaults={'faction': child.faction, 'recorder': user.profile},
                 )
                 last_value = cells[-1]['value']
-                any_dominance = any(c['dominance'] for c in cells)
                 scorecard.faction = child.faction
                 if scorecard.recorder_id is None:
                     scorecard.recorder = user.profile
@@ -1561,36 +1551,28 @@ def manage_game_v2(request, id=None):
                 scorecard.total_crafting_points = 0
                 scorecard.total_faction_points = 0
                 scorecard.total_other_points = 0
-                scorecard.dominance = any_dominance
                 scorecard.final = True
-                scorecard.save()
 
-                # Upsert TurnScores by turn_number; delete turns no longer present.
-                existing_turns = {t.turn_number: t for t in scorecard.turns.all()}
-                desired_turn_numbers = set()
+                # Each cell holds a cumulative value; store the per-turn delta as
+                # generic/total points. set_turns recomputes game_points_total
+                # (== the cell's cumulative value) and the dominance/is_detailed flags.
+                new_turns = []
                 prev_value = 0
                 for cell in cells:
                     delta = cell['value'] - prev_value
                     prev_value = cell['value']
-                    desired_turn_numbers.add(cell['turn'])
-                    turn = existing_turns.get(cell['turn']) or TurnScore(
-                        scorecard=scorecard, turn_number=cell['turn']
-                    )
-                    turn.generic_points = delta
-                    turn.total_points = delta
-                    turn.battle_points = 0
-                    turn.crafting_points = 0
-                    turn.faction_points = 0
-                    turn.other_points = 0
-                    turn.dominance = cell['dominance']
-                    turn.game_points_total = cell['value']
-                    turn.save()
-                # Remove stale turns (shrinking grid)
-                stale = [n for n in existing_turns if n not in desired_turn_numbers]
-                if stale:
-                    scorecard.turns.filter(turn_number__in=stale).delete()
-
-                scorecard.save(recalculate_game_points=True)
+                    new_turns.append({
+                        'turn_number': cell['turn'],
+                        'generic_points': delta,
+                        'total_points': delta,
+                        'battle_points': 0,
+                        'crafting_points': 0,
+                        'faction_points': 0,
+                        'other_points': 0,
+                        'dominance': cell['dominance'],
+                    })
+                scorecard.set_turns(new_turns)
+                scorecard.save()
                 grid_touched_effort_ids.add(child.id)
 
             # ── Detailed (locked) rows: update dominance only ──
@@ -1608,18 +1590,19 @@ def manage_game_v2(request, id=None):
                 if scorecard is None:
                     continue
                 changed = False
-                for turn in scorecard.turns.all():
-                    new_dom = bool(dom_by_turn.get(turn.turn_number, turn.dominance))
-                    if turn.dominance != new_dom:
-                        turn.dominance = new_dom
-                        turn.save(update_fields=['dominance'])
+                turns = scorecard.turns_data or []
+                for turn in turns:
+                    new_dom = bool(dom_by_turn.get(turn['turn_number'], turn.get('dominance')))
+                    if bool(turn.get('dominance')) != new_dom:
+                        turn['dominance'] = new_dom
                         changed = True
                 any_dom = any(dom_by_turn.values())
                 if scorecard.dominance != any_dom:
                     scorecard.dominance = any_dom
-                    scorecard.save(update_fields=['dominance'])
                     changed = True
                 if changed:
+                    scorecard.turns_data = turns
+                    scorecard.save(update_fields=['turns_data', 'dominance'])
                     grid_touched_effort_ids.add(child.id)
 
             # ScoreCard consistency checks
@@ -2191,7 +2174,7 @@ def scorecard_list_view(request):
     active_profile = request.user.profile
     language_code = get_language()
     language_object = Language.objects.filter(code=language_code).first()
-    complete_scorecards = ScoreCard.objects.filter(recorder=request.user.profile, final=True).prefetch_related('turns', 'faction', 'effort', 'effort__game', 'effort__player', 'effort__faction')
+    complete_scorecards = ScoreCard.objects.filter(recorder=request.user.profile, final=True).prefetch_related('faction', 'effort', 'effort__game', 'effort__player', 'effort__faction')
 
 
     complete_scorecards = complete_scorecards.annotate(
@@ -4580,41 +4563,34 @@ def scorecard_manage_view(request, id=None):
 
     user = request.user
 
-    # Handle TurnScore deletion via HTMX
+    # Handle turn deletion via HTMX (removes one turn from turns_data by number)
     if request.method == 'DELETE':
-        turn_id = request.GET.get('turn_id')
-        if turn_id and id:
+        turn_number = request.GET.get('turn_number')
+        if turn_number and id:
             try:
-                turn = TurnScore.objects.get(id=turn_id, scorecard=obj)
-                turn_number = turn.turn_number
-                turn.delete()
-
-                # Renumber remaining turns
-                remaining_turns = obj.turns.filter(turn_number__gt=turn_number).order_by('turn_number')
-                for t in remaining_turns:
-                    t.turn_number -= 1
-                    t.save()
-
-                # Recalculate totals
-                obj.save(recalculate_game_points=True)
-
-                # Return success response for HTMX
-                return HttpResponse(status=200, headers={'HX-Trigger': 'turnDeleted'})
-            except TurnScore.DoesNotExist:
+                target = int(turn_number)
+            except (TypeError, ValueError):
+                return HttpResponse(status=400)
+            remaining = [t for t in obj.get_turns() if t['turn_number'] != target]
+            if len(remaining) == len(obj.turns_data or []):
                 return HttpResponse(status=404)
+            with transaction.atomic():
+                # set_turns renumbers 1..N and recomputes cumulative game points.
+                obj.set_turns(remaining)
+                obj.save()
+            return HttpResponse(status=200, headers={'HX-Trigger': 'turnDeleted'})
         return HttpResponse(status=400)
 
     if id:
-        existing_turns = obj.turns.all()
-        existing_count = existing_turns.count()
+        existing_count = obj.turn_count
         extra_forms = 0
     else:
         existing_count = 0
         extra_forms = 1
 
-    TurnFormset = modelformset_factory(TurnScore, form=TurnScoreCreateForm, extra=extra_forms, can_delete=True)
-    qs = obj.turns.all() if id else TurnScore.objects.none()
-    formset = TurnFormset(request.POST or None, queryset=qs)
+    TurnFormset = formset_factory(TurnScoreForm, extra=extra_forms, can_delete=True)
+    initial_turns = obj.get_turns() if id else []
+    formset = TurnFormset(request.POST or None, initial=initial_turns)
     form_count = extra_forms + existing_count
     form = ScoreCardCreateForm(request.POST or None, instance=obj, user=user, faction=faction)
 
@@ -4623,10 +4599,7 @@ def scorecard_manage_view(request, id=None):
     else:
         score = None
 
-    if not obj.total_generic_points and obj.id and obj.total_points and obj.total_points != 0:
-        generic_view = False
-    else:
-        generic_view = True
+    generic_view = not obj.is_detailed
 
     context = {
         'form': form,
@@ -4653,20 +4626,31 @@ def scorecard_manage_view(request, id=None):
     }
 
     if form.is_valid() and formset.is_valid():
-        # warning_message = False
         parent = form.save(commit=False)
         parent.recorder = request.user.profile
         parent.effort = effort
-        parent.save()
-        dominance = False
 
-        total_points = 0
+        # Assemble turn dicts from the formset, skipping empty/deleted rows.
+        turns = []
+        for cd in formset.cleaned_data:
+            if not cd or cd.get('DELETE'):
+                continue
+            turns.append({
+                'turn_number': cd.get('turn_number') or 0,
+                'faction_points': cd.get('faction_points', 0),
+                'crafting_points': cd.get('crafting_points', 0),
+                'battle_points': cd.get('battle_points', 0),
+                'other_points': cd.get('other_points', 0),
+                'generic_points': cd.get('generic_points', 0),
+                'total_points': cd.get('total_points', 0),
+                'dominance': bool(cd.get('dominance')),
+            })
 
-        for turn_form in formset:
-            turn_dominance = turn_form.cleaned_data.get('dominance')
-            if turn_dominance:
-                dominance = True
-            total_points += turn_form.cleaned_data.get('total_points', 0)
+        # set_turns renumbers 1..N, recomputes cumulative game points, and syncs
+        # parent.dominance / parent.is_detailed.
+        parent.set_turns(turns)
+        dominance = parent.dominance
+        total_points = sum(t['total_points'] for t in parent.turns_data)
 
         if effort:
             final_scorecard = True
@@ -4685,25 +4669,10 @@ def scorecard_manage_view(request, id=None):
         if (effort and dominance and not effort.dominance and not effort.coalition_with) or (effort and not dominance and effort.dominance) or (effort and not dominance and effort.coalition_with):
             final_scorecard = False
 
-        for turn_form in formset:
-            child = turn_form.save(commit=False)
-            child.scorecard = parent
-            child.save()
+        parent.final = final_scorecard
 
-        if parent.dominance != dominance:
-            parent.dominance = dominance
-
-        if parent.final != final_scorecard:
-            parent.final = final_scorecard
-
-        parent.save(recalculate_game_points=True)
-
-        # Renumber turns after deletions
-        turns = parent.turns.all().order_by('turn_number')
-        for i, turn in enumerate(turns, start=1):
-            if turn.turn_number != i:
-                turn.turn_number = i
-                turn.save()
+        with transaction.atomic():
+            parent.save()
 
         if request.POST.get('next'):
             return redirect('update-scorecard', next_scorecard.id)

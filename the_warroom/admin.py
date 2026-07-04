@@ -8,7 +8,8 @@ from django.contrib import admin, messages
 from django.urls import path, reverse
 from django.shortcuts import render
 from django import forms
-from django.http import HttpResponseRedirect 
+from django.http import HttpResponseRedirect
+from django.utils.html import format_html
 
 from the_keep.models import Deck, Map, Faction, Vagabond, Tweak, Landmark, Hireling
 from the_gatehouse.models import Profile
@@ -70,24 +71,27 @@ class RoundAdmin(admin.ModelAdmin):
     search_fields = ['name', 'stage__name', 'stage__tournament__name']
 
 class TurnInline(admin.StackedInline):
+    # Retained as a read-only backup view of the legacy TurnScore rows while the
+    # live data lives in ScoreCard.turns_data. Removed when TurnScore is deleted.
     model = TurnScore
     extra = 0
 
 class ScoreCardAdmin(admin.ModelAdmin):
     list_display = ('id', 'turn_count', 'faction__title', 'total_score', 'recorder', 'date_posted', 'final')
     inlines = [TurnInline]
+    readonly_fields = ('turns_data_display',)
 
     def turn_count(self, obj):
-        return obj.turns.count()  # Count the related TurnScore instances for each ScoreCard
+        return obj.turn_count  # Number of turns in turns_data
 
     def total_score(self, obj):
-        # Initialize sum
-        total = 0
-        # Iterate over the turns queryset and sum up the total_points for each turn
-        for turn in obj.turns.all():
-            total += turn.total_points
-        return total
+        return sum(turn['total_points'] for turn in obj.get_turns())
 
+    def turns_data_display(self, obj):
+        import json
+        return format_html('<pre>{}</pre>', json.dumps(obj.get_turns(), indent=2))
+
+    turns_data_display.short_description = 'Turns (turns_data)'
     turn_count.short_description = 'Turns'
 
 
