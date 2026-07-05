@@ -19,6 +19,7 @@ from django.db.models import (Count, F, Q, Value, Sum, ProtectedError, Count,
                                 Case, When, Prefetch)
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.exceptions import PermissionDenied, MultipleObjectsReturned, FieldError, ObjectDoesNotExist
+from django.core.cache import cache
 from django.conf import settings
 from django.db import IntegrityError
 from django.templatetags.static import static
@@ -678,6 +679,34 @@ def home(request, *args, **kwargs):
     }
 
     return render(request, 'the_keep/home.html', context)
+
+
+def home_preview(request, *args, **kwargs):
+    """Preview of the redesigned home page. Served from a separate URL so the
+    live home page (`home`) stays untouched until this is promoted. Shows live
+    stat counts and the newest fan factions, cached to avoid per-hit DB work."""
+
+    def _build_home_data():
+        return {
+            'faction_count': Faction.objects.filter(status__lte=4, official=False).count(),
+            'map_count': Map.objects.filter(status__lte=4, official=False).count(),
+            'deck_count': Deck.objects.filter(status__lte=4, official=False).count(),
+            'game_count': Game.objects.filter(final=True).exclude(round__stage__tournament__name='Root Digital League').count(),
+            'newest_factions': list(
+                Faction.objects.filter(status__lte=4, official=False)
+                .select_related('designer')
+                .order_by('-date_posted')[:6]
+            ),
+        }
+
+    home_data = cache.get_or_set('home_preview_stats', _build_home_data, 300)
+
+    context = {
+        'title': 'Home',
+        **home_data,
+    }
+
+    return render(request, 'the_keep/home_preview.html', context)
 
 
 def translations_view(request, slug):
