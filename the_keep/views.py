@@ -681,7 +681,7 @@ def home(request, *args, **kwargs):
     return render(request, 'the_keep/home.html', context)
 
 
-def home_preview(request, *args, **kwargs):
+def home_new(request, *args, **kwargs):
     """Preview of the redesigned home page. Served from a separate URL so the
     live home page (`home`) stays untouched until this is promoted. Shows live
     stat counts and the newest fan factions, cached to avoid per-hit DB work."""
@@ -709,14 +709,14 @@ def home_preview(request, *args, **kwargs):
             ),
         }
 
-    home_data = cache.get_or_set('home_preview_stats', _build_home_data, 300)
+    home_data = cache.get_or_set('home_new_stats', _build_home_data, 300)
 
     context = {
         'title': 'Home',
         **home_data,
     }
 
-    return render(request, 'the_keep/home_preview.html', context)
+    return render(request, 'the_keep/home_new.html', context)
 
 
 def translations_view(request, slug):
