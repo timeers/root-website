@@ -2154,7 +2154,6 @@ tr.clickable-row:hover {
   flex-direction: column;
   align-items: center;
   gap: 1.25rem;
-  counter-reset: lifecycle;
 }
 
 .home-lifecycle-step {
@@ -2162,11 +2161,11 @@ tr.clickable-row:hover {
   display: flex;
   flex-direction: column;
   align-items: center;
-  counter-increment: lifecycle;
 }
 
 .home-lifecycle-step:not(:last-child)::after {
-  content: "\2193"; /* down arrow (stacked layout) */
+  content: "\f282"; /* bi-chevron-down (stacked/mobile layout) */
+  font-family: "bootstrap-icons";
   margin-top: 0.6rem;
   font-size: 1.4rem;
   line-height: 1;
@@ -2187,21 +2186,18 @@ tr.clickable-row:hover {
   margin-bottom: 0.6rem;
 }
 
-.home-lifecycle-icon::before {
-  content: counter(lifecycle);
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #fff;
-  color: var(--theme-color, #5f788a);
-  font-size: 0.8rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* SVG logo rendered as a white silhouette to match the Bootstrap-icon glyphs */
+.home-lifecycle-mask-icon {
+  display: inline-block;
+  width: 1.8rem;
+  height: 1.8rem;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 
 .home-lifecycle-step-title {
@@ -2213,6 +2209,38 @@ tr.clickable-row:hover {
   font-size: 0.9rem;
   opacity: 0.85;
   max-width: 200px;
+}
+
+/* Record Games <-> Update pair: perpendicular to the main flow.
+   Mobile (steps stacked): side by side. Desktop (steps in a row): stacked. */
+.home-lifecycle-cyclepair-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.home-lifecycle-subnode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1 1 0;
+  max-width: 150px;
+}
+
+.home-lifecycle-repeat-icon {
+  flex: none;
+  font-size: 1.5rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* On mobile the pair is side by side, so a vertical arrows icon should point
+   sideways. (The circular bi-arrow-repeat is orientation-agnostic.) */
+@media (max-width: 991.98px) {
+  .home-lifecycle-repeat-icon.bi-arrows-vertical {
+    transform: rotate(90deg);
+  }
 }
 
 .home-lifecycle-loop {
@@ -2227,7 +2255,7 @@ tr.clickable-row:hover {
 @media (min-width: 992px) {
   .home-lifecycle-steps {
     flex-direction: row;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
     max-width: none;
     gap: 0;
@@ -2240,12 +2268,22 @@ tr.clickable-row:hover {
   }
 
   .home-lifecycle-step:not(:last-child)::after {
-    content: "\2192"; /* right arrow (horizontal layout) */
+    content: "\f285"; /* bi-chevron-right (horizontal/desktop layout) */
     position: absolute;
-    top: 28px;
+    top: 50%; /* center line so single items align with the pair's repeat icon */
     right: -0.5rem;
     transform: translateY(-50%);
     margin-top: 0;
+  }
+
+  /* the Record <-> Update pair stacks vertically within its flow slot */
+  .home-lifecycle-cyclepair-inner {
+    flex-direction: column;
+  }
+
+  .home-lifecycle-subnode {
+    flex: none;
+    max-width: none;
   }
 }
 

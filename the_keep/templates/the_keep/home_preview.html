@@ -62,7 +62,7 @@
 <!-- 3. FEATURE GRID -->
 <section class="home-section container">
     <h2 class="root-title home-section-heading">{% trans "Explore the Database" %}</h2>
-    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3 home-feature-grid">
+    <div class="row row-cols-2 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3 home-feature-grid">
         <div class="col">
             <a class="home-feature-card" href="{% url 'archive-home' %}">
                 <img class="home-feature-img" src="{% static 'images/homepage/features/archive.png' %}" alt="" loading="lazy">
@@ -70,6 +70,15 @@
                 <span class="home-feature-desc">{% trans "Browse fan factions, maps, decks and more." %}</span>
             </a>
         </div>
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'advanced-search' 'faction' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/search.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Advanced Search" %}</span>
+                <span class="home-feature-desc">{% trans "Filter factions by any criteria." %}</span>
+            </a>
+        </div>
+
 
         <div class="col">
             <a class="home-feature-card" href="{% url 'law-home' %}">
@@ -87,13 +96,6 @@
             </a>
         </div>
 
-        <div class="col">
-            <a class="home-feature-card" href="{% url 'advanced-search' 'faction' %}">
-                <img class="home-feature-img" src="{% static 'images/homepage/features/search.png' %}" alt="" loading="lazy">
-                <span class="home-feature-title">{% trans "Advanced Search" %}</span>
-                <span class="home-feature-desc">{% trans "Filter factions by any criteria." %}</span>
-            </a>
-        </div>
 
         <div class="col">
             <a class="home-feature-card" href="{% url 'games-home' %}">
@@ -116,6 +118,15 @@
                 <span class="home-feature-desc">{% trans "Follow tournaments, brackets and standings." %}</span>
             </a>
         </div>
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'asset-list' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/workshop.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Workshop" %}</span>
+                <span class="home-feature-desc">{% trans "Browse community resources and templates." %}</span>
+            </a>
+        </div>
+
         <div class="col">
             <a class="home-feature-card" href="{% url 'forge-home' %}">
                 <img class="home-feature-img" src="{% static 'images/homepage/features/forge.png' %}" alt="" loading="lazy">
@@ -132,13 +143,7 @@
             </a>
         </div>
 
-        <div class="col">
-            <a class="home-feature-card" href="{% url 'asset-list' %}">
-                <img class="home-feature-img" src="{% static 'images/homepage/features/workshop.png' %}" alt="" loading="lazy">
-                <span class="home-feature-title">{% trans "Workshop" %}</span>
-                <span class="home-feature-desc">{% trans "Browse community resources and templates." %}</span>
-            </a>
-        </div>
+
 
 
         <div class="col">
@@ -163,43 +168,59 @@
 <!-- 4. FACTION LIFECYCLE -->
 <section class="home-lifecycle">
     <picture class="home-lifecycle-bg">
-        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/BarrenWorkshopSmall.webp' %}">
-        <img src="{% static 'images/homepage/BarrenWorkshop.webp' %}" alt="" loading="lazy">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/lifecycle-small.webp' %}">
+        <img src="{% static 'images/homepage/lifecycle.webp' %}" alt="" loading="lazy">
     </picture>
     <div class="home-lifecycle-overlay"></div>
     <div class="home-lifecycle-content">
         <h2 class="root-title home-section-heading">{% trans "Build Your Own Faction" %}</h2>
         <p class="home-lifecycle-intro">
-            {% trans "All fan content grows through a cycle. Refine and repeat until it's stable." %}
+            {% trans "All fan content develops through a cycle. Refine and repeat until it's stable." %}
         </p>
         <ol class="home-lifecycle-steps">
             <li class="home-lifecycle-step">
-                <span class="home-lifecycle-icon"><i class="bi bi-hammer"></i></span>
+                <span class="home-lifecycle-icon"><span class="home-lifecycle-mask-icon" style="-webkit-mask-image: url('{% static 'the_forge/Forge_Logo.svg' %}'); mask-image: url('{% static 'the_forge/Forge_Logo.svg' %}');" aria-hidden="true"></span></span>
                 <span class="home-lifecycle-step-title">{% trans "Build" %}</span>
                 <span class="home-lifecycle-step-desc">{% trans "Design your faction in the Forge or submit an existing design." %}</span>
             </li>
-            <li class="home-lifecycle-step">
-                <span class="home-lifecycle-icon"><i class="bi bi-book"></i></span>
-                <span class="home-lifecycle-step-title">{% trans "Write the Law" %}</span>
-                <span class="home-lifecycle-step-desc">{% trans "Define its rules in your own Law." %}</span>
+            <li class="home-lifecycle-step home-lifecycle-cyclepair">
+                <div class="home-lifecycle-cyclepair-inner">
+                    <div class="home-lifecycle-subnode">
+                        <span class="home-lifecycle-icon"><i class="bi bi-clipboard2-data"></i></span>
+                        <span class="home-lifecycle-step-title">{% trans "Record Games" %}</span>
+                        <span class="home-lifecycle-step-desc">{% trans "Playtest and log your games." %}</span>
+                    </div>
+                    <i class="bi bi-arrow-repeat home-lifecycle-repeat-icon" aria-hidden="true"></i>
+                    <div class="home-lifecycle-subnode">
+                        <span class="home-lifecycle-icon"><i class="bi bi-arrow-clockwise"></i></span>
+                        <span class="home-lifecycle-step-title">{% trans "Update" %}</span>
+                        <span class="home-lifecycle-step-desc">{% trans "Make changes based on your testing." %}</span>
+                    </div>
+                </div>
             </li>
-            <li class="home-lifecycle-step">
-                <span class="home-lifecycle-icon"><i class="bi bi-question-circle"></i></span>
-                <span class="home-lifecycle-step-title">{% trans "Answer FAQs" %}</span>
-                <span class="home-lifecycle-step-desc">{% trans "Clear up edge cases with FAQs." %}</span>
+            <li class="home-lifecycle-step home-lifecycle-cyclepair">
+                <div class="home-lifecycle-cyclepair-inner">
+                    <div class="home-lifecycle-subnode">
+                        <span class="home-lifecycle-icon"><i class="bi bi-book"></i></span>
+                        <span class="home-lifecycle-step-title">{% trans "Write the Law" %}</span>
+                        <span class="home-lifecycle-step-desc">{% trans "Define its rules in your own Law." %}</span>
+                    </div>
+                    <i class="bi bi-arrows-vertical home-lifecycle-repeat-icon" aria-hidden="true"></i>
+                    <div class="home-lifecycle-subnode">
+                        <span class="home-lifecycle-icon"><i class="bi bi-question-circle"></i></span>
+                        <span class="home-lifecycle-step-title">{% trans "Answer FAQs" %}</span>
+                        <span class="home-lifecycle-step-desc">{% trans "Clear up edge cases with FAQs." %}</span>
+                    </div>
+                </div>
             </li>
-            <li class="home-lifecycle-step">
-                <span class="home-lifecycle-icon"><i class="bi bi-controller"></i></span>
-                <span class="home-lifecycle-step-title">{% trans "Record Games" %}</span>
-                <span class="home-lifecycle-step-desc">{% trans "Playtest and log your games." %}</span>
-            </li>
+
             <li class="home-lifecycle-step">
                 <span class="home-lifecycle-icon"><i class="bi bi-check-circle"></i></span>
                 <span class="home-lifecycle-step-title">{% trans "Stable" %}</span>
                 <span class="home-lifecycle-step-desc">{% trans "Mark it as Stable." %}</span>
             </li>
         </ol>
-        <div class="home-lifecycle-loop"><i class="bi bi-arrow-repeat"></i> {% trans "test, refine, repeat" %}</div>
+        {% comment %} <div class="home-lifecycle-loop"><i class="bi bi-arrow-repeat"></i> {% trans "record, refine, repeat" %}</div> {% endcomment %}
         <div>
             <a class="btn btn-primary btn-lg mt-2" href="{% url 'forge-home' %}">{% trans "Open the Forge" %}</a>
         </div>
