@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.13] - 2026-7-05 Dupe Bug
+
+### Bug Fixes
+- submit scheduled game twice duplicated players
+- /upcoming uses seated players instead of grouped players
+- added 30 min grace period to upcoming results
+
 ## [1.12.12] - 2026-7-03 Box Scores
 
 ### New Features

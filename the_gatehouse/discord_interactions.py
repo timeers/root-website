@@ -17,6 +17,7 @@ Currently handles:
 """
 import json
 import logging
+from datetime import timedelta
 
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
@@ -48,6 +49,10 @@ RESPONSE_CHANNEL_MESSAGE = 4
 RESPONSE_AUTOCOMPLETE_RESULT = 8
 
 EPHEMERAL = 64  # message flag: only the invoking user sees it
+
+# Grace period for /upcoming: a match still counts as "upcoming" until this long
+# after its scheduled start, so one that just kicked off isn't dropped mid-game.
+UPCOMING_GRACE = timedelta(minutes=30)
 
 
 def _verify_signature(request):
@@ -229,7 +234,7 @@ def _handle_upcoming_command(data):
 
     matches = Match.objects.filter(
         scheduled_time__isnull=False,
-        scheduled_time__gt=timezone.now(),
+        scheduled_time__gte=timezone.now() - UPCOMING_GRACE,
     ).exclude(status=CompetitionStatus.COMPLETED)
 
     tournament = None
@@ -248,7 +253,9 @@ def _handle_upcoming_command(data):
         player = Profile.objects.filter(slug=player_slug).first()
         if not player:
             return _ephemeral("Couldn't find that player.")
-        matches = matches.filter(series__player_group__tournament_players__profile=player)
+        matches = matches.filter(
+            series__matchseat__stage_participant__tournament_player__profile=player
+        )
 
     match = (
         matches.select_related(
@@ -393,10 +400,11 @@ def _ac_upcoming_player(query, data):
     one upcoming (future, not completed) scheduled match, so you can't pick a
     player with nothing scheduled. If a series is already selected, narrows to
     players with an upcoming match in that series. Mirrors the player path used
-    by the /upcoming handler (series__player_group__tournament_players)."""
+    by the /upcoming handler: seated players via series__matchseat, so only the
+    players actually in a scheduled match surface (not the whole tournament roster)."""
     matches = Match.objects.filter(
-        series__player_group__tournament_players__profile=OuterRef("pk"),
-        scheduled_time__gt=timezone.now(),
+        series__matchseat__stage_participant__tournament_player__profile=OuterRef("pk"),
+        scheduled_time__gte=timezone.now() - UPCOMING_GRACE,
     ).exclude(status=CompetitionStatus.COMPLETED)
 
     series_slug = _get_option(data, "series")
@@ -436,7 +444,7 @@ def _ac_upcoming_series(query, _data):
     through its stage, so match either path."""
     upcoming = Match.objects.filter(
         Q(round__stage__tournament=OuterRef("pk")) | Q(round__tournament=OuterRef("pk")),
-        scheduled_time__gt=timezone.now(),
+        scheduled_time__gte=timezone.now() - UPCOMING_GRACE,
     ).exclude(status=CompetitionStatus.COMPLETED)
     qs = Tournament.objects.exclude(slug__isnull=True).filter(Exists(upcoming))
     if query:
