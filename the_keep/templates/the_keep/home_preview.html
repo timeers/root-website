@@ -1,6 +1,6 @@
 {% extends 'the_keep/base_b.html' %}
 
-{% load static i18n humanize %}
+{% load static i18n humanize socialaccount %}
 
 {% block meta %}    <!-- Open Graph tags -->
 <meta property="og:type" content="website">
@@ -24,12 +24,12 @@
     <div class="home-hero-overlay"></div>
     <div class="home-hero-content">
         <img class="home-hero-logo" src="{% static 'images/icon-512.png' %}" alt="Root Database logo">
-        <h1 class="root-title home-hero-title">{{ site_title|default:"The Root Database" }}</h1>
+        <h1 class="root-title home-hero-title">The Root Database</h1>
         <p class="home-hero-tagline">
-            {% trans "Discover, create, and track fan-made content for the woodland war game, Root." %}
+            {% trans "Discover, create, and track official and fan-made content for the woodland war game, Root." %}
         </p>
         <div class="home-hero-actions">
-            <a class="btn btn-outline-light btn-lg" href="{% url 'archive-home' %}">{% trans "Browse the Archive" %}</a>
+            <a class="btn btn-primary btn-lg" href="{% url 'archive-home' %}">{% trans "Browse the Archive" %}</a>
             <a class="btn btn-outline-light btn-lg" href="{% url 'forge-home' %}">{% trans "Create a Faction" %}</a>
             <a class="btn btn-outline-light btn-lg" href="{% url 'record-game-v2' %}">{% trans "Record a Game" %}</a>
         </div>
@@ -108,14 +108,14 @@
             <a class="home-feature-card" href="{% url 'leaderboard-view' %}">
                 <img class="home-feature-img" src="{% static 'images/homepage/features/leaderboard.png' %}" alt="" loading="lazy">
                 <span class="home-feature-title">{% trans "Leaderboard" %}</span>
-                <span class="home-feature-desc">{% trans "See how players and factions rank." %}</span>
+                <span class="home-feature-desc">{% trans "See how players and factions stack up." %}</span>
             </a>
         </div>
         <div class="col">
             <a class="home-feature-card" href="{% url 'tournaments-home' %}">
                 <img class="home-feature-img" src="{% static 'images/homepage/features/series.png' %}" alt="" loading="lazy">
                 <span class="home-feature-title">{% trans "Series" %}</span>
-                <span class="home-feature-desc">{% trans "Follow tournaments, brackets and standings." %}</span>
+                <span class="home-feature-desc">{% trans "Compete in tournaments or your local group." %}</span>
             </a>
         </div>
 
@@ -227,35 +227,56 @@
     </div>
 </section>
 
-<!-- 5. NEWEST FROM THE COMMUNITY -->
-{% if newest_factions %}
+<!-- 5. LATEST -->
+{% if newest_factions or newest_maps or newest_decks %}
 <section class="home-section container">
     <div class="home-section-header">
-        <h2 class="root-title home-section-heading">{% trans "Fresh from the Community" %}</h2>
+        <h2 class="root-title home-section-heading">{% trans "Latest" %}</h2>
         <a class="btn btn-outline-primary btn-sm" href="{% url 'archive-home' %}">{% trans "View all" %} &rarr;</a>
     </div>
-    <div class="home-newest-row">
-        {% for faction in newest_factions %}
-            <div class="home-newest-item">
-                {% include 'the_keep/partials/post.html' with object=faction %}
-            </div>
-        {% endfor %}
+
+    {% comment %} Small/medium: faction + deck rows, then maps on the last row. {% endcomment %}
+    <div class="home-newest-grid home-newest-grid-pairs">
+        {% include 'the_keep/partials/newest_card.html' with object=newest_factions.0 image_field='board' cell_class='home-newest-cell-30' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_decks.0 image_field='card' cell_class='home-newest-cell-18' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_factions.1 image_field='board' cell_class='home-newest-cell-30' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_decks.1 image_field='card' cell_class='home-newest-cell-18' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_maps.0 image_field='board' cell_class='home-newest-cell-24' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_maps.1 image_field='board' cell_class='home-newest-cell-24' %}
     </div>
+
+    {% comment %} Large: one of each type per row, columns sized by aspect ratio. {% endcomment %}
+    <div class="home-newest-grid home-newest-grid-rows">
+        {% include 'the_keep/partials/newest_card.html' with object=newest_factions.0 image_field='board' cell_class='home-newest-cell-20' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_maps.0 image_field='board' cell_class='home-newest-cell-17' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_decks.0 image_field='card' cell_class='home-newest-cell-11' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_factions.1 image_field='board' cell_class='home-newest-cell-20' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_maps.1 image_field='board' cell_class='home-newest-cell-17' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_decks.1 image_field='card' cell_class='home-newest-cell-11' %}
+    </div>
+
 </section>
 {% endif %}
 
 <!-- 6. COMMUNITY BAND -->
 <section class="home-community-band">
-    <h2 class="root-title home-section-heading">{% trans "Join the Community" %}</h2>
-    <p class="home-community-text">
-        {% trans "The Root Database is built by and for fans. Jump in, share your games, and help shape the site." %}
-    </p>
-    <div class="home-community-actions">
-        {% if rdb_feedback_invite %}
-            <a class="btn btn-primary" href="{{ rdb_feedback_invite }}"><i class="bi bi-discord"></i> {% trans "Join Discord" %}</a>
-        {% endif %}
-        <a class="btn btn-outline-secondary" href="{% url 'survey-list' %}">{% trans "Take a Survey" %}</a>
-        <a class="btn btn-outline-secondary" href="{% url 'keep-about' %}">{% trans "About the Site" %}</a>
+    <picture class="home-community-bg">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/community-small.webp' %}">
+        <img src="{% static 'images/homepage/community.webp' %}" alt="" loading="lazy">
+    </picture>
+    <div class="home-community-overlay"></div>
+    <div class="home-community-content">
+        <h2 class="root-title home-section-heading">{% trans "Join the Community" %}</h2>
+        <p class="home-community-text">
+            {% trans "The Root Database is made better through community. Log in, record your game results, and share your feedback." %}
+        </p>
+        <div class="home-community-actions">
+            {% if not user.is_authenticated %}
+                <a class="btn btn-primary" href="{% provider_login_url 'discord' %}"><i class="bi bi-discord"></i> {% trans "Log In" %}</a>
+            {% endif %}
+            <a class="btn btn-outline-light" href="{% url 'website-faq' %}">{% trans "FAQ" %}</a>
+            <a class="btn btn-outline-light" href="{% url 'general-feedback' %}">{% trans "Send Feedback" %}</a>
+        </div>
     </div>
 </section>
 

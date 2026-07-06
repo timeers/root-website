@@ -9,7 +9,7 @@
         {% if admin_view %}
         {% trans 'Post a New' %}
         {% else %}
-        {% trans 'Request a New' %}
+        {% trans 'Request' %}
         {% endif %}
     </h1>
     <a href="{% url 'faction-create' %}">
@@ -60,4 +60,11 @@
     </a>
     {% endif %}
 </div>
+
+{% if not admin_view %}
+<div class="alert alert-info mt-3 text-center" role="alert">
+    {% trans "Each submission requires a link to a BGG or Woodland Warriors thread. Submissions are reviewed and approved by an admin before they go public. Please include as much detail as you can when creating your post. You will not be able to edit it until it has been approved." %}
+</div>
+{% endif %}
+
 {% endblock %}

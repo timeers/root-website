@@ -695,7 +695,17 @@ def home_preview(request, *args, **kwargs):
             'newest_factions': list(
                 Faction.objects.filter(status__lte=4, official=False)
                 .select_related('designer')
-                .order_by('-date_posted')[:6]
+                .order_by('-date_posted')[:2]
+            ),
+            'newest_maps': list(
+                Map.objects.filter(status__lte=4, official=False)
+                .select_related('designer')
+                .order_by('-date_posted')[:2]
+            ),
+            'newest_decks': list(
+                Deck.objects.filter(status__lte=4, official=False)
+                .select_related('designer')
+                .order_by('-date_posted')[:2]
             ),
         }
 

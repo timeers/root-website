@@ -2287,32 +2287,136 @@ tr.clickable-row:hover {
   }
 }
 
-/* 5. Newest factions row */
-.home-newest-row {
+/* 5. Newest content (factions / maps / decks) */
+/* Two separate grids, one shown per breakpoint. Both use a 48-column base,
+   and each cell class spans that many of the 48 columns (cell-N = span N).
+   - pairs grid (small/medium): faction (30) + deck (18) for the first two
+     rows, then the two maps (24 + 24) on the last row.
+   - rows grid (large): one of each type per row, faction (20) + map (16) +
+     deck (12) — roughly matching image aspect ratios so the images share a
+     height and grow together to fill the full width. */
+.home-newest-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(48, minmax(0, 1fr));
+  /* No column-gap: with 48 fine tracks, 47 fixed gaps would overflow the
+     row. Horizontal spacing between cards comes from a per-card gutter
+     (padding) instead, with a negative grid margin so the outer edges of
+     the first/last cards still align to the container. row-gap handles
+     vertical spacing between rows. */
+  row-gap: 1.5rem;
+  align-items: start;
+  margin-inline: -1rem;
 }
 
-@media (max-width: 767px) {
-  .home-newest-row {
-    grid-template-columns: 1fr;
+.home-newest-cell-30 { grid-column: span 30; }
+.home-newest-cell-24 { grid-column: span 24; }
+.home-newest-cell-20 { grid-column: span 20; }
+.home-newest-cell-18 { grid-column: span 18; }
+.home-newest-cell-17 { grid-column: span 17; }
+.home-newest-cell-16 { grid-column: span 16; }
+.home-newest-cell-12 { grid-column: span 12; }
+.home-newest-cell-11 { grid-column: span 11; }
+.home-newest-cell-10 { grid-column: span 10; }
+
+.home-newest-grid-rows {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .home-newest-grid-pairs {
+    display: none;
   }
+
+  .home-newest-grid-rows {
+    display: grid;
+  }
+}
+
+.home-newest-card {
+  display: block;
+  padding-inline: 1rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.home-newest-card-img {
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.home-newest-card-img img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  transition: transform 0.2s ease;
+}
+
+.home-newest-card:hover .home-newest-card-img img {
+  transform: scale(1.02);
+}
+
+.home-newest-card-title {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 1.6rem;
+}
+
+.home-newest-card-designer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+  color: #555;
+}
+
+.home-newest-card-designer .avatar-icon {
+  width: 24px;
+  height: 24px;
 }
 
 /* 6. Community band */
 .home-community-band {
+  position: relative;
+  overflow: hidden;
   text-align: center;
   padding: 3.5rem 1rem;
-  background: var(--background-color, #fafafa);
-  border-top: 1px solid #e3e3e3;
+  color: #fff;
+}
+
+.home-community-bg,
+.home-community-bg img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.home-community-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.home-community-content {
+  position: relative;
+  z-index: 2;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.home-community-band .home-section-heading {
+  color: #fff;
 }
 
 .home-community-text {
   max-width: 640px;
   margin: 0 auto 1.5rem;
   font-size: 1.1rem;
-  color: #333;
+  opacity: 0.9;
 }
 
 .home-community-actions {
