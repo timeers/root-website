@@ -1893,6 +1893,539 @@ tr.clickable-row:hover {
   margin-bottom: 0;
 }
 
+
+/* ==========================================================================
+   Home page (preview redesign)
+   ========================================================================== */
+
+/* 1. Hero */
+.home-hero {
+  position: relative;
+  width: 100%;
+  min-height: min(90vh, 720px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  overflow: hidden;
+  color: #fff;
+  padding: 2rem 1rem;
+}
+
+.home-hero-bg,
+.home-hero-bg img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.home-hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.55) 60%, rgba(0, 0, 0, 0.75) 100%);
+}
+
+.home-hero-content {
+  position: relative;
+  z-index: 2;
+  max-width: 720px;
+}
+
+.home-hero-logo {
+  width: 96px;
+  height: auto;
+  margin-bottom: 1rem;
+  border-radius: 18px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.home-hero-title {
+  color: #fff;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  margin-bottom: 0.5rem;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.home-hero-tagline {
+  font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+  margin-bottom: 1.75rem;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+
+.home-hero-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.home-hero-scroll {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 1.75rem;
+  line-height: 1;
+  animation: home-hero-bounce 2s infinite;
+}
+
+.home-hero-scroll:hover {
+  color: #fff;
+}
+
+@keyframes home-hero-bounce {
+  0%, 20%, 50%, 80%, 100% { transform: translate(-50%, 0); }
+  40% { transform: translate(-50%, 8px); }
+  60% { transform: translate(-50%, 4px); }
+}
+
+/* 2. Live stats strip */
+.home-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem 2.5rem;
+  padding: 1.75rem 1rem;
+  background: var(--theme-color, #5f788a);
+  color: #fff;
+  text-align: center;
+}
+
+.home-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 90px;
+}
+
+.home-stat-number {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.home-stat-label {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.9;
+}
+
+/* 3 & 5. Shared section scaffolding */
+.home-section {
+  padding: 3rem 1rem;
+}
+
+.home-section-heading {
+  text-align: center;
+  margin-bottom: 1.75rem;
+}
+
+.home-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.home-section-header .home-section-heading {
+  text-align: left;
+  margin-bottom: 0;
+}
+
+/* 3. Feature grid */
+.home-feature-grid {
+  justify-content: center; /* centers a lone card on the last row */
+}
+
+.home-feature-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  height: 100%;
+  padding: 1.75rem 1rem;
+  border: 1px solid #e3e3e3;
+  border-radius: 12px;
+  background: var(--foreground-color, #fff);
+  color: #333;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.home-feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  border-color: var(--theme-color, #5f788a);
+  color: #333;
+  text-decoration: none;
+}
+
+.home-feature-icon {
+  font-size: 2.5rem;
+  color: var(--theme-color, #5f788a);
+  margin-bottom: 0.75rem;
+}
+
+.home-feature-img {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 0.75rem;
+  border: 2px solid #e3e3e3;
+  background: var(--background-color, #fafafa);
+  transition: border-color 0.15s ease;
+}
+
+.home-feature-card:hover .home-feature-img {
+  border-color: var(--theme-color, #5f788a);
+}
+
+.home-feature-title {
+  font-weight: 700;
+  font-size: 1.15rem;
+  margin-bottom: 0.35rem;
+}
+
+.home-feature-desc {
+  font-size: 0.95rem;
+  color: #6c757d;
+}
+
+/* 4. Faction lifecycle */
+.home-lifecycle {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  padding: 3.5rem 1rem;
+  text-align: center;
+}
+
+.home-lifecycle-bg,
+.home-lifecycle-bg img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.home-lifecycle-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.home-lifecycle-content {
+  position: relative;
+  z-index: 2;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.home-lifecycle .home-section-heading {
+  color: #fff;
+}
+
+.home-lifecycle-intro {
+  font-size: 1.15rem;
+  max-width: 640px;
+  margin: 0 auto 2rem;
+  opacity: 0.9;
+}
+
+.home-lifecycle-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto 1rem;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.home-lifecycle-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.home-lifecycle-step:not(:last-child)::after {
+  content: "\f282"; /* bi-chevron-down (stacked/mobile layout) */
+  font-family: "bootstrap-icons";
+  margin-top: 0.6rem;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.home-lifecycle-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--theme-color, #5f788a);
+  border: 2px solid rgba(255, 255, 255, 0.65);
+  font-size: 1.5rem;
+  margin-bottom: 0.6rem;
+}
+
+/* SVG logo rendered as a white silhouette to match the Bootstrap-icon glyphs */
+.home-lifecycle-mask-icon {
+  display: inline-block;
+  width: 1.8rem;
+  height: 1.8rem;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.home-lifecycle-step-title {
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.home-lifecycle-step-desc {
+  font-size: 0.9rem;
+  opacity: 0.85;
+  max-width: 200px;
+}
+
+/* Record Games <-> Update pair: perpendicular to the main flow.
+   Mobile (steps stacked): side by side. Desktop (steps in a row): stacked. */
+.home-lifecycle-cyclepair-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.home-lifecycle-subnode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1 1 0;
+  max-width: 150px;
+}
+
+.home-lifecycle-repeat-icon {
+  flex: none;
+  font-size: 1.5rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* On mobile the pair is side by side, so a vertical arrows icon should point
+   sideways. (The circular bi-arrow-repeat is orientation-agnostic.) */
+@media (max-width: 991.98px) {
+  .home-lifecycle-repeat-icon.bi-arrows-vertical {
+    transform: rotate(90deg);
+  }
+}
+
+.home-lifecycle-loop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-style: italic;
+  opacity: 0.85;
+  margin-bottom: 1.25rem;
+}
+
+@media (min-width: 992px) {
+  .home-lifecycle-steps {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    max-width: none;
+    gap: 0;
+  }
+
+  .home-lifecycle-step {
+    flex: 1 1 0;
+    max-width: 200px;
+    padding: 0 1rem;
+  }
+
+  .home-lifecycle-step:not(:last-child)::after {
+    content: "\f285"; /* bi-chevron-right (horizontal/desktop layout) */
+    position: absolute;
+    top: 50%; /* center line so single items align with the pair's repeat icon */
+    right: -0.5rem;
+    transform: translateY(-50%);
+    margin-top: 0;
+  }
+
+  /* the Record <-> Update pair stacks vertically within its flow slot */
+  .home-lifecycle-cyclepair-inner {
+    flex-direction: column;
+  }
+
+  .home-lifecycle-subnode {
+    flex: none;
+    max-width: none;
+  }
+}
+
+/* 5. Newest content (factions / maps / decks) */
+/* Two separate grids, one shown per breakpoint. Both use a 48-column base,
+   and each cell class spans that many of the 48 columns (cell-N = span N).
+   - pairs grid (small/medium): faction (30) + deck (18) for the first two
+     rows, then the two maps (24 + 24) on the last row.
+   - rows grid (large): one of each type per row, faction (20) + map (16) +
+     deck (12) — roughly matching image aspect ratios so the images share a
+     height and grow together to fill the full width. */
+.home-newest-grid {
+  display: grid;
+  grid-template-columns: repeat(48, minmax(0, 1fr));
+  /* No column-gap: with 48 fine tracks, 47 fixed gaps would overflow the
+     row. Horizontal spacing between cards comes from a per-card gutter
+     (padding) instead, with a negative grid margin so the outer edges of
+     the first/last cards still align to the container. row-gap handles
+     vertical spacing between rows. */
+  row-gap: 1.5rem;
+  align-items: start;
+  margin-inline: -1rem;
+}
+
+.home-newest-cell-30 { grid-column: span 30; }
+.home-newest-cell-24 { grid-column: span 24; }
+.home-newest-cell-20 { grid-column: span 20; }
+.home-newest-cell-18 { grid-column: span 18; }
+.home-newest-cell-17 { grid-column: span 17; }
+.home-newest-cell-16 { grid-column: span 16; }
+.home-newest-cell-12 { grid-column: span 12; }
+.home-newest-cell-11 { grid-column: span 11; }
+.home-newest-cell-10 { grid-column: span 10; }
+
+.home-newest-grid-rows {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .home-newest-grid-pairs {
+    display: none;
+  }
+
+  .home-newest-grid-rows {
+    display: grid;
+  }
+}
+
+.home-newest-card {
+  display: block;
+  padding-inline: 1rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.home-newest-card-img {
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.home-newest-card-img img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  transition: transform 0.2s ease;
+}
+
+.home-newest-card:hover .home-newest-card-img img {
+  transform: scale(1.02);
+}
+
+.home-newest-card-title {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 1.6rem;
+}
+
+.home-newest-card-designer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+  color: #555;
+}
+
+.home-newest-card-designer .avatar-icon {
+  width: 24px;
+  height: 24px;
+}
+
+/* 6. Community band */
+.home-community-band {
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  padding: 3.5rem 1rem;
+  color: #fff;
+}
+
+.home-community-bg,
+.home-community-bg img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.home-community-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.home-community-content {
+  position: relative;
+  z-index: 2;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.home-community-band .home-section-heading {
+  color: #fff;
+}
+
+.home-community-text {
+  max-width: 640px;
+  margin: 0 auto 1.5rem;
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+.home-community-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
 .floating-alert {
   position: fixed !important;
   top: calc(var(--header-padding) + 0.5rem);

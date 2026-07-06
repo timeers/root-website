@@ -1,0 +1,44 @@
+{% load i18n %}
+{% comment %}
+    Compact card for the homepage "New Posts" section.
+    Params:
+        object      - the Post (faction / map / deck)
+        image_field - "board" (default) or "card", picks which image to show
+        cell_class  - optional grid column-span class
+{% endcomment %}
+{% if object %}
+<a class="home-newest-card {{ cell_class }}" href="{{ object.get_absolute_url }}">
+    <div class="home-newest-card-img">
+        {% if image_field == 'card' %}
+            {% if object.card_image %}
+                <picture>
+                    {% if object.small_card_image %}
+                        <source media="(max-width: 500px)" srcset="{{ object.small_card_image.url }}">
+                    {% endif %}
+                    <img src="{{ object.card_image.url }}" alt="{{ object.title }}" loading="lazy">
+                </picture>
+            {% elif object.picture %}
+                <img src="{{ object.picture.url }}" alt="{{ object.title }}" loading="lazy">
+            {% endif %}
+        {% else %}
+            {% if object.board_image %}
+                <picture>
+                    {% if object.small_board_image %}
+                        <source media="(max-width: 500px)" srcset="{{ object.small_board_image.url }}">
+                    {% endif %}
+                    <img src="{{ object.board_image.url }}" alt="{{ object.title }}" loading="lazy">
+                </picture>
+            {% elif object.picture %}
+                <img src="{{ object.picture.url }}" alt="{{ object.title }}" loading="lazy">
+            {% endif %}
+        {% endif %}
+    </div>
+    <h3 class="root-title home-newest-card-title"{% if object.color %} style="text-decoration: underline; text-decoration-thickness: 5px; text-decoration-color: {{ object.color }};"{% elif object.based_on.color %} style="text-decoration: underline; text-decoration-thickness: 5px; text-decoration-color: {{ object.based_on.color }};"{% endif %}>{{ object.title }}</h3>
+    {% if object.designer %}
+        <div class="home-newest-card-designer">
+            <img class="avatar-icon" src="{{ object.designer.image.url }}" alt="{{ object.designer.name }}">
+            <span>{{ object.designer.name }}</span>
+        </div>
+    {% endif %}
+</a>
+{% endif %}

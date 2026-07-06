@@ -1,0 +1,283 @@
+{% extends 'the_keep/base_b.html' %}
+
+{% load static i18n humanize socialaccount %}
+
+{% block meta %}    <!-- Open Graph tags -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="The Root Database">
+<meta property="og:description" content="The {{ site_title }} is a site for posting and discovering fan factions and other fan-created content for the woodland war game, Root, by Leder Games.">
+<meta name="description" content="The Root Database is a site for posting and discovering fan factions and other fan-created content for the woodland war game, Root, by Leder Games.">
+{% endblock meta%}
+
+
+{% block content %}
+
+<!-- 1. HERO -->
+<section class="home-hero">
+    <picture class="home-hero-bg">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/hero-small.webp' %}">
+        <img src="{% static 'images/homepage/hero.webp' %}" alt="" fetchpriority="high">
+    </picture>
+    <div class="home-hero-overlay"></div>
+    <div class="home-hero-content">
+        <img class="home-hero-logo" src="{% static 'images/icon-512.png' %}" alt="Root Database logo">
+        <h1 class="root-title home-hero-title">The Root Database</h1>
+        <p class="home-hero-tagline">
+            {% trans "Discover, create, and track official and fan-made content for the woodland war game, Root." %}
+        </p>
+        <div class="home-hero-actions">
+            <a class="btn btn-primary btn-lg" href="{% url 'archive-home' %}">{% trans "Browse the Archive" %}</a>
+            <a class="btn btn-outline-light btn-lg" href="{% url 'forge-home' %}">{% trans "Create a Faction" %}</a>
+            <a class="btn btn-outline-light btn-lg" href="{% url 'record-game-v2' %}">{% trans "Record a Game" %}</a>
+        </div>
+    </div>
+    <a href="#home-explore" class="home-hero-scroll" aria-label="{% trans 'Scroll down' %}">
+        <i class="bi bi-chevron-down"></i>
+    </a>
+</section>
+
+<!-- 2. LIVE STATS STRIP -->
+<section class="home-stats" id="home-explore">
+    <div class="home-stat">
+        <span class="home-stat-number">{{ faction_count|intcomma }}</span>
+        <span class="home-stat-label">{% trans "Fan Factions" %}</span>
+    </div>
+    <div class="home-stat">
+        <span class="home-stat-number">{{ map_count|intcomma }}</span>
+        <span class="home-stat-label">{% trans "Maps" %}</span>
+    </div>
+    <div class="home-stat">
+        <span class="home-stat-number">{{ deck_count|intcomma }}</span>
+        <span class="home-stat-label">{% trans "Decks" %}</span>
+    </div>
+    <div class="home-stat">
+        <span class="home-stat-number">{{ game_count|intcomma }}</span>
+        <span class="home-stat-label">{% trans "Games Recorded" %}</span>
+    </div>
+</section>
+
+<!-- 3. FEATURE GRID -->
+<section class="home-section container">
+    <h2 class="root-title home-section-heading">{% trans "Explore the Database" %}</h2>
+    <div class="row row-cols-2 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3 home-feature-grid">
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'archive-home' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/archive.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Archive" %}</span>
+                <span class="home-feature-desc">{% trans "Browse fan factions, maps, decks and more." %}</span>
+            </a>
+        </div>
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'advanced-search' 'faction' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/search.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Advanced Search" %}</span>
+                <span class="home-feature-desc">{% trans "Filter factions by any criteria." %}</span>
+            </a>
+        </div>
+
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'law-home' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/law.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Laws" %}</span>
+                <span class="home-feature-desc">{% trans "Read the rules of Root." %}</span>
+            </a>
+        </div>
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'faq-home' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/faq.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "FAQ" %}</span>
+                <span class="home-feature-desc">{% trans "Answers to common questions." %}</span>
+            </a>
+        </div>
+
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'games-home' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/battlefield.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Battlefield" %}</span>
+                <span class="home-feature-desc">{% trans "Record games and track stats." %}</span>
+            </a>
+        </div>
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'leaderboard-view' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/leaderboard.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Leaderboard" %}</span>
+                <span class="home-feature-desc">{% trans "See how players and factions stack up." %}</span>
+            </a>
+        </div>
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'tournaments-home' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/series.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Series" %}</span>
+                <span class="home-feature-desc">{% trans "Compete in tournaments or your local group." %}</span>
+            </a>
+        </div>
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'asset-list' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/workshop.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Workshop" %}</span>
+                <span class="home-feature-desc">{% trans "Browse community resources and templates." %}</span>
+            </a>
+        </div>
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'forge-home' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/forge.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Forge" %}</span>
+                <span class="home-feature-desc">{% trans "Design your own faction from scratch." %}</span>
+            </a>
+        </div>
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'new-components' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/submit.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Submit" %}</span>
+                <span class="home-feature-desc">{% trans "Post your existing fan content." %}</span>
+            </a>
+        </div>
+
+
+
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'survey-list' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/surveys.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "Surveys" %}</span>
+                <span class="home-feature-desc">{% trans "Share feedback with the community." %}</span>
+            </a>
+        </div>
+
+
+        <div class="col">
+            <a class="home-feature-card" href="{% url 'keep-about' %}">
+                <img class="home-feature-img" src="{% static 'images/homepage/features/about.png' %}" alt="" loading="lazy">
+                <span class="home-feature-title">{% trans "About" %}</span>
+                <span class="home-feature-desc">{% trans "Learn about the Root Database." %}</span>
+            </a>
+        </div>
+    </div>
+</section>
+
+<!-- 4. FACTION LIFECYCLE -->
+<section class="home-lifecycle">
+    <picture class="home-lifecycle-bg">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/lifecycle-small.webp' %}">
+        <img src="{% static 'images/homepage/lifecycle.webp' %}" alt="" loading="lazy">
+    </picture>
+    <div class="home-lifecycle-overlay"></div>
+    <div class="home-lifecycle-content">
+        <h2 class="root-title home-section-heading">{% trans "Build Your Own Faction" %}</h2>
+        <p class="home-lifecycle-intro">
+            {% trans "All fan content develops through a cycle. Refine and repeat until it's stable." %}
+        </p>
+        <ol class="home-lifecycle-steps">
+            <li class="home-lifecycle-step">
+                <span class="home-lifecycle-icon"><span class="home-lifecycle-mask-icon" style="-webkit-mask-image: url('{% static 'the_forge/Forge_Logo.svg' %}'); mask-image: url('{% static 'the_forge/Forge_Logo.svg' %}');" aria-hidden="true"></span></span>
+                <span class="home-lifecycle-step-title">{% trans "Build" %}</span>
+                <span class="home-lifecycle-step-desc">{% trans "Design your faction in the Forge or submit an existing design." %}</span>
+            </li>
+            <li class="home-lifecycle-step home-lifecycle-cyclepair">
+                <div class="home-lifecycle-cyclepair-inner">
+                    <div class="home-lifecycle-subnode">
+                        <span class="home-lifecycle-icon"><i class="bi bi-clipboard2-data"></i></span>
+                        <span class="home-lifecycle-step-title">{% trans "Record Games" %}</span>
+                        <span class="home-lifecycle-step-desc">{% trans "Playtest and log your games." %}</span>
+                    </div>
+                    <i class="bi bi-arrow-repeat home-lifecycle-repeat-icon" aria-hidden="true"></i>
+                    <div class="home-lifecycle-subnode">
+                        <span class="home-lifecycle-icon"><i class="bi bi-arrow-clockwise"></i></span>
+                        <span class="home-lifecycle-step-title">{% trans "Update" %}</span>
+                        <span class="home-lifecycle-step-desc">{% trans "Make changes based on your testing." %}</span>
+                    </div>
+                </div>
+            </li>
+            <li class="home-lifecycle-step home-lifecycle-cyclepair">
+                <div class="home-lifecycle-cyclepair-inner">
+                    <div class="home-lifecycle-subnode">
+                        <span class="home-lifecycle-icon"><i class="bi bi-book"></i></span>
+                        <span class="home-lifecycle-step-title">{% trans "Write the Law" %}</span>
+                        <span class="home-lifecycle-step-desc">{% trans "Define its rules in your own Law." %}</span>
+                    </div>
+                    <i class="bi bi-arrows-vertical home-lifecycle-repeat-icon" aria-hidden="true"></i>
+                    <div class="home-lifecycle-subnode">
+                        <span class="home-lifecycle-icon"><i class="bi bi-question-circle"></i></span>
+                        <span class="home-lifecycle-step-title">{% trans "Answer FAQs" %}</span>
+                        <span class="home-lifecycle-step-desc">{% trans "Clear up edge cases with FAQs." %}</span>
+                    </div>
+                </div>
+            </li>
+
+            <li class="home-lifecycle-step">
+                <span class="home-lifecycle-icon"><i class="bi bi-check-circle"></i></span>
+                <span class="home-lifecycle-step-title">{% trans "Stable" %}</span>
+                <span class="home-lifecycle-step-desc">{% trans "Mark it as Stable." %}</span>
+            </li>
+        </ol>
+        {% comment %} <div class="home-lifecycle-loop"><i class="bi bi-arrow-repeat"></i> {% trans "record, refine, repeat" %}</div> {% endcomment %}
+        <div>
+            <a class="btn btn-primary btn-lg mt-2" href="{% url 'forge-home' %}">{% trans "Open the Forge" %}</a>
+        </div>
+    </div>
+</section>
+
+<!-- 5. LATEST -->
+{% if newest_factions or newest_maps or newest_decks %}
+<section class="home-section container">
+    <div class="home-section-header">
+        <h2 class="root-title home-section-heading">{% trans "Latest" %}</h2>
+        <a class="btn btn-outline-primary btn-sm" href="{% url 'archive-home' %}">{% trans "View all" %} &rarr;</a>
+    </div>
+
+    {% comment %} Small/medium: faction + deck rows, then maps on the last row. {% endcomment %}
+    <div class="home-newest-grid home-newest-grid-pairs">
+        {% include 'the_keep/partials/newest_card.html' with object=newest_factions.0 image_field='board' cell_class='home-newest-cell-30' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_decks.0 image_field='card' cell_class='home-newest-cell-18' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_factions.1 image_field='board' cell_class='home-newest-cell-30' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_decks.1 image_field='card' cell_class='home-newest-cell-18' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_maps.0 image_field='board' cell_class='home-newest-cell-24' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_maps.1 image_field='board' cell_class='home-newest-cell-24' %}
+    </div>
+
+    {% comment %} Large: one of each type per row, columns sized by aspect ratio. {% endcomment %}
+    <div class="home-newest-grid home-newest-grid-rows">
+        {% include 'the_keep/partials/newest_card.html' with object=newest_factions.0 image_field='board' cell_class='home-newest-cell-20' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_maps.0 image_field='board' cell_class='home-newest-cell-17' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_decks.0 image_field='card' cell_class='home-newest-cell-11' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_factions.1 image_field='board' cell_class='home-newest-cell-20' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_maps.1 image_field='board' cell_class='home-newest-cell-17' %}
+        {% include 'the_keep/partials/newest_card.html' with object=newest_decks.1 image_field='card' cell_class='home-newest-cell-11' %}
+    </div>
+
+</section>
+{% endif %}
+
+<!-- 6. COMMUNITY BAND -->
+<section class="home-community-band">
+    <picture class="home-community-bg">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/community-small.webp' %}">
+        <img src="{% static 'images/homepage/community.webp' %}" alt="" loading="lazy">
+    </picture>
+    <div class="home-community-overlay"></div>
+    <div class="home-community-content">
+        <h2 class="root-title home-section-heading">{% trans "Join the Community" %}</h2>
+        <p class="home-community-text">
+            {% trans "The Root Database is made better through community. Log in, record your game results, and share your feedback." %}
+        </p>
+        <div class="home-community-actions">
+            {% if not user.is_authenticated %}
+                <a class="btn btn-primary" href="{% provider_login_url 'discord' %}"><i class="bi bi-discord"></i> {% trans "Log In" %}</a>
+            {% endif %}
+            <a class="btn btn-outline-light" href="{% url 'website-faq' %}">{% trans "FAQ" %}</a>
+            <a class="btn btn-outline-light" href="{% url 'general-feedback' %}">{% trans "Send Feedback" %}</a>
+        </div>
+    </div>
+</section>
+
+{% endblock content %}

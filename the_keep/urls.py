@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     path('', views.home, name='site-home'),
     path('home/', views.home),
+    path('home-preview/', views.home_preview, name='home-preview'),
     path('about/', views.about, name='keep-about'),
 
     # Laws
