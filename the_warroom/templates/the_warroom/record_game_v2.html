@@ -1376,8 +1376,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // ── Initialize the scorecard grid once efforts are rendered ──
     ScorecardGrid.init();
 
-    // ── Re-enable disabled fields on form submit ──
+    // ── Re-enable disabled fields on form submit + double-submit guard ──
+    var formIsSubmitting = false;
     $('form#game-form-v2').on('submit', function(e) {
+        // Block re-entry: a second submit (double-click, or Save Progress firing
+        // while a submit is already in flight) would POST a duplicate game/efforts.
+        if (formIsSubmitting) {
+            e.preventDefault();
+            return false;
+        }
         updateSeatOrder();
         // Hard-block on scorecard grid validation errors before submit.
         if (window.ScorecardGrid && !ScorecardGrid.validateAndSerialize()) {
@@ -1385,6 +1392,12 @@ document.addEventListener('DOMContentLoaded', function() {
             return false;
         }
         $(this).find('[disabled]').prop('disabled', false);
+        // Mark in-flight and disable the action buttons. Defer disabling to after
+        // the submit is dispatched so the browser still includes their values.
+        formIsSubmitting = true;
+        setTimeout(function() {
+            $('#save, #save-progress').prop('disabled', true);
+        }, 0);
     });
 
     // ── Datepicker ──
@@ -2141,6 +2154,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitButton = document.getElementById('save');
     if (saveProgressButton) {
         saveProgressButton.addEventListener('click', function() {
+            if (formIsSubmitting) return;
             document.getElementById('final').value = 'False';
             if (submitButton) submitButton.click();
         });

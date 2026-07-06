@@ -1003,8 +1003,17 @@ def manage_game_v2(request, id=None):
         if not _can_record_match(user.profile, match):
             messages.error(request, "You do not have permission to record this match.")
             return redirect('games-home')
-        # If match already has a game, load it for editing in-place
+        # If the match already has a game, this request must edit that game rather
+        # than record a new one. On GET, redirect to the canonical id-based edit
+        # route so the form renders with the game's efforts, correct INITIAL_FORMS,
+        # and per-row hidden id fields -- otherwise a POST built from a "new game"
+        # page would recreate every effort as a duplicate. On POST we don't
+        # redirect (that would drop the submission); the atomic/select_for_update
+        # block below re-resolves the game under lock and the mismatch guard
+        # rejects stale new-game-shaped payloads.
         if match.game_id:
+            if request.method != 'POST':
+                return redirect('game-update-v2', id=match.game_id)
             obj = match.game
             id = obj.id
 
@@ -1183,391 +1192,418 @@ def manage_game_v2(request, id=None):
             _vlog = _logging.getLogger(__name__)
             _t0 = _time.time()
 
-            parent = form.save(commit=False)
-
-            # Set final status
-            if request.POST.get('final') == 'False':
-                parent.final = False
-            else:
-                parent.final = True
-
-            if not id:
-                parent.recorder = user.profile
-
-            # For match mode, ensure round is set (disabled field not in cleaned_data)
-            if match_mode and match:
-                parent.round = match.round
-
-            parent.save()
-            form.save_m2m()
-            _vlog.warning(f"[manage_game_v2] parent.save+m2m: {_time.time()-_t0:.3f}s")
-
-            # Process seat ordering
-            seat_order_str = request.POST.get('seat_order', '')
-            seat_order = seat_order_str.split(',') if seat_order_str else None
-
-            game_status = max(parent.map.status, parent.deck.status)
-            for landmark in parent.landmarks.all():
-                game_status = max(game_status, landmark.status)
-            for hireling in parent.hirelings.all():
-                game_status = max(game_status, hireling.status)
-            for tweak in parent.tweaks.all():
-                game_status = max(game_status, tweak.status)
-
-            saved_efforts = []
-            for idx, effort_form in enumerate(formset):
-                if effort_form.cleaned_data.get('delete'):
-                    if effort_form.instance.id:
-                        effort_form.instance.delete()
-                elif not effort_form.cleaned_data.get('faction') and not effort_form.cleaned_data.get('score') and not effort_form.cleaned_data.get('player'):
-                    if effort_form.instance.id:
-                        effort_form.instance.delete()
-                else:
-                    child = effort_form.save(commit=False)
-                    if child.faction_id is not None:
-                        game_status = max(game_status, child.faction.status)
-                        if child.vagabond:
-                            game_status = max(game_status, child.vagabond.status)
-                        child.faction_status = child.faction.status
-                        child.game = parent
-                        # Brazen Demagogue is only valid with the Squires & Disciples deck.
-                        if not (parent.deck and parent.deck.title == 'Squires & Disciples'):
-                            child.brazen_demagogue = False
-                        # captains is a M2M relation; capture now and set after save().
-                        captains = effort_form.cleaned_data.get('captains')
-                        saved_efforts.append((idx, child, captains))
-
-            # Assign seats based on seat_order or sequential
-            if seat_order:
-                form_index_to_seat = {}
-                for seat_num, form_idx_str in enumerate(seat_order, start=1):
-                    try:
-                        form_index_to_seat[int(form_idx_str)] = seat_num
-                    except (ValueError, TypeError):
-                        pass
-                for idx, child, captains in saved_efforts:
-                    child.seat = form_index_to_seat.get(idx, idx + 1)
-                    child.save()
-                    child.captains.set(captains or [])
-            else:
-                for seat_num, (idx, child, captains) in enumerate(saved_efforts, start=1):
-                    child.seat = seat_num
-                    child.save()
-                    child.captains.set(captains or [])
-            _vlog.warning(f"[manage_game_v2] after effort saves: {_time.time()-_t0:.3f}s")
-
-            parent.status = StatusChoices(game_status)
-            parent.save()
-            _vlog.warning(f"[manage_game_v2] after parent.save (status): {_time.time()-_t0:.3f}s")
-
-            # Match linkage
-            if match_mode and match:
-                if not match.game_id or match.game_id != parent.id:
-                    match.game = parent
-                match.status = CompetitionStatus.COMPLETED if parent.final else CompetitionStatus.ACTIVE
-                match.save()
-                _vlog.warning(f"[manage_game_v2] after match.save: {_time.time()-_t0:.3f}s")
-
-                # Trigger series/round completion logic
-                if parent.final:
-                    from the_warroom.services.bracket import BracketService
-                    BracketService.on_game_complete(match)
-                _vlog.warning(f"[manage_game_v2] after on_game_complete: {_time.time()-_t0:.3f}s")
-
-            # ── Scorecard grid → ScoreCard + TurnScore persistence ──
-            # Each grid row maps to one effort by its formset index. Turn cells
-            # hold cumulative game points; per-turn generic/total points are the
-            # delta from the previous non-blank cell so the model's running-sum
-            # recalculation reproduces game_points_total.
-            grid_touched_effort_ids = set()
-            try:
-                grid_payload = json.loads(request.POST.get('scorecard_grid') or '{"rows":[]}')
-            except (ValueError, TypeError):
-                grid_payload = {'rows': []}
-
-            idx_to_child = {idx: child for idx, child, _ in saved_efforts}
-
-            # ── Phase 1: parse every row into contiguous cells (T1..N) ──
-            # Editable rows carry full cells (score + dominance); locked (detailed)
-            # rows carry dominance-only cells and are collected separately so we
-            # only update their dominance, never their scores/turns.
-            parsed_rows = []
-            locked_dominance = {}  # form_index -> {turn_number: bool}
-            for row in grid_payload.get('rows', []):
+            # Stale-submission guard (match mode). A POST built from a "new game"
+            # page carries INITIAL_FORMS=0 and no per-row effort ids. If the match
+            # has meanwhile gained a game with efforts (double-click, re-submit,
+            # second tab, or re-clicking Record), that payload's rows won't map to
+            # the existing efforts and would recreate every one as a duplicate.
+            # When the posted INITIAL_FORMS is fewer than the game's existing
+            # efforts, reject the payload and send the user to the id-based edit
+            # route so they resubmit against the real formset.
+            if match_mode and match and match.game_id and existing_count > 0:
                 try:
-                    form_index = int(row.get('form_index'))
+                    posted_initial = int(formset.management_form.cleaned_data.get('INITIAL_FORMS') or 0)
                 except (TypeError, ValueError):
-                    continue
-                child = idx_to_child.get(form_index)
-                if child is None:
-                    continue
+                    posted_initial = 0
+                if posted_initial < existing_count:
+                    messages.warning(request, "This match already has a game. Please review and edit it below.")
+                    return redirect('game-update-v2', id=match.game_id)
 
-                if row.get('locked'):
-                    dom_by_turn = {}
+            # Serialize concurrent submissions for the same match and prevent a
+            # partially-saved game from being left behind on any error. Lock the
+            # match row so two simultaneous new-game POSTs can't both create a
+            # game; the loser then sees the linked game and is redirected to edit.
+            with transaction.atomic():
+                if match_mode and match:
+                    match = Match.objects.select_for_update().get(id=match.id)
+                    if match.game_id and not id:
+                        messages.warning(request, "This match already has a game. Please review and edit it below.")
+                        return redirect('game-update-v2', id=match.game_id)
+                parent = form.save(commit=False)
+
+                # Set final status
+                if request.POST.get('final') == 'False':
+                    parent.final = False
+                else:
+                    parent.final = True
+
+                if not id:
+                    parent.recorder = user.profile
+
+                # For match mode, ensure round is set (disabled field not in cleaned_data)
+                if match_mode and match:
+                    parent.round = match.round
+
+                parent.save()
+                form.save_m2m()
+                _vlog.warning(f"[manage_game_v2] parent.save+m2m: {_time.time()-_t0:.3f}s")
+
+                # Process seat ordering
+                seat_order_str = request.POST.get('seat_order', '')
+                seat_order = seat_order_str.split(',') if seat_order_str else None
+
+                game_status = max(parent.map.status, parent.deck.status)
+                for landmark in parent.landmarks.all():
+                    game_status = max(game_status, landmark.status)
+                for hireling in parent.hirelings.all():
+                    game_status = max(game_status, hireling.status)
+                for tweak in parent.tweaks.all():
+                    game_status = max(game_status, tweak.status)
+
+                saved_efforts = []
+                for idx, effort_form in enumerate(formset):
+                    if effort_form.cleaned_data.get('delete'):
+                        if effort_form.instance.id:
+                            effort_form.instance.delete()
+                    elif not effort_form.cleaned_data.get('faction') and not effort_form.cleaned_data.get('score') and not effort_form.cleaned_data.get('player'):
+                        if effort_form.instance.id:
+                            effort_form.instance.delete()
+                    else:
+                        child = effort_form.save(commit=False)
+                        if child.faction_id is not None:
+                            game_status = max(game_status, child.faction.status)
+                            if child.vagabond:
+                                game_status = max(game_status, child.vagabond.status)
+                            child.faction_status = child.faction.status
+                            child.game = parent
+                            # Brazen Demagogue is only valid with the Squires & Disciples deck.
+                            if not (parent.deck and parent.deck.title == 'Squires & Disciples'):
+                                child.brazen_demagogue = False
+                            # captains is a M2M relation; capture now and set after save().
+                            captains = effort_form.cleaned_data.get('captains')
+                            saved_efforts.append((idx, child, captains))
+
+                # Assign seats based on seat_order or sequential
+                if seat_order:
+                    form_index_to_seat = {}
+                    for seat_num, form_idx_str in enumerate(seat_order, start=1):
+                        try:
+                            form_index_to_seat[int(form_idx_str)] = seat_num
+                        except (ValueError, TypeError):
+                            pass
+                    for idx, child, captains in saved_efforts:
+                        child.seat = form_index_to_seat.get(idx, idx + 1)
+                        child.save()
+                        child.captains.set(captains or [])
+                else:
+                    for seat_num, (idx, child, captains) in enumerate(saved_efforts, start=1):
+                        child.seat = seat_num
+                        child.save()
+                        child.captains.set(captains or [])
+                _vlog.warning(f"[manage_game_v2] after effort saves: {_time.time()-_t0:.3f}s")
+
+                parent.status = StatusChoices(game_status)
+                parent.save()
+                _vlog.warning(f"[manage_game_v2] after parent.save (status): {_time.time()-_t0:.3f}s")
+
+                # Match linkage
+                if match_mode and match:
+                    if not match.game_id or match.game_id != parent.id:
+                        match.game = parent
+                    match.status = CompetitionStatus.COMPLETED if parent.final else CompetitionStatus.ACTIVE
+                    match.save()
+                    _vlog.warning(f"[manage_game_v2] after match.save: {_time.time()-_t0:.3f}s")
+
+                    # Trigger series/round completion logic
+                    if parent.final:
+                        from the_warroom.services.bracket import BracketService
+                        BracketService.on_game_complete(match)
+                    _vlog.warning(f"[manage_game_v2] after on_game_complete: {_time.time()-_t0:.3f}s")
+
+                # ── Scorecard grid → ScoreCard + TurnScore persistence ──
+                # Each grid row maps to one effort by its formset index. Turn cells
+                # hold cumulative game points; per-turn generic/total points are the
+                # delta from the previous non-blank cell so the model's running-sum
+                # recalculation reproduces game_points_total.
+                grid_touched_effort_ids = set()
+                try:
+                    grid_payload = json.loads(request.POST.get('scorecard_grid') or '{"rows":[]}')
+                except (ValueError, TypeError):
+                    grid_payload = {'rows': []}
+
+                idx_to_child = {idx: child for idx, child, _ in saved_efforts}
+
+                # ── Phase 1: parse every row into contiguous cells (T1..N) ──
+                # Editable rows carry full cells (score + dominance); locked (detailed)
+                # rows carry dominance-only cells and are collected separately so we
+                # only update their dominance, never their scores/turns.
+                parsed_rows = []
+                locked_dominance = {}  # form_index -> {turn_number: bool}
+                for row in grid_payload.get('rows', []):
+                    try:
+                        form_index = int(row.get('form_index'))
+                    except (TypeError, ValueError):
+                        continue
+                    child = idx_to_child.get(form_index)
+                    if child is None:
+                        continue
+
+                    if row.get('locked'):
+                        dom_by_turn = {}
+                        for cell in row.get('cells', []):
+                            try:
+                                turn = int(cell.get('turn'))
+                            except (TypeError, ValueError):
+                                continue
+                            dom_by_turn[turn] = bool(cell.get('dominance'))
+                        if dom_by_turn:
+                            locked_dominance[form_index] = dom_by_turn
+                        continue
+
+                    # Parse and sort valid (numeric) cells by turn. `carried` marks a
+                    # cell that has no entered score (a blank cell toggled dominant),
+                    # so it may be trimmed if it runs past the game-end point.
+                    cells = []
                     for cell in row.get('cells', []):
                         try:
                             turn = int(cell.get('turn'))
+                            value = int(cell.get('value'))
                         except (TypeError, ValueError):
                             continue
-                        dom_by_turn[turn] = bool(cell.get('dominance'))
-                    if dom_by_turn:
-                        locked_dominance[form_index] = dom_by_turn
-                    continue
+                        cells.append({
+                            'turn': turn,
+                            'value': value,
+                            'dominance': bool(cell.get('dominance')),
+                            'carried': bool(cell.get('carried')),
+                        })
+                    cells.sort(key=lambda c: c['turn'])
+                    if not cells:
+                        continue
 
-                # Parse and sort valid (numeric) cells by turn. `carried` marks a
-                # cell that has no entered score (a blank cell toggled dominant),
-                # so it may be trimmed if it runs past the game-end point.
-                cells = []
-                for cell in row.get('cells', []):
+                    # Backfill blank leading/interior turns with 0 so turns always
+                    # start at T1 and turn_number stays contiguous (blank cells are a
+                    # cumulative 0). A blank cell carries the previous turn's
+                    # cumulative value (no change) and its dominance forward-fill.
+                    by_turn = {c['turn']: c for c in cells}
+                    filled = []
+                    prev_value = 0
+                    prev_dominance = False
+                    for turn in range(1, cells[-1]['turn'] + 1):
+                        cell = by_turn.get(turn)
+                        if cell is None:
+                            cell = {'turn': turn, 'value': prev_value,
+                                    'dominance': prev_dominance, 'carried': True}
+                        prev_value = cell['value']
+                        prev_dominance = cell['dominance']
+                        filled.append(cell)
+                    parsed_rows.append({'child': child, 'cells': filled})
+
+                # ── Pad dominance rows with trailing turns ──
+                # A dominance player often stops filling cells once their score stops
+                # changing, but their turns should extend to match the winner. Derive
+                # the target turn count from the winner's turn count and seat order:
+                #   winner seated AFTER the dom player  → same as winner
+                #   winner seated BEFORE the dom player → one less than winner
+                #   winner IS the dom player            → match the seat ahead (seat-1);
+                #       if dom player is the first seat, match the last seat + 1
+                # (Only rows present in this grid submission are considered; padding
+                # only adds trailing turns and never truncates.)
+                _pad_rows_present = [r for r in parsed_rows if r['cells']]
+                if _pad_rows_present:
+                    def _row_count(r):
+                        return len(r['cells'])
+                    def _has_dom(r):
+                        return any(c['dominance'] for c in r['cells'])
+
+                    # Pick the winner reference row. With multiple winners (a vagabond
+                    # winning alongside its coalition partner), prefer the winner that
+                    # is NOT in a coalition — the coalition vagabond isn't a valid
+                    # reference and shouldn't drive the "winner + 1 turn" padding.
+                    winner_rows = [r for r in _pad_rows_present if r['child'].win]
+                    winner_row = next(
+                        (r for r in winner_rows if not r['child'].coalition_with_id),
+                        winner_rows[0] if winner_rows else None,
+                    )
+                    winner_seat = winner_row['child'].seat if winner_row else None
+
+                    # The reference for the target turn count must be a non-dominance
+                    # row (other dominance rows shouldn't be referenced). Two regimes:
+                    #   • Non-dominance winner → derive each dom row's target from the
+                    #     winner's turn count and seat (same / winner-1).
+                    #   • Every row is dominance (or the winner has dominance) → there
+                    #     is no non-dom reference, so anchor on the longest row and
+                    #     split by the winner's seat: seats up to & including the
+                    #     winner get the full count, later seats get one less. If the
+                    #     longest row is a later ("-1") seat, bump full by 1 so it
+                    #     isn't truncated.
+                    winner_is_dom = winner_row is not None and _has_dom(winner_row)
+
+                    if winner_row is not None and winner_seat is not None and not winner_is_dom:
+                        winner_count = _row_count(winner_row)
+                        for r in _pad_rows_present:
+                            if not _has_dom(r):
+                                continue
+                            dom_seat = r['child'].seat
+                            if dom_seat is None:
+                                continue
+                            # Winner seated after → same; seated before → one less.
+                            r['pad_target'] = winner_count if winner_seat > dom_seat else winner_count - 1
+                    elif winner_seat is not None:
+                        # All-dominance regime (the winner reference itself has
+                        # dominance). Anchor on the longest entered row — the game's
+                        # length — and split by the winner's seat: seats up to and
+                        # including the winner get the full count, later seats one
+                        # less. We never exceed the longest real entry (no +1 bump)
+                        # and never truncate, so no turns are invented past the game.
+                        max_turns = max(_row_count(r) for r in _pad_rows_present)
+                        for r in _pad_rows_present:
+                            if not _has_dom(r):
+                                continue
+                            seat = r['child'].seat
+                            if seat is None:
+                                continue
+                            r['pad_target'] = max_turns if seat <= winner_seat else max_turns - 1
+
+                    # Apply targets to the dominance streak, but only when the row's
+                    # LAST entered cell is dominant (we're extending/capping an active
+                    # streak; non-dominant trailing turns are intentionally blank).
+                    #   • Short of target → add trailing dominant cells (carried value).
+                    #   • Past target → trim trailing cells down to target, but ONLY
+                    #     `carried` cells (no entered score). Stop at the first cell
+                    #     with a real value so entered data is never removed.
+                    for r in _pad_rows_present:
+                        target = r.get('pad_target')
+                        if not target:
+                            continue
+                        cells = r['cells']
+                        if not cells[-1]['dominance']:
+                            continue
+                        if target > len(cells):
+                            last = cells[-1]
+                            for turn in range(len(cells) + 1, target + 1):
+                                cells.append({'turn': turn, 'value': last['value'],
+                                              'dominance': True, 'carried': True})
+                        elif target < len(cells):
+                            # Trim trailing carried (no-score) cells down to target.
+                            while len(cells) > target and cells[-1].get('carried'):
+                                cells.pop()
+
+                # ── Phase 2: persist each row as ScoreCard + turns_data ──
+                for _row in parsed_rows:
+                    child = _row['child']
+                    cells = _row['cells']
+
+                    # Load any existing scorecard; skip detailed ones defensively so
+                    # grid submission never clobbers battle/crafting/faction/other data.
                     try:
-                        turn = int(cell.get('turn'))
-                        value = int(cell.get('value'))
-                    except (TypeError, ValueError):
+                        existing_scorecard = child.scorecard
+                    except ScoreCard.DoesNotExist:
+                        existing_scorecard = None
+                    if existing_scorecard and existing_scorecard.is_detailed:
                         continue
-                    cells.append({
-                        'turn': turn,
-                        'value': value,
-                        'dominance': bool(cell.get('dominance')),
-                        'carried': bool(cell.get('carried')),
-                    })
-                cells.sort(key=lambda c: c['turn'])
-                if not cells:
-                    continue
 
-                # Backfill blank leading/interior turns with 0 so turns always
-                # start at T1 and turn_number stays contiguous (blank cells are a
-                # cumulative 0). A blank cell carries the previous turn's
-                # cumulative value (no change) and its dominance forward-fill.
-                by_turn = {c['turn']: c for c in cells}
-                filled = []
-                prev_value = 0
-                prev_dominance = False
-                for turn in range(1, cells[-1]['turn'] + 1):
-                    cell = by_turn.get(turn)
-                    if cell is None:
-                        cell = {'turn': turn, 'value': prev_value,
-                                'dominance': prev_dominance, 'carried': True}
-                    prev_value = cell['value']
-                    prev_dominance = cell['dominance']
-                    filled.append(cell)
-                parsed_rows.append({'child': child, 'cells': filled})
+                    scorecard, _ = ScoreCard.objects.get_or_create(
+                        effort=child,
+                        defaults={'faction': child.faction, 'recorder': user.profile},
+                    )
+                    last_value = cells[-1]['value']
+                    scorecard.faction = child.faction
+                    if scorecard.recorder_id is None:
+                        scorecard.recorder = user.profile
+                    scorecard.total_points = last_value
+                    scorecard.total_generic_points = last_value
+                    scorecard.total_battle_points = 0
+                    scorecard.total_crafting_points = 0
+                    scorecard.total_faction_points = 0
+                    scorecard.total_other_points = 0
+                    scorecard.final = True
 
-            # ── Pad dominance rows with trailing turns ──
-            # A dominance player often stops filling cells once their score stops
-            # changing, but their turns should extend to match the winner. Derive
-            # the target turn count from the winner's turn count and seat order:
-            #   winner seated AFTER the dom player  → same as winner
-            #   winner seated BEFORE the dom player → one less than winner
-            #   winner IS the dom player            → match the seat ahead (seat-1);
-            #       if dom player is the first seat, match the last seat + 1
-            # (Only rows present in this grid submission are considered; padding
-            # only adds trailing turns and never truncates.)
-            _pad_rows_present = [r for r in parsed_rows if r['cells']]
-            if _pad_rows_present:
-                def _row_count(r):
-                    return len(r['cells'])
-                def _has_dom(r):
-                    return any(c['dominance'] for c in r['cells'])
-
-                # Pick the winner reference row. With multiple winners (a vagabond
-                # winning alongside its coalition partner), prefer the winner that
-                # is NOT in a coalition — the coalition vagabond isn't a valid
-                # reference and shouldn't drive the "winner + 1 turn" padding.
-                winner_rows = [r for r in _pad_rows_present if r['child'].win]
-                winner_row = next(
-                    (r for r in winner_rows if not r['child'].coalition_with_id),
-                    winner_rows[0] if winner_rows else None,
-                )
-                winner_seat = winner_row['child'].seat if winner_row else None
-
-                # The reference for the target turn count must be a non-dominance
-                # row (other dominance rows shouldn't be referenced). Two regimes:
-                #   • Non-dominance winner → derive each dom row's target from the
-                #     winner's turn count and seat (same / winner-1).
-                #   • Every row is dominance (or the winner has dominance) → there
-                #     is no non-dom reference, so anchor on the longest row and
-                #     split by the winner's seat: seats up to & including the
-                #     winner get the full count, later seats get one less. If the
-                #     longest row is a later ("-1") seat, bump full by 1 so it
-                #     isn't truncated.
-                winner_is_dom = winner_row is not None and _has_dom(winner_row)
-
-                if winner_row is not None and winner_seat is not None and not winner_is_dom:
-                    winner_count = _row_count(winner_row)
-                    for r in _pad_rows_present:
-                        if not _has_dom(r):
-                            continue
-                        dom_seat = r['child'].seat
-                        if dom_seat is None:
-                            continue
-                        # Winner seated after → same; seated before → one less.
-                        r['pad_target'] = winner_count if winner_seat > dom_seat else winner_count - 1
-                elif winner_seat is not None:
-                    # All-dominance regime (the winner reference itself has
-                    # dominance). Anchor on the longest entered row — the game's
-                    # length — and split by the winner's seat: seats up to and
-                    # including the winner get the full count, later seats one
-                    # less. We never exceed the longest real entry (no +1 bump)
-                    # and never truncate, so no turns are invented past the game.
-                    max_turns = max(_row_count(r) for r in _pad_rows_present)
-                    for r in _pad_rows_present:
-                        if not _has_dom(r):
-                            continue
-                        seat = r['child'].seat
-                        if seat is None:
-                            continue
-                        r['pad_target'] = max_turns if seat <= winner_seat else max_turns - 1
-
-                # Apply targets to the dominance streak, but only when the row's
-                # LAST entered cell is dominant (we're extending/capping an active
-                # streak; non-dominant trailing turns are intentionally blank).
-                #   • Short of target → add trailing dominant cells (carried value).
-                #   • Past target → trim trailing cells down to target, but ONLY
-                #     `carried` cells (no entered score). Stop at the first cell
-                #     with a real value so entered data is never removed.
-                for r in _pad_rows_present:
-                    target = r.get('pad_target')
-                    if not target:
-                        continue
-                    cells = r['cells']
-                    if not cells[-1]['dominance']:
-                        continue
-                    if target > len(cells):
-                        last = cells[-1]
-                        for turn in range(len(cells) + 1, target + 1):
-                            cells.append({'turn': turn, 'value': last['value'],
-                                          'dominance': True, 'carried': True})
-                    elif target < len(cells):
-                        # Trim trailing carried (no-score) cells down to target.
-                        while len(cells) > target and cells[-1].get('carried'):
-                            cells.pop()
-
-            # ── Phase 2: persist each row as ScoreCard + turns_data ──
-            for _row in parsed_rows:
-                child = _row['child']
-                cells = _row['cells']
-
-                # Load any existing scorecard; skip detailed ones defensively so
-                # grid submission never clobbers battle/crafting/faction/other data.
-                try:
-                    existing_scorecard = child.scorecard
-                except ScoreCard.DoesNotExist:
-                    existing_scorecard = None
-                if existing_scorecard and existing_scorecard.is_detailed:
-                    continue
-
-                scorecard, _ = ScoreCard.objects.get_or_create(
-                    effort=child,
-                    defaults={'faction': child.faction, 'recorder': user.profile},
-                )
-                last_value = cells[-1]['value']
-                scorecard.faction = child.faction
-                if scorecard.recorder_id is None:
-                    scorecard.recorder = user.profile
-                scorecard.total_points = last_value
-                scorecard.total_generic_points = last_value
-                scorecard.total_battle_points = 0
-                scorecard.total_crafting_points = 0
-                scorecard.total_faction_points = 0
-                scorecard.total_other_points = 0
-                scorecard.final = True
-
-                # Each cell holds a cumulative value; store the per-turn delta as
-                # generic/total points. set_turns recomputes game_points_total
-                # (== the cell's cumulative value) and the dominance/is_detailed flags.
-                new_turns = []
-                prev_value = 0
-                for cell in cells:
-                    delta = cell['value'] - prev_value
-                    prev_value = cell['value']
-                    new_turns.append({
-                        'turn_number': cell['turn'],
-                        'generic_points': delta,
-                        'total_points': delta,
-                        'battle_points': 0,
-                        'crafting_points': 0,
-                        'faction_points': 0,
-                        'other_points': 0,
-                        'dominance': cell['dominance'],
-                    })
-                scorecard.set_turns(new_turns)
-                scorecard.save()
-                grid_touched_effort_ids.add(child.id)
-
-            # ── Detailed (locked) rows: update dominance only ──
-            # The user can toggle dominance on a detailed scorecard without
-            # editing its scores. Apply those toggles to each turn and the
-            # scorecard's dominance flag, leaving all point values untouched.
-            for form_index, dom_by_turn in locked_dominance.items():
-                child = idx_to_child.get(form_index)
-                if child is None:
-                    continue
-                try:
-                    scorecard = child.scorecard
-                except ScoreCard.DoesNotExist:
-                    scorecard = None
-                if scorecard is None:
-                    continue
-                changed = False
-                turns = scorecard.turns_data or []
-                for turn in turns:
-                    new_dom = bool(dom_by_turn.get(turn['turn_number'], turn.get('dominance')))
-                    if bool(turn.get('dominance')) != new_dom:
-                        turn['dominance'] = new_dom
-                        changed = True
-                any_dom = any(dom_by_turn.values())
-                if scorecard.dominance != any_dom:
-                    scorecard.dominance = any_dom
-                    changed = True
-                if changed:
-                    scorecard.turns_data = turns
-                    scorecard.save(update_fields=['turns_data', 'dominance'])
+                    # Each cell holds a cumulative value; store the per-turn delta as
+                    # generic/total points. set_turns recomputes game_points_total
+                    # (== the cell's cumulative value) and the dominance/is_detailed flags.
+                    new_turns = []
+                    prev_value = 0
+                    for cell in cells:
+                        delta = cell['value'] - prev_value
+                        prev_value = cell['value']
+                        new_turns.append({
+                            'turn_number': cell['turn'],
+                            'generic_points': delta,
+                            'total_points': delta,
+                            'battle_points': 0,
+                            'crafting_points': 0,
+                            'faction_points': 0,
+                            'other_points': 0,
+                            'dominance': cell['dominance'],
+                        })
+                    scorecard.set_turns(new_turns)
+                    scorecard.save()
                     grid_touched_effort_ids.add(child.id)
 
-            # ScoreCard consistency checks
-            for idx, child, captains in saved_efforts:
-                # Grid-created scorecards already set score/dominance/final consistently.
-                if child.id in grid_touched_effort_ids:
-                    continue
-                try:
-                    scorecard = child.scorecard
-                except ScoreCard.DoesNotExist:
-                    continue
-                if scorecard is None:
-                    continue
-                # Faction mismatch → detach scorecard
-                if child.faction_id != scorecard.faction_id:
-                    scorecard.effort = None
-                    scorecard.final = False
-                    scorecard.save(update_fields=['effort', 'final'])
-                    continue
-                # Score or dominance mismatch → mark non-final
-                score_mismatch = (child.score != scorecard.total_points)
-                dominance_mismatch = (bool(child.dominance) != scorecard.dominance)
-                if score_mismatch or dominance_mismatch:
-                    scorecard.final = False
-                    scorecard.save(update_fields=['final'])
-            _vlog.warning(f"[manage_game_v2] after scorecard checks: {_time.time()-_t0:.3f}s")
+                # ── Detailed (locked) rows: update dominance only ──
+                # The user can toggle dominance on a detailed scorecard without
+                # editing its scores. Apply those toggles to each turn and the
+                # scorecard's dominance flag, leaving all point values untouched.
+                for form_index, dom_by_turn in locked_dominance.items():
+                    child = idx_to_child.get(form_index)
+                    if child is None:
+                        continue
+                    try:
+                        scorecard = child.scorecard
+                    except ScoreCard.DoesNotExist:
+                        scorecard = None
+                    if scorecard is None:
+                        continue
+                    changed = False
+                    turns = scorecard.turns_data or []
+                    for turn in turns:
+                        new_dom = bool(dom_by_turn.get(turn['turn_number'], turn.get('dominance')))
+                        if bool(turn.get('dominance')) != new_dom:
+                            turn['dominance'] = new_dom
+                            changed = True
+                    any_dom = any(dom_by_turn.values())
+                    if scorecard.dominance != any_dom:
+                        scorecard.dominance = any_dom
+                        changed = True
+                    if changed:
+                        scorecard.turns_data = turns
+                        scorecard.save(update_fields=['turns_data', 'dominance'])
+                        grid_touched_effort_ids.add(child.id)
 
-            # Discord notification
-            if parent.final:
-                fields = []
-                fields.append({
-                    'name': 'Recorder:',
-                    'value': user.profile.name
-                })
-                game_title = parent.nickname if parent.nickname else f"{parent.platform} Game"
-                if not initial_game_status and obj.final:
-                    send_rich_discord_message_task.delay(
-                        f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})',
-                        category='New Game', title='Game Recorded', fields=fields
-                    )
-                    # DM opted-in players / component designers / tournament hosts
-                    from the_gatehouse.services.notifyservice import notify_game_recorded
-                    notify_game_recorded(parent)
-            _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
+                # ScoreCard consistency checks
+                for idx, child, captains in saved_efforts:
+                    # Grid-created scorecards already set score/dominance/final consistently.
+                    if child.id in grid_touched_effort_ids:
+                        continue
+                    try:
+                        scorecard = child.scorecard
+                    except ScoreCard.DoesNotExist:
+                        continue
+                    if scorecard is None:
+                        continue
+                    # Faction mismatch → detach scorecard
+                    if child.faction_id != scorecard.faction_id:
+                        scorecard.effort = None
+                        scorecard.final = False
+                        scorecard.save(update_fields=['effort', 'final'])
+                        continue
+                    # Score or dominance mismatch → mark non-final
+                    score_mismatch = (child.score != scorecard.total_points)
+                    dominance_mismatch = (bool(child.dominance) != scorecard.dominance)
+                    if score_mismatch or dominance_mismatch:
+                        scorecard.final = False
+                        scorecard.save(update_fields=['final'])
+                _vlog.warning(f"[manage_game_v2] after scorecard checks: {_time.time()-_t0:.3f}s")
 
-            return redirect(parent.get_absolute_url())
+                # Discord notification
+                if parent.final:
+                    fields = []
+                    fields.append({
+                        'name': 'Recorder:',
+                        'value': user.profile.name
+                    })
+                    game_title = parent.nickname if parent.nickname else f"{parent.platform} Game"
+                    if not initial_game_status and obj.final:
+                        send_rich_discord_message_task.delay(
+                            f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})',
+                            category='New Game', title='Game Recorded', fields=fields
+                        )
+                        # DM opted-in players / component designers / tournament hosts
+                        from the_gatehouse.services.notifyservice import notify_game_recorded
+                        notify_game_recorded(parent)
+                _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
+
+                return redirect(parent.get_absolute_url())
         else:
             context['message'] = 'Game not Saved. Please correct errors below.'
 
