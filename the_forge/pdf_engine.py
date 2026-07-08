@@ -217,6 +217,17 @@ def _canvas_target_dpi(c):
     return getattr(c, '_forge_target_dpi', PRINT_DPI)
 
 
+def _image_size(path):
+    """Return (width, height) in pixels without leaking a file handle.
+
+    PIL reads only the header for `.size`, so this never decodes pixels. Prefer
+    this over `ImageReader(path).getSize()`, which keeps a PIL image and an open
+    file descriptor alive on the reader until it is garbage-collected."""
+    from PIL import Image as PILImage
+    with PILImage.open(path) as im:
+        return im.size
+
+
 def _prepare_scaled_image(src_path, draw_w_pt, draw_h_pt, dpi=PRINT_DPI):
     """Resize src once to the target pixel size for `dpi` and cache by content
     hash + dims. ReportLab embeds an image asset once per file path and
@@ -281,9 +292,7 @@ def draw_faction_background(c, faction):
     if not img_path or not os.path.exists(img_path):
         return
 
-    from reportlab.lib.utils import ImageReader
-    img_reader = ImageReader(img_path)
-    iw, ih = img_reader.getSize()
+    iw, ih = _image_size(img_path)
 
     if getattr(faction, 'repeat_background_image', False):
         pct = max(5, min(50, int(getattr(faction, 'background_tile_size', 33) or 33))) / 100.0
@@ -5586,9 +5595,7 @@ class SheetLayoutEngine:
                 hdr_path = None
             if hdr_path and os.path.exists(hdr_path):
                 try:
-                    from reportlab.lib.utils import ImageReader
-                    hdr_reader = ImageReader(hdr_path)
-                    hiw, hih = hdr_reader.getSize()
+                    hiw, hih = _image_size(hdr_path)
                     if hiw > 0 and hih > 0:
                         hdr_h = bar_w * hih / hiw
                         hdr_draw = _scaled_for_canvas(c, hdr_path, bar_w, hdr_h)
@@ -6299,9 +6306,7 @@ class SheetLayoutEngine:
             # Image starts hidden above page, slides down by decree_slide
             bg_img = self._get_decree_bg_path()
             if os.path.exists(bg_img):
-                from reportlab.lib.utils import ImageReader
-                ir = ImageReader(bg_img)
-                iw, ih = ir.getSize()
+                iw, ih = _image_size(bg_img)
                 scale = PAGE_W / iw
                 draw_h = ih * scale
                 ov_decree_y = self._override(self.sheet, 'decree_y_h', 'decree_y_v')
@@ -6496,7 +6501,6 @@ class SheetLayoutEngine:
         if not images:
             return
         c.set_layer_tag('fg')
-        from reportlab.lib.utils import ImageReader
         gap = 0.15 * inch
         cursor_x = PAGE_W - gap
         default_y = gap
@@ -6508,8 +6512,7 @@ class SheetLayoutEngine:
             if not path or not os.path.exists(path):
                 continue
             try:
-                reader = ImageReader(path)
-                iw, ih = reader.getSize()
+                iw, ih = _image_size(path)
             except Exception:
                 continue
             if iw <= 0 or ih <= 0:
@@ -6934,9 +6937,8 @@ class SheetLayoutEngine:
 
     def _banner_height_for_width(self, content_w):
         """Banner height when scaled to fill content_w, with height lock above PHASE_HEADER_LOCK_W."""
-        from PIL import Image as PILImage
-        pil_img = PILImage.open(PHASE_HEADERS['birdsong']['banner'])
-        aspect = pil_img.size[0] / pil_img.size[1]
+        bw, bh = _image_size(PHASE_HEADERS['birdsong']['banner'])
+        aspect = bw / bh
         if content_w <= PHASE_HEADER_LOCK_W:
             return max(content_w / aspect, PHASE_HEADER_MIN_H)
         else:
@@ -7333,17 +7335,16 @@ class FactionBackLayoutEngine:
         back_w = back_h = 0
         stack_off_x = stack_off_y = 0
         if icon_path:
-            from reportlab.lib.utils import ImageReader
             try:
                 if stacked:
                     shrink = MANIFEST_PIECE_STACK_SHRINK
                     img_max_w = icon_max_w * shrink
                     img_max_h = icon_max_h * shrink
-                    iw, ih = ImageReader(icon_path).getSize()
+                    iw, ih = _image_size(icon_path)
                     fscale = min(img_max_w / iw, img_max_h / ih)
                     front_w = iw * fscale
                     front_h = ih * fscale
-                    bw, bh = ImageReader(back_path).getSize()
+                    bw, bh = _image_size(back_path)
                     bscale = min(img_max_w / bw, img_max_h / bh)
                     back_w = bw * bscale
                     back_h = bh * bscale
@@ -7357,7 +7358,7 @@ class FactionBackLayoutEngine:
                     draw_w = max(front_w, back_w) + stack_off_x
                     draw_h = max(front_h, back_h) + stack_off_y
                 else:
-                    iw, ih = ImageReader(icon_path).getSize()
+                    iw, ih = _image_size(icon_path)
                     scale = min(icon_max_w / iw, icon_max_h / ih)
                     draw_w = iw * scale
                     draw_h = ih * scale
@@ -7817,8 +7818,7 @@ class FactionBackLayoutEngine:
         if not path_val or not os.path.exists(path_val):
             return None, 0, 0
         try:
-            from reportlab.lib.utils import ImageReader
-            iw, ih = ImageReader(path_val).getSize()
+            iw, ih = _image_size(path_val)
         except Exception:
             return None, 0, 0
         scale_max = min(w_avail / iw, h_avail / ih)
@@ -8145,8 +8145,7 @@ class SetupCardLayoutEngine:
         if not path:
             return False
         try:
-            from reportlab.lib.utils import ImageReader
-            iw, ih = ImageReader(path).getSize()
+            iw, ih = _image_size(path)
         except Exception:
             return False
         if iw <= 0 or ih <= 0:
@@ -8395,9 +8394,8 @@ class ComponentsSheetLayoutEngine:
             if piece_type in ('B', 'T'):
                 self._draw_piece_placeholder(c, x, y, cell, circular=circular)
             return
-        from reportlab.lib.utils import ImageReader
         try:
-            iw, ih = ImageReader(path).getSize()
+            iw, ih = _image_size(path)
         except Exception:
             if piece_type in ('B', 'T'):
                 self._draw_piece_placeholder(c, x, y, cell, circular=circular)

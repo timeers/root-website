@@ -3,9 +3,10 @@ from .api_views import search_posts
 from . import views
 
 urlpatterns = [
-    path('', views.home, name='site-home'),
-    path('home/', views.home),
-    path('home-preview/', views.home_preview, name='home-preview'),
+    # path('', views.home, name='site-home'),
+    # path('home/', views.home),
+    path('', views.home_new, name='site-home'),
+    path('home/', views.home_new),
     path('about/', views.about, name='keep-about'),
 
     # Laws

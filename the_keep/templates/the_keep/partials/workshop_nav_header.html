@@ -18,12 +18,11 @@
                class="section-nav-tab root-title {% if active_page == 'surveys' %}active{% endif %}">
                 {% trans 'Surveys' %}
             </a>
-            {% if user.is_authenticated and user.profile.forge_onboard %}
             <a href="{% url 'forge-home' %}"
                class="section-nav-tab root-title {% if active_page == 'forge' %}active{% endif %}">
                 {% trans 'Forge' %}
             </a>
-            {% endif %}
+
 
         </nav>
         {% if user.is_authenticated %}

@@ -1966,7 +1966,7 @@ tr.clickable-row:hover {
 
 .home-hero-scroll {
   position: absolute;
-  bottom: 1.25rem;
+  bottom: 2.5rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
@@ -2153,7 +2153,7 @@ tr.clickable-row:hover {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.25rem;
+  gap: 2.25rem; /* room for the chevron connector that sits below each box */
 }
 
 .home-lifecycle-step {
@@ -2166,10 +2166,14 @@ tr.clickable-row:hover {
 .home-lifecycle-step:not(:last-child)::after {
   content: "\f282"; /* bi-chevron-down (stacked/mobile layout) */
   font-family: "bootstrap-icons";
-  margin-top: 0.6rem;
   font-size: 1.4rem;
   line-height: 1;
   color: rgba(255, 255, 255, 0.6);
+  /* Absolute so the connector sits outside the node's border, centered below. */
+  position: absolute;
+  bottom: -1.9rem;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .home-lifecycle-icon {
@@ -2229,10 +2233,20 @@ tr.clickable-row:hover {
   max-width: 150px;
 }
 
+/* Rounded-square border around each of the six nodes. The standalone steps
+   (Build, Stable) hold their content directly; the paired steps wrap each
+   node in .home-lifecycle-subnode. Border matches the chevron connectors. */
+.home-lifecycle-subnode,
+.home-lifecycle-step:not(.home-lifecycle-cyclepair) {
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
 .home-lifecycle-repeat-icon {
   flex: none;
   font-size: 1.5rem;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.6); /* match the step chevron connectors */
 }
 
 /* On mobile the pair is side by side, so a vertical arrows icon should point
@@ -2258,7 +2272,7 @@ tr.clickable-row:hover {
     align-items: center;
     justify-content: center;
     max-width: none;
-    gap: 0;
+    gap: 2rem;
   }
 
   .home-lifecycle-step {
@@ -2272,8 +2286,25 @@ tr.clickable-row:hover {
     position: absolute;
     top: 50%; /* center line so single items align with the pair's repeat icon */
     right: -0.5rem;
+    bottom: auto;
+    left: auto;
     transform: translateY(-50%);
     margin-top: 0;
+  }
+
+  /* Nudge each connector to sit centered in the ~2rem gap between the boxes
+     (gap midpoint is roughly right: -1rem from a box edge):
+     1st shifts right, the middle a touch right, the 3rd left. */
+  .home-lifecycle-step:nth-child(1)::after {
+    right: -2.5rem;
+  }
+
+  .home-lifecycle-step:nth-child(2)::after {
+    right: -1.75rem;
+  }
+
+  .home-lifecycle-step:nth-child(3)::after {
+    right: -1rem;
   }
 
   /* the Record <-> Update pair stacks vertically within its flow slot */
@@ -2359,15 +2390,23 @@ tr.clickable-row:hover {
 
 .home-newest-card-title {
   margin: 0.75rem 0 0.35rem;
-  font-size: 1.6rem;
+  /* Ease down on narrow cards (keeps 1.6rem on wide screens) so longer titles
+     fit on fewer lines. overflow-wrap is the real safety net: a long unbroken
+     word can't escape the card's right edge regardless of font size. */
+  font-size: clamp(0.8rem, 0.8rem + 1vw, 1.6rem);
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 .home-newest-card-designer {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.95rem;
+  /* font-size: 0.95rem; */
+  font-size: clamp(0.7rem, 0.7rem + 0.15vw, 0.95rem);
   color: #555;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 .home-newest-card-designer .avatar-icon {
