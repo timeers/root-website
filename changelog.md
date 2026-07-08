@@ -2,9 +2,13 @@
 
 ## [1.12.15] - 2026-7-08 Leaders
 
+### New Features
+- Added leaders to game form
+
 ### Improvements
 - /stats hides winrate and wins when it doesn't make sense
 - /stats uses cached winrates when no parameters are supplied
+- Added status icon to featured Posts on the homepage
 
 ## [1.12.14] - 2026-7-07 A New Home
 

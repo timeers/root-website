@@ -1,0 +1,21 @@
+{% load i18n %}
+{% comment %}
+    Icon-only status indicator (no text label). Mirrors the status mapping in
+    status.html but renders just the colored bootstrap icon, for use as a compact
+    badge/overlay. Params:
+        object      - the Post whose .status drives the icon
+        extra_class - optional extra classes on the <i> (e.g. positioning)
+{% endcomment %}
+{% if object.status == '1' %}
+    <i class="bi bi-check-circle-fill text-success {{ extra_class }}" title="{% trans 'Stable' %}"></i>
+{% elif object.status == '2' %}
+    <i class="bi bi-play-circle-fill text-primary {{ extra_class }}" title="{% trans 'Testing' %}"></i>
+{% elif object.status == '3' %}
+    <i class="bi bi-wrench-adjustable-circle-fill text-warning {{ extra_class }}" title="{% trans 'Development' %}"></i>
+{% elif object.status == '4' %}
+    <i class="bi bi-dash-circle-fill text-secondary {{ extra_class }}" title="{% trans 'Inactive' %}"></i>
+{% elif object.status == '9' %}
+    <i class="bi bi-hourglass-split text-dark {{ extra_class }}" title="{% trans 'Submitted' %}"></i>
+{% else %}
+    <i class="bi bi-x-circle-fill text-dark {{ extra_class }}" title="{% trans 'Abandoned' %}"></i>
+{% endif %}
