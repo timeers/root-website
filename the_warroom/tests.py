@@ -4,8 +4,10 @@ from django.urls import reverse
 
 from the_gatehouse.models import DiscordGuild, Profile
 from the_warroom.forms import GameCreateForm
-from the_warroom.models import Effort, Game, Round, Stage, Tournament
-from the_warroom.views import user_can_record_in_round
+from the_warroom.models import (
+    Effort, Game, Match, MatchSeries, Round, Stage, Tournament,
+)
+from the_warroom.views import _can_record_match, user_can_record_in_round
 
 
 class GuildRecordingAccessTests(TestCase):
@@ -118,6 +120,38 @@ class PlayableRoundGuildTests(TestCase):
         self.tournament.recording_access = Tournament.RecordingAccessTypes.REGISTERED
         self.tournament.save()
         self.assertFalse(user_can_record_in_round(self.round, self.member))
+
+
+class GuildMatchRecordingTests(TestCase):
+    """Under GUILD access a guild member may record standalone games, but NOT
+    match games -- match recording stays limited to seated participants (and
+    managers/group moderators). Guarded by _can_record_match."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="4004", name="Match Guild")
+
+        self.member = User.objects.create_user(username="matchmember", password="x")
+        self.member.profile.guilds.add(self.guild)
+
+        self.tournament = Tournament.objects.create(
+            name="Match Tournament",
+            guild=self.guild,
+            recording_access=Tournament.RecordingAccessTypes.GUILD,
+            is_active=True,
+        )
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1, is_active=True
+        )
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1, is_active=True
+        )
+        self.series = MatchSeries.objects.create(round=self.round)
+        self.match = Match.objects.create(round=self.round, series=self.series)
+
+    def test_guild_member_cannot_record_match(self):
+        # Guild membership grants standalone recording, but the member is not
+        # seated in this match's series, so match recording must be denied.
+        self.assertFalse(_can_record_match(self.member.profile, self.match))
 
 
 class ExtraRoundsCountingTests(TestCase):

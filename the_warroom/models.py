@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.db import models, transaction
 from django.db.models import Q, Sum, Max, Prefetch, Count
@@ -1779,24 +1780,26 @@ class Game(models.Model):
         if profile == self.recorder:
             if not self.final or not has_match:
                 return EditPermission(True, 'recorder')
+            # Recorder can still edit a finalized match game if it was
+            # modified within the last day (grace period for corrections).
+            # Uses date_modified (auto_now) so each save resets the window.
+            elif self.date_modified >= timezone.now() - timedelta(days=1):
+                return EditPermission(True, 'recorder')
         # Match participants can edit non-final match games (unless tournament restricts recording)
-        if has_match and not self.final:
+        if has_match:
             tournament = self.get_tournament()
-            # Group moderators can always edit their group's non-final match games,
-            # regardless of the tournament's recording_access tier.
             group = self.match.player_group
-            if group and group.group_moderator_id == profile.id:
-                return EditPermission(True, 'group_moderator')
-            # Guild members can edit non-final match games under GUILD access,
-            # even if they are not seated in the match.
-            if tournament and tournament.guild_members_can_record(profile):
-                return EditPermission(True, 'guild_member')
-            if not tournament or tournament.players_can_record_matches():
-                if Profile.objects.filter(
-                    tournament_participations__stage_participations__matchseat__series=self.match.series,
-                    pk=profile.pk
-                ).exists():
-                    return EditPermission(True, 'participant')
+            if not self.final:
+                # Group moderators can always edit their group's non-final match games,
+                # regardless of the tournament's recording_access tier.
+                if group and group.group_moderator_id == profile.id:
+                    return EditPermission(True, 'group_moderator')
+                if not tournament or tournament.players_can_record_matches():
+                    if Profile.objects.filter(
+                        tournament_participations__stage_participations__matchseat__series=self.match.series,
+                        pk=profile.pk
+                    ).exists():
+                        return EditPermission(True, 'participant')
         # Admin: check before organizer so site admins are labeled "admin"
         # rather than "organizer" (Tournament.has_permission also passes for
         # admins, which would otherwise shadow this reason).

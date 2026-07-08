@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.14] - 2026-7-07 A New Home
+
+### New Features
+- New home page
+
+### Improvements
+- Slightly improved About page
+- Forge limits renders to 3 users at a time
+- Games recorded for a Series can be edited by recorder for 1 day after submission
+
+### Bug Fixes
+- Matches in Guild access Series can only be recorded by participants and moderators
+
 ## [1.12.13] - 2026-7-05 Dupe Bug
 
 ### Bug Fixes

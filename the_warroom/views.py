@@ -954,9 +954,8 @@ def _can_record_match(profile, match):
     # regardless of the tournament's recording_access tier.
     if _is_group_moderator(profile, match):
         return True
-    # Guild members can record any match under GUILD access.
-    if tournament.guild_members_can_record(profile):
-        return True
+    # Guild members may record standalone (non-match) games under GUILD access,
+    # but not match games -- match recording is limited to seated participants.
     if not tournament.players_can_record_matches():
         return False
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
@@ -5535,11 +5534,7 @@ def _recordable_match_ids(round, user, tournament, view_as=None):
                 round=round, series_id__in=participant_series_ids
             ).values_list('id', flat=True)
         )
-    # Guild members can record any match in the round under GUILD access.
-    if tournament.guild_members_can_record(profile):
-        recordable_match_ids |= set(
-            Match.objects.filter(round=round).values_list('id', flat=True)
-        )
+
     # Group moderators can always record their group's matches.
     recordable_match_ids |= set(
         Match.objects.filter(
@@ -5572,9 +5567,8 @@ def _recordable_ids_for_matches(matches, user, tournament, view_as=None):
     # Previewing as a lower role drops manager privileges.
     if is_manager and view_as in (None, 'moderator'):
         return all_ids
-    # Guild members can record any shown match under GUILD access.
-    if tournament.guild_members_can_record(profile):
-        return all_ids
+    # Guild members may record standalone (non-match) games under GUILD access,
+    # but not match games -- so they get no match ids here.
     # Seated players can record their own match when recording_access allows.
     if tournament.players_can_record_matches():
         seated_series = set(MatchSeat.objects.filter(
@@ -7513,11 +7507,8 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     )
                 else:
                     recordable_match_ids = set()
-                # Guild members can record any match in the round under GUILD access.
-                if tournament.guild_members_can_record(profile):
-                    recordable_match_ids |= set(
-                        Match.objects.filter(round=round).values_list('id', flat=True)
-                    )
+                # Guild members may record standalone (non-match) games under GUILD
+                # access, but not match games -- so no guild grant here.
                 # Group moderators can always record their group's matches.
                 recordable_match_ids |= set(
                     Match.objects.filter(
