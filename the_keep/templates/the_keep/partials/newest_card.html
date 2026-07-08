@@ -9,6 +9,11 @@
 {% if object %}
 <a class="home-newest-card {{ cell_class }}" href="{{ object.get_absolute_url }}">
     <div class="home-newest-card-img">
+        {% if object.status %}
+            <span class="home-newest-card-status">
+                {% include 'the_keep/partials/status_icon.html' with object=object %}
+            </span>
+        {% endif %}
         {% if image_field == 'card' %}
             {% if object.card_image %}
                 <picture>
