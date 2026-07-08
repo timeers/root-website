@@ -722,6 +722,27 @@ LAW_EMOJI_NAMES = {
     "skunk": "skunk",
 }
 
+# ── Official faction emoji ─────────────────────────────────────────────────
+# The 13 official factions each have a bot application emoji whose name ends in
+# "100". Keyed by faction slug (the stable identity — animal/status vary and are
+# ambiguous). Used to prefix faction names in the /stats leaderboards. Emoji are
+# rendered via faction_emoji_for(); a missing upload just yields no prefix.
+FACTION_EMOJI_NAMES = {
+    "keepers-in-iron": "badger100",
+    "twilight-council": "bat100",
+    "marquise-de-cat": "cat100",
+    "corvid-conspiracy": "crow100",
+    "underground-duchy": "duchy100",
+    "eyrie-dynasties": "eyrie100",
+    "lilypad-diaspora": "frog100",
+    "knaves-of-the-deepwood": "knaves100",
+    "lizard-cult": "lizard100",
+    "lord-of-the-hundreds": "loth100",
+    "riverfolk-company": "otter100",
+    "vagabond": "vb100",
+    "woodland-alliance": "wa100",
+}
+
 # Human-friendly label for a LawGroup.type, shown as a sub-header in the embed.
 LAW_GROUP_TYPE_LABELS = {
     "Official": "Law of Root",
@@ -770,6 +791,16 @@ def law_emoji_for(keyword):
     """Return the application-emoji string for a law {{keyword}}, or "" if the
     keyword is unknown or its emoji hasn't been uploaded (icon is then dropped)."""
     name = LAW_EMOJI_NAMES.get(keyword)
+    if not name:
+        return ""
+    return get_application_emoji().get(name, "")
+
+
+def faction_emoji_for(slug):
+    """Return the application-emoji string for an official faction slug, or "" if
+    the slug isn't one of the 13 official factions or its emoji hasn't been
+    uploaded (the name is then shown without an icon prefix)."""
+    name = FACTION_EMOJI_NAMES.get(slug)
     if not name:
         return ""
     return get_application_emoji().get(name, "")
@@ -1137,7 +1168,7 @@ def build_captain_embed(vagabond):
 def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None):
     """Build a Discord embed dict for a /stats win-rate result.
 
-    `stats` is the dict from filtered_winrate (total, win_points, win_rate).
+    `stats` is the dict from filtered_winrate (total, games, win_points, win_rate).
     The remaining args are the resolved filter objects (or None) used to label
     the result and, when a single subject is in focus, link/thumbnail it.
     """
@@ -1160,7 +1191,7 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         "description": description,
         "fields": [
             {"name": "Win Rate", "value": f"{stats['win_rate']:.1f}%", "inline": True},
-            {"name": "Games", "value": str(stats['total']), "inline": True},
+            {"name": "Games", "value": str(stats['games']), "inline": True},
             {"name": "Wins", "value": f"{stats['win_points']:g}", "inline": True},
         ],
     }
@@ -1215,6 +1246,48 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         subject_url = _absolute(subject)
         if subject_url:
             embed["url"] = subject_url
+
+    # When not filtered to a single faction, list the top factions (by win rate)
+    # within the same filtered efforts, one per line.
+    effort_qs = stats.get("qs")
+    if not faction and effort_qs is not None:
+        from the_keep.models import Faction
+
+        # leaderboard() returns a site-relative 'url'; prefix it for Discord.
+        # Low threshold so narrow filters still surface something; the field is
+        # omitted entirely when nothing qualifies (see `if top` below).
+        top = Faction.leaderboard(effort_qs, limit=5, game_threshold=2, as_json=True)
+        if top:
+            lines = []
+            for i, f in enumerate(top, 1):
+                url = f"{site_url}{f['url']}" if (site_url and f.get("url")) else None
+                name = f"[{f['title']}]({url})" if url else f["title"]
+                emoji = faction_emoji_for(f.get("slug"))
+                prefix = f"{emoji} " if emoji else ""
+                lines.append(f"{i}. {prefix}{name} — {f['win_rate']:.1f}% ({f['total_efforts']})")
+            embed["fields"].append({
+                "name": "Top Factions",
+                "value": "\n".join(lines),
+                "inline": False,
+            })
+
+    # When not filtered to a single player, list the top players (by win rate)
+    # within the same filtered efforts, one per line. No emoji for players.
+    if not player and effort_qs is not None:
+        from the_gatehouse.models import Profile
+
+        top_players = Profile.leaderboard(effort_qs, limit=5, game_threshold=2, as_json=True)
+        if top_players:
+            lines = []
+            for i, p in enumerate(top_players, 1):
+                url = f"{site_url}{p['url']}" if (site_url and p.get("url")) else None
+                name = f"[{p['title']}]({url})" if url else p["title"]
+                lines.append(f"{i}. {name} — {p['win_rate']:.1f}% ({p['total_efforts']})")
+            embed["fields"].append({
+                "name": "Top Players",
+                "value": "\n".join(lines),
+                "inline": False,
+            })
 
     return {k: v for k, v in embed.items() if v is not None}
 

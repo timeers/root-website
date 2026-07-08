@@ -9,9 +9,11 @@
 - Slightly improved About page
 - Forge limits renders to 3 users at a time
 - Games recorded for a Series can be edited by recorder for 1 day after submission
+- /stats command gives top 5 factions and top 5 players with at least 2 games
 
 ### Bug Fixes
 - Matches in Guild access Series can only be recorded by participants and moderators
+- /stats command correctly counts games without duplicates
 
 ## [1.12.13] - 2026-7-05 Dupe Bug
 

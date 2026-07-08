@@ -1908,7 +1908,10 @@ def filtered_winrate(player=None, faction=None, vagabond=None, deck=None, tourna
     """Win rate over Efforts, filtered by any combination of player, faction,
     vagabond, deck, tournament (series), and platform. Mirrors the leaderboard
     formula (coalition wins count as half) in a single aggregate query so the
-    result matches the site's leaderboards. Returns {total, win_points, win_rate}."""
+    result matches the site's leaderboards. Returns {total, games, win_points,
+    win_rate, qs}, where `total` is the effort count (the win-rate denominator),
+    `games` is the distinct game count for display, and `qs` is the filtered
+    Effort queryset (e.g. for feeding Faction.leaderboard)."""
     qs = Effort.objects.filter(game__final=True, game__test_match=False)
     if player:
         qs = qs.filter(player=player)
@@ -1924,13 +1927,14 @@ def filtered_winrate(player=None, faction=None, vagabond=None, deck=None, tourna
         qs = qs.filter(effort_counts_for_tournament_q(tournament)).distinct()
     agg = qs.aggregate(
         total=Count('id', distinct=True),
+        games=Count('game', distinct=True),
         wins=Count('id', filter=Q(win=True), distinct=True),
         coalition=Count('id', filter=Q(win=True, game__coalition_win=True), distinct=True),
     )
     total = agg['total'] or 0
     win_points = (agg['wins'] or 0) - (agg['coalition'] or 0) / 2
     win_rate = (win_points / total * 100) if total else 0.0
-    return {'total': total, 'win_points': win_points, 'win_rate': win_rate}
+    return {'total': total, 'games': agg['games'] or 0, 'win_points': win_points, 'win_rate': win_rate, 'qs': qs}
 
 
 # This is a collection of Turns that makes up the detailed point breakdown of a game. It should be linked to an effort and is marked as final when the total score matches with the effort's score.
