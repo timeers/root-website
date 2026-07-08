@@ -47,41 +47,50 @@ def _paint_background(canvas, faction):
     except Exception:
         return
 
-    cw, ch = canvas.size
-    iw, ih = bg.size
+    try:
+        cw, ch = canvas.size
+        iw, ih = bg.size
 
-    if getattr(faction, 'repeat_background_image', False):
-        # Tile horizontally with brick-style row offset, matching the engine.
-        pct = max(5, min(50, int(getattr(faction, 'background_tile_size', 33) or 33))) / 100.0
-        # Engine sizes tiles relative to PAGE_H; the band is shorter than the page,
-        # so tiles are correspondingly shorter here. Use canvas height as the
-        # local analogue of PAGE_H so proportions still feel right inside the band.
-        max_h = ch * pct
-        if ih > max_h:
-            scale = max_h / ih
-            tile_w = max(1, int(round(iw * scale)))
-            tile_h = max(1, int(round(max_h)))
+        if getattr(faction, 'repeat_background_image', False):
+            # Tile horizontally with brick-style row offset, matching the engine.
+            pct = max(5, min(50, int(getattr(faction, 'background_tile_size', 33) or 33))) / 100.0
+            # Engine sizes tiles relative to PAGE_H; the band is shorter than the page,
+            # so tiles are correspondingly shorter here. Use canvas height as the
+            # local analogue of PAGE_H so proportions still feel right inside the band.
+            max_h = ch * pct
+            if ih > max_h:
+                scale = max_h / ih
+                tile_w = max(1, int(round(iw * scale)))
+                tile_h = max(1, int(round(max_h)))
+            else:
+                tile_w, tile_h = iw, ih
+            tile = bg.resize((tile_w, tile_h), PILImage.LANCZOS)
+            try:
+                row = 0
+                y = ch - tile_h
+                while y > -tile_h:
+                    x_offset = -(tile_w // 2) if row % 2 == 1 else 0
+                    x = x_offset
+                    while x < cw:
+                        canvas.alpha_composite(tile, (x, y))
+                        x += tile_w
+                    y -= tile_h
+                    row += 1
+            finally:
+                tile.close()
         else:
-            tile_w, tile_h = iw, ih
-        tile = bg.resize((tile_w, tile_h), PILImage.LANCZOS)
-        row = 0
-        y = ch - tile_h
-        while y > -tile_h:
-            x_offset = -(tile_w // 2) if row % 2 == 1 else 0
-            x = x_offset
-            while x < cw:
-                canvas.alpha_composite(tile, (x, y))
-                x += tile_w
-            y -= tile_h
-            row += 1
-    else:
-        scale = max(cw / iw, ch / ih)
-        draw_w = max(1, int(round(iw * scale)))
-        draw_h = max(1, int(round(ih * scale)))
-        scaled = bg.resize((draw_w, draw_h), PILImage.LANCZOS)
-        x = (cw - draw_w) // 2
-        y = (ch - draw_h) // 2
-        canvas.alpha_composite(scaled, (x, y))
+            scale = max(cw / iw, ch / ih)
+            draw_w = max(1, int(round(iw * scale)))
+            draw_h = max(1, int(round(ih * scale)))
+            scaled = bg.resize((draw_w, draw_h), PILImage.LANCZOS)
+            try:
+                x = (cw - draw_w) // 2
+                y = (ch - draw_h) // 2
+                canvas.alpha_composite(scaled, (x, y))
+            finally:
+                scaled.close()
+    finally:
+        bg.close()
 
 
 def _slot_layout(n):
@@ -94,14 +103,19 @@ def _slot_layout(n):
     (2.5") to match where slots would appear on the PDF.
     """
     stack_path = os.path.join(DECREE_DIR, 'decree-stack-crop.png')
-    stack_img = PILImage.open(stack_path).convert('RGBA')
+    src_img = PILImage.open(stack_path).convert('RGBA')
     px_per_pt = DECREE_PREVIEW_DPI / 72.0
     canvas_w = _px(PAGE_W, px_per_pt)
 
     target_slot_w = _px(DECREE_SLOT_W, px_per_pt)
-    scale = target_slot_w / stack_img.width
-    target_slot_h = int(round(stack_img.height * scale))
-    stack_img = stack_img.resize((target_slot_w, target_slot_h), PILImage.LANCZOS)
+    scale = target_slot_w / src_img.width
+    target_slot_h = int(round(src_img.height * scale))
+    # resize() returns a new image; close the source so the original open handle
+    # isn't orphaned. The caller owns and closes the returned stack_img.
+    try:
+        stack_img = src_img.resize((target_slot_w, target_slot_h), PILImage.LANCZOS)
+    finally:
+        src_img.close()
 
     canvas_h = stack_img.height
     slot_w, slot_h = stack_img.size
@@ -129,18 +143,26 @@ def render_decree_preview(sheet) -> bytes:
     canvas_w, canvas_h, slot_w, slot_h, lefts, stack_img = _slot_layout(n)
 
     canvas = PILImage.new('RGBA', (canvas_w, canvas_h), (0, 0, 0, 0))
-    _paint_background(canvas, sheet.faction)
-
-    overlay = PILImage.new('RGBA', canvas.size, (0, 0, 0, BLACK_OVERLAY_ALPHA))
-    canvas.alpha_composite(overlay)
-
-    y = (canvas_h - slot_h) // 2
-    for left in lefts:
-        canvas.alpha_composite(stack_img, (int(round(left)), y))
-
     out = BytesIO()
-    canvas.save(out, format='WEBP', quality=85, method=6)
-    return out.getvalue()
+    try:
+        _paint_background(canvas, sheet.faction)
+
+        overlay = PILImage.new('RGBA', canvas.size, (0, 0, 0, BLACK_OVERLAY_ALPHA))
+        try:
+            canvas.alpha_composite(overlay)
+        finally:
+            overlay.close()
+
+        y = (canvas_h - slot_h) // 2
+        for left in lefts:
+            canvas.alpha_composite(stack_img, (int(round(left)), y))
+
+        canvas.save(out, format='WEBP', quality=85, method=6)
+        return out.getvalue()
+    finally:
+        stack_img.close()
+        canvas.close()
+        out.close()
 
 
 SAMPLE_SNAP_Y = 0.1

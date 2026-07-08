@@ -249,3 +249,30 @@ def get_or_build(key, builder):
     if len(data) <= PDF_CACHE_MAX_BYTES:
         cache.set(key, data, timeout=PDF_CACHE_TTL)
     return data
+
+
+# Alias for get_or_build used on the gated render path. The concurrency slot is
+# owned by the *view* (see the_forge/render_guard.render_slot), not by this
+# function, so a cache hit here never touches the gate. Kept as a distinct name so
+# call sites read as "cache-or-build inside an already-held slot".
+cached_or_build = get_or_build
+
+
+def render_pdf(engine_cls, obj, key, **build_kwargs):
+    """Cache-or-build a single-engine PDF, guaranteeing the BytesIO is closed.
+
+    The safe-by-construction entry point for render views: pair it with a
+    `with render_slot():` in the view (after the permission check) and any new
+    renderer is gated, cached, and leak-free with one call.
+    """
+    from io import BytesIO
+
+    def build():
+        buf = BytesIO()
+        try:
+            engine_cls(obj).build(buf, **build_kwargs)
+            return buf.getvalue()
+        finally:
+            buf.close()
+
+    return cached_or_build(key, build)

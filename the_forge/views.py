@@ -1,3 +1,4 @@
+import contextlib
 import json
 
 from django.db import transaction
@@ -2376,13 +2377,17 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     instance.save(update_fields=['image_preview', 'preview_fingerprint', 'last_generated', 'preview_version'])
 
 
-def _ensure_sheet_preview(sheet):
+def _ensure_sheet_preview(sheet, gated=False):
     """Refresh sheet.image_preview and sheet.snap_points if the fingerprint is stale.
 
     Always runs the engine when the fingerprint is stale so that the latest
     snap-point coordinates can be captured directly from the layout. Cached
     PDF bytes wouldn't include snap points, so the cache is bypassed on this
     path; the cache still serves the regular pdf-download view.
+
+    When `gated=True` the render runs inside a render slot; callers that treat the
+    refresh as incidental should catch RenderBusy. The slot is only acquired when a
+    render will actually happen (i.e. past the stale-fingerprint early return).
     """
     from io import BytesIO
     from .pdf_engine import SheetLayoutEngine
@@ -2391,15 +2396,20 @@ def _ensure_sheet_preview(sheet):
     if sheet.preview_fingerprint == fp and sheet.image_preview:
         return
     from .pdf_engine import PREVIEW_DPI
-    engine = SheetLayoutEngine(sheet)
-    buffer = BytesIO()
-    engine.build(buffer, target_dpi=PREVIEW_DPI)
-    data = buffer.getvalue()
-    _maybe_save_image_preview(sheet, data, fp, 'sheet')
-    sheet.snap_points = list(engine.collected_snap_points)
-    sheet.decree_slide_pts = float(engine.decree_slide or 0.0)
-    sheet.ability_bar_extra_h_pts = float(getattr(engine, 'ability_bar_extra_h', 0.0) or 0.0)
-    sheet.save(update_fields=['snap_points', 'decree_slide_pts', 'ability_bar_extra_h_pts'])
+    from .render_guard import render_slot
+    with (render_slot() if gated else contextlib.nullcontext()):
+        engine = SheetLayoutEngine(sheet)
+        buffer = BytesIO()
+        try:
+            engine.build(buffer, target_dpi=PREVIEW_DPI)
+            data = buffer.getvalue()
+        finally:
+            buffer.close()
+        _maybe_save_image_preview(sheet, data, fp, 'sheet')
+        sheet.snap_points = list(engine.collected_snap_points)
+        sheet.decree_slide_pts = float(engine.decree_slide or 0.0)
+        sheet.ability_bar_extra_h_pts = float(getattr(engine, 'ability_bar_extra_h', 0.0) or 0.0)
+        sheet.save(update_fields=['snap_points', 'decree_slide_pts', 'ability_bar_extra_h_pts'])
 
 
 def _ensure_decree_preview(sheet):
@@ -2429,34 +2439,30 @@ def _ensure_decree_preview(sheet):
     sheet.save(update_fields=['decree_preview', 'decree_fingerprint'])
 
 
-def _ensure_back_preview(back):
-    from io import BytesIO
+def _ensure_back_preview(back, gated=False):
     from .pdf_engine import FactionBackLayoutEngine, PREVIEW_DPI
-    from .pdf_cache import cache_key, fingerprint_back, get_or_build
+    from .pdf_cache import cache_key, fingerprint_back, render_pdf
+    from .render_guard import render_slot
     fp = fingerprint_back(back)
     if back.preview_fingerprint == fp and back.image_preview:
         return
-    def build():
-        buffer = BytesIO()
-        FactionBackLayoutEngine(back).build(buffer, target_dpi=PREVIEW_DPI)
-        return buffer.getvalue()
-    data = get_or_build(cache_key('back', back.pk, fp), build)
-    _maybe_save_image_preview(back, data, fp, 'back')
+    with (render_slot() if gated else contextlib.nullcontext()):
+        data = render_pdf(FactionBackLayoutEngine, back, cache_key('back', back.pk, fp),
+                          target_dpi=PREVIEW_DPI)
+        _maybe_save_image_preview(back, data, fp, 'back')
 
 
-def _ensure_setup_card_preview(card):
-    from io import BytesIO
+def _ensure_setup_card_preview(card, gated=False):
     from .pdf_engine import SetupCardLayoutEngine, CARD_PREVIEW_DPI
-    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    from .pdf_cache import cache_key, fingerprint_setup_card, render_pdf
+    from .render_guard import render_slot
     fp = fingerprint_setup_card(card)
     if card.preview_fingerprint == fp and card.image_preview:
         return
-    def build():
-        buffer = BytesIO()
-        SetupCardLayoutEngine(card).build(buffer, target_dpi=CARD_PREVIEW_DPI)
-        return buffer.getvalue()
-    data = get_or_build(cache_key('setup_card', card.pk, fp), build)
-    _maybe_save_image_preview(card, data, fp, 'card')
+    with (render_slot() if gated else contextlib.nullcontext()):
+        data = render_pdf(SetupCardLayoutEngine, card, cache_key('setup_card', card.pk, fp),
+                          target_dpi=CARD_PREVIEW_DPI)
+        _maybe_save_image_preview(card, data, fp, 'card')
 
 
 def _refresh_all_element_previews(forged):
@@ -2501,86 +2507,96 @@ def forgedfaction_pdf(request, pk):
     )
     from .pdf_cache import (
         cache_key, fingerprint_sheet, fingerprint_back, fingerprint_setup_card,
-        fingerprint_components_sheet, fingerprint_cards, get_or_build,
+        fingerprint_components_sheet, fingerprint_cards, render_pdf, cached_or_build,
     )
-
-    parts = []
+    from .render_guard import render_slot, RenderBusy, busy_503
 
     sheet = getattr(faction, 'faction_sheet', None)
-    if sheet:
-        def build_sheet():
-            buf = BytesIO()
-            SheetLayoutEngine(sheet).build(buf)
-            return buf.getvalue()
-        sheet_fp = fingerprint_sheet(sheet)
-        sheet_pdf = get_or_build(cache_key('sheet', sheet.pk, sheet_fp), build_sheet)
-        _maybe_save_image_preview(sheet, sheet_pdf, sheet_fp, 'sheet')
-        parts.append(sheet_pdf)
-
     back = getattr(faction, 'faction_back', None)
-    if back:
-        def build_back():
-            buf = BytesIO()
-            FactionBackLayoutEngine(back).build(buf)
-            return buf.getvalue()
-        back_fp = fingerprint_back(back)
-        back_pdf = get_or_build(cache_key('back', back.pk, back_fp), build_back)
-        _maybe_save_image_preview(back, back_pdf, back_fp, 'back')
-        parts.append(back_pdf)
-
     card = getattr(faction, 'setup_card', None)
-    has_components = bool(
-        card or faction.vp_marker or faction.relationship_marker
-        or faction.pieces.filter(type__in=('B', 'T')).exists()
-    )
-    if has_components:
-        card_preview_path = None
-        if card:
-            card_fp = fingerprint_setup_card(card)
-            # Refresh the SetupCard preview if its fingerprint is stale, so the
-            # detail-page thumbnail updates as a side effect of Combined PDF.
-            if card.preview_fingerprint != card_fp or not card.image_preview:
-                card_buf = BytesIO()
-                SetupCardLayoutEngine(card).build(card_buf)
-                _maybe_save_image_preview(card, card_buf.getvalue(), card_fp, 'card')
-            if card.image_preview:
-                card_preview_path = card.image_preview.path
 
-        def build_components():
-            buf = BytesIO()
-            ComponentsSheetLayoutEngine(faction, card_preview_path=card_preview_path).build(buf)
-            return buf.getvalue()
-        components_fp = fingerprint_components_sheet(faction)
-        components_pdf = get_or_build(
-            cache_key('components', faction.pk, components_fp), build_components,
-        )
-        parts.append(components_pdf)
+    # One render slot for the whole combined build. The parts build serially, so
+    # the memory peak is one part at a time; holding a single slot for the request
+    # avoids a combined download contending with itself over multiple slots.
+    try:
+        with render_slot():
+            parts = []
 
-    # Custom decks — appended after the components page so the combined PDF
-    # reads sheet -> back -> components -> cards.
-    cards_engine = ForgedCardsLayoutEngine(faction)
-    if cards_engine.has_cards():
-        def build_cards():
-            buf = BytesIO()
-            cards_engine.build(buf)
-            return buf.getvalue()
-        cards_fp = fingerprint_cards(faction)
-        cards_pdf = get_or_build(cache_key('cards', faction.pk, cards_fp), build_cards)
-        parts.append(cards_pdf)
+            if sheet:
+                sheet_fp = fingerprint_sheet(sheet)
+                sheet_pdf = render_pdf(SheetLayoutEngine, sheet, cache_key('sheet', sheet.pk, sheet_fp))
+                _maybe_save_image_preview(sheet, sheet_pdf, sheet_fp, 'sheet')
+                parts.append(sheet_pdf)
 
-    if not parts:
-        return HttpResponse(
-            "No content yet — create a Front, Back, or Setup Card first.",
-            status=404, content_type='text/plain',
-        )
+            if back:
+                back_fp = fingerprint_back(back)
+                back_pdf = render_pdf(FactionBackLayoutEngine, back, cache_key('back', back.pk, back_fp))
+                _maybe_save_image_preview(back, back_pdf, back_fp, 'back')
+                parts.append(back_pdf)
 
-    writer = PdfWriter()
-    for data in parts:
-        for page in PdfReader(BytesIO(data)).pages:
-            writer.add_page(page)
-    out = BytesIO()
-    writer.write(out)
-    response = _pdf_file_response(out.getvalue(), f'{faction.faction_name}.pdf')
+            has_components = bool(
+                card or faction.vp_marker or faction.relationship_marker
+                or faction.pieces.filter(type__in=('B', 'T')).exists()
+            )
+            if has_components:
+                card_preview_path = None
+                if card:
+                    card_fp = fingerprint_setup_card(card)
+                    # Refresh the SetupCard preview if its fingerprint is stale, so the
+                    # detail-page thumbnail updates as a side effect of Combined PDF.
+                    if card.preview_fingerprint != card_fp or not card.image_preview:
+                        card_pdf = render_pdf(SetupCardLayoutEngine, card,
+                                              cache_key('setup_card', card.pk, card_fp))
+                        _maybe_save_image_preview(card, card_pdf, card_fp, 'card')
+                    if card.image_preview:
+                        card_preview_path = card.image_preview.path
+
+                def build_components():
+                    buf = BytesIO()
+                    try:
+                        ComponentsSheetLayoutEngine(faction, card_preview_path=card_preview_path).build(buf)
+                        return buf.getvalue()
+                    finally:
+                        buf.close()
+                components_fp = fingerprint_components_sheet(faction)
+                parts.append(cached_or_build(
+                    cache_key('components', faction.pk, components_fp), build_components,
+                ))
+
+            # Custom decks — appended after the components page so the combined PDF
+            # reads sheet -> back -> components -> cards.
+            cards_engine = ForgedCardsLayoutEngine(faction)
+            if cards_engine.has_cards():
+                def build_cards():
+                    buf = BytesIO()
+                    try:
+                        cards_engine.build(buf)
+                        return buf.getvalue()
+                    finally:
+                        buf.close()
+                cards_fp = fingerprint_cards(faction)
+                parts.append(cached_or_build(cache_key('cards', faction.pk, cards_fp), build_cards))
+
+            if not parts:
+                return HttpResponse(
+                    "No content yet — create a Front, Back, or Setup Card first.",
+                    status=404, content_type='text/plain',
+                )
+
+            writer = PdfWriter()
+            for data in parts:
+                for page in PdfReader(BytesIO(data)).pages:
+                    writer.add_page(page)
+            out = BytesIO()
+            try:
+                writer.write(out)
+                pdf_bytes = out.getvalue()
+            finally:
+                out.close()
+    except RenderBusy:
+        return busy_503()
+
+    response = _pdf_file_response(pdf_bytes, f'{faction.faction_name}.pdf')
     return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
 
 
@@ -2594,8 +2610,10 @@ def forgedfaction_components_pdf(request, pk):
     from io import BytesIO
     from .pdf_engine import SetupCardLayoutEngine, ComponentsSheetLayoutEngine
     from .pdf_cache import (
-        cache_key, fingerprint_setup_card, fingerprint_components_sheet, get_or_build,
+        cache_key, fingerprint_setup_card, fingerprint_components_sheet,
+        render_pdf, cached_or_build,
     )
+    from .render_guard import render_slot, RenderBusy, busy_503
 
     card = getattr(faction, 'setup_card', None)
     back = getattr(faction, 'faction_back', None)
@@ -2609,22 +2627,29 @@ def forgedfaction_components_pdf(request, pk):
             status=404, content_type='text/plain',
         )
 
-    card_preview_path = None
-    if card:
-        card_fp = fingerprint_setup_card(card)
-        if card.preview_fingerprint != card_fp or not card.image_preview:
-            card_buf = BytesIO()
-            SetupCardLayoutEngine(card).build(card_buf)
-            _maybe_save_image_preview(card, card_buf.getvalue(), card_fp, 'card')
-        if card.image_preview:
-            card_preview_path = card.image_preview.path
+    try:
+        with render_slot():
+            card_preview_path = None
+            if card:
+                card_fp = fingerprint_setup_card(card)
+                if card.preview_fingerprint != card_fp or not card.image_preview:
+                    card_pdf = render_pdf(SetupCardLayoutEngine, card,
+                                          cache_key('setup_card', card.pk, card_fp))
+                    _maybe_save_image_preview(card, card_pdf, card_fp, 'card')
+                if card.image_preview:
+                    card_preview_path = card.image_preview.path
 
-    def build_components():
-        buf = BytesIO()
-        ComponentsSheetLayoutEngine(faction, card_preview_path=card_preview_path).build(buf)
-        return buf.getvalue()
-    fp = fingerprint_components_sheet(faction)
-    data = get_or_build(cache_key('components', faction.pk, fp), build_components)
+            def build_components():
+                buf = BytesIO()
+                try:
+                    ComponentsSheetLayoutEngine(faction, card_preview_path=card_preview_path).build(buf)
+                    return buf.getvalue()
+                finally:
+                    buf.close()
+            fp = fingerprint_components_sheet(faction)
+            data = cached_or_build(cache_key('components', faction.pk, fp), build_components)
+    except RenderBusy:
+        return busy_503()
     return _pdf_file_response(data, f'{faction.faction_name} - Components.pdf')
 
 
@@ -2637,7 +2662,8 @@ def forgedfaction_cards_pdf(request, pk):
         return resp
     from io import BytesIO
     from .pdf_engine import ForgedCardsLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_cards, get_or_build
+    from .pdf_cache import cache_key, fingerprint_cards, cached_or_build
+    from .render_guard import render_slot, RenderBusy, busy_503
 
     engine = ForgedCardsLayoutEngine(faction)
     if not engine.has_cards():
@@ -2648,10 +2674,17 @@ def forgedfaction_cards_pdf(request, pk):
 
     def build_cards():
         buf = BytesIO()
-        engine.build(buf)
-        return buf.getvalue()
+        try:
+            engine.build(buf)
+            return buf.getvalue()
+        finally:
+            buf.close()
     fp = fingerprint_cards(faction)
-    data = get_or_build(cache_key('cards', faction.pk, fp), build_cards)
+    try:
+        with render_slot():
+            data = cached_or_build(cache_key('cards', faction.pk, fp), build_cards)
+    except RenderBusy:
+        return busy_503()
     return _pdf_file_response(data, f'{faction.faction_name} - Cards.pdf')
 
 
@@ -2660,17 +2693,16 @@ def factionsheet_pdf(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
-    from io import BytesIO
     from .pdf_engine import SheetLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
+    from .pdf_cache import cache_key, fingerprint_sheet, render_pdf
+    from .render_guard import render_slot, RenderBusy, busy_503
     fp = fingerprint_sheet(sheet)
-    key = cache_key('sheet', sheet.pk, fp)
-    def build():
-        buffer = BytesIO()
-        SheetLayoutEngine(sheet).build(buffer)
-        return buffer.getvalue()
-    data = get_or_build(key, build)
-    _maybe_save_image_preview(sheet, data, fp, 'sheet')
+    try:
+        with render_slot():
+            data = render_pdf(SheetLayoutEngine, sheet, cache_key('sheet', sheet.pk, fp))
+            _maybe_save_image_preview(sheet, data, fp, 'sheet')
+    except RenderBusy:
+        return busy_503()
     response = _pdf_file_response(data, f'{sheet.faction.faction_name} - Front.pdf')
     return _attach_preview_versions(response, sheet=sheet)
 
@@ -2680,16 +2712,16 @@ def factionsheet_pdf_layered(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
-    from io import BytesIO
     from .pdf_engine import SheetLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_sheet, get_or_build
+    from .pdf_cache import cache_key, fingerprint_sheet, render_pdf
+    from .render_guard import render_slot, RenderBusy, busy_503
     fp = fingerprint_sheet(sheet)
-    key = cache_key('sheet-layered', sheet.pk, fp)
-    def build():
-        buffer = BytesIO()
-        SheetLayoutEngine(sheet).build(buffer, layered=True)
-        return buffer.getvalue()
-    data = get_or_build(key, build)
+    try:
+        with render_slot():
+            data = render_pdf(SheetLayoutEngine, sheet,
+                              cache_key('sheet-layered', sheet.pk, fp), layered=True)
+    except RenderBusy:
+        return busy_503()
     return _pdf_file_response(data, f'{sheet.faction.faction_name} - Front (Layers).pdf')
 
 
@@ -2698,7 +2730,11 @@ def factionsheet_webp(request, pk):
     sheet = get_object_or_404(FactionSheet, pk=pk)
     if (resp := _forbid_if_not_editor(request, sheet.faction)):
         return resp
-    _ensure_sheet_preview(sheet)
+    from .render_guard import RenderBusy, busy_503
+    try:
+        _ensure_sheet_preview(sheet, gated=True)
+    except RenderBusy:
+        return busy_503()
     sheet.refresh_from_db()
     if not sheet.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
@@ -2711,17 +2747,16 @@ def factionback_pdf(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
     if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
-    from io import BytesIO
     from .pdf_engine import FactionBackLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_back, get_or_build
+    from .pdf_cache import cache_key, fingerprint_back, render_pdf
+    from .render_guard import render_slot, RenderBusy, busy_503
     fp = fingerprint_back(back)
-    key = cache_key('back', back.pk, fp)
-    def build():
-        buffer = BytesIO()
-        FactionBackLayoutEngine(back).build(buffer)
-        return buffer.getvalue()
-    data = get_or_build(key, build)
-    _maybe_save_image_preview(back, data, fp, 'back')
+    try:
+        with render_slot():
+            data = render_pdf(FactionBackLayoutEngine, back, cache_key('back', back.pk, fp))
+            _maybe_save_image_preview(back, data, fp, 'back')
+    except RenderBusy:
+        return busy_503()
     response = _pdf_file_response(data, f'{back.faction.faction_name} - Back.pdf')
     return _attach_preview_versions(response, back=back)
 
@@ -2731,16 +2766,16 @@ def factionback_pdf_layered(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
     if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
-    from io import BytesIO
     from .pdf_engine import FactionBackLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_back, get_or_build
+    from .pdf_cache import cache_key, fingerprint_back, render_pdf
+    from .render_guard import render_slot, RenderBusy, busy_503
     fp = fingerprint_back(back)
-    key = cache_key('back-layered', back.pk, fp)
-    def build():
-        buffer = BytesIO()
-        FactionBackLayoutEngine(back).build(buffer, layered=True)
-        return buffer.getvalue()
-    data = get_or_build(key, build)
+    try:
+        with render_slot():
+            data = render_pdf(FactionBackLayoutEngine, back,
+                              cache_key('back-layered', back.pk, fp), layered=True)
+    except RenderBusy:
+        return busy_503()
     return _pdf_file_response(data, f'{back.faction.faction_name} - Back (Layers).pdf')
 
 
@@ -2749,7 +2784,11 @@ def factionback_webp(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
     if (resp := _forbid_if_not_editor(request, back.faction)):
         return resp
-    _ensure_back_preview(back)
+    from .render_guard import RenderBusy, busy_503
+    try:
+        _ensure_back_preview(back, gated=True)
+    except RenderBusy:
+        return busy_503()
     back.refresh_from_db()
     if not back.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
@@ -2772,6 +2811,11 @@ def forgedfaction_tts(request, pk):
             status=404, content_type='text/plain',
         )
 
+    # Refresh any stale previews as a side effect of the TTS export. Each render
+    # is gated so it counts against the concurrency cap, but a busy renderer just
+    # skips the refresh (RenderBusy swallowed) — the export still proceeds with the
+    # existing previews rather than failing the whole request.
+    from .render_guard import RenderBusy
     if sheet:
         # If snap points were captured before pile_title was added, force a
         # one-off rebuild so deck-on-pile placement can match snap points.
@@ -2779,25 +2823,24 @@ def forgedfaction_tts(request, pk):
             if sheet.card_piles.exists():
                 sheet.preview_fingerprint = ''
                 sheet.save(update_fields=['preview_fingerprint'])
-        _ensure_sheet_preview(sheet)
+        try:
+            _ensure_sheet_preview(sheet, gated=True)
+        except RenderBusy:
+            pass
         _ensure_decree_preview(sheet)
         sheet.refresh_from_db()
     if back:
-        _ensure_back_preview(back)
+        try:
+            _ensure_back_preview(back, gated=True)
+        except RenderBusy:
+            pass
         back.refresh_from_db()
     if card:
-        from io import BytesIO
-        from .pdf_engine import SetupCardLayoutEngine
-        from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
-        fp = fingerprint_setup_card(card)
-        if card.preview_fingerprint != fp or not card.image_preview:
-            def _build_card():
-                buffer = BytesIO()
-                SetupCardLayoutEngine(card).build(buffer)
-                return buffer.getvalue()
-            data = get_or_build(cache_key('setup_card', card.pk, fp), _build_card)
-            _maybe_save_image_preview(card, data, fp, 'card')
-            card.refresh_from_db()
+        try:
+            _ensure_setup_card_preview(card, gated=True)
+        except RenderBusy:
+            pass
+        card.refresh_from_db()
 
     sheet_ready = bool(sheet and sheet.image_preview)
     back_ready = bool(back and back.image_preview)
@@ -2924,17 +2967,16 @@ def setup_card_pdf(request, pk):
     card = get_object_or_404(SetupCard, pk=pk)
     if (resp := _forbid_if_not_editor(request, card.faction)):
         return resp
-    from io import BytesIO
     from .pdf_engine import SetupCardLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    from .pdf_cache import cache_key, fingerprint_setup_card, render_pdf
+    from .render_guard import render_slot, RenderBusy, busy_503
     fp = fingerprint_setup_card(card)
-    key = cache_key('setup_card', card.pk, fp)
-    def build():
-        buffer = BytesIO()
-        SetupCardLayoutEngine(card).build(buffer)
-        return buffer.getvalue()
-    data = get_or_build(key, build)
-    _maybe_save_image_preview(card, data, fp, 'card')
+    try:
+        with render_slot():
+            data = render_pdf(SetupCardLayoutEngine, card, cache_key('setup_card', card.pk, fp))
+            _maybe_save_image_preview(card, data, fp, 'card')
+    except RenderBusy:
+        return busy_503()
     response = _pdf_file_response(data, f'{card.faction.faction_name} - Adset.pdf')
     return _attach_preview_versions(response, card=card)
 
@@ -2944,16 +2986,16 @@ def setup_card_pdf_layered(request, pk):
     card = get_object_or_404(SetupCard, pk=pk)
     if (resp := _forbid_if_not_editor(request, card.faction)):
         return resp
-    from io import BytesIO
     from .pdf_engine import SetupCardLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
+    from .pdf_cache import cache_key, fingerprint_setup_card, render_pdf
+    from .render_guard import render_slot, RenderBusy, busy_503
     fp = fingerprint_setup_card(card)
-    key = cache_key('setup_card-layered', card.pk, fp)
-    def build():
-        buffer = BytesIO()
-        SetupCardLayoutEngine(card).build(buffer, layered=True)
-        return buffer.getvalue()
-    data = get_or_build(key, build)
+    try:
+        with render_slot():
+            data = render_pdf(SetupCardLayoutEngine, card,
+                              cache_key('setup_card-layered', card.pk, fp), layered=True)
+    except RenderBusy:
+        return busy_503()
     return _pdf_file_response(data, f'{card.faction.faction_name} - Adset (Layers).pdf')
 
 
@@ -2962,18 +3004,12 @@ def setup_card_webp(request, pk):
     card = get_object_or_404(SetupCard, pk=pk)
     if (resp := _forbid_if_not_editor(request, card.faction)):
         return resp
-    from io import BytesIO
-    from .pdf_engine import SetupCardLayoutEngine
-    from .pdf_cache import cache_key, fingerprint_setup_card, get_or_build
-    fp = fingerprint_setup_card(card)
-    if card.preview_fingerprint != fp or not card.image_preview:
-        def build():
-            buffer = BytesIO()
-            SetupCardLayoutEngine(card).build(buffer)
-            return buffer.getvalue()
-        data = get_or_build(cache_key('setup_card', card.pk, fp), build)
-        _maybe_save_image_preview(card, data, fp, 'card')
-        card.refresh_from_db()
+    from .render_guard import RenderBusy, busy_503
+    try:
+        _ensure_setup_card_preview(card, gated=True)
+    except RenderBusy:
+        return busy_503()
+    card.refresh_from_db()
     if not card.image_preview:
         return HttpResponse("Preview unavailable.", status=404, content_type='text/plain')
     response = _webp_file_response(card.image_preview, f'{card.faction.faction_name} - Adset.webp')

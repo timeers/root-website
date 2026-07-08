@@ -1,4 +1,4 @@
-{% extends 'the_keep/base.html' %}
+{% extends 'the_keep/base_b.html' %}
 {% block title %}About | {% endblock %}
 {% load static i18n %}
 
@@ -16,24 +16,50 @@
 
 
 {% block content %}
-<div class='text-center'>
-    <h1 class='root-title'>{% trans 'About' %}</h1>
 
-    <div class='mb-4'>
-        Welcome to the {{site_title}}, an unofficial collection of fan factions and components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>.
-        The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads. 
+<!-- HERO -->
+<section class="home-hero">
+    <picture class="home-hero-bg">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/hero-small.webp' %}">
+        <img src="{% static 'images/homepage/hero.webp' %}" alt="" fetchpriority="high">
+    </picture>
+    <div class="home-hero-overlay"></div>
+    <div class="home-hero-content">
+        <h1 class="root-title home-hero-title">{% trans 'About' %}</h1>
+        <p class="home-hero-tagline">
+            Welcome to the {{site_title}}, an unofficial collection of fan factions and components for Root, the board game by Leder Games.
+        </p>
+    </div>
+</section>
+
+<div class='container'>
+<div class='text-center'>
+
+    <div class='my-4'>
+        {% comment %} Welcome to the {{site_title}}, an unofficial collection of fan factions and components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>. {% endcomment %}
+        The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads.
         You can post game results to track your stats and search community resources to help make your own creations. If you play a game with any of the components found here you can record that game to help the creators see their faction's stats.
     </div>
 
-    <div class='mb-4'>
-        If you have any questions about how the site works, check out the <a class='clickable-link' href="{% url 'website-faq' %}">FAQ</a>.
-    </div>
+    <div class='row g-3 mb-4'>
+        <div class='col-12 col-md-6'>
+            <div class='card h-100'>
+                <div class='card-body d-flex align-items-center justify-content-center text-center'>
+                    <div>If you have any questions about how the site works, check out the <a class='clickable-link' href="{% url 'website-faq' %}">FAQ</a>.</div>
+                </div>
+            </div>
+        </div>
 
-    <div class='mb-4 lore-content' style="font-size: 1.1rem;">
-        Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
-        {% if rdb_feedback_invite %}
-        You can also ask questions and give feedback in the <a class='clickable-link' href="{{rdb_feedback_invite}}">Root Database Discord</a>.
-        {% endif %}
+        <div class='col-12 col-md-6'>
+            <div class='card h-100 lore-content' style="font-size: 1.1rem;">
+                <div class='card-body d-flex align-items-center justify-content-center text-center'>
+                    <div>Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
+                    {% if rdb_feedback_invite %}
+                    You can also ask questions and give feedback in the <a class='clickable-link' href="{{rdb_feedback_invite}}">Root Database Discord</a>.
+                    {% endif %}</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class='mb-4'>
@@ -51,7 +77,7 @@
         <div style="font-weight: 600;">
             Root Digital League
         </div>
-        Root Digital League is organized by the Woodland Warriors Discord community. 
+        Root Digital League is organized by the Woodland Warriors Discord community.
         League games are played through the Direwolf Digital app and are structured to be an informal and fun way to play against real players.
         These games are recorded on the <a class='clickable-link' href='https://rootleague.pliskin.dev'>Root Digital League</a> website and then imported to the {{site_title}} through the Match Viewset List API provided by Pliskin.
     </div>
@@ -59,7 +85,7 @@
         <div style="font-weight: 600;">
             Leder Rules Library
         </div>
-        The official and up to date rules for Root can be found at the <a class='clickable-link' href='https://rules.ledergames.com/?product=root'>Leder Rules Library</a>. 
+        The official and up to date rules for Root can be found at the <a class='clickable-link' href='https://rules.ledergames.com/?product=root'>Leder Rules Library</a>.
         The {{site_title}} updates its Law of Root to match the publicly available rules provided by the <a class='clickable-link' href='https://github.com/LederCards/rules/tree/master'>Leder Cards repository</a> on Github{% if law_date %} and was last updated on {{law_date|date:"F j, Y"}}.{% else %}.{% endif %}
     </div>
 
@@ -69,7 +95,7 @@
             Thank you for checking out the {{site_title}}
         </div>
         <div class='mb-4'>
-            The {{site_title}} was created and is maintained by MrMirz from the Woodland Warriors Discord. 
+            The {{site_title}} was created and is maintained by MrMirz from the Woodland Warriors Discord.
         </div>
         <div class='mb-4'>
             Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided suggestions, input and encouragement to make the site what it is now.
@@ -105,5 +131,6 @@
 
 <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/Frog.png'  %}" alt="Join Woodland Warriors">
 
-{% endblock content %}
+</div>
 
+{% endblock content %}

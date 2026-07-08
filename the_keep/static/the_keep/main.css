@@ -1966,7 +1966,7 @@ tr.clickable-row:hover {
 
 .home-hero-scroll {
   position: absolute;
-  bottom: 1.25rem;
+  bottom: 2.5rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
@@ -2390,15 +2390,23 @@ tr.clickable-row:hover {
 
 .home-newest-card-title {
   margin: 0.75rem 0 0.35rem;
-  font-size: 1.6rem;
+  /* Ease down on narrow cards (keeps 1.6rem on wide screens) so longer titles
+     fit on fewer lines. overflow-wrap is the real safety net: a long unbroken
+     word can't escape the card's right edge regardless of font size. */
+  font-size: clamp(0.8rem, 0.8rem + 1vw, 1.6rem);
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 .home-newest-card-designer {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.95rem;
+  /* font-size: 0.95rem; */
+  font-size: clamp(0.7rem, 0.7rem + 0.15vw, 0.95rem);
   color: #555;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 
 .home-newest-card-designer .avatar-icon {
