@@ -1186,14 +1186,18 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         parts.append(f"Platform: {platform}")
     description = " · ".join(parts) if parts else "All games"
 
+    # Win Rate / Wins are only meaningful when scoped to a player or faction;
+    # for an unscoped query they'd be an aggregate over everything, so show only
+    # the Games count (the leaderboards below carry the per-subject rates).
+    fields = [{"name": "Games", "value": str(stats['games']), "inline": True}]
+    if player or faction:
+        fields.insert(0, {"name": "Win Rate", "value": f"{stats['win_rate']:.1f}%", "inline": True})
+        fields.append({"name": "Wins", "value": f"{stats['win_points']:g}", "inline": True})
+
     embed = {
         "title": "Win Rate",
         "description": description,
-        "fields": [
-            {"name": "Win Rate", "value": f"{stats['win_rate']:.1f}%", "inline": True},
-            {"name": "Games", "value": str(stats['games']), "inline": True},
-            {"name": "Wins", "value": f"{stats['win_points']:g}", "inline": True},
-        ],
+        "fields": fields,
     }
 
     def _absolute(subject):
@@ -1247,47 +1251,48 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         if subject_url:
             embed["url"] = subject_url
 
-    # When not filtered to a single faction, list the top factions (by win rate)
-    # within the same filtered efforts, one per line.
+    def _leaderboard_field(name, rows, *, with_emoji=False):
+        """Append a numbered leaderboard field from {title, win_rate,
+        total_efforts, url, slug} rows. No-op when there are no rows."""
+        if not rows:
+            return
+        lines = []
+        for i, r in enumerate(rows, 1):
+            url = f"{site_url}{r['url']}" if (site_url and r.get("url")) else None
+            label = f"[{r['title']}]({url})" if url else r["title"]
+            emoji = faction_emoji_for(r.get("slug")) if with_emoji else ""
+            prefix = f"{emoji} " if emoji else ""
+            lines.append(f"{i}. {prefix}{label} — {r['win_rate']:.1f}% ({r['total_efforts']})")
+        embed["fields"].append({"name": name, "value": "\n".join(lines), "inline": False})
+
+    # Top factions / players over the same filtered efforts, each omitting the
+    # board that a single-subject filter already narrows to. With no filters at
+    # all, use the pre-computed cached global boards instead of aggregating live.
     effort_qs = stats.get("qs")
-    if not faction and effort_qs is not None:
-        from the_keep.models import Faction
-
-        # leaderboard() returns a site-relative 'url'; prefix it for Discord.
-        # Low threshold so narrow filters still surface something; the field is
-        # omitted entirely when nothing qualifies (see `if top` below).
-        top = Faction.leaderboard(effort_qs, limit=5, game_threshold=2, as_json=True)
-        if top:
-            lines = []
-            for i, f in enumerate(top, 1):
-                url = f"{site_url}{f['url']}" if (site_url and f.get("url")) else None
-                name = f"[{f['title']}]({url})" if url else f["title"]
-                emoji = faction_emoji_for(f.get("slug"))
-                prefix = f"{emoji} " if emoji else ""
-                lines.append(f"{i}. {prefix}{name} — {f['win_rate']:.1f}% ({f['total_efforts']})")
-            embed["fields"].append({
-                "name": "Top Factions",
-                "value": "\n".join(lines),
-                "inline": False,
-            })
-
-    # When not filtered to a single player, list the top players (by win rate)
-    # within the same filtered efforts, one per line. No emoji for players.
-    if not player and effort_qs is not None:
-        from the_gatehouse.models import Profile
-
-        top_players = Profile.leaderboard(effort_qs, limit=5, game_threshold=2, as_json=True)
-        if top_players:
-            lines = []
-            for i, p in enumerate(top_players, 1):
-                url = f"{site_url}{p['url']}" if (site_url and p.get("url")) else None
-                name = f"[{p['title']}]({url})" if url else p["title"]
-                lines.append(f"{i}. {name} — {p['win_rate']:.1f}% ({p['total_efforts']})")
-            embed["fields"].append({
-                "name": "Top Players",
-                "value": "\n".join(lines),
-                "inline": False,
-            })
+    unfiltered = not (player or faction or tournament or platform)
+    if effort_qs is not None:
+        if unfiltered:
+            from the_warroom.services.winrate_service import (
+                cached_top_factions, cached_top_players,
+            )
+            _leaderboard_field("Top Factions", cached_top_factions(limit=5), with_emoji=True)
+            _leaderboard_field("Top Players", cached_top_players(limit=5))
+        else:
+            # leaderboard() returns site-relative 'url's; a low threshold so
+            # narrow filters still surface something.
+            if not faction:
+                from the_keep.models import Faction
+                _leaderboard_field(
+                    "Top Factions",
+                    Faction.leaderboard(effort_qs, limit=5, game_threshold=2, as_json=True),
+                    with_emoji=True,
+                )
+            if not player:
+                from the_gatehouse.models import Profile
+                _leaderboard_field(
+                    "Top Players",
+                    Profile.leaderboard(effort_qs, limit=5, game_threshold=2, as_json=True),
+                )
 
     return {k: v for k, v in embed.items() if v is not None}
 

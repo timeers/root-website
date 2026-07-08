@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.12.15] - 2026-7-08 Leaders
+
+### Improvements
+- /stats hides winrate and wins when it doesn't make sense
+- /stats uses cached winrates when no parameters are supplied
+
 ## [1.12.14] - 2026-7-07 A New Home
 
 ### New Features
