@@ -1834,6 +1834,11 @@ class Effort(models.Model):
         DARK = 'Dark'
         FROG = 'Frog'
         BEAR = 'Mountain King'
+    class LeaderChoices(models.TextChoices):
+        CHARISMATIC = 'Charismatic'
+        DESPOT = 'Despot'
+        COMMANDER = 'Commander'
+        BUILDER = 'Builder'
     # class StatusChoices(models.TextChoices):
     #     ACTIVE = 'Active'
     #     ELIMINATED = 'Eliminated'
@@ -1846,6 +1851,7 @@ class Effort(models.Model):
     discarded_captain = models.ForeignKey(Vagabond, on_delete=models.PROTECT, null=True, blank=True, default=None, related_name='discarded_efforts')
     coalition_with = models.ForeignKey(Faction, on_delete=models.PROTECT, null=True, blank=True, related_name='efforts_in_coalition')
     dominance = models.CharField(max_length=20, choices=DominanceChoices.choices, null=True, blank=True)
+    starting_leader = models.CharField(max_length=20, choices=LeaderChoices.choices, null=True, blank=True)
     brazen_demagogue = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)

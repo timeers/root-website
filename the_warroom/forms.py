@@ -599,7 +599,7 @@ class EffortCreateForm(forms.ModelForm):
     )
     class Meta:
         model = Effort
-        fields = ['player', 'faction', 'vagabond', 'captains', 'discarded_captain', 'score', 'win', 'dominance', 'coalition_with', 'brazen_demagogue']
+        fields = ['player', 'faction', 'vagabond', 'captains', 'discarded_captain', 'score', 'win', 'dominance', 'starting_leader', 'coalition_with', 'brazen_demagogue']
     def __init__(self, *args, **kwargs):
         # Check if 'game' is passed in kwargs and set it
         self.game = kwargs.pop('game', None)
@@ -627,6 +627,13 @@ class EffortCreateForm(forms.ModelForm):
         if dominance_choices and dominance_choices[0][0] == '':
             dominance_choices[0] = ('', '')
             self.fields['dominance'].choices = dominance_choices
+        # Starting Leader is labeled by its select2 placeholder; blank the empty
+        # choice's label so the placeholder shows instead of "---------".
+        self.fields['starting_leader'].widget.attrs.update({'data-placeholder': _('Starting Leader'), 'aria-label': _('Starting Leader')})
+        leader_choices = list(self.fields['starting_leader'].choices)
+        if leader_choices and leader_choices[0][0] == '':
+            leader_choices[0] = ('', '')
+            self.fields['starting_leader'].choices = leader_choices
 
     def clean(self):
         validation_errors_to_display = []
@@ -692,6 +699,11 @@ class EffortCreateForm(forms.ModelForm):
         if not dominance and score is None and not coalition:
             # raise ValidationError(f"Score or Dominance required")
             validation_errors_to_display.append('Score or Dominance required')
+
+        # Starting Leader only applies to Eyrie Dynasties (optional). Clear any
+        # leftover selection for other factions.
+        if not faction or faction.title != 'Eyrie Dynasties':
+            cleaned_data['starting_leader'] = None
 
         # Brazen Demagogue only valid when a dominance is selected.
         # (Deck restriction is enforced via the deck-level check in the view.)

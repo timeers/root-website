@@ -54,7 +54,8 @@
     .vagabond-field .select2-container,
     .discarded-captain-field .select2-container,
     .dominance-field .select2-container,
-    .coalition-field .select2-container {
+    .coalition-field .select2-container,
+    .starting-leader-field .select2-container {
         width: 100% !important;
     }
     /* Keep the Series (round) select within its card; long option text
@@ -374,6 +375,7 @@
                     <div class="col-12 col-md-6 faction-field">{{ form.faction }}</div>
                     <div class="col-12 col-md-6">
                         <div class="vagabond-field" style="display:none;">{{ form.vagabond }}</div>
+                        <div class="starting-leader-field" style="display:none;">{{ form.starting_leader }}</div>
                     </div>
                 </div>
                 <div class="row g-2 mb-2">
@@ -441,6 +443,7 @@
             <div class="col-12 col-md-6 faction-field">{{ formset.empty_form.faction }}</div>
             <div class="col-12 col-md-6">
                 <div class="vagabond-field" style="display:none;">{{ formset.empty_form.vagabond }}</div>
+                <div class="starting-leader-field" style="display:none;">{{ formset.empty_form.starting_leader }}</div>
             </div>
         </div>
         <div class="row g-2 mb-2">
@@ -1258,6 +1261,15 @@ function initCoalitionSelect2(selector) {
         width: '100%',
     });
 }
+function initLeaderSelect2(selector) {
+    $(selector).select2({
+        placeholder: '{% trans "Starting Leader" %}',
+        allowClear: true,
+        width: '100%',
+        // Only a handful of options — no need for a search box.
+        minimumResultsForSearch: Infinity,
+    });
+}
 function initDiscardedCaptainSelect2(selector) {
     $(selector).select2({
         placeholder: '{% trans "Select a Discarded Captain" %}',
@@ -1647,6 +1659,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var discardedSelector = "#id_form-" + index.toString() + "-discarded_captain";
         var dominanceSelector = "#id_form-" + index.toString() + "-dominance";
         var coalitionSelector = "#id_form-" + index.toString() + "-coalition_with";
+        var leaderSelector = "#id_form-" + index.toString() + "-starting_leader";
 
         // Keep the discarded-captain list in sync (exclude selected captains).
         $(captainsSelector).on('change', function(e) {
@@ -1660,6 +1673,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var discardedBlock = document.querySelector(discardedSelector)?.closest('.discarded-captain-field');
             var dominanceBlock = document.querySelector(dominanceSelector)?.closest('.dominance-field');
             var coalitionBlock = document.querySelector(coalitionSelector)?.closest('.coalition-field');
+            var leaderBlock = document.querySelector(leaderSelector)?.closest('.starting-leader-field');
             updateFactionSpecificLists();
             if (selectedText == 'Vagabond') {
                 if (vagabondBlock) vagabondBlock.style.display = "block";
@@ -1687,6 +1701,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (discardedBlock) discardedBlock.style.display = "none";
                 $(captainsSelector).val(null).trigger('change');
                 $(discardedSelector).val(null).trigger('change');
+            }
+            // Starting Leader only applies to Eyrie Dynasties.
+            if (selectedText == 'Eyrie Dynasties') {
+                if (leaderBlock) leaderBlock.style.display = "block";
+                initLeaderSelect2(leaderSelector);
+            } else {
+                if (leaderBlock) leaderBlock.style.display = "none";
+                $(leaderSelector).val(null).trigger('change');
             }
             updateBrazenVisibility(index);
         });
@@ -2071,6 +2093,7 @@ document.addEventListener('DOMContentLoaded', function() {
         initDiscardedCaptainSelect2("#id_form-" + index.toString() + "-discarded_captain");
         initCoalitionSelect2("#id_form-" + index.toString() + "-coalition_with");
         initDominanceSelect2("#id_form-" + index.toString() + "-dominance");
+        initLeaderSelect2("#id_form-" + index.toString() + "-starting_leader");
     });
 
     // Trigger initial faction changes
@@ -2139,6 +2162,7 @@ document.addEventListener('DOMContentLoaded', function() {
         initDiscardedCaptainSelect2('#id_form-' + nextFormIndex + '-discarded_captain');
         initCoalitionSelect2('#id_form-' + nextFormIndex + '-coalition_with');
         initDominanceSelect2('#id_form-' + nextFormIndex + '-dominance');
+        initLeaderSelect2('#id_form-' + nextFormIndex + '-starting_leader');
         refreshDiscardedOptions(nextFormIndex);
 
         // Refresh sortable
