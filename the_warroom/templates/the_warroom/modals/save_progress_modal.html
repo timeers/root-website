@@ -11,9 +11,9 @@
             <div class="modal-body">
                 <div class="alert alert-info">
                     <i class="bi bi-info-circle-fill"></i>
-                    {% trans 'This saves the game as a draft. The final score will' %} <strong>{% trans 'not' %}</strong> {% trans 'be submitted, so it will not count towards stats yet.' %}
+                    {% blocktrans %}This saves the game as a draft. The final score will <strong>not</strong> be submitted, so it will not count towards stats yet.{% endblocktrans %}
                 </div>
-                <p>{% trans 'To submit the game and record the final score, click' %} <strong>{% trans 'Submit' %}</strong> {% trans 'instead.' %}</p>
+                <p>{% blocktrans %}To submit the game and record the final score, click <strong>Submit</strong> instead.{% endblocktrans %}</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>

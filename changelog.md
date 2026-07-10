@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.12.16] - 2026-7-09 RTM Feedback
+
+### New Features
+- Modals added to record game buttons (Submit, Save, Cancel, Delete)
+
+### Improvements
+- Starting leader icon displayed on Game Detail page
+- Captain icon replaces captain title for selected and undrafted captains on Game Detail Page (saves space)
+
 ## [1.12.15] - 2026-7-08 Leaders
 
 ### New Features

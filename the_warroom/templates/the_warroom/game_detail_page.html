@@ -113,7 +113,7 @@
                                 (<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)
                             {% endif %}
                             {% if game.undrafted_captains.all %}
-                                ({% for captain in game.undrafted_captains.all %}<a href="{% url 'captain-detail' slug=captain.slug %}">{{ captain }}</a>{% if not forloop.last %}, {% endif %}{% endfor %})
+                                ({% for captain in game.undrafted_captains.all %}{% with pawn=captain.otherpieces.first %}<a href="{% url 'captain-detail' slug=captain.slug %}" title="{{ captain }}">{% if pawn.small_icon %}<img class="captain-icon" src="{{ pawn.small_icon|cache_bust:pawn.front_version }}" alt="{{ captain }}">{% else %}{{ captain }}{% endif %}</a>{% endwith %}{% endfor %})
                             {% endif %}
                         </div>
                     </div>

@@ -22,11 +22,11 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Keep Editing' %}</button>
                 {% if object.id %}
-                    <a href="{{ object.get_absolute_url }}" class="btn btn-danger">
+                    <a href="{{ object.get_absolute_url }}" class="btn btn-warning">
                         <i class="bi bi-x-circle"></i> {% trans 'Discard Changes' %}
                     </a>
                 {% else %}
-                    <a href="{% url 'games-home' %}" class="btn btn-danger">
+                    <a href="{% url 'games-home' %}" class="btn btn-warning">
                         <i class="bi bi-x-circle"></i> {% trans 'Discard Game' %}
                     </a>
                 {% endif %}
