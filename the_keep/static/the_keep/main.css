@@ -587,6 +587,13 @@ em, i {
     border-radius: 2px;
   }
 
+  /* Keep the whole "(captain icons)" group on one line so it wraps to the next
+     line as a single unit rather than splitting a paren/icon off on its own. */
+  .captain-group {
+    display: inline-block;
+    white-space: nowrap;
+  }
+
   .avatar-icon {
     width: 20px;   /* Fixed width */
     height: 20px;  /* Fixed height */

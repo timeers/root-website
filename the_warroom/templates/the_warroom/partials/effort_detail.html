@@ -58,7 +58,7 @@
             (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
         {% endif %}
         {% if effort.captains.all %}
-            ({% for captain in effort.captains.all %}{% with pawn=captain.otherpieces.first %}<a href="{% url 'captain-detail' slug=captain.slug %}" title="{{ captain }}">{% if pawn.small_icon %}<img class="captain-icon" src="{{ pawn.small_icon|cache_bust:pawn.front_version }}" alt="{{ captain }}">{% else %}{{ captain }}{% endif %}</a>{% endwith %}{% endfor %})
+            <span class="captain-group">({% for captain in effort.captains.all %}{% with pawn=captain.otherpieces.first %}<a href="{% url 'captain-detail' slug=captain.slug %}" title="{{ captain }}">{% if pawn.small_icon %}<img class="captain-icon" src="{{ pawn.small_icon|cache_bust:pawn.front_version }}" alt="{{ captain }}">{% else %}{{ captain }}{% endif %}</a>{% endwith %}{% endfor %})</span>
         {% endif %}
         {% if effort.starting_leader %}
             {% with leader_icon='images/Leaders/'|add:effort.starting_leader|add:'.png' %}
