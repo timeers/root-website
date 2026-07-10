@@ -610,7 +610,7 @@
 
         <div class="alert alert-info d-flex align-items-center gap-2 mt-2" role="alert">
             <i class="bi bi-info-circle"></i>
-            <small>{% trans "Enter each Faction\'s score at the end of each turn. The Score will automatically update on the other page. If you would like to record points by category (cardboard, crafting, etc) you can do so from the Game's detail page or by recording a new Scorecard in the Battlefield." %}</small>
+            <small>{% trans "Enter each Faction\'s score at the end of each turn. The Score will automatically update on the other page. If you would like to record points by category (cardboard, crafting, etc) you can do so from the Game's detail page or by recording a new Box Score in the Battlefield." %}</small>
         </div>
 
         <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
@@ -621,7 +621,7 @@
         {# d-none (display:none !important) is required to override d-flex !important; toggled in JS via updateLockedMessage() when a locked row is present. #}
         <div class="alert alert-secondary d-flex align-items-center gap-2 mt-2 d-none" id="grid-locked-msg">
             <i class="bi bi-lock-fill"></i>
-            <small>{% trans "Detailed scorecards are locked and can be edited from the Game's detail page." %}</small>
+            <small>{% trans "Detailed box scores are locked and can be edited from the Game's detail page." %}</small>
         </div>
 
 
@@ -1040,7 +1040,7 @@ window.ScorecardGrid = (function () {
                 const scoreField = document.getElementById('id_form-' + formIndex + '-score');
                 if (endingScore !== '' && scoreField) {
                     if (String(scoreField.value).trim() !== endingScore) {
-                        markError(scoreField, "{% trans 'Score does not match scorecard grid' %}");
+                        markError(scoreField, "{% trans 'Score does not match box score grid' %}");
                         if (!firstError) firstError = scoreField;
                     }
                 }

@@ -314,7 +314,7 @@
             .then(data => {
                 
             // Check if the response contains the "No scorecards found" message
-            if (data.message && data.message === "No scorecards found for this game.") {
+            if (data.message && data.message === "No box scores found for this game.") {
                 // document.getElementById('scorecardChart').innerHTML = "<p>No scorecards available for this game.</p>";
                 const factionChartsElement = document.getElementById('scorecardChart');
                 if (factionChartsElement) {

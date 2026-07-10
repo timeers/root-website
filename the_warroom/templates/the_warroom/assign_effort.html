@@ -18,9 +18,9 @@
         {% trans 'Available Game' %}
     {% endif %}</h2>
 {% if scorecard.dominance %}
-<h3>for {{ scorecard.faction.title }} Dominance Scorecard</h3>
+<h3>for {{ scorecard.faction.title }} Dominance Box Score</h3>
 {% else %}
-<h3>for {{ scorecard.total_points }} point {{ scorecard.faction.title }} Scorecard</h3>
+<h3>for {{ scorecard.total_points }} point {{ scorecard.faction.title }} Box Score</h3>
 {% endif %}
 {% if scorecard.game_group %}
     {{ scorecard.game_group }}

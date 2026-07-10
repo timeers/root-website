@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n %}
-{% block title %}Scorecards | {% endblock %}
+{% block title %}Box Scores | {% endblock %}
 {% block content %}
 
 
@@ -11,7 +11,7 @@
                 {% trans 'Profile' %}
             </a>
             <i class="bi bi-chevron-right"></i>
-            {% trans 'Scorecards' %}
+            {% trans 'Box Scores' %}
         </div>
         <div class='d-flex'>
             {% comment %} {% if user.profile.admin %}
@@ -26,7 +26,7 @@
     
     
             {% if user.profile.player %}
-                <a class="btn btn-sm btn-success mb-3 mt-1 ms-1" href="{% url 'record-scorecard' %}">{% trans 'New Scorecard' %} +</a>
+                <a class="btn btn-sm btn-success mb-3 mt-1 ms-1" href="{% url 'record-scorecard' %}">{% trans 'New Box Score' %} +</a>
             {% endif %}
             {% if user.profile.player %}
             <a href="{% url 'record-game-v2' %}" class="btn btn-sm btn-success mt-1 ms-1 mb-3" id="recordgame">
@@ -59,7 +59,7 @@
 
             <div>
                 <div class='d-flex flex-nowrap'>
-                    <h1 class="account-heading root-title">{% trans 'My Scorecards' %}</h1>
+                    <h1 class="account-heading root-title">{% trans 'My Box Scores' %}</h1>
                 </div>
     
                 
@@ -85,7 +85,7 @@
 
 <article class="d-flex content-section">
     <div class="w-100">
-        <h3>{% trans 'Completed Scorecards' %}</h3>
+        <h3>{% trans 'Completed Box Scores' %}</h3>
 <table>
     <thead>
         <tr>
@@ -107,7 +107,7 @@
 </div>
 </article>
 {% else %}
-    {% trans 'You have not recorded any scorecards' %}
+    {% trans 'You have not recorded any box scores' %}
 {% endif %}
 
 
@@ -137,8 +137,8 @@
         .then(response => response.json())  // Parse the JSON response
         .then(data => {
 
-            // Check if the response contains the "No scorecards found" message
-            if (data.message && data.message === "No scorecards found.") {
+            // Check if the response contains the "No box scores found" message
+            if (data.message && data.message === "No box scores found.") {
                 const factionChartsElement = document.getElementById('scorecardContainer');
                 if (factionChartsElement) {
                     factionChartsElement.remove();  // This will remove the entire element

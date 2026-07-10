@@ -3,7 +3,7 @@
 {% load static i18n %}
 {% block content %}
 
-<h1>{% trans 'Link a Scorecard' %}</h1>
+<h1>{% trans 'Link a Box Score' %}</h1>
 
 
 {% with effort_link.game as game %}
@@ -13,9 +13,9 @@
 
 <h2>{{ form.scorecard.field.queryset.count }} 
     {% if form.scorecard.field.queryset.count != 1 %}
-        {% trans 'Available Scorecards' %}
+        {% trans 'Available Box Scores' %}
     {% else %}
-        {% trans 'Available Scorecard' %}
+        {% trans 'Available Box Score' %}
     {% endif %}
 </h2>
 <h3>for {{ effort_link.faction.title }} Game</h3>

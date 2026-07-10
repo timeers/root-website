@@ -10,10 +10,10 @@
                 <div id='pieDescription'>
                     {% if detail_scorecard_count != 1 %}
                         {% blocktrans with detail_scorecard_count=detail_scorecard_count %}
-                        Point categories for this faction are based on {{ detail_scorecard_count }} user submitted scorecards.
+                        Point categories for this faction are based on {{ detail_scorecard_count }} user submitted box scores.
                         {% endblocktrans %}
                     {% else %}
-                        {% trans 'Point categories for this faction are based on 1 user submitted scorecard.' %}
+                        {% trans 'Point categories for this faction are based on 1 user submitted box score.' %}
                     {% endif %}<br>
                     {% trans 'Faction points are scored with faction abilities, crafting points are from crafting items, battle points are from removing cardboard in battle, other points are anything else.' %}
                 </div>

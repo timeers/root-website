@@ -1978,17 +1978,17 @@ def scorecard_detail_view(request, id=None):
     object_translation = obj.faction.translations.filter(language=language_object).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.faction.title
 
-    # Top-left back button. ?from=scorecards forces a return to "My Scorecards";
-    # otherwise fall back to the game (if linked) or "My Scorecards".
+    # Top-left back button. ?from=scorecards forces a return to "My Box Scores";
+    # otherwise fall back to the game (if linked) or "My Box Scores".
     origin = request.GET.get('from')
     if origin == 'scorecards':
-        back_url, back_label = reverse('scorecard-home'), _('My Scorecards')
+        back_url, back_label = reverse('scorecard-home'), _('My Box Scores')
     elif obj.effort:
         game = obj.effort.game
         back_url = reverse('game-detail', args=[game.id])
         back_label = game.nickname or _('Game')
     else:
-        back_url, back_label = reverse('scorecard-home'), _('My Scorecards')
+        back_url, back_label = reverse('scorecard-home'), _('My Box Scores')
 
     # Box-score grid: the whole game's grid when the scorecard is linked to a game,
     # otherwise just this scorecard's own single row.

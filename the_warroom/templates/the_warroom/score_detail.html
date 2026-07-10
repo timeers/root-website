@@ -1,6 +1,6 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n custom_filters %}
-{% block title %}{% trans 'Scorecard' %} | {% endblock %}
+{% block title %}{% trans 'Box Score' %} | {% endblock %}
 {% block content %}
 
 
@@ -13,7 +13,7 @@
 
     <div class='d-flex'>
             {% if user.profile == object.recorder %}
-            {% comment %} <a class="btn btn-primary btn-sm ms-1 mb-1" href="{% url 'scorecard-home' %}">{% trans 'My Scorecards' %} </a> {% endcomment %}
+            {% comment %} <a class="btn btn-primary btn-sm ms-1 mb-1" href="{% url 'scorecard-home' %}">{% trans 'My Box Scores' %} </a> {% endcomment %}
                 {% if object.efforts_available %}
                     <a class="btn btn-success btn-sm ms-1 mb-1" href="{% url 'assign-effort' object.id %}">
                         <i class="bi bi-link"></i>
@@ -152,8 +152,8 @@ Promise.all([
         let color = scorecardData.color ? scorecardData.color : '#000000';  // Default color if not provided
 
 
-        // Check if the response contains the "No scorecards found" message
-        if (factionData.message && factionData.message === "No scorecards found.") {
+        // Check if the response contains the "No box scores found" message
+        if (factionData.message && factionData.message === "No box scores found.") {
         const factionChartsElement = document.getElementById('lineChartContainer');
         if (factionChartsElement) {
             factionChartsElement.remove();  // This will remove the entire element
