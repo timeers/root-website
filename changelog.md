@@ -8,6 +8,8 @@
 ### Improvements
 - Starting leader icon displayed on Game Detail page
 - Captain icon replaces captain title for selected and undrafted captains on Game Detail Page (saves space)
+- caching series games and player counts instead of annotating
+- Added "Loading" above spinner to make the animation more clear
 
 ## [1.12.15] - 2026-7-08 Leaders
 

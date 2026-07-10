@@ -365,6 +365,12 @@ class Tournament(models.Model):
         default=CompetitionStatus.PENDING
     )
 
+    # Denormalized counts for the series home listing (kept in sync
+    # asynchronously via signals + update_tournament_counts). The live
+    # game_count()/all_player_count() remain the source of truth.
+    cached_game_count = models.PositiveIntegerField(default=0)
+    cached_player_count = models.PositiveIntegerField(default=0)
+
     @property
     def is_open(self):
         """Check if tournament is currently open (end_date is null or in the future)"""
@@ -488,6 +494,14 @@ class Tournament(models.Model):
 
     def all_player_count(self):
         return Effort.objects.filter(effort_counts_for_tournament_q(self)).values('player').distinct().count()
+
+    def refresh_cached_counts(self):
+        """Recompute and persist the denormalized game/player counts from the
+        live counters (the single source of truth). Called async from signals
+        and by the recalculate_tournament_counts backfill command."""
+        self.cached_game_count = self.game_count()
+        self.cached_player_count = self.all_player_count()
+        self.save(update_fields=['cached_game_count', 'cached_player_count'])
 
 
     def all_player_queryset(self):

@@ -35,6 +35,19 @@ def update_cached_winrates(objects_to_update):
 
 
 @shared_task
+def update_tournament_counts(tournament_ids):
+    """
+    Refresh the denormalized game/player counts for a list of Tournament ids.
+    Called asynchronously from signals after Game/Effort changes.
+    """
+    for pk in tournament_ids:
+        try:
+            Tournament.objects.get(pk=pk).refresh_cached_counts()
+        except Exception:
+            pass
+
+
+@shared_task
 def update_competition_statuses():
     """Update statuses for tournaments, stages, and rounds based on dates. Cascades completion to children."""
     now = timezone.now().date()
