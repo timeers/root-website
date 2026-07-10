@@ -199,9 +199,9 @@ def get_options_for_platform(request, platform):
     players = Profile.objects.all()
 
     # Serialize the data
-    decks_data = [{'id': deck.id, 'name': f'{deck.display_title}'} for deck in decks]
-    maps_data = [{'id': map.id, 'name': f'{map.display_title}'} for map in maps]
-    factions_data = [{'id': faction.id, 'name': faction.display_title} for faction in factions]
+    decks_data = [{'id': deck.id, 'name': f'{deck.display_title}', 'icon_url': deck.card_image.url if deck.card_image else None} for deck in decks]
+    maps_data = [{'id': map.id, 'name': f'{map.display_title}', 'icon_url': map.board_image.url if map.board_image else None} for map in maps]
+    factions_data = [{'id': faction.id, 'name': faction.display_title, 'icon_url': faction.small_icon.url if faction.small_icon else None} for faction in factions]
     vagabonds_data = [{'id': vagabond.id, 'name': vagabond.display_title} for vagabond in vagabonds]
     captains_data = [{'id': vagabond.id, 'name': vagabond.display_title} for vagabond in vagabonds if vagabond.captain]
     landmarks_data = [{'id': landmark.id, 'name': landmark.display_title} for landmark in landmarks]
@@ -209,9 +209,9 @@ def get_options_for_platform(request, platform):
     hirelings_data = [{'id': hireling.id, 'name': hireling.display_title} for hireling in hirelings]
 
     if platform == 'root_digital':
-        players_data = [{'id': player.id, 'name': f'{player.name} ({player.dwd})' if player.dwd else str(player)} for player in players.all()]
+        players_data = [{'id': player.id, 'name': f'{player.name} ({player.dwd})' if player.dwd else str(player), 'avatar_url': player.image.url if player.image else None} for player in players.all()]
     else:
-        players_data = [{'id': player.id, 'name': str(player)} for player in players.all()]
+        players_data = [{'id': player.id, 'name': str(player), 'avatar_url': player.image.url if player.image else None} for player in players.all()]
         
     # Return all the data in a single response
     return JsonResponse({

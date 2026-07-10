@@ -14,6 +14,45 @@ from django.utils.translation import gettext as _
 DISCORD_URL_PATTERN = re.compile(r'^https://(discord\.com|discordapp\.com)/')
 
 
+class IconSelect(forms.Select):
+    """Select widget that stamps a data-* attribute holding each option's icon
+    URL, so the client can show the icon for the selected value without an
+    extra request. `data_attr` is the attribute name (e.g. 'data-icon'); the
+    image is read from the model field named `icon_field` on each
+    ModelChoiceField instance (override per field, e.g. 'card_image')."""
+    data_attr = 'data-icon'
+    icon_field = 'small_icon'
+
+    def __init__(self, *args, icon_field=None, **kwargs):
+        if icon_field is not None:
+            self.icon_field = icon_field
+        super().__init__(*args, **kwargs)
+
+    def icon_from(self, instance):
+        icon = getattr(instance, self.icon_field, None)
+        return icon.url if icon else None
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex=subindex, attrs=attrs)
+        # `value` wraps the model instance for ModelChoiceField options; the
+        # empty/placeholder option has no instance and is skipped.
+        instance = getattr(value, 'instance', None)
+        if instance is not None:
+            url = self.icon_from(instance)
+            if url:
+                option['attrs'][self.data_attr] = url
+        return option
+
+
+class AvatarSelect(IconSelect):
+    """IconSelect variant for player avatars (Profile.image)."""
+    data_attr = 'data-avatar'
+
+    def icon_from(self, instance):
+        image = getattr(instance, 'image', None)
+        return image.url if image else None
+
+
 def _validate_rules_link(form, cleaned_data):
     """Restrict a tournament's rules_link to valid Google Drive or Dropbox URLs."""
     rules_link = cleaned_data.get('rules_link')
@@ -124,6 +163,14 @@ class GameCreateForm(forms.ModelForm):
         # external label. Use a blank empty option so the placeholder shows.
         self.fields['deck'].empty_label = ''
         self.fields['map'].empty_label = ''
+        # Show the deck/map image in the Submit summary by stamping each option
+        # with a data-icon URL (see IconSelect). Re-bind choices since swapping
+        # the widget after field init drops the field's option list. Deck uses
+        # its card_image and map uses its board_image (not the small_icon).
+        self.fields['deck'].widget = IconSelect(icon_field='card_image')
+        self.fields['map'].widget = IconSelect(icon_field='board_image')
+        self.fields['deck'].widget.choices = self.fields['deck'].choices
+        self.fields['map'].widget.choices = self.fields['map'].choices
         self.fields['deck'].widget.attrs.update({'class': 'form-control', 'aria-label': _('Deck')})
         self.fields['map'].widget.attrs.update({'class': 'form-control', 'aria-label': _('Map')})
         self.fields['random_clearing'].widget.attrs.update({'class': 'form-check-input'})
@@ -611,6 +658,13 @@ class EffortCreateForm(forms.ModelForm):
         self.fields['faction'].empty_label = ''
         self.fields['vagabond'].empty_label = ''
         self.fields['discarded_captain'].empty_label = ''
+        # Stamp each player/faction option with its avatar/icon URL so the Submit
+        # summary can show the image for the selected value (see IconSelect).
+        # Re-bind choices since swapping the widget drops the field's options.
+        self.fields['player'].widget = AvatarSelect()
+        self.fields['faction'].widget = IconSelect()
+        self.fields['player'].widget.choices = self.fields['player'].choices
+        self.fields['faction'].widget.choices = self.fields['faction'].choices
         self.fields['player'].widget.attrs.update({'data-placeholder': _('Select a Player'), 'aria-label': _('Player')})
         self.fields['faction'].widget.attrs.update({'data-placeholder': _('Select a Faction'), 'aria-label': _('Faction')})
         self.fields['vagabond'].widget.attrs.update({'data-placeholder': _('Select a Vagabond'), 'aria-label': _('Vagabond')})
