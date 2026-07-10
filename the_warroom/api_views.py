@@ -84,15 +84,15 @@ def get_options_for_tournament(request, pk):
         'round_name': round.name,
         'round_number': round.round_number,
                        }
-    decks_data = [{'id': deck.id, 'name': f'{deck.title}'} for deck in decks.all()]
-    maps_data = [{'id': map.id, 'name': f'{map.title}'} for map in maps.all()]
-    factions_data = [{'id': faction.id, 'name': faction.title} for faction in factions.all()]
+    decks_data = [{'id': deck.id, 'name': f'{deck.title}', 'icon_url': deck.card_image.url if deck.card_image else None} for deck in decks.all()]
+    maps_data = [{'id': map.id, 'name': f'{map.title}', 'icon_url': map.board_image.url if map.board_image else None} for map in maps.all()]
+    factions_data = [{'id': faction.id, 'name': faction.title, 'icon_url': faction.small_icon.url if faction.small_icon else None} for faction in factions.all()]
     vagabonds_data = [{'id': vagabond.id, 'name': vagabond.title} for vagabond in vagabonds.all()]
     captains_data = [{'id': vagabond.id, 'name': vagabond.title} for vagabond in vagabonds.filter(captain=True)]
     landmarks_data = [{'id': landmark.id, 'name': landmark.title} for landmark in landmarks.all()]
     tweaks_data = [{'id': tweak.id, 'name': tweak.title} for tweak in tweaks.all()]
     hirelings_data = [{'id': hireling.id, 'name': hireling.title} for hireling in hirelings.all()]
-    players_data = [{'id': player.id, 'name': f'{player.name} ({player.discord})'} for player in players.all()]
+    players_data = [{'id': player.id, 'name': f'{player.name} ({player.discord})', 'avatar_url': player.image.url if player.image else None} for player in players.all()]
 
     # Return all the data in a single response
     return JsonResponse({

@@ -1,0 +1,109 @@
+{% load i18n %}
+<style>
+    #submit-summary-details .summary-map-icon {
+        max-height: 200px;
+        max-width: 200px;
+        height: auto;
+        width: auto;
+        border-radius: 6px;
+    }
+    #submit-summary-details .summary-deck-icon {
+        max-height: 120px;
+        max-width: 120px;
+        height: auto;
+        width: auto;
+        border-radius: 6px;
+    }
+    /* Dominance icon shown in place of the score — mirrors .sg-dom-icon in
+       box_score.html. */
+    #submit-summary-seats .summary-dom-icon {
+        height: 1.4em;
+        width: auto;
+        vertical-align: middle;
+    }
+    /* Brazen Demagogue (non-win): score (front, down-left) and dominance icon
+       (behind, up-right) clustered around the centre — mirrors box_score's
+       .sg-dom-icon-corner / .sg-both-score. Both are absolutely positioned, so
+       the value sits in a fixed-size box (like the grid's 38px cell) to give
+       them a stable reference. */
+    #submit-summary-seats .summary-both {
+        position: relative;
+        display: inline-block;
+        width: 38px;
+        height: 1.6em;
+        vertical-align: middle;
+    }
+    #submit-summary-seats .summary-both-score {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-110%, -5%);
+        font-size: 0.8em;
+        line-height: 1;
+        font-weight: bold;
+        z-index: 2;
+    }
+    #submit-summary-seats .summary-dom-icon-corner {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-20%, -65%);
+        height: 1.1em;
+        width: auto;
+        z-index: 1;
+    }
+    /* One seat cell: a fixed horizontal gap between pairs (via side margins),
+       centered as a group by the container's justify-content-center. */
+    #submit-summary-seats .summary-seat {
+        margin: 0 12px;
+    }
+    /* Fixed-height icon row so the score below always starts at the same
+       vertical position across seats, regardless of icon height differences.
+       Icons are vertically centered within it. */
+    #submit-summary-seats .summary-seat-icons {
+        height: 44px;
+    }
+    /* Winner badge overlaid on the winning seat's score, centered, without
+       affecting layout — mirrors .sg-winner in box_score.html. */
+    #submit-summary-seats .summary-winner {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        height: 1.9em;
+        width: auto;
+        pointer-events: none;
+        z-index: 5;
+    }
+</style>
+<div class="modal fade" id="submitGameModal" tabindex="-1" aria-labelledby="submitGameModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="submitGameModalLabel">
+                    <i class="bi bi-check-circle"></i> {% trans 'Submit Game' %}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <p>{% trans 'Review the game before submitting. Submitting records the final score and counts the game towards stats.' %}</p>
+
+                {# Deck (medium, left) + Map (large) centered on one line. #}
+                <div class="d-flex justify-content-center align-items-center gap-2 mb-3" id="submit-summary-details">
+                    <span id="submit-summary-deck">—</span>
+                    <span id="submit-summary-map">—</span>
+                </div>
+
+                {# One cell per seat (player avatar + faction icon, score beneath), with a fixed gap between pairs; the whole line stays centered. Filled by JS on modal open. #}
+                <div class="d-flex flex-wrap justify-content-center align-items-start" id="submit-summary-seats">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Back' %}</button>
+                <button type="button" class="btn btn-success" id="submit-game-confirm">
+                    <i class="bi bi-check-circle"></i> {% trans 'Submit Game' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

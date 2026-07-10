@@ -1978,17 +1978,17 @@ def scorecard_detail_view(request, id=None):
     object_translation = obj.faction.translations.filter(language=language_object).first()
     object_title = object_translation.translated_title if object_translation and object_translation.translated_title else obj.faction.title
 
-    # Top-left back button. ?from=scorecards forces a return to "My Scorecards";
-    # otherwise fall back to the game (if linked) or "My Scorecards".
+    # Top-left back button. ?from=scorecards forces a return to "My Box Scores";
+    # otherwise fall back to the game (if linked) or "My Box Scores".
     origin = request.GET.get('from')
     if origin == 'scorecards':
-        back_url, back_label = reverse('scorecard-home'), _('My Scorecards')
+        back_url, back_label = reverse('scorecard-home'), _('My Box Scores')
     elif obj.effort:
         game = obj.effort.game
         back_url = reverse('game-detail', args=[game.id])
         back_label = game.nickname or _('Game')
     else:
-        back_url, back_label = reverse('scorecard-home'), _('My Scorecards')
+        back_url, back_label = reverse('scorecard-home'), _('My Box Scores')
 
     # Box-score grid: the whole game's grid when the scorecard is linked to a game,
     # otherwise just this scorecard's own single row.
@@ -2467,15 +2467,17 @@ def _round_base_context(request, tournament, stage, round):
 
 
 def _attach_counted_game_player_counts(children):
-    """Set ``annotated_game_count`` / ``unique_players_count`` on overview cards
+    """Set ``cached_game_count`` / ``cached_player_count`` on overview cards
     (Stage or Round objects) using the counting helpers so games from a child's
-    ``extra_rounds`` are included. Done in Python rather than as DB annotations
-    because the primary and extra reverse relations can't be distinct-counted and
-    summed without double-counting a game that is both within the same parent.
+    ``extra_rounds`` are included. These use the same attribute names the shared
+    series_list_item.html partial reads (Tournaments have them as real cached
+    fields). Done in Python rather than as DB annotations because the primary and
+    extra reverse relations can't be distinct-counted and summed without
+    double-counting a game that is both within the same parent.
     """
     for child in children:
-        child.annotated_game_count = child.game_count()
-        child.unique_players_count = child.all_player_count
+        child.cached_game_count = child.game_count()
+        child.cached_player_count = child.all_player_count
     return children
 
 
@@ -3478,31 +3480,10 @@ def _get_series_base_queryset(classification, profile=None):
     qs = Tournament.objects.filter(classification=classification)
 
     now = timezone.now().date()
-    # Game/player counts via subqueries on the counting helpers so games linked to a
-    # tournament through extra_rounds are included (and not double-counted) — a plain
-    # annotation can't union the primary and extra reverse relations.
-    game_count_subquery = Subquery(
-        Game.objects.counting_for_tournament(OuterRef('pk'))
-        .filter(final=True)
-        .order_by()
-        .annotate(group=Value(1))
-        .values('group')
-        .annotate(c=Count('pk', distinct=True))
-        .values('c')[:1],
-        output_field=IntegerField()
-    )
-    player_count_subquery = Subquery(
-        Effort.objects.filter(effort_counts_for_tournament_q(OuterRef('pk')))
-        .order_by()
-        .annotate(group=Value(1))
-        .values('group')
-        .annotate(c=Count('player', distinct=True))
-        .values('c')[:1],
-        output_field=IntegerField()
-    )
+    # Game/player counts come from the denormalized cached_game_count /
+    # cached_player_count fields (kept in sync via signals) — computing them as
+    # correlated subqueries here was the main cause of slow series-home loads.
     qs = qs.annotate(
-        annotated_game_count=Coalesce(game_count_subquery, Value(0)),
-        unique_players_count=Coalesce(player_count_subquery, Value(0)),
         annotated_scheduled_count=Count(
             'stages__rounds__series__matches',
             filter=Q(

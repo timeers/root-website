@@ -46,7 +46,8 @@
 
         <!-- Spinners outside tab-pane so Bootstrap visibility doesn't interfere -->
         <div id="spinner-groups" class="htmx-indicator">
-            <div class="d-flex justify-content-center pt-4">
+            <div class="d-flex flex-column align-items-center pt-4">
+                <div class="spinner-loading-text" aria-live="polite">{% trans 'Loading' %}<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
                 <div class="image-container">
                     <img class="image back-image" src="{% static 'images/backgroundbushes.webp' %}" alt="Background Bushes">
                     <img class="image top-image" src="{% static 'images/smallbush.webp' %}" alt="Small Bush">
@@ -55,7 +56,8 @@
             </div>
         </div>
         <div id="spinner-leagues" class="htmx-indicator">
-            <div class="d-flex justify-content-center pt-4">
+            <div class="d-flex flex-column align-items-center pt-4">
+                <div class="spinner-loading-text" aria-live="polite">{% trans 'Loading' %}<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
                 <div class="image-container">
                     <img class="image back-image" src="{% static 'images/backgroundbushes.webp' %}" alt="Background Bushes">
                     <img class="image top-image" src="{% static 'images/smallbush.webp' %}" alt="Small Bush">

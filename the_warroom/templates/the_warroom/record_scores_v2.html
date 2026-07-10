@@ -339,9 +339,9 @@
             {% endif %}
             <h1 class="scorecard-title">
                 {% if object.id %}
-                    {% trans 'Update Scorecard' %}
+                    {% trans 'Update Box Score' %}
                 {% else %}
-                    {% trans 'Record Scorecard' %}
+                    {% trans 'Record Box Score' %}
                 {% endif %}
             </h1>
         </div>
@@ -368,7 +368,7 @@
             <ul class="mb-0">
                 <li>{% trans 'Record turn-by-turn points for each faction to track scoring pace.' %}</li>
                 <li>{% trans 'Use "Detailed" to break down points by category (Faction, Crafting, Battle, Other).' %}</li>
-                <li>{% trans 'Use "Game Nickname" to group multiple scorecards from the same game for easy navigation.' %}</li>
+                <li>{% trans 'Use "Game Nickname" to group multiple box scores from the same game for easy navigation.' %}</li>
                 <li>{% trans 'Click "Play Dominance" if dominance was played during the game.' %}</li>
                 <li>You can delete any turn by clicking <i class="bi bi-trash"></i> or <i class="bi bi-x-circle ms-1"></i>.</li>
                 <li>You can add a turn by clicking <i class="bi bi-plus-circle"></i>.</li>
@@ -439,7 +439,7 @@
                         <div class="game-group-section w-100">
                             <label class="form-label" for="{{ form.game_group.id_for_label }}">
                                 <i class="bi bi-collection"></i> {% trans 'Game Nickname' %}
-                                <small class="text-muted">({% trans 'Group multiple scorecards together' %})</small>
+                                <small class="text-muted">({% trans 'Group multiple box scores together' %})</small>
                             </label>
                             <input
                                 type="text"
@@ -1243,7 +1243,7 @@ $(document).ready(function () {
                 errorDiv.style.display = 'block';
                 gameGroupField.parentElement.appendChild(errorDiv);
             }
-            errorDiv.textContent = '{% trans "Please enter a Game Nickname to group scorecards together." %}';
+            errorDiv.textContent = '{% trans "Please enter a Game Nickname to group box scores together." %}';
 
             // Scroll to the field
             gameGroupField.scrollIntoView({ behavior: 'smooth', block: 'center' });

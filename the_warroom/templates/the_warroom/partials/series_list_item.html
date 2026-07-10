@@ -15,7 +15,7 @@
                 </div>
             {% endif %}
             <small class="text-secondary d-block">
-                {{ item.annotated_game_count }} {% trans 'game' %}{{ item.annotated_game_count|pluralize }}
+                {{ item.cached_game_count }} {% trans 'game' %}{{ item.cached_game_count|pluralize }}
                 {% if item.annotated_scheduled_count %}
                     &middot;
                     {{ item.annotated_scheduled_count }} {% trans 'scheduled' %}
@@ -25,7 +25,7 @@
                     {{ item.annotated_pending_count }} {% trans 'pending' %}
                 {% endif %}
                 &middot;
-                {{ item.unique_players_count }} {% trans 'player' %}{{ item.unique_players_count|pluralize }}
+                {{ item.cached_player_count }} {% trans 'player' %}{{ item.cached_player_count|pluralize }}
                 {% if item.start_date %}
                     &middot; {{ item.start_date|date:"M d, Y" }}
                 {% endif %}

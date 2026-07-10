@@ -564,14 +564,15 @@
         </div>
     </div>
 
-    <button class="btn btn-success mb-2 mt-2" id="save" type="submit">{% trans 'Submit' %}</button>
-    <button class="btn btn-warning mb-2 mt-2" id="save-progress" type="button">{% trans 'Save Progress' %}</button>
+    {% comment %} Real submit button — kept for the existing submit guard/validation. Hidden;
+       the Submit modal's confirm button clicks it. {% endcomment %}
+    <button class="d-none" id="save" type="submit" aria-hidden="true" tabindex="-1"></button>
 
+    <button class="btn btn-success mb-2 mt-2" id="submit-btn" type="button" data-bs-toggle="modal" data-bs-target="#submitGameModal">{% trans 'Submit' %}</button>
+    <button class="btn btn-warning mb-2 mt-2" id="save-progress" type="button" data-bs-toggle="modal" data-bs-target="#saveProgressModal">{% trans 'Save Progress' %}</button>
+    <button class="btn btn-secondary mb-2 mt-2" type="button" data-bs-toggle="modal" data-bs-target="#cancelGameModal">{% trans 'Cancel' %}</button>
     {% if object.id %}
-        <a class="btn btn-secondary mb-2 mt-2" href="{{ object.get_absolute_url }}">{% trans 'Cancel' %}</a>
-        <a class="btn btn-danger mb-2 mt-2" href="{{ object.get_delete_url }}">{% trans 'Delete' %}</a>
-    {% else %}
-        <a class="btn btn-secondary mb-2 mt-2" href="{% url 'games-home' %}">{% trans 'Cancel' %}</a>
+        <button class="btn btn-danger mb-2 mt-2" type="button" data-bs-toggle="modal" data-bs-target="#deleteGameModal">{% trans 'Delete' %}</button>
     {% endif %}
     </div>{# /#main-panel #}
 
@@ -609,7 +610,7 @@
 
         <div class="alert alert-info d-flex align-items-center gap-2 mt-2" role="alert">
             <i class="bi bi-info-circle"></i>
-            <small>{% trans "Enter each Faction\'s score at the end of each turn. The Score will automatically update on the other page. If you would like to record points by category (cardboard, crafting, etc) you can do so from the Game's detail page or by recording a new Scorecard in the Battlefield." %}</small>
+            <small>{% trans "Enter each Faction\'s score at the end of each turn. The Score will automatically update on the other page. If you would like to record points by category (cardboard, crafting, etc) you can do so from the Game's detail page or by recording a new Box Score in the Battlefield." %}</small>
         </div>
 
         <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
@@ -620,7 +621,7 @@
         {# d-none (display:none !important) is required to override d-flex !important; toggled in JS via updateLockedMessage() when a locked row is present. #}
         <div class="alert alert-secondary d-flex align-items-center gap-2 mt-2 d-none" id="grid-locked-msg">
             <i class="bi bi-lock-fill"></i>
-            <small>{% trans "Detailed scorecards are locked and can be edited from the Game's detail page." %}</small>
+            <small>{% trans "Detailed box scores are locked and can be edited from the Game's detail page." %}</small>
         </div>
 
 
@@ -629,6 +630,16 @@
     </div>{# /#form-slider-track #}
     </div>{# /#form-slider-viewport #}
 </form>
+
+ {% comment %} Modals live outside the form's transformed slider container so Bootstrap can
+   position them fixed to the viewport. The Submit / Save Progress confirm
+   buttons click the hidden #save submit button inside the form via JS.  {% endcomment %}
+{% include 'the_warroom/modals/submit_game_modal.html' %}
+{% include 'the_warroom/modals/save_progress_modal.html' %}
+{% include 'the_warroom/modals/cancel_game_modal.html' %}
+{% if object.id %}
+    {% include 'the_warroom/modals/delete_game_modal.html' %}
+{% endif %}
 
 {% if not match_mode %}
 {% include 'the_keep/partials/register_player_modal.html' %}
@@ -1029,7 +1040,7 @@ window.ScorecardGrid = (function () {
                 const scoreField = document.getElementById('id_form-' + formIndex + '-score');
                 if (endingScore !== '' && scoreField) {
                     if (String(scoreField.value).trim() !== endingScore) {
-                        markError(scoreField, "{% trans 'Score does not match scorecard grid' %}");
+                        markError(scoreField, "{% trans 'Score does not match box score grid' %}");
                         if (!firstError) firstError = scoreField;
                     }
                 }
@@ -1458,6 +1469,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const option = document.createElement('option');
             option.value = item.id;
             option.text = item.name;
+            // Mirror the server-rendered IconSelect/AvatarSelect options so the
+            // Submit summary can show icons for API-refreshed dropdowns too.
+            if (item.icon_url) option.dataset.icon = item.icon_url;
+            if (item.avatar_url) option.dataset.avatar = item.avatar_url;
             selectElement.appendChild(option);
 
             if (currentSelections.includes(String(item.id))) {
@@ -2173,16 +2188,170 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     {% endif %}
 
-    // ── Save Progress button ──
-    const saveProgressButton = document.getElementById('save-progress');
+    // ── Modal confirm buttons ──
+    // The Submit / Save Progress buttons open a confirmation modal; their modal
+    // confirm buttons funnel through the hidden #save submit button so the
+    // existing submit guard/validation still runs.
     const submitButton = document.getElementById('save');
-    if (saveProgressButton) {
-        saveProgressButton.addEventListener('click', function() {
+
+    // Submit confirm: submit the game with final=True (the default).
+    const submitConfirm = document.getElementById('submit-game-confirm');
+    if (submitConfirm) {
+        submitConfirm.addEventListener('click', function() {
+            if (formIsSubmitting) return;
+            document.getElementById('final').value = 'True';
+            if (submitButton) submitButton.click();
+        });
+    }
+
+    // Save Progress confirm: save as a draft with final=False.
+    const saveProgressConfirm = document.getElementById('save-progress-confirm');
+    if (saveProgressConfirm) {
+        saveProgressConfirm.addEventListener('click', function() {
             if (formIsSubmitting) return;
             document.getElementById('final').value = 'False';
             if (submitButton) submitButton.click();
         });
     }
+
+    // ── Submit summary modal ──
+    // Build a fresh game summary from the live form each time the modal opens so
+    // it reflects the current selections and drag-reordered seat order.
+    (function () {
+        const submitModal = document.getElementById('submitGameModal');
+        if (!submitModal) return;
+
+        // Winner badge image — matches the box score grid (box_score.html).
+        const WINNER_SRC = "{% static 'images/winner.png' %}";
+
+        // Return {text, icon} for the selected option of a select, reading the
+        // data-icon/data-avatar URL stamped on the option (server-rendered or
+        // rebuilt from the API). `dataKey` is 'icon' or 'avatar'.
+        function selected(selectEl, dataKey) {
+            if (!selectEl || selectEl.selectedIndex < 0) return { text: '', icon: null };
+            const opt = selectEl.options[selectEl.selectedIndex];
+            if (!opt || !opt.value) return { text: '', icon: null };
+            return { text: (opt.text || '').trim(), icon: opt.dataset ? (opt.dataset[dataKey] || null) : null };
+        }
+
+        function iconImg(url, cls) {
+            if (!url) return '';
+            const img = document.createElement('img');
+            img.className = cls;
+            img.src = url;
+            img.alt = '';
+            return img.outerHTML;
+        }
+
+        // Set a deck/map slot to its icon image, or a "—" fallback.
+        function setIconSlot(el, info, iconClass) {
+            if (!el) return;
+            el.innerHTML = info.icon ? iconImg(info.icon, iconClass) : '<span class="text-muted">—</span>';
+            if (info.text) el.setAttribute('title', info.text); else el.removeAttribute('title');
+        }
+
+        function escapeHtml(s) {
+            const div = document.createElement('div');
+            div.textContent = s;
+            return div.innerHTML;
+        }
+
+        submitModal.addEventListener('show.bs.modal', function () {
+            const deckInfo = selected(document.getElementById('id_deck'), 'icon');
+            const mapInfo = selected(document.getElementById('id_map'), 'icon');
+            setIconSlot(document.getElementById('submit-summary-deck'), deckInfo, 'summary-deck-icon');
+            setIconSlot(document.getElementById('submit-summary-map'), mapInfo, 'summary-map-icon');
+
+            const seatsEl = document.getElementById('submit-summary-seats');
+            seatsEl.innerHTML = '';
+
+            const rows = document.querySelectorAll('#effort-form-list .effort-form:not(.hidden)');
+            let seatNum = 0;
+            rows.forEach(function (row) {
+                const id = row.getAttribute('id');
+                if (!id) return;
+                const i = id.replace('form-', '');
+                seatNum++;
+
+                const playerInfo = selected(document.getElementById('id_form-' + i + '-player'), 'avatar');
+                const factionInfo = selected(document.getElementById('id_form-' + i + '-faction'), 'icon');
+                const scoreEl = document.getElementById('id_form-' + i + '-score');
+                const winEl = document.getElementById('id_form-' + i + '-win');
+                const domEl = document.getElementById('id_form-' + i + '-dominance');
+                const brazenEl = document.getElementById('id_form-' + i + '-brazen_demagogue');
+
+                const score = (scoreEl && scoreEl.value !== '') ? scoreEl.value : '—';
+                const isWin = winEl && winEl.checked;
+                const domType = domEl ? domEl.value : '';
+                const domIcon = domType ? DOMINANCE_ICONS[domType] : null;
+                const isBrazen = brazenEl && brazenEl.checked;
+                const scoreNum = scoreEl && scoreEl.value !== '' ? parseInt(scoreEl.value, 10) : null;
+
+                // Decide how to render the seat's deciding value — mirrors the
+                // box score grid's cell modes (_expand_grid_rows in utils.py):
+                //   'score' → score only; 'icon' → dominance icon in place of
+                //   the score; 'both' → score + dominance tag (Brazen, non-win).
+                let mode = 'score';
+                if (domIcon) {
+                    if (isBrazen) {
+                        if (isWin) {
+                            mode = (scoreNum !== null && scoreNum >= 30) ? 'score' : 'icon';
+                        } else {
+                            mode = 'both';
+                        }
+                    } else {
+                        mode = 'icon';
+                    }
+                }
+
+                // Player avatar then faction icon. Clockwork/no-player seats show
+                // the faction icon only (no avatar slot).
+                let icons = '';
+                if (playerInfo.text && playerInfo.icon) {
+                    icons += iconImg(playerInfo.icon, 'md-avatar-icon');
+                }
+                if (factionInfo.icon) {
+                    icons += iconImg(factionInfo.icon, 'lg-faction-icon');
+                }
+
+                const cell = document.createElement('div');
+                cell.className = 'summary-seat d-flex flex-column align-items-center';
+                if (playerInfo.text) cell.setAttribute('title', playerInfo.text + ' — ' + (factionInfo.text || ''));
+                else if (factionInfo.text) cell.setAttribute('title', factionInfo.text);
+                // Winner badge overlays the score, centered, without changing
+                // layout — mirrors the box score grid (.sg-winner in box_score.html).
+                const winnerBadge = isWin
+                    ? '<img src="' + WINNER_SRC + '" alt="{% trans "Winner" %}" title="{% trans "Winner" %}" class="summary-winner">'
+                    : '';
+                // Render the deciding value per the mode (box score behaviour).
+                const domAlt = escapeHtml(domType) + ' {% trans "Dominance" %}';
+                let scoreContent;
+                if (mode === 'icon') {
+                    scoreContent = '<img src="' + domIcon + '" alt="' + domAlt + '" title="' + domAlt + '" class="summary-dom-icon">';
+                } else if (mode === 'both') {
+                    // Brazen (non-win): score (front, down-left) + dominance icon
+                    // (behind, up-right), clustered in a fixed-size box.
+                    scoreContent =
+                        '<span class="summary-both">' +
+                            '<img src="' + domIcon + '" alt="' + domAlt + '" title="' + domAlt + '" class="summary-dom-icon-corner">' +
+                            '<span class="summary-both-score">' + escapeHtml(String(score)) + '</span>' +
+                        '</span>';
+                } else {
+                    scoreContent = '<strong>' + escapeHtml(String(score)) + '</strong>';
+                }
+                cell.innerHTML =
+                    '<div class="summary-seat-icons d-flex align-items-center justify-content-center">' + icons + '</div>' +
+                    '<div class="mt-1 position-relative d-inline-block">' + scoreContent +
+                        winnerBadge +
+                    '</div>';
+                seatsEl.appendChild(cell);
+            });
+
+            if (seatNum === 0) {
+                seatsEl.innerHTML = '<div class="text-muted">{% trans "No players added yet." %}</div>';
+            }
+        });
+    })();
 
     // ── Platform / timing toggle ──
     if (!matchMode && platformSelect) {

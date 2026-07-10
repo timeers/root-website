@@ -1,0 +1,26 @@
+{% load i18n %}
+<div class="modal fade" id="saveProgressModal" tabindex="-1" aria-labelledby="saveProgressModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title" id="saveProgressModalLabel">
+                    <i class="bi bi-hourglass-split"></i> {% trans 'Save Progress' %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle-fill"></i>
+                    {% blocktrans %}This saves the game as a draft. The final score will <strong>not</strong> be submitted, so it will not count towards stats yet.{% endblocktrans %}
+                </div>
+                <p>{% blocktrans %}To submit the game and record the final score, click <strong>Submit</strong> instead.{% endblocktrans %}</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-warning" id="save-progress-confirm">
+                    <i class="bi bi-hourglass-split"></i> {% trans 'Save Progress' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

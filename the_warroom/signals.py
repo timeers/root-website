@@ -1,7 +1,41 @@
-from django.db.models.signals import pre_delete, pre_save, post_save, post_delete
+from django.db.models.signals import pre_delete, pre_save, post_save, post_delete, m2m_changed
 from django.dispatch import receiver
 from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, CompetitionStatus
 from .services.slugify_titles import slugify_tournament_name, slugify_round_name, slugify_stage_name
+
+
+def _tournament_ids_for_game(game):
+    """Set of tournament ids a game counts toward — via its primary round's
+    stage.tournament and any extra_rounds' stage.tournament. Mirrors
+    Game.objects.counting_for_tournament()."""
+    ids = set()
+    round_id = getattr(game, 'round_id', None)
+    if round_id:
+        tid = Round.objects.filter(pk=round_id).values_list('stage__tournament_id', flat=True).first()
+        if tid:
+            ids.add(tid)
+    if game.pk:
+        ids.update(
+            Round.objects.filter(extra_games=game)
+            .values_list('stage__tournament_id', flat=True)
+        )
+    ids.discard(None)
+    return ids
+
+
+def _tournament_ids_for_round(round_id):
+    """Tournament id for a round id (via stage.tournament), or empty set."""
+    if not round_id:
+        return set()
+    tid = Round.objects.filter(pk=round_id).values_list('stage__tournament_id', flat=True).first()
+    return {tid} if tid else set()
+
+
+def _enqueue_tournament_counts(ids):
+    ids = {i for i in ids if i}
+    if ids:
+        from .tasks import update_tournament_counts
+        update_tournament_counts.delay(list(ids))
 
 @receiver(pre_save, sender=Effort)
 def effort_pre_save_snapshot(sender, instance, **kwargs):
@@ -91,6 +125,18 @@ def handle_effort_delete_update_winrates(sender, instance, **kwargs):
         update_cached_winrates.delay([_obj_to_tuple(obj) for obj in objects])
 
 
+@receiver(post_save, sender=Effort)
+@receiver(post_delete, sender=Effort)
+def handle_effort_change_update_counts(sender, instance, **kwargs):
+    """Player counts depend on efforts — refresh the game's tournament counts."""
+    if instance.game_id:
+        try:
+            game = instance.game
+        except Game.DoesNotExist:
+            return
+        _enqueue_tournament_counts(_tournament_ids_for_game(game))
+
+
 def _slug_should_follow_name(instance, model_class, update_fields):
     """Return True if the slug should be regenerated because the name changed.
 
@@ -148,12 +194,13 @@ def stage_post_save(sender, instance, created, *args, **kwargs):
 
 @receiver(pre_save, sender=Game)
 def game_pre_save_snapshot(sender, instance, **kwargs):
-    """Snapshot final and test_match so post_save can detect changes."""
+    """Snapshot final, test_match and round so post_save can detect changes."""
     if instance.pk:
         try:
             old = Game.objects.get(pk=instance.pk)
             instance._pre_save_final = old.final
             instance._pre_save_test_match = old.test_match
+            instance._pre_save_round_id = old.round_id
         except Game.DoesNotExist:
             pass
 
@@ -217,3 +264,47 @@ def game_post_save_check_match(sender, instance, **kwargs):
         if objects_to_update:
             from .tasks import update_cached_winrates
             update_cached_winrates.delay(objects_to_update)
+
+
+@receiver(post_save, sender=Game)
+def game_post_save_update_counts(sender, instance, **kwargs):
+    """Refresh cached tournament counts when a game's countable state changes.
+    Includes the old round's tournament when the game moved rounds."""
+    ids = _tournament_ids_for_game(instance)
+    old_round_id = getattr(instance, '_pre_save_round_id', None)
+    if old_round_id and old_round_id != instance.round_id:
+        ids |= _tournament_ids_for_round(old_round_id)
+    _enqueue_tournament_counts(ids)
+
+
+@receiver(pre_delete, sender=Game)
+def game_pre_delete_snapshot_counts(sender, instance, **kwargs):
+    """Snapshot the tournaments this game counts toward before it's deleted so
+    post_delete can refresh them (relations are gone after delete)."""
+    instance._pre_delete_tournament_ids = _tournament_ids_for_game(instance)
+
+
+@receiver(post_delete, sender=Game)
+def game_post_delete_update_counts(sender, instance, **kwargs):
+    _enqueue_tournament_counts(getattr(instance, '_pre_delete_tournament_ids', set()))
+
+
+@receiver(m2m_changed, sender=Game.extra_rounds.through)
+def game_extra_rounds_changed_update_counts(sender, instance, action, pk_set, **kwargs):
+    """Refresh counts for tournaments gained/lost via the extra_rounds M2M.
+    Snapshot before a clear (pk_set is empty on pre_clear)."""
+    if action == 'pre_clear':
+        instance._pre_clear_extra_tournament_ids = set(
+            Round.objects.filter(extra_games=instance)
+            .values_list('stage__tournament_id', flat=True)
+        )
+        return
+    ids = set()
+    if action in ('post_add', 'post_remove') and pk_set:
+        ids = set(
+            Round.objects.filter(pk__in=pk_set)
+            .values_list('stage__tournament_id', flat=True)
+        )
+    elif action == 'post_clear':
+        ids = getattr(instance, '_pre_clear_extra_tournament_ids', set())
+    _enqueue_tournament_counts(ids)

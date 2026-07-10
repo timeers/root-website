@@ -109,7 +109,7 @@ class GameScorecardView(APIView):
 
         if not scorecards.exists():
             return Response({
-                "message": "No scorecards found for this game."
+                "message": "No box scores found for this game."
             }, status=status.HTTP_200_OK)
 
         all_scorecards_data = []
@@ -161,7 +161,7 @@ class FactionAverageTurnScoreView(APIView):
         scorecard_count = len(turns_lists)
         if scorecard_count == 0:
             return Response({
-                "message": "No scorecards found."
+                "message": "No box scores found."
             }, status=status.HTTP_200_OK)
 
         averages, totals = aggregate_turns(turns_lists)
@@ -242,7 +242,7 @@ class PlayerScorecardView(APIView):
         # Check if there are no scorecards
         if not scorecards.exists():
             return Response({
-                "message": "No scorecards found."
+                "message": "No box scores found."
             }, status=status.HTTP_200_OK)
 
         # Get all faction IDs from scorecards

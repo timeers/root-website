@@ -9,15 +9,15 @@
     <h3 class='root-title'>{% trans 'In Progress' %}</h3>
     {% if in_progress_games_count and in_progress_scorecards_count %}
         {% blocktrans with in_progress_scorecards_count=in_progress_scorecards_count in_progress_games_count=in_progress_games_count %}
-            You have {{ in_progress_scorecards_count }} unlinked Scorecard(s) and {{ in_progress_games_count }} in progress Game(s). Once complete each Scorecard should be linked to a matching Game and each Game should be finalized by clicking "Submit".
+            You have {{ in_progress_scorecards_count }} unlinked Box Score(s) and {{ in_progress_games_count }} in progress Game(s). Once complete each Box Score should be linked to a matching Game and each Game should be finalized by clicking "Submit".
         {% endblocktrans %}
     {% elif in_progress_games_count %}
         {% blocktrans with in_progress_games_count=in_progress_games_count %}
-            You have {{ in_progress_games_count }} in progress Game(s) and no unlinked Scorecards. Once the game is completed, click "Submit" to finalize it.
+            You have {{ in_progress_games_count }} in progress Game(s) and no unlinked Box Scores. Once the game is completed, click "Submit" to finalize it.
         {% endblocktrans %}
     {% elif in_progress_scorecards_count %}
         {% blocktrans with in_progress_scorecards_count=in_progress_scorecards_count %}
-            You have {{ in_progress_scorecards_count }} unlinked Scorecard(s) and no in process Games. Once complete, link each Scorecard to a matching Game.
+            You have {{ in_progress_scorecards_count }} unlinked Box Score(s) and no in process Games. Once complete, link each Box Score to a matching Game.
         {% endblocktrans %}
     {% else %}
         {% trans "You're all up to date. You have no in progress games."%}
@@ -33,10 +33,10 @@
 <article class="d-flex content-section">
     <div class="w-100">
     <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h3 class='root-title'>{% trans 'Scorecards' %} ({{ in_progress_scorecards_count }})</h3>
+        <h3 class='root-title'>{% trans 'Box Scores' %} ({{ in_progress_scorecards_count }})</h3>
         </div>   
     
-            {% trans 'These scorecards have not been linked with a game:' %}
+            {% trans 'These box scores have not been linked with a game:' %}
     
 
             <table>
