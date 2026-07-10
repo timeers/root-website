@@ -24,14 +24,13 @@ def get_theme(request):
         current_theme = None  # No active holiday theme
     
     # Determine the theme to use
-    if current_theme:
-        theme = current_theme
+    if request.user.is_authenticated and request.user.profile.theme:
+        theme = request.user.profile.theme  # User's theme takes precedence
+    elif current_theme:
+        theme = current_theme  # Active holiday theme
     else:
-        if request.user.is_authenticated and request.user.profile.theme:
-            theme = request.user.profile.theme  # User's theme if authenticated
-        else:
-            theme = config.default_theme  # Default theme if user is not authenticated
-    
+        theme = config.default_theme  # Default theme fallback
+
     return theme
 
 
