@@ -589,7 +589,7 @@ em, i {
 
   /* Keep the whole "(captain icons)" group on one line so it wraps to the next
      line as a single unit rather than splitting a paren/icon off on its own. */
-  .captain-group {
+  .character-group {
     display: inline-block;
     white-space: nowrap;
   }

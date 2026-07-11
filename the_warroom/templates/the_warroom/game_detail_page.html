@@ -110,10 +110,10 @@
                         <div class='root-title'>
                             <a href="{% url 'faction-detail' game.undrafted_faction.slug %}">{{ game.undrafted_faction }}</a>
                             {% if game.undrafted_vagabond %}
-                                (<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)
+                                <span class="character-group">(<a href="{% url 'vagabond-detail' game.undrafted_vagabond.slug %}">{{ game.undrafted_vagabond }}</a>)</span>
                             {% endif %}
                             {% if game.undrafted_captains.all %}
-                                <span class="captain-group">({% for captain in game.undrafted_captains.all %}{% with pawn=captain.otherpieces.first %}<a href="{% url 'captain-detail' slug=captain.slug %}" title="{{ captain }}">{% if pawn.small_icon %}<img class="captain-icon" src="{{ pawn.small_icon|cache_bust:pawn.front_version }}" alt="{{ captain }}">{% else %}{{ captain }}{% endif %}</a>{% endwith %}{% endfor %})</span>
+                                <span class="character-group">({% for captain in game.undrafted_captains.all %}{% with pawn=captain.otherpieces.first %}<a href="{% url 'captain-detail' slug=captain.slug %}" title="{{ captain }}">{% if pawn.small_icon %}<img class="captain-icon" src="{{ pawn.small_icon|cache_bust:pawn.front_version }}" alt="{{ captain }}">{% else %}{{ captain }}{% endif %}</a>{% endwith %}{% endfor %})</span>
                             {% endif %}
                         </div>
                     </div>
