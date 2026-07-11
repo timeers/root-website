@@ -393,6 +393,56 @@ let pendingCounter  = 0;
 function nextTempId() { return 'pending-' + (++pendingCounter); }
 function isPending(id) { return id && String(id).startsWith('pending-'); }
 
+// ── Saved-image edits ──────────────────────────────────────────────────────
+// Replacement files for SAVED (already-persisted) images, keyed by real id.
+// Mirrors PENDING_FILES but for edits to existing images.
+const STAGED_FILES = {};   // savedId → { image: File|null, pattern: File|null }
+
+// Returns the correct file bucket for any image id (pending or saved),
+// creating it on demand. Lets callers stop branching pending-vs-saved.
+function fileBucketFor(id) {
+    const store = isPending(id) ? PENDING_FILES : STAGED_FILES;
+    if (!store[id]) store[id] = { image: null, pattern: null };
+    return store[id];
+}
+
+// Find the in-memory image object for an id anywhere in THEME_IMAGES.
+function findImageById(id) {
+    for (const pageData of Object.values(THEME_IMAGES)) {
+        const bg = (pageData.backgrounds || []).find(i => String(i.id) === String(id));
+        if (bg) return bg;
+        for (const imgs of Object.values(pageData.foreground_locations || {})) {
+            const fg = imgs.find(i => String(i.id) === String(id));
+            if (fg) return fg;
+        }
+    }
+    return null;
+}
+
+// Snapshot each saved image's original server field values so flushPanelToData
+// can detect real edits (and avoid POSTing untouched images). Keyed by real id.
+// depth is stringified because panel field values are strings.
+const ORIGINAL = {};
+function snapshotOriginals() {
+    for (const pageData of Object.values(THEME_IMAGES)) {
+        for (const bg of (pageData.backgrounds || [])) {
+            if (!bg.pending) ORIGINAL[bg.id] = {
+                name: bg.name || '', artist: String(bg.artist || ''),
+                bg_color: (bg.bg_color || '').toLowerCase(),
+            };
+        }
+        for (const imgs of Object.values(pageData.foreground_locations || {})) {
+            for (const fg of imgs) {
+                if (!fg.pending) ORIGINAL[fg.id] = {
+                    name: fg.name || '', artist: String(fg.artist || ''),
+                    depth: String(fg.depth), start_position: fg.start_position,
+                    slide: fg.slide, speed: fg.speed,
+                };
+            }
+        }
+    }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────
 function getState(page) {
     if (!previewState[page]) {
@@ -717,6 +767,27 @@ function flushPanelToData() {
     } else {
         img.bg_color = document.getElementById('d-bg-color').value;
     }
+
+    // For saved images, mark dirty only if a field or file actually changed vs. the
+    // original server values. This records the edit permanently in THEME_IMAGES so it
+    // is saved even after the panel switches to another image.
+    if (!isPending(imageId)) {
+        const orig   = ORIGINAL[imageId] || {};
+        const bucket = STAGED_FILES[imageId];
+        let changed = !!(bucket && (bucket.image || bucket.pattern))
+            || (img.name || '') !== (orig.name || '')
+            || String(img.artist || '') !== (orig.artist || '');
+        if (type === 'fg') {
+            changed = changed
+                || String(img.depth) !== orig.depth
+                || img.start_position !== orig.start_position
+                || img.slide !== orig.slide
+                || img.speed !== orig.speed;
+        } else {
+            changed = changed || (img.bg_color || '').toLowerCase() !== (orig.bg_color || '');
+        }
+        if (changed) img.dirty = true;
+    }
 }
 
 // Validate the current panel. Returns false (and highlights fields) if a pending
@@ -793,6 +864,11 @@ function openAddPanel(event, type, loc) {
         }
     }
 
+    // Persist the current panel's edits (name, artist, files, etc.) into THEME_IMAGES
+    // before creating the new entry, otherwise the previous image's typed-in values
+    // are lost and it would save with an empty name.
+    flushPanelToData();
+
     const tempId = nextTempId();
     PENDING_FILES[tempId] = { image: null, pattern: null };
 
@@ -859,10 +935,12 @@ document.getElementById('d-image').addEventListener('change', function() {
     const objectUrl = URL.createObjectURL(file);
     const imageId   = document.getElementById('detail-image-id').value;
 
-    // Store file for later batch save
-    if (isPending(imageId)) {
-        if (!PENDING_FILES[imageId]) PENDING_FILES[imageId] = {};
-        PENDING_FILES[imageId].image = file;
+    // Store file for later batch save (works for both pending and saved images)
+    fileBucketFor(imageId).image = file;
+    if (!isPending(imageId)) {
+        // A replacement image on a saved image is a dirty edit
+        const target = findImageById(imageId);
+        if (target) target.dirty = true;
     }
 
     // Update the detail panel preview
@@ -904,9 +982,12 @@ document.getElementById('d-image').addEventListener('change', function() {
 document.getElementById('d-pattern').addEventListener('change', function() {
     const file    = this.files && this.files[0];
     const imageId = document.getElementById('detail-image-id').value;
-    if (file && isPending(imageId)) {
-        if (!PENDING_FILES[imageId]) PENDING_FILES[imageId] = {};
-        PENDING_FILES[imageId].pattern = file;
+    if (file && imageId) {
+        fileBucketFor(imageId).pattern = file;
+        if (!isPending(imageId)) {
+            const target = findImageById(imageId);
+            if (target) target.dirty = true;
+        }
     }
     markDirty();
 });
@@ -953,21 +1034,12 @@ function buildFormData(task) {
         if (img.bg_color) fd.append('background_color', img.bg_color);
     }
 
-    // Attach files for pending images
-    if (isPending(img.id) && PENDING_FILES[img.id]) {
-        const files = PENDING_FILES[img.id];
-        if (files.image)   fd.append('image',   files.image);
-        if (files.pattern) fd.append('pattern', files.pattern);
-    }
-
-    // For saved edits, attach any newly selected file from the panel
-    if (!isPending(img.id)) {
-        const imageFile = document.getElementById('d-image').files[0];
-        if (imageFile) fd.append('image', imageFile);
-        if (type === 'bg') {
-            const patternFile = document.getElementById('d-pattern').files[0];
-            if (patternFile) fd.append('pattern', patternFile);
-        }
+    // Attach staged/pending files by image id — works for both new (pending) images
+    // and replacement files on saved images, even when not the currently-open panel.
+    const bucket = isPending(img.id) ? PENDING_FILES[img.id] : STAGED_FILES[img.id];
+    if (bucket) {
+        if (bucket.image) fd.append('image', bucket.image);
+        if (type === 'bg' && bucket.pattern) fd.append('pattern', bucket.pattern);
     }
 
     return fd;
@@ -992,9 +1064,11 @@ function postTask(task) {
         .then(async resp => {
             if (resp.ok) {
                 const data = await resp.json();
-                // Update in-memory entry so re-save doesn't duplicate
+                // Update in-memory entry so re-save doesn't duplicate or re-attach
+                if (savedId != null) delete STAGED_FILES[savedId];
                 img.id      = data.id;
                 img.pending = false;
+                img.dirty   = false;
                 return data.id;
             } else if (resp.status === 400) {
                 const data = await resp.json();
@@ -1054,35 +1128,26 @@ async function saveImage() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
 
-    // Gather all pending images across all pages/locations
+    // Gather every image that needs saving — new (pending) images and edited
+    // (dirty) saved images — across ALL pages/locations. page/loc come from the
+    // walk position, never from the DOM, so batched saves file each image correctly.
+    // The currently-open image is already dirty-flagged by the flushPanelToData()
+    // above, so it is picked up here too (no separate DOM-derived case needed).
     const tasks = [];
     for (const [page, pageData] of Object.entries(THEME_IMAGES)) {
         for (const bg of (pageData.backgrounds || [])) {
-            if (bg.pending) tasks.push({ type: 'bg', page, loc: null, img: bg });
+            if (bg.pending || bg.dirty) tasks.push({ type: 'bg', page, loc: null, img: bg });
         }
         for (const [loc, imgs] of Object.entries(pageData.foreground_locations || {})) {
             for (const fg of imgs) {
-                if (fg.pending) tasks.push({ type: 'fg', page, loc, img: fg });
+                if (fg.pending || fg.dirty) tasks.push({ type: 'fg', page, loc, img: fg });
             }
         }
     }
 
-    // Include currently-shown saved-image edit (if any)
-    const imageId = document.getElementById('detail-image-id').value;
-    if (imageId && !isPending(imageId)) {
-        const type = document.getElementById('detail-type').value;
-        const loc  = document.getElementById('detail-location').value;
-        // Find the in-memory entry to get latest flushed values
-        const data   = THEME_IMAGES[currentPage];
-        const images = type === 'bg' ? (data.backgrounds || [])
-                                     : ((data.foreground_locations && data.foreground_locations[loc]) || []);
-        const img = images.find(i => String(i.id) === String(imageId));
-        if (img) tasks.push({ type, page: currentPage, loc: loc || null, img });
-    }
-
     if (tasks.length === 0) {
         btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-floppy"></i> Save';
+        btn.innerHTML = '<i class="bi bi-floppy"></i> Save All';
         return;
     }
 
@@ -1095,7 +1160,7 @@ async function saveImage() {
         errDiv.innerHTML = errors.join('<br>');
         errDiv.style.display = 'block';
         btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-floppy"></i> Save';
+        btn.innerHTML = '<i class="bi bi-floppy"></i> Save All';
     } else {
         location.reload();
     }
@@ -1130,8 +1195,20 @@ function deleteImage() {
     const fd = new FormData();
     fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
 
+    const errDiv = document.getElementById('detail-errors');
+    const showError = (msg) => {
+        errDiv.innerHTML = msg;
+        errDiv.style.display = 'block';
+    };
+
     fetch(url, { method: 'POST', body: fd })
-        .then(resp => { if (resp.status === 204) location.reload(); });
+        .then(async resp => {
+            if (resp.status === 204) { location.reload(); return; }
+            let msg = `Delete failed (${resp.status})`;
+            try { const d = await resp.json(); if (d && d.error) msg = d.error; } catch (e) {}
+            showError(msg);
+        })
+        .catch(err => showError('Network error deleting image: ' + err.message));
 }
 
 // ── Animation timing ──────────────────────────────────────────────────────
@@ -1288,6 +1365,7 @@ function setPreviewRatio(mode) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────
+snapshotOriginals();
 updatePageNav();
 updateGrid();
 renderPreview();
