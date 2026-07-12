@@ -1046,7 +1046,7 @@ class GroupingService:
             survey: Survey instance to sync from
 
         Returns:
-            dict: {'created': int, 'updated': int}
+            dict: {'created': int, 'updated': int, 'synced_profile_ids': set}
         """
         accepted_responses = survey.responses.filter(
             profile__isnull=False
@@ -1116,6 +1116,7 @@ class GroupingService:
         return {
             'created': created_count,
             'updated': updated_count,
+            'synced_profile_ids': synced_profile_ids,
         }
 
     @classmethod
