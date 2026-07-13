@@ -4,6 +4,7 @@
 
 ### New Features
 - My Scheduled Matches page available from the profile dropdown
+- Box Score draft auto saved by browser. Prompted to restore when editing/creating game
 
 ### Improvements
 - Starting leader and selected VB () block appears on one line if wrapping is required
