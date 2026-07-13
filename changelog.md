@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.12.17] - 2026-7-11 More RTM Feedback
+
+### New Features
+- My Scheduled Matches page available from the profile dropdown
+
+### Improvements
+- Starting leader and selected VB () block appears on one line if wrapping is required
+- Tournament box score requirement only requires box score on final submit
+- Deleting a game deletes the associated box scores
+- Can now delete games directly from the game edit page
+
+### Bug Fixes
+- Send responses to stage sends only responses not all tournament players
+- Bracket tab is labeled Matches when at final child (don't know how else to say it)
+
 ## [1.12.16] - 2026-7-09 RTM Feedback
 
 ### New Features

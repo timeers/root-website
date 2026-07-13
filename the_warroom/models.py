@@ -5,6 +5,7 @@ from django.db import models, transaction
 from django.db.models import Q, Sum, Max, Prefetch, Count
 
 from django.utils import timezone
+from django.utils.translation import gettext_lazy
 from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
@@ -452,6 +453,19 @@ class Tournament(models.Model):
 
     def get_schedule_url(self):
         return reverse('tournament-schedule-page', kwargs={'slug': self.slug})
+
+    @property
+    def bracket_tab_label(self):
+        """Label for the shared 'Bracket' nav tab. The tab links to the bracket
+        page, which falls back to the editable matches view when there's no
+        multi-round/stage layout to lay out (no stages + single stage with no
+        rounds) -- mirrors ``tournament_bracket_page``. In that case the tab is
+        really showing Matches, so name it accordingly."""
+        if not self.use_stages:
+            only_stage = self.stages.first()
+            if only_stage and not only_stage.use_rounds:
+                return gettext_lazy('Matches')
+        return gettext_lazy('Bracket')
 
     def get_edit_url(self):
         return reverse('tournament-dynamic-update', kwargs={'slug': self.slug})

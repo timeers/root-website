@@ -1050,9 +1050,13 @@ window.ScorecardGrid = (function () {
         // Box score required: every effort with a faction must have grid data
         // whose final score matches the effort's score (a detailed/locked row
         // counts as already having box-score data). Highlight the Box Score
-        // button and hard-block if any seat is missing.
+        // button and hard-block if any seat is missing. Only enforced on Submit
+        // (final=True); Save Progress drafts are exempt so partial games can be
+        // saved without a complete box score.
         clearBoxScoreError();
-        if (boxScoreRequired) {
+        const finalField = document.getElementById('final');
+        const isFinalSubmit = !finalField || finalField.value === 'True';
+        if (boxScoreRequired && isFinalSubmit) {
             let boxScoreMissing = false;
             document.querySelectorAll('.grid-row').forEach(function (tr) {
                 const formIndex = tr.getAttribute('data-form-index');
@@ -1412,6 +1416,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Hard-block on scorecard grid validation errors before submit.
         if (window.ScorecardGrid && !ScorecardGrid.validateAndSerialize()) {
             e.preventDefault();
+            // Dismiss the confirmation modal so the highlighted error (e.g. the
+            // Box Score requirement) is visible instead of hidden behind it.
+            ['submitGameModal', 'saveProgressModal'].forEach(function (id) {
+                const el = document.getElementById(id);
+                if (el) {
+                    const inst = bootstrap.Modal.getInstance(el);
+                    if (inst) inst.hide();
+                }
+            });
             return false;
         }
         $(this).find('[disabled]').prop('disabled', false);

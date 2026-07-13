@@ -17,9 +17,13 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
-                <a href="{{ object.get_delete_url }}" class="btn btn-danger">
-                    <i class="bi bi-trash"></i> {% trans 'Delete Permanently' %}
-                </a>
+                {# POST directly to the delete view so it deletes immediately; this modal is the confirmation, so we skip the separate confirm-delete page. #}
+                <form method="post" action="{{ object.get_delete_url }}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash"></i> {% trans 'Delete Permanently' %}
+                    </button>
+                </form>
             </div>
         </div>
     </div>

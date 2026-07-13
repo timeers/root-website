@@ -65,7 +65,7 @@
   {% for match in next_scheduled_matches %}
     <li>
       <a class="dropdown-item d-flex align-items-center" href="{{ match.round.stage.tournament.get_schedule_url }}?mine=1">
-        <i class="bi bi-calendar2-week me-1"></i>
+        <i class="bi bi-calendar2-event me-1"></i>
         <span class="ms-1 d-flex flex-column">
           <span>{{ match.round }}</span>
           <span class="scheduled-time small" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
@@ -73,6 +73,12 @@
       </a>
     </li>
   {% endfor %}
+  <li>
+    <a class="dropdown-item d-flex align-items-center" href="{% url 'my-scheduled-matches' %}">
+      <i class="bi bi-calendar2-week me-1"></i>
+      <span class="ms-1">{% trans 'View all scheduled matches' %}</span>
+    </a>
+  </li>
 {% endif %}
 
 {% if user_recent_posts or user.profile.designer %}

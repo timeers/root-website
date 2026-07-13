@@ -87,7 +87,7 @@ def active_user_data(request):
                     .exclude(game__final=True)
                     .select_related('round', 'round__stage', 'round__stage__tournament', 'series')
                     .order_by('scheduled_time')
-                    .distinct()[:2]
+                    .distinct()[:1]
                 )
 
             except ObjectDoesNotExist:
