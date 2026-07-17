@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.17] - 2026-7-15 More RTM Feedback
+## [1.12.17] - 2026-7-16 More RTM Feedback
 
 ### New Features
 - My Scheduled Matches page available from the profile dropdown

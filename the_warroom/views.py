@@ -1092,8 +1092,9 @@ def manage_game_v2(request, id=None):
     if match_mode and not obj.pk:
         form.initial['nickname'] = (f'{match.round} {match.name}' or '')[:50]
         player_group = match.series.player_group
-        if player_group and player_group.video_link:
-            form.initial['video_link'] = player_group.video_link
+        #  Disabled auto fill since game now displays match's video link
+        # if player_group and player_group.video_link:
+        #     form.initial['video_link'] = player_group.video_link
 
     # Determine platform lock status for template rendering
     platform_locked = False
