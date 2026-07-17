@@ -12,6 +12,7 @@
 - Deleting a game deletes the associated box scores
 - Can now delete games directly from the game edit page
 - Increased the max ability bar height in the Forge
+- Added game's vod link to the matches page
 
 ### Bug Fixes
 - Send responses to stage sends only responses not all tournament players

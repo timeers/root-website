@@ -15,11 +15,22 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <strong>{% firstof match.name match.series.player_group.name %}{% if not match.name and not match.series.player_group.name %}{% trans 'Match' %}{% endif %}</strong>
+                {% if match.game.final and match.game.video_link %}
+                <a href="{{ match.game.video_link }}" target="_blank" rel="noopener"
+                   class="btn btn-sm btn-outline-secondary p-0 px-1"
+                   data-bs-toggle="tooltip" title="{% trans 'Watch VOD' %}">
+                    {% if match.game.video_platform == 'twitch' %}
+                    <i class="bi bi-twitch"></i>
+                    {% else %}
+                    <i class="bi bi-youtube"></i>
+                    {% endif %}
+                </a>
+                {% else %}
                 {% with group=match.series.player_group %}
                 {% if group.video_link %}
                 <a href="{{ group.video_link }}" target="_blank" rel="noopener"
                    class="btn btn-sm btn-outline-secondary p-0 px-1"
-                   data-bs-toggle="tooltip" title="{% trans 'Stream' %}">
+                   data-bs-toggle="tooltip" title="{% trans 'Watch Stream' %}">
                     {% if group.video_platform == 'twitch' %}
                     <i class="bi bi-twitch"></i>
                     {% else %}
@@ -28,6 +39,7 @@
                 </a>
                 {% endif %}
                 {% endwith %}
+                {% endif %}
             </div>
             <div class="card-body">
                 {% for seat in match.series.matchseat_set.all %}

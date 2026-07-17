@@ -13,7 +13,7 @@
             {% if series.player_group.video_link %}
             <a href="{{ series.player_group.video_link }}" target="_blank" rel="noopener"
                class="btn btn-sm btn-outline-secondary p-0 px-1"
-               data-bs-toggle="tooltip" title="{% trans 'Watch' %}"
+               data-bs-toggle="tooltip" title="{% trans 'Watch Stream' %}"
                onclick="event.stopPropagation()">
                 {% if series.player_group.video_platform == 'twitch' %}
                 <i class="bi bi-twitch"></i>
@@ -127,7 +127,20 @@
 
             {% if match.game %}
                 {% if match.game.final %}
+                {% if match.game.video_link %}
+                <a href="{{ match.game.video_link }}" target="_blank" rel="noopener"
+                   class="btn btn-sm btn-outline-secondary ms-auto p-0 px-1"
+                   data-bs-toggle="tooltip" title="{% trans 'Watch VOD' %}">
+                    {% if match.game.video_platform == 'twitch' %}
+                    <i class="bi bi-twitch"></i>
+                    {% else %}
+                    <i class="bi bi-youtube"></i>
+                    {% endif %}
+                </a>
+                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
+                {% else %}
                 <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto p-0 px-1">{% trans 'View' %}</a>
+                {% endif %}
                 {% elif match.id in recordable_match_ids %}
                 <a href="{% url 'game-update-v2' id=match.game.id %}" class="btn btn-outline-primary btn-sm ms-auto p-0 px-1"><i class="bi bi-pencil-square me-1"></i></a>
                 {% else %}
@@ -173,6 +186,17 @@
             {% endif %}
             {% if match.game %}
                 {% if match.game.final %}
+                {% if match.game.video_link %}
+                <a href="{{ match.game.video_link }}" target="_blank" rel="noopener"
+                   class="btn btn-sm btn-outline-secondary p-0 px-1 me-1"
+                   data-bs-toggle="tooltip" title="{% trans 'Watch VOD' %}">
+                    {% if match.game.video_platform == 'twitch' %}
+                    <i class="bi bi-twitch"></i>
+                    {% else %}
+                    <i class="bi bi-youtube"></i>
+                    {% endif %}
+                </a>
+                {% endif %}
                 <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
                 {% elif match.id in recordable_match_ids %}
                 <a href="{% url 'game-update-v2' id=match.game.id %}" class="btn btn-outline-primary btn-sm p-0 px-1"><i class="bi bi-pencil-square me-1"></i>{% trans 'Edit' %}</a>
