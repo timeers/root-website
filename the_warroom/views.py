@@ -711,7 +711,11 @@ def game_delete_view(request, id=None):
         return redirect(obj.get_absolute_url())
 
     if request.method == "POST":
-        ScoreCard.objects.filter(effort__game=obj).update(final=False)
+        # Delete the game's box scores too. The effort FK is SET_NULL (so efforts
+        # can be torn down and rebuilt during edits without losing scorecards), so
+        # deleting the game would otherwise orphan these as unlinked drafts. On a
+        # full game delete the user wants them gone, so remove them explicitly.
+        ScoreCard.objects.filter(effort__game=obj).delete()
         obj.delete()
         success_url = reverse('games-home')
         if request.htmx:
@@ -1088,8 +1092,9 @@ def manage_game_v2(request, id=None):
     if match_mode and not obj.pk:
         form.initial['nickname'] = (f'{match.round} {match.name}' or '')[:50]
         player_group = match.series.player_group
-        if player_group and player_group.video_link:
-            form.initial['video_link'] = player_group.video_link
+        #  Disabled auto fill since game now displays match's video link
+        # if player_group and player_group.video_link:
+        #     form.initial['video_link'] = player_group.video_link
 
     # Determine platform lock status for template rendering
     platform_locked = False
@@ -5977,6 +5982,42 @@ def tournament_schedule_page(request, slug):
         'bracket_url': reverse('tournament-bracket-page', kwargs={'slug': tournament.slug}),
     })
     return render(request, 'the_warroom/schedule.html', context)
+
+
+@login_required
+def my_scheduled_matches_page(request):
+    """All of the current user's upcoming scheduled matches across every tournament.
+
+    A global counterpart to the per-tournament schedule page: reuses
+    ``_upcoming_scheduled_matches`` scoped to the user's seats. Record/Edit/View
+    gating is computed per-tournament (``_recordable_ids_for_matches`` expects a
+    single tournament), so we group the matches by tournament and union the results.
+    """
+    profile = request.user.profile
+    matches = list(_upcoming_scheduled_matches({
+        'series__matchseat__stage_participant__tournament_player__profile': profile,
+    }))
+    # A player seated in more than one seat of a series yields duplicate rows
+    # (the join through matchseat, and the helper doesn't distinct()). De-dup
+    # while preserving scheduled_time order.
+    seen = set()
+    matches = [m for m in matches if not (m.id in seen or seen.add(m.id))]
+
+    # Group by tournament (already select_related) and gate per tournament.
+    from collections import defaultdict
+    recordable_match_ids = set()
+    by_tournament = defaultdict(list)
+    for m in matches:
+        by_tournament[m.round.stage.tournament].append(m)
+    for tournament, group in by_tournament.items():
+        recordable_match_ids |= _recordable_ids_for_matches(group, request.user, tournament)
+
+    context = {
+        'schedule_matches': matches,
+        'recordable_match_ids': recordable_match_ids,
+        'show_mine': True,
+    }
+    return render(request, 'the_warroom/my_schedule.html', context)
 
 
 def stage_schedule_page(request, tournament_slug, stage_slug):

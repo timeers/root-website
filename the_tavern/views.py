@@ -3303,8 +3303,11 @@ def survey_send_availability(request, slug):
 
         target_stage = get_object_or_404(Stage, id=stage_id, tournament=tournament)
 
+        # Only add this survey's respondents to the stage — not every registered
+        # player in the tournament. Non-respondents are left off the stage roster.
         registered_players = TournamentPlayer.objects.filter(
             tournament=tournament,
+            profile_id__in=sync_result['synced_profile_ids'],
             status=TournamentPlayer.StatusChoices.REGISTERED,
         )
         for tp in registered_players:

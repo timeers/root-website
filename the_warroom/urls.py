@@ -43,7 +43,8 @@ from .views import (game_list_view, leaderboard_view,
                     tournament_roster_page, tournament_details_page,
                     round_leaderboard_page, round_games_page,
                     round_roster_page, round_details_page, round_matches_page,
-                    tournament_schedule_page, stage_schedule_page, round_schedule_page)
+                    tournament_schedule_page, stage_schedule_page, round_schedule_page,
+                    my_scheduled_matches_page)
 
 urlpatterns = [
     path('record/game/', manage_game, name='record-game'),
@@ -92,6 +93,7 @@ urlpatterns = [
     path('series/<slug:slug>/view-as/', set_view_as, name='tournament-view-as'),
 
     path('series/<slug:slug>/bracket/', tournament_bracket_page, name='tournament-bracket-page'),
+    path('my-scheduled-matches/', my_scheduled_matches_page, name='my-scheduled-matches'),
     path('series/<slug:slug>/schedule/', tournament_schedule_page, name='tournament-schedule-page'),
     path('series/<slug:slug>/leaderboard/', tournament_leaderboard_page, name='tournament-leaderboard-page'),
     path('series/<slug:tournament_slug>/component/<slug:post_slug>/', tournament_component_leaderboard, name='tournament-component-leaderboard'),

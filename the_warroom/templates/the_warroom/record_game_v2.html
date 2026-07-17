@@ -618,6 +618,11 @@
             <small>{% trans 'Click the Dominance icon to show when a Dominance or Coalition was played. Subsequent turns will be filled in. To unapply, click the Dominance icon on the last turn. You will need to select the Dominance type on the other page.' %}</small>
         </div>
 
+        <div class="alert alert-success d-flex align-items-center gap-2" role="alert">
+            <i class="bi bi-floppy-fill"></i>
+            <small>{% trans 'Your work saves automatically as you enter it. If you leave this page without saving the game, you will be asked whether you want to restore your Box Score data when you return.' %}</small>
+        </div>
+
         {# d-none (display:none !important) is required to override d-flex !important; toggled in JS via updateLockedMessage() when a locked row is present. #}
         <div class="alert alert-secondary d-flex align-items-center gap-2 mt-2 d-none" id="grid-locked-msg">
             <i class="bi bi-lock-fill"></i>
@@ -637,6 +642,7 @@
 {% include 'the_warroom/modals/submit_game_modal.html' %}
 {% include 'the_warroom/modals/save_progress_modal.html' %}
 {% include 'the_warroom/modals/cancel_game_modal.html' %}
+{% include 'the_warroom/modals/restore_draft_modal.html' %}
 {% if object.id %}
     {% include 'the_warroom/modals/delete_game_modal.html' %}
 {% endif %}
@@ -672,6 +678,12 @@ window.ScorecardGrid = (function () {
     } catch (e) { /* keep default */ }
 
     let turnCount = 3;
+
+    // Optional listener fired on any user edit to the grid (cell input, dominance
+    // toggle, turn add/remove) so external code (the auto-save draft) can react.
+    let changeListener = null;
+    function onChange(fn) { changeListener = fn; }
+    function notifyChange() { if (changeListener) { try { changeListener(); } catch (e) {} } }
 
     function body() { return document.getElementById('grid-body'); }
     function headerRow() { return document.getElementById('grid-header-row'); }
@@ -849,6 +861,7 @@ window.ScorecardGrid = (function () {
                 if (cellTurn <= turn) setDom(cellTag, false);
             }
         });
+        notifyChange();
     }
 
     function setDom(tag, on) {
@@ -899,6 +912,7 @@ window.ScorecardGrid = (function () {
             tr.insertBefore(cell, scoreCell);
         });
         updateTurnButtons();
+        notifyChange();
     }
 
     // Remove the last (right-most) turn column from the header and every row,
@@ -914,6 +928,7 @@ window.ScorecardGrid = (function () {
         });
         turnCount -= 1;
         updateTurnButtons();
+        notifyChange();
     }
 
     // Ensure the grid has at least `n` turn columns.
@@ -1050,9 +1065,13 @@ window.ScorecardGrid = (function () {
         // Box score required: every effort with a faction must have grid data
         // whose final score matches the effort's score (a detailed/locked row
         // counts as already having box-score data). Highlight the Box Score
-        // button and hard-block if any seat is missing.
+        // button and hard-block if any seat is missing. Only enforced on Submit
+        // (final=True); Save Progress drafts are exempt so partial games can be
+        // saved without a complete box score.
         clearBoxScoreError();
-        if (boxScoreRequired) {
+        const finalField = document.getElementById('final');
+        const isFinalSubmit = !finalField || finalField.value === 'True';
+        if (boxScoreRequired && isFinalSubmit) {
             let boxScoreMissing = false;
             document.querySelectorAll('.grid-row').forEach(function (tr) {
                 const formIndex = tr.getAttribute('data-form-index');
@@ -1120,6 +1139,61 @@ window.ScorecardGrid = (function () {
         return true;
     }
 
+    // Serialize the live grid for an auto-save draft. Mirrors the payload shape
+    // of validateAndSerialize but WITHOUT any validation — a draft of
+    // half-entered data must always save. Locked (detailed) rows are server-owned
+    // and read-only, so they are skipped entirely. Returns
+    // {rows:[{form_index, cells:[{turn,value,dominance}]}], turnCount} or null
+    // when there is nothing worth saving (no entered values or dominance).
+    function serializeDraft() {
+        const rows = [];
+        document.querySelectorAll('.grid-row').forEach(function (tr) {
+            if (tr.classList.contains('grid-locked')) return;
+            const formIndex = parseInt(tr.getAttribute('data-form-index'), 10);
+            const cells = [];
+            tr.querySelectorAll('.grid-cell').forEach(function (td) {
+                const input = td.querySelector('.grid-cell-input');
+                const dominance = td.querySelector('.dom-tag').getAttribute('data-dominance') === '1';
+                const turn = parseInt(td.getAttribute('data-turn'), 10);
+                const raw = input ? input.value.trim() : '';
+                if (raw !== '') {
+                    cells.push({turn: turn, value: parseInt(raw, 10), dominance: dominance});
+                } else if (dominance) {
+                    cells.push({turn: turn, dominance: true});
+                }
+            });
+            if (cells.length) rows.push({form_index: formIndex, cells: cells});
+        });
+        if (!rows.length) return null;
+        return {rows: rows, turnCount: turnCount};
+    }
+
+    // Apply a draft payload back onto the grid: grow the turn columns to fit,
+    // then write each cell's value/dominance onto the row with the matching
+    // form_index. Rows whose index has no effort form are ignored by the caller
+    // (which reconciles player count first). Refreshes each affected row's score.
+    function applyDraft(draft) {
+        if (!draft || !draft.rows) return;
+        let maxTurn = 1;
+        draft.rows.forEach(function (r) {
+            (r.cells || []).forEach(function (c) { if (c.turn > maxTurn) maxTurn = c.turn; });
+        });
+        ensureTurns(Math.max(draft.turnCount || 1, maxTurn));
+        draft.rows.forEach(function (r) {
+            const tr = document.querySelector('.grid-row[data-form-index="' + r.form_index + '"]');
+            if (!tr || tr.classList.contains('grid-locked')) return;
+            (r.cells || []).forEach(function (c) {
+                const cell = tr.querySelector('.grid-cell[data-turn="' + c.turn + '"]');
+                if (!cell) return;
+                if (c.value !== undefined && c.value !== null) {
+                    cell.querySelector('.grid-cell-input').value = c.value;
+                }
+                setDom(cell.querySelector('.dom-tag'), !!c.dominance);
+            });
+            recalcRow(tr);
+        });
+    }
+
     function markError(field, message) {
         field.classList.add('is-invalid');
         // Show message once per field.
@@ -1182,6 +1256,7 @@ window.ScorecardGrid = (function () {
             if (e.target.classList.contains('grid-cell-input')) {
                 const tr = e.target.closest('.grid-row');
                 if (tr) recalcRow(tr);
+                notifyChange();
             }
         });
         // Enter/Return: never submit — move to the cell below in the same turn
@@ -1218,6 +1293,9 @@ window.ScorecardGrid = (function () {
         reorder: reorder,
         refreshFactionLabel: refreshFactionLabel,
         validateAndSerialize: validateAndSerialize,
+        serializeDraft: serializeDraft,
+        applyDraft: applyDraft,
+        onChange: onChange,
         openGrid: openGrid,
         closeGrid: closeGrid
     };
@@ -1399,6 +1477,217 @@ document.addEventListener('DOMContentLoaded', function() {
     // ── Initialize the scorecard grid once efforts are rendered ──
     ScorecardGrid.init();
 
+    // ── Auto-save draft (client-side only) ──────────────────────────────
+    // Persist the in-progress Box Score to localStorage so an accidental tab
+    // close / refresh / crash doesn't lose it. Keyed per user + game/match so
+    // drafts never bleed across recordings; a brand-new standalone game shares a
+    // single "new game" slot (there is no id to key on until it's saved).
+    var ScorecardDraft = (function () {
+        var KEY = "{% if object.id %}sc-draft:u{{ request.user.profile.id }}:g{{ object.id }}"
+            + "{% elif match.id %}sc-draft:u{{ request.user.profile.id }}:m{{ match.id }}"
+            + "{% else %}sc-draft:u{{ request.user.profile.id }}:new{% endif %}";
+        var DEBOUNCE_MS = 2500;
+        var timer = null;
+        // Once the form is submitting, the draft is server-owned — stop saving so
+        // the beforeunload flush (fired by the POST navigation) can't resurrect it.
+        var submitted = false;
+
+        function save() {
+            if (submitted) return;
+            try {
+                var payload = ScorecardGrid.serializeDraft();
+                if (!payload) { clear(); return; }  // nothing worth keeping
+                payload.savedAt = new Date().toISOString();
+                localStorage.setItem(KEY, JSON.stringify(payload));
+            } catch (e) { /* quota / privacy mode — never break the form */ }
+        }
+
+        function clear() {
+            try { localStorage.removeItem(KEY); } catch (e) {}
+        }
+
+        // Called on submit: clear the draft AND stop any further saves so the
+        // beforeunload flush (fired by the POST navigation) can't resurrect it.
+        function finalize() {
+            submitted = true;
+            if (timer) clearTimeout(timer);
+            clear();
+        }
+
+        function schedule() {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(save, DEBOUNCE_MS);
+        }
+
+        function load() {
+            try {
+                var raw = localStorage.getItem(KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) { return null; }
+        }
+
+        // Grow the effort forms so every draft row index has a home, then hand the
+        // draft to the grid to write values. Reconciles by row number (form_index)
+        // per the agreed policy: more draft rows than players → add blank players;
+        // fewer → extra players stay blank. add_new_form only exists in standalone
+        // mode (match mode has a fixed seat count), so guard on it.
+        function restore(draft) {
+            if (!draft || !draft.rows || !draft.rows.length) return;
+            var maxIndex = 0;
+            draft.rows.forEach(function (r) {
+                if (r.form_index > maxIndex) maxIndex = r.form_index;
+            });
+            if (typeof add_new_form === 'function') {
+                var guard = 0;
+                while (document.querySelectorAll('#effort-form-list .effort-form:not(.hidden)').length <= maxIndex
+                       && guard < 30) {
+                    add_new_form();
+                    guard++;
+                }
+            }
+            ScorecardGrid.applyDraft(draft);
+        }
+
+        return {save: save, clear: clear, finalize: finalize, schedule: schedule, load: load, restore: restore};
+    })();
+
+    // Debounced auto-save on any grid edit (cell input, dominance, turn add/remove).
+    ScorecardGrid.onChange(function () { ScorecardDraft.schedule(); });
+
+    // Safety net: flush immediately when the tab is hidden or the page is closing,
+    // so a fast tab-close right after typing is still captured. Silent — no native
+    // "leave site?" prompt.
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') ScorecardDraft.save();
+    });
+    window.addEventListener('beforeunload', function () { ScorecardDraft.save(); });
+
+    // Build a small read-only preview of the draft inside the restore modal.
+    // Mirrors the Game Detail box score (partials/box_score.html) — rows are
+    // seats, columns are turns, cumulative score per cell, a Dominance Tag on
+    // dominance turns — but with a text row label instead of a faction icon,
+    // since a draft isn't linked to specific factions.
+    function renderDraftPreview(draft) {
+        var host = document.getElementById('restore-draft-preview');
+        if (!host) return;
+        host.innerHTML = '';
+        if (!draft || !draft.rows || !draft.rows.length) return;
+
+        var DOM_TAG_SRC = "{% static 'images/tags/Dominance_Tag.png' %}";
+        // How many turn columns to show: the draft's turnCount, but at least the
+        // highest turn that actually has a cell.
+        var maxTurn = draft.turnCount || 1;
+        draft.rows.forEach(function (r) {
+            (r.cells || []).forEach(function (c) { if (c.turn > maxTurn) maxTurn = c.turn; });
+        });
+
+        // Resolve a readable label for a row from the live effort form's faction
+        // select; fall back to "Seat N" when no faction is chosen yet.
+        function rowLabel(formIndex) {
+            var sel = document.getElementById('id_form-' + formIndex + '-faction');
+            if (sel && sel.options && sel.selectedIndex >= 0) {
+                var opt = sel.options[sel.selectedIndex];
+                if (opt && opt.value) return opt.text;
+            }
+            return "{% trans 'Seat' %} " + (parseInt(formIndex, 10) + 1);
+        }
+
+        var wrap = document.createElement('div');
+        wrap.className = 'd-flex justify-content-center';
+        var scroller = document.createElement('div');
+        scroller.style.overflowX = 'auto';
+        scroller.style.maxWidth = '100%';
+
+        var table = document.createElement('table');
+        table.className = 'scorecard-score-grid';
+
+        // Header: blank label corner + T1..Tn.
+        var thead = document.createElement('thead');
+        var htr = document.createElement('tr');
+        var corner = document.createElement('th');
+        corner.className = 'sg-cell';
+        htr.appendChild(corner);
+        for (var t = 1; t <= maxTurn; t++) {
+            var th = document.createElement('th');
+            th.textContent = 'T' + t;
+            htr.appendChild(th);
+        }
+        thead.appendChild(htr);
+        table.appendChild(thead);
+
+        var tbody = document.createElement('tbody');
+        draft.rows.forEach(function (r) {
+            var tr = document.createElement('tr');
+            var label = document.createElement('td');
+            label.className = 'sg-cell sg-row-label';
+            label.textContent = rowLabel(r.form_index);
+            tr.appendChild(label);
+
+            // Index this row's cells by turn for quick lookup.
+            var byTurn = {};
+            (r.cells || []).forEach(function (c) { byTurn[c.turn] = c; });
+
+            for (var t2 = 1; t2 <= maxTurn; t2++) {
+                var td = document.createElement('td');
+                td.className = 'sg-cell';
+                var c = byTurn[t2];
+                if (c) {
+                    if (c.value !== undefined && c.value !== null) {
+                        td.appendChild(document.createTextNode(c.value));
+                    }
+                    if (c.dominance) {
+                        var tag = document.createElement('img');
+                        tag.src = DOM_TAG_SRC;
+                        tag.className = 'sg-dom-tag';
+                        tag.alt = "{% trans 'Dominance' %}";
+                        td.appendChild(tag);
+                    }
+                }
+                tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+
+        scroller.appendChild(table);
+        wrap.appendChild(scroller);
+        host.appendChild(wrap);
+    }
+
+    // Restore-on-load: if a draft exists for this form, offer to restore it. For
+    // pre-filled edit/match pages, skip the prompt when the draft matches the
+    // current grid (nothing was changed). New-game slots always prompt (the grid
+    // starts empty, so any stored draft is worth offering).
+    (function offerDraftRestore() {
+        var draft = ScorecardDraft.load();
+        if (!draft || !draft.rows || !draft.rows.length) return;
+        try {
+            var current = ScorecardGrid.serializeDraft();
+            if (current && JSON.stringify(current.rows) === JSON.stringify(draft.rows)) {
+                return;  // draft is identical to what's already shown
+            }
+        } catch (e) { /* fall through and offer restore */ }
+
+        var modalEl = document.getElementById('restoreDraftModal');
+        if (!modalEl) return;
+        renderDraftPreview(draft);
+        var whenEl = document.getElementById('restore-draft-when');
+        if (whenEl && draft.savedAt) {
+            var when = new Date(draft.savedAt);
+            whenEl.textContent = "{% trans 'Saved' %} " + (isNaN(when) ? '' : when.toLocaleString());
+        }
+        var modal = new bootstrap.Modal(modalEl);
+        document.getElementById('restore-draft-confirm').addEventListener('click', function () {
+            ScorecardDraft.restore(draft);
+            modal.hide();
+        });
+        document.getElementById('restore-draft-discard').addEventListener('click', function () {
+            ScorecardDraft.clear();
+            modal.hide();
+        });
+        modal.show();
+    })();
+
     // ── Re-enable disabled fields on form submit + double-submit guard ──
     var formIsSubmitting = false;
     $('form#game-form-v2').on('submit', function(e) {
@@ -1412,12 +1701,25 @@ document.addEventListener('DOMContentLoaded', function() {
         // Hard-block on scorecard grid validation errors before submit.
         if (window.ScorecardGrid && !ScorecardGrid.validateAndSerialize()) {
             e.preventDefault();
+            // Dismiss the confirmation modal so the highlighted error (e.g. the
+            // Box Score requirement) is visible instead of hidden behind it.
+            ['submitGameModal', 'saveProgressModal'].forEach(function (id) {
+                const el = document.getElementById(id);
+                if (el) {
+                    const inst = bootstrap.Modal.getInstance(el);
+                    if (inst) inst.hide();
+                }
+            });
             return false;
         }
         $(this).find('[disabled]').prop('disabled', false);
         // Mark in-flight and disable the action buttons. Defer disabling to after
         // the submit is dispatched so the browser still includes their values.
         formIsSubmitting = true;
+        // Validation passed and the POST is dispatching (covers Submit and Save
+        // Progress — both persist the grid server-side), so the local draft is now
+        // redundant. finalize() clears it and blocks the beforeunload re-save.
+        ScorecardDraft.finalize();
         setTimeout(function() {
             $('#save, #save-progress').prop('disabled', true);
         }, 0);

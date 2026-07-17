@@ -2407,7 +2407,7 @@ def manage_theme_images(request, pk):
     title_locations    = [(str(k), v) for k, v in title_location_map.items()]
     position_locations = [(str(k), v) for k, v in position_location_map.items()]
 
-    all_profiles = Profile.objects.filter(user__isnull=False).order_by('display_name')
+    all_profiles = Profile.objects.all().order_by('display_name')
 
     return render(request, 'the_gatehouse/manage_theme_images.html', {
         'theme': theme,

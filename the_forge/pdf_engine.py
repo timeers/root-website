@@ -360,7 +360,7 @@ ABILITY_BODY_MAX_SIZE = 11
 ABILITY_BODY_MIN_SIZE = 6
 ABILITY_TITLE_MAX_SIZE = 14
 ABILITY_TITLE_MIN_SIZE = 8
-ABILITY_BAR_MAX_H = 1.5 * inch
+ABILITY_BAR_MAX_H = 3 * inch
 ABILITY_BAR_BOTTOM_EXTRA = 0.08 * inch  # extra usable height extending below box_y, no impact on top of bar or downstream elements
 
 COLOR_BAR_W_RATIO = 0.95 # Controls width of content inside top bar in relation to top bar border

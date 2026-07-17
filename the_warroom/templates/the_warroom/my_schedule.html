@@ -1,0 +1,17 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static %}
+
+{% block title %}{% trans 'My Scheduled Matches' %} | {% endblock %}
+
+{% block main_width_class %}col-md-12{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+    <h2 class="h5 mb-3 text-center root-title px-2">{% trans 'My Scheduled Matches' %}</h2>
+
+    <!-- Upcoming scheduled matches across all tournaments -->
+    {% include 'the_warroom/partials/schedule_match_grid.html' %}
+
+</div>
+{% endblock %}

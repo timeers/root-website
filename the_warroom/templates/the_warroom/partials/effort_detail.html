@@ -55,14 +55,14 @@
             {% endif %}
         </a>
         {% if effort.vagabond %}
-            (<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)
+            <span class="character-group">(<a href="{% url 'vagabond-detail' effort.vagabond.slug %}">{{ effort.vagabond }}</a>)</span>
         {% endif %}
         {% if effort.captains.all %}
-            <span class="captain-group">({% for captain in effort.captains.all %}{% with pawn=captain.otherpieces.first %}<a href="{% url 'captain-detail' slug=captain.slug %}" title="{{ captain }}">{% if pawn.small_icon %}<img class="captain-icon" src="{{ pawn.small_icon|cache_bust:pawn.front_version }}" alt="{{ captain }}">{% else %}{{ captain }}{% endif %}</a>{% endwith %}{% endfor %})</span>
+            <span class="character-group">({% for captain in effort.captains.all %}{% with pawn=captain.otherpieces.first %}<a href="{% url 'captain-detail' slug=captain.slug %}" title="{{ captain }}">{% if pawn.small_icon %}<img class="captain-icon" src="{{ pawn.small_icon|cache_bust:pawn.front_version }}" alt="{{ captain }}">{% else %}{{ captain }}{% endif %}</a>{% endwith %}{% endfor %})</span>
         {% endif %}
         {% if effort.starting_leader %}
             {% with leader_icon='images/Leaders/'|add:effort.starting_leader|add:'.png' %}
-            (<img class="faction-icon" src="{% static leader_icon %}" alt="{{ effort.starting_leader }}" title="{{ effort.starting_leader }}">)
+            <span class="character-group">(<img class="faction-icon" src="{% static leader_icon %}" alt="{{ effort.starting_leader }}" title="{{ effort.starting_leader }}">)</span>
             {% endwith %}
         {% endif %}
     </span>
