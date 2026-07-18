@@ -5,6 +5,12 @@
 ### New Features
 - dwd/profile/mrmirz-4412 redirects to profile/mrmirz
 
+### Improvements
+- profile name on profile detail page now wraps and dynamically resizes
+
+### Bug Fixes
+- profile detail page was crashing blank box score chart due to rename
+
 ## [1.12.17] - 2026-7-16 More RTM Feedback
 
 ### New Features
