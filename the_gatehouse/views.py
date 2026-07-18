@@ -384,6 +384,22 @@ def player_page_view(request, slug=None):
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
 
 
+def dwd_profile_redirect(request, dwd):
+    """Resolve a Direwolf Digital username to a profile and redirect to its
+    canonical slug URL. Stored dwd values use the format ``username+1234``;
+    the URL substitutes a dash for the ``+`` (``username-1234``) so the value
+    is URL-safe. The username portion is always alphanumeric, so only the
+    final dash is the separator to restore.
+    """
+    dwd_value, sep, suffix = dwd.rpartition('-')
+    if sep:
+        dwd_value = f'{dwd_value}+{suffix}'
+    else:
+        dwd_value = dwd
+    player = get_object_or_404(Profile, dwd__iexact=dwd_value)
+    return redirect(player.get_absolute_url())
+
+
 @login_required
 def designer_component_view(request, slug):
     # Get the designer object using the slug from the URL path

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.12.18] - 2026-7-17 Rootelo Links
+
+### New Features
+- dwd/profile/mrmirz-4412 redirects to profile/mrmirz
+
 ## [1.12.17] - 2026-7-16 More RTM Feedback
 
 ### New Features
