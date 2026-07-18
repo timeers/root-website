@@ -6,7 +6,7 @@
 - dwd/profile/mrmirz-4412 redirects to profile/mrmirz
 
 ### Improvements
-- profile name on profile detail page now wraps and dynamically resizes
+- profile and post name on detail pages now wraps and dynamically resizes
 
 ### Bug Fixes
 - profile detail page was crashing blank box score chart due to rename
