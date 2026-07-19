@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
@@ -214,7 +215,7 @@ class ForgedFaction(models.Model):
             url = reverse('forge-faction-detail', kwargs={'pk': self.pk})
             fields = [{'name': 'By:', 'value': str(self.designer)}]
             send_rich_discord_message_task.delay(
-                f'[{self.faction_name}](https://therootdatabase.com{url})',
+                f'[{self.faction_name}]({settings.SITE_URL}{url})',
                 category='Forge', title='New Faction', fields=fields,
             )
 
@@ -298,7 +299,7 @@ class FactionSheet(models.Model):
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
             fields = [{'name': 'By:', 'value': str(self.faction.designer)}]
             send_rich_discord_message_task.delay(
-                f'[{self.faction.faction_name}](https://therootdatabase.com{url})',
+                f'[{self.faction.faction_name}]({settings.SITE_URL}{url})',
                 category='Forge', title='New Faction Board', fields=fields,
             )
 
@@ -881,7 +882,7 @@ class FactionBack(models.Model):
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
             fields = [{'name': 'By:', 'value': str(self.faction.designer)}]
             send_rich_discord_message_task.delay(
-                f'[{self.faction.faction_name}](https://therootdatabase.com{url})',
+                f'[{self.faction.faction_name}]({settings.SITE_URL}{url})',
                 category='Forge', title='New Faction Back', fields=fields,
             )
 
@@ -967,7 +968,7 @@ class SetupCard(models.Model):
                 {'name': 'By:', 'value': str(self.faction.designer)},
             ]
             send_rich_discord_message_task.delay(
-                f'[{self.faction.faction_name}](https://therootdatabase.com{url})',
+                f'[{self.faction.faction_name}]({settings.SITE_URL}{url})',
                 category='Forge', title='New Adset Card', fields=fields,
             )
 

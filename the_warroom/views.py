@@ -918,7 +918,7 @@ def manage_game(request, id=None):
                 else:
                     game_title = f"{parent.platform} Game"
                 if not initial_game_status and obj.final:
-                    send_rich_discord_message_task.delay(f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})', category='New Game', title=f'Game Recorded', fields=fields)
+                    send_rich_discord_message_task.delay(f'[{game_title}]({settings.SITE_URL}{parent.get_absolute_url()})', category='New Game', title=f'Game Recorded', fields=fields)
 
 
             return redirect(parent.get_absolute_url())
@@ -1599,7 +1599,7 @@ def manage_game_v2(request, id=None):
                     game_title = parent.nickname if parent.nickname else f"{parent.platform} Game"
                     if not initial_game_status and obj.final:
                         send_rich_discord_message_task.delay(
-                            f'[{game_title}](https://therootdatabase.com{parent.get_absolute_url()})',
+                            f'[{game_title}]({settings.SITE_URL}{parent.get_absolute_url()})',
                             category='New Game', title='Game Recorded', fields=fields
                         )
                         # DM opted-in players / component designers / tournament hosts

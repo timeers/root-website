@@ -586,7 +586,7 @@ class Post(models.Model):
                     'name': 'By:',
                     'value': self.designers_list
                 })
-            send_rich_discord_message_task.delay(f'[{self.title}](https://therootdatabase.com{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
+            send_rich_discord_message_task.delay(f'[{self.title}]({settings.SITE_URL}{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
 
             # DM the designer if their submission was just approved (submitted -> dev)
             if approved_from_submitted:
