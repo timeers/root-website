@@ -72,13 +72,15 @@ def _scaled_threshold(games_count):
     if games_count > 5000:
         return 25
     if games_count > 2000:
-        return 15
+        return 20
     if games_count > 1500:
-        return 10
+        return 15
     if games_count > 1000:
-        return 5
+        return 10
     if games_count > 500:
         return 3
+    if games_count > 200:
+        return 2
     return 1
 
 

@@ -550,7 +550,12 @@ class Post(models.Model):
                         # Caller didn't bump the version explicitly; do it for them so
                         # forge-side sync can detect that the keep image was replaced.
                         setattr(self, version_attr, (getattr(self, version_attr) or 0) + 1)
-            if old_instance.status == StatusChoices.SUBMITTED and self.status != StatusChoices.SUBMITTED:
+            # Leaving SUBMITTED means the post was reviewed. Only an approval
+            # (a move to a real, active status) counts as a new post — a
+            # rejection (SUBMITTED -> REJECTED) is not, so it must not trigger
+            # the "New Post" announcement / approval DM / designer promotion.
+            if (old_instance.status == StatusChoices.SUBMITTED
+                    and self.status not in (StatusChoices.SUBMITTED, StatusChoices.REJECTED)):
                 new_post = True
                 approved_from_submitted = True
             else:
