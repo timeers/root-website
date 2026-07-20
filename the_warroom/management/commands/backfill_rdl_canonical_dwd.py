@@ -52,6 +52,11 @@ class Command(BaseCommand):
             help='Stop after this many API pages (0 = all pages, the default). '
                  'Useful for testing on a single page.',
         )
+        parser.add_argument(
+            '--show-discordupdate',
+            action='store_true',
+            help="List each Outcast profile whose discord was updated (old -> new).",
+        )
 
     def _fetch_players(self, page_size, max_pages=0):
         """Yield every player dict from the paginated player API, stopping
@@ -73,21 +78,29 @@ class Command(BaseCommand):
         dry_run = options['dry_run']
         page_size = options['limit']
         max_pages = options['max_pages']
+        show_discord_updates = options['show_discordupdate']
 
         canonical_updated = 0
         dwd_standardized = 0
         discord_updated = 0
+        display_name_updated = 0
         unmatched = 0
+        skipped = 0
         scanned = 0
         # (api discord_name, profile that wanted it, profile already using it)
         discord_conflicts = []
+        # (profile, old_discord, new_discord) for --show-discordupdate
+        discord_updates = []
 
         for api_player in self._fetch_players(page_size, max_pages):
             scanned += 1
             in_game_name = api_player.get('in_game_name')
             in_game_id = api_player.get('in_game_id')
             discord_name = api_player.get('discord_name')
-            if in_game_name is None or in_game_id is None:
+            # Skip entries with no usable name/id — a blank in_game_name would
+            # produce a garbage match string like "+4412".
+            if not in_game_name or not str(in_game_name).strip() or in_game_id is None:
+                skipped += 1
                 continue
 
             full_string, standard_string = _player_strings(in_game_name, in_game_id)
@@ -147,9 +160,17 @@ class Command(BaseCommand):
                 if other:
                     discord_conflicts.append((discord_name, profile, other))
                 else:
+                    discord_updates.append((profile, profile.discord, discord_name))
                     profile.discord = discord_name
                     changed_fields.append('discord')
                     discord_updated += 1
+
+            # For Outcast profiles, set display_name to the API in_game_name.
+            if (profile.group == Profile.GroupChoices.OUTCAST
+                    and profile.display_name != in_game_name):
+                profile.display_name = in_game_name
+                changed_fields.append('display_name')
+                display_name_updated += 1
 
             if changed_fields and not dry_run:
                 profile.save(update_fields=changed_fields)
@@ -166,8 +187,21 @@ class Command(BaseCommand):
             f'canonical updated: {canonical_updated}, '
             f'dwd standardized: {dwd_standardized}, '
             f'discord updated: {discord_updated}, '
-            f'unmatched (no dwd profile): {unmatched}.'
+            f'display_name updated: {display_name_updated}, '
+            f'unmatched (no dwd profile): {unmatched}, '
+            f'skipped (blank name/id): {skipped}.'
         ))
+
+        if show_discord_updates and discord_updates:
+            self.stdout.write('')
+            self.stdout.write(self.style.SUCCESS(
+                f'{prefix}{len(discord_updates)} discord updates (Outcast profiles):'
+            ))
+            for profile, old_discord, new_discord in discord_updates:
+                self.stdout.write(
+                    f'  {profile} (pk={profile.pk}): '
+                    f'"{old_discord}" -> "{new_discord}"'
+                )
 
         if discord_conflicts:
             self.stdout.write('')
