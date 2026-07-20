@@ -819,8 +819,14 @@ def user_can_edit(request, post=None):
         # Submitted posts can only be edited by admins
         from the_keep.models import StatusChoices
         if hasattr(post, 'status') and post.status == StatusChoices.SUBMITTED:
-            
+
             return False
+
+        # Rejected posts can be edited by the user who submitted them so they can resubmit
+        if hasattr(post, 'status') and post.status == StatusChoices.REJECTED:
+            if getattr(post, 'submitted_by_id', None) == profile.pk:
+                return True
+            # otherwise fall through to the designer/co-designer/editor checks below
 
         # Only accounts with Editor status can make changes
         if profile.editor and hasattr(post, 'designer'):

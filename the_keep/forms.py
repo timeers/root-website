@@ -14,7 +14,7 @@ from .models import (
     Post, Map, Deck, Vagabond, Hireling, Landmark, Faction,
     Piece, Expansion, Tweak, PNPAsset, ColorChoices, PostTranslation,
     LawGroup, Law, FAQ,
-    DeckGroup, Card, CardTag
+    DeckGroup, Card, CardTag, StatusChoices
 )
 
 
@@ -369,6 +369,7 @@ class PostCreateForm(forms.ModelForm):
         ('2', 'Testing'),
         ('3', 'Development'),
         ('4', 'Inactive'),
+        ('8', 'Rejected'),
         ('9', 'Submitted'),
     ]
     status = forms.ChoiceField(
@@ -531,6 +532,17 @@ class PostCreateForm(forms.ModelForm):
         if not user.profile.admin:
             # Remove '9' (Submitted) if not admin
             self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '9']
+
+        # When a non-admin edits a Rejected post, the only action available is to resubmit it,
+        # so restrict the status field to just 'Submitted'.
+        if post_instance and post_instance.status == StatusChoices.REJECTED and not user.profile.admin:
+            self.fields['status'].choices = [('9', 'Submitted')]
+            self.fields['status'].initial = '9'
+        else:
+            # 'Rejected' is only ever set by an admin rejecting a submission, never chosen in the
+            # form, so remove it from the selectable options (it stays in STATUS_CHOICES so a
+            # bound Rejected instance still renders without an invalid-choice error).
+            self.fields['status'].choices = [choice for choice in self.fields['status'].choices if choice[0] != '8']
 
     def clean(self):
             cleaned_data = super().clean()

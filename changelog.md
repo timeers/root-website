@@ -4,6 +4,7 @@
 
 ### New Features
 - dwd/profile/mrmirz-4412 redirects to profile/mrmirz
+- rejected posts are no longer deleted and display rejection notice for resubmission guidance
 
 ### Improvements
 - profile and post name on detail pages now wraps and dynamically resizes

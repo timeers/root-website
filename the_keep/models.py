@@ -187,6 +187,7 @@ class StatusChoices(models.TextChoices):
     DEVELOPMENT = '3', _('Development')
     INACTIVE = '4', _('Inactive')
     ABANDONED = '5', _('Abandoned')
+    REJECTED = '8', _('Rejected')
     SUBMITTED = '9', _('Submitted')
 
 # def get_status_name_from_int(status_int):
@@ -339,6 +340,7 @@ class Post(models.Model):
     discord_channel_id = models.CharField(max_length=32, blank=True, null=True)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
     submitted_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, blank=True, null=True, related_name='submissions')
+    rejection_reason = models.TextField(blank=True, null=True)
     co_designers_can_edit = models.BooleanField(default=False)
     co_designers = models.ManyToManyField(Profile, related_name="co_designed_posts", blank=True)
     animal = models.CharField(max_length=50, null=True, blank=True)

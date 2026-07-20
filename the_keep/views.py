@@ -478,16 +478,36 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
         # if not self.request.user.profile.admin:
         #     form.instance.designer = self.request.user.profile
         form.instance.date_updated = timezone.now()  # Set the updated timestamp
+
+        # Detect a resubmission of a previously Rejected post (Rejected -> Submitted). Capture the
+        # status from the DB before saving so we can compare against the new value.
+        old_status = type(form.instance).objects.filter(pk=form.instance.pk).values_list('status', flat=True).first()
+        resubmitted = (
+            old_status == StatusChoices.REJECTED
+            and form.instance.status == StatusChoices.SUBMITTED
+        )
+        if resubmitted:
+            # Clear the stale rejection reason now that the designer has addressed it.
+            form.instance.rejection_reason = None
+
         response = super().form_valid(form)
 
         post = self.object
-        fields = []
-        fields.append({
-                'name': 'Edited by:',
-                'value': self.request.user.profile.name
-            })
-        send_rich_discord_message_task.delay(f'[{post.title}]({settings.SITE_URL}{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
 
+        if resubmitted:
+            # Notify admins exactly like a fresh submission so it re-enters the pending queue flow.
+            fields = [
+                {'name': 'Submitted by:', 'value': self.request.user.profile.name},
+                {'name': 'Designer:', 'value': post.designer.name},
+            ]
+            pending_url = f'{settings.SITE_URL}{reverse("pending-posts")}'
+            send_rich_discord_message_task.delay(
+                f'[{post.title}]({settings.SITE_URL}{post.get_absolute_url()})',
+                category='report', title=f'Submitted {post.component}', fields=fields, url=pending_url
+            )
+        else:
+            fields = [{'name': 'Edited by:', 'value': self.request.user.profile.name}]
+            send_rich_discord_message_task.delay(f'[{post.title}]({settings.SITE_URL}{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
 
         return response
 

@@ -124,20 +124,31 @@
                                         </a>
                                     </div>
                                 </div>
-                                <div class="modal-footer">
+                                <div class="modal-footer flex-column align-items-stretch">
+                                    <div class="w-100 mb-2 text-start">
+                                        <label for="reject-message-{{ post.id }}" class="form-label">
+                                            {% trans "Feedback for the submitter (optional)" %}
+                                        </label>
+                                        <textarea id="reject-message-{{ post.id }}"
+                                                  class="form-control"
+                                                  rows="3"
+                                                  placeholder="{% trans 'Let the designer know what needs to change before resubmitting.' %}"></textarea>
+                                    </div>
+                                    <div class="d-flex justify-content-end gap-2">
                                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
                                         Cancel
                                     </button>
                                     <button type="button"
                                             class="btn btn-danger"
-                                            onclick="if(confirm('Are you sure you want to reject and delete this {{post.get_component_display}}? This action cannot be undone.')) { submitAction({{ post.id }}, 'reject'); }">
-                                        <i class="bi bi-trash"></i> Reject & Delete
+                                            onclick="if(confirm('Reject this {{post.get_component_display}}? The submitter will be notified and can edit and resubmit it.')) { submitAction({{ post.id }}, 'reject'); }">
+                                        <i class="bi bi-x-circle"></i> Reject
                                     </button>
                                     <button type="button"
                                             class="btn btn-success"
                                             onclick="if(confirm('Are you sure you want to approve this {{post.get_component_display}} and move it to Development status?')) { submitAction({{ post.id }}, 'approve'); }">
                                         <i class="bi bi-check-circle"></i> Approve
                                     </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -168,6 +179,16 @@ function submitAction(postId, action) {
         form.action = "{% url 'approve-post' 0 %}".replace('0', postId);
     } else {
         form.action = "{% url 'reject-post' 0 %}".replace('0', postId);
+
+        // Include the admin's feedback message with the rejection
+        const messageField = document.getElementById('reject-message-' + postId);
+        if (messageField) {
+            const messageInput = document.createElement('input');
+            messageInput.type = 'hidden';
+            messageInput.name = 'message';
+            messageInput.value = messageField.value;
+            form.appendChild(messageInput);
+        }
     }
 
     // Add CSRF token

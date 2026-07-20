@@ -20,8 +20,16 @@
                     <button class="btn btn-info btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRegister" aria-expanded="false" aria-controls="collapseRegister">
                         <i class="bi bi-info-circle"></i>
                     </button>
-                </div>   
+                </div>
 
+            {% if object.status == '8' and object.rejection_reason %}
+                <div class="alert alert-warning" role="alert">
+                    <strong>{% trans 'This submission was not approved.' %}</strong>
+                    <p class="mb-0 mt-1">{{ object.rejection_reason|linebreaksbr }}</p>
+                    <hr>
+                    <p class="mb-0 small">{% trans 'Make the requested changes and save to resubmit it for review.' %}</p>
+                </div>
+            {% endif %}
 
             {% if form.non_field_errors %}
                 <div class="alert alert-danger" role="alert">
