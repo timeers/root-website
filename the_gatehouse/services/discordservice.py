@@ -1267,16 +1267,18 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
 
     # Top factions / players over the same filtered efforts, each omitting the
     # board that a single-subject filter already narrows to. With no filters at
-    # all, use the pre-computed cached global boards instead of aggregating live.
+    # all — or only a platform — use the pre-computed cached global boards
+    # (overall, or that platform's per-platform fields) instead of aggregating live.
     effort_qs = stats.get("qs")
-    unfiltered = not (player or faction or tournament or platform)
+    cached_only = not (player or faction or tournament)
     if effort_qs is not None:
-        if unfiltered:
+        if cached_only:
             from the_warroom.services.winrate_service import (
                 cached_top_factions, cached_top_players,
             )
-            _leaderboard_field("Top Factions", cached_top_factions(limit=5), with_emoji=True)
-            _leaderboard_field("Top Players", cached_top_players(limit=5))
+            _leaderboard_field(
+                "Top Factions", cached_top_factions(limit=5, platform=platform), with_emoji=True)
+            _leaderboard_field("Top Players", cached_top_players(limit=5, platform=platform))
         else:
             # leaderboard() returns site-relative 'url's; a low threshold so
             # narrow filters still surface something.

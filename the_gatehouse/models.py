@@ -466,6 +466,17 @@ class Profile(models.Model):
     cached_winrate = models.FloatField(null=True, blank=True, db_index=True)
     cached_plays = models.IntegerField(null=True, blank=True, db_index=True)
     cached_tourney_points = models.FloatField(null=True, blank=True)
+    # Per-platform cached leaderboard inputs, maintained alongside the overall
+    # cached_* fields by calculate_and_cache_winrate.
+    cached_irl_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_irl_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_irl_tourney_points = models.FloatField(null=True, blank=True)
+    cached_dwd_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_dwd_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_dwd_tourney_points = models.FloatField(null=True, blank=True)
+    cached_tts_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_tts_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_tts_tourney_points = models.FloatField(null=True, blank=True)
     # Only a hash of the API key is stored, never the key itself (like GitHub/Discord
     # tokens). The raw key is shown once at generation and is not retrievable afterwards;
     # a DB leak therefore does not expose usable keys. API keys are high-entropy random

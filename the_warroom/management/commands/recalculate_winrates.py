@@ -1,18 +1,7 @@
 from django.core.management.base import BaseCommand
 from the_keep.models import Faction, Vagabond
 from the_gatehouse.models import Profile
-from the_warroom.models import filtered_winrate
-
-
-CACHED_FIELDS = ['cached_winrate', 'cached_plays', 'cached_tourney_points']
-
-
-def _apply_stats(obj, stats):
-    """Set the three cached fields on obj from a filtered_winrate() result."""
-    total = stats['total']
-    obj.cached_plays = total
-    obj.cached_tourney_points = stats['win_points'] if total else None
-    obj.cached_winrate = round(stats['win_rate'], 1) if total else None
+from the_warroom.services.winrate_service import CACHED_FIELDS, _apply_cached_stats
 
 
 class Command(BaseCommand):
@@ -32,7 +21,7 @@ class Command(BaseCommand):
             help='Rows per bulk_update batch (default: 500)',
         )
 
-    def _recalc(self, model, label, kwarg, batch_size):
+    def _recalc(self, model, label, batch_size):
         """Compute cached fields for every row of model and persist in batches.
 
         Uses bulk_update instead of per-row save() to stay light on the
@@ -46,7 +35,7 @@ class Command(BaseCommand):
         batch = []
         processed = 0
         for obj in qs.iterator():
-            _apply_stats(obj, filtered_winrate(**{kwarg: obj}))
+            _apply_cached_stats(obj)
             batch.append(obj)
             processed += 1
             if len(batch) >= batch_size:
@@ -63,10 +52,10 @@ class Command(BaseCommand):
         batch_size = options['batch_size']
 
         if model in ('faction', 'all'):
-            self._recalc(Faction, 'factions', 'faction', batch_size)
+            self._recalc(Faction, 'factions', batch_size)
 
         if model in ('vagabond', 'all'):
-            self._recalc(Vagabond, 'vagabonds', 'vagabond', batch_size)
+            self._recalc(Vagabond, 'vagabonds', batch_size)
 
         if model in ('profile', 'all'):
-            self._recalc(Profile, 'profiles', 'player', batch_size)
+            self._recalc(Profile, 'profiles', batch_size)

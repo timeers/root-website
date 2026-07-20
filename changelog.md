@@ -11,6 +11,7 @@
 - profile and post name on detail pages now wraps and dynamically resizes
 - removed logged in check when viewing profiles
 - added cannonical dwd username field from the RDL API
+- added cached winrates by platform
 
 ### Bug Fixes
 - profile detail page was crashing blank box score chart due to rename
