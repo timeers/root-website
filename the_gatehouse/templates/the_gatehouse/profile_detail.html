@@ -7,7 +7,7 @@
 {% block content %}
     <div class="d-flex justify-content-between align-items-top">
         <div class="d-flex flex-nowrap ms-auto">
-            {% if player.efforts.count and user.profile.player %}
+            {% if player.efforts.count %}
             <div>
                 <a class="btn btn-success btn-sm mt-1 mb-1 ms-1" href="{% url 'player-games' player.slug %}"><i class="bi bi-collection-play-fill"></i> {% trans 'Games Played' %}</a>
             </div>
@@ -58,20 +58,20 @@
 
                 </div>
                 {% if user.profile.player or player == user.profile %}
-                {% if player.discord %}
-                    <div class="text-secondary d-flex align-items-center gap-1" title="{{ player.display_name }}'s Discord Username"
-                       data-bs-toggle="tooltip">
-                        <i class="bi bi-discord"></i>
-                        {{ player.discord }}
-                    </div>
-                {% endif %}
-                {% if player.dwd %}
-                    <div class="text-secondary d-flex align-items-center gap-1" title="{{ player.display_name }}'s DWD Username"
-                       data-bs-toggle="tooltip">
-                        <img class="faction-icon" src="{% static 'images/link_icons/root_digital_icon.png' %}" alt="Root Digital Icon">
-                        {{ player.dwd }}
-                    </div>
-                {% endif %}
+                    {% if player.discord %}
+                        <div class="text-secondary d-flex align-items-center gap-1" title="{{ player.display_name }}'s Discord Username"
+                        data-bs-toggle="tooltip">
+                            <i class="bi bi-discord"></i>
+                            {{ player.discord }}
+                        </div>
+                    {% endif %}
+                    {% if player.dwd %}
+                        <div class="text-secondary d-flex align-items-center gap-1" title="{{ player.display_name }}'s DWD Username"
+                        data-bs-toggle="tooltip">
+                            <img class="faction-icon" src="{% static 'images/link_icons/root_digital_icon.png' %}" alt="Root Digital Icon">
+                            {{ player.dwd }}
+                        </div>
+                    {% endif %}
                 {% endif %}
                 {% if player.credit_link %}
                 <div class="mt-1">
@@ -92,15 +92,12 @@
             </div>
     </div>
     
-{% if user.profile.player or user.profile == player %}
-
-
 <div class="container mt-4">
     <!-- Tab navigation -->
 
     <ul class="nav nav-tabs" id="profileTabs" role="tablist">
 
-        {% if user.profile.weird and posts_count %}
+        {% if posts_count %}
         <li class="nav-item" role="presentation">
             <a class="nav-link" id="designer-tab" data-bs-toggle="tab" href="#designer" role="tab" aria-controls="designer" aria-selected="false">{% trans 'Posts' %} ({{ posts_count }})</a>
         </li>
@@ -137,7 +134,7 @@
     <!-- Tab content -->
     <div class="tab-content" id="tab-contents">
 
-        {% if user.profile.weird and player.posts.count %}
+        {% if posts_count %}
         <!-- designer -->
         <div class="tab-pane fade" id="designer" role="tabpanel" aria-labelledby="designer-tab">
     
@@ -191,7 +188,7 @@
             <div class="content-section">
 
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2 class='root-title'>My Resources</h2>
+                <h2 class='root-title'>Shared Resources</h2>
                 <div>
                     <a class="btn btn-secondary btn-sm mt-1 mb-1" href="{% url 'asset-list' %}">{% trans 'All Resources' %}</a>
                     {% if player == user.profile %}
@@ -254,7 +251,6 @@
 
 
 
-{% endif %}
 {% endblock content %}
 
 

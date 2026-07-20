@@ -360,11 +360,13 @@ def add_player(request):
 
 
 
-@login_required
 def player_page_view(request, slug=None):
     if slug:
         player = get_object_or_404(Profile, slug=slug.lower())
     else:
+        # Viewing one's own page requires being logged in.
+        if not request.user.is_authenticated:
+            return redirect(f'{reverse("discord_login")}?next={request.get_full_path()}')
         player = request.user.profile
     games_played = player.games_played
     view_status = 4
@@ -396,11 +398,14 @@ def dwd_profile_redirect(request, dwd):
         dwd_value = f'{dwd_value}+{suffix}'
     else:
         dwd_value = dwd
-    player = get_object_or_404(Profile, dwd__iexact=dwd_value)
+    # Prefer the canonical DWD value the Root League API reported, falling back
+    # to the (standardized) dwd field for profiles that predate it.
+    player = Profile.objects.filter(rdl_cannonical_dwd__iexact=dwd_value).first()
+    if not player:
+        player = get_object_or_404(Profile, dwd__iexact=dwd_value)
     return redirect(player.get_absolute_url())
 
 
-@login_required
 def designer_component_view(request, slug):
     # Get the designer object using the slug from the URL path
     designer = get_object_or_404(Profile, slug=slug.lower())
@@ -447,7 +452,6 @@ def designer_component_view(request, slug):
 
 
 
-@login_required
 def artist_component_view(request, slug):
     # Get the artist object using the slug from the URL path
     artist = get_object_or_404(Profile, slug=slug.lower())
@@ -488,7 +492,6 @@ def artist_component_view(request, slug):
 
 
 
-@login_required
 def submitted_component_view(request, slug):
     # Get the artist object using the slug from the URL path
     profile = get_object_or_404(Profile, slug=slug.lower())
@@ -715,7 +718,6 @@ def onboard_decline(request, user_type=None):
 
 
 
-@login_required
 def player_stats(request, slug):
     tournament_slug = request.GET.get('tournament_slug')
     round_slug = request.GET.get('round_slug')

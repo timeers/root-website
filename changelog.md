@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.18] - 2026-7-17 Rootelo Links
+## [1.12.18] - 2026-7-20 Rootelo Links
 
 ### New Features
 - dwd/profile/mrmirz-4412 redirects to profile/mrmirz
@@ -9,6 +9,8 @@
 
 ### Improvements
 - profile and post name on detail pages now wraps and dynamically resizes
+- removed logged in check when viewing profiles
+- added cannonical dwd username field from the RDL API
 
 ### Bug Fixes
 - profile detail page was crashing blank box score chart due to rename

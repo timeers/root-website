@@ -420,6 +420,7 @@ class Profile(models.Model):
     last_avatar_sync = models.DateTimeField(null=True, blank=True)
 
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
+    rdl_cannonical_dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True)
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)

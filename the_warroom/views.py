@@ -341,7 +341,6 @@ def leaderboard_view(request):
     return response
 
 
-@player_required  # assuming you have an FBV decorator matching your CBV one
 def player_game_list_view(request, slug=None):
     player = get_object_or_404(Profile, slug=slug) if slug else None
 
