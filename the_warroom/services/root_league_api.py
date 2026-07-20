@@ -1,8 +1,11 @@
 import re
 
+import requests
+
 from dateutil import parser, relativedelta
 from datetime import timedelta, datetime
 
+from django.conf import settings
 from django.db.models import Max, Q
 from django.utils import timezone
 
@@ -419,6 +422,42 @@ def update_game_from_api(game, match_data):
     return game
 
 
+PLAYER_API_URL = "https://rootleague.pliskin.dev/api/player/"
+_API_HEADERS = (
+    {'Authorization': f'Token {settings.RDL_API_TOKEN}'}
+    if getattr(settings, 'RDL_API_TOKEN', '') else {}
+)
+
+
+def sanitize_discord(value):
+    """Coerce an arbitrary handle into a valid discord value: lowercase, then
+    drop every character that isn't a letter, number, underscore, or period —
+    the same character set PlayerCreateForm.clean_discord() enforces. Returns
+    the cleaned string, or None if nothing usable remains (so callers can fall
+    back to another value)."""
+    if not value:
+        return None
+    cleaned = re.sub(r'[^a-z0-9_.]', '', value.lower())
+    return cleaned or None
+
+
+def fetch_api_discord_name(player_id):
+    """Return the discord_name for an API player id via /api/player/<id>/, or
+    None on any miss/error. Best-effort: a lookup failure must never break the
+    import, so all exceptions are swallowed."""
+    if not player_id:
+        return None
+    try:
+        response = requests.get(
+            f'{PLAYER_API_URL}{player_id}/',
+            headers=_API_HEADERS, timeout=10,
+        )
+        response.raise_for_status()
+        return response.json().get('discord_name')
+    except (requests.RequestException, ValueError):
+        return None
+
+
 def create_efforts_from_api(game, participants):
     """Create Effort objects from API participants data."""
     
@@ -478,17 +517,22 @@ def create_efforts_from_api(game, participants):
                 player.save()
         
         # 4. Create new profile if no match found
-        # TODO: For new players, look up the real discord_name from the player
-        # API (https://rootleague.pliskin.dev/api/player/) keyed on the in_game_id
-        # and use it for `discord` instead of the derived player_without_number.
-        # Blocked until the player API supports filtering by id/name so we can do
-        # a single targeted lookup per new player rather than fetching/caching the
-        # whole ~2500-player list on every import. Fall back to player_without_number
-        # if the API has no entry or that discord is already taken (unique field).
         if not player:
-            if Profile.objects.filter(discord__iexact=player_without_number).exists():
+            # Prefer the real discord_name from the player API (looked up by the
+            # participant's player_id), sanitized to the valid discord charset.
+            # Fall back to the name parsed from the player string when the API
+            # has no usable value — we always need *a* discord.
+            api_discord = sanitize_discord(
+                fetch_api_discord_name(participant.get('player_id'))
+            )
+            preferred_discord = api_discord or player_without_number.lower()
+
+            if Profile.objects.filter(discord__iexact=preferred_discord).exists():
+                # Preferred handle is taken; disambiguate with the full string
+                # (sanitized so it stays a valid discord value, e.g. "mrmirz4412").
+                disambiguated = sanitize_discord(full_player_string) or full_player_string.lower()
                 player, created = Profile.objects.get_or_create(
-                    discord=full_player_string.lower(),
+                    discord=disambiguated,
                     defaults={
                         'dwd': standard_player_string,
                         'rdl_cannonical_dwd': full_player_string,
@@ -497,7 +541,7 @@ def create_efforts_from_api(game, participants):
                 send_discord_message_task.delay(f'Duplicate user {player} added.', 'user_updates')
             else:
                 player, created = Profile.objects.get_or_create(
-                    discord=player_without_number.lower(),
+                    discord=preferred_discord,
                     defaults={
                         'dwd': standard_player_string,
                         'rdl_cannonical_dwd': full_player_string,
