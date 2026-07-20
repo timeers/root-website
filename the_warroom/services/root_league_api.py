@@ -478,6 +478,13 @@ def create_efforts_from_api(game, participants):
                 player.save()
         
         # 4. Create new profile if no match found
+        # TODO: For new players, look up the real discord_name from the player
+        # API (https://rootleague.pliskin.dev/api/player/) keyed on the in_game_id
+        # and use it for `discord` instead of the derived player_without_number.
+        # Blocked until the player API supports filtering by id/name so we can do
+        # a single targeted lookup per new player rather than fetching/caching the
+        # whole ~2500-player list on every import. Fall back to player_without_number
+        # if the API has no entry or that discord is already taken (unique field).
         if not player:
             if Profile.objects.filter(discord__iexact=player_without_number).exists():
                 player, created = Profile.objects.get_or_create(
