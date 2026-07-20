@@ -1,9 +1,26 @@
+import re
+
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
 import requests
 
 from the_gatehouse.models import Profile
+
+
+def _clean_discord(value):
+    """Normalize and validate a discord handle the same way
+    PlayerCreateForm.clean_discord() does: lowercase, 2-32 chars, and only
+    letters/numbers/underscores/periods. Returns the cleaned value, or None if
+    it's invalid (e.g. contains spaces or special characters like '#')."""
+    if not value:
+        return None
+    discord = value.lower().strip()
+    if not (2 <= len(discord) <= 32):
+        return None
+    if not re.match(r'^[a-z0-9_.]+$', discord):
+        return None
+    return discord
 
 
 PLAYER_API_URL = "https://rootleague.pliskin.dev/api/player/"
@@ -83,6 +100,7 @@ class Command(BaseCommand):
         canonical_updated = 0
         dwd_standardized = 0
         discord_updated = 0
+        discord_invalid = 0
         display_name_updated = 0
         unmatched = 0
         skipped = 0
@@ -149,21 +167,26 @@ class Command(BaseCommand):
                     changed_fields.append('rdl_cannonical_dwd')
                     canonical_updated += 1
 
-            # For Outcast profiles, adopt the API discord_name unless another
-            # profile already uses it (in which case record the conflict).
-            if (profile.group == Profile.GroupChoices.OUTCAST
-                    and discord_name
-                    and profile.discord != discord_name):
-                other = (Profile.objects
-                         .filter(discord__iexact=discord_name)
-                         .exclude(pk=profile.pk).first())
-                if other:
-                    discord_conflicts.append((discord_name, profile, other))
-                else:
-                    discord_updates.append((profile, profile.discord, discord_name))
-                    profile.discord = discord_name
-                    changed_fields.append('discord')
-                    discord_updated += 1
+            # For Outcast profiles, adopt the API discord_name. Validate it the
+            # same way registration does (lowercase, letters/numbers/_/. only) and
+            # skip the update when it fails — a raw handle like "Chaotic Noodle"
+            # or "Lusk#7562" must not be written to the discord field. Then skip
+            # if another profile already uses the cleaned value (a conflict).
+            if profile.group == Profile.GroupChoices.OUTCAST and discord_name:
+                cleaned_discord = _clean_discord(discord_name)
+                if not cleaned_discord:
+                    discord_invalid += 1
+                elif profile.discord != cleaned_discord:
+                    other = (Profile.objects
+                             .filter(discord__iexact=cleaned_discord)
+                             .exclude(pk=profile.pk).first())
+                    if other:
+                        discord_conflicts.append((cleaned_discord, profile, other))
+                    else:
+                        discord_updates.append((profile, profile.discord, cleaned_discord))
+                        profile.discord = cleaned_discord
+                        changed_fields.append('discord')
+                        discord_updated += 1
 
             # For Outcast profiles, set display_name to the API in_game_name.
             if (profile.group == Profile.GroupChoices.OUTCAST
@@ -187,6 +210,7 @@ class Command(BaseCommand):
             f'canonical updated: {canonical_updated}, '
             f'dwd standardized: {dwd_standardized}, '
             f'discord updated: {discord_updated}, '
+            f'discord invalid (skipped): {discord_invalid}, '
             f'display_name updated: {display_name_updated}, '
             f'unmatched (no dwd profile): {unmatched}, '
             f'skipped (blank name/id): {skipped}.'

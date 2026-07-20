@@ -13,6 +13,7 @@
 - added cannonical dwd username field from the RDL API
 - added cached winrates by platform
 - /stats command shows threshold and defaults to official factions only
+- RDL import now uses player api to get discord name instead of guessing
 
 ### Bug Fixes
 - profile detail page was crashing blank box score chart due to rename
