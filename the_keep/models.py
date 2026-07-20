@@ -1656,23 +1656,27 @@ class Faction(Post):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None, include_fan_content=True):
         """
         Get the factions with the highest winrate (or most wins for top_quantity) from the effort_qs
         The limit is how many factions will be displayed.
         The game threshold is how many games a faction needs to play to qualify.
         If as_json=True, returns a list of dicts with title, win_rate, tourney_points, url, and image_url.
         link_builder: optional callable(faction) -> str URL. Defaults to faction-detail.
+        include_fan_content: when True (default) show all factions; pass False to
+        exclude unofficial (fan-made) factions (e.g. the /stats default).
         """
         language_code = get_language()
-        
+
         # Start with the base queryset for factions
         queryset = cls.objects.filter(
-            efforts__in=effort_qs, 
-            efforts__game__final=True, 
+            efforts__in=effort_qs,
+            efforts__game__final=True,
             component='Faction'
         )
-        
+        if not include_fan_content:
+            queryset = queryset.filter(official=True)
+
         # Annotate with the total efforts and win counts
         queryset = queryset.annotate(
             total_efforts=Count('efforts'),

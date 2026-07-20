@@ -12,11 +12,13 @@
 - removed logged in check when viewing profiles
 - added cannonical dwd username field from the RDL API
 - added cached winrates by platform
+- /stats command shows threshold and defaults to official factions only
 
 ### Bug Fixes
 - profile detail page was crashing blank box score chart due to rename
 - message for submitted posts should now always link to the pending submittal page
 - discarded captain no longer cleared when editing a game
+- Leaderboard now reliably uses cached values when blank queries are given
 
 ## [1.12.17] - 2026-7-16 More RTM Feedback
 

@@ -248,8 +248,18 @@ def leaderboard_view(request):
     # authenticated "weird" users. Non-weird users see official-only games (a
     # different set) and any filtered request both fall back to the live
     # .leaderboard() aggregation (same coalition formula).
+    #
+    # threshold/limit only parameterize the same indexed cached queries (they're
+    # passed straight to _default_*_board), so they don't force the live path.
+    # Only a real *filter* value does. Empty-valued params (e.g. "?player="
+    # carried over from the Games tab) don't filter anything and are ignored here.
+    CACHED_SAFE_PARAMS = {'threshold', 'limit'}
+    has_active_filters = any(
+        key not in CACHED_SAFE_PARAMS and any(v and v.strip() for v in values)
+        for key, values in request.GET.lists()
+    )
     default_case = (
-        not request.GET  # no filters, threshold, or limit params
+        not has_active_filters
         and (not request.user.is_authenticated or request.user.profile.weird)
     )
 

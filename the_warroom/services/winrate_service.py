@@ -92,10 +92,11 @@ def _platform_prefix(platform):
     return 'cached_'
 
 
-def _platform_threshold(platform):
+def cached_threshold(platform=None):
     """Scaled qualifying threshold over the game set for `platform` (or all
     games when platform is None), so a platform board's cutoff tracks that
-    platform's dataset size the way the overall board tracks the whole one."""
+    platform's dataset size the way the overall board tracks the whole one.
+    Exposed so the /stats embed can label the boards with this same number."""
     from the_warroom.models import Game
 
     games = Game.objects.filter(final=True, test_match=False)
@@ -126,15 +127,19 @@ def _cached_board(model_qs, threshold, limit, prefix='cached_'):
     ]
 
 
-def cached_top_factions(limit=5, platform=None):
+def cached_top_factions(limit=5, platform=None, include_fan_content=True):
     """Global top factions from cached fields, as /stats-embed JSON dicts.
     Excludes Clockwork (component='Faction' only), matching the live board.
-    With a platform, reads that platform's cached fields instead of overall."""
+    With a platform, reads that platform's cached fields instead of overall.
+    include_fan_content: when True (default) show all factions; pass False to
+    exclude unofficial (fan-made) factions (e.g. the /stats default)."""
     from the_keep.models import Faction
 
+    qs = Faction.objects.filter(component='Faction')
+    if not include_fan_content:
+        qs = qs.filter(official=True)
     return _cached_board(
-        Faction.objects.filter(component='Faction'),
-        _platform_threshold(platform), limit, _platform_prefix(platform),
+        qs, cached_threshold(platform), limit, _platform_prefix(platform),
     )
 
 
@@ -145,5 +150,5 @@ def cached_top_players(limit=5, platform=None):
 
     return _cached_board(
         Profile.objects.all(),
-        _platform_threshold(platform), limit, _platform_prefix(platform),
+        cached_threshold(platform), limit, _platform_prefix(platform),
     )

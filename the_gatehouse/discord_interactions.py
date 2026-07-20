@@ -193,6 +193,9 @@ def _handle_stats_command(data):
     faction_slug = _get_option(data, "faction")
     series_slug = _get_option(data, "series")
     platform = _get_option(data, "platform")
+    # Fan-made factions are hidden unless the user explicitly opts in, so both
+    # "No" and an unset option (None) resolve to False.
+    include_fan_content = bool(_get_option(data, "include_fan_content"))
 
     player = faction = tournament = None
     if player_slug:
@@ -220,7 +223,8 @@ def _handle_stats_command(data):
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {"embeds": [build_stats_embed(
-            stats, player=player, faction=faction, tournament=tournament, platform=platform
+            stats, player=player, faction=faction, tournament=tournament, platform=platform,
+            include_fan_content=include_fan_content,
         )]},
     })
 

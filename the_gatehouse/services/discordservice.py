@@ -1165,12 +1165,14 @@ def build_captain_embed(vagabond):
     return {k: v for k, v in embed.items() if v is not None}
 
 
-def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None):
+def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None, include_fan_content=False):
     """Build a Discord embed dict for a /stats win-rate result.
 
     `stats` is the dict from filtered_winrate (total, games, win_points, win_rate).
     The remaining args are the resolved filter objects (or None) used to label
     the result and, when a single subject is in focus, link/thumbnail it.
+    include_fan_content: when False (default), the faction board excludes
+    unofficial (fan-made) factions.
     """
     site_url = config.get("SITE_URL", "").rstrip("/")
 
@@ -1274,11 +1276,16 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     if effort_qs is not None:
         if cached_only:
             from the_warroom.services.winrate_service import (
-                cached_top_factions, cached_top_players,
+                cached_top_factions, cached_top_players, cached_threshold,
             )
             _leaderboard_field(
-                "Top Factions", cached_top_factions(limit=5, platform=platform), with_emoji=True)
+                "Top Factions",
+                cached_top_factions(limit=5, platform=platform, include_fan_content=include_fan_content),
+                with_emoji=True)
             _leaderboard_field("Top Players", cached_top_players(limit=5, platform=platform))
+            # Footer names the qualifying-plays cutoff the cached boards used.
+            threshold = cached_threshold(platform)
+            embed["footer"] = {"text": f"Leaderboard threshold of {threshold}"}
         else:
             # leaderboard() returns site-relative 'url's; a low threshold so
             # narrow filters still surface something.
@@ -1286,7 +1293,8 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
                 from the_keep.models import Faction
                 _leaderboard_field(
                     "Top Factions",
-                    Faction.leaderboard(effort_qs, limit=5, game_threshold=2, as_json=True),
+                    Faction.leaderboard(effort_qs, limit=5, game_threshold=2, as_json=True,
+                                        include_fan_content=include_fan_content),
                     with_emoji=True,
                 )
             if not player:
