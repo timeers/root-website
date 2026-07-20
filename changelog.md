@@ -11,6 +11,7 @@
 ### Bug Fixes
 - profile detail page was crashing blank box score chart due to rename
 - message for submitted posts should now always link to the pending submittal page
+- discarded captain no longer cleared when editing a game
 
 ## [1.12.17] - 2026-7-16 More RTM Feedback
 

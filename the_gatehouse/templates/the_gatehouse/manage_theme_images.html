@@ -156,11 +156,11 @@
 
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-sm btn-outline-secondary"
+            <button type="button" class="btn btn-sm btn-outline-secondary"
                     onclick="safeNavigate('{% url 'manage-theme-edit' theme.pk %}')">
                 <i class="bi bi-pencil"></i> Edit Theme
             </button>
-            <button class="btn btn-sm btn-secondary"
+            <button type="button" class="btn btn-sm btn-secondary"
                     onclick="safeNavigate('{% url 'manage-themes' %}')">
                 <i class="bi bi-arrow-left"></i> Themes
             </button>
@@ -170,13 +170,13 @@
     {# ── Page navigator ────────────────────────────────────────────────── #}
     <div class="d-flex align-items-center justify-content-center gap-3 mb-3 rounded py-2 px-3"
          style="background-color: {{ theme.theme_color }};">
-        <button class="btn btn-sm" id="page-prev"
+        <button type="button" class="btn btn-sm" id="page-prev"
                 style="color:#fff; border-color:rgba(255,255,255,0.4);">
             <i class="bi bi-chevron-left"></i>
         </button>
         <span id="page-label" class="fw-semibold"
               style="min-width:100px; text-align:center; color:#fff;"></span>
-        <button class="btn btn-sm" id="page-next"
+        <button type="button" class="btn btn-sm" id="page-next"
                 style="color:#fff; border-color:rgba(255,255,255,0.4);">
             <i class="bi bi-chevron-right"></i>
         </button>
@@ -209,11 +209,11 @@
             </div>
             <div class="cell-label">{{ loc_label }}</div>
             <div class="cell-controls">
-                <button onclick="cycleImage(event,'fg','{{ loc_key }}',-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" onclick="cycleImage(event,'fg','{{ loc_key }}',-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
                 <span class="cell-counter" id="counter-fg-{{ loc_key }}"></span>
-                <button onclick="cycleImage(event,'fg','{{ loc_key }}',1)" title="Next"><i class="bi bi-chevron-right"></i></button>
+                <button type="button" onclick="cycleImage(event,'fg','{{ loc_key }}',1)" title="Next"><i class="bi bi-chevron-right"></i></button>
             </div>
-            <button class="cell-add-btn" onclick="openAddPanel(event,'fg','{{ loc_key }}')" title="Add image">+</button>
+            <button type="button" class="cell-add-btn" onclick="openAddPanel(event,'fg','{{ loc_key }}')" title="Add image">+</button>
         </div>
         {% endfor %}
     </div>
@@ -228,11 +228,11 @@
             </div>
             <div class="cell-label">{{ loc_label }}</div>
             <div class="cell-controls">
-                <button onclick="cycleImage(event,'fg','{{ loc_key }}',-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
+                <button type="button" onclick="cycleImage(event,'fg','{{ loc_key }}',-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
                 <span class="cell-counter" id="counter-fg-{{ loc_key }}"></span>
-                <button onclick="cycleImage(event,'fg','{{ loc_key }}',1)" title="Next"><i class="bi bi-chevron-right"></i></button>
+                <button type="button" onclick="cycleImage(event,'fg','{{ loc_key }}',1)" title="Next"><i class="bi bi-chevron-right"></i></button>
             </div>
-            <button class="cell-add-btn" onclick="openAddPanel(event,'fg','{{ loc_key }}')" title="Add image">+</button>
+            <button type="button" class="cell-add-btn" onclick="openAddPanel(event,'fg','{{ loc_key }}')" title="Add image">+</button>
         </div>
         {% endfor %}
     </div>
@@ -246,12 +246,12 @@
             <div class="d-flex flex-column align-items-start flex-grow-1">
                 <div class="cell-label">Background</div>
                 <div class="cell-controls">
-                    <button onclick="cycleImage(event,'bg',null,-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
+                    <button type="button" onclick="cycleImage(event,'bg',null,-1)" title="Previous"><i class="bi bi-chevron-left"></i></button>
                     <span class="cell-counter" id="counter-bg"></span>
-                    <button onclick="cycleImage(event,'bg',null,1)" title="Next"><i class="bi bi-chevron-right"></i></button>
+                    <button type="button" onclick="cycleImage(event,'bg',null,1)" title="Next"><i class="bi bi-chevron-right"></i></button>
                 </div>
             </div>
-            <button class="cell-add-btn" onclick="openAddPanel(event,'bg',null)" title="Add background">+</button>
+            <button type="button" class="cell-add-btn" onclick="openAddPanel(event,'bg',null)" title="Add background">+</button>
         </div>
     </div>
 
@@ -811,17 +811,18 @@ function validateCurrentPanel() {
 }
 
 // Discard the currently-shown pending image entirely.
-function discardPending() {
-    const imageId = document.getElementById('detail-image-id').value;
-    if (!isPending(imageId)) return;
-    const type = document.getElementById('detail-type').value;
-    const loc  = document.getElementById('detail-location').value;
+// Remove an image from the in-memory model and re-render, without a page
+// reload. Used for both discarding a pending image and after a successful
+// server-side delete (HTTP 204). `loc` defaults to the detail panel's value.
+function removeImageInPlace(imageId, type, loc) {
+    if (loc === undefined) loc = document.getElementById('detail-location').value;
     const data = THEME_IMAGES[currentPage];
+    if (!data) return;
 
     if (type === 'bg') {
         const img = (data.backgrounds || []).find(i => i.id === imageId);
         if (img && img.url) URL.revokeObjectURL(img.url);
-        data.backgrounds = data.backgrounds.filter(i => i.id !== imageId);
+        data.backgrounds = (data.backgrounds || []).filter(i => i.id !== imageId);
         // Clamp bgIndex
         const state = getState(currentPage);
         state.bgIndex = Math.max(0, Math.min(state.bgIndex, data.backgrounds.length - 1));
@@ -839,9 +840,18 @@ function discardPending() {
     }
 
     delete PENDING_FILES[imageId];
+    delete STAGED_FILES[imageId];
     closeDetailPanel();
     updateGrid();
     renderPreview();
+}
+
+function discardPending() {
+    const imageId = document.getElementById('detail-image-id').value;
+    if (!isPending(imageId)) return;
+    const type = document.getElementById('detail-type').value;
+    const loc  = document.getElementById('detail-location').value;
+    removeImageInPlace(imageId, type, loc);
 }
 
 function openAddPanel(event, type, loc) {
@@ -1151,10 +1161,17 @@ async function saveImage() {
         return;
     }
 
-    const results = await Promise.allSettled(tasks.map(t => postTask(t)));
-    const errors  = results.flatMap((r, i) =>
-        r.status === 'rejected' ? [`<strong>${tasks[i].img.name || 'Image'}</strong>: ${r.reason.message}`] : []
-    );
+    // Save sequentially — one request at a time. Concurrent POSTs cause
+    // "database is locked" failures on SQLite (each save is two write txns:
+    // the model save plus the small-image post_save signal re-save).
+    const errors = [];
+    for (const task of tasks) {
+        try {
+            await postTask(task);
+        } catch (err) {
+            errors.push(`<strong>${task.img.name || 'Image'}</strong>: ${err.message}`);
+        }
+    }
 
     if (errors.length) {
         errDiv.innerHTML = errors.join('<br>');
@@ -1203,7 +1220,7 @@ function deleteImage() {
 
     fetch(url, { method: 'POST', body: fd })
         .then(async resp => {
-            if (resp.status === 204) { location.reload(); return; }
+            if (resp.status === 204) { removeImageInPlace(imageId, type); return; }
             let msg = `Delete failed (${resp.status})`;
             try { const d = await resp.json(); if (d && d.error) msg = d.error; } catch (e) {}
             showError(msg);

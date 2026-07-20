@@ -1845,6 +1845,17 @@ document.addEventListener('DOMContentLoaded', function() {
             ? Array.from(captainsSelect.selectedOptions).map(o => o.value)
             : [];
         const available = captainsPool.filter(c => !selectedCaptainIds.includes(String(c.id)));
+        // Preserve the current discarded-captain selection so it survives a
+        // rebuild even when the captains pool is empty/stale (e.g. on initial
+        // load before the deck API responds) or the value isn't in the pool.
+        // Without this the server-rendered selection is wiped and posts empty.
+        const currentId = discardedSelect.value;
+        if (currentId && !available.some(c => String(c.id) === String(currentId))) {
+            const currentOption = discardedSelect.selectedOptions[0];
+            if (currentOption) {
+                available.push({ id: currentId, name: currentOption.text });
+            }
+        }
         updateSelectOptions(discardedSelect, available, ' ');
     }
 

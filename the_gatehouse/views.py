@@ -2463,6 +2463,26 @@ def manage_holiday_edit(request, pk=None):
     })
 
 
+def _save_with_retry(obj, attempts=5, delay=0.15):
+    """Save `obj`, retrying briefly on SQLite 'database is locked' errors.
+
+    Theme image saves each trigger a second write from the small-image
+    post_save signal, so overlapping requests can transiently lock SQLite.
+    On Postgres this is effectively a no-op (that error message won't occur).
+    """
+    import time
+    from django.db import OperationalError
+    for i in range(attempts):
+        try:
+            obj.save()
+            return
+        except OperationalError as e:
+            if 'database is locked' in str(e).lower() and i < attempts - 1:
+                time.sleep(delay)
+                continue
+            raise
+
+
 @admin_onboard_required
 def hx_save_foreground_image(request, theme_pk, pk=None):
     theme = get_object_or_404(Theme, pk=theme_pk)
@@ -2472,7 +2492,7 @@ def hx_save_foreground_image(request, theme_pk, pk=None):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.theme = theme
-            obj.save()
+            _save_with_retry(obj)
             response = JsonResponse({'id': obj.pk})
             response['HX-Trigger'] = 'imagesSaved'
             return response
@@ -2502,7 +2522,7 @@ def hx_save_background_image(request, theme_pk, pk=None):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.theme = theme
-            obj.save()
+            _save_with_retry(obj)
             response = JsonResponse({'id': obj.pk})
             response['HX-Trigger'] = 'imagesSaved'
             return response
