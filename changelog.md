@@ -19,6 +19,7 @@
 - message for submitted posts should now always link to the pending submittal page
 - discarded captain no longer cleared when editing a game
 - Leaderboard now reliably uses cached values when blank queries are given
+- added command to fix dwd usernames
 
 ## [1.12.17] - 2026-7-16 More RTM Feedback
 
