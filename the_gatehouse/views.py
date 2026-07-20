@@ -384,6 +384,22 @@ def player_page_view(request, slug=None):
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
 
 
+def dwd_profile_redirect(request, dwd):
+    """Resolve a Direwolf Digital username to a profile and redirect to its
+    canonical slug URL. Stored dwd values use the format ``username+1234``;
+    the URL substitutes a dash for the ``+`` (``username-1234``) so the value
+    is URL-safe. The username portion is always alphanumeric, so only the
+    final dash is the separator to restore.
+    """
+    dwd_value, sep, suffix = dwd.rpartition('-')
+    if sep:
+        dwd_value = f'{dwd_value}+{suffix}'
+    else:
+        dwd_value = dwd
+    player = get_object_or_404(Profile, dwd__iexact=dwd_value)
+    return redirect(player.get_absolute_url())
+
+
 @login_required
 def designer_component_view(request, slug):
     # Get the designer object using the slug from the URL path
@@ -2447,6 +2463,26 @@ def manage_holiday_edit(request, pk=None):
     })
 
 
+def _save_with_retry(obj, attempts=5, delay=0.15):
+    """Save `obj`, retrying briefly on SQLite 'database is locked' errors.
+
+    Theme image saves each trigger a second write from the small-image
+    post_save signal, so overlapping requests can transiently lock SQLite.
+    On Postgres this is effectively a no-op (that error message won't occur).
+    """
+    import time
+    from django.db import OperationalError
+    for i in range(attempts):
+        try:
+            obj.save()
+            return
+        except OperationalError as e:
+            if 'database is locked' in str(e).lower() and i < attempts - 1:
+                time.sleep(delay)
+                continue
+            raise
+
+
 @admin_onboard_required
 def hx_save_foreground_image(request, theme_pk, pk=None):
     theme = get_object_or_404(Theme, pk=theme_pk)
@@ -2456,7 +2492,7 @@ def hx_save_foreground_image(request, theme_pk, pk=None):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.theme = theme
-            obj.save()
+            _save_with_retry(obj)
             response = JsonResponse({'id': obj.pk})
             response['HX-Trigger'] = 'imagesSaved'
             return response
@@ -2486,7 +2522,7 @@ def hx_save_background_image(request, theme_pk, pk=None):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.theme = theme
-            obj.save()
+            _save_with_retry(obj)
             response = JsonResponse({'id': obj.pk})
             response['HX-Trigger'] = 'imagesSaved'
             return response

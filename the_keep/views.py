@@ -381,7 +381,7 @@ class PostCreateView(LoginRequiredMixin, CreateView):
         if response:
             post = self.object
             fields = []
-            post_url = build_absolute_uri(self.request, post.get_absolute_url())
+            post_url = f'{settings.SITE_URL}{post.get_absolute_url()}'
             if post.status == '9':
                 fields.append({
                         'name': 'Submitted by:',
@@ -391,7 +391,7 @@ class PostCreateView(LoginRequiredMixin, CreateView):
                         'name': 'Designer:',
                         'value': post.designer.name
                     })
-                pending_url = build_absolute_uri(self.request, reverse('pending-posts'))
+                pending_url = f'{settings.SITE_URL}{reverse("pending-posts")}'
                 send_rich_discord_message_task.delay(f'[{post.title}]({post_url})', category='report', title=f'Submitted {post.component}', fields=fields, url=pending_url)
             else:
                 fields.append({
@@ -486,7 +486,7 @@ class PostUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
                 'name': 'Edited by:',
                 'value': self.request.user.profile.name
             })
-        send_rich_discord_message_task.delay(f'[{post.title}](https://therootdatabase.com{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
+        send_rich_discord_message_task.delay(f'[{post.title}]({settings.SITE_URL}{post.get_absolute_url()})', category='Post Edited', title=f'Edited {post.component}', fields=fields)
 
 
         return response
@@ -780,13 +780,13 @@ def create_post_translation(request, slug, lang=None):
                         'name': 'Posted by:',
                         'value': request.user.profile.name
                     })
-                send_rich_discord_message_task.delay(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Created', title=f'New {translation.post.component} Translation', fields=fields)
+                send_rich_discord_message_task.delay(f'[{translation.translated_title}]({settings.SITE_URL}{translation.get_absolute_url()})', category='Post Created', title=f'New {translation.post.component} Translation', fields=fields)
             else:
                 fields.append({
                         'name': 'Edited by:',
                         'value': request.user.profile.name
                     })
-                send_rich_discord_message_task.delay(f'[{translation.translated_title}](https://therootdatabase.com{translation.get_absolute_url()})', category='Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
+                send_rich_discord_message_task.delay(f'[{translation.translated_title}]({settings.SITE_URL}{translation.get_absolute_url()})', category='Post Edited', title=f'Edited {translation.post.component} Translation', fields=fields)
 
 
             # Append the lang query parameter to the URL

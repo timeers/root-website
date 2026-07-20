@@ -1,6 +1,7 @@
 import contextlib
 import json
 
+from django.conf import settings
 from django.db import transaction
 from django.http import (
     FileResponse,
@@ -3120,7 +3121,7 @@ def forgedfaction_submit(request, pk):
 
             fields = [{'name': 'Submitted by:', 'value': profile.name}]
             send_rich_discord_message_task.delay(
-                f'[{faction.title}](https://therootdatabase.com{faction.get_absolute_url()})',
+                f'[{faction.title}]({settings.SITE_URL}{faction.get_absolute_url()})',
                 category='report', title=f'Submitted {faction.component}', fields=fields,
             )
             messages.success(request, f"Submitted '{faction.title}' for review.")

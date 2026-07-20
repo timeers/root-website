@@ -7,7 +7,7 @@
    
         <img class="xl-avatar-icon me-2" src="{{ user.profile.image.url }}">
 
-            <div class="flex-fill">
+            <div class="flex-fill" style="min-width: 0;">
 
                 {% if user.profile.player %}
                     <h1 class="account-heading root-title"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h1>

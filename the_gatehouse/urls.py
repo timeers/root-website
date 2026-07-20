@@ -1,6 +1,6 @@
 from django.urls import path
 from the_keep.views import list_view
-from .views import (user_settings, player_page_view,
+from .views import (user_settings, player_page_view, dwd_profile_redirect,
                     designer_component_view, post_bookmarks, game_bookmarks, submitted_component_view,
                     player_stats, artist_component_view, manage_user,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
@@ -29,6 +29,7 @@ urlpatterns = [
     path('admin/', admin_dashboard, name='admin-dashboard'),
 
     path('profile/', player_page_view, name='profile'),
+    path('dwd/profile/<str:dwd>/', dwd_profile_redirect, name='player-detail-dwd'),
     path('profile/<slug:slug>/', player_page_view, name='player-detail'),
 
     path('profile/<slug:slug>/stats/', player_stats, name='player-stats'),

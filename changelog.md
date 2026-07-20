@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.18] - 2026-7-17 Rootelo Links
+
+### New Features
+- dwd/profile/mrmirz-4412 redirects to profile/mrmirz
+
+### Improvements
+- profile and post name on detail pages now wraps and dynamically resizes
+
+### Bug Fixes
+- profile detail page was crashing blank box score chart due to rename
+- message for submitted posts should now always link to the pending submittal page
+- discarded captain no longer cleared when editing a game
+
 ## [1.12.17] - 2026-7-16 More RTM Feedback
 
 ### New Features
