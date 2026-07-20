@@ -3,7 +3,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .models import Profile, Website, MessageChoices, Theme, BackgroundImage, ForegroundImage, Holiday
+from .models import Profile, Website, MessageChoices, Theme, BackgroundImage, ForegroundImage, Holiday, NOTIFY_COMPONENTS
 from django_recaptcha.fields import ReCaptchaField
 from django_recaptcha.widgets import ReCaptchaV2Checkbox
 from django.utils.translation import gettext_lazy as _
@@ -80,6 +80,29 @@ class ProfileUpdateForm(forms.ModelForm):
         return cleaned_data
 
 class DiscordNotificationsForm(forms.ModelForm):
+    # Master toggles for the two collapsible per-component groups. Not saved to
+    # the model; the template's JS uses them to check/expand a whole group at
+    # once. Their initial state reflects whether the group has any selection.
+    new_master = forms.BooleanField(required=False, label=_('A component is added to the Database'))
+    stable_master = forms.BooleanField(required=False, label=_('A component is marked as "Stable"'))
+
+    # Per-component opt-ins, backed by the Profile.new_notify / stable_notify
+    # JSON lists rather than individual model fields.
+    # label='' suppresses crispy's auto "New notify"/"Stable notify" legend —
+    # the master checkbox above each group already labels it.
+    new_notify = forms.MultipleChoiceField(
+        required=False,
+        label='',
+        choices=NOTIFY_COMPONENTS,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    stable_notify = forms.MultipleChoiceField(
+        required=False,
+        label='',
+        choices=NOTIFY_COMPONENTS,
+        widget=forms.CheckboxSelectMultiple,
+    )
+
     class Meta:
         model = Profile
         fields = [
@@ -96,6 +119,23 @@ class DiscordNotificationsForm(forms.ModelForm):
             'notify_post_game_recorded': _('A game using my component is recorded'),
             'notify_post_approved': _('My submitted component is approved'),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['new_notify'].initial = self.instance.new_notify or []
+            self.fields['stable_notify'].initial = self.instance.stable_notify or []
+            self.fields['new_master'].initial = bool(self.instance.new_notify)
+            self.fields['stable_master'].initial = bool(self.instance.stable_notify)
+
+    def save(self, commit=True):
+        profile = super().save(commit=False)
+        profile.new_notify = self.cleaned_data.get('new_notify', [])
+        profile.stable_notify = self.cleaned_data.get('stable_notify', [])
+        if commit:
+            profile.save()
+            self.save_m2m()
+        return profile
 
 
 class UserManageForm(forms.ModelForm):

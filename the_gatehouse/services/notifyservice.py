@@ -152,6 +152,44 @@ def notify_post_approved(post):
     _queue_dm(designer, content, embed=embed)
 
 
+def _broadcast_component(post, list_field, content_template):
+    """
+    DM every profile whose <list_field> JSON list contains this post's component.
+
+    Broadcast (not targeted): unlike the other notify_* helpers this fans out to
+    all Profiles that opted into this component for the given group (stable/new).
+    The component (e.g. 'Faction', 'Clockwork', 'Map') is matched against the
+    values stored in Profile.stable_notify / Profile.new_notify.
+    """
+    from the_gatehouse.models import Profile
+
+    component = post.component
+    if not component:
+        return
+
+    content = content_template.format(component=post.get_component_display())
+    embed = _link_embed(post.title, post.get_absolute_url())
+
+    # JSONField __contains isn't supported on SQLite (dev), so we filter down to
+    # profiles with a linked user and a non-empty opt-in list at the DB level,
+    # then check component membership in Python. This isn't a hot path and the
+    # profile count is small, so the extra rows are negligible.
+    recipients = Profile.objects.filter(user__isnull=False).exclude(**{list_field: []})
+    for profile in recipients.iterator():
+        if component in (getattr(profile, list_field) or []):
+            _queue_dm(profile, content, embed=embed)
+
+
+def notify_component_stable(post):
+    """DM every profile opted into this component's 'marked Stable' notifications."""
+    _broadcast_component(post, "stable_notify", 'A {component} has been marked Stable:')
+
+
+def notify_new_component(post):
+    """DM every profile opted into this component's 'newly published' notifications."""
+    _broadcast_component(post, "new_notify", 'A new {component} was published:')
+
+
 def notify_survey_response(survey_response):
     """DM the survey owner when someone submits a response, if they opted in."""
     survey = survey_response.survey

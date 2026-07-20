@@ -8,31 +8,97 @@
                 <i class="bi bi-discord"></i> {% trans 'Discord Notifications' %}
             </legend>
 
+            {% if not can_receive_dms %}
+                <div class="alert alert-warning border-warning" role="alert">
+                    <h5 class="alert-heading h6 fw-semibold mb-2">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>{% trans 'Discord notifications unavailable' %}
+                    </h5>
+                    <p class="mb-2">
+                        {% trans "You're not currently in a Discord server with the RootDatabot, so notifications can't be delivered to you yet." %}
+                    </p>
+                    {% if rdb_feedback_invite %}
+                        <p class="mb-2">
+                            <a href="{{ rdb_feedback_invite }}" target="_blank" rel="noopener" class="alert-link">
+                                <i class="bi bi-discord me-1"></i>{% trans 'Join the RDB Discord' %}
+                            </a>
+                            {% trans '(or another server with RootDatabot) to enable notifications, then log out and back in.' %}
+                        </p>
+                    {% endif %}
+                    <hr class="my-2">
+                    <p class="mb-0 small">
+                        {% trans 'You can still set your preferences below, but you might not receive notifications until then.' %}
+                    </p>
+                </div>
+            {% endif %}
+
             <p class="text-secondary">
                 {% trans 'Select which events you want to receive a Discord notification for. All notifications are off by default.' %}
             </p>
 
-            {% if not can_receive_dms %}
-                <div class="alert alert-warning">
-                    {% trans "You're not currently in a Discord server with the RDB Bot, so Discord notifications are not available." %}
-                    {% if rdb_feedback_invite %}
-                        <a href="{{ rdb_feedback_invite }}" target="_blank" rel="noopener">
-                            {% trans 'Join the RDB Discord' %}
-                        </a>
-                        {% trans 'to enable notifications, then log out and back in.' %}
-                    {% endif %}
-                    {% trans 'You can still set your preferences below for when you join.' %}
-                </div>
-            {% endif %}
+
 
             <form method="POST">
                 {% csrf_token %}
-                {{ form | crispy }}
-                <div class="mb-3">
+
+                {# Standalone event notifications #}
+                {{ form.notify_survey_response|as_crispy_field }}
+                {{ form.notify_game_recorded|as_crispy_field }}
+                {{ form.notify_tournament_game_recorded|as_crispy_field }}
+                {{ form.notify_post_game_recorded|as_crispy_field }}
+                {{ form.notify_post_approved|as_crispy_field }}
+
+                {# New post group: master toggle expands the per-component options #}
+                <div class="form-check mt-3">
+                    <input type="checkbox" class="form-check-input notify-master"
+                           id="id_new_master" name="new_master"
+                           data-bs-toggle="collapse" data-bs-target="#new-notify-group"
+                           data-group="new-notify-group"
+                           aria-controls="new-notify-group"
+                           {% if form.new_master.value %}checked aria-expanded="true"{% else %}aria-expanded="false"{% endif %}>
+                    <label class="form-check-label" for="id_new_master">
+                        {{ form.new_master.label }}
+                    </label>
+                </div>
+                <div class="collapse ms-4 {% if form.new_master.value %}show{% endif %}" id="new-notify-group">
+                    {{ form.new_notify|as_crispy_field }}
+                </div>
+
+                {# Stable group: master toggle expands the per-component options #}
+                <div class="form-check mt-3">
+                    <input type="checkbox" class="form-check-input notify-master"
+                           id="id_stable_master" name="stable_master"
+                           data-bs-toggle="collapse" data-bs-target="#stable-notify-group"
+                           data-group="stable-notify-group"
+                           aria-controls="stable-notify-group"
+                           {% if form.stable_master.value %}checked aria-expanded="true"{% else %}aria-expanded="false"{% endif %}>
+                    <label class="form-check-label" for="id_stable_master">
+                        {{ form.stable_master.label }}
+                    </label>
+                </div>
+                <div class="collapse ms-4 {% if form.stable_master.value %}show{% endif %}" id="stable-notify-group">
+                    {{ form.stable_notify|as_crispy_field }}
+                </div>
+
+                <div class="mb-3 mt-3">
                     <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
                     <a href="{% url 'user-settings' %}" class="btn btn-outline-secondary">{% trans 'Back to Settings' %}</a>
                 </div>
             </form>
+
+            <script>
+                // When a master checkbox is toggled, check/uncheck every component
+                // checkbox in its collapsible group. Bootstrap's data-bs-toggle
+                // handles the expand/collapse; this only syncs the sub-checkboxes.
+                document.querySelectorAll('.notify-master').forEach(function (master) {
+                    master.addEventListener('change', function () {
+                        var group = document.getElementById(master.dataset.group);
+                        if (!group) return;
+                        group.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+                            cb.checked = master.checked;
+                        });
+                    });
+                });
+            </script>
         </fieldset>
     </div>
 {% endblock content %}

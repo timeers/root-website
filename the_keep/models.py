@@ -556,9 +556,13 @@ class Post(models.Model):
             else:
                 new_post = False
                 approved_from_submitted = False
+            # Transition into Stable (from any other status) on an existing post.
+            became_stable = (old_instance.status != StatusChoices.STABLE
+                             and self.status == StatusChoices.STABLE)
         else:
             new_post = True
             approved_from_submitted = False
+            became_stable = False
 
 
         if self.color:
@@ -590,6 +594,10 @@ class Post(models.Model):
                 })
             send_rich_discord_message_task.delay(f'[{self.title}]({settings.SITE_URL}{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
 
+            # Broadcast a DM to everyone opted into this component's "new post" group
+            from the_gatehouse.services.notifyservice import notify_new_component
+            notify_new_component(self)
+
             # DM the designer if their submission was just approved (submitted -> dev)
             if approved_from_submitted:
                 from the_gatehouse.services.notifyservice import notify_post_approved
@@ -599,6 +607,13 @@ class Post(models.Model):
             if self.designer.group == "P":
                 self.designer.group = "E"
                 self.designer.save(update_fields=["group"])
+
+        # Broadcast a DM to everyone opted into this component's "marked Stable"
+        # group. Outside the new_post block: a stable transition is on an existing
+        # post, so new_post is False here.
+        if became_stable:
+            from the_gatehouse.services.notifyservice import notify_component_stable
+            notify_component_stable(self)
 
 
     def _delete_old_image(self, old_image):
