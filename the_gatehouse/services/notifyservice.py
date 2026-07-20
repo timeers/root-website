@@ -187,7 +187,7 @@ def notify_component_stable(post):
 
 def notify_new_component(post):
     """DM every profile opted into this component's 'newly published' notifications."""
-    _broadcast_component(post, "new_notify", 'A new {component} was published:')
+    _broadcast_component(post, "new_notify", 'A new {component} was posted:')
 
 
 def notify_survey_response(survey_response):
