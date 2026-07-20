@@ -222,6 +222,11 @@
                             {% trans 'Inactive' %}
                             <i class="bi bi-dash-circle-fill"></i>
                         </a>
+                    {% elif object.status == '8' %}
+                        <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
+                            {% trans 'Rejected' %}
+                            <i class="bi bi-x-circle-fill"></i>
+                        </a>
                     {% elif object.status == '9' %}
                         <a class="btn btn-outline-dark btn-sm mt-1 mb-1" href='{% url 'status-check' object.slug %}'>
                             {% trans 'Submitted' %}

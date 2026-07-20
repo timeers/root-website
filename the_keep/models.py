@@ -187,6 +187,7 @@ class StatusChoices(models.TextChoices):
     DEVELOPMENT = '3', _('Development')
     INACTIVE = '4', _('Inactive')
     ABANDONED = '5', _('Abandoned')
+    REJECTED = '8', _('Rejected')
     SUBMITTED = '9', _('Submitted')
 
 # def get_status_name_from_int(status_int):
@@ -339,6 +340,7 @@ class Post(models.Model):
     discord_channel_id = models.CharField(max_length=32, blank=True, null=True)
     designer = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, related_name='posts')
     submitted_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, blank=True, null=True, related_name='submissions')
+    rejection_reason = models.TextField(blank=True, null=True)
     co_designers_can_edit = models.BooleanField(default=False)
     co_designers = models.ManyToManyField(Profile, related_name="co_designed_posts", blank=True)
     animal = models.CharField(max_length=50, null=True, blank=True)
@@ -554,9 +556,13 @@ class Post(models.Model):
             else:
                 new_post = False
                 approved_from_submitted = False
+            # Transition into Stable (from any other status) on an existing post.
+            became_stable = (old_instance.status != StatusChoices.STABLE
+                             and self.status == StatusChoices.STABLE)
         else:
             new_post = True
             approved_from_submitted = False
+            became_stable = False
 
 
         if self.color:
@@ -588,6 +594,10 @@ class Post(models.Model):
                 })
             send_rich_discord_message_task.delay(f'[{self.title}]({settings.SITE_URL}{self.get_absolute_url()})', category='New Post', title=f'New {self.component}', fields=fields)
 
+            # Broadcast a DM to everyone opted into this component's "new post" group
+            from the_gatehouse.services.notifyservice import notify_new_component
+            notify_new_component(self)
+
             # DM the designer if their submission was just approved (submitted -> dev)
             if approved_from_submitted:
                 from the_gatehouse.services.notifyservice import notify_post_approved
@@ -597,6 +607,13 @@ class Post(models.Model):
             if self.designer.group == "P":
                 self.designer.group = "E"
                 self.designer.save(update_fields=["group"])
+
+        # Broadcast a DM to everyone opted into this component's "marked Stable"
+        # group. Outside the new_post block: a stable transition is on an existing
+        # post, so new_post is False here.
+        if became_stable:
+            from the_gatehouse.services.notifyservice import notify_component_stable
+            notify_component_stable(self)
 
 
     def _delete_old_image(self, old_image):
@@ -1365,6 +1382,17 @@ class Vagabond(Post):
     cached_winrate = models.FloatField(null=True, blank=True, db_index=True)
     cached_plays = models.IntegerField(null=True, blank=True, db_index=True)
     cached_tourney_points = models.FloatField(null=True, blank=True)
+    # Per-platform cached leaderboard inputs, maintained alongside the overall
+    # cached_* fields by calculate_and_cache_winrate.
+    cached_irl_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_irl_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_irl_tourney_points = models.FloatField(null=True, blank=True)
+    cached_dwd_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_dwd_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_dwd_tourney_points = models.FloatField(null=True, blank=True)
+    cached_tts_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_tts_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_tts_tourney_points = models.FloatField(null=True, blank=True)
     starting_coins = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_boots = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
     starting_bag = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0),MaxValueValidator(4)])
@@ -1560,6 +1588,17 @@ class Faction(Post):
     cached_winrate = models.FloatField(null=True, blank=True, db_index=True)
     cached_plays = models.IntegerField(null=True, blank=True, db_index=True)
     cached_tourney_points = models.FloatField(null=True, blank=True)
+    # Per-platform cached leaderboard inputs, maintained alongside the overall
+    # cached_* fields by calculate_and_cache_winrate.
+    cached_irl_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_irl_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_irl_tourney_points = models.FloatField(null=True, blank=True)
+    cached_dwd_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_dwd_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_dwd_tourney_points = models.FloatField(null=True, blank=True)
+    cached_tts_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_tts_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_tts_tourney_points = models.FloatField(null=True, blank=True)
 
 
     def __add__(self, other):
@@ -1617,23 +1656,27 @@ class Faction(Post):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None):
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None, include_fan_content=True):
         """
         Get the factions with the highest winrate (or most wins for top_quantity) from the effort_qs
         The limit is how many factions will be displayed.
         The game threshold is how many games a faction needs to play to qualify.
         If as_json=True, returns a list of dicts with title, win_rate, tourney_points, url, and image_url.
         link_builder: optional callable(faction) -> str URL. Defaults to faction-detail.
+        include_fan_content: when True (default) show all factions; pass False to
+        exclude unofficial (fan-made) factions (e.g. the /stats default).
         """
         language_code = get_language()
-        
+
         # Start with the base queryset for factions
         queryset = cls.objects.filter(
-            efforts__in=effort_qs, 
-            efforts__game__final=True, 
+            efforts__in=effort_qs,
+            efforts__game__final=True,
             component='Faction'
         )
-        
+        if not include_fan_content:
+            queryset = queryset.filter(official=True)
+
         # Annotate with the total efforts and win counts
         queryset = queryset.annotate(
             total_efforts=Count('efforts'),

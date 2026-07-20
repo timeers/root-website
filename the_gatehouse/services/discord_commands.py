@@ -70,6 +70,14 @@ STATS_COMMAND = {
                 {"name": "In Person", "value": "In Person"},
             ],
         },
+        # Optional Yes/No; when omitted it reads as unset and fan content stays
+        # hidden, so leaving it out behaves like "No".
+        {
+            "name": "include_fan_content",
+            "description": "Include fan-made factions (default: No)",
+            "type": 5,  # BOOLEAN (Yes/No)
+            "required": False,
+        },
     ],
 }
 

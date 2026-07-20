@@ -15,8 +15,25 @@ from django.apps import apps
 from django.utils import timezone 
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
 from the_keep.utils import validate_hex_color, delete_old_image
 from the_keep.services.upload_paths import avatar_upload_path, changelog_image_upload_path
+
+# Component types eligible for the per-component Discord notification groups
+# ("A new <X> is published" / "A <X> is marked Stable"). Each value equals the
+# Post.component string on a saved post; a profile opts in by adding the value
+# to its stable_notify / new_notify JSON list. Single source of truth for the
+# model, the DiscordNotificationsForm, and the notifyservice broadcast lookups.
+NOTIFY_COMPONENTS = [
+    ("Faction", gettext_lazy("Faction")),
+    ("Map", gettext_lazy("Map")),
+    ("Deck", gettext_lazy("Deck")),
+    ("Vagabond", gettext_lazy("Vagabond")),
+    ("Hireling", gettext_lazy("Hireling")),
+    ("Landmark", gettext_lazy("Landmark")),
+    ("Clockwork", gettext_lazy("Clockwork")),
+    ("Tweak", gettext_lazy("House Rule")),
+]
 
 class MessageChoices(models.TextChoices):
     DANGER = 'danger'
@@ -403,6 +420,7 @@ class Profile(models.Model):
     last_avatar_sync = models.DateTimeField(null=True, blank=True)
 
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
+    rdl_cannonical_dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     discord = models.CharField(max_length=100, unique=True, blank=True, null=True)
     league = models.BooleanField(default=False)
     group = models.CharField(max_length=1, choices=GroupChoices.choices, default=GroupChoices.OUTCAST)
@@ -435,6 +453,12 @@ class Profile(models.Model):
     notify_tournament_game_recorded = models.BooleanField(default=False)
     notify_post_game_recorded = models.BooleanField(default=False)
     notify_post_approved = models.BooleanField(default=False)
+    # Per-component broadcast opt-ins: each holds a list of Post.component values
+    # (see NOTIFY_COMPONENTS) the user wants a DM for. stable_notify -> a component
+    # of that type is marked Stable; new_notify -> a new component of that type is
+    # published. Empty list = opted out of the whole group.
+    stable_notify = models.JSONField(default=list, blank=True)
+    new_notify = models.JSONField(default=list, blank=True)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
     # Cached leaderboard inputs (coalition formula), maintained by
     # calculate_and_cache_winrate via Effort/Game signals. Let the default
@@ -442,6 +466,17 @@ class Profile(models.Model):
     cached_winrate = models.FloatField(null=True, blank=True, db_index=True)
     cached_plays = models.IntegerField(null=True, blank=True, db_index=True)
     cached_tourney_points = models.FloatField(null=True, blank=True)
+    # Per-platform cached leaderboard inputs, maintained alongside the overall
+    # cached_* fields by calculate_and_cache_winrate.
+    cached_irl_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_irl_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_irl_tourney_points = models.FloatField(null=True, blank=True)
+    cached_dwd_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_dwd_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_dwd_tourney_points = models.FloatField(null=True, blank=True)
+    cached_tts_winrate = models.FloatField(null=True, blank=True, db_index=True)
+    cached_tts_plays = models.IntegerField(null=True, blank=True, db_index=True)
+    cached_tts_tourney_points = models.FloatField(null=True, blank=True)
     # Only a hash of the API key is stored, never the key itself (like GitHub/Discord
     # tokens). The raw key is shown once at generation and is not retrievable afterwards;
     # a DB leak therefore does not expose usable keys. API keys are high-entropy random

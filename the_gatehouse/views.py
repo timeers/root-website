@@ -360,11 +360,13 @@ def add_player(request):
 
 
 
-@login_required
 def player_page_view(request, slug=None):
     if slug:
         player = get_object_or_404(Profile, slug=slug.lower())
     else:
+        # Viewing one's own page requires being logged in.
+        if not request.user.is_authenticated:
+            return redirect(f'{reverse("discord_login")}?next={request.get_full_path()}')
         player = request.user.profile
     games_played = player.games_played
     view_status = 4
@@ -396,11 +398,14 @@ def dwd_profile_redirect(request, dwd):
         dwd_value = f'{dwd_value}+{suffix}'
     else:
         dwd_value = dwd
-    player = get_object_or_404(Profile, dwd__iexact=dwd_value)
+    # Prefer the canonical DWD value the Root League API reported, falling back
+    # to the (standardized) dwd field for profiles that predate it.
+    player = Profile.objects.filter(rdl_cannonical_dwd__iexact=dwd_value).first()
+    if not player:
+        player = get_object_or_404(Profile, dwd__iexact=dwd_value)
     return redirect(player.get_absolute_url())
 
 
-@login_required
 def designer_component_view(request, slug):
     # Get the designer object using the slug from the URL path
     designer = get_object_or_404(Profile, slug=slug.lower())
@@ -447,7 +452,6 @@ def designer_component_view(request, slug):
 
 
 
-@login_required
 def artist_component_view(request, slug):
     # Get the artist object using the slug from the URL path
     artist = get_object_or_404(Profile, slug=slug.lower())
@@ -488,7 +492,6 @@ def artist_component_view(request, slug):
 
 
 
-@login_required
 def submitted_component_view(request, slug):
     # Get the artist object using the slug from the URL path
     profile = get_object_or_404(Profile, slug=slug.lower())
@@ -715,7 +718,6 @@ def onboard_decline(request, user_type=None):
 
 
 
-@login_required
 def player_stats(request, slug):
     tournament_slug = request.GET.get('tournament_slug')
     round_slug = request.GET.get('round_slug')
@@ -2225,28 +2227,45 @@ def approve_post(request, post_id):
 
 @admin_required
 def reject_post(request, post_id):
-    """Reject a pending post and delete it."""
+    """Reject a pending post, send feedback to the submitter, and let them resubmit."""
+    from the_keep.models import StatusChoices
+    from .models import UserNotification, MessageChoices
 
     post = get_object_or_404(Post, id=post_id)
 
     if request.method == 'POST':
         try:
-            post_title = post.title
-            post_component = post.get_component_display()
+            message = request.POST.get('message', '').strip()
 
-            # Delete the post
-            post.delete()
+            post.status = StatusChoices.REJECTED
+            post.rejection_reason = message or None
+            post.save()
 
             messages.warning(
                 request,
-                f"Rejected and deleted '{post_title}'"
+                f"Rejected '{post.title}'"
             )
 
             # Send Discord notification
             send_discord_message_task.delay(
-                f"Post rejected and deleted: {post_title} ({post_component}) by {request.user.profile.name}",
+                f"Post rejected: {post.title} ({post.get_component_display()}) by {request.user.profile.name}",
                 'report'
             )
+
+            # Notify the submitter with the admin's feedback so they can edit and resubmit
+            if post.submitted_by:
+                default_msg = (
+                    f"Your submitted {post.get_component_display()} '{post.title}' was not approved. "
+                    f"You can edit it and resubmit for review."
+                )
+                full_message = f"{default_msg}\n\n{message}" if message else default_msg
+                UserNotification.create_notification(
+                    profile=post.submitted_by,
+                    message=full_message,
+                    message_type=MessageChoices.WARNING,
+                    related_post=post,
+                    related_url=post.get_absolute_url()
+                )
 
         except Exception as e:
             messages.error(request, f"Error rejecting post: {str(e)}")

@@ -450,7 +450,11 @@ def create_efforts_from_api(game, participants):
         standard_player_number = str(player_number).zfill(4)
         standard_player_string = f'{player_without_number}+{standard_player_number}'
         
-        player = Profile.objects.filter(dwd__iexact=standard_player_string).first()
+        player = Profile.objects.filter(rdl_cannonical_dwd__exact=full_player_string).first()
+
+        # 0. Lookup with standardized player string
+        if not player:
+            player = Profile.objects.filter(dwd__iexact=standard_player_string).first()
 
         # 1. Non-standardized match on dwd field
         if not player:
@@ -479,17 +483,32 @@ def create_efforts_from_api(game, participants):
                 player, created = Profile.objects.get_or_create(
                     discord=full_player_string.lower(),
                     defaults={
-                        'dwd': standard_player_string
+                        'dwd': standard_player_string,
+                        'rdl_cannonical_dwd': full_player_string,
                     }
-                ) 
+                )
                 send_discord_message_task.delay(f'Duplicate user {player} added.', 'user_updates')
             else:
                 player, created = Profile.objects.get_or_create(
                     discord=player_without_number.lower(),
                     defaults={
-                        'dwd': standard_player_string
+                        'dwd': standard_player_string,
+                        'rdl_cannonical_dwd': full_player_string,
                     }
                 )
+
+        # Backfill the canonical value for existing matches. rdl_cannonical_dwd
+        # is unique, so only write it when no other profile already owns this
+        # exact value — otherwise the save would raise IntegrityError and abort
+        # the whole import.
+        if not player.rdl_cannonical_dwd:
+            already_taken = Profile.objects.filter(
+                rdl_cannonical_dwd__exact=full_player_string
+            ).exclude(pk=player.pk).exists()
+            if not already_taken:
+                player.rdl_cannonical_dwd = full_player_string
+                player.save()
+
         # Determine if this is a faction or vagabond
         faction_key = participant['faction']
         faction = None
