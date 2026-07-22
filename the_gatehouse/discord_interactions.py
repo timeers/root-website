@@ -74,6 +74,38 @@ def _followup_after_response(payload, message_data):
     post_interaction_followup_task.delay(payload["token"], message_data)
 
 
+def _interaction_author(payload):
+    """The user who triggered an interaction, as an embed `author` dict
+    ({name, icon_url}) or None. `member.user` in a guild, `user` in a DM. Uses
+    the user's global (display) name when set, else their username, and builds
+    the avatar CDN URL (falling back to Discord's default avatar)."""
+    user = (payload.get("member") or {}).get("user") or payload.get("user")
+    if not user:
+        return None
+
+    name = user.get("global_name") or user.get("username") or "Unknown"
+    user_id = user.get("id")
+    avatar = user.get("avatar")
+    if user_id and avatar:
+        ext = "gif" if avatar.startswith("a_") else "png"
+        icon_url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar}.{ext}"
+    elif user_id:
+        # Default avatar: new usernames key off (id >> 22) % 6; legacy off
+        # discriminator % 5. Fall back safely if the id isn't an int.
+        try:
+            index = (int(user_id) >> 22) % 6
+        except (TypeError, ValueError):
+            index = 0
+        icon_url = f"https://cdn.discordapp.com/embed/avatars/{index}.png"
+    else:
+        icon_url = None
+
+    author = {"name": name[:256]}
+    if icon_url:
+        author["icon_url"] = icon_url
+    return author
+
+
 # ── /draft ─────────────────────────────────────────────────────────────────
 # Short platform keys ride in component custom_ids (100-char cap); the ban list
 # never does (it's recovered from the message's own select state instead).
@@ -446,17 +478,19 @@ def _draft_ui_data(players, platform, factions, banned_slugs):
 
 
 def _build_draft(factions, banned_slugs, players):
-    """Return (drawn_slugs, error). Guarantee one Militant first, then fill to
-    `players` one at a time, enforcing the vagabond/knaves mutual exclusion and no
-    duplicates. At 2 players the caller passes a Militant-only `factions` list, so
-    the whole pool is Militant and two Militants are drawn."""
+    """Return (drawn_slugs, error). Guarantee one Militant first, then draw
+    `players` more random factions (so the draft holds `players + 1` total),
+    enforcing the vagabond/knaves mutual exclusion and no duplicates. At 2 players
+    the caller passes a Militant-only `factions` list, so the whole pool is
+    Militant and the extra picks are Militants too."""
+    total = players + 1  # 1 guaranteed Militant + `players` more
     pool = {slug: ftype for slug, _title, ftype in factions if slug not in banned_slugs}
 
     militants = [s for s, t in pool.items() if t == "M"]
     if not militants:
         return None, "No Militant faction available after bans — can't start a draft."
-    if len(pool) < players:
-        return None, f"Only {len(pool)} factions left after bans; can't seat {players} players."
+    if len(pool) < total:
+        return None, f"Only {len(pool)} factions left after bans; need {total} for a {players}-player draft."
 
     drawn = []
 
@@ -466,28 +500,37 @@ def _build_draft(factions, banned_slugs, players):
         pool.pop(DRAFT_EXCLUSIONS.get(slug), None)  # enforce exclusion going forward
 
     take(random.choice(militants))
-    while len(drawn) < players:
+    while len(drawn) < total:
         if not pool:  # exclusions can starve the pool below the pre-checked count
             return None, (
-                f"Not enough compatible factions to seat {players} players "
-                f"(only {len(drawn)} could be drafted after exclusions)."
+                f"Not enough compatible factions for a {players}-player draft "
+                f"(only {len(drawn)} of {total} could be drafted after exclusions)."
             )
         take(random.choice(list(pool)))
 
     return drawn, None
 
 
-def _draft_result_content(drawn, players, platform, banned_slugs, factions):
-    """The public draft message: bold header, a row of faction emoji (title
-    fallback when an emoji is missing), and platform + banned subtext."""
+def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author=None):
+    """The public draft embed: the invoking user's avatar/name as the author
+    header, an `N Player Draft` title, the drafted faction emoji (title fallback
+    when an emoji is missing) as the description, and platform + banned factions
+    in the footer."""
     titles = {slug: title for slug, title, _type in factions}
     icons = [faction_emoji_for(s) or titles.get(s, s) for s in drawn]
-    lines = [f"**{players} Player Draft**", " ".join(icons), f"-# Platform: {platform}"]
+
+    footer = f"Platform: {platform}"
     if banned_slugs:
-        lines.append("-# Banned: " + ", ".join(sorted(titles.get(s, s) for s in banned_slugs)))
-    else:
-        lines.append("-# Banned: none")
-    return "\n".join(lines)
+        footer += " • Banned: " + ", ".join(sorted(titles.get(s, s) for s in banned_slugs))
+
+    embed = {
+        "title": f"{players} Player Draft",
+        "description": " ".join(icons),
+        "footer": {"text": footer[:2048]},
+    }
+    if author:
+        embed["author"] = author
+    return embed
 
 
 def _handle_draft_command(data):
@@ -497,11 +540,11 @@ def _handle_draft_command(data):
     platform = _get_option(data, "platform") or DRAFT_PLATFORM_TTS
 
     factions = _draft_eligible_factions(platform, players)
-    if len(factions) < players:
+    if len(factions) < players + 1:  # 1 Militant + `players` more
         return _ephemeral(
             f"Only {len(factions)} eligible factions for {platform}"
             f"{' (Militant-only for 2 players)' if players == 2 else ''}; "
-            f"can't seat {players} players."
+            f"need {players + 1} for a {players}-player draft."
         )
 
     return JsonResponse({
@@ -541,8 +584,11 @@ def _handle_draft_build(payload):
     # Post the draft as a public follow-up (the ban UI was ephemeral). This must
     # happen after the initial response below reaches Discord, so it's deferred to
     # a background thread; we build the content here (in the request thread) first.
-    content = _draft_result_content(drawn, players, platform, banned_slugs, factions)
-    _followup_after_response(payload, {"content": content})
+    embed = _draft_result_embed(
+        drawn, players, platform, banned_slugs, factions,
+        author=_interaction_author(payload),
+    )
+    _followup_after_response(payload, {"embeds": [embed]})
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -609,9 +655,17 @@ def _random_from_list(kind, options):
 
 
 def _handle_random_command(data):
-    """/random: route by the chosen kind. Post-backed kinds and Roll show an
-    ephemeral prompt first; Suit/Clearing resolve immediately."""
+    """/random: route by the chosen kind. Most post-backed kinds show an ephemeral
+    platform prompt first; Captain isn't platform-specific so it resolves straight
+    to a public result; Roll shows a dice prompt; Suit/Clearing resolve immediately."""
     kind = _get_option(data, "kind")
+    if kind == "Captain":
+        # Captains don't vary by platform, so skip the prompt. Passing TTS avoids
+        # the Root Digital (in_root_digital) filter in _random_eligible.
+        result, error = _random_post_result("Captain", DRAFT_PLATFORM_TTS)
+        if error:
+            return _ephemeral(error)
+        return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": result})
     if kind in RANDOM_POST_MODELS:
         return _random_platform_prompt(kind)
     if kind == "Roll":
@@ -648,7 +702,9 @@ def _random_post_result(kind, platform):
     lookup embeds; Captain uses the captain embed + flip-side image."""
     posts = list(_random_eligible(kind, platform))
     if not posts:
-        return None, f"No eligible {kind} found for that platform."
+        # Captain skips the platform prompt, so don't mention a platform for it.
+        where = "" if kind == "Captain" else " for that platform"
+        return None, f"No eligible {kind} found{where}."
     chosen = random.choice(posts)
     if kind == "Captain":
         main_embed = build_captain_embed(chosen)
