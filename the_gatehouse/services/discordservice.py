@@ -847,6 +847,15 @@ def faction_emoji_object(slug):
     return parse_emoji_object(faction_emoji_for(slug))
 
 
+def vagabond_emoji_for(vagabond):
+    """Return the application-emoji string for a Vagabond, or "" if its emoji
+    hasn't been uploaded. The bot's vagabond meeple emoji are named "Meeple"
+    followed by the vagabond's title with spaces removed (e.g. "MeepleThief")."""
+    title = getattr(vagabond, "title", "") or ""
+    name = "Meeple" + title.replace(" ", "")
+    return get_application_emoji().get(name, "")
+
+
 def _item_emoji_value(vagabond, prefix):
     """Emoji string for a vagabond's item counts, repeating each emoji by its
     count. `prefix` is the field prefix, e.g. "starting" or "captain"."""

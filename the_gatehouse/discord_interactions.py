@@ -35,7 +35,7 @@ from the_gatehouse.models import Profile
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
-    faction_emoji_for, faction_emoji_object,
+    faction_emoji_for, faction_emoji_object, vagabond_emoji_for,
 )
 from .services.discord_commands import (
     DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE,
@@ -511,13 +511,24 @@ def _build_draft(factions, banned_slugs, players):
     return drawn, None
 
 
-def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author=None):
+def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author=None,
+                        vagabond=None, captains=None):
     """The public draft embed: the invoking user's avatar/name as the author
     header, an `N Player Draft` title, the drafted faction emoji (title fallback
     when an emoji is missing) as the description, and platform + banned factions
-    in the footer."""
+    in the footer. When the Vagabond faction is drafted, `vagabond` is the rolled
+    Vagabond object, shown as a "Vagabond: <emoji>" line below the faction row.
+    When Knaves of the Deepwood is drafted, `captains` is the rolled list of
+    Vagabonds, shown as a "Captains: <emoji> …" line."""
     titles = {slug: title for slug, title, _type in factions}
     icons = [faction_emoji_for(s) or titles.get(s, s) for s in drawn]
+
+    description = " ".join(icons)
+    if vagabond is not None:
+        description += f"\nVagabond: {vagabond_emoji_for(vagabond) or vagabond.title}"
+    if captains:
+        marks = " ".join(vagabond_emoji_for(c) or c.title for c in captains)
+        description += f"\nCaptains: {marks}"
 
     footer = f"Platform: {platform}"
     if banned_slugs:
@@ -525,7 +536,7 @@ def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author
 
     embed = {
         "title": f"{players} Player Draft",
-        "description": " ".join(icons),
+        "description": description,
         "footer": {"text": footer[:2048]},
     }
     if author:
@@ -565,6 +576,31 @@ def _handle_draft_select(payload):
     })
 
 
+def _random_draft_vagabond(platform):
+    """A random official, Stable Vagabond for a draft that landed the Vagabond
+    faction. Root Digital narrows to vagabonds available there. Returns None if
+    none qualify (the draft still shows, just without a vagabond line)."""
+    qs = Vagabond.objects.filter(official=True, status=1)
+    if platform == DRAFT_PLATFORM_RD:
+        qs = qs.filter(in_root_digital=True)
+    return qs.order_by("?").first()
+
+
+# Knaves of the Deepwood selects from 4 captains.
+DRAFT_CAPTAIN_COUNT = 4
+
+
+def _random_draft_captains(platform):
+    """Up to `DRAFT_CAPTAIN_COUNT` random captain-capable Vagabonds for a draft
+    that landed Knaves of the Deepwood — the same pool the game form and /captain
+    use (captain=True). Root Digital narrows to those available there. Returns as
+    many as exist when fewer than 4 qualify (possibly an empty list)."""
+    qs = Vagabond.objects.filter(official=True, status=1, captain=True)
+    if platform == DRAFT_PLATFORM_RD:
+        qs = qs.filter(in_root_digital=True)
+    return list(qs.order_by("?")[:DRAFT_CAPTAIN_COUNT])
+
+
 def _handle_draft_build(payload):
     """Build button: recover bans from the message's select state, build the
     draft, post it publicly, and collapse the ephemeral UI."""
@@ -581,18 +617,24 @@ def _handle_draft_build(payload):
             "data": {"content": error, "components": [], "flags": EPHEMERAL},
         })
 
+    # If the Vagabond faction was drafted, roll a specific vagabond to play it;
+    # if Knaves of the Deepwood was drafted, roll its 4 captains. (The two are
+    # mutually exclusive in a draft, so at most one of these applies.)
+    vagabond = _random_draft_vagabond(platform) if "vagabond" in drawn else None
+    captains = _random_draft_captains(platform) if "knaves-of-the-deepwood" in drawn else None
+
     # Post the draft as a public follow-up (the ban UI was ephemeral). This must
     # happen after the initial response below reaches Discord, so it's deferred to
     # a background thread; we build the content here (in the request thread) first.
     embed = _draft_result_embed(
         drawn, players, platform, banned_slugs, factions,
-        author=_interaction_author(payload),
+        author=_interaction_author(payload), vagabond=vagabond, captains=captains,
     )
     _followup_after_response(payload, {"embeds": [embed]})
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": {"content": "Draft built! ⬇️", "components": [], "flags": EPHEMERAL},
+        "data": {"content": "Drafting...", "components": [], "flags": EPHEMERAL},
     })
 
 
@@ -629,7 +671,7 @@ def _random_platform_prompt(kind):
     )
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"content": f"Random {kind} — pick a platform:",
+        "data": {"content": f"Random {kind} - choose platform:",
                  "flags": EPHEMERAL, "components": [row]},
     })
 
@@ -643,6 +685,21 @@ def _random_dice_prompt():
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {"content": "Random Roll — how many dice?",
+                 "flags": EPHEMERAL, "components": [row]},
+    })
+
+
+def _random_hireling_prompt():
+    """Ephemeral Promoted / Demoted / Either buttons for /random Hirelings.
+    Hirelings aren't platform-specific, so we ask which side instead."""
+    row = action_row(
+        button("Promoted", encode_custom_id("random_hireling", "P")),
+        button("Demoted", encode_custom_id("random_hireling", "D")),
+        button("Either", encode_custom_id("random_hireling", "E")),
+    )
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"content": "Random Hireling — which side?",
                  "flags": EPHEMERAL, "components": [row]},
     })
 
@@ -666,6 +723,9 @@ def _handle_random_command(data):
         if error:
             return _ephemeral(error)
         return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": result})
+    if kind == "Hirelings":
+        # Hirelings aren't platform-specific; ask which side (Promoted/Demoted/Either).
+        return _random_hireling_prompt()
     if kind in RANDOM_POST_MODELS:
         return _random_platform_prompt(kind)
     if kind == "Roll":
@@ -677,12 +737,15 @@ def _handle_random_command(data):
     return _ephemeral(f"Unknown random kind: {kind}")
 
 
-def _random_eligible(kind, platform):
+def _random_eligible(kind, platform, hireling_type=None):
     """Eligible official, Stable posts for a random kind. Root Digital narrows to
-    factions/posts available there."""
+    factions/posts available there. `hireling_type` ('P'/'D') narrows Hirelings to
+    one side; None (or 'E') leaves both."""
     qs = RANDOM_POST_MODELS[kind]().filter(official=True, status=1)
     if platform == DRAFT_PLATFORM_RD:
         qs = qs.filter(in_root_digital=True)
+    if kind == "Hirelings" and hireling_type in ("P", "D"):
+        qs = qs.filter(type=hireling_type)
     return qs
 
 
@@ -697,13 +760,14 @@ def _random_chosen_from(kind, posts):
     return f"-# Chosen from {len(posts)} options"
 
 
-def _random_post_result(kind, platform):
+def _random_post_result(kind, platform, hireling_type=None):
     """Return (message_data, error) for a post-backed random kind. Reuses the
-    lookup embeds; Captain uses the captain embed + flip-side image."""
-    posts = list(_random_eligible(kind, platform))
+    lookup embeds; Captain uses the captain embed + flip-side image.
+    `hireling_type` ('P'/'D') narrows Hirelings to one side."""
+    posts = list(_random_eligible(kind, platform, hireling_type))
     if not posts:
-        # Captain skips the platform prompt, so don't mention a platform for it.
-        where = "" if kind == "Captain" else " for that platform"
+        # Captain and Hirelings skip the platform prompt, so don't mention one.
+        where = " for that platform" if kind in RANDOM_POST_MODELS and kind not in ("Captain", "Hirelings") else ""
         return None, f"No eligible {kind} found{where}."
     chosen = random.choice(posts)
     if kind == "Captain":
@@ -753,6 +817,20 @@ def _handle_random_post(payload):
     return _random_followup(payload, result)
 
 
+def _handle_random_hireling(payload):
+    """Side button: pick a random hireling of the chosen side (Promoted/Demoted),
+    or either side, and post it publicly."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["P"|"D"|"E"]
+    hireling_type = args[0] if args else "E"  # default to Either
+    result, error = _random_post_result("Hirelings", DRAFT_PLATFORM_TTS, hireling_type=hireling_type)
+    if error:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": error, "components": [], "flags": EPHEMERAL},
+        })
+    return _random_followup(payload, result)
+
+
 def _handle_random_roll(payload):
     """Dice button: roll one or both dice, post the result publicly."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["1"|"2"]
@@ -780,6 +858,7 @@ COMPONENT_HANDLERS = {
     "draft_cancel": _handle_draft_cancel,
     "random_post": _handle_random_post,
     "random_roll": _handle_random_roll,
+    "random_hireling": _handle_random_hireling,
 }
 
 
