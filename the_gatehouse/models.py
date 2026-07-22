@@ -121,11 +121,18 @@ class DiscordGuild(models.Model):
         blank=True,
         validators=[validate_discord_invite],
         help_text="Discord server invite URL")
-    request_message = models.TextField(blank=True, null=True)
-    server_rules = models.TextField(blank=True, null=True)
-    approval_message = models.TextField(blank=True, null=True)
+    request_message = models.TextField(
+        blank=True, null=True,
+        help_text="The message users will see when they request to join")
+    server_rules = models.TextField(
+        blank=True, null=True,
+        help_text="Rules for the server that a user must acknowledge")
+    approval_message = models.TextField(
+        blank=True, null=True,
+        help_text="Message the user sees next to the invite link upon approval")
 
-    auto_approve_invite = models.BooleanField(default=False)
+    auto_approve_invite = models.BooleanField(
+        default=False)
 
     # Whether OUR bot is a member of this guild. Maintained by the
     # sync_bot_guilds command/task. The bot can only DM users who share
@@ -202,7 +209,7 @@ class GuildLFGRole(models.Model):
         validators=[validate_discord_snowflake],
         help_text=(
             "Discord role ID (a 17–20 digit number), used to build a real mention "
-            "(<@&id>). In Discord: enable Developer Mode, right-click the role and "
+            "(<@&id>). In Discord: enable Developer Mode, find a user with the role and right-click the role, "
             "choose “Copy Role ID”. Leave blank if you only want the display tag."
         ),
     )

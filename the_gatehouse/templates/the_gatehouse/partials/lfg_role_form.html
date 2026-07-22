@@ -1,0 +1,35 @@
+{% load i18n crispy_forms_tags %}
+{% if role %}
+{# ----- Edit an existing role: replaces its row, swaps back to the row on save/cancel ----- #}
+<div id="lfg-role-row-{{ role.pk }}" class="border rounded p-2 mb-2">
+    <form hx-post="{% url 'guild-lfg-role-edit' guild.id role.pk %}"
+          hx-target="#lfg-role-row-{{ role.pk }}" hx-swap="outerHTML">
+        {% csrf_token %}
+        {{ form|crispy }}
+        <div class="text-end">
+            <button type="button" class="btn btn-sm btn-secondary"
+                    hx-get="{% url 'guild-lfg-role-edit' guild.id role.pk %}?display=1"
+                    hx-target="#lfg-role-row-{{ role.pk }}" hx-swap="outerHTML">
+                {% trans 'Cancel' %}
+            </button>
+            <button type="submit" class="btn btn-sm btn-primary">{% trans 'Save' %}</button>
+        </div>
+    </form>
+</div>
+{% else %}
+{# ----- Persistent add form. It replaces itself in place, so validation errors render here. ----- #}
+{# ----- On success the view returns a fresh copy of this form (clearing inputs) plus the new  ----- #}
+{# ----- row appended out-of-band to #lfg-role-list.                                            ----- #}
+<div id="lfg-add-form" class="border rounded p-2 mb-2 bg-light">
+    <form hx-post="{% url 'guild-lfg-role-add' guild.id %}"
+          hx-target="#lfg-add-form" hx-swap="outerHTML">
+        {% csrf_token %}
+        {{ form|crispy }}
+        <div class="text-end">
+            <button type="submit" class="btn btn-sm btn-success">
+                <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Role' %}
+            </button>
+        </div>
+    </form>
+</div>
+{% endif %}

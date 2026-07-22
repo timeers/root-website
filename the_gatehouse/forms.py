@@ -3,7 +3,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .models import Profile, Website, MessageChoices, Theme, BackgroundImage, ForegroundImage, Holiday, NOTIFY_COMPONENTS
+from .models import Profile, Website, MessageChoices, Theme, BackgroundImage, ForegroundImage, Holiday, NOTIFY_COMPONENTS, DiscordGuild, GuildLFGRole
 from django_recaptcha.fields import ReCaptchaField
 from django_recaptcha.widgets import ReCaptchaV2Checkbox
 from django.utils.translation import gettext_lazy as _
@@ -536,3 +536,28 @@ class SendNotificationForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['recipients'].queryset = Profile.objects.filter(user__isnull=False).order_by('discord')
+
+
+class GuildEditForm(forms.ModelForm):
+    class Meta:
+        model = DiscordGuild
+        fields = [
+                  'server_invite', 
+                  'server_rules', 
+                  'request_message', 
+                  'auto_approve_invite',
+                  'approval_message']
+        widgets = {
+            'request_message': forms.Textarea(attrs={'rows': 3}),
+            'server_rules': forms.Textarea(attrs={'rows': 4}),
+            'approval_message': forms.Textarea(attrs={'rows': 3}),
+        }
+
+
+class GuildLFGRoleForm(forms.ModelForm):
+    class Meta:
+        model = GuildLFGRole
+        fields = ['name', 'role_id', 'description']
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 2}),
+        }

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.109] - 2026-8-1 Better Bots
+This update fills out the bot functionality and adds more complex features for the bot
+
+### New Features
+- Manage Guilds page for Guild Moderators
+- LFG Roles can be assigned to guilds
+- Manage Guild page for Admin and Guild Mods
+
+### Improvements
+- Guilds can now be assigned Moderators (can add invite, assign mods, add LFG roles)
+
+### Bug Fixes
+
 ## [1.12.18] - 2026-7-20 Rootelo Links
 
 ### New Features

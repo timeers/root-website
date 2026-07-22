@@ -101,6 +101,12 @@ function submitAddGuild(selectId) {
                 }
             }
 
+            // Optional page-level hook (e.g. the Manage Guilds page adds the new
+            // guild to its list). No-op for callers that don't define it.
+            if (typeof window.onGuildAdded === 'function') {
+                window.onGuildAdded(guild);
+            }
+
             successDiv.textContent = guild.name + ' has been added!';
             successDiv.classList.remove('d-none');
 

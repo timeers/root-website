@@ -1,0 +1,23 @@
+{% load i18n %}
+<div id="lfg-role-row-{{ role.pk }}" class="d-flex justify-content-between align-items-start border rounded p-2 mb-2">
+    <div>
+        <strong>@{{ role.name }}</strong>
+        {% if role.role_id %}<code class="ms-1">{{ role.role_id }}</code>{% endif %}
+        {% if role.description %}<div class="text-muted small">{{ role.description }}</div>{% endif %}
+    </div>
+    <div class="text-nowrap ms-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                hx-get="{% url 'guild-lfg-role-edit' guild.id role.pk %}"
+                hx-target="#lfg-role-row-{{ role.pk }}"
+                hx-swap="outerHTML">
+            <i class="bi bi-pencil"></i>
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-danger"
+                hx-post="{% url 'guild-lfg-role-delete' guild.id role.pk %}"
+                hx-target="#lfg-role-row-{{ role.pk }}"
+                hx-swap="outerHTML"
+                hx-confirm="{% trans 'Delete this role?' %}">
+            <i class="bi bi-x-circle"></i>
+        </button>
+    </div>
+</div>
