@@ -132,6 +132,23 @@ DRAFT_COMMAND = {
 }
 
 
+# /random kinds. Value strings double as the dispatch key and the label shown in
+# "Random <Kind>:". Keep in sync with the handler in discord_interactions.py.
+RANDOM_KINDS = [
+    "Map", "Faction", "Deck", "Vagabond", "Captain", "Hirelings", "Landmark",
+    "Roll", "Suit", "Clearing",
+]
+
+RANDOM_COMMAND = {
+    "name": "random",
+    "description": "Pick a random Root element (component, roll, suit, or clearing)",
+    "options": [
+        {"name": "kind", "description": "What to randomize", "type": 3, "required": True,
+         "choices": [{"name": k, "value": k} for k in RANDOM_KINDS]},
+    ],
+}
+
+
 # All command definitions registered with Discord.
 COMMANDS = [
     HELP_COMMAND,
@@ -148,6 +165,7 @@ COMMANDS = [
     UPCOMING_COMMAND,
     LAW_COMMAND,
     DRAFT_COMMAND,
+    RANDOM_COMMAND,
 ]
 
 
@@ -162,6 +180,7 @@ COMMAND_GROUPS = [
     ("Tournaments", ["upcoming"]),
     ("Law", ["law"]),
     ("Draft", ["draft"]),
+    ("Random", ["random"]),
 ]
 
 

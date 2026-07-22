@@ -553,6 +553,157 @@ def _handle_draft_cancel(payload):
     })
 
 
+# ── /random ────────────────────────────────────────────────────────────────
+# Base queryset per post-backed kind. Faction is filtered to component="Faction"
+# like /draft; Captain to captain-capable vagabonds (as /captain).
+RANDOM_POST_MODELS = {
+    "Map": lambda: Map.objects.all(),
+    "Faction": lambda: Faction.objects.filter(component="Faction"),
+    "Deck": lambda: Deck.objects.all(),
+    "Vagabond": lambda: Vagabond.objects.all(),
+    "Captain": lambda: Vagabond.objects.filter(captain=True),
+    "Hirelings": lambda: Hireling.objects.all(),
+    "Landmark": lambda: Landmark.objects.all(),
+}
+RANDOM_SUITS = ["Bird", "Mouse", "Fox", "Rabbit"]
+RANDOM_CLEARINGS = ["Mouse", "Fox", "Rabbit"]
+RANDOM_PLATFORM_KEYS = DRAFT_PLATFORM_KEYS  # reuse tts/rd keys from /draft
+
+
+def _random_platform_prompt(kind):
+    """Ephemeral Tabletop Simulator / Root Digital buttons for a post-backed kind."""
+    row = action_row(
+        button("Tabletop Simulator", encode_custom_id("random_post", kind, "tts")),
+        button("Root Digital", encode_custom_id("random_post", kind, "rd")),
+    )
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"content": f"Random {kind} — pick a platform:",
+                 "flags": EPHEMERAL, "components": [row]},
+    })
+
+
+def _random_dice_prompt():
+    """Ephemeral 1 Die / Both Dice buttons for /random Roll."""
+    row = action_row(
+        button("1 Die", encode_custom_id("random_roll", "1")),
+        button("Both Dice", encode_custom_id("random_roll", "2")),
+    )
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"content": "Random Roll — how many dice?",
+                 "flags": EPHEMERAL, "components": [row]},
+    })
+
+
+def _random_from_list(kind, options):
+    """Immediate public message for Suit/Clearing (no image, no prompt)."""
+    chosen = random.choice(options)
+    content = f"**Random {kind}:** {chosen}\n-# Chosen from: {', '.join(options)}"
+    return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"content": content}})
+
+
+def _handle_random_command(data):
+    """/random: route by the chosen kind. Post-backed kinds and Roll show an
+    ephemeral prompt first; Suit/Clearing resolve immediately."""
+    kind = _get_option(data, "kind")
+    if kind in RANDOM_POST_MODELS:
+        return _random_platform_prompt(kind)
+    if kind == "Roll":
+        return _random_dice_prompt()
+    if kind == "Suit":
+        return _random_from_list("Suit", RANDOM_SUITS)
+    if kind == "Clearing":
+        return _random_from_list("Clearing", RANDOM_CLEARINGS)
+    return _ephemeral(f"Unknown random kind: {kind}")
+
+
+def _random_eligible(kind, platform):
+    """Eligible official, Stable posts for a random kind. Root Digital narrows to
+    factions/posts available there."""
+    qs = RANDOM_POST_MODELS[kind]().filter(official=True, status=1)
+    if platform == DRAFT_PLATFORM_RD:
+        qs = qs.filter(in_root_digital=True)
+    return qs
+
+
+def _random_chosen_from(kind, posts):
+    """The 'Chosen from' subtext for a post-kind result. Faction -> emoji icons
+    (name fallback); other kinds -> names if <=6, else a count."""
+    if kind == "Faction":
+        icons = [faction_emoji_for(p.slug) or p.title for p in posts]
+        return "-# Chosen from: " + " ".join(icons)
+    if len(posts) <= 6:
+        return "-# Chosen from: " + ", ".join(p.title for p in posts)
+    return f"-# Chosen from {len(posts)} options"
+
+
+def _random_post_result(kind, platform):
+    """Return (message_data, error) for a post-backed random kind. Reuses the
+    lookup embeds; Captain uses the captain embed + flip-side image."""
+    posts = list(_random_eligible(kind, platform))
+    if not posts:
+        return None, f"No eligible {kind} found for that platform."
+    chosen = random.choice(posts)
+    if kind == "Captain":
+        main_embed = build_captain_embed(chosen)
+        image = build_post_image_embed(chosen, field="card_2_image")
+    else:
+        main_embed = build_post_embed(chosen)
+        image = build_post_image_embed(chosen)
+    embeds = [main_embed] + ([image] if image else [])
+    content = f"**Random {kind}:** {chosen.title}\n" + _random_chosen_from(kind, posts)
+    return {"content": content, "embeds": embeds}, None
+
+
+def _random_roll_content(dice):
+    """Message content for a roll of `dice` 0-3 dice; two dice show larger first."""
+    rolls = [random.randint(0, 3) for _ in range(dice)]
+    if dice == 2:
+        a, b = sorted(rolls, reverse=True)
+        value, sub = f"{a}-{b}", "Rolled 2 dice"
+    else:
+        value, sub = str(rolls[0]), "Rolled 1 die"
+    return f"**Random Roll:** {value}\n-# {sub}"
+
+
+def _random_followup(payload, message_data):
+    """Post a public follow-up for a /random result (the prompt was ephemeral) and
+    collapse the prompt. A failed follow-up must not 500 the interaction."""
+    try:
+        requests.post(
+            f"{DISCORD_API}/webhooks/{config['DISCORD_ID']}/{payload['token']}",
+            json=message_data, timeout=10,
+        )
+    except requests.RequestException:
+        logger.exception("Failed to post /random follow-up")
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Rolling…", "components": [], "flags": EPHEMERAL},
+    })
+
+
+def _handle_random_post(payload):
+    """Platform button: pick a random post for the kind, post it publicly."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["<Kind>", "tts|rd"]
+    kind = args[0]
+    platform = RANDOM_PLATFORM_KEYS.get(args[1] if len(args) > 1 else "", DRAFT_PLATFORM_TTS)
+    result, error = _random_post_result(kind, platform)
+    if error:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": error, "components": [], "flags": EPHEMERAL},
+        })
+    return _random_followup(payload, result)
+
+
+def _handle_random_roll(payload):
+    """Dice button: roll one or both dice, post the result publicly."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["1"|"2"]
+    dice = 1 if args and args[0] == "1" else 2  # default to 2 (Both Dice) on anything else
+    return _random_followup(payload, {"content": _random_roll_content(dice)})
+
+
 COMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
@@ -563,6 +714,7 @@ COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
+COMMAND_HANDLERS["random"] = _handle_random_command
 
 
 # Component (button/select) handlers, keyed by the custom_id's action prefix.
@@ -570,6 +722,8 @@ COMPONENT_HANDLERS = {
     "draft_select": _handle_draft_select,
     "draft_build": _handle_draft_build,
     "draft_cancel": _handle_draft_cancel,
+    "random_post": _handle_random_post,
+    "random_roll": _handle_random_roll,
 }
 
 

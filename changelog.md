@@ -8,6 +8,7 @@ This update fills out the bot functionality and adds more complex features for t
 - LFG Roles can be assigned to guilds
 - Manage Guild page for Admin and Guild Mods
 - /draft command for building a quick draft
+- /random command for generating random selections
 
 ### Improvements
 - Guilds can now be assigned Moderators (can add invite, assign mods, add LFG roles)
