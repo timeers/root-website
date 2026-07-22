@@ -806,6 +806,30 @@ def faction_emoji_for(slug):
     return get_application_emoji().get(name, "")
 
 
+_EMOJI_RE = re.compile(r"<a?:(?P<name>\w+):(?P<id>\d+)>")
+
+
+def parse_emoji_object(emoji_str):
+    """Turn a '<:name:id>' / '<a:name:id>' string into a Discord component emoji
+    object {'id','name'[, 'animated']}, or None if empty/unparseable. Component
+    emoji (select options, buttons) need this object form; message content uses
+    the raw string."""
+    if not emoji_str:
+        return None
+    m = _EMOJI_RE.match(emoji_str)
+    if not m:
+        return None
+    obj = {"id": m.group("id"), "name": m.group("name")}
+    if emoji_str.startswith("<a:"):
+        obj["animated"] = True
+    return obj
+
+
+def faction_emoji_object(slug):
+    """Component-emoji object for an official faction slug, or None."""
+    return parse_emoji_object(faction_emoji_for(slug))
+
+
 def _item_emoji_value(vagabond, prefix):
     """Emoji string for a vagabond's item counts, repeating each emoji by its
     count. `prefix` is the field prefix, e.g. "starting" or "captain"."""

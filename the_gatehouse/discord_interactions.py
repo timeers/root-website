@@ -17,8 +17,10 @@ Currently handles:
 """
 import json
 import logging
+import random
 from datetime import timedelta
 
+import requests
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
@@ -32,10 +34,19 @@ from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tw
 from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate
 from the_gatehouse.models import Profile
 from .services.discordservice import (
-    config, build_post_embed, build_post_image_embed, build_stats_embed,
+    config, DISCORD_API, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
+    faction_emoji_for, faction_emoji_object,
 )
-from .services.discord_commands import DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE
+from .services.discord_commands import (
+    DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE,
+    DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
+)
+from .services.discord_components import (
+    action_row, button, string_select, select_option,
+    encode_custom_id, decode_custom_id, selected_values,
+    RESPONSE_UPDATE_MESSAGE, STYLE_SUCCESS, STYLE_SECONDARY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +54,25 @@ logger = logging.getLogger(__name__)
 PING = 1
 APPLICATION_COMMAND = 2
 APPLICATION_COMMAND_AUTOCOMPLETE = 4
+MESSAGE_COMPONENT = 3  # user interacted with a message component (select/button)
 
 RESPONSE_PONG = 1
 RESPONSE_CHANNEL_MESSAGE = 4
 RESPONSE_AUTOCOMPLETE_RESULT = 8
+# RESPONSE_UPDATE_MESSAGE (7) is imported from discord_components.
 
 EPHEMERAL = 64  # message flag: only the invoking user sees it
+
+# ── /draft ─────────────────────────────────────────────────────────────────
+# Short platform keys ride in component custom_ids (100-char cap); the ban list
+# never does (it's recovered from the message's own select state instead).
+DRAFT_PLATFORM_KEYS = {"tts": DRAFT_PLATFORM_TTS, "rd": DRAFT_PLATFORM_RD}
+DRAFT_PLATFORM_TO_KEY = {v: k for k, v in DRAFT_PLATFORM_KEYS.items()}
+# If one of the pair is drafted, the other is removed from the remaining pool.
+DRAFT_EXCLUSIONS = {
+    "vagabond": "knaves-of-the-deepwood",
+    "knaves-of-the-deepwood": "vagabond",
+}
 
 # Grace period for /upcoming: a match still counts as "upcoming" until this long
 # after its scheduled start, so one that just kicked off isn't dropped mid-game.
@@ -353,6 +377,182 @@ def _handle_help_command(data):
     })
 
 
+# ── /draft ─────────────────────────────────────────────────────────────────
+def _parse_draft_state(custom_id):
+    """('draft_build', players:int(2..6), platform:str) from a draft custom_id;
+    falls back to defaults for a malformed/short id."""
+    action, args = decode_custom_id(custom_id)
+    players, platform = 4, DRAFT_PLATFORM_TTS
+    if len(args) >= 1:
+        try:
+            players = max(2, min(6, int(args[0])))
+        except (ValueError, TypeError):
+            players = 4
+    if len(args) >= 2:
+        platform = DRAFT_PLATFORM_KEYS.get(args[1], DRAFT_PLATFORM_TTS)
+    return action, players, platform
+
+
+def _draft_eligible_factions(platform, players):
+    """Official, Stable, playable factions for the draft, as (slug, title, type)
+    tuples ordered by title. Root Digital narrows to factions available there.
+    2-player drafts are Militant-only — because the ban dropdown, the draftable
+    pool, and the result all derive from this query, restricting here makes all
+    three Militant-only at 2 players automatically."""
+    qs = Faction.objects.filter(official=True, status=1, component="Faction")
+    if platform == DRAFT_PLATFORM_RD:
+        qs = qs.filter(in_root_digital=True)
+    if players == 2:
+        qs = qs.filter(type=Faction.TypeChoices.MILITANT)  # type='M'
+    return list(qs.order_by("title").values_list("slug", "title", "type"))
+
+
+def _draft_ui_data(players, platform, factions, banned_slugs):
+    """The ephemeral ban UI: a faction ban select (current bans pre-selected via
+    default=True) plus Build/Cancel buttons. `factions` is a list of
+    (slug, title, type); `banned_slugs` is a set."""
+    platform_key = DRAFT_PLATFORM_TO_KEY.get(platform, "tts")
+    options = [
+        select_option(title, slug, emoji=faction_emoji_object(slug), default=slug in banned_slugs)
+        for slug, title, _type in factions
+    ]
+    select = string_select(
+        encode_custom_id("draft_select", players, platform_key),
+        options,
+        placeholder="Select factions to ban (optional)",
+        min_values=0,
+        max_values=len(options),
+    )
+    buttons = action_row(
+        button("Build Draft", encode_custom_id("draft_build", players, platform_key), style=STYLE_SUCCESS),
+        button("Cancel", "draft_cancel", style=STYLE_SECONDARY),
+    )
+    return {
+        "content": f"**{players} Player Draft** — pick factions to ban, then Build.",
+        "flags": EPHEMERAL,
+        "components": [action_row(select), buttons],
+    }
+
+
+def _build_draft(factions, banned_slugs, players):
+    """Return (drawn_slugs, error). Guarantee one Militant first, then fill to
+    `players` one at a time, enforcing the vagabond/knaves mutual exclusion and no
+    duplicates. At 2 players the caller passes a Militant-only `factions` list, so
+    the whole pool is Militant and two Militants are drawn."""
+    pool = {slug: ftype for slug, _title, ftype in factions if slug not in banned_slugs}
+
+    militants = [s for s, t in pool.items() if t == "M"]
+    if not militants:
+        return None, "No Militant faction available after bans — can't start a draft."
+    if len(pool) < players:
+        return None, f"Only {len(pool)} factions left after bans; can't seat {players} players."
+
+    drawn = []
+
+    def take(slug):
+        drawn.append(slug)
+        pool.pop(slug, None)
+        pool.pop(DRAFT_EXCLUSIONS.get(slug), None)  # enforce exclusion going forward
+
+    take(random.choice(militants))
+    while len(drawn) < players:
+        if not pool:  # exclusions can starve the pool below the pre-checked count
+            return None, (
+                f"Not enough compatible factions to seat {players} players "
+                f"(only {len(drawn)} could be drafted after exclusions)."
+            )
+        take(random.choice(list(pool)))
+
+    return drawn, None
+
+
+def _draft_result_content(drawn, players, platform, banned_slugs, factions):
+    """The public draft message: bold header, a row of faction emoji (title
+    fallback when an emoji is missing), and platform + banned subtext."""
+    titles = {slug: title for slug, title, _type in factions}
+    icons = [faction_emoji_for(s) or titles.get(s, s) for s in drawn]
+    lines = [f"**{players} Player Draft**", " ".join(icons), f"-# Platform: {platform}"]
+    if banned_slugs:
+        lines.append("-# Banned: " + ", ".join(sorted(titles.get(s, s) for s in banned_slugs)))
+    else:
+        lines.append("-# Banned: none")
+    return "\n".join(lines)
+
+
+def _handle_draft_command(data):
+    """/draft: open the ephemeral ban UI for the chosen players/platform."""
+    players = _get_option(data, "players") or 4
+    players = max(2, min(6, int(players)))
+    platform = _get_option(data, "platform") or DRAFT_PLATFORM_TTS
+
+    factions = _draft_eligible_factions(platform, players)
+    if len(factions) < players:
+        return _ephemeral(
+            f"Only {len(factions)} eligible factions for {platform}"
+            f"{' (Militant-only for 2 players)' if players == 2 else ''}; "
+            f"can't seat {players} players."
+        )
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": _draft_ui_data(players, platform, factions, banned_slugs=set()),
+    })
+
+
+def _handle_draft_select(payload):
+    """Ban select changed: re-render the ephemeral UI with the chosen bans marked
+    default=True, so the selection persists in the message's component state."""
+    _action, players, platform = _parse_draft_state(payload["data"]["custom_id"])
+    banned_slugs = set(payload["data"].get("values", []))  # this select echoes its own values
+    factions = _draft_eligible_factions(platform, players)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _draft_ui_data(players, platform, factions, banned_slugs),
+    })
+
+
+def _handle_draft_build(payload):
+    """Build button: recover bans from the message's select state, build the
+    draft, post it publicly, and collapse the ephemeral UI."""
+    _action, players, platform = _parse_draft_state(payload["data"]["custom_id"])
+    # A button press doesn't echo the select's values, so recover them from the
+    # message's persisted select state.
+    banned_slugs = set(selected_values(payload, "draft_select"))
+    factions = _draft_eligible_factions(platform, players)
+
+    drawn, error = _build_draft(factions, banned_slugs, players)
+    if error:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": error, "components": [], "flags": EPHEMERAL},
+        })
+
+    # Post the draft as a public follow-up (the ban UI was ephemeral). The
+    # interaction token authorizes this webhook, so no auth header is needed; a
+    # failed follow-up must not 500 the interaction.
+    try:
+        requests.post(
+            f"{DISCORD_API}/webhooks/{config['DISCORD_ID']}/{payload['token']}",
+            json={"content": _draft_result_content(drawn, players, platform, banned_slugs, factions)},
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.exception("Failed to post /draft follow-up message")
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Draft built! ⬇️", "components": [], "flags": EPHEMERAL},
+    })
+
+
+def _handle_draft_cancel(payload):
+    """Cancel button: collapse the ephemeral ban UI."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Draft cancelled.", "components": [], "flags": EPHEMERAL},
+    })
+
+
 COMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
@@ -362,6 +562,15 @@ COMMAND_HANDLERS["captain"] = _handle_captain_command
 COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
+COMMAND_HANDLERS["draft"] = _handle_draft_command
+
+
+# Component (button/select) handlers, keyed by the custom_id's action prefix.
+COMPONENT_HANDLERS = {
+    "draft_select": _handle_draft_select,
+    "draft_build": _handle_draft_build,
+    "draft_cancel": _handle_draft_cancel,
+}
 
 
 # ── Autocomplete ──────────────────────────────────────────────────────────
@@ -553,6 +762,19 @@ def discord_interactions(request):
             "type": RESPONSE_AUTOCOMPLETE_RESULT,
             "data": {"choices": choices},
         })
+
+    if interaction_type == MESSAGE_COMPONENT:
+        data = payload.get("data", {})
+        custom_id = data.get("custom_id", "")
+        action, _args = decode_custom_id(custom_id)
+        handler = COMPONENT_HANDLERS.get(action)
+        if handler:
+            try:
+                return handler(payload)  # component handlers take the full payload
+            except Exception:
+                logger.exception("Error handling component %s", custom_id)
+                return _ephemeral("Something went wrong handling that.")
+        return _ephemeral(f"Unknown component: {custom_id}")
 
     # Unhandled interaction type
     return HttpResponse("unhandled interaction type", status=400)
