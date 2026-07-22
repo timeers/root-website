@@ -689,26 +689,41 @@ def _random_dice_prompt():
     })
 
 
-def _random_hireling_prompt():
-    """Ephemeral Promoted / Demoted / Either buttons for /random Hirelings.
-    Hirelings aren't platform-specific, so we ask which side instead."""
-    row = action_row(
-        button("Promoted", encode_custom_id("random_hireling", "P")),
-        button("Demoted", encode_custom_id("random_hireling", "D")),
-        button("Either", encode_custom_id("random_hireling", "E")),
+def _random_hireling_side_row(platform_key):
+    """Promoted / Demoted / Either buttons for /random Hirelings, carrying the
+    already-chosen platform key forward in each custom_id (random_hireling:<key>:<side>)."""
+    return action_row(
+        button("Promoted", encode_custom_id("random_hireling", platform_key, "P")),
+        button("Demoted", encode_custom_id("random_hireling", platform_key, "D")),
+        button("Either", encode_custom_id("random_hireling", platform_key, "E")),
     )
-    return JsonResponse({
-        "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"content": "Random Hireling — which side?",
-                 "flags": EPHEMERAL, "components": [row]},
-    })
 
 
-def _random_from_list(kind, options):
-    """Immediate public message for Suit/Clearing (no image, no prompt)."""
+def _random_result_embed(kind, title, subtext, author=None, url=None, thumbnail_url=None):
+    """The unified /random result embed: the invoking user as the author header, a
+    `Random {kind}: {title}` title (linked to the post when `url` is given), the
+    `subtext` as footer, and an optional thumbnail (the post's small icon). Used by
+    every /random kind so results share one look."""
+    embed = {
+        "title": f"Random {kind}: {title}"[:256],
+        "footer": {"text": subtext[:2048]},
+    }
+    if url:
+        embed["url"] = url
+    if author:
+        embed["author"] = author
+    if thumbnail_url:
+        embed["thumbnail"] = {"url": thumbnail_url}
+    return embed
+
+
+def _random_from_list(kind, options, author=None):
+    """Public result for Suit/Clearing (no post, so no link/thumbnail)."""
     chosen = random.choice(options)
-    content = f"**Random {kind}:** {chosen}\n-# Chosen from: {', '.join(options)}"
-    return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"content": content}})
+    embed = _random_result_embed(
+        kind, chosen, f"Chosen from: {', '.join(options)}", author=author,
+    )
+    return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"embeds": [embed]}})
 
 
 def _handle_random_command(data):
@@ -716,24 +731,25 @@ def _handle_random_command(data):
     platform prompt first; Captain isn't platform-specific so it resolves straight
     to a public result; Roll shows a dice prompt; Suit/Clearing resolve immediately."""
     kind = _get_option(data, "kind")
+    author = data.get("_author")  # invoking user, stashed by the dispatch
     if kind == "Captain":
         # Captains don't vary by platform, so skip the prompt. Passing TTS avoids
         # the Root Digital (in_root_digital) filter in _random_eligible.
-        result, error = _random_post_result("Captain", DRAFT_PLATFORM_TTS)
+        result, error = _random_post_result("Captain", DRAFT_PLATFORM_TTS, author=author)
         if error:
             return _ephemeral(error)
         return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": result})
     if kind == "Hirelings":
-        # Hirelings aren't platform-specific; ask which side (Promoted/Demoted/Either).
-        return _random_hireling_prompt()
+        # Hirelings need platform AND side; ask platform first, then the side.
+        return _random_platform_prompt("Hirelings")
     if kind in RANDOM_POST_MODELS:
         return _random_platform_prompt(kind)
     if kind == "Roll":
         return _random_dice_prompt()
     if kind == "Suit":
-        return _random_from_list("Suit", RANDOM_SUITS)
+        return _random_from_list("Suit", RANDOM_SUITS, author=author)
     if kind == "Clearing":
-        return _random_from_list("Clearing", RANDOM_CLEARINGS)
+        return _random_from_list("Clearing", RANDOM_CLEARINGS, author=author)
     return _ephemeral(f"Unknown random kind: {kind}")
 
 
@@ -750,46 +766,61 @@ def _random_eligible(kind, platform, hireling_type=None):
 
 
 def _random_chosen_from(kind, posts):
-    """The 'Chosen from' subtext for a post-kind result. Faction -> emoji icons
-    (name fallback); other kinds -> names if <=6, else a count."""
+    """The 'Chosen from' footer text for a post-kind result. Faction -> emoji
+    icons (name fallback); Hirelings -> a count (there are many); other kinds ->
+    names if <=6, else a count."""
     if kind == "Faction":
         icons = [faction_emoji_for(p.slug) or p.title for p in posts]
-        return "-# Chosen from: " + " ".join(icons)
+        return "Chosen from: " + " ".join(icons)
     if len(posts) <= 6:
-        return "-# Chosen from: " + ", ".join(p.title for p in posts)
-    return f"-# Chosen from {len(posts)} options"
+        return "Chosen from: " + ", ".join(p.title for p in posts)
+    return f"Chosen from {len(posts)} options"
 
 
-def _random_post_result(kind, platform, hireling_type=None):
-    """Return (message_data, error) for a post-backed random kind. Reuses the
-    lookup embeds; Captain uses the captain embed + flip-side image.
-    `hireling_type` ('P'/'D') narrows Hirelings to one side."""
+def _post_url(post):
+    """Absolute URL to a post's page, or None when SITE_URL isn't configured."""
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    return f"{site_url}{post.get_absolute_url()}" if site_url else None
+
+
+def _post_thumbnail_url(post):
+    """Absolute URL to a post's small icon for the embed thumbnail, or None."""
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    if not site_url or not getattr(post, "small_icon", None):
+        return None
+    try:
+        return f"{site_url}{post.small_icon.url}"
+    except ValueError:
+        return None  # no file associated
+
+
+def _random_post_result(kind, platform, hireling_type=None, author=None):
+    """Return (message_data, error) for a post-backed random kind as the unified
+    /random embed (linked title + small-icon thumbnail). `hireling_type` ('P'/'D')
+    narrows Hirelings to one side."""
     posts = list(_random_eligible(kind, platform, hireling_type))
     if not posts:
         # Captain and Hirelings skip the platform prompt, so don't mention one.
         where = " for that platform" if kind in RANDOM_POST_MODELS and kind not in ("Captain", "Hirelings") else ""
         return None, f"No eligible {kind} found{where}."
     chosen = random.choice(posts)
-    if kind == "Captain":
-        main_embed = build_captain_embed(chosen)
-        image = build_post_image_embed(chosen, field="card_2_image")
-    else:
-        main_embed = build_post_embed(chosen)
-        image = build_post_image_embed(chosen)
-    embeds = [main_embed] + ([image] if image else [])
-    content = f"**Random {kind}:** {chosen.title}\n" + _random_chosen_from(kind, posts)
-    return {"content": content, "embeds": embeds}, None
+    embed = _random_result_embed(
+        kind, chosen.title, _random_chosen_from(kind, posts),
+        author=author, url=_post_url(chosen), thumbnail_url=_post_thumbnail_url(chosen),
+    )
+    return {"embeds": [embed]}, None
 
 
-def _random_roll_content(dice):
-    """Message content for a roll of `dice` 0-3 dice; two dice show larger first."""
+def _random_roll_embed(dice, author=None):
+    """The unified /random embed for a roll of `dice` 0-3 dice; two dice show the
+    larger first. No post, so no link/thumbnail."""
     rolls = [random.randint(0, 3) for _ in range(dice)]
     if dice == 2:
         a, b = sorted(rolls, reverse=True)
         value, sub = f"{a}-{b}", "Rolled 2 dice"
     else:
         value, sub = str(rolls[0]), "Rolled 1 die"
-    return f"**Random Roll:** {value}\n-# {sub}"
+    return _random_result_embed("Roll", value, sub, author=author)
 
 
 def _random_followup(payload, message_data):
@@ -804,11 +835,21 @@ def _random_followup(payload, message_data):
 
 
 def _handle_random_post(payload):
-    """Platform button: pick a random post for the kind, post it publicly."""
+    """Platform button: pick a random post for the kind, post it publicly. For
+    Hirelings the platform choice leads to a second prompt (the side) rather than
+    a result."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["<Kind>", "tts|rd"]
     kind = args[0]
-    platform = RANDOM_PLATFORM_KEYS.get(args[1] if len(args) > 1 else "", DRAFT_PLATFORM_TTS)
-    result, error = _random_post_result(kind, platform)
+    platform_key = args[1] if len(args) > 1 else "tts"
+    if kind == "Hirelings":
+        # Platform chosen; now ask which side, carrying the platform key forward.
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": "Random Hireling — which side?", "flags": EPHEMERAL,
+                     "components": [_random_hireling_side_row(platform_key)]},
+        })
+    platform = RANDOM_PLATFORM_KEYS.get(platform_key, DRAFT_PLATFORM_TTS)
+    result, error = _random_post_result(kind, platform, author=_interaction_author(payload))
     if error:
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
@@ -818,11 +859,14 @@ def _handle_random_post(payload):
 
 
 def _handle_random_hireling(payload):
-    """Side button: pick a random hireling of the chosen side (Promoted/Demoted),
-    or either side, and post it publicly."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["P"|"D"|"E"]
-    hireling_type = args[0] if args else "E"  # default to Either
-    result, error = _random_post_result("Hirelings", DRAFT_PLATFORM_TTS, hireling_type=hireling_type)
+    """Side button: pick a random hireling of the chosen platform and side
+    (Promoted/Demoted/Either) and post it publicly."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["tts|rd", "P"|"D"|"E"]
+    platform = RANDOM_PLATFORM_KEYS.get(args[0] if args else "", DRAFT_PLATFORM_TTS)
+    hireling_type = args[1] if len(args) > 1 else "E"  # default to Either
+    result, error = _random_post_result(
+        "Hirelings", platform, hireling_type=hireling_type, author=_interaction_author(payload),
+    )
     if error:
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
@@ -835,7 +879,8 @@ def _handle_random_roll(payload):
     """Dice button: roll one or both dice, post the result publicly."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["1"|"2"]
     dice = 1 if args and args[0] == "1" else 2  # default to 2 (Both Dice) on anything else
-    return _random_followup(payload, {"content": _random_roll_content(dice)})
+    embed = _random_roll_embed(dice, author=_interaction_author(payload))
+    return _random_followup(payload, {"embeds": [embed]})
 
 
 COMMAND_HANDLERS = {
@@ -1027,6 +1072,9 @@ def discord_interactions(request):
         handler = COMMAND_HANDLERS.get(command_name)
         if handler:
             try:
+                # Stash the invoking user (from the top-level payload, not `data`)
+                # so handlers that build author-attributed embeds can read it.
+                data["_author"] = _interaction_author(payload)
                 return handler(data)
             except Exception:
                 logger.exception("Error handling /%s interaction", command_name)
