@@ -543,6 +543,23 @@ def apply_discord_category(category):
     return webhook_url, embed_title, embed_color
 
 
+def post_interaction_followup(token, message_data):
+    """POST a followup message to a Discord interaction's webhook. Must be called
+    only AFTER the interaction's initial response (ACK) has reached Discord — a
+    followup before the ACK returns 404 Unknown Webhook. The interaction token
+    (not a bot token) authorizes this, so no auth header is needed. Raises
+    requests.RequestException on network/HTTP failure so the task can retry.
+
+    No DEBUG_VALUE guard: unlike the broadcast senders below, this is a live
+    response to a user's interaction and must fire in every environment.
+    """
+    response = requests.post(
+        f"{DISCORD_API}/webhooks/{config['DISCORD_ID']}/{token}",
+        json=message_data, timeout=10,
+    )
+    response.raise_for_status()
+
+
 def send_discord_message(message, category=None):
     # Check if DEBUG is False in the config
     if config["DEBUG_VALUE"] == "True":

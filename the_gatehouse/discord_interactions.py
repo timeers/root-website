@@ -20,7 +20,6 @@ import logging
 import random
 from datetime import timedelta
 
-import requests
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
@@ -34,7 +33,7 @@ from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tw
 from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate
 from the_gatehouse.models import Profile
 from .services.discordservice import (
-    config, DISCORD_API, build_post_embed, build_post_image_embed, build_stats_embed,
+    config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object,
 )
@@ -47,6 +46,7 @@ from .services.discord_components import (
     encode_custom_id, decode_custom_id, selected_values,
     RESPONSE_UPDATE_MESSAGE, STYLE_SUCCESS, STYLE_SECONDARY,
 )
+from .tasks import post_interaction_followup_task
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,17 @@ RESPONSE_AUTOCOMPLETE_RESULT = 8
 # RESPONSE_UPDATE_MESSAGE (7) is imported from discord_components.
 
 EPHEMERAL = 64  # message flag: only the invoking user sees it
+
+
+def _followup_after_response(payload, message_data):
+    """Queue a public followup to be posted after we return the interaction's
+    initial response (ACK). Discord rejects a followup that arrives before the
+    ACK, so we hand it to a Celery task: the queue hop lands the POST after this
+    view returns, and the task's autoretry heals the rare early-race 404. The
+    message_data must be fully built by the caller (in the request thread) — the
+    task does no DB work, only the HTTP POST."""
+    post_interaction_followup_task.delay(payload["token"], message_data)
+
 
 # ── /draft ─────────────────────────────────────────────────────────────────
 # Short platform keys ride in component custom_ids (100-char cap); the ban list
@@ -527,17 +538,11 @@ def _handle_draft_build(payload):
             "data": {"content": error, "components": [], "flags": EPHEMERAL},
         })
 
-    # Post the draft as a public follow-up (the ban UI was ephemeral). The
-    # interaction token authorizes this webhook, so no auth header is needed; a
-    # failed follow-up must not 500 the interaction.
-    try:
-        requests.post(
-            f"{DISCORD_API}/webhooks/{config['DISCORD_ID']}/{payload['token']}",
-            json={"content": _draft_result_content(drawn, players, platform, banned_slugs, factions)},
-            timeout=10,
-        )
-    except requests.RequestException:
-        logger.exception("Failed to post /draft follow-up message")
+    # Post the draft as a public follow-up (the ban UI was ephemeral). This must
+    # happen after the initial response below reaches Discord, so it's deferred to
+    # a background thread; we build the content here (in the request thread) first.
+    content = _draft_result_content(drawn, players, platform, banned_slugs, factions)
+    _followup_after_response(payload, {"content": content})
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -669,14 +674,9 @@ def _random_roll_content(dice):
 
 def _random_followup(payload, message_data):
     """Post a public follow-up for a /random result (the prompt was ephemeral) and
-    collapse the prompt. A failed follow-up must not 500 the interaction."""
-    try:
-        requests.post(
-            f"{DISCORD_API}/webhooks/{config['DISCORD_ID']}/{payload['token']}",
-            json=message_data, timeout=10,
-        )
-    except requests.RequestException:
-        logger.exception("Failed to post /random follow-up")
+    collapse the prompt. The follow-up is deferred until after the collapse
+    response below reaches Discord (a follow-up before the ACK is rejected)."""
+    _followup_after_response(payload, message_data)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": "Rolling…", "components": [], "flags": EPHEMERAL},
