@@ -7,6 +7,7 @@ from .models import (Profile, PlayerBookmark,
                      Theme, BackgroundImage, ForegroundImage,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
                      Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification,
+                     GuildLFGRole,
                      )
 from django import forms
 from django.http import HttpResponseRedirect 
@@ -29,9 +30,19 @@ class DiscordGuildJoinRequestAdmin(admin.ModelAdmin):
     list_display = ['profile__discord', 'guild__name', 'status']
     search_fields = ['profile__discord', 'guild__name', 'status']
 
+class GuildLFGRoleInline(admin.TabularInline):
+    model = GuildLFGRole
+    extra = 0
+
+class GuildLFGRoleAdmin(admin.ModelAdmin):
+    list_display = ['name', 'guild', 'role_id']
+    search_fields = ['name', 'guild__name']
+
 class DiscordGuildAdmin(admin.ModelAdmin):
     list_display = ['name', 'guild_id']
     search_fields = ['name']
+    inlines = [GuildLFGRoleInline]
+    filter_horizontal = ['guild_moderators']
 
 class WebsiteAdmin(admin.ModelAdmin):
     list_display = ['site_title', 'default_theme', 'player_threshold', 'game_threshold']
@@ -521,5 +532,6 @@ admin.site.register(DailyUserVisit, DailyUserVisitAdmin)
 admin.site.register(DiscordGuild, DiscordGuildAdmin)
 admin.site.register(Changelog, ChangelogAdmin)
 admin.site.register(DiscordGuildJoinRequest, DiscordGuildJoinRequestAdmin)
+admin.site.register(GuildLFGRole, GuildLFGRoleAdmin)
 
 
