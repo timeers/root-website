@@ -36,11 +36,14 @@ def select_option(label, value, emoji=None, default=False):
 
 
 def string_select(custom_id, options, placeholder="", min_values=0, max_values=1):
+    options = options[:25]  # Discord caps a select at 25 options
     return {
         "type": COMPONENT_STRING_SELECT, "custom_id": custom_id,
         "placeholder": placeholder, "min_values": min_values,
-        # Discord requires max_values >= 1 even when min_values is 0.
-        "max_values": max(1, max_values), "options": options[:25],  # option cap is 25
+        # Discord requires 1 <= max_values <= number of options. Clamp against the
+        # capped option count so a caller passing len(pre-cap options) can't send a
+        # max_values that exceeds the options actually included (a 400).
+        "max_values": max(1, min(max_values, len(options))), "options": options,
     }
 
 
