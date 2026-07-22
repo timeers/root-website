@@ -1,0 +1,49 @@
+{% load i18n %}
+{% comment %}
+    On the first page we render the full chrome (#guilds-container / #search-contents).
+    Pages 2+ are appended directly into #search-contents with hx-swap="beforeend", so they
+    must render only the flat guild cells (and the spinner) — no wrapper divs.
+{% endcomment %}
+{% if page_obj.number == 1 %}
+<div id="guilds-container">
+<div id="search-contents" class="row g-3">
+    {% if is_admin %}
+    {# Add card: same column + card shape as guild cards, kept as the first cell so prepended/appended guilds never displace it. #}
+    <div class="col-12 col-md-6 col-lg-4" id="add-guild-cell">
+        <button type="button"
+                class="content-section post-card text-reset d-flex align-items-center justify-content-center h-100 w-100"
+                data-bs-toggle="modal" data-bs-target="#addGuildModal">
+            <i class="bi bi-plus-circle me-2" style="font-size: 1.5rem;"></i>
+            <span class="h5 mb-0">{% trans 'Add new Guild' %}</span>
+        </button>
+    </div>
+    {% endif %}
+{% endif %}
+
+{% for guild in guilds %}
+    {% if forloop.last and guilds.has_next %}
+        <div class="col-12 col-md-6 col-lg-4"
+            hx-trigger="revealed"
+            hx-get="{% url 'manage-guilds' %}?page={{ page_obj.number|add:1 }}"
+            hx-target="#search-contents"
+            hx-swap="beforeend"
+            hx-indicator="#spinner">
+    {% else %}
+        <div class="col-12 col-md-6 col-lg-4">
+    {% endif %}
+        {% include 'the_gatehouse/partials/guild_card.html' %}
+    </div>
+
+    {% if forloop.last and guilds.has_next %}
+        {% include 'the_gatehouse/partials/spinner.html' %}
+    {% endif %}
+{% empty %}
+    {% if page_obj.number == 1 %}
+    <p class="text-muted">{% trans 'No guilds to manage yet.' %}</p>
+    {% endif %}
+{% endfor %}
+
+{% if page_obj.number == 1 %}
+</div>
+</div>
+{% endif %}

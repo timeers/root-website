@@ -16,7 +16,8 @@ from .views import (user_settings, player_page_view, dwd_profile_redirect,
                     manage_themes, manage_theme_edit, manage_theme_images,
                     hx_save_foreground_image, hx_delete_foreground_image,
                     hx_save_background_image, hx_delete_background_image,
-                    manage_holidays, manage_holiday_edit)
+                    manage_holidays, manage_holiday_edit,
+                    manage_guilds, edit_guild, hx_save_lfg_role, hx_delete_lfg_role)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 from .discord_interactions import discord_interactions
 urlpatterns = [
@@ -81,6 +82,11 @@ urlpatterns = [
     path('guild/pending-invites/', pending_guild_invites, name='pending-guild-invites'),
     path('guild/invite/<int:invite_id>/approve/', approve_guild_invite, name='approve-guild-invite'),
     path('guild/invite/<int:invite_id>/reject/', reject_guild_invite, name='reject-guild-invite'),
+    path('manage-guilds/', manage_guilds, name='manage-guilds'),
+    path('guild/<int:guild_id>/edit/', edit_guild, name='edit-guild'),
+    path('guild/<int:guild_id>/lfg-role/add/', hx_save_lfg_role, name='guild-lfg-role-add'),
+    path('guild/<int:guild_id>/lfg-role/<int:pk>/edit/', hx_save_lfg_role, name='guild-lfg-role-edit'),
+    path('guild/<int:guild_id>/lfg-role/<int:pk>/delete/', hx_delete_lfg_role, name='guild-lfg-role-delete'),
 
     path('posts/pending/', pending_posts, name='pending-posts'),
     path('posts/<int:post_id>/approve/', approve_post, name='approve-post'),

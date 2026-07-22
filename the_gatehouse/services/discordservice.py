@@ -543,6 +543,23 @@ def apply_discord_category(category):
     return webhook_url, embed_title, embed_color
 
 
+def post_interaction_followup(token, message_data):
+    """POST a followup message to a Discord interaction's webhook. Must be called
+    only AFTER the interaction's initial response (ACK) has reached Discord — a
+    followup before the ACK returns 404 Unknown Webhook. The interaction token
+    (not a bot token) authorizes this, so no auth header is needed. Raises
+    requests.RequestException on network/HTTP failure so the task can retry.
+
+    No DEBUG_VALUE guard: unlike the broadcast senders below, this is a live
+    response to a user's interaction and must fire in every environment.
+    """
+    response = requests.post(
+        f"{DISCORD_API}/webhooks/{config['DISCORD_ID']}/{token}",
+        json=message_data, timeout=10,
+    )
+    response.raise_for_status()
+
+
 def send_discord_message(message, category=None):
     # Check if DEBUG is False in the config
     if config["DEBUG_VALUE"] == "True":
@@ -806,6 +823,30 @@ def faction_emoji_for(slug):
     return get_application_emoji().get(name, "")
 
 
+_EMOJI_RE = re.compile(r"<a?:(?P<name>\w+):(?P<id>\d+)>")
+
+
+def parse_emoji_object(emoji_str):
+    """Turn a '<:name:id>' / '<a:name:id>' string into a Discord component emoji
+    object {'id','name'[, 'animated']}, or None if empty/unparseable. Component
+    emoji (select options, buttons) need this object form; message content uses
+    the raw string."""
+    if not emoji_str:
+        return None
+    m = _EMOJI_RE.match(emoji_str)
+    if not m:
+        return None
+    obj = {"id": m.group("id"), "name": m.group("name")}
+    if emoji_str.startswith("<a:"):
+        obj["animated"] = True
+    return obj
+
+
+def faction_emoji_object(slug):
+    """Component-emoji object for an official faction slug, or None."""
+    return parse_emoji_object(faction_emoji_for(slug))
+
+
 def _item_emoji_value(vagabond, prefix):
     """Emoji string for a vagabond's item counts, repeating each emoji by its
     count. `prefix` is the field prefix, e.g. "starting" or "captain"."""
@@ -877,6 +918,36 @@ def _embed_color(obj):
         return None
 
 
+# Discord embed limits — exceeding any of these makes the API reject the whole
+# message with a 400, so we clamp user-controlled text (descriptions, field
+# values from card_text/abilities/etc.) before sending.
+_EMBED_TITLE_MAX = 256
+_EMBED_DESC_MAX = 4096
+_EMBED_FIELD_NAME_MAX = 256
+_EMBED_FIELD_VALUE_MAX = 1024
+
+
+def _truncate(text, limit):
+    """Clamp `text` to `limit` chars, ending with an ellipsis when cut."""
+    if text is None or len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _enforce_embed_limits(embed):
+    """Clamp an embed dict's title/description/field text to Discord's per-field
+    limits in place, so a long post (card_text, description, ability text) can't
+    make Discord 400 the whole message. Returns the same dict for chaining."""
+    if "title" in embed:
+        embed["title"] = _truncate(embed["title"], _EMBED_TITLE_MAX)
+    if "description" in embed:
+        embed["description"] = _truncate(embed["description"], _EMBED_DESC_MAX)
+    for field in embed.get("fields", []):
+        field["name"] = _truncate(field.get("name", ""), _EMBED_FIELD_NAME_MAX)
+        field["value"] = _truncate(field.get("value", ""), _EMBED_FIELD_VALUE_MAX)
+    return embed
+
+
 def build_post_embed(post):
     """Build a Discord embed dict for any Post (faction, map, deck, etc.).
 
@@ -909,8 +980,8 @@ def build_post_embed(post):
     if fields:
         embed["fields"] = fields
 
-    # Drop None values Discord would reject
-    return {k: v for k, v in embed.items() if v is not None}
+    # Drop None values Discord would reject, then clamp text to Discord's limits.
+    return _enforce_embed_limits({k: v for k, v in embed.items() if v is not None})
 
 
 # Back-compat alias: the embed builder is now generic over all Post types.
@@ -1162,7 +1233,7 @@ def build_captain_embed(vagabond):
     if fields:
         embed["fields"] = fields
 
-    return {k: v for k, v in embed.items() if v is not None}
+    return _enforce_embed_limits({k: v for k, v in embed.items() if v is not None})
 
 
 def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None, include_fan_content=False):

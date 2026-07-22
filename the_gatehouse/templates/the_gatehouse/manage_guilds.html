@@ -1,0 +1,54 @@
+{% extends "the_keep/base.html" %}
+{% load i18n %}
+{% block title %}{% trans 'Manage Guilds' %} | {% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="root-title mb-0">{% trans 'Manage Guilds' %}</h1>
+    </div>
+
+    {% include 'the_gatehouse/partials/guild_list.html' %}
+
+    {% if is_admin %}
+    {% include 'the_gatehouse/partials/add_guild_modal.html' %}
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if is_admin %}
+<script>
+// Called by the shared add-guild modal on successful creation. Prepend a card
+// for the new guild into the list without a full page reload.
+window.onGuildAdded = function(guild) {
+    if (document.getElementById('guild-card-' + guild.id)) return;  // dedupe
+    const contents = document.getElementById('search-contents');
+    if (!contents) return;
+
+    let iconHtml;
+    if (guild.icon_url) {
+        iconHtml = '<img src="' + guild.icon_url + '" alt="" class="md-avatar-icon me-3">';
+    } else {
+        iconHtml = '<i class="bi bi-discord me-3 text-muted" style="font-size: 2rem;"></i>';
+    }
+
+    const col = document.createElement('div');
+    col.className = 'col-12 col-md-6 col-lg-4';
+    col.innerHTML =
+        '<a href="/guild/' + guild.id + '/edit/" class="text-decoration-none text-reset" id="guild-card-' + guild.id + '">' +
+        '<article class="content-section post-card d-flex align-items-center h-100">' +
+        iconHtml + '<h5 class="mb-0"></h5></article></a>';
+    col.querySelector('h5').textContent = guild.name;  // set text safely
+
+    // Insert after the Add card (which is always the first cell) so it stays put.
+    const addCell = document.getElementById('add-guild-cell');
+    if (addCell) {
+        addCell.after(col);
+    } else {
+        contents.prepend(col);
+    }
+};
+</script>
+{% endif %}
+{% endblock %}

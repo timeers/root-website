@@ -4,14 +4,14 @@ from datetime import timedelta
 
 from django.apps import apps
 from django.core.paginator import Paginator, EmptyPage
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.cache import cache
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import connection
 from django.db.models import Count, Q, Count, Avg, F
-from django.http import JsonResponse, Http404, HttpResponseBadRequest
+from django.http import JsonResponse, Http404, HttpResponseBadRequest, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -25,8 +25,8 @@ from the_warroom.models import (Tournament, Round, Effort, Game,
                                  effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, GuildLFGRole
 from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
@@ -331,6 +331,13 @@ def admin_required_class_based_view(view_class):
     """Decorator to apply to class-based views."""
     view_class.dispatch = method_decorator(admin_onboard_required)(view_class.dispatch)
     return view_class
+
+
+def can_moderate_guild(profile, guild):
+    """Site admins OR members of guild.guild_moderators may manage a guild."""
+    if profile.admin:
+        return True
+    return guild.guild_moderators.filter(pk=profile.pk).exists()
 
 
 
@@ -1453,6 +1460,106 @@ def woodland_warriors_info(request):
     })
 
 
+GUILD_PAGE_SIZE = 20  # local; NOT settings.PAGE_SIZE (25)
+
+
+@login_required
+def manage_guilds(request):
+    profile = request.user.profile
+    is_admin = profile.admin
+    guilds = (DiscordGuild.objects.all() if is_admin
+              else profile.moderated_guilds.all()).order_by('name')
+    page_obj = Paginator(guilds, GUILD_PAGE_SIZE).get_page(request.GET.get('page'))
+    context = {'guilds': page_obj, 'page_obj': page_obj, 'is_admin': is_admin}
+    template = ('the_gatehouse/partials/guild_list.html' if request.htmx
+                else 'the_gatehouse/manage_guilds.html')
+    return render(request, template, context)
+
+
+@login_required
+def edit_guild(request, guild_id):
+    guild = get_object_or_404(DiscordGuild, pk=guild_id)
+    profile = request.user.profile
+    if not can_moderate_guild(profile, guild):
+        raise PermissionDenied()
+
+    if request.method == 'POST':
+        form = GuildEditForm(request.POST, instance=guild)
+        if form.is_valid():
+            form.save()
+            mod_ids = request.POST.getlist('moderators')
+            valid_mods = Profile.objects.filter(pk__in=mod_ids)
+            # A non-admin must not remove their own access.
+            if not profile.admin and profile.pk not in {m.pk for m in valid_mods}:
+                valid_mods = Profile.objects.filter(Q(pk__in=mod_ids) | Q(pk=profile.pk))
+                messages.info(request, "You can't remove yourself from a guild you moderate.")
+            guild.guild_moderators.set(valid_mods)
+            messages.success(request, 'Guild updated.')
+            return redirect('edit-guild', guild_id=guild.id)
+    else:
+        form = GuildEditForm(instance=guild)
+
+    context = {'form': form, 'guild': guild,
+               'moderators': guild.guild_moderators.all(),
+               'lfg_roles': guild.lfg_roles.all(),
+               'lfg_add_form': GuildLFGRoleForm(),
+               'is_admin': profile.admin}
+    return render(request, 'the_gatehouse/edit_guild.html', context)
+
+
+@login_required
+def hx_save_lfg_role(request, guild_id, pk=None):
+    guild = get_object_or_404(DiscordGuild, pk=guild_id)
+    if not can_moderate_guild(request.user.profile, guild):
+        raise PermissionDenied()
+    role = get_object_or_404(GuildLFGRole, pk=pk, guild=guild) if pk else None
+
+    # GET on an existing role returns its inline edit form (Edit button), or the
+    # read-only display row when ?display=1 (Cancel button).
+    if request.method == 'GET':
+        if role is None:
+            return JsonResponse({'error': 'GET not supported'}, status=405)
+        if request.GET.get('display'):
+            return render(request, 'the_gatehouse/partials/lfg_role_row.html',
+                          {'role': role, 'guild': guild})
+        return render(request, 'the_gatehouse/partials/lfg_role_form.html',
+                      {'form': GuildLFGRoleForm(instance=role), 'role': role, 'guild': guild})
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+
+    form = GuildLFGRoleForm(request.POST, instance=role)
+    if form.is_valid():
+        obj = form.save(commit=False)
+        obj.guild = guild
+        try:
+            obj.validate_unique()   # (guild, name) — guild set after validation
+        except ValidationError:
+            form.add_error('name', 'This guild already has a role with that name.')
+        else:
+            obj.save()
+            if pk is None:
+                # Add: replace the add-form in place with a fresh one, and append the
+                # new row out-of-band into the list.
+                return render(request, 'the_gatehouse/partials/lfg_role_added.html',
+                              {'role': obj, 'guild': guild, 'form': GuildLFGRoleForm()})
+            # Edit: swap the edit form back to the read-only row.
+            return render(request, 'the_gatehouse/partials/lfg_role_row.html',
+                          {'role': obj, 'guild': guild})
+    return render(request, 'the_gatehouse/partials/lfg_role_form.html',
+                  {'form': form, 'role': role, 'guild': guild}, status=422)
+
+
+@login_required
+def hx_delete_lfg_role(request, guild_id, pk):
+    guild = get_object_or_404(DiscordGuild, pk=guild_id)
+    if not can_moderate_guild(request.user.profile, guild):
+        raise PermissionDenied()
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+    get_object_or_404(GuildLFGRole, pk=pk, guild=guild).delete()
+    return HttpResponse(status=200)   # row target hx-swap="outerHTML" removes it
+
+
 @login_required
 def join_discord_server(request):
     origin = request.GET.get("origin")
@@ -1555,6 +1662,8 @@ def admin_dashboard(request):
     send_notification_url = reverse('send-notification')
     manage_themes_url = reverse('manage-themes')
     manage_holidays_url = reverse('manage-holidays')
+    manage_guilds_url = reverse('manage-guilds')
+    guild_count = DiscordGuild.objects.count()
     theme_count = Theme.objects.count()
     active_theme_count = Theme.objects.filter(active=True).count()
     holiday_count = Holiday.objects.count()
@@ -1644,6 +1753,21 @@ def admin_dashboard(request):
                     "link": guild_invites_url,
                     "class": 'primary' if pending_guild_invites_count > 0 else 'secondary',
                  },
+            ],
+        },
+        {
+            "title": "Guilds",
+            "subtitle": "Manage Discord guild settings, moderators, and LFG roles",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Total Guilds", "content": guild_count},
+            ],
+            "buttons": [
+                {
+                    "label": "Manage Guilds",
+                    "link": manage_guilds_url,
+                    "class": "primary",
+                },
             ],
         },
         {

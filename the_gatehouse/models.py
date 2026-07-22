@@ -103,6 +103,15 @@ def validate_discord_invite(url):
         raise ValidationError("Invite must be a valid Discord invite link.")
 
 
+def validate_discord_snowflake(value):
+    # Discord IDs (snowflakes) are numeric strings, currently 17–20 digits.
+    if not (value.isdigit() and 17 <= len(value) <= 20):
+        raise ValidationError(
+            "Enter a valid Discord role ID — a 17–20 digit number. "
+            "In Discord, enable Developer Mode, right-click the role and choose “Copy Role ID”."
+        )
+
+
 class DiscordGuild(models.Model):
     guild_id = models.CharField(max_length=32, unique=True)
     name = models.CharField(max_length=100)
@@ -112,11 +121,18 @@ class DiscordGuild(models.Model):
         blank=True,
         validators=[validate_discord_invite],
         help_text="Discord server invite URL")
-    request_message = models.TextField(blank=True, null=True)
-    server_rules = models.TextField(blank=True, null=True)
-    approval_message = models.TextField(blank=True, null=True)
+    request_message = models.TextField(
+        blank=True, null=True,
+        help_text="The message users will see when they request to join")
+    server_rules = models.TextField(
+        blank=True, null=True,
+        help_text="Rules for the server that a user must acknowledge")
+    approval_message = models.TextField(
+        blank=True, null=True,
+        help_text="Message the user sees next to the invite link upon approval")
 
-    auto_approve_invite = models.BooleanField(default=False)
+    auto_approve_invite = models.BooleanField(
+        default=False)
 
     # Whether OUR bot is a member of this guild. Maintained by the
     # sync_bot_guilds command/task. The bot can only DM users who share
@@ -131,6 +147,15 @@ class DiscordGuild(models.Model):
     member_count = models.IntegerField(default=0, help_text="Approximate member count")
     online_count = models.IntegerField(default=0, help_text="Approximate online count")
     last_updated = models.DateTimeField(auto_now=True, help_text="Last time Discord info was refreshed")
+
+    # Profiles who moderate this guild. Separate from Profile.guilds (membership);
+    # a moderator is not implicitly a member and vice versa.
+    guild_moderators = models.ManyToManyField(
+        'Profile',
+        blank=True,
+        related_name="moderated_guilds",
+        help_text="Profiles who moderate this guild.",
+    )
     
     
 
@@ -166,6 +191,48 @@ class DiscordGuild(models.Model):
         if self.guild_id:
             return f"https://discord.com/channels/{self.guild_id}"
         return None
+
+class GuildLFGRole(models.Model):
+    guild = models.ForeignKey(
+        DiscordGuild,
+        on_delete=models.CASCADE,
+        related_name="lfg_roles",
+    )
+    name = models.CharField(
+        max_length=100,
+        help_text="Display tag for the role, e.g. @LFG or @LFG_TTS",
+    )
+    role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        null=True,
+        validators=[validate_discord_snowflake],
+        help_text=(
+            "Discord role ID (a 17–20 digit number), used to build a real mention "
+            "(<@&id>). In Discord: enable Developer Mode, find a user with the role and right-click the role, "
+            "choose “Copy Role ID”. Leave blank if you only want the display tag."
+        ),
+    )
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="What this LFG role is for.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # A guild shouldn't list the same role name twice.
+        unique_together = ("guild", "name")
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.guild.name})"
+
+    def mention(self):
+        """Pingable Discord mention if we have the numeric role ID, else the display name."""
+        if self.role_id:
+            return f"<@&{self.role_id}>"
+        return self.name
 
 class Holiday(models.Model):
     name = models.CharField(max_length=100)
