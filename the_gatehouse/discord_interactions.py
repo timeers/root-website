@@ -35,7 +35,8 @@ from the_gatehouse.models import Profile
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
-    faction_emoji_for, faction_emoji_object, vagabond_emoji_for,
+    faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
+    roll_emoji_for,
 )
 from .services.discord_commands import (
     DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE,
@@ -46,7 +47,6 @@ from .services.discord_components import (
     encode_custom_id, decode_custom_id, selected_values,
     RESPONSE_UPDATE_MESSAGE, STYLE_SUCCESS, STYLE_SECONDARY,
 )
-from .tasks import post_interaction_followup_task
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +64,11 @@ RESPONSE_AUTOCOMPLETE_RESULT = 8
 EPHEMERAL = 64  # message flag: only the invoking user sees it
 
 
-def _followup_after_response(payload, message_data):
-    """Queue a public followup to be posted after we return the interaction's
-    initial response (ACK). Discord rejects a followup that arrives before the
-    ACK, so we hand it to a Celery task: the queue hop lands the POST after this
-    view returns, and the task's autoretry heals the rare early-race 404. The
-    message_data must be fully built by the caller (in the request thread) — the
-    task does no DB work, only the HTTP POST."""
-    post_interaction_followup_task.delay(payload["token"], message_data)
+def _interaction_user_id(payload):
+    """The clicking/invoking user's Discord id (member.user in a guild, user in a
+    DM), or None."""
+    return ((payload.get("member") or {}).get("user", {}).get("id")
+            or (payload.get("user") or {}).get("id"))
 
 
 def _interaction_author(payload):
@@ -423,7 +420,11 @@ def _handle_help_command(data):
 # ── /draft ─────────────────────────────────────────────────────────────────
 def _parse_draft_state(custom_id):
     """('draft_build', players:int(2..6), platform:str) from a draft custom_id;
-    falls back to defaults for a malformed/short id."""
+    falls back to defaults for a malformed/short id.
+
+    ONLY valid for `draft_select`/`draft_build` ids (args[0]=players, args[1]=platform).
+    Do NOT call on `draft_cancel:{owner}` — its args[0] is the owner id, which would
+    silently parse to the default players/platform."""
     action, args = decode_custom_id(custom_id)
     players, platform = 4, DRAFT_PLATFORM_TTS
     if len(args) >= 1:
@@ -450,29 +451,29 @@ def _draft_eligible_factions(platform, players):
     return list(qs.order_by("title").values_list("slug", "title", "type"))
 
 
-def _draft_ui_data(players, platform, factions, banned_slugs):
-    """The ephemeral ban UI: a faction ban select (current bans pre-selected via
+def _draft_ui_data(players, platform, factions, banned_slugs, owner):
+    """The public ban UI: a faction ban select (current bans pre-selected via
     default=True) plus Build/Cancel buttons. `factions` is a list of
-    (slug, title, type); `banned_slugs` is a set."""
+    (slug, title, type); `banned_slugs` is a set. `owner` is the invoker's user id,
+    appended to every custom_id so only they can operate the controls."""
     platform_key = DRAFT_PLATFORM_TO_KEY.get(platform, "tts")
     options = [
         select_option(title, slug, emoji=faction_emoji_object(slug), default=slug in banned_slugs)
         for slug, title, _type in factions
     ]
     select = string_select(
-        encode_custom_id("draft_select", players, platform_key),
+        encode_custom_id("draft_select", players, platform_key, owner),
         options,
         placeholder="Select factions to ban (optional)",
         min_values=0,
         max_values=len(options),
     )
     buttons = action_row(
-        button("Build Draft", encode_custom_id("draft_build", players, platform_key), style=STYLE_SUCCESS),
-        button("Cancel", "draft_cancel", style=STYLE_SECONDARY),
+        button("Build Draft", encode_custom_id("draft_build", players, platform_key, owner), style=STYLE_SUCCESS),
+        button("Cancel", encode_custom_id("draft_cancel", owner), style=STYLE_SECONDARY),
     )
     return {
         "content": f"**{players} Player Draft** — pick factions to ban, then Build.",
-        "flags": EPHEMERAL,
         "components": [action_row(select), buttons],
     }
 
@@ -545,7 +546,7 @@ def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author
 
 
 def _handle_draft_command(data):
-    """/draft: open the ephemeral ban UI for the chosen players/platform."""
+    """/draft: open the public, owner-locked ban UI for the chosen players/platform."""
     players = _get_option(data, "players") or 4
     players = max(2, min(6, int(players)))
     platform = _get_option(data, "platform") or DRAFT_PLATFORM_TTS
@@ -560,19 +561,24 @@ def _handle_draft_command(data):
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": _draft_ui_data(players, platform, factions, banned_slugs=set()),
+        "data": _draft_ui_data(players, platform, factions, banned_slugs=set(),
+                               owner=data.get("_author_id")),
     })
 
 
 def _handle_draft_select(payload):
-    """Ban select changed: re-render the ephemeral UI with the chosen bans marked
-    default=True, so the selection persists in the message's component state."""
-    _action, players, platform = _parse_draft_state(payload["data"]["custom_id"])
+    """Ban select changed: re-render the public UI with the chosen bans marked
+    default=True, so the selection persists in the message's component state. The
+    owner rides in the incoming custom_id; re-emit it to keep the controls locked."""
+    custom_id = payload["data"]["custom_id"]
+    _action, players, platform = _parse_draft_state(custom_id)
+    _, args = decode_custom_id(custom_id)
+    owner = args[-1] if args else None
     banned_slugs = set(payload["data"].get("values", []))  # this select echoes its own values
     factions = _draft_eligible_factions(platform, players)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _draft_ui_data(players, platform, factions, banned_slugs),
+        "data": _draft_ui_data(players, platform, factions, banned_slugs, owner=owner),
     })
 
 
@@ -602,8 +608,8 @@ def _random_draft_captains(platform):
 
 
 def _handle_draft_build(payload):
-    """Build button: recover bans from the message's select state, build the
-    draft, post it publicly, and collapse the ephemeral UI."""
+    """Build button: recover bans from the message's select state, build the draft,
+    and edit the public prompt message into the result embed in place."""
     _action, players, platform = _parse_draft_state(payload["data"]["custom_id"])
     # A button press doesn't echo the select's values, so recover them from the
     # message's persisted select state.
@@ -612,9 +618,10 @@ def _handle_draft_build(payload):
 
     drawn, error = _build_draft(factions, banned_slugs, players)
     if error:
+        # Public edit (the message is public): show the error, clear the buttons.
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
-            "data": {"content": error, "components": [], "flags": EPHEMERAL},
+            "data": {"content": error, "embeds": [], "components": []},
         })
 
     # If the Vagabond faction was drafted, roll a specific vagabond to play it;
@@ -623,26 +630,25 @@ def _handle_draft_build(payload):
     vagabond = _random_draft_vagabond(platform) if "vagabond" in drawn else None
     captains = _random_draft_captains(platform) if "knaves-of-the-deepwood" in drawn else None
 
-    # Post the draft as a public follow-up (the ban UI was ephemeral). This must
-    # happen after the initial response below reaches Discord, so it's deferred to
-    # a background thread; we build the content here (in the request thread) first.
     embed = _draft_result_embed(
         drawn, players, platform, banned_slugs, factions,
         author=_interaction_author(payload), vagabond=vagabond, captains=captains,
     )
-    _followup_after_response(payload, {"embeds": [embed]})
-
+    # Edit the public prompt into the result: content "" clears the prompt text,
+    # components [] removes the buttons. (No follow-up — the message is already public.)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": {"content": "Drafting...", "components": [], "flags": EPHEMERAL},
+        "data": {"embeds": [embed], "content": "", "components": []},
     })
 
 
 def _handle_draft_cancel(payload):
-    """Cancel button: collapse the ephemeral ban UI."""
+    """Cancel button: edit the public prompt to a short notice, buttons removed.
+    Carries only `draft_cancel:{owner}` — deliberately does NOT call
+    _parse_draft_state (which would misread the owner id as players/platform)."""
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": {"content": "Draft cancelled.", "components": [], "flags": EPHEMERAL},
+        "data": {"content": "Draft cancelled.", "embeds": [], "components": []},
     })
 
 
@@ -663,52 +669,75 @@ RANDOM_CLEARINGS = ["Mouse", "Fox", "Rabbit"]
 RANDOM_PLATFORM_KEYS = DRAFT_PLATFORM_KEYS  # reuse tts/rd keys from /draft
 
 
-def _random_platform_prompt(kind):
-    """Ephemeral Tabletop Simulator / Root Digital buttons for a post-backed kind."""
+def _random_platform_prompt(kind, owner):
+    """Public Tabletop Simulator / Root Digital buttons for a post-backed kind.
+    `owner` (invoker's user id) rides in each custom_id so only they can click."""
     row = action_row(
-        button("Tabletop Simulator", encode_custom_id("random_post", kind, "tts")),
-        button("Root Digital", encode_custom_id("random_post", kind, "rd")),
+        button("Tabletop Simulator", encode_custom_id("random_post", kind, "tts", owner)),
+        button("Root Digital", encode_custom_id("random_post", kind, "rd", owner)),
     )
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"content": f"Random {kind} - choose platform:",
-                 "flags": EPHEMERAL, "components": [row]},
+        "data": {"content": f"Random {kind} - choose platform:", "components": [row]},
     })
 
 
-def _random_dice_prompt():
-    """Ephemeral 1 Die / Both Dice buttons for /random Roll."""
+def _random_dice_prompt(owner):
+    """Public 1 Die / Both Dice buttons for /random Roll. `owner` rides in each
+    custom_id so only the invoker can click."""
     row = action_row(
-        button("1 Die", encode_custom_id("random_roll", "1")),
-        button("Both Dice", encode_custom_id("random_roll", "2")),
+        button("1 Die", encode_custom_id("random_roll", "1", owner)),
+        button("Both Dice", encode_custom_id("random_roll", "2", owner)),
     )
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"content": "Random Roll — how many dice?",
-                 "flags": EPHEMERAL, "components": [row]},
+        "data": {"content": "Random Roll — how many dice?", "components": [row]},
     })
 
 
-def _random_hireling_prompt():
-    """Ephemeral Promoted / Demoted / Either buttons for /random Hirelings.
-    Hirelings aren't platform-specific, so we ask which side instead."""
-    row = action_row(
-        button("Promoted", encode_custom_id("random_hireling", "P")),
-        button("Demoted", encode_custom_id("random_hireling", "D")),
-        button("Either", encode_custom_id("random_hireling", "E")),
+def _random_hireling_side_row(platform_key, owner):
+    """Promoted / Demoted / Either buttons for /random Hirelings, carrying the
+    already-chosen platform key and the owner forward in each custom_id
+    (random_hireling:<key>:<side>:<owner>)."""
+    return action_row(
+        button("Promoted", encode_custom_id("random_hireling", platform_key, "P", owner)),
+        button("Demoted", encode_custom_id("random_hireling", platform_key, "D", owner)),
+        button("Either", encode_custom_id("random_hireling", platform_key, "E", owner)),
     )
-    return JsonResponse({
-        "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"content": "Random Hireling — which side?",
-                 "flags": EPHEMERAL, "components": [row]},
-    })
 
 
-def _random_from_list(kind, options):
-    """Immediate public message for Suit/Clearing (no image, no prompt)."""
+def _random_result_embed(kind, title, subtext="", author=None, url=None, thumbnail_url=None):
+    """The unified /random result embed: the invoking user as the author header, a
+    `Random {kind}: {title}` title (linked to the post when `url` is given), an
+    optional small-icon thumbnail, and `subtext` in the description body. Used by
+    every /random kind so results share one look.
+
+    Subtext lives in the description (not a footer) because that's the only place
+    custom emoji render — so faction/suit/clearing icons show as images rather than
+    literal text."""
+    embed = {"title": f"Random {kind}: {title}"[:256]}
+    if subtext:
+        embed["description"] = subtext[:4096]
+    if url:
+        embed["url"] = url
+    if author:
+        embed["author"] = author
+    if thumbnail_url:
+        embed["thumbnail"] = {"url": thumbnail_url}
+    return embed
+
+
+def _random_from_list(kind, options, variant, author=None):
+    """Public result for Suit/Clearing (no post, so no link/thumbnail). Suits use
+    their "card" emoji, clearings their "icon" emoji. The title carries the chosen
+    name (readable); the chosen emoji and the "Chosen from" emoji go in the body,
+    where custom emoji actually render (name fallback when one is missing)."""
     chosen = random.choice(options)
-    content = f"**Random {kind}:** {chosen}\n-# Chosen from: {', '.join(options)}"
-    return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"content": content}})
+    chosen_mark = suit_emoji_for(chosen, variant)
+    marks = " ".join(suit_emoji_for(o, variant) or o for o in options)
+    lines = ([chosen_mark] if chosen_mark else []) + [f"Chosen from: {marks}"]
+    embed = _random_result_embed(kind, chosen, "\n".join(lines), author=author)
+    return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"embeds": [embed]}})
 
 
 def _handle_random_command(data):
@@ -716,24 +745,28 @@ def _handle_random_command(data):
     platform prompt first; Captain isn't platform-specific so it resolves straight
     to a public result; Roll shows a dice prompt; Suit/Clearing resolve immediately."""
     kind = _get_option(data, "kind")
+    author = data.get("_author")  # invoking user (embed author), stashed by the dispatch
+    owner = data.get("_author_id")  # invoking user id, to owner-lock the prompts
     if kind == "Captain":
         # Captains don't vary by platform, so skip the prompt. Passing TTS avoids
-        # the Root Digital (in_root_digital) filter in _random_eligible.
-        result, error = _random_post_result("Captain", DRAFT_PLATFORM_TTS)
+        # the Root Digital (in_root_digital) filter in _random_eligible. This is a
+        # component-less public result (type 4), so it needs no owner lock.
+        result, error = _random_post_result("Captain", DRAFT_PLATFORM_TTS, author=author)
         if error:
             return _ephemeral(error)
         return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": result})
     if kind == "Hirelings":
-        # Hirelings aren't platform-specific; ask which side (Promoted/Demoted/Either).
-        return _random_hireling_prompt()
+        # Hirelings need platform AND side; ask platform first, then the side.
+        return _random_platform_prompt("Hirelings", owner)
     if kind in RANDOM_POST_MODELS:
-        return _random_platform_prompt(kind)
+        return _random_platform_prompt(kind, owner)
     if kind == "Roll":
-        return _random_dice_prompt()
+        return _random_dice_prompt(owner)
+    # Suit/Clearing resolve immediately to a component-less public result — no owner.
     if kind == "Suit":
-        return _random_from_list("Suit", RANDOM_SUITS)
+        return _random_from_list("Suit", RANDOM_SUITS, "card", author=author)
     if kind == "Clearing":
-        return _random_from_list("Clearing", RANDOM_CLEARINGS)
+        return _random_from_list("Clearing", RANDOM_CLEARINGS, "icon", author=author)
     return _ephemeral(f"Unknown random kind: {kind}")
 
 
@@ -750,92 +783,127 @@ def _random_eligible(kind, platform, hireling_type=None):
 
 
 def _random_chosen_from(kind, posts):
-    """The 'Chosen from' subtext for a post-kind result. Faction -> emoji icons
-    (name fallback); other kinds -> names if <=6, else a count."""
+    """The 'Chosen from' body text for a post-kind result. Faction -> emoji icons
+    (name fallback), which is why this renders in the description not a footer;
+    Hirelings -> a count (there are many); other kinds -> names if <=6, else a count."""
     if kind == "Faction":
         icons = [faction_emoji_for(p.slug) or p.title for p in posts]
-        return "-# Chosen from: " + " ".join(icons)
+        return "Chosen from: " + " ".join(icons)
     if len(posts) <= 6:
-        return "-# Chosen from: " + ", ".join(p.title for p in posts)
-    return f"-# Chosen from {len(posts)} options"
+        return "Chosen from: " + ", ".join(p.title for p in posts)
+    return f"Chosen from {len(posts)} options"
 
 
-def _random_post_result(kind, platform, hireling_type=None):
-    """Return (message_data, error) for a post-backed random kind. Reuses the
-    lookup embeds; Captain uses the captain embed + flip-side image.
-    `hireling_type` ('P'/'D') narrows Hirelings to one side."""
+def _post_url(post):
+    """Absolute URL to a post's page, or None when SITE_URL isn't configured."""
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    return f"{site_url}{post.get_absolute_url()}" if site_url else None
+
+
+def _post_thumbnail_url(post):
+    """Absolute URL to a post's small icon for the embed thumbnail, or None."""
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    if not site_url or not getattr(post, "small_icon", None):
+        return None
+    try:
+        return f"{site_url}{post.small_icon.url}"
+    except ValueError:
+        return None  # no file associated
+
+
+def _random_post_result(kind, platform, hireling_type=None, author=None):
+    """Return (message_data, error) for a post-backed random kind as the unified
+    /random embed (linked title + small-icon thumbnail). `hireling_type` ('P'/'D')
+    narrows Hirelings to one side."""
     posts = list(_random_eligible(kind, platform, hireling_type))
     if not posts:
         # Captain and Hirelings skip the platform prompt, so don't mention one.
         where = " for that platform" if kind in RANDOM_POST_MODELS and kind not in ("Captain", "Hirelings") else ""
         return None, f"No eligible {kind} found{where}."
     chosen = random.choice(posts)
-    if kind == "Captain":
-        main_embed = build_captain_embed(chosen)
-        image = build_post_image_embed(chosen, field="card_2_image")
-    else:
-        main_embed = build_post_embed(chosen)
-        image = build_post_image_embed(chosen)
-    embeds = [main_embed] + ([image] if image else [])
-    content = f"**Random {kind}:** {chosen.title}\n" + _random_chosen_from(kind, posts)
-    return {"content": content, "embeds": embeds}, None
+    embed = _random_result_embed(
+        kind, chosen.title, _random_chosen_from(kind, posts),
+        author=author, url=_post_url(chosen), thumbnail_url=_post_thumbnail_url(chosen),
+    )
+    return {"embeds": [embed]}, None
 
 
-def _random_roll_content(dice):
-    """Message content for a roll of `dice` 0-3 dice; two dice show larger first."""
+def _random_roll_embed(dice, author=None):
+    """The unified /random embed for a roll of `dice` 0-3 dice; two dice show the
+    larger first. The die-face emoji appear in the body in the same order as the
+    title. No post, so no link/thumbnail."""
     rolls = [random.randint(0, 3) for _ in range(dice)]
     if dice == 2:
-        a, b = sorted(rolls, reverse=True)
-        value, sub = f"{a}-{b}", "Rolled 2 dice"
+        faces = sorted(rolls, reverse=True)  # larger first, matching the title
+        value, sub = f"{faces[0]}-{faces[1]}", "Rolled 2 dice"
     else:
-        value, sub = str(rolls[0]), "Rolled 1 die"
-    return f"**Random Roll:** {value}\n-# {sub}"
+        faces = rolls
+        value, sub = str(faces[0]), "Rolled 1 die"
+    # Die-face emoji above the "Rolled N dice" subtext (only place emoji render).
+    marks = " ".join(roll_emoji_for(f) for f in faces if roll_emoji_for(f))
+    description = f"{marks}\n{sub}" if marks else sub
+    return _random_result_embed("Roll", value, description, author=author)
 
 
-def _random_followup(payload, message_data):
-    """Post a public follow-up for a /random result (the prompt was ephemeral) and
-    collapse the prompt. The follow-up is deferred until after the collapse
-    response below reaches Discord (a follow-up before the ACK is rejected)."""
-    _followup_after_response(payload, message_data)
+def _random_result_edit(payload, message_data):
+    """Edit the public prompt message into the /random result. `message_data` is
+    `{"embeds": [embed]}`; we clear the prompt content and buttons so the message
+    becomes the result in place (no separate follow-up — it's already public)."""
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": {"content": "Rolling…", "components": [], "flags": EPHEMERAL},
+        "data": {**message_data, "content": "", "components": []},
+    })
+
+
+def _random_error_edit(error):
+    """Public edit showing a /random error, buttons and any embed cleared."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": error, "embeds": [], "components": []},
     })
 
 
 def _handle_random_post(payload):
-    """Platform button: pick a random post for the kind, post it publicly."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["<Kind>", "tts|rd"]
+    """Platform button: pick a random post for the kind and edit the prompt into
+    the result. For Hirelings the platform choice edits to a second prompt (the
+    side) rather than a result."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["<Kind>", "tts|rd", owner]
     kind = args[0]
-    platform = RANDOM_PLATFORM_KEYS.get(args[1] if len(args) > 1 else "", DRAFT_PLATFORM_TTS)
-    result, error = _random_post_result(kind, platform)
-    if error:
+    platform_key = args[1] if len(args) > 1 else "tts"
+    if kind == "Hirelings":
+        # Platform chosen; edit to the side prompt, carrying platform and owner forward.
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
-            "data": {"content": error, "components": [], "flags": EPHEMERAL},
+            "data": {"content": "Random Hireling — which side?",
+                     "components": [_random_hireling_side_row(platform_key, args[-1])]},
         })
-    return _random_followup(payload, result)
+    platform = RANDOM_PLATFORM_KEYS.get(platform_key, DRAFT_PLATFORM_TTS)
+    result, error = _random_post_result(kind, platform, author=_interaction_author(payload))
+    if error:
+        return _random_error_edit(error)
+    return _random_result_edit(payload, result)
 
 
 def _handle_random_hireling(payload):
-    """Side button: pick a random hireling of the chosen side (Promoted/Demoted),
-    or either side, and post it publicly."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["P"|"D"|"E"]
-    hireling_type = args[0] if args else "E"  # default to Either
-    result, error = _random_post_result("Hirelings", DRAFT_PLATFORM_TTS, hireling_type=hireling_type)
+    """Side button: pick a random hireling of the chosen platform and side
+    (Promoted/Demoted/Either) and edit the prompt into the result."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["tts|rd", "P"|"D"|"E", owner]
+    platform = RANDOM_PLATFORM_KEYS.get(args[0] if args else "", DRAFT_PLATFORM_TTS)
+    hireling_type = args[1] if len(args) > 1 else "E"  # default to Either
+    result, error = _random_post_result(
+        "Hirelings", platform, hireling_type=hireling_type, author=_interaction_author(payload),
+    )
     if error:
-        return JsonResponse({
-            "type": RESPONSE_UPDATE_MESSAGE,
-            "data": {"content": error, "components": [], "flags": EPHEMERAL},
-        })
-    return _random_followup(payload, result)
+        return _random_error_edit(error)
+    return _random_result_edit(payload, result)
 
 
 def _handle_random_roll(payload):
-    """Dice button: roll one or both dice, post the result publicly."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["1"|"2"]
+    """Dice button: roll one or both dice and edit the prompt into the result."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["1"|"2", owner]
     dice = 1 if args and args[0] == "1" else 2  # default to 2 (Both Dice) on anything else
-    return _random_followup(payload, {"content": _random_roll_content(dice)})
+    embed = _random_roll_embed(dice, author=_interaction_author(payload))
+    return _random_result_edit(payload, {"embeds": [embed]})
 
 
 COMMAND_HANDLERS = {
@@ -1027,6 +1095,11 @@ def discord_interactions(request):
         handler = COMMAND_HANDLERS.get(command_name)
         if handler:
             try:
+                # Stash the invoking user (from the top-level payload, not `data`)
+                # so handlers can build author-attributed embeds (_author) and
+                # owner-lock the prompts they post (_author_id).
+                data["_author"] = _interaction_author(payload)
+                data["_author_id"] = _interaction_user_id(payload)
                 return handler(data)
             except Exception:
                 logger.exception("Error handling /%s interaction", command_name)
@@ -1055,9 +1128,20 @@ def discord_interactions(request):
     if interaction_type == MESSAGE_COMPONENT:
         data = payload.get("data", {})
         custom_id = data.get("custom_id", "")
-        action, _args = decode_custom_id(custom_id)
+        action, args = decode_custom_id(custom_id)
         handler = COMPONENT_HANDLERS.get(action)
         if handler:
+            # Every /draft and /random component custom_id carries the invoking
+            # user's id (a 17-20 digit snowflake) as its LAST arg. Only that user
+            # may operate the controls. We require the last arg to LOOK like a
+            # snowflake so we don't mistake a state arg (tts/rd, P/D/E, 1/2) on a
+            # stale pre-deploy custom_id for an owner — those fall through
+            # permissively rather than locking the original user out.
+            last = args[-1] if args else ""
+            owner_id = last if (last.isdigit() and len(last) >= 17) else None
+            clicker_id = _interaction_user_id(payload)
+            if owner_id and clicker_id and clicker_id != owner_id:
+                return _ephemeral("Only the person who started this can use these buttons.")
             try:
                 return handler(payload)  # component handlers take the full payload
             except Exception:

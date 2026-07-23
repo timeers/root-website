@@ -8,6 +8,11 @@ Run after deploying (or changing) the command definitions:
 
 Global commands propagate slowly; register against a test guild while iterating.
 
+To remove guild-scoped commands (e.g. after testing, so the global copies stop
+showing as duplicates in that server), clear the scope:
+
+    python manage.py register_discord_commands --guild 123 --clear
+
 Command definitions live in the_gatehouse.services.discord_commands (shared with
 the /help listing), so this command only handles the registration call.
 """
@@ -29,12 +34,21 @@ class Command(BaseCommand):
             default=None,
             help="Register to a specific guild (server) ID for instant availability.",
         )
+        parser.add_argument(
+            "--clear",
+            action="store_true",
+            help="Remove all commands from the target scope instead of registering "
+                 "(PUTs an empty set). Use with --guild to clear a test server's "
+                 "commands so the global copies stop appearing as duplicates.",
+        )
 
     def handle(self, *args, **options):
         app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
         guild_id = options["guild"]
+        clear = options["clear"]
 
-        commands = all_command_definitions()
+        # Clearing sends an empty set; otherwise the full command definitions.
+        commands = [] if clear else all_command_definitions()
 
         if guild_id:
             url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild_id}/commands"
@@ -43,15 +57,20 @@ class Command(BaseCommand):
             url = f"{DISCORD_API}/applications/{app_id}/commands"
             scope = "global"
 
-        # PUT bulk-overwrites the full command set for this scope.
+        # PUT bulk-overwrites the full command set for this scope (an empty list
+        # therefore removes every command in that scope).
         response = requests.put(url, headers=_bot_headers(), json=commands, timeout=10)
 
         if response.status_code in (200, 201):
-            names = ", ".join(f"/{c['name']}" for c in commands)
-            self.stdout.write(self.style.SUCCESS(
-                f"Registered {len(commands)} command(s) [{scope}]: {names}"
-            ))
+            if clear:
+                self.stdout.write(self.style.SUCCESS(f"Cleared all commands [{scope}]."))
+            else:
+                names = ", ".join(f"/{c['name']}" for c in commands)
+                self.stdout.write(self.style.SUCCESS(
+                    f"Registered {len(commands)} command(s) [{scope}]: {names}"
+                ))
         else:
             self.stderr.write(self.style.ERROR(
-                f"Failed to register commands ({response.status_code}): {response.text}"
+                f"Failed to {'clear' if clear else 'register'} commands "
+                f"({response.status_code}): {response.text}"
             ))

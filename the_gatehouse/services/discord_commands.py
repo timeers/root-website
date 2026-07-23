@@ -120,8 +120,9 @@ DRAFT_COMMAND = {
     "name": "draft",
     "description": "Draft factions for a game, banning any you don't want",
     "options": [
-        {"name": "players", "description": "Number of players (2-6, default 4)",
-         "type": 4, "required": False, "min_value": 2, "max_value": 6},
+        {"name": "players", "description": "Number of players (default 4)",
+         "type": 4, "required": False,
+         "choices": [{"name": str(n), "value": n} for n in range(2, 7)]},
         {"name": "platform", "description": "Platform (default Tabletop Simulator)",
          "type": 3, "required": False,
          "choices": [

@@ -552,6 +552,11 @@ def post_interaction_followup(token, message_data):
 
     No DEBUG_VALUE guard: unlike the broadcast senders below, this is a live
     response to a user's interaction and must fire in every environment.
+
+    UNUSED: its only caller was post_interaction_followup_task, which /draft and
+    /random no longer use (they edit their public prompt into the result in place).
+    Kept as the reusable raw webhook POST for any future flow that needs to send an
+    additional message after an interaction's initial response.
     """
     response = requests.post(
         f"{DISCORD_API}/webhooks/{config['DISCORD_ID']}/{token}",
@@ -854,6 +859,21 @@ def vagabond_emoji_for(vagabond):
     title = getattr(vagabond, "title", "") or ""
     name = "Meeple" + title.replace(" ", "")
     return get_application_emoji().get(name, "")
+
+
+def suit_emoji_for(suit, variant):
+    """Return the application-emoji string for a Root suit, or "" if not uploaded.
+    `variant` is "card" or "icon"; emoji are named "{suit}_{variant}" lowercased
+    (e.g. "fox_card", "mouse_icon"). Note only Mouse/Fox/Rabbit have an "icon"
+    (clearing) form — there is no bird clearing."""
+    name = f"{suit.lower()}_{variant}"
+    return get_application_emoji().get(name, "")
+
+
+def roll_emoji_for(value):
+    """Return the application-emoji string for a die face 0-3, or "" if not
+    uploaded. Emoji are named "roll_{value}" (e.g. "roll_2")."""
+    return get_application_emoji().get(f"roll_{value}", "")
 
 
 def _item_emoji_value(vagabond, prefix):

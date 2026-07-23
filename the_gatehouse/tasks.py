@@ -270,9 +270,13 @@ def sync_bot_guilds_task():
     retry_backoff=True,
 )
 def post_interaction_followup_task(token, message_data):
-    # Posts the public followup for an interaction (e.g. /draft, /random) after
-    # the ephemeral ACK. Retries heal Discord's transient 404s if the followup
-    # briefly races ahead of the ACK; by the retry the ACK is long delivered.
+    # UNUSED: /draft and /random now edit their public prompt into the result in
+    # place (RESPONSE_UPDATE_MESSAGE), so no separate followup message is posted.
+    # Kept for future use — any interaction flow that must send an ADDITIONAL
+    # public message after its initial response (e.g. an ephemeral command whose
+    # result should also post publicly, or a multi-message result) should enqueue
+    # this task with (interaction_token, message_data). Retries heal Discord's
+    # transient 404s when a followup briefly races ahead of the initial ACK.
     try:
         post_interaction_followup(token, message_data)
     except Exception:
