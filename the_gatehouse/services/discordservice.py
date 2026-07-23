@@ -552,6 +552,11 @@ def post_interaction_followup(token, message_data):
 
     No DEBUG_VALUE guard: unlike the broadcast senders below, this is a live
     response to a user's interaction and must fire in every environment.
+
+    UNUSED: its only caller was post_interaction_followup_task, which /draft and
+    /random no longer use (they edit their public prompt into the result in place).
+    Kept as the reusable raw webhook POST for any future flow that needs to send an
+    additional message after an interaction's initial response.
     """
     response = requests.post(
         f"{DISCORD_API}/webhooks/{config['DISCORD_ID']}/{token}",
