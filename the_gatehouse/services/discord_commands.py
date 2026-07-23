@@ -14,31 +14,12 @@ behaviour, a handler in discord_interactions.py). Keeping definitions here means
 """
 
 
-# `display` option values for the lookup commands, shared with the handlers in
-# discord_interactions.py so the value strings have a single source of truth.
-DISPLAY_BOTH = "both"
-DISPLAY_LINK = "link"
-DISPLAY_IMAGE = "image"
-
-_DISPLAY_OPTION = {
-    "name": "display",
-    "description": "What to show: both, link only, or image only (defaults to both)",
-    "type": 3,  # STRING
-    "required": False,
-    "choices": [
-        {"name": "Both", "value": DISPLAY_BOTH},
-        {"name": "Link only", "value": DISPLAY_LINK},
-        {"name": "Image only", "value": DISPLAY_IMAGE},
-    ],
-}
-
-
 def _lookup_command(name, label):
-    """A /<name> command with a required, autocompleting 'name' option and an
-    optional 'display' choice (link/image/both)."""
+    """A /<name> command with a required, autocompleting 'name' option. Replies
+    with one embed (info card + large image)."""
     return {
         "name": name,
-        "description": f"Look up a Root {label} by name (link and/or image)",
+        "description": f"Look up a Root {label} by name",
         "options": [
             {
                 "name": "name",
@@ -47,7 +28,6 @@ def _lookup_command(name, label):
                 "required": True,
                 "autocomplete": True,
             },
-            dict(_DISPLAY_OPTION),
         ],
     }
 

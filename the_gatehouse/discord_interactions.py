@@ -39,7 +39,6 @@ from .services.discordservice import (
     roll_emoji_for,
 )
 from .services.discord_commands import (
-    DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE,
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
 )
 from .services.discord_components import (
@@ -158,25 +157,22 @@ def _lookup_post(queryset, name):
     )
 
 
-def _select_embeds(link_embed, image_embed, display):
-    """Pick which embeds to send for a lookup based on the `display` choice
-    (both / link only / image only; defaults to both). `image_embed` may be None
-    when the post has no image.
-
-    Returns the list of embeds to send, or None to signal "image only" was asked
-    for but no image exists (the caller replies with a friendly message).
-    """
-    if display == DISPLAY_LINK:
-        return [link_embed]
-    if display == DISPLAY_IMAGE:
-        return [image_embed] if image_embed else None
-    # DISPLAY_BOTH or anything unset/unexpected: link first, image after if any.
-    return [link_embed, image_embed] if image_embed else [link_embed]
+def _lookup_embed(post, image_field=None):
+    """A post's info card as a single embed with its large board/card image folded
+    in (embed.image), so a lookup sends one complete embed rather than two. Image
+    is omitted when the post has none. `image_field` overrides the default per-
+    component image (e.g. "card_2_image" for a captain)."""
+    embed = build_post_embed(post)
+    image_url = _post_image_url(post, field=image_field)
+    if image_url:
+        embed["image"] = {"url": image_url}
+    return embed
 
 
 def _make_lookup_handler(label, queryset_factory):
     """Build a slash-command handler that looks up a Post by title and replies
-    with its embed. `queryset_factory` returns the base queryset to search."""
+    with one embed (info card + large image). `queryset_factory` returns the base
+    queryset to search."""
     def handler(data):
         name = (_get_option(data, "name") or "").strip()
         if not name:
@@ -186,16 +182,9 @@ def _make_lookup_handler(label, queryset_factory):
         if not post:
             return _ephemeral(f'No {label} found matching "{name}".')
 
-        # Link embed is the main info card; the image embed renders as a large
-        # standalone (click-to-enlarge) board/card image below it.
-        display = _get_option(data, "display") or DISPLAY_BOTH
-        embeds = _select_embeds(build_post_embed(post), build_post_image_embed(post), display)
-        if embeds is None:
-            return _ephemeral(f'No image available for "{post.title}".')
-
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": {"embeds": embeds},
+            "data": {"embeds": [_lookup_embed(post)]},
         })
     return handler
 
@@ -237,17 +226,16 @@ def _handle_captain_command(data):
     if not vagabond:
         return _ephemeral(f'No captain found matching "{name}".')
 
-    # Captain is the vagabond's flip side, so show its card_2_image rather than
-    # the base card image.
-    display = _get_option(data, "display") or DISPLAY_BOTH
-    image_embed = build_post_image_embed(vagabond, field="card_2_image")
-    embeds = _select_embeds(build_captain_embed(vagabond), image_embed, display)
-    if embeds is None:
-        return _ephemeral(f'No image available for "{vagabond.title}".')
+    # One embed: the captain (Advanced) profile with the flip-side card_2_image
+    # folded in as the large image.
+    embed = build_captain_embed(vagabond)
+    image_url = _post_image_url(vagabond, field="card_2_image")
+    if image_url:
+        embed["image"] = {"url": image_url}
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"embeds": embeds},
+        "data": {"embeds": [embed]},
     })
 
 
@@ -800,15 +788,19 @@ def _post_url(post):
     return f"{site_url}{post.get_absolute_url()}" if site_url else None
 
 
-def _random_post_image_url(kind, post):
-    """Absolute URL to a post's large board/card image — the same image the
-    lookup commands show — or None. Reuses build_post_image_embed's per-component
-    field mapping (board_image for Faction/Map/Hireling, card_image for
-    Vagabond/Deck/Landmark), overriding to card_2_image for Captain (the captain
-    flip side, matching /captain)."""
-    field = "card_2_image" if kind == "Captain" else None
+def _post_image_url(post, field=None):
+    """Absolute URL to a post's large board/card image, or None. Reuses
+    build_post_image_embed's per-component field mapping (board_image for
+    Faction/Map/Hireling, card_image for Vagabond/Deck/Landmark); `field` overrides
+    it (e.g. "card_2_image" for a captain's flip side)."""
     image_embed = build_post_image_embed(post, field=field)
     return (image_embed or {}).get("image", {}).get("url")
+
+
+def _random_post_image_url(kind, post):
+    """The large image url for a /random post result: the captain flip side for
+    Captain, else the component's default board/card image."""
+    return _post_image_url(post, field="card_2_image" if kind == "Captain" else None)
 
 
 def _random_post_result(kind, platform, hireling_type=None, author=None):
