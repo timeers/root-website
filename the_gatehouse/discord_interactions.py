@@ -758,7 +758,7 @@ def _handle_random_command(data):
         return _random_dice_prompt(owner)
     # Suit/Clearing resolve immediately to a component-less public result — no owner.
     if kind == "Suit":
-        return _random_from_list("Suit", RANDOM_SUITS, "card", "tilt", author=author)
+        return _random_from_list("Suit", RANDOM_SUITS, "card", "card", author=author)
     if kind == "Clearing":
         return _random_from_list("Clearing", RANDOM_CLEARINGS, "icon", "outline", author=author)
     return _ephemeral(f"Unknown random kind: {kind}")
