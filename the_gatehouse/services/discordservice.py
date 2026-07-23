@@ -927,7 +927,7 @@ def _component_fields(post):
     return []
 
 
-def _embed_color(obj):
+def embed_color(obj):
     """Discord embed color (int) from an object's "#RRGGBB" `color` string, or
     None when unset/malformed."""
     color = getattr(obj, "color", None)
@@ -937,6 +937,9 @@ def _embed_color(obj):
         return int(color.lstrip("#"), 16)
     except (ValueError, AttributeError):
         return None
+
+
+_embed_color = embed_color  # internal alias (kept for existing call sites)
 
 
 # Discord embed limits — exceeding any of these makes the API reject the whole

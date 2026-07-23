@@ -36,7 +36,7 @@ from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
-    roll_emoji_for, suit_static_image_url,
+    roll_emoji_for, suit_static_image_url, embed_color,
 )
 from .services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
@@ -646,6 +646,7 @@ def _handle_draft_cancel(payload):
 RANDOM_POST_MODELS = {
     "Map": lambda: Map.objects.all(),
     "Faction": lambda: Faction.objects.filter(component="Faction"),
+    "Clockwork": lambda: Faction.objects.filter(component="Clockwork"),
     "Deck": lambda: Deck.objects.all(),
     "Vagabond": lambda: Vagabond.objects.all(),
     "Captain": lambda: Vagabond.objects.filter(captain=True),
@@ -654,6 +655,13 @@ RANDOM_POST_MODELS = {
 }
 RANDOM_SUITS = ["Bird", "Mouse", "Fox", "Rabbit"]
 RANDOM_CLEARINGS = ["Mouse", "Fox", "Rabbit"]
+# Embed color per suit (int, as Discord wants), for /random Suit and Clearing.
+RANDOM_SUIT_COLORS = {
+    "Rabbit": 0xFFE400,
+    "Fox": 0xEC2121,
+    "Mouse": 0xF78B57,
+    "Bird": 0x44C3BC,
+}
 RANDOM_PLATFORM_KEYS = DRAFT_PLATFORM_KEYS  # reuse tts/rd keys from /draft
 
 
@@ -695,12 +703,12 @@ def _random_hireling_side_row(platform_key, owner):
 
 
 def _random_result_embed(kind, title, subtext="", author=None, url=None,
-                         image_url=None, thumbnail_url=None):
+                         image_url=None, thumbnail_url=None, color=None):
     """The unified /random result embed: the invoking user as the author header, a
     `Random {kind}: {title}` title (linked to the post when `url` is given), an
     optional large board/card `image_url` (post kinds) or small `thumbnail_url`
-    (suit/clearing), and `subtext` in the description body. Used by every /random
-    kind so results share one look.
+    (suit/clearing), the post's `color` when set, and `subtext` in the description
+    body. Used by every /random kind so results share one look.
 
     Subtext lives in the description (not a footer) because that's the only place
     custom emoji render — so faction/suit/clearing icons show as images rather than
@@ -716,6 +724,8 @@ def _random_result_embed(kind, title, subtext="", author=None, url=None,
         embed["image"] = {"url": image_url}
     if thumbnail_url:
         embed["thumbnail"] = {"url": thumbnail_url}
+    if color is not None:
+        embed["color"] = color
     return embed
 
 
@@ -730,6 +740,7 @@ def _random_from_list(kind, options, variant, thumb_variant, author=None):
     embed = _random_result_embed(
         kind, chosen, f"Chosen from: {marks}", author=author,
         thumbnail_url=suit_static_image_url(chosen, thumb_variant),
+        color=RANDOM_SUIT_COLORS.get(chosen),
     )
     return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"embeds": [embed]}})
 
@@ -823,6 +834,7 @@ def _random_post_result(kind, platform, hireling_type=None, author=None):
     embed = _random_result_embed(
         kind, chosen.title, _random_chosen_from(kind, posts),
         author=author, url=_post_url(chosen), image_url=_random_post_image_url(kind, chosen),
+        color=embed_color(chosen),
     )
     return {"embeds": [embed]}, None
 
