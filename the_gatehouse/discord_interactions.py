@@ -36,7 +36,7 @@ from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
-    roll_emoji_for,
+    roll_emoji_for, suit_static_image_url,
 )
 from .services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
@@ -694,11 +694,13 @@ def _random_hireling_side_row(platform_key, owner):
     )
 
 
-def _random_result_embed(kind, title, subtext="", author=None, url=None, image_url=None):
+def _random_result_embed(kind, title, subtext="", author=None, url=None,
+                         image_url=None, thumbnail_url=None):
     """The unified /random result embed: the invoking user as the author header, a
     `Random {kind}: {title}` title (linked to the post when `url` is given), an
-    optional large board/card image, and `subtext` in the description body. Used by
-    every /random kind so results share one look.
+    optional large board/card `image_url` (post kinds) or small `thumbnail_url`
+    (suit/clearing), and `subtext` in the description body. Used by every /random
+    kind so results share one look.
 
     Subtext lives in the description (not a footer) because that's the only place
     custom emoji render — so faction/suit/clearing icons show as images rather than
@@ -712,19 +714,23 @@ def _random_result_embed(kind, title, subtext="", author=None, url=None, image_u
         embed["author"] = author
     if image_url:
         embed["image"] = {"url": image_url}
+    if thumbnail_url:
+        embed["thumbnail"] = {"url": thumbnail_url}
     return embed
 
 
-def _random_from_list(kind, options, variant, author=None):
-    """Public result for Suit/Clearing (no post, so no link/image). Suits use
-    their "card" emoji, clearings their "icon" emoji. The title carries the chosen
-    name (readable); the chosen emoji and the "Chosen from" emoji go in the body,
-    where custom emoji actually render (name fallback when one is missing)."""
+def _random_from_list(kind, options, variant, thumb_variant, author=None):
+    """Public result for Suit/Clearing (no post). The title carries the chosen name
+    (readable), a thumbnail shows the chosen suit's static art (`thumb_variant` is
+    "tilt" for suits / "outline" for clearings), and the "Chosen from" emoji list
+    (`variant` "card"/"icon", name fallback) goes in the description body where
+    custom emoji actually render."""
     chosen = random.choice(options)
-    chosen_mark = suit_emoji_for(chosen, variant)
     marks = " ".join(suit_emoji_for(o, variant) or o for o in options)
-    lines = ([chosen_mark] if chosen_mark else []) + [f"Chosen from: {marks}"]
-    embed = _random_result_embed(kind, chosen, "\n".join(lines), author=author)
+    embed = _random_result_embed(
+        kind, chosen, f"Chosen from: {marks}", author=author,
+        thumbnail_url=suit_static_image_url(chosen, thumb_variant),
+    )
     return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"embeds": [embed]}})
 
 
@@ -752,9 +758,9 @@ def _handle_random_command(data):
         return _random_dice_prompt(owner)
     # Suit/Clearing resolve immediately to a component-less public result — no owner.
     if kind == "Suit":
-        return _random_from_list("Suit", RANDOM_SUITS, "card", author=author)
+        return _random_from_list("Suit", RANDOM_SUITS, "card", "tilt", author=author)
     if kind == "Clearing":
-        return _random_from_list("Clearing", RANDOM_CLEARINGS, "icon", author=author)
+        return _random_from_list("Clearing", RANDOM_CLEARINGS, "icon", "outline", author=author)
     return _ephemeral(f"Unknown random kind: {kind}")
 
 

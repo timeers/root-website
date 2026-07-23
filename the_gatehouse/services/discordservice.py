@@ -870,6 +870,17 @@ def suit_emoji_for(suit, variant):
     return get_application_emoji().get(name, "")
 
 
+def suit_static_image_url(suit, variant):
+    """Absolute URL to a Root suit's static inline image, or None when SITE_URL
+    isn't configured. `variant` is "tilt" (suit card art) or "outline" (clearing
+    art); files live at static/pdf/inline/{suit}_{variant}.png (lowercased). Must
+    be absolute for Discord, so we prefix SITE_URL like the other embed images."""
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    if not site_url:
+        return None
+    return f"{site_url}{static(f'pdf/inline/{suit.lower()}_{variant}.png')}"
+
+
 def roll_emoji_for(value):
     """Return the application-emoji string for a die face 0-3, or "" if not
     uploaded. Emoji are named "roll_{value}" (e.g. "roll_2")."""
