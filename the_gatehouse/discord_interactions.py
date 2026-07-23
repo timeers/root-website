@@ -649,7 +649,7 @@ RANDOM_POST_MODELS = {
     "Deck": lambda: Deck.objects.all(),
     "Vagabond": lambda: Vagabond.objects.all(),
     "Captain": lambda: Vagabond.objects.filter(captain=True),
-    "Hirelings": lambda: Hireling.objects.all(),
+    "Hireling": lambda: Hireling.objects.all(),
     "Landmark": lambda: Landmark.objects.all(),
 }
 RANDOM_SUITS = ["Bird", "Mouse", "Fox", "Rabbit"]
@@ -749,9 +749,9 @@ def _handle_random_command(data):
         if error:
             return _ephemeral(error)
         return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": result})
-    if kind == "Hirelings":
+    if kind == "Hireling":
         # Hirelings need platform AND side; ask platform first, then the side.
-        return _random_platform_prompt("Hirelings", owner)
+        return _random_platform_prompt("Hireling", owner)
     if kind in RANDOM_POST_MODELS:
         return _random_platform_prompt(kind, owner)
     if kind == "Roll":
@@ -771,7 +771,7 @@ def _random_eligible(kind, platform, hireling_type=None):
     qs = RANDOM_POST_MODELS[kind]().filter(official=True, status=1)
     if platform == DRAFT_PLATFORM_RD:
         qs = qs.filter(in_root_digital=True)
-    if kind == "Hirelings" and hireling_type in ("P", "D"):
+    if kind == "Hireling" and hireling_type in ("P", "D"):
         qs = qs.filter(type=hireling_type)
     return qs
 
@@ -779,7 +779,7 @@ def _random_eligible(kind, platform, hireling_type=None):
 def _random_chosen_from(kind, posts):
     """The 'Chosen from' body text for a post-kind result. Faction -> emoji icons
     (name fallback), which is why this renders in the description not a footer;
-    Hirelings -> a count (there are many); other kinds -> names if <=6, else a count."""
+    Hireling -> a count (there are many); other kinds -> names if <=6, else a count."""
     if kind == "Faction":
         icons = [faction_emoji_for(p.slug) or p.title for p in posts]
         return "Chosen from: " + " ".join(icons)
@@ -815,8 +815,9 @@ def _random_post_result(kind, platform, hireling_type=None, author=None):
     narrows Hirelings to one side."""
     posts = list(_random_eligible(kind, platform, hireling_type))
     if not posts:
-        # Captain and Hirelings skip the platform prompt, so don't mention one.
-        where = " for that platform" if kind in RANDOM_POST_MODELS and kind not in ("Captain", "Hirelings") else ""
+        # Only Captain skips the platform prompt; every other post kind (incl.
+        # Hireling) picks a platform, so its "none found" error should mention it.
+        where = " for that platform" if kind in RANDOM_POST_MODELS and kind != "Captain" else ""
         return None, f"No eligible {kind} found{where}."
     chosen = random.choice(posts)
     embed = _random_result_embed(
@@ -868,7 +869,7 @@ def _handle_random_post(payload):
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["<Kind>", "tts|rd", owner]
     kind = args[0]
     platform_key = args[1] if len(args) > 1 else "tts"
-    if kind == "Hirelings":
+    if kind == "Hireling":
         # Platform chosen; edit to the side prompt, carrying platform and owner forward.
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
@@ -889,7 +890,7 @@ def _handle_random_hireling(payload):
     platform = RANDOM_PLATFORM_KEYS.get(args[0] if args else "", DRAFT_PLATFORM_TTS)
     hireling_type = args[1] if len(args) > 1 else "E"  # default to Either
     result, error = _random_post_result(
-        "Hirelings", platform, hireling_type=hireling_type, author=_interaction_author(payload),
+        "Hireling", platform, hireling_type=hireling_type, author=_interaction_author(payload),
     )
     if error:
         return _random_error_edit(error)

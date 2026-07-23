@@ -116,7 +116,7 @@ DRAFT_COMMAND = {
 # /random kinds. Value strings double as the dispatch key and the label shown in
 # "Random <Kind>:". Keep in sync with the handler in discord_interactions.py.
 RANDOM_KINDS = [
-    "Map", "Faction", "Deck", "Vagabond", "Captain", "Hirelings", "Landmark",
+    "Map", "Faction", "Deck", "Vagabond", "Captain", "Hireling", "Landmark",
     "Roll", "Suit", "Clearing",
 ]
 
