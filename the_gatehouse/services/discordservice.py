@@ -648,25 +648,10 @@ def send_rich_discord_message(message, category=None, author_name=None, author_i
 
 
 def _faction_fields(faction):
-    """Faction/Clockwork-specific embed fields (Type, Reach, style ratings)."""
+    """Faction/Clockwork-specific embed fields (Type)."""
     fields = []
     if faction.type and faction.type != faction.TypeChoices.UNKNOWN:
         fields.append({"name": "Type", "value": faction.get_type_display(), "inline": True})
-    if faction.reach:
-        fields.append({"name": "Reach", "value": str(faction.reach), "inline": True})
-    # Show the style ratings ("None" is a meaningful value), but skip them
-    # entirely when all four are unset so an unconfigured faction isn't padded
-    # with four redundant "None" fields.
-    NONE = faction.StyleChoices.NONE
-    style_values = (faction.complexity, faction.card_wealth, faction.aggression, faction.crafting_ability)
-    if any(value and value != NONE for value in style_values):
-        for label, display in (
-            ("Complexity", faction.get_complexity_display()),
-            ("Card Wealth", faction.get_card_wealth_display()),
-            ("Aggression", faction.get_aggression_display()),
-            ("Crafting Ability", faction.get_crafting_ability_display()),
-        ):
-            fields.append({"name": label, "value": display, "inline": True})
     return fields
 
 
@@ -921,10 +906,6 @@ def _hireling_fields(hireling):
     fields = []
     if hireling.type:
         fields.append({"name": "Type", "value": hireling.get_type_display(), "inline": True})
-    # The flip side, labelled by its own type (e.g. "Demoted Side").
-    if hireling.other_side:
-        label = f"{hireling.other_side.get_type_display()} Side"
-        fields.append({"name": label, "value": hireling.other_side.title, "inline": True})
     return fields
 
 
@@ -988,6 +969,42 @@ def _enforce_embed_limits(embed):
     return embed
 
 
+# Which image field to show as the small thumbnail, by component. A component
+# absent here (Deck, Vagabond, Hireling) gets no thumbnail. Tweak is special-cased
+# in _post_thumbnail_url (its thumbnail only applies when it also has a big board
+# image). The field is resolved per-post; a component whose field is empty on a
+# given post simply gets no thumbnail.
+_THUMBNAIL_IMAGE_FIELD = {
+    "Faction": "card_image",
+    "Clockwork": "card_image",
+    "Map": "card_image",
+    "Landmark": "card_2_image",
+}
+
+
+def _resolve_image_url(post, field):
+    """Absolute URL for one of a post's image fields, or None when the field is
+    empty/unset or SITE_URL isn't configured."""
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    if not site_url or not field:
+        return None
+    image_url = post.get_translated_image_url(field)
+    return f"{site_url}{image_url}" if image_url else None
+
+
+def _post_thumbnail_url(post):
+    """The thumbnail image url for a post's embed, per component, or None.
+    Tweak (house rule): only show a card_image thumbnail when the post ALSO has a
+    board_image (which becomes the big image); a card-image-only Tweak shows that
+    card as the big image and no thumbnail."""
+    component = getattr(post, "component", None)
+    if component == "Tweak":
+        if _resolve_image_url(post, "board_image"):
+            return _resolve_image_url(post, "card_image")
+        return None
+    return _resolve_image_url(post, _THUMBNAIL_IMAGE_FIELD.get(component))
+
+
 def build_post_embed(post):
     """Build a Discord embed dict for any Post (faction, map, deck, etc.).
 
@@ -1003,12 +1020,13 @@ def build_post_embed(post):
         "color": _embed_color(post),
     }
 
-    # Post image as thumbnail (only resolvable on the public domain)
-    if site_url and getattr(post, "picture", None):
-        try:
-            embed["thumbnail"] = {"url": f"{site_url}{post.picture.url}"}
-        except ValueError:
-            pass  # no file associated
+    # Small thumbnail: a per-component card image (Faction/Clockwork/Map ->
+    # card_image, Landmark -> card_2_image, Tweak -> card_image when it also has a
+    # board image; Deck/Vagabond/Hireling -> none). Omitted when the post's field
+    # is empty.
+    thumbnail_url = _post_thumbnail_url(post)
+    if thumbnail_url:
+        embed["thumbnail"] = {"url": thumbnail_url}
 
     fields = []
     if post.designer:
@@ -1055,7 +1073,11 @@ def build_post_image_embed(post, language=None, field=None):
     if not site_url:
         return None
 
-    field = field or _STANDALONE_IMAGE_FIELD.get(getattr(post, "component", None))
+    component = getattr(post, "component", None)
+    if not field and component == "Tweak":
+        # House rule big image: prefer the board image, fall back to the card.
+        field = "board_image" if post.get_translated_image_url("board_image", language) else "card_image"
+    field = field or _STANDALONE_IMAGE_FIELD.get(component)
     if not field:
         return None
 
@@ -1253,12 +1275,7 @@ def build_captain_embed(vagabond):
         "description": vagabond.description or vagabond.lore or "",
         "color": _embed_color(vagabond),
     }
-
-    if site_url and getattr(vagabond, "picture", None):
-        try:
-            embed["thumbnail"] = {"url": f"{site_url}{vagabond.picture.url}"}
-        except ValueError:
-            pass
+    # No thumbnail: captains (like vagabonds) intentionally show no thumbnail.
 
     fields = []
     if vagabond.designer:
