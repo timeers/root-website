@@ -699,22 +699,18 @@ def _random_hireling_side_row(platform_key):
     )
 
 
-def _random_result_embed(kind, title, subtext, author=None, url=None, thumbnail_url=None,
-                         description=None):
+def _random_result_embed(kind, title, subtext="", author=None, url=None, thumbnail_url=None):
     """The unified /random result embed: the invoking user as the author header, a
-    `Random {kind}: {title}` title (linked to the post when `url` is given), the
-    `subtext` as footer, and an optional thumbnail (the post's small icon). Used by
+    `Random {kind}: {title}` title (linked to the post when `url` is given), an
+    optional small-icon thumbnail, and `subtext` in the description body. Used by
     every /random kind so results share one look.
 
-    `description` renders in the embed body — the only place custom emoji render
-    (titles/footers show them as literal text), so suit/clearing results that show
-    emoji pass their marks here instead of the footer."""
-    embed = {
-        "title": f"Random {kind}: {title}"[:256],
-        "footer": {"text": subtext[:2048]},
-    }
-    if description:
-        embed["description"] = description[:4096]
+    Subtext lives in the description (not a footer) because that's the only place
+    custom emoji render — so faction/suit/clearing icons show as images rather than
+    literal text."""
+    embed = {"title": f"Random {kind}: {title}"[:256]}
+    if subtext:
+        embed["description"] = subtext[:4096]
     if url:
         embed["url"] = url
     if author:
@@ -730,17 +726,10 @@ def _random_from_list(kind, options, variant, author=None):
     name (readable); the chosen emoji and the "Chosen from" emoji go in the body,
     where custom emoji actually render (name fallback when one is missing)."""
     chosen = random.choice(options)
-    chosen_mark = suit_emoji_for(chosen, variant) or ""
+    chosen_mark = suit_emoji_for(chosen, variant)
     marks = " ".join(suit_emoji_for(o, variant) or o for o in options)
-    lines = []
-    if chosen_mark:
-        lines.append(chosen_mark)
-    lines.append(f"Chosen from: {marks}")
-    embed = _random_result_embed(
-        kind, chosen, "", author=author, description="\n".join(lines),
-    )
-    # No footer subtext for suit/clearing — the chosen-from line lives in the body.
-    embed.pop("footer", None)
+    lines = ([chosen_mark] if chosen_mark else []) + [f"Chosen from: {marks}"]
+    embed = _random_result_embed(kind, chosen, "\n".join(lines), author=author)
     return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"embeds": [embed]}})
 
 
@@ -784,9 +773,9 @@ def _random_eligible(kind, platform, hireling_type=None):
 
 
 def _random_chosen_from(kind, posts):
-    """The 'Chosen from' footer text for a post-kind result. Faction -> emoji
-    icons (name fallback); Hirelings -> a count (there are many); other kinds ->
-    names if <=6, else a count."""
+    """The 'Chosen from' body text for a post-kind result. Faction -> emoji icons
+    (name fallback), which is why this renders in the description not a footer;
+    Hirelings -> a count (there are many); other kinds -> names if <=6, else a count."""
     if kind == "Faction":
         icons = [faction_emoji_for(p.slug) or p.title for p in posts]
         return "Chosen from: " + " ".join(icons)
