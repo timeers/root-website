@@ -10,9 +10,11 @@ This update fills out the bot functionality and adds more complex features for t
 - /draft command for building a quick draft
 - /random command for generating random selections
 - Databot info page to add bot to server
+- Guilds an users can be blacklisted from Bot use if they are found to be abusing or misusing it
 
 ### Improvements
 - Guilds can now be assigned Moderators (can add invite, assign mods, add LFG roles)
+- Clearer Discord Notification Settings page
 
 ### Bug Fixes
 - updated dependencies
