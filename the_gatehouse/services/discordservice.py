@@ -65,12 +65,26 @@ def send_discord_dm(user, content=None, embed=None, force=False):
     testing (e.g. the test_dm command); the real event triggers never set it,
     so a dev/staging environment won't DM real users during normal testing.
     """
-    if not force and config["DEBUG_VALUE"] == "True":
-        return DM_BLOCKED  # mirror existing webhook guard; not a retryable error
-
     discord_id = get_discord_id(user)
     if not discord_id:
         logger.info("No Discord ID for user %s; cannot DM.", user)
+        return DM_BLOCKED
+    return send_dm_by_id(discord_id, content=content, embed=embed, force=force)
+
+
+def send_dm_by_id(discord_id, content=None, embed=None, force=False):
+    """
+    Send a direct message to a raw Discord user id via the bot — no Profile or
+    SocialAccount required (unlike send_discord_dm, which resolves the id from a
+    linked SocialAccount). Requires the bot and user to share a server. Never
+    raises. Returns DM_OK / DM_BLOCKED / DM_ERROR.
+
+    force=True bypasses the DEBUG_VALUE guard (manual testing only).
+    """
+    if not force and config["DEBUG_VALUE"] == "True":
+        return DM_BLOCKED  # mirror existing webhook guard; not a retryable error
+
+    if not discord_id:
         return DM_BLOCKED
 
     # 1) Open (or fetch) the DM channel with this user
@@ -78,16 +92,16 @@ def send_discord_dm(user, content=None, embed=None, force=False):
         ch = requests.post(
             f"{DISCORD_API}/users/@me/channels",
             headers=_bot_headers(),
-            json={"recipient_id": discord_id},
+            json={"recipient_id": str(discord_id)},
             timeout=10,
         )
         ch.raise_for_status()
         channel_id = ch.json()["id"]
     except requests.RequestException as e:
         if _is_terminal_http_error(e):
-            logger.info("Cannot DM user %s (channel open 403, no shared server).", user)
+            logger.info("Cannot DM %s (channel open 403, no shared server).", discord_id)
             return DM_BLOCKED
-        logger.error("Failed to open DM channel for user %s: %s", user, e)
+        logger.error("Failed to open DM channel for %s: %s", discord_id, e)
         return DM_ERROR
 
     # 2) Post the message into that channel
@@ -110,10 +124,54 @@ def send_discord_dm(user, content=None, embed=None, force=False):
         return DM_OK
     except requests.RequestException as e:
         if _is_terminal_http_error(e):
-            logger.info("Cannot DM user %s (message 403, DMs blocked).", user)
+            logger.info("Cannot DM %s (message 403, DMs blocked).", discord_id)
             return DM_BLOCKED
-        logger.error("Failed to send DM to user %s: %s", user, e)
+        logger.error("Failed to send DM to %s: %s", discord_id, e)
         return DM_ERROR
+
+
+# Thread helper result codes
+THREAD_OK = "ok"
+THREAD_ERROR = "error"
+
+
+def create_message_thread(channel_id, message_id, name, auto_archive_duration=1440):
+    """Create a thread hanging off an existing message. Returns the thread id
+    (a snowflake string) on success, or None on failure. Never raises."""
+    if config["DEBUG_VALUE"] == "True":
+        return None
+    name = (name or "Game")[:100]  # Discord thread name cap
+    try:
+        r = requests.post(
+            f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}/threads",
+            headers=_bot_headers(),
+            json={"name": name, "auto_archive_duration": auto_archive_duration},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return r.json()["id"]
+    except (requests.RequestException, KeyError, ValueError) as e:
+        logger.error("Failed to create thread on message %s: %s", message_id, e)
+        return None
+
+
+def post_channel_message(channel_id, content):
+    """Post a message into a channel/thread. Returns THREAD_OK / THREAD_ERROR.
+    Never raises."""
+    if config["DEBUG_VALUE"] == "True":
+        return THREAD_ERROR
+    try:
+        r = requests.post(
+            f"{DISCORD_API}/channels/{channel_id}/messages",
+            headers=_bot_headers(),
+            json={"content": content},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return THREAD_OK
+    except requests.RequestException as e:
+        logger.error("Failed to post message in channel %s: %s", channel_id, e)
+        return THREAD_ERROR
 
 
 def get_bot_guilds():
@@ -927,7 +985,7 @@ def _component_fields(post):
     return []
 
 
-def _embed_color(obj):
+def embed_color(obj):
     """Discord embed color (int) from an object's "#RRGGBB" `color` string, or
     None when unset/malformed."""
     color = getattr(obj, "color", None)
@@ -937,6 +995,9 @@ def _embed_color(obj):
         return int(color.lstrip("#"), 16)
     except (ValueError, AttributeError):
         return None
+
+
+_embed_color = embed_color  # internal alias (kept for existing call sites)
 
 
 # Discord embed limits — exceeding any of these makes the API reject the whole

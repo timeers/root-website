@@ -1,9 +1,12 @@
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
+from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
+from .models import BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile
 
 from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, DM_ERROR
 from .services.context_service import get_daily_user_summary
@@ -282,3 +285,129 @@ def post_interaction_followup_task(token, message_data):
     except Exception:
         logger.exception("Discord interaction followup failed")
         raise
+
+@shared_task
+def record_bot_usage_task(guild_id, user_id, command):
+    # Best-effort per-(guild, user, command) usage count for the Discord bot.
+    # Fire-and-forget from the interaction dispatch, so it never delays the 3s
+    # response; a lost count is harmless. get_or_create + F() increment is atomic
+    # across workers (no read-modify-write race).
+    if not user_id:
+        return
+    try:
+        obj, _ = BotUsage.objects.get_or_create(
+            guild_id=guild_id or None, user_id=user_id, command=command,
+        )
+        BotUsage.objects.filter(pk=obj.pk).update(
+            count=F("count") + 1, last_used=timezone.now(),
+        )
+    except Exception:
+        logger.exception("Failed to record bot usage")
+
+
+# ── /lfg ─────────────────────────────────────────────────────────────────────
+
+def ensure_profile_from_discord(discord_id, username, display_name):
+    """Lookup-or-create a Profile for a Discord user. Plain function (callable both
+    from a task and inline). Match order: unique username (`discord`, case-insensitive)
+    when we have one, then `discord_id`. Returns the Profile. `username` may be None
+    (e.g. when only a display name + id are known, as at Start) — then match by id and,
+    on create, derive the handle from the id."""
+    from the_warroom.services.root_league_api import sanitize_discord
+    if not discord_id:
+        return None
+    discord_id = str(discord_id)
+    cleaned = sanitize_discord(username) if username else None
+    # 1) by username (only if we have one)
+    profile = Profile.objects.filter(discord__iexact=cleaned).first() if cleaned else None
+    # 2) by discord id
+    if not profile:
+        profile = Profile.objects.filter(discord_id=discord_id).first()
+    if profile:
+        # Backfill discord_id if we matched by username and it was missing.
+        if not profile.discord_id and not Profile.objects.filter(discord_id=discord_id).exists():
+            profile.discord_id = discord_id
+            profile.save()
+        return profile
+    # 3) create — `discord` must be unique; fall back to id-suffixed handle on clash.
+    discord_val = cleaned
+    if not discord_val or Profile.objects.filter(discord__iexact=discord_val).exists():
+        discord_val = sanitize_discord(f"{username or ''}{discord_id}") or discord_id
+    try:
+        return Profile.objects.create(
+            discord=discord_val, discord_id=discord_id, display_name=display_name,
+        )
+    except Exception:
+        # Lost a create race (unique discord/discord_id): fall back to the now-existing row.
+        logger.exception("Profile create raced for discord_id %s", discord_id)
+        return (Profile.objects.filter(discord_id=discord_id).first()
+                or Profile.objects.filter(discord__iexact=discord_val).first())
+
+
+@shared_task
+def ensure_profile_from_discord_task(discord_id, username, display_name):
+    """Fire-and-forget wrapper for Join/Notify/lfg onboarding."""
+    ensure_profile_from_discord(discord_id, username, display_name)
+
+
+@shared_task
+def notify_lfg_task(notify_ids, joiner_name, description, jump_url):
+    """DM every notify subscriber that a new player joined. Raw-id DMs (subscribers
+    may have no Profile/SocialAccount); Discord's 403 is swallowed per id."""
+    from .services.discordservice import send_dm_by_id
+    for uid in notify_ids:
+        link = f" {jump_url}" if jump_url else ""
+        send_dm_by_id(uid, content=f"**{joiner_name}** joined the game *{description}*.{link}")
+
+
+@shared_task
+def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description, players):
+    """Create the game thread, ping the players, and persist the LFGThread row.
+    `players` = [{"id","name"}] parsed from the Players field lines, so this task
+    resolves-or-creates every Profile itself (no dependency on Join-time onboarding)."""
+    from .services.discordservice import create_message_thread, post_channel_message
+    thread_id = create_message_thread(channel_id, message_id, (description or "Game")[:100])
+    if not thread_id:
+        return  # no thread → nothing to persist; message already shows "started"
+    pings = " ".join(f"<@{p['id']}>" for p in players)
+    post_channel_message(thread_id, f"{pings} your game can start!".strip())
+
+    guild = DiscordGuild.objects.filter(guild_id=guild_id).first() if guild_id else None
+    role = (GuildLFGRole.objects.filter(guild=guild, role_id=role_id).first()
+            if role_id and guild else None)
+    thread, _ = LFGThread.objects.get_or_create(
+        thread_id=thread_id,
+        defaults={"guild": guild, "lfg_role": role, "description": description or ""},
+    )
+    # Resolve-or-create each player's Profile synchronously (display name is in the
+    # embed line), so players.set attaches everyone — no reliance on Join-time tasks.
+    profiles = [ensure_profile_from_discord(p["id"], None, p.get("name")) for p in players]
+    thread.players.set([p for p in profiles if p])
+
+
+# kinds whose result is one of the Game's direct FKs (latest selection/roll wins)
+_LFG_FK_KINDS = {"Map": "map", "Deck": "deck"}
+
+
+@shared_task
+def record_lfg_components_task(channel_id, items):
+    """Record components surfaced inside an LFG thread (from /random, /map, /deck,
+    other lookups, /draft). No-op when the channel isn't a known LFG thread."""
+    if not channel_id or not items:
+        return
+    # select_for_update guards against two concurrent captures in the same thread
+    # clobbering each other's rolls-list append (last-write-wins otherwise).
+    with transaction.atomic():
+        thread = LFGThread.objects.select_for_update().filter(thread_id=channel_id).first()
+        if not thread:
+            return  # not an LFG thread (the common case) — no-op
+        now = timezone.now().isoformat()
+        for it in items:
+            kind, slug, title = it.get("kind"), it.get("slug"), it.get("title")
+            thread.rolls.append({"kind": kind, "slug": slug, "title": title, "at": now})
+            field = _LFG_FK_KINDS.get(kind)
+            if field and slug:
+                model = {"map": Map, "deck": Deck}[field]
+                setattr(thread, field,
+                        model.objects.filter(slug=slug).first() or getattr(thread, field))
+        thread.save(update_fields=["rolls", "map", "deck"])

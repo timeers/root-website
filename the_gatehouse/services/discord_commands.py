@@ -19,7 +19,7 @@ def _lookup_command(name, label):
     with one embed (info card + large image)."""
     return {
         "name": name,
-        "description": f"Look up a Root {label} by name",
+        "description": f"Look up a Root {label}",
         "options": [
             {
                 "name": "name",
@@ -34,7 +34,7 @@ def _lookup_command(name, label):
 
 STATS_COMMAND = {
     "name": "stats",
-    "description": "Win rate filtered by player, faction, series, and/or platform",
+    "description": "Win rate and leaderboard filtered by player, faction, series, and/or platform",
     "options": [
         {"name": "player", "description": "Player", "type": 3, "required": False, "autocomplete": True},
         {"name": "faction", "description": "Faction", "type": 3, "required": False, "autocomplete": True},
@@ -64,7 +64,7 @@ STATS_COMMAND = {
 
 UPCOMING_COMMAND = {
     "name": "upcoming",
-    "description": "Show the next scheduled match",
+    "description": "Show the next scheduled match for a player or event",
     "options": [
         {"name": "series", "description": "Filter to a series / tournament", "type": 3, "required": False, "autocomplete": True},
         {"name": "player", "description": "Filter to a player", "type": 3, "required": False, "autocomplete": True},
@@ -98,7 +98,7 @@ DRAFT_PLATFORM_RD = "Root Digital"
 
 DRAFT_COMMAND = {
     "name": "draft",
-    "description": "Draft factions for a game, banning any you don't want",
+    "description": "Build a factions draft for a game, banning any you want to omit",
     "options": [
         {"name": "players", "description": "Number of players (default 4)",
          "type": 4, "required": False,
@@ -116,16 +116,26 @@ DRAFT_COMMAND = {
 # /random kinds. Value strings double as the dispatch key and the label shown in
 # "Random <Kind>:". Keep in sync with the handler in discord_interactions.py.
 RANDOM_KINDS = [
-    "Map", "Faction", "Deck", "Vagabond", "Captain", "Hirelings", "Landmark",
+    "Map", "Faction", "Clockwork", "Deck", "Vagabond", "Captain", "Hireling", "Landmark",
     "Roll", "Suit", "Clearing",
 ]
 
 RANDOM_COMMAND = {
     "name": "random",
-    "description": "Pick a random Root element (component, roll, suit, or clearing)",
+    "description": "Roll for a random selection (component, dice or suit/clearing)",
     "options": [
         {"name": "kind", "description": "What to randomize", "type": 3, "required": True,
          "choices": [{"name": k, "value": k} for k in RANDOM_KINDS]},
+    ],
+}
+
+
+LFG_COMMAND = {
+    "name": "lfg",
+    "description": "Post a Looking For Game call others can join",
+    "options": [
+        {"name": "description", "description": "What game you're looking for",
+         "type": 3, "required": True},
     ],
 }
 
@@ -147,6 +157,7 @@ COMMANDS = [
     LAW_COMMAND,
     DRAFT_COMMAND,
     RANDOM_COMMAND,
+    LFG_COMMAND,
 ]
 
 
@@ -155,13 +166,11 @@ COMMANDS = [
 # group (see grouped_commands) so a new command is never silently dropped.
 COMMAND_GROUPS = [
     ("General", ["help"]),
-    ("Lookups", ["faction", "clockwork", "map", "deck", "vagabond",
+    ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule"]),
     ("Stats", ["stats"]),
-    ("Tournaments", ["upcoming"]),
-    ("Law", ["law"]),
-    ("Draft", ["draft"]),
-    ("Random", ["random"]),
+    ("Games", ["upcoming", "lfg"]),
+    ("Random", ["draft", "random"]),
 ]
 
 

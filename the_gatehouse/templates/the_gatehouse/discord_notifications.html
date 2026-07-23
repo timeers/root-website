@@ -1,104 +1,292 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags static i18n %}
+{% load static i18n %}
 {% block title %}Discord Notifications | {% endblock %}
+
 {% block content %}
-    <div class="content-section">
-        <fieldset class="mb-3">
-            <legend class="border-bottom mb-4 mt-2">
-                <i class="bi bi-discord"></i> {% trans 'Discord Notifications' %}
-            </legend>
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
 
-            {% if not can_receive_dms %}
-                <div class="alert alert-warning border-warning" role="alert">
-                    <h5 class="alert-heading h6 fw-semibold mb-2">
-                        <i class="bi bi-exclamation-triangle-fill me-2"></i>{% trans 'Discord notifications unavailable' %}
-                    </h5>
-                    <p class="mb-2">
-                        {% trans "You're not currently in a Discord server with the RootDatabot, so notifications can't be delivered to you yet." %}
-                    </p>
-                    {% if rdb_feedback_invite %}
-                        <p class="mb-2">
-                            <a href="{{ rdb_feedback_invite }}" target="_blank" rel="noopener" class="alert-link">
-                                <i class="bi bi-discord me-1"></i>{% trans 'Join the RDB Discord' %}
-                            </a>
-                            {% trans '(or another server with RootDatabot) to enable notifications, then log out and back in.' %}
-                        </p>
-                    {% endif %}
-                    <hr class="my-2">
-                    <p class="mb-0 small">
-                        {% trans 'You can still set your preferences below, but you might not receive notifications until then.' %}
-                    </p>
-                </div>
-            {% endif %}
+      <form method="POST">
+        {% csrf_token %}
 
-            <p class="text-secondary">
-                {% trans 'Select which events you want to receive a Discord notification for. All notifications are off by default.' %}
+        <!-- Header -->
+        <div class="dn-header mb-4">
+          <div class="dn-header-icon"><i class="bi bi-bell-fill"></i></div>
+          <div>
+            <h1 class="dn-title mb-1">{% trans 'Discord Notifications' %}</h1>
+            <p class="dn-subtitle mb-0">
+              {% trans 'Pick which events send you a DM from the Root Databot. Everything is off by default.' %}
             </p>
+          </div>
+        </div>
 
+        <!-- DM availability status -->
+        {% if can_receive_dms %}
+        <p class="dn-note dn-note-ok">
+          <i class="bi bi-check-circle-fill me-1"></i>
+          {% trans 'You share a server with the Root Databot, so it can DM you.' %}
+        </p>
+        {% else %}
+        <p class="dn-note dn-note-warn">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>
+          {% trans "You're not in a server with the Root Databot yet, so notifications can't be delivered." %}
+          {% if rdb_feedback_invite %}
+            <a href="{{ rdb_feedback_invite }}" target="_blank" rel="noopener" class="dn-note-link">{% trans 'Join the RDB Discord' %}</a>
+            {% trans '(or' %}
+            <a href="{% url 'databot-info' %}" class="dn-note-link">{% trans 'add the bot' %}</a>
+            {% trans 'to your own server), then log out and back in. You can still set your preferences below.' %}
+          {% else %}
+            <a href="{% url 'databot-info' %}" class="dn-note-link">{% trans 'Add the bot' %}</a>
+            {% trans 'to a server (then log out and back in) to enable them. You can still set your preferences below.' %}
+          {% endif %}
+        </p>
+        {% endif %}
 
+        <!-- Card 1: your games & activity -->
+        <div class="dn-card mb-4">
+          <div class="dn-card-body">
+            <h2 class="dn-card-title">
+              <i class="bi bi-activity text-success me-2"></i>{% trans 'Your games & activity' %}
+            </h2>
+            <div class="dn-toggle-list">
+              {% for field in form %}
+                {% if field.name in activity_fields %}
+                <label class="dn-toggle" for="{{ field.id_for_label }}">
+                  {{ field }}
+                  <span>{{ field.label }}</span>
+                </label>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+        </div>
 
-            <form method="POST">
-                {% csrf_token %}
+        <!-- Card 2: new components -->
+        <div class="dn-card mb-4">
+          <div class="dn-card-body">
+            <div class="dn-card-head">
+              <h2 class="dn-card-title mb-0">
+                <i class="bi bi-plus-circle text-primary me-2"></i>{% trans 'When a component is added' %}
+              </h2>
+              <label class="dn-select-all" for="id_new_master">
+                <input type="checkbox" class="notify-master" id="id_new_master" name="new_master"
+                       data-group="new-notify-group"
+                       {% if form.new_master.value %}checked{% endif %}>
+                <span>{% trans 'All' %}</span>
+              </label>
+            </div>
+            <p class="dn-card-hint">{% trans 'Get a DM when a new component of these types is posted.' %}</p>
+            <div class="dn-component-grid" id="new-notify-group">
+              {{ form.new_notify }}
+            </div>
+          </div>
+        </div>
 
-                {# Standalone event notifications #}
-                {{ form.notify_survey_response|as_crispy_field }}
-                {{ form.notify_game_recorded|as_crispy_field }}
-                {{ form.notify_tournament_game_recorded|as_crispy_field }}
-                {{ form.notify_post_game_recorded|as_crispy_field }}
-                {{ form.notify_post_approved|as_crispy_field }}
+        <!-- Card 3: stable components -->
+        <div class="dn-card mb-4">
+          <div class="dn-card-body">
+            <div class="dn-card-head">
+              <h2 class="dn-card-title mb-0">
+                <i class="bi bi-check-circle text-success me-2"></i>{% trans 'When a component is marked Stable' %}
+              </h2>
+              <label class="dn-select-all" for="id_stable_master">
+                <input type="checkbox" class="notify-master" id="id_stable_master" name="stable_master"
+                       data-group="stable-notify-group"
+                       {% if form.stable_master.value %}checked{% endif %}>
+                <span>{% trans 'All' %}</span>
+              </label>
+            </div>
+            <p class="dn-card-hint">{% trans 'Get a DM when a component of these types becomes Stable.' %}</p>
+            <div class="dn-component-grid" id="stable-notify-group">
+              {{ form.stable_notify }}
+            </div>
+          </div>
+        </div>
 
-                {# New post group: master toggle expands the per-component options #}
-                <div class="form-check mt-3">
-                    <input type="checkbox" class="form-check-input notify-master"
-                           id="id_new_master" name="new_master"
-                           data-bs-toggle="collapse" data-bs-target="#new-notify-group"
-                           data-group="new-notify-group"
-                           aria-controls="new-notify-group"
-                           {% if form.new_master.value %}checked aria-expanded="true"{% else %}aria-expanded="false"{% endif %}>
-                    <label class="form-check-label" for="id_new_master">
-                        {{ form.new_master.label }}
-                    </label>
-                </div>
-                <div class="collapse ms-4 {% if form.new_master.value %}show{% endif %}" id="new-notify-group">
-                    {{ form.new_notify|as_crispy_field }}
-                </div>
+        <!-- Actions -->
+        <div class="dn-actions">
+          <button class="dn-btn dn-btn-primary" type="submit">
+            <i class="bi bi-save me-2"></i>{% trans 'Save Preferences' %}
+          </button>
+          <a href="{% url 'user-settings' %}" class="dn-btn dn-btn-outline">{% trans 'Back to Settings' %}</a>
+        </div>
 
-                {# Stable group: master toggle expands the per-component options #}
-                <div class="form-check mt-3">
-                    <input type="checkbox" class="form-check-input notify-master"
-                           id="id_stable_master" name="stable_master"
-                           data-bs-toggle="collapse" data-bs-target="#stable-notify-group"
-                           data-group="stable-notify-group"
-                           aria-controls="stable-notify-group"
-                           {% if form.stable_master.value %}checked aria-expanded="true"{% else %}aria-expanded="false"{% endif %}>
-                    <label class="form-check-label" for="id_stable_master">
-                        {{ form.stable_master.label }}
-                    </label>
-                </div>
-                <div class="collapse ms-4 {% if form.stable_master.value %}show{% endif %}" id="stable-notify-group">
-                    {{ form.stable_notify|as_crispy_field }}
-                </div>
+      </form>
 
-                <div class="mb-3 mt-3">
-                    <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
-                    <a href="{% url 'user-settings' %}" class="btn btn-outline-secondary">{% trans 'Back to Settings' %}</a>
-                </div>
-            </form>
-
-            <script>
-                // When a master checkbox is toggled, check/uncheck every component
-                // checkbox in its collapsible group. Bootstrap's data-bs-toggle
-                // handles the expand/collapse; this only syncs the sub-checkboxes.
-                document.querySelectorAll('.notify-master').forEach(function (master) {
-                    master.addEventListener('change', function () {
-                        var group = document.getElementById(master.dataset.group);
-                        if (!group) return;
-                        group.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
-                            cb.checked = master.checked;
-                        });
-                    });
-                });
-            </script>
-        </fieldset>
     </div>
+  </div>
+</div>
+
+<script>
+  // "All" header checkbox ticks/unticks every component checkbox in its card's grid.
+  // Also reflect the header state when individual boxes change.
+  document.querySelectorAll('.notify-master').forEach(function (master) {
+    var grid = document.getElementById(master.dataset.group);
+    if (!grid) return;
+    var boxes = grid.querySelectorAll('input[type="checkbox"]');
+    master.addEventListener('change', function () {
+      boxes.forEach(function (cb) { cb.checked = master.checked; });
+    });
+    boxes.forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        master.checked = Array.from(boxes).every(function (b) { return b.checked; });
+      });
+    });
+  });
+</script>
+
+<style>
+/* ── Header ────────────────────────────────────────────────────────── */
+.dn-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
+  border-radius: 16px;
+  padding: 28px;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(88, 101, 242, 0.25);
+}
+.dn-header-icon {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dn-header-icon i { font-size: 28px; color: #fff; }
+.dn-title { font-size: 26px; font-weight: 800; color: #fff; }
+.dn-subtitle { font-size: 15px; color: rgba(255, 255, 255, 0.92); line-height: 1.5; }
+
+/* ── Status notes ──────────────────────────────────────────────────── */
+.dn-note {
+  font-size: 14px;
+  border-radius: 10px;
+  padding: 12px 16px;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.dn-note-ok { color: #1a6c3a; background: #e8f6ee; border: 1px solid #b7e4c7; }
+.dn-note-warn { color: #8a5a00; background: #fdf3e2; border: 1px solid #f5d79a; }
+.dn-note-link { color: inherit; font-weight: 700; text-decoration: underline; }
+
+/* ── Cards ─────────────────────────────────────────────────────────── */
+.dn-card {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #e3e5e8;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+.dn-card-body { padding: 24px 28px; }
+.dn-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dn-card-title { font-size: 18px; font-weight: 700; color: #2c2f33; margin-bottom: 16px; }
+.dn-card-hint { font-size: 13px; color: #6a7178; margin: 4px 0 16px; }
+
+/* ── Standalone toggles ────────────────────────────────────────────── */
+.dn-toggle-list { display: flex; flex-direction: column; gap: 4px; }
+.dn-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  margin: 0;
+  font-size: 14px;
+  color: #2c2f33;
+}
+.dn-toggle:hover { background: #f6f7fb; }
+
+/* ── Component grid (checkbox multi-select) ────────────────────────── */
+.dn-component-grid > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+.dn-component-grid > div > div { margin: 0; }
+.dn-component-grid label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid #e3e5e8;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #2c2f33;
+  transition: all 0.12s ease;
+  margin: 0;
+}
+.dn-component-grid label:hover { border-color: #5865F2; background: #f6f7fb; }
+.dn-component-grid label:has(input:checked) {
+  border-color: #5865F2;
+  background: #eef0fb;
+}
+
+/* Checkbox accent for all boxes on the page */
+.dn-toggle input[type="checkbox"],
+.dn-component-grid input[type="checkbox"],
+.dn-select-all input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  accent-color: #5865F2;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+/* ── "All" header toggle ───────────────────────────────────────────── */
+.dn-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5865F2;
+  cursor: pointer;
+  margin: 0 0 16px;
+  white-space: nowrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.dn-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.dn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 26px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 15px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.dn-btn-primary { background: #5865F2; color: #fff; }
+.dn-btn-primary:hover {
+  background: #4752c4; color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(88, 101, 242, 0.4);
+}
+.dn-btn-outline { background: transparent; color: #5865F2; border: 2px solid #5865F2; padding: 10px 24px; }
+.dn-btn-outline:hover { background: #5865F2; color: #fff; }
+
+@media (max-width: 768px) {
+  .dn-header { flex-direction: column; text-align: center; padding: 24px 20px; }
+  .dn-card-body { padding: 20px; }
+  .dn-card-head { flex-direction: column; align-items: flex-start; }
+}
+</style>
 {% endblock content %}

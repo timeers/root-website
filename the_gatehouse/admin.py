@@ -7,7 +7,7 @@ from .models import (Profile, PlayerBookmark,
                      Theme, BackgroundImage, ForegroundImage,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
                      Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification,
-                     GuildLFGRole,
+                     GuildLFGRole, BotUsage, BotBlacklist, LFGThread,
                      )
 from django import forms
 from django.http import HttpResponseRedirect 
@@ -43,6 +43,32 @@ class DiscordGuildAdmin(admin.ModelAdmin):
     search_fields = ['name']
     inlines = [GuildLFGRoleInline]
     filter_horizontal = ['guild_moderators']
+
+class BotBlacklistAdmin(admin.ModelAdmin):
+    list_display = ['kind', 'discord_id', 'active', 'reason', 'created_at']
+    list_filter = ['kind', 'active']
+    search_fields = ['discord_id', 'reason']
+    actions = ['activate', 'deactivate']
+
+    @admin.action(description="Activate (block) selected entries")
+    def activate(self, request, queryset):
+        queryset.update(active=True)
+
+    @admin.action(description="Deactivate (unblock) selected entries")
+    def deactivate(self, request, queryset):
+        queryset.update(active=False)
+
+class BotUsageAdmin(admin.ModelAdmin):
+    list_display = ['command', 'user_id', 'guild_id', 'count', 'last_used']
+    list_filter = ['command']
+    search_fields = ['user_id', 'guild_id', 'command']
+    ordering = ['-count']
+
+class LFGThreadAdmin(admin.ModelAdmin):
+    list_display = ['thread_id', 'guild', 'lfg_role', 'map', 'deck', 'created_at']
+    search_fields = ['thread_id', 'description', 'guild__name']
+    readonly_fields = ['thread_id', 'rolls', 'created_at']
+    filter_horizontal = ['players']
 
 class WebsiteAdmin(admin.ModelAdmin):
     list_display = ['site_title', 'default_theme', 'player_threshold', 'game_threshold']
@@ -533,5 +559,8 @@ admin.site.register(DiscordGuild, DiscordGuildAdmin)
 admin.site.register(Changelog, ChangelogAdmin)
 admin.site.register(DiscordGuildJoinRequest, DiscordGuildJoinRequestAdmin)
 admin.site.register(GuildLFGRole, GuildLFGRoleAdmin)
+admin.site.register(BotBlacklist, BotBlacklistAdmin)
+admin.site.register(BotUsage, BotUsageAdmin)
+admin.site.register(LFGThread, LFGThreadAdmin)
 
 
