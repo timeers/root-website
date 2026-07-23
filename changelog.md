@@ -14,6 +14,7 @@ This update fills out the bot functionality and adds more complex features for t
 - Guilds can now be assigned Moderators (can add invite, assign mods, add LFG roles)
 
 ### Bug Fixes
+- updated dependencies
 
 ## [1.12.18] - 2026-7-20 Rootelo Links
 

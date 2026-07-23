@@ -687,7 +687,7 @@ def _random_dice_prompt(owner):
     custom_id so only the invoker can click."""
     row = action_row(
         button("1 Die", encode_custom_id("random_roll", "1", owner)),
-        button("Both Dice", encode_custom_id("random_roll", "2", owner)),
+        button("2 Dice", encode_custom_id("random_roll", "2", owner)),
     )
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
@@ -706,10 +706,10 @@ def _random_hireling_side_row(platform_key, owner):
     )
 
 
-def _random_result_embed(kind, title, subtext="", author=None, url=None, thumbnail_url=None):
+def _random_result_embed(kind, title, subtext="", author=None, url=None, image_url=None):
     """The unified /random result embed: the invoking user as the author header, a
     `Random {kind}: {title}` title (linked to the post when `url` is given), an
-    optional small-icon thumbnail, and `subtext` in the description body. Used by
+    optional large board/card image, and `subtext` in the description body. Used by
     every /random kind so results share one look.
 
     Subtext lives in the description (not a footer) because that's the only place
@@ -722,13 +722,13 @@ def _random_result_embed(kind, title, subtext="", author=None, url=None, thumbna
         embed["url"] = url
     if author:
         embed["author"] = author
-    if thumbnail_url:
-        embed["thumbnail"] = {"url": thumbnail_url}
+    if image_url:
+        embed["image"] = {"url": image_url}
     return embed
 
 
 def _random_from_list(kind, options, variant, author=None):
-    """Public result for Suit/Clearing (no post, so no link/thumbnail). Suits use
+    """Public result for Suit/Clearing (no post, so no link/image). Suits use
     their "card" emoji, clearings their "icon" emoji. The title carries the chosen
     name (readable); the chosen emoji and the "Chosen from" emoji go in the body,
     where custom emoji actually render (name fallback when one is missing)."""
@@ -800,20 +800,20 @@ def _post_url(post):
     return f"{site_url}{post.get_absolute_url()}" if site_url else None
 
 
-def _post_thumbnail_url(post):
-    """Absolute URL to a post's small icon for the embed thumbnail, or None."""
-    site_url = config.get("SITE_URL", "").rstrip("/")
-    if not site_url or not getattr(post, "small_icon", None):
-        return None
-    try:
-        return f"{site_url}{post.small_icon.url}"
-    except ValueError:
-        return None  # no file associated
+def _random_post_image_url(kind, post):
+    """Absolute URL to a post's large board/card image — the same image the
+    lookup commands show — or None. Reuses build_post_image_embed's per-component
+    field mapping (board_image for Faction/Map/Hireling, card_image for
+    Vagabond/Deck/Landmark), overriding to card_2_image for Captain (the captain
+    flip side, matching /captain)."""
+    field = "card_2_image" if kind == "Captain" else None
+    image_embed = build_post_image_embed(post, field=field)
+    return (image_embed or {}).get("image", {}).get("url")
 
 
 def _random_post_result(kind, platform, hireling_type=None, author=None):
     """Return (message_data, error) for a post-backed random kind as the unified
-    /random embed (linked title + small-icon thumbnail). `hireling_type` ('P'/'D')
+    /random embed (linked title + large board/card image). `hireling_type` ('P'/'D')
     narrows Hirelings to one side."""
     posts = list(_random_eligible(kind, platform, hireling_type))
     if not posts:
@@ -823,7 +823,7 @@ def _random_post_result(kind, platform, hireling_type=None, author=None):
     chosen = random.choice(posts)
     embed = _random_result_embed(
         kind, chosen.title, _random_chosen_from(kind, posts),
-        author=author, url=_post_url(chosen), thumbnail_url=_post_thumbnail_url(chosen),
+        author=author, url=_post_url(chosen), image_url=_random_post_image_url(kind, chosen),
     )
     return {"embeds": [embed]}, None
 
@@ -831,7 +831,7 @@ def _random_post_result(kind, platform, hireling_type=None, author=None):
 def _random_roll_embed(dice, author=None):
     """The unified /random embed for a roll of `dice` 0-3 dice; two dice show the
     larger first. The die-face emoji appear in the body in the same order as the
-    title. No post, so no link/thumbnail."""
+    title. No post, so no link/image."""
     rolls = [random.randint(0, 3) for _ in range(dice)]
     if dice == 2:
         faces = sorted(rolls, reverse=True)  # larger first, matching the title
@@ -899,9 +899,9 @@ def _handle_random_hireling(payload):
 
 
 def _handle_random_roll(payload):
-    """Dice button: roll one or both dice and edit the prompt into the result."""
+    """Dice button: roll one or two dice and edit the prompt into the result."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["1"|"2", owner]
-    dice = 1 if args and args[0] == "1" else 2  # default to 2 (Both Dice) on anything else
+    dice = 1 if args and args[0] == "1" else 2  # default to 2 (Two Dice) on anything else
     embed = _random_roll_embed(dice, author=_interaction_author(payload))
     return _random_result_edit(payload, {"embeds": [embed]})
 
