@@ -35,7 +35,7 @@ from the_gatehouse.models import Profile
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
-    faction_emoji_for, faction_emoji_object, vagabond_emoji_for,
+    faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
 )
 from .services.discord_commands import (
     DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE,
@@ -699,15 +699,22 @@ def _random_hireling_side_row(platform_key):
     )
 
 
-def _random_result_embed(kind, title, subtext, author=None, url=None, thumbnail_url=None):
+def _random_result_embed(kind, title, subtext, author=None, url=None, thumbnail_url=None,
+                         description=None):
     """The unified /random result embed: the invoking user as the author header, a
     `Random {kind}: {title}` title (linked to the post when `url` is given), the
     `subtext` as footer, and an optional thumbnail (the post's small icon). Used by
-    every /random kind so results share one look."""
+    every /random kind so results share one look.
+
+    `description` renders in the embed body — the only place custom emoji render
+    (titles/footers show them as literal text), so suit/clearing results that show
+    emoji pass their marks here instead of the footer."""
     embed = {
         "title": f"Random {kind}: {title}"[:256],
         "footer": {"text": subtext[:2048]},
     }
+    if description:
+        embed["description"] = description[:4096]
     if url:
         embed["url"] = url
     if author:
@@ -717,12 +724,23 @@ def _random_result_embed(kind, title, subtext, author=None, url=None, thumbnail_
     return embed
 
 
-def _random_from_list(kind, options, author=None):
-    """Public result for Suit/Clearing (no post, so no link/thumbnail)."""
+def _random_from_list(kind, options, variant, author=None):
+    """Public result for Suit/Clearing (no post, so no link/thumbnail). Suits use
+    their "card" emoji, clearings their "icon" emoji. The title carries the chosen
+    name (readable); the chosen emoji and the "Chosen from" emoji go in the body,
+    where custom emoji actually render (name fallback when one is missing)."""
     chosen = random.choice(options)
+    chosen_mark = suit_emoji_for(chosen, variant) or ""
+    marks = " ".join(suit_emoji_for(o, variant) or o for o in options)
+    lines = []
+    if chosen_mark:
+        lines.append(chosen_mark)
+    lines.append(f"Chosen from: {marks}")
     embed = _random_result_embed(
-        kind, chosen, f"Chosen from: {', '.join(options)}", author=author,
+        kind, chosen, "", author=author, description="\n".join(lines),
     )
+    # No footer subtext for suit/clearing — the chosen-from line lives in the body.
+    embed.pop("footer", None)
     return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": {"embeds": [embed]}})
 
 
@@ -747,9 +765,9 @@ def _handle_random_command(data):
     if kind == "Roll":
         return _random_dice_prompt()
     if kind == "Suit":
-        return _random_from_list("Suit", RANDOM_SUITS, author=author)
+        return _random_from_list("Suit", RANDOM_SUITS, "card", author=author)
     if kind == "Clearing":
-        return _random_from_list("Clearing", RANDOM_CLEARINGS, author=author)
+        return _random_from_list("Clearing", RANDOM_CLEARINGS, "icon", author=author)
     return _ephemeral(f"Unknown random kind: {kind}")
 
 

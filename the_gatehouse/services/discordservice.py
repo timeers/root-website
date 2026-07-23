@@ -856,6 +856,15 @@ def vagabond_emoji_for(vagabond):
     return get_application_emoji().get(name, "")
 
 
+def suit_emoji_for(suit, variant):
+    """Return the application-emoji string for a Root suit, or "" if not uploaded.
+    `variant` is "card" or "icon"; emoji are named "{suit}_{variant}" lowercased
+    (e.g. "fox_card", "mouse_icon"). Note only Mouse/Fox/Rabbit have an "icon"
+    (clearing) form — there is no bird clearing."""
+    name = f"{suit.lower()}_{variant}"
+    return get_application_emoji().get(name, "")
+
+
 def _item_emoji_value(vagabond, prefix):
     """Emoji string for a vagabond's item counts, repeating each emoji by its
     count. `prefix` is the field prefix, e.g. "starting" or "captain"."""
