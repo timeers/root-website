@@ -39,7 +39,6 @@ from .services.discordservice import (
     roll_emoji_for,
 )
 from .services.discord_commands import (
-    DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE,
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
 )
 from .services.discord_components import (
@@ -158,25 +157,22 @@ def _lookup_post(queryset, name):
     )
 
 
-def _select_embeds(link_embed, image_embed, display):
-    """Pick which embeds to send for a lookup based on the `display` choice
-    (both / link only / image only; defaults to both). `image_embed` may be None
-    when the post has no image.
-
-    Returns the list of embeds to send, or None to signal "image only" was asked
-    for but no image exists (the caller replies with a friendly message).
-    """
-    if display == DISPLAY_LINK:
-        return [link_embed]
-    if display == DISPLAY_IMAGE:
-        return [image_embed] if image_embed else None
-    # DISPLAY_BOTH or anything unset/unexpected: link first, image after if any.
-    return [link_embed, image_embed] if image_embed else [link_embed]
+def _lookup_embed(post, image_field=None):
+    """A post's info card as a single embed with its large board/card image folded
+    in (embed.image), so a lookup sends one complete embed rather than two. Image
+    is omitted when the post has none. `image_field` overrides the default per-
+    component image (e.g. "card_2_image" for a captain)."""
+    embed = build_post_embed(post)
+    image_url = _post_image_url(post, field=image_field)
+    if image_url:
+        embed["image"] = {"url": image_url}
+    return embed
 
 
 def _make_lookup_handler(label, queryset_factory):
     """Build a slash-command handler that looks up a Post by title and replies
-    with its embed. `queryset_factory` returns the base queryset to search."""
+    with one embed (info card + large image). `queryset_factory` returns the base
+    queryset to search."""
     def handler(data):
         name = (_get_option(data, "name") or "").strip()
         if not name:
@@ -186,16 +182,9 @@ def _make_lookup_handler(label, queryset_factory):
         if not post:
             return _ephemeral(f'No {label} found matching "{name}".')
 
-        # Link embed is the main info card; the image embed renders as a large
-        # standalone (click-to-enlarge) board/card image below it.
-        display = _get_option(data, "display") or DISPLAY_BOTH
-        embeds = _select_embeds(build_post_embed(post), build_post_image_embed(post), display)
-        if embeds is None:
-            return _ephemeral(f'No image available for "{post.title}".')
-
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": {"embeds": embeds},
+            "data": {"embeds": [_lookup_embed(post)]},
         })
     return handler
 
@@ -237,17 +226,16 @@ def _handle_captain_command(data):
     if not vagabond:
         return _ephemeral(f'No captain found matching "{name}".')
 
-    # Captain is the vagabond's flip side, so show its card_2_image rather than
-    # the base card image.
-    display = _get_option(data, "display") or DISPLAY_BOTH
-    image_embed = build_post_image_embed(vagabond, field="card_2_image")
-    embeds = _select_embeds(build_captain_embed(vagabond), image_embed, display)
-    if embeds is None:
-        return _ephemeral(f'No image available for "{vagabond.title}".')
+    # One embed: the captain (Advanced) profile with the flip-side card_2_image
+    # folded in as the large image.
+    embed = build_captain_embed(vagabond)
+    image_url = _post_image_url(vagabond, field="card_2_image")
+    if image_url:
+        embed["image"] = {"url": image_url}
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"embeds": embeds},
+        "data": {"embeds": [embed]},
     })
 
 
@@ -687,7 +675,7 @@ def _random_dice_prompt(owner):
     custom_id so only the invoker can click."""
     row = action_row(
         button("1 Die", encode_custom_id("random_roll", "1", owner)),
-        button("Both Dice", encode_custom_id("random_roll", "2", owner)),
+        button("2 Dice", encode_custom_id("random_roll", "2", owner)),
     )
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
@@ -706,10 +694,10 @@ def _random_hireling_side_row(platform_key, owner):
     )
 
 
-def _random_result_embed(kind, title, subtext="", author=None, url=None, thumbnail_url=None):
+def _random_result_embed(kind, title, subtext="", author=None, url=None, image_url=None):
     """The unified /random result embed: the invoking user as the author header, a
     `Random {kind}: {title}` title (linked to the post when `url` is given), an
-    optional small-icon thumbnail, and `subtext` in the description body. Used by
+    optional large board/card image, and `subtext` in the description body. Used by
     every /random kind so results share one look.
 
     Subtext lives in the description (not a footer) because that's the only place
@@ -722,13 +710,13 @@ def _random_result_embed(kind, title, subtext="", author=None, url=None, thumbna
         embed["url"] = url
     if author:
         embed["author"] = author
-    if thumbnail_url:
-        embed["thumbnail"] = {"url": thumbnail_url}
+    if image_url:
+        embed["image"] = {"url": image_url}
     return embed
 
 
 def _random_from_list(kind, options, variant, author=None):
-    """Public result for Suit/Clearing (no post, so no link/thumbnail). Suits use
+    """Public result for Suit/Clearing (no post, so no link/image). Suits use
     their "card" emoji, clearings their "icon" emoji. The title carries the chosen
     name (readable); the chosen emoji and the "Chosen from" emoji go in the body,
     where custom emoji actually render (name fallback when one is missing)."""
@@ -800,20 +788,24 @@ def _post_url(post):
     return f"{site_url}{post.get_absolute_url()}" if site_url else None
 
 
-def _post_thumbnail_url(post):
-    """Absolute URL to a post's small icon for the embed thumbnail, or None."""
-    site_url = config.get("SITE_URL", "").rstrip("/")
-    if not site_url or not getattr(post, "small_icon", None):
-        return None
-    try:
-        return f"{site_url}{post.small_icon.url}"
-    except ValueError:
-        return None  # no file associated
+def _post_image_url(post, field=None):
+    """Absolute URL to a post's large board/card image, or None. Reuses
+    build_post_image_embed's per-component field mapping (board_image for
+    Faction/Map/Hireling, card_image for Vagabond/Deck/Landmark); `field` overrides
+    it (e.g. "card_2_image" for a captain's flip side)."""
+    image_embed = build_post_image_embed(post, field=field)
+    return (image_embed or {}).get("image", {}).get("url")
+
+
+def _random_post_image_url(kind, post):
+    """The large image url for a /random post result: the captain flip side for
+    Captain, else the component's default board/card image."""
+    return _post_image_url(post, field="card_2_image" if kind == "Captain" else None)
 
 
 def _random_post_result(kind, platform, hireling_type=None, author=None):
     """Return (message_data, error) for a post-backed random kind as the unified
-    /random embed (linked title + small-icon thumbnail). `hireling_type` ('P'/'D')
+    /random embed (linked title + large board/card image). `hireling_type` ('P'/'D')
     narrows Hirelings to one side."""
     posts = list(_random_eligible(kind, platform, hireling_type))
     if not posts:
@@ -823,7 +815,7 @@ def _random_post_result(kind, platform, hireling_type=None, author=None):
     chosen = random.choice(posts)
     embed = _random_result_embed(
         kind, chosen.title, _random_chosen_from(kind, posts),
-        author=author, url=_post_url(chosen), thumbnail_url=_post_thumbnail_url(chosen),
+        author=author, url=_post_url(chosen), image_url=_random_post_image_url(kind, chosen),
     )
     return {"embeds": [embed]}, None
 
@@ -831,7 +823,7 @@ def _random_post_result(kind, platform, hireling_type=None, author=None):
 def _random_roll_embed(dice, author=None):
     """The unified /random embed for a roll of `dice` 0-3 dice; two dice show the
     larger first. The die-face emoji appear in the body in the same order as the
-    title. No post, so no link/thumbnail."""
+    title. No post, so no link/image."""
     rolls = [random.randint(0, 3) for _ in range(dice)]
     if dice == 2:
         faces = sorted(rolls, reverse=True)  # larger first, matching the title
@@ -899,9 +891,9 @@ def _handle_random_hireling(payload):
 
 
 def _handle_random_roll(payload):
-    """Dice button: roll one or both dice and edit the prompt into the result."""
+    """Dice button: roll one or two dice and edit the prompt into the result."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["1"|"2", owner]
-    dice = 1 if args and args[0] == "1" else 2  # default to 2 (Both Dice) on anything else
+    dice = 1 if args and args[0] == "1" else 2  # default to 2 (Two Dice) on anything else
     embed = _random_roll_embed(dice, author=_interaction_author(payload))
     return _random_result_edit(payload, {"embeds": [embed]})
 
