@@ -40,7 +40,7 @@
 </section>
 
 <!-- 2. LIVE STATS STRIP -->
-<section class="home-stats" id="home-explore">
+<section class="home-stats" id="home-explore" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
     <div class="home-stat">
         <span class="home-stat-number">{{ faction_count|intcomma }}</span>
         <span class="home-stat-label">{% trans "Fan Factions" %}</span>
