@@ -1,0 +1,445 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block title %}Root Database Discord Bot | {% endblock %}
+
+{% block meta %}
+  <meta name="description" content="Add the Root Database Discord bot to your server for instant faction stats, rules lookups, drafts, and random rolls — right inside Discord.">
+  <meta property="og:title" content="Root Database Discord Bot">
+  <meta property="og:description" content="Instant faction stats, rules lookups, drafts, and random rolls for Root — right inside Discord.">
+  <meta property="og:type" content="website">
+{% endblock meta %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+
+      <!-- Hero -->
+      <div class="databot-hero mb-4">
+        <img class="home-hero-logo databot-hero-logo" src="{% static 'images/icon-512.png' %}"
+             alt="Root Database logo">
+        <h1 class="databot-hero-title root-title">Root Databot</h1>
+        <p class="databot-hero-tagline">
+          Faction details, rules lookups, drafts, and random rolls in your Discord server.
+        </p>
+        {% if invite_url %}
+        <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
+           class="databot-btn databot-btn-hero">
+          <i class="bi bi-discord me-2"></i>Add to Server
+        </a>
+        {% endif %}
+      </div>
+
+      <!-- What it does -->
+      <div class="databot-card mb-4">
+        <div class="databot-card-body">
+          <h2 class="databot-section-title">What it does</h2>
+          <div class="row g-3 databot-features">
+            <div class="col-sm-6">
+              <div class="databot-feature">
+                <i class="bi bi-search text-primary"></i>
+                <div>
+                  <h5>Quick Reference</h5>
+                  <p>Pull up a faction, map, deck, vagabond, landmark, hireling, or law.</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <div class="databot-feature">
+                <i class="bi bi-bar-chart text-success"></i>
+                <div>
+                  <h5>Win Rates &amp; Stats</h5>
+                  <p>Leaderboards and win rates filtered by player, faction, series, and platform.</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <div class="databot-feature">
+                <i class="bi bi-shuffle text-warning"></i>
+                <div>
+                  <h5>Draft &amp; Randomize</h5>
+                  <p>Build a faction draft or roll a random component, suit, or battle dice.</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <div class="databot-feature">
+                <i class="bi bi-calendar-event text-info"></i>
+                <div>
+                  <h5>Match Schedules</h5>
+                  <p>Check the next scheduled match for a player or tournament without leaving Discord.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Flagship commands -->
+      <div class="databot-card mb-4">
+        <div class="databot-card-body">
+          <h2 class="databot-section-title">Try these first</h2>
+          <div class="databot-flagship">
+            <div class="databot-chip">
+              <code>/faction</code>
+              <span>Look up a Faction's board, Adset card, and .</span>
+            </div>
+            <div class="databot-chip">
+              <code>/draft</code>
+              <span>Build a random faction draft for your game.</span>
+            </div>
+            <div class="databot-chip">
+              <code>/random</code>
+              <span>Generate a random faction, map, suit, clearing, or dice roll.</span>
+            </div>
+            <div class="databot-chip">
+              <code>/law</code>
+              <span>Search the Law of Root by name or code or faction and text.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Full command list -->
+      <div class="databot-card mb-4">
+        <div class="databot-card-body">
+          <h2 class="databot-section-title">All Commands</h2>
+          {% for group_name, rows in command_groups %}
+          <div class="databot-cmd-group">
+            <h5 class="databot-cmd-group-title">{{ group_name }}</h5>
+            <ul class="databot-cmd-list">
+              {% for name, desc in rows %}
+              <li>
+                <code>/{{ name }}</code>
+                <span>{{ desc }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% if invite_url %}
+      <div class="text-center mb-4">
+        <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
+           class="databot-btn databot-btn-primary">
+          <i class="bi bi-discord me-2"></i>Add the Bot to Your Server
+        </a>
+      </div>
+      {% endif %}
+
+      <!-- Discord notifications -->
+      <div class="databot-card mb-4">
+        <div class="databot-card-body">
+          <h2 class="databot-section-title">
+            <i class="bi bi-bell-fill text-primary me-2"></i>Get notified in Discord
+          </h2>
+          <p class="databot-notify-intro">
+            If you share a server with Root Databot, it can send you a direct message when things you
+            care about happen on the Root Database.
+          </p>
+
+          <div class="databot-notify-list">
+            <div class="databot-notify-item">
+              <i class="bi bi-controller text-success"></i>
+              <span>A game you played in is recorded.</span>
+            </div>
+            <div class="databot-notify-item">
+              <i class="bi bi-box-seam text-warning"></i>
+              <span>A game is recorded using a faction you designed.</span>
+            </div>
+            <div class="databot-notify-item">
+              <i class="bi bi-hourglass-split text-info"></i>
+              <span>A faction you submitted is approved, or a survey you made gets a response.</span>
+            </div>
+            <div class="databot-notify-item">
+              <i class="bi bi-plus-circle text-primary"></i>
+              <span>A new faction, map or deck is posted.</span>
+            </div>
+            <div class="databot-notify-item">
+              <i class="bi bi-check-circle text-success"></i>
+              <span>A faction is marked as “Stable.”</span>
+            </div>
+          </div>
+
+          {% if can_receive_dms %}
+          <p class="databot-notify-note databot-notify-ok">
+            <i class="bi bi-check-circle-fill me-1"></i>
+            You share a server with the Root Databot, so it can DM you. Every notification is opt-in. Turn
+            on the ones you want in your settings.
+          </p>
+          {% elif user_is_authenticated %}
+          <p class="databot-notify-note databot-notify-warn">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            You're not in a server with the Root Databot yet, so it can't DM you. Add it to a server (above),
+            or join one that already has it, then set your preferences. Every notification is opt-in.
+          </p>
+          {% else %}
+          <p class="databot-notify-note">
+            <i class="bi bi-info-circle me-1"></i>
+            Notifications arrive as a Discord DM from the Root Databot, so you need to be in a server the
+            bot is in (add it above) to receive them. Every notification is opt-in.
+          </p>
+          {% endif %}
+
+          <div class="text-center">
+            <a href="{% url 'discord-notifications' %}" class="databot-btn databot-btn-outline mt-2">
+              <i class="bi bi-bell-fill me-2"></i>Manage Notification Settings
+            </a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+/* ── Hero ─────────────────────────────────────────────────────────── */
+.databot-hero {
+  background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
+  border-radius: 16px;
+  padding: 48px 28px;
+  text-align: center;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(88, 101, 242, 0.25);
+}
+/* Reuse the site's .home-hero-logo (96px, rounded), but soften its dark shadow so
+   the logo reads cleanly on the blurple hero. */
+.databot-hero-logo {
+  margin-bottom: 18px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.databot-hero-title {
+  font-size: 40px;
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: #fff;
+}
+.databot-hero-tagline {
+  font-size: 17px;
+  line-height: 1.6;
+  max-width: 560px;
+  margin: 0 auto 26px;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────── */
+.databot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 30px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 16px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.databot-btn-hero {
+  background: #fff;
+  color: #4752c4;
+}
+.databot-btn-hero:hover {
+  color: #4752c4;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+}
+.databot-btn-primary {
+  background: #5865F2;
+  color: #fff;
+}
+.databot-btn-primary:hover {
+  background: #4752c4;
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(88, 101, 242, 0.4);
+}
+.databot-btn-outline {
+  background: transparent;
+  color: #5865F2;
+  border: 2px solid #5865F2;
+  padding: 12px 28px;
+}
+.databot-btn-outline:hover {
+  background: #5865F2;
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(88, 101, 242, 0.3);
+}
+
+/* ── Discord notifications ────────────────────────────────────────── */
+.databot-notify-intro {
+  font-size: 15px;
+  color: #4f5660;
+  line-height: 1.7;
+  margin-bottom: 20px;
+}
+.databot-notify-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.databot-notify-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 14px;
+  color: #2c2f33;
+  line-height: 1.5;
+}
+.databot-notify-item i {
+  font-size: 20px;
+  flex-shrink: 0;
+  line-height: 1.3;
+}
+.databot-notify-note {
+  font-size: 13px;
+  color: #4f5660;
+  background: #f6f7fb;
+  border: 1px solid #e3e5e8;
+  border-radius: 10px;
+  padding: 12px 14px;
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+.databot-notify-ok {
+  color: #1a6c3a;
+  background: #e8f6ee;
+  border-color: #b7e4c7;
+}
+.databot-notify-warn {
+  color: #8a5a00;
+  background: #fdf3e2;
+  border-color: #f5d79a;
+}
+
+/* ── Cards ────────────────────────────────────────────────────────── */
+.databot-card {
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e3e5e8;
+}
+.databot-card-body {
+  padding: 28px;
+}
+.databot-section-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #2c2f33;
+  margin-bottom: 20px;
+}
+
+/* ── Feature grid ─────────────────────────────────────────────────── */
+.databot-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  height: 100%;
+}
+.databot-feature i {
+  font-size: 26px;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+.databot-feature h5 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #2c2f33;
+  margin-bottom: 4px;
+}
+.databot-feature p {
+  font-size: 14px;
+  color: #4f5660;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── Flagship chips ───────────────────────────────────────────────── */
+.databot-flagship {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.databot-chip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: #f6f7fb;
+  border: 1px solid #e3e5e8;
+  border-radius: 10px;
+}
+.databot-chip code {
+  background: #5865F2;
+  color: #fff;
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.databot-chip span {
+  font-size: 14px;
+  color: #2c2f33;
+}
+
+/* ── Full command list ────────────────────────────────────────────── */
+.databot-cmd-group {
+  margin-bottom: 20px;
+}
+.databot-cmd-group:last-child {
+  margin-bottom: 0;
+}
+.databot-cmd-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7289da;
+  margin-bottom: 10px;
+}
+.databot-cmd-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.databot-cmd-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid #f0f1f3;
+}
+.databot-cmd-list li:last-child {
+  border-bottom: none;
+}
+.databot-cmd-list code {
+  color: #4752c4;
+  background: #eef0fb;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.databot-cmd-list span {
+  font-size: 14px;
+  color: #4f5660;
+}
+
+@media (max-width: 768px) {
+  .databot-hero { padding: 36px 20px; }
+  .databot-hero-title { font-size: 30px; }
+  .databot-card-body { padding: 20px; }
+}
+</style>
+{% endblock content %}

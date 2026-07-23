@@ -3,7 +3,8 @@ import uuid
 from io import BytesIO
 from PIL import Image
 
-from django.db.models.signals import post_save, pre_save
+from django.core.cache import cache
+from django.db.models.signals import post_save, pre_save, post_delete
 from django.shortcuts import redirect
 from django.dispatch import receiver
 from django.contrib import messages
@@ -12,7 +13,7 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
-from .models import Profile, ForegroundImage, BackgroundImage, Changelog
+from .models import Profile, ForegroundImage, BackgroundImage, Changelog, BotBlacklist
 from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds, update_discord_avatar
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
 from .tasks import send_discord_message_task
@@ -486,3 +487,10 @@ def generate_small_images(sender, instance, **kwargs):
     if updated_fields:
         instance._processed_small_images = True  # Prevent recursion
         instance.save(update_fields=updated_fields)
+
+
+@receiver([post_save, post_delete], sender=BotBlacklist)
+def bust_bot_blacklist_cache(sender, instance, **kwargs):
+    """Clear the cached blacklist result for this entry so an admin block/unblock
+    takes effect immediately instead of waiting out the interaction cache TTL."""
+    cache.delete(f"botblacklist:{instance.kind}:{instance.discord_id}")

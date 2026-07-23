@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.12.109] - 2026-8-1 Better Bots
+## [1.12.109] - 2026-8-1 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot
 
 ### New Features
@@ -9,6 +9,7 @@ This update fills out the bot functionality and adds more complex features for t
 - Manage Guild page for Admin and Guild Mods
 - /draft command for building a quick draft
 - /random command for generating random selections
+- Databot info page to add bot to server
 
 ### Improvements
 - Guilds can now be assigned Moderators (can add invite, assign mods, add LFG roles)

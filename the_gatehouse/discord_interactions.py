@@ -23,6 +23,7 @@ from datetime import timedelta
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
+from django.core.cache import cache
 from django.db.models import Q, Exists, OuterRef
 from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
@@ -31,7 +32,8 @@ from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post
 from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate
-from the_gatehouse.models import Profile
+from the_gatehouse.models import Profile, BotBlacklist
+from .tasks import record_bot_usage_task
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
@@ -68,6 +70,26 @@ def _interaction_user_id(payload):
     DM), or None."""
     return ((payload.get("member") or {}).get("user", {}).get("id")
             or (payload.get("user") or {}).get("id"))
+
+
+_BLACKLIST_TTL = 60  # seconds; short so an unblock takes effect within a minute
+
+
+def _is_blacklisted(user_id, guild_id):
+    """True if the user or guild is actively blocked. Cached ~60s per id in Redis
+    to keep the interaction path fast (DB only on a cache miss); an admin unblock
+    takes effect within the TTL (or immediately if the cache-bust signal fires)."""
+    for kind, value in (("user", user_id), ("guild", guild_id)):
+        if not value:
+            continue
+        key = f"botblacklist:{kind}:{value}"
+        hit = cache.get(key)
+        if hit is None:
+            hit = BotBlacklist.objects.filter(kind=kind, discord_id=value, active=True).exists()
+            cache.set(key, hit, _BLACKLIST_TTL)
+        if hit:
+            return True
+    return False
 
 
 def _interaction_author(payload):
@@ -1100,11 +1122,26 @@ def discord_interactions(request):
     if interaction_type == PING:
         return JsonResponse({"type": RESPONSE_PONG})
 
+    user_id = _interaction_user_id(payload)
+    guild_id = payload.get("guild_id")
+
+    # Blacklist gate: refuse blocked users/guilds across every interaction type.
+    # Autocomplete (type 4) must return a well-formed empty choices list, not an
+    # ephemeral, or Discord rejects the response.
+    if _is_blacklisted(user_id, guild_id):
+        if interaction_type == APPLICATION_COMMAND_AUTOCOMPLETE:
+            return JsonResponse({"type": RESPONSE_AUTOCOMPLETE_RESULT, "data": {"choices": []}})
+        return _ephemeral("You're blocked from using this bot.")
+
     if interaction_type == APPLICATION_COMMAND:
         data = payload.get("data", {})
         command_name = data.get("name")
         handler = COMMAND_HANDLERS.get(command_name)
         if handler:
+            # Record usage (per guild/user/command) asynchronously — fire-and-forget
+            # so the DB write never delays the 3s response. Only known top-level
+            # commands are counted (not buttons or autocomplete).
+            record_bot_usage_task.delay(guild_id, user_id, command_name)
             try:
                 # Stash the invoking user (from the top-level payload, not `data`)
                 # so handlers can build author-attributed embeds (_author) and

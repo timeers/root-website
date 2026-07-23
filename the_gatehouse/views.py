@@ -117,6 +117,16 @@ def discord_notification_settings(request):
         'form': form,
         # The bot can only DM users who share a guild with it.
         'can_receive_dms': profile.can_receive_dms,
+        # The standalone boolean toggles (the "your games & activity" card). The
+        # two per-component groups (new_notify/stable_notify) + their master
+        # checkboxes are laid out separately in the template.
+        'activity_fields': [
+            'notify_game_recorded',
+            'notify_tournament_game_recorded',
+            'notify_post_game_recorded',
+            'notify_post_approved',
+            'notify_survey_response',
+        ],
     }
     return render(request, 'the_gatehouse/discord_notifications.html', context)
 
@@ -1457,6 +1467,36 @@ def woodland_warriors_info(request):
     return render(request, 'the_gatehouse/woodland_warriors_info.html', {
         'woodland_warriors_invite': config.woodland_warriors_invite,
         'guild_icon_url': guild_icon_url,
+    })
+
+
+def databot_info(request):
+    """Public landing page for the Root Database Discord bot: what it does, its
+    commands, and an 'Add to Server' invite. No login required."""
+    from .services.discord_commands import grouped_commands
+
+    with open('/etc/config.json') as config_file:
+        ext_config = json.load(config_file)
+    discord_id = ext_config.get('DISCORD_ID')
+
+    # HTTP-interactions bot: it only needs slash commands, so the invite requests
+    # applications.commands and no bot/permissions scope.
+    invite_url = (
+        f"https://discord.com/oauth2/authorize?client_id={discord_id}"
+        "&scope=applications.commands"
+    ) if discord_id else None
+
+    # Whether the visitor shares a guild with the bot (Discord's DM requirement),
+    # same check as the notification settings page. Public page: anonymous or
+    # profile-less visitors are treated as unable to receive DMs.
+    profile = getattr(request.user, 'profile', None) if request.user.is_authenticated else None
+    can_receive_dms = profile.can_receive_dms if profile else False
+
+    return render(request, 'the_gatehouse/databot_info.html', {
+        'invite_url': invite_url,
+        'command_groups': list(grouped_commands()),  # [(group, [(name, desc), ...]), ...]
+        'can_receive_dms': can_receive_dms,
+        'user_is_authenticated': request.user.is_authenticated,
     })
 
 

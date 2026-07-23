@@ -1,9 +1,11 @@
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
+from django.db.models import F
 from django.utils import timezone
 
 from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
+from .models import BotUsage
 
 from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, DM_ERROR
 from .services.context_service import get_daily_user_summary
@@ -282,3 +284,21 @@ def post_interaction_followup_task(token, message_data):
     except Exception:
         logger.exception("Discord interaction followup failed")
         raise
+
+@shared_task
+def record_bot_usage_task(guild_id, user_id, command):
+    # Best-effort per-(guild, user, command) usage count for the Discord bot.
+    # Fire-and-forget from the interaction dispatch, so it never delays the 3s
+    # response; a lost count is harmless. get_or_create + F() increment is atomic
+    # across workers (no read-modify-write race).
+    if not user_id:
+        return
+    try:
+        obj, _ = BotUsage.objects.get_or_create(
+            guild_id=guild_id or None, user_id=user_id, command=command,
+        )
+        BotUsage.objects.filter(pk=obj.pk).update(
+            count=F("count") + 1, last_used=timezone.now(),
+        )
+    except Exception:
+        logger.exception("Failed to record bot usage")

@@ -158,7 +158,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule"]),
     ("Stats", ["stats"]),
-    ("Tournaments", ["upcoming"]),
+    ("Games", ["upcoming"]),
     ("Random", ["draft", "random"]),
 ]
 

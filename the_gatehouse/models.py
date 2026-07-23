@@ -1008,7 +1008,60 @@ class DailyUserVisit(models.Model):
 
     def __str__(self):
         return f"{self.profile.discord} - {self.date}"
-    
+
+
+class BotUsage(models.Model):
+    """Per-(guild, user, command) invocation count for the Discord bot. Stores raw
+    Discord snowflake strings (most bot users have no site Profile), incremented
+    atomically from a Celery task. guild_id is null for DM interactions."""
+    guild_id = models.CharField(max_length=32, null=True, blank=True, db_index=True)
+    user_id = models.CharField(max_length=32, db_index=True)
+    command = models.CharField(max_length=50)
+    count = models.PositiveIntegerField(default=0)
+    first_used = models.DateTimeField(auto_now_add=True)
+    last_used = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('guild_id', 'user_id', 'command')
+        verbose_name = 'Bot Usage'
+        verbose_name_plural = 'Bot Usage'
+
+    def __str__(self):
+        return f"/{self.command} by {self.user_id} in {self.guild_id or 'DM'} ×{self.count}"
+
+
+class BotBlacklist(models.Model):
+    """A blocked Discord user or guild. When a matching user or guild triggers any
+    bot interaction, it's refused. Keyed by raw snowflake string + kind."""
+    class Kind(models.TextChoices):
+        USER = 'user', 'User'
+        GUILD = 'guild', 'Guild'
+
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    discord_id = models.CharField(max_length=32, help_text="The user id or guild id, per kind.")
+    reason = models.CharField(max_length=200, blank=True)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('kind', 'discord_id')
+        verbose_name = 'Bot Blacklist Entry'
+        verbose_name_plural = 'Bot Blacklist'
+
+    def __str__(self):
+        return f"{self.get_kind_display()} {self.discord_id}{'' if self.active else ' (inactive)'}"
+
+    @classmethod
+    def is_blocked(cls, user_id=None, guild_id=None):
+        """True if the given user or guild is actively blocked."""
+        q = models.Q()
+        if user_id:
+            q |= models.Q(kind=cls.Kind.USER, discord_id=user_id)
+        if guild_id:
+            q |= models.Q(kind=cls.Kind.GUILD, discord_id=guild_id)
+        if not q:
+            return False
+        return cls.objects.filter(q, active=True).exists()
 
 
 class Changelog(models.Model):
