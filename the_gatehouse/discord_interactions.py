@@ -18,6 +18,7 @@ Currently handles:
 import json
 import logging
 import random
+import re
 from datetime import timedelta
 
 from nacl.signing import VerifyKey
@@ -32,8 +33,11 @@ from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post
 from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate
-from the_gatehouse.models import Profile, BotBlacklist
-from .tasks import record_bot_usage_task
+from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole
+from .tasks import (
+    record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
+    create_lfg_thread_task, record_lfg_components_task,
+)
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
@@ -46,7 +50,7 @@ from .services.discord_commands import (
 from .services.discord_components import (
     action_row, button, string_select, select_option,
     encode_custom_id, decode_custom_id, selected_values,
-    RESPONSE_UPDATE_MESSAGE, STYLE_SUCCESS, STYLE_SECONDARY,
+    RESPONSE_UPDATE_MESSAGE, STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
 )
 
 logger = logging.getLogger(__name__)
@@ -204,6 +208,12 @@ def _make_lookup_handler(label, queryset_factory):
         if not post:
             return _ephemeral(f'No {label} found matching "{name}".')
 
+        # If used inside an LFG thread, record the looked-up component (a selected
+        # map/deck updates the LFGThread FK like a random roll).
+        kind = _LFG_LOOKUP_KIND.get(data.get("name"))
+        if kind:
+            _capture_lfg_components(data.get("_channel_id"), [_lfg_item(kind, post)])
+
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
             "data": {"embeds": [_lookup_embed(post)]},
@@ -236,6 +246,32 @@ _LOOKUP_LABELS = {
     "houserule": "house rule",
 }
 
+# Lookup command name → the capitalized "kind" recorded on an LFGThread (matching the
+# strings /random uses, so rolls entries are consistent across commands).
+_LFG_LOOKUP_KIND = {
+    "faction": "Faction",
+    "clockwork": "Clockwork",
+    "map": "Map",
+    "deck": "Deck",
+    "vagabond": "Vagabond",
+    "landmark": "Landmark",
+    "hireling": "Hireling",
+    "houserule": "Tweak",
+}
+
+
+def _capture_lfg_components(channel_id, items):
+    """Fire-and-forget: record components surfaced by a command into an LFG thread
+    (no-op in the worker when the channel isn't a known LFG thread). `items` is a
+    list of {"kind","slug","title"}. Safe to call with a falsy channel_id."""
+    if channel_id and items:
+        record_lfg_components_task.delay(channel_id, items)
+
+
+def _lfg_item(kind, post):
+    return {"kind": kind, "slug": getattr(post, "slug", None),
+            "title": getattr(post, "title", None)}
+
 
 def _handle_captain_command(data):
     """/captain: look up a captain-capable vagabond and show its captain
@@ -254,6 +290,9 @@ def _handle_captain_command(data):
     image_url = _post_image_url(vagabond, field="card_2_image")
     if image_url:
         embed["image"] = {"url": image_url}
+
+    # /captain is its own handler (not in the lookup loop); capture as "Captain".
+    _capture_lfg_components(data.get("_channel_id"), [_lfg_item("Captain", vagabond)])
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
@@ -640,6 +679,16 @@ def _handle_draft_build(payload):
     vagabond = _random_draft_vagabond(platform) if "vagabond" in drawn else None
     captains = _random_draft_captains(platform) if "knaves-of-the-deepwood" in drawn else None
 
+    # If used inside an LFG thread, record the drafted factions plus the rolled
+    # vagabond / captains onto the LFGThread.
+    titles = {slug: title for slug, title, _ftype in factions}
+    items = [{"kind": "Faction", "slug": slug, "title": titles.get(slug, slug)} for slug in drawn]
+    if vagabond:
+        items.append(_lfg_item("Vagabond", vagabond))
+    if captains:
+        items.extend(_lfg_item("Captain", c) for c in captains)
+    _capture_lfg_components(payload.get("channel_id"), items)
+
     embed = _draft_result_embed(
         drawn, players, platform, banned_slugs, factions,
         author=_interaction_author(payload), vagabond=vagabond, captains=captains,
@@ -778,7 +827,8 @@ def _handle_random_command(data):
         # Captains don't vary by platform, so skip the prompt. Passing TTS avoids
         # the Root Digital (in_root_digital) filter in _random_eligible. This is a
         # component-less public result (type 4), so it needs no owner lock.
-        result, error = _random_post_result("Captain", DRAFT_PLATFORM_TTS, author=author)
+        result, error = _random_post_result("Captain", DRAFT_PLATFORM_TTS, author=author,
+                                            channel_id=data.get("_channel_id"))
         if error:
             return _ephemeral(error)
         return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": result})
@@ -842,10 +892,11 @@ def _random_post_image_url(kind, post):
     return _post_image_url(post, field="card_2_image" if kind == "Captain" else None)
 
 
-def _random_post_result(kind, platform, hireling_type=None, author=None):
+def _random_post_result(kind, platform, hireling_type=None, author=None, channel_id=None):
     """Return (message_data, error) for a post-backed random kind as the unified
     /random embed (linked title + large board/card image). `hireling_type` ('P'/'D')
-    narrows Hirelings to one side."""
+    narrows Hirelings to one side. When `channel_id` is a known LFG thread, the
+    chosen component is recorded on the LFGThread."""
     posts = list(_random_eligible(kind, platform, hireling_type))
     if not posts:
         # Only Captain skips the platform prompt; every other post kind (incl.
@@ -853,6 +904,7 @@ def _random_post_result(kind, platform, hireling_type=None, author=None):
         where = " for that platform" if kind in RANDOM_POST_MODELS and kind != "Captain" else ""
         return None, f"No eligible {kind} found{where}."
     chosen = random.choice(posts)
+    _capture_lfg_components(channel_id, [_lfg_item(kind, chosen)])
     embed = _random_result_embed(
         kind, chosen.title, _random_chosen_from(kind, posts),
         author=author, url=_post_url(chosen), image_url=_random_post_image_url(kind, chosen),
@@ -911,7 +963,8 @@ def _handle_random_post(payload):
                      "components": [_random_hireling_side_row(platform_key, args[-1])]},
         })
     platform = RANDOM_PLATFORM_KEYS.get(platform_key, DRAFT_PLATFORM_TTS)
-    result, error = _random_post_result(kind, platform, author=_interaction_author(payload))
+    result, error = _random_post_result(kind, platform, author=_interaction_author(payload),
+                                        channel_id=payload.get("channel_id"))
     if error:
         return _random_error_edit(error)
     return _random_result_edit(payload, result)
@@ -925,6 +978,7 @@ def _handle_random_hireling(payload):
     hireling_type = args[1] if len(args) > 1 else "E"  # default to Either
     result, error = _random_post_result(
         "Hireling", platform, hireling_type=hireling_type, author=_interaction_author(payload),
+        channel_id=payload.get("channel_id"),
     )
     if error:
         return _random_error_edit(error)
@@ -939,6 +993,291 @@ def _handle_random_roll(payload):
     return _random_result_edit(payload, {"embeds": [embed]})
 
 
+# ── /lfg ─────────────────────────────────────────────────────────────────────
+# A Looking-For-Game post. The message is stateless: the Players and Notify lists
+# live in embed fields and are parsed back out on each interaction. Buttons:
+#   Join / Notify  — clickable by ANYONE (custom_id ends in the non-snowflake "g",
+#                    so the dispatcher owner-lock does not fire).
+#   ❌ Cancel / ✅ Start — owner-only (owner snowflake is the last custom_id arg,
+#                    which the dispatcher owner-lock enforces before the handler).
+LFG_PLAYERS_FIELD = "Players"
+LFG_NOTIFY_FIELD = "🔔 Notify"
+LFG_DEFAULT_TITLE = "Looking for Game"
+_LFG_MENTION_RE = re.compile(r"<@!?(\d+)>")
+_LFG_ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
+_LFG_PLAYER_LINE_RE = re.compile(r"^(.*) \(<@!?(\d+)>\)$")
+
+
+def _lfg_field(embed, name):
+    """The embed field dict with this name, or None."""
+    for f in embed.get("fields", []):
+        if f.get("name") == name:
+            return f
+    return None
+
+
+def _lfg_ids_in_field(embed, name):
+    """Set of user ids mentioned in the named field's value."""
+    field = _lfg_field(embed, name)
+    if not field:
+        return set()
+    return set(_LFG_MENTION_RE.findall(field.get("value", "")))
+
+
+def _lfg_player_lines(embed):
+    """[{"id","name"}] parsed from the Players field lines."""
+    field = _lfg_field(embed, LFG_PLAYERS_FIELD)
+    players = []
+    if not field:
+        return players
+    for line in field.get("value", "").splitlines():
+        m = _LFG_PLAYER_LINE_RE.match(line.strip())
+        if m:
+            players.append({"name": m.group(1), "id": m.group(2)})
+    return players
+
+
+def _lfg_player_line(name, uid):
+    return f"{name} (<@{uid}>)"
+
+
+def _lfg_member_display_name(payload):
+    """The clicker's guild display name: member nick, then global_name, then username."""
+    member = payload.get("member") or {}
+    user = member.get("user") or payload.get("user") or {}
+    return member.get("nick") or user.get("global_name") or user.get("username") or "Player"
+
+
+def _lfg_message_data(author, owner, description, players_value, notify_value="—",
+                      content=None, title=LFG_DEFAULT_TITLE):
+    """Build the full join-message payload (embed + button row). Used ONLY for the
+    initial post and the picker→join transition — never to re-render on Join/Notify
+    (that would wipe the other field; those handlers mutate the echoed embed)."""
+    embed = {
+        "author": author,
+        "title": title,
+        "description": description,
+        "fields": [
+            {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
+            {"name": LFG_NOTIFY_FIELD, "value": notify_value, "inline": False},
+        ],
+    }
+    row = action_row(
+        button("Join", encode_custom_id("lfg_join", owner, "g"), style=STYLE_PRIMARY),
+        button("Notify", encode_custom_id("lfg_notify", owner, "g"),
+               style=STYLE_SECONDARY, emoji={"name": "🔔"}),
+        button("", encode_custom_id("lfg_cancel", owner), style=STYLE_DANGER, emoji={"name": "❌"}),
+        button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✅"}),
+    )
+    data = {"embeds": [embed], "components": [row]}
+    if content:
+        data["content"] = content
+    return data
+
+
+def _handle_lfg_command(data):
+    """/lfg: post a Looking-For-Game call. If the guild has LFG roles, ping the
+    single role (or show an owner-only picker for several); otherwise a plain post."""
+    description = (_get_option(data, "description") or "").strip()
+    author = data.get("_author")
+    owner = data.get("_author_id")
+    if not owner:
+        return _ephemeral("Couldn't identify you, try again.")
+
+    # Onboard the invoker to the site (fire-and-forget).
+    ensure_profile_from_discord_task.delay(owner, data.get("_author_username"),
+                                           (author or {}).get("name"))
+
+    guild = DiscordGuild.objects.filter(guild_id=data.get("_guild_id")).first()
+    roles = list(guild.lfg_roles.all()) if guild else []
+
+    players_value = _lfg_player_line(_author_display_from_data(data), owner)
+
+    if not roles:
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _lfg_message_data(author, owner, description, players_value),
+        })
+
+    if len(roles) == 1:
+        role = roles[0]
+        title = role.description or role.name or LFG_DEFAULT_TITLE
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _lfg_message_data(author, owner, description, players_value,
+                                      content=role.mention(), title=title),
+        })
+
+    # Multiple roles: owner-only picker. Carry the game description in the picker
+    # embed's description so the pick handler can rebuild the join message.
+    embed = {"author": author, "title": "Pick an LFG role", "description": description}
+    if len(roles) <= 5:
+        row = action_row(*[
+            button(role.name[:80], encode_custom_id("lfg_pick", role.pk, owner),
+                   style=STYLE_SECONDARY)
+            for role in roles
+        ])
+        components = [row]
+    else:
+        options = [select_option(role.name, str(role.pk)) for role in roles]
+        components = [action_row(string_select(
+            encode_custom_id("lfg_pick", owner), options, placeholder="Choose an LFG role"))]
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"embeds": [embed], "components": components},
+    })
+
+
+def _author_display_from_data(data):
+    """The invoker's guild display name for the initial Players line. The command
+    payload doesn't carry member.nick down to `data`, so use the author embed name
+    (global_name/username) — good enough for the poster's own line."""
+    return (data.get("_author") or {}).get("name") or "Player"
+
+
+def _handle_lfg_pick(payload):
+    """Picker resolved (button or select): transition the picker into the join
+    message with the chosen role pinged and its description as the title."""
+    data = payload["data"]
+    custom_id = data.get("custom_id", "")
+    _action, args = decode_custom_id(custom_id)
+    # Button picker: lfg_pick:{rolePk}:{owner}. Select picker: lfg_pick:{owner} with
+    # the chosen pk in data["values"].
+    if data.get("values"):
+        role_pk = data["values"][0]
+        owner = args[-1] if args else None
+    else:
+        role_pk = args[0] if args else None
+        owner = args[-1] if len(args) > 1 else None
+
+    message = payload.get("message", {})
+    embed = (message.get("embeds") or [{}])[0]
+    author = embed.get("author")
+    description = embed.get("description", "")
+
+    role = GuildLFGRole.objects.filter(pk=role_pk).first()
+    if not role:
+        return _ephemeral("That role no longer exists.")
+
+    title = role.description or role.name or LFG_DEFAULT_TITLE
+    players_value = _lfg_player_line(_lfg_member_display_name(payload), owner)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _lfg_message_data(author, owner, description, players_value,
+                                  content=role.mention(), title=title),
+    })
+
+
+def _lfg_jump_url(payload):
+    guild_id = payload.get("guild_id")
+    channel_id = payload.get("channel_id")
+    message_id = (payload.get("message") or {}).get("id")
+    if channel_id and message_id:
+        gid = guild_id or "@me"
+        return f"https://discord.com/channels/{gid}/{channel_id}/{message_id}"
+    return None
+
+
+def _handle_lfg_join(payload):
+    """Join (anyone): add the clicker to the Players field if not already present,
+    DM the notify subscribers, and onboard the clicker. Mutates the echoed embed so
+    the Notify field is preserved."""
+    try:
+        embed = payload["message"]["embeds"][0]
+        clicker = _interaction_user_id(payload)
+        joined = _lfg_ids_in_field(embed, LFG_PLAYERS_FIELD)
+        if clicker in joined:
+            return _ephemeral("You're already in this game.")
+
+        display = _lfg_member_display_name(payload)
+        field = _lfg_field(embed, LFG_PLAYERS_FIELD)
+        if field is None:
+            return _ephemeral("Couldn't update the game, try again.")
+        existing = field.get("value", "").strip()
+        field["value"] = (existing + "\n" if existing else "") + _lfg_player_line(display, clicker)
+
+        # Notify the subscribers (excluding the joiner), and onboard the joiner.
+        notify_ids = list(_lfg_ids_in_field(embed, LFG_NOTIFY_FIELD) - {clicker})
+        if notify_ids:
+            notify_lfg_task.delay(notify_ids, display, embed.get("description", ""),
+                                  _lfg_jump_url(payload))
+        user = (payload.get("member") or {}).get("user") or {}
+        ensure_profile_from_discord_task.delay(clicker, user.get("username"), display)
+
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"embeds": [embed]},
+        })
+    except (KeyError, IndexError, TypeError):
+        logger.exception("Error handling lfg_join")
+        return _ephemeral("Couldn't update the game, try again.")
+
+
+def _handle_lfg_notify(payload):
+    """Notify (anyone): subscribe the clicker to join DMs. Does NOT add them to
+    Players. Mutates the echoed embed so the Players field is preserved."""
+    try:
+        embed = payload["message"]["embeds"][0]
+        clicker = _interaction_user_id(payload)
+        subscribed = _lfg_ids_in_field(embed, LFG_NOTIFY_FIELD)
+        if clicker in subscribed:
+            return _ephemeral("You're already getting notified.")
+
+        field = _lfg_field(embed, LFG_NOTIFY_FIELD)
+        if field is None:
+            return _ephemeral("Couldn't update the game, try again.")
+        existing = field.get("value", "").strip()
+        if existing in ("", "—"):
+            field["value"] = f"<@{clicker}>"
+        else:
+            field["value"] = f"{existing} <@{clicker}>"
+
+        display = _lfg_member_display_name(payload)
+        user = (payload.get("member") or {}).get("user") or {}
+        ensure_profile_from_discord_task.delay(clicker, user.get("username"), display)
+
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"embeds": [embed]},
+        })
+    except (KeyError, IndexError, TypeError):
+        logger.exception("Error handling lfg_notify")
+        return _ephemeral("Couldn't update the game, try again.")
+
+
+def _handle_lfg_cancel(payload):
+    """Cancel (owner-only): remove the buttons and note the game was cancelled."""
+    embed = (payload.get("message", {}).get("embeds") or [{}])[0]
+    embed["description"] = (embed.get("description") or "") + "\n\n*Game was cancelled.*"
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"embeds": [embed], "components": []},
+    })
+
+
+def _handle_lfg_start(payload):
+    """Start (owner-only): remove the buttons, mark started, and offload thread
+    creation + LFGThread persistence to Celery (keeps within the 3s ack window)."""
+    message = payload.get("message", {})
+    embed = (message.get("embeds") or [{}])[0]
+    players = _lfg_player_lines(embed)
+    description = embed.get("description", "")
+
+    embed["description"] = description + "\n\n✅ *Game has started.*"
+
+    role_match = _LFG_ROLE_MENTION_RE.search(message.get("content", "") or "")
+    role_id = role_match.group(1) if role_match else None
+
+    create_lfg_thread_task.delay(
+        payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
+        role_id, description, players,
+    )
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"embeds": [embed], "components": []},
+    })
+
+
 COMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
@@ -950,6 +1289,7 @@ COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
 COMMAND_HANDLERS["random"] = _handle_random_command
+COMMAND_HANDLERS["lfg"] = _handle_lfg_command
 
 
 # Component (button/select) handlers, keyed by the custom_id's action prefix.
@@ -960,6 +1300,11 @@ COMPONENT_HANDLERS = {
     "random_post": _handle_random_post,
     "random_roll": _handle_random_roll,
     "random_hireling": _handle_random_hireling,
+    "lfg_pick": _handle_lfg_pick,
+    "lfg_join": _handle_lfg_join,
+    "lfg_notify": _handle_lfg_notify,
+    "lfg_cancel": _handle_lfg_cancel,
+    "lfg_start": _handle_lfg_start,
 }
 
 
@@ -1145,9 +1490,16 @@ def discord_interactions(request):
             try:
                 # Stash the invoking user (from the top-level payload, not `data`)
                 # so handlers can build author-attributed embeds (_author) and
-                # owner-lock the prompts they post (_author_id).
+                # owner-lock the prompts they post (_author_id). Also stash the guild
+                # (for /lfg role lookup + invoker onboarding), the invoker's username
+                # (onboarding), and the channel id (so /random Captain — resolved in
+                # the command handler — can capture into an LFG thread).
+                member_user = (payload.get("member") or {}).get("user") or payload.get("user") or {}
                 data["_author"] = _interaction_author(payload)
                 data["_author_id"] = _interaction_user_id(payload)
+                data["_guild_id"] = guild_id
+                data["_author_username"] = member_user.get("username")
+                data["_channel_id"] = payload.get("channel_id")
                 return handler(data)
             except Exception:
                 logger.exception("Error handling /%s interaction", command_name)

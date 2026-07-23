@@ -11,6 +11,7 @@ This update fills out the bot functionality and adds more complex features for t
 - /random command for generating random selections
 - Databot info page to add bot to server
 - Guilds an users can be blacklisted from Bot use if they are found to be abusing or misusing it
+- beta version of /lfg command
 
 ### Improvements
 - Guilds can now be assigned Moderators (can add invite, assign mods, add LFG roles)

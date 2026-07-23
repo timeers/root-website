@@ -130,6 +130,16 @@ RANDOM_COMMAND = {
 }
 
 
+LFG_COMMAND = {
+    "name": "lfg",
+    "description": "Post a Looking For Game call others can join",
+    "options": [
+        {"name": "description", "description": "What game you're looking for",
+         "type": 3, "required": True},
+    ],
+}
+
+
 # All command definitions registered with Discord.
 COMMANDS = [
     HELP_COMMAND,
@@ -147,6 +157,7 @@ COMMANDS = [
     LAW_COMMAND,
     DRAFT_COMMAND,
     RANDOM_COMMAND,
+    LFG_COMMAND,
 ]
 
 
@@ -158,7 +169,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule"]),
     ("Stats", ["stats"]),
-    ("Games", ["upcoming"]),
+    ("Games", ["upcoming", "lfg"]),
     ("Random", ["draft", "random"]),
 ]
 

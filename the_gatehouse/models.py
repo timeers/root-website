@@ -234,6 +234,44 @@ class GuildLFGRole(models.Model):
             return f"<@&{self.role_id}>"
         return self.name
 
+class LFGThread(models.Model):
+    """A started LFG game's Discord thread, captured as a durable curation object.
+    Later feeds an `lfg_mode` game-form flow (mirroring today's match_mode)."""
+    thread_id = models.CharField(
+        max_length=32, unique=True,
+        help_text="Discord thread id (also the channel id inside the thread).")
+    guild = models.ForeignKey(
+        DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="lfg_threads")
+    lfg_role = models.ForeignKey(
+        GuildLFGRole, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="lfg_threads")
+    description = models.TextField(blank=True, default="")
+    players = models.ManyToManyField("Profile", blank=True, related_name="lfg_threads")
+
+    # Curated components surfaced inside the thread by /random, /map, /deck, other
+    # lookups, and /draft. `map`/`deck` hold the MOST RECENT of each (whether rolled
+    # or selected) — the fields a Game needs directly; `rolls` is the full append-only
+    # log so we retain every result and other kinds (faction/vagabond/clockwork/
+    # hireling/landmark/captain/tweak, incl. all /draft picks) for the future lfg_mode.
+    map = models.ForeignKey(
+        "the_keep.Map", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    deck = models.ForeignKey(
+        "the_keep.Deck", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    rolls = models.JSONField(
+        default=list, blank=True,
+        help_text='Append-only list of {"kind","slug","title","at"} for every '
+                  'component surfaced in this thread (/random, /map, /deck, other '
+                  'lookups, /draft).')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"LFGThread {self.thread_id} ({self.players.count()} players)"
+
 class Holiday(models.Model):
     name = models.CharField(max_length=100)
     start_date = models.DateField(default=timezone.now)
