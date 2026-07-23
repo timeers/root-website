@@ -36,6 +36,7 @@ from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
+    roll_emoji_for,
 )
 from .services.discord_commands import (
     DISPLAY_BOTH, DISPLAY_LINK, DISPLAY_IMAGE,
@@ -820,14 +821,19 @@ def _random_post_result(kind, platform, hireling_type=None, author=None):
 
 def _random_roll_embed(dice, author=None):
     """The unified /random embed for a roll of `dice` 0-3 dice; two dice show the
-    larger first. No post, so no link/thumbnail."""
+    larger first. The die-face emoji appear in the body in the same order as the
+    title. No post, so no link/thumbnail."""
     rolls = [random.randint(0, 3) for _ in range(dice)]
     if dice == 2:
-        a, b = sorted(rolls, reverse=True)
-        value, sub = f"{a}-{b}", "Rolled 2 dice"
+        faces = sorted(rolls, reverse=True)  # larger first, matching the title
+        value, sub = f"{faces[0]}-{faces[1]}", "Rolled 2 dice"
     else:
-        value, sub = str(rolls[0]), "Rolled 1 die"
-    return _random_result_embed("Roll", value, sub, author=author)
+        faces = rolls
+        value, sub = str(faces[0]), "Rolled 1 die"
+    # Die-face emoji above the "Rolled N dice" subtext (only place emoji render).
+    marks = " ".join(roll_emoji_for(f) for f in faces if roll_emoji_for(f))
+    description = f"{marks}\n{sub}" if marks else sub
+    return _random_result_embed("Roll", value, description, author=author)
 
 
 def _random_followup(payload, message_data):

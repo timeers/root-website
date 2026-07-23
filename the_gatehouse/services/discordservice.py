@@ -865,6 +865,12 @@ def suit_emoji_for(suit, variant):
     return get_application_emoji().get(name, "")
 
 
+def roll_emoji_for(value):
+    """Return the application-emoji string for a die face 0-3, or "" if not
+    uploaded. Emoji are named "roll_{value}" (e.g. "roll_2")."""
+    return get_application_emoji().get(f"roll_{value}", "")
+
+
 def _item_emoji_value(vagabond, prefix):
     """Emoji string for a vagabond's item counts, repeating each emoji by its
     count. `prefix` is the field prefix, e.g. "starting" or "captain"."""
