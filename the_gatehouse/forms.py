@@ -555,10 +555,41 @@ class GuildEditForm(forms.ModelForm):
 
 
 class GuildLFGRoleForm(forms.ModelForm):
+    # `name` is NOT a form field — it's derived from the picked role's Discord name in
+    # the save view. role_id / forum_channel_id / forum_tag_id are rendered as live
+    # dropdowns via HTMX (see lfg_role_form_fields.html); they bind normally by name.
     class Meta:
         model = GuildLFGRole
-        fields = ['name', 'role_id', 'description', 'forum_channel_id', 'forum_tag_id', 'thread_message']
+        fields = ['role_id', 'description', 'forum_channel_id', 'forum_tag_id', 'thread_message']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 2}),
             'thread_message': forms.Textarea(attrs={'rows': 2}),
         }
+
+    def clean(self):
+        cleaned = super().clean()
+        role_id = cleaned.get('role_id')
+        channel_id = cleaned.get('forum_channel_id')
+        tag_id = cleaned.get('forum_tag_id')
+
+        # role_id is required at the form level (the dropdown always offers one).
+        if not role_id:
+            self.add_error('role_id', 'Choose a role.')
+
+        # A tag only means something with a forum; drop an orphan tag.
+        if tag_id and not channel_id:
+            cleaned['forum_tag_id'] = None
+            tag_id = None
+
+        # Validate the tag against the forum's real tags (cached). Skip if Discord is
+        # unreachable or the channel isn't a forum — don't hard-block a legitimate save.
+        if channel_id:
+            from .services.discordservice import get_forum_channel_info
+            info = get_forum_channel_info(channel_id)
+            if info is not None and info['is_forum']:
+                valid_ids = {t['id'] for t in info['tags']}
+                if tag_id and tag_id not in valid_ids:
+                    self.add_error('forum_tag_id', "That tag is not one of the forum channel's tags.")
+                if info['requires_tag'] and not tag_id:
+                    self.add_error('forum_tag_id', 'This forum requires a tag — please choose one.')
+        return cleaned

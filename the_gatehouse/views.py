@@ -27,7 +27,9 @@ from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, GuildLFGRole
-from .services.discordservice import update_discord_avatar, get_discord_invite_info, get_user_guilds
+from .services.discordservice import (update_discord_avatar, get_discord_invite_info, get_user_guilds,
+                                      get_guild_roles, get_guild_forum_channels, get_forum_channel_info,
+                                      bot_in_guild)
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
 from .tasks import send_rich_discord_message_task, send_discord_message_task
@@ -1546,10 +1548,20 @@ def edit_guild(request, guild_id):
     else:
         form = GuildEditForm(instance=guild)
 
+    # The daily sync_bot_guilds task refreshes bot_member in bulk, so it can be stale
+    # right after inviting the bot. If it says the bot isn't here, do one cheap probe
+    # (cached ~5 min) and flip the flag when the bot is actually present — otherwise the
+    # LFG dropdowns would needlessly fall back to manual entry until the next sync.
+    if not guild.bot_member and bot_in_guild(guild.guild_id):
+        guild.bot_member = True
+        guild.save(update_fields=['bot_member'])
+
+    lfg_add_form = GuildLFGRoleForm()
     context = {'form': form, 'guild': guild,
                'moderators': guild.guild_moderators.all(),
                'lfg_roles': guild.lfg_roles.all(),
-               'lfg_add_form': GuildLFGRoleForm(),
+               'lfg_add_form': lfg_add_form,
+               'lfg_add_ctx': _lfg_field_context(guild, lfg_add_form),
                'is_admin': profile.admin}
     return render(request, 'the_gatehouse/edit_guild.html', context)
 
@@ -1569,8 +1581,10 @@ def hx_save_lfg_role(request, guild_id, pk=None):
         if request.GET.get('display'):
             return render(request, 'the_gatehouse/partials/lfg_role_row.html',
                           {'role': role, 'guild': guild})
+        edit_form = GuildLFGRoleForm(instance=role)
         return render(request, 'the_gatehouse/partials/lfg_role_form.html',
-                      {'form': GuildLFGRoleForm(instance=role), 'role': role, 'guild': guild})
+                      {'form': edit_form, 'role': role, 'guild': guild,
+                       'field_ctx': _lfg_field_context(guild, edit_form)})
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
 
@@ -1578,22 +1592,33 @@ def hx_save_lfg_role(request, guild_id, pk=None):
     if form.is_valid():
         obj = form.save(commit=False)
         obj.guild = guild
+        # `name` isn't a form field — derive it from the picked role's real Discord name
+        # (cached from the dropdown render). Fall back to the existing name (edit) or the
+        # role id so `name` (part of the unique_together key) is never empty.
+        roles = get_guild_roles(guild.guild_id)
+        discord_name = next(
+            (r['name'] for r in (roles or []) if r['id'] == obj.role_id), None)
+        obj.name = discord_name or obj.name or obj.role_id
         try:
             obj.validate_unique()   # (guild, name) — guild set after validation
         except ValidationError:
-            form.add_error('name', 'This guild already has a role with that name.')
+            # `name` isn't rendered, so attach the message to the visible role field.
+            form.add_error('role_id', 'This guild already has an LFG entry for that role.')
         else:
             obj.save()
             if pk is None:
                 # Add: replace the add-form in place with a fresh one, and append the
                 # new row out-of-band into the list.
+                fresh_form = GuildLFGRoleForm()
                 return render(request, 'the_gatehouse/partials/lfg_role_added.html',
-                              {'role': obj, 'guild': guild, 'form': GuildLFGRoleForm()})
+                              {'role': obj, 'guild': guild, 'form': fresh_form,
+                               'field_ctx': _lfg_field_context(guild, fresh_form)})
             # Edit: swap the edit form back to the read-only row.
             return render(request, 'the_gatehouse/partials/lfg_role_row.html',
                           {'role': obj, 'guild': guild})
     return render(request, 'the_gatehouse/partials/lfg_role_form.html',
-                  {'form': form, 'role': role, 'guild': guild}, status=422)
+                  {'form': form, 'role': role, 'guild': guild,
+                   'field_ctx': _lfg_field_context(guild, form)}, status=422)
 
 
 @login_required
@@ -1604,7 +1629,76 @@ def hx_delete_lfg_role(request, guild_id, pk):
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
     get_object_or_404(GuildLFGRole, pk=pk, guild=guild).delete()
-    return HttpResponse(status=200)   # row target hx-swap="outerHTML" removes it
+    # Remove the row (hx-swap="outerHTML" on an empty response) and OOB-refresh the add
+    # form so the freed role reappears in its dropdown and the form un-hides if it had
+    # been hidden (no roles left).
+    fresh_form = GuildLFGRoleForm()
+    return render(request, 'the_gatehouse/partials/lfg_role_deleted.html',
+                  {'guild': guild, 'form': fresh_form,
+                   'field_ctx': _lfg_field_context(guild, fresh_form)})
+
+
+def _lfg_field_context(guild, form):
+    """Data for the LFG-role form's role/forum/tag dropdowns, fetched from Discord
+    (cached ~5 min) at render time. The role and forum-channel selects are rendered
+    server-side; the tag select's options are owned entirely by the client
+    (static/js/lfg_forum_tags.js), which rebuilds them from `forum_tag_map` (a single
+    page-level JSON blob) on load, after each HTMX swap, and on channel change. The
+    tag select is only seeded server-side with the saved option so an edit form is
+    correct with no flash even before JS runs. Reading selections from the bound form
+    keeps them on a POST-invalid re-render. Any list fetch returning None makes that
+    control fall back to a manual text input (see lfg_role_form_fields.html)."""
+    role_sel = str(form['role_id'].value() or '')
+    channel_sel = str(form['forum_channel_id'].value() or '')
+    tag_sel = str(form['forum_tag_id'].value() or '')
+
+    # Only hit Discord if the bot is actually in this guild. Otherwise every roles/
+    # forums/tags call 404s/403s (and the tag-map loop fires one request per channel),
+    # spamming errors and making the page slow. bot_member is kept current by
+    # sync_bot_guilds. When absent, treat lists as unfetchable (None) so the fields fall
+    # back to manual text inputs (see lfg_role_form_fields.html).
+    if guild.bot_member:
+        roles = get_guild_roles(guild.guild_id)
+        forums = get_guild_forum_channels(guild.guild_id)
+    else:
+        roles = None
+        forums = None
+
+    # Hide roles already used by this guild so the same role can't be added twice —
+    # but keep the one this form is editing (role_sel) so it still shows on an edit
+    # form. `no_roles_left` (only meaningful when the fetch succeeded) tells the add
+    # form there's nothing left to add. Deleting a role frees its id again (the delete
+    # view re-renders a fresh add form). role_id is unique per guild via (guild, name).
+    used_role_ids = set(guild.lfg_roles.values_list('role_id', flat=True)) - {role_sel}
+    if roles is not None:
+        roles = [r for r in roles if r['id'] not in used_role_ids]
+    no_roles_left = roles is not None and not roles
+
+    # Pre-fetch every forum's tags so the tag dropdown can be built client-side with
+    # no round-trip. get_forum_channel_info is cached ~5 min (successes only), and a
+    # guild has few forums, so worst case is a handful of Discord GETs on a cold cache;
+    # every later render hits the cache. A failed fetch still gets an (empty-tags) entry
+    # so the client distinguishes "known forum, no tags" from "nothing selected".
+    forum_tag_map = {}
+    for f in (forums or []):
+        finfo = get_forum_channel_info(f['id'])
+        if finfo and finfo['is_forum']:
+            forum_tag_map[f['id']] = {'requires_tag': finfo['requires_tag'], 'tags': finfo['tags']}
+        else:
+            forum_tag_map[f['id']] = {'requires_tag': False, 'tags': []}
+
+    # Name for the saved tag's seeded <option> (JS replaces the full list on load).
+    tag_selected_name = next(
+        (t['name'] for t in forum_tag_map.get(channel_sel, {}).get('tags', [])
+         if t['id'] == tag_sel), '')
+    return {
+        'roles': roles, 'role_ids': [r['id'] for r in roles] if roles else [],
+        'no_roles_left': no_roles_left,
+        'forums': forums, 'forum_ids': [f['id'] for f in forums] if forums else [],
+        'forum_tag_map': forum_tag_map,
+        'role_selected': role_sel, 'channel_selected': channel_sel,
+        'tag_selected': tag_sel, 'tag_selected_name': tag_selected_name,
+    }
 
 
 @login_required

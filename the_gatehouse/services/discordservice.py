@@ -8,6 +8,7 @@ from datetime import timedelta
 from allauth.socialaccount.models import SocialAccount
 
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -238,6 +239,133 @@ def get_bot_guilds():
     except requests.RequestException as e:
         logger.error("Failed to fetch bot guilds: %s", e)
         return None
+
+
+def bot_in_guild(guild_id):
+    """Cheap check of whether the bot is a member of a single guild, or None if we
+    can't tell (network/auth error). One GET /guilds/{id}: 200 → in, 403/404 → not.
+    Used to self-correct a stale DiscordGuild.bot_member=False when a moderator opens
+    the guild edit page (the daily sync_bot_guilds task keeps the flag current in bulk).
+    Cached ~5 min so rapid reloads / HTMX round-trips don't re-probe."""
+    if not guild_id:
+        return None
+    key = f"bot_in_guild:{guild_id}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/guilds/{guild_id}",
+            headers=_bot_headers(),
+            timeout=10,
+        )
+        if response.status_code in (403, 404):
+            cache.set(key, False, _DISCORD_LOOKUP_TTL)
+            return False
+        response.raise_for_status()
+    except requests.RequestException as e:
+        logger.error("Failed to check bot membership for guild %s: %s", guild_id, e)
+        return None
+    cache.set(key, True, _DISCORD_LOOKUP_TTL)
+    return True
+
+
+# Cached (~5 min) reads of a guild's roles/forums/tags, used to build the LFG-role
+# settings dropdowns. Each requires only that the bot is a member of the guild (no
+# special permission bit); a 403/404 → None so the form can fall back to manual entry.
+_DISCORD_LOOKUP_TTL = 300
+
+
+def get_guild_roles(guild_id):
+    """Assignable roles for a guild as [{"id","name"}], or None on failure. Excludes
+    @everyone (its id == the guild id) and managed roles (bot/integration/booster roles
+    nobody can be manually assigned). Cached ~5 min."""
+    if not guild_id:
+        return None
+    key = f"guild_roles:{guild_id}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/guilds/{guild_id}/roles",
+            headers=_bot_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as e:
+        logger.error("Failed to fetch roles for guild %s: %s", guild_id, e)
+        return None
+    roles = [
+        {"id": str(r["id"]), "name": r.get("name", "")}
+        for r in sorted(data, key=lambda r: r.get("position", 0), reverse=True)
+        if str(r["id"]) != str(guild_id) and not r.get("managed")
+    ]
+    cache.set(key, roles, _DISCORD_LOOKUP_TTL)
+    return roles
+
+
+def get_guild_forum_channels(guild_id):
+    """Forum/media channels for a guild as [{"id","name"}], or None on failure.
+    Cached ~5 min."""
+    if not guild_id:
+        return None
+    key = f"guild_forum_channels:{guild_id}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/guilds/{guild_id}/channels",
+            headers=_bot_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as e:
+        logger.error("Failed to fetch channels for guild %s: %s", guild_id, e)
+        return None
+    forums = [
+        {"id": str(c["id"]), "name": c.get("name", "")}
+        for c in data if c.get("type") in (15, 16)  # 15 GUILD_FORUM, 16 GUILD_MEDIA
+    ]
+    cache.set(key, forums, _DISCORD_LOOKUP_TTL)
+    return forums
+
+
+def get_forum_channel_info(channel_id):
+    """Forum channel details for the tag dropdown, or None on failure. Returns
+    {"is_forum": bool, "requires_tag": bool, "tags": [{"id","name"}]} — a non-forum
+    channel still returns a dict (is_forum=False) so callers distinguish that from a
+    failed fetch (None). Cached ~5 min (successes only)."""
+    if not channel_id:
+        return None
+    key = f"forum_channel_info:{channel_id}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/channels/{channel_id}",
+            headers=_bot_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as e:
+        logger.error("Failed to fetch forum channel %s: %s", channel_id, e)
+        return None
+    info = {
+        "is_forum": data.get("type") in (15, 16),
+        "requires_tag": bool((data.get("flags") or 0) & 16),  # REQUIRE_TAG = 1<<4
+        "tags": [
+            {"id": str(t["id"]), "name": t.get("name", "")}
+            for t in (data.get("available_tags") or [])
+        ],
+    }
+    cache.set(key, info, _DISCORD_LOOKUP_TTL)
+    return info
 
 
 def sync_bot_guilds():
