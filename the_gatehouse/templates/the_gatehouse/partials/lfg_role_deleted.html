@@ -1,0 +1,9 @@
+{% comment %}
+    Response for a successful LFG-role DELETE.
+    Main swap: the deleted row's target (#lfg-role-row-<pk>, hx-swap="outerHTML") is
+    replaced by this response's non-OOB content — which is empty, so the row is removed.
+    Out-of-band: the add form (its own root carries hx-swap-oob via oob=True) is re-rendered
+    in place so the freed role reappears in the dropdown and the form un-hides if every role
+    had been used.
+{% endcomment %}
+{% include 'the_gatehouse/partials/lfg_role_form.html' with form=form role=None guild=guild field_ctx=field_ctx oob=True %}

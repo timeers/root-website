@@ -200,7 +200,7 @@ class GuildLFGRole(models.Model):
     )
     name = models.CharField(
         max_length=100,
-        help_text="Display tag for the role, e.g. @LFG or @LFG_TTS",
+        help_text="Display tag for the role, e.g. Root Digital LFG or Root TTS LFG",
     )
     role_id = models.CharField(
         max_length=32,
@@ -216,7 +216,7 @@ class GuildLFGRole(models.Model):
     description = models.TextField(
         blank=True,
         null=True,
-        help_text="What this LFG role is for.",
+        help_text="Brief description of what this LFG role is for.",
     )
     forum_channel_id = models.CharField(
         max_length=32,
@@ -229,6 +229,19 @@ class GuildLFGRole(models.Model):
             "that forum channel instead of hanging it off the LFG message. In "
             "Discord: enable Developer Mode, right-click the forum channel, choose "
             "“Copy Channel ID”. Leave blank to thread off the message."
+        ),
+    )
+    forum_tag_id = models.CharField(
+        max_length=32,
+        blank=True,
+        null=True,
+        validators=[validate_discord_snowflake],
+        help_text=(
+            "Optional forum tag ID (a 17–20 digit number) applied to the game thread "
+            "when it's created in the forum channel above. Only used when a Forum "
+            "channel ID is set. In Discord: enable Developer Mode, then in the forum "
+            "channel's settings right-click a tag to copy its ID (or copy it from the "
+            "channel's tag list). Leave blank for no tag."
         ),
     )
     thread_message = models.TextField(

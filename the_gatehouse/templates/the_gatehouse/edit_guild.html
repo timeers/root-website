@@ -1,5 +1,5 @@
 {% extends "the_keep/base.html" %}
-{% load i18n crispy_forms_tags %}
+{% load i18n crispy_forms_tags static %}
 {% block title %}{% trans 'Edit' %} {{ guild.guild_name }} | {% endblock %}
 
 {% block content %}
@@ -71,23 +71,31 @@
     </form>
 
     <!-- LFG Roles (managed independently via HTMX) -->
-    <div class="card mb-4">
+    {% comment %} hx-headers here sends the CSRF token on every HTMX request in this card
+    (it's inherited by descendants). The delete button is a bare hx-post with no wrapping
+    form, so it has no {% csrf_token %} of its own and needs the header from here. {% endcomment %}
+    <div class="card mb-4" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
         <div class="card-header">
             <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'LFG Roles' %}</h5>
         </div>
         <div class="card-body">
+            {% comment %} {# Single page-level forum→tag map, read by every LFG-role form (add + HTMX-swapped
+               edit forms) to build the tag <select> client-side. Lives in this persistent shell
+               so it's still present after any HTMX swap. See static/js/lfg_forum_tags.js. #} {% endcomment %}
+            {{ lfg_add_ctx.forum_tag_map|json_script:'lfg-forum-tags' }}
             <div id="lfg-role-list">
                 {% for role in lfg_roles %}
                     {% include 'the_gatehouse/partials/lfg_role_row.html' with role=role guild=guild %}
                 {% endfor %}
             </div>
-            {% include 'the_gatehouse/partials/lfg_role_form.html' with form=lfg_add_form role=None guild=guild %}
+            {% include 'the_gatehouse/partials/lfg_role_form.html' with form=lfg_add_form role=None guild=guild field_ctx=lfg_add_ctx %}
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="{% static 'js/lfg_forum_tags.js' %}"></script>
 <script>
     function getModeratorExcludeIds() {
         const inputs = document.querySelectorAll('input[name="moderators"]');

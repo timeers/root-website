@@ -36,7 +36,7 @@ from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_wi
 from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
-    create_lfg_thread_task, record_lfg_components_task,
+    create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
@@ -1097,6 +1097,10 @@ def _lfg_message_data(author, owner, description, players_value,
     data = {"embeds": [embed], "components": [row]}
     if content:
         data["content"] = content
+        # Authorize the role ping on fresh posts (single-role flow). Harmless on the
+        # picker EDIT — Discord never notifies on edits, so that path also fires a
+        # separate fresh followup message to actually ping (see _handle_lfg_pick).
+        data["allowed_mentions"] = {"parse": ["roles"]}
     return data
 
 
@@ -1186,6 +1190,20 @@ def _handle_lfg_pick(payload):
 
     title = role.description or role.name or LFG_DEFAULT_TITLE
     players_value = _lfg_player_line(_lfg_member_display_name(payload), owner)
+
+    # The picker→join transition is an EDIT (RESPONSE_UPDATE_MESSAGE), and Discord
+    # never fires mention notifications on edits. So the role mention in the edited
+    # message renders but doesn't ping. Post a SEPARATE fresh followup message with
+    # the mention (a fresh message DOES ping). Offloaded to Celery: the edit below is
+    # the interaction ACK (must return <3s), and the task's retry sequences the
+    # followup after the ACK. Skip when role_id is blank — mention() is then a plain
+    # name with nothing to ping.
+    if role.role_id:
+        post_interaction_followup_task.delay(
+            payload["token"],
+            {"content": role.mention(), "allowed_mentions": {"parse": ["roles"]}},
+        )
+
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _lfg_message_data(author, owner, description, players_value,
@@ -1299,6 +1317,8 @@ def _handle_lfg_cancel(payload):
     # Status subtext goes in the embed footer (small text at the very bottom).
     # Use the monochrome ✖ to match the Cancel button glyph.
     embed["footer"] = {"text": "✖ Game was cancelled."}
+    # The Notify list is only useful while recruiting; drop it once cancelled.
+    _lfg_set_notify_ids(embed, [])
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"embeds": [embed], "components": []},
@@ -1316,6 +1336,8 @@ def _handle_lfg_start(payload):
     # Status subtext goes in the embed footer (small text at the very bottom).
     # Use the monochrome ✔ to match the Start button glyph.
     embed["footer"] = {"text": "✔ Game has started."}
+    # The Notify list is only useful while recruiting; drop it once started.
+    _lfg_set_notify_ids(embed, [])
 
     role_match = _LFG_ROLE_MENTION_RE.search(message.get("content", "") or "")
     role_id = role_match.group(1) if role_match else None

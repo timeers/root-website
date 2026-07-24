@@ -1,8 +1,8 @@
 {% load i18n %}
-<a href="{% url 'edit-guild' guild.id %}" class="text-decoration-none text-reset" id="guild-card-{{ guild.id }}">
-    <article class="content-section post-card d-flex align-items-center h-100">
+<a href="{% url 'edit-guild' guild.guild_id %}" class="text-decoration-none text-reset" id="guild-card-{{ guild.id }}">
+    <article class="guild-tile">
         {% if guild.get_icon_url %}
-            <img src="{{ guild.get_icon_url }}" alt="{{ guild.guild_name }} icon" class="md-avatar-icon me-3">
+            <img src="{{ guild.get_icon_url }}" alt="{{ guild.guild_name }} icon" class="guild-tile-icon me-3">
         {% else %}
             <i class="bi bi-discord me-3 text-muted" style="font-size: 2rem;"></i>
         {% endif %}

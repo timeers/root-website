@@ -362,7 +362,7 @@ def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=Non
     for uid in notify_ids:
         if owner_id and str(uid) == str(owner_id):
             content = (f"**{joiner_name}** joined {game}.{link}\n"
-                       "When it's full, press ✅ to start the thread. Every player will be pinged.")
+                       "When it's full, press ✅ to start the thread and ping each player.")
         else:
             content = (f"**{joiner_name}** joined {game}.{link}\n"
                        "You'll be pinged in the game thread when it starts.")
@@ -403,7 +403,8 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
             forum_embed = dict(embed)
             forum_embed["url"] = _lfg_message_jump_url(guild_id, channel_id, message_id)
         thread_id = create_forum_thread(role.forum_channel_id, thread_name, content=kickoff,
-                                        embeds=[forum_embed] if forum_embed else None)
+                                        embeds=[forum_embed] if forum_embed else None,
+                                        tag_id=role.forum_tag_id)
     else:
         thread_id = create_message_thread(channel_id, message_id, thread_name)
         if thread_id:

@@ -1,0 +1,92 @@
+{% load i18n crispy_forms_tags %}
+{% comment %} Shared field body for the LFG-role add + edit forms. `name` is auto-derived
+(not shown). The role and forum-channel <select>s are rendered SERVER-SIDE from `field_ctx`.
+The forum-tag <select>'s OPTIONS are owned by static/js/lfg_forum_tags.js, which builds them
+from the single page-level `#lfg-forum-tags` JSON blob (see edit_guild.html) on load, after
+each HTMX swap, and when the channel changes. It's seeded here only with the saved tag so an
+edit form is correct with no flash even before JS runs. Always a real <select name=…> so it
+POSTs normally. The .lfg-role-fields wrapper scopes the JS to this one form.
+{% endcomment %}
+<div class="lfg-role-fields">
+
+    {# Non-field errors (e.g. the duplicate-role uniqueness message attached to role_id). #}
+    {% if form.role_id.errors %}
+        <div class="alert alert-danger py-2">{{ form.role_id.errors|striptags }}</div>
+    {% endif %}
+
+    {# ----- Role to ping ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Role to ping' %}</label>
+        {% if field_ctx.roles is None %}
+            {# Couldn't reach Discord — let the admin enter the role ID manually. #}
+            <input type="text" name="role_id" class="form-control"
+                   value="{{ field_ctx.role_selected }}" autocomplete="off"
+                   placeholder="{% trans 'Role ID' %}">
+            <div class="form-text text-warning">
+                {% trans "Couldn't load roles from Discord — enter a role ID manually." %}
+            </div>
+        {% else %}
+            <select name="role_id" class="form-select" required>
+                <option value="" {% if not field_ctx.role_selected %}selected{% endif %} disabled>
+                    {% trans '— Choose a role —' %}
+                </option>
+                {% for role in field_ctx.roles %}
+                    <option value="{{ role.id }}" {% if role.id == field_ctx.role_selected %}selected{% endif %}>
+                        {{ role.name }}
+                    </option>
+                {% endfor %}
+                {% if field_ctx.role_selected and field_ctx.role_selected not in field_ctx.role_ids %}
+                    <option value="{{ field_ctx.role_selected }}" selected>{% trans '(not listed)' %} {{ field_ctx.role_selected }}</option>
+                {% endif %}
+            </select>
+        {% endif %}
+    </div>
+
+    {{ form.description|as_crispy_field }}
+
+    {# ----- Forum channel (optional) ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Forum channel (optional)' %}</label>
+        {% if field_ctx.forums is None %}
+            <input type="text" name="forum_channel_id" class="form-control js-forum-channel-select"
+                   value="{{ field_ctx.channel_selected }}" autocomplete="off"
+                   placeholder="{% trans 'Forum channel ID' %}">
+            <div class="form-text text-warning">
+                {% trans "Couldn't load forums from Discord — enter a channel ID manually." %}
+            </div>
+        {% else %}
+            <select name="forum_channel_id" class="form-select js-forum-channel-select">
+                <option value="" {% if not field_ctx.channel_selected %}selected{% endif %}>{% trans '— No forum (thread off the message) —' %}</option>
+                {% for forum in field_ctx.forums %}
+                    <option value="{{ forum.id }}" {% if forum.id == field_ctx.channel_selected %}selected{% endif %}>
+                        {{ forum.name }}
+                    </option>
+                {% endfor %}
+                {% if field_ctx.channel_selected and field_ctx.channel_selected not in field_ctx.forum_ids %}
+                    <option value="{{ field_ctx.channel_selected }}" selected>{% trans '(not listed)' %} {{ field_ctx.channel_selected }}</option>
+                {% endif %}
+            </select>
+            <div class="form-text text-muted">
+                {% trans 'When set, starting a game creates the thread as a post in this forum.' %}
+            </div>
+        {% endif %}
+    </div>
+
+    {# ----- Forum tag (optional) — options built client-side from #lfg-forum-tags ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Forum tag (optional)' %}</label>
+        <select name="forum_tag_id" class="form-select js-forum-tag-select">
+            {% if field_ctx.tag_selected %}
+                <option value="{{ field_ctx.tag_selected }}" selected>{{ field_ctx.tag_selected_name|default:field_ctx.tag_selected }}</option>
+            {% else %}
+                <option value="" selected disabled>{% trans '— Choose a forum first —' %}</option>
+            {% endif %}
+        </select>
+        <div class="js-forum-tag-hint form-text text-warning d-none">
+            {% trans 'This forum requires a tag.' %}
+        </div>
+    </div>
+
+    {{ form.thread_message|as_crispy_field }}
+
+</div>

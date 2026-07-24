@@ -410,6 +410,123 @@ em, i {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Add a subtle drop shadow */
   }
 
+  /* ── Discord-style guild management (matches /databot/ palette) ────── */
+  .guilds-hero {
+    background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
+    border-radius: 16px;
+    padding: 32px 28px;
+    text-align: center;
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(88, 101, 242, 0.25);
+    margin-bottom: 24px;
+  }
+  .guilds-hero-title {
+    font-size: 32px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    color: #fff;
+  }
+  .guilds-hero-tagline {
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 520px;
+    margin: 0 auto;
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .guild-tile {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+    background: #fff;
+    border: 1px solid #e3e5e8;
+    border-radius: 14px;
+    padding: 16px 20px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  }
+  .guild-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(88, 101, 242, 0.18);
+    border-color: #5865F2;
+  }
+  .guild-tile h5 {
+    color: #2c2f33;
+  }
+  .guild-tile-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .guild-tile-add {
+    justify-content: center;
+    background: transparent;
+    border: 2px dashed #5865F2;
+    box-shadow: none;
+    color: #5865F2;
+  }
+  .guild-tile-add:hover {
+    background: #eef0fb;
+    border-color: #4752c4;
+    border-style: dashed;
+    color: #4752c4;
+  }
+
+  @media (max-width: 768px) {
+    .guilds-hero { padding: 24px 20px; }
+    .guilds-hero-title { font-size: 26px; }
+  }
+
+  /* Discord-style buttons (shared with /databot/). */
+  .databot-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 30px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 16px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-decoration: none;
+  }
+  .databot-btn-hero {
+    background: #fff;
+    color: #4752c4;
+  }
+  .databot-btn-hero:hover {
+    color: #4752c4;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+  }
+  .databot-btn-primary {
+    background: #5865F2;
+    color: #fff;
+  }
+  .databot-btn-primary:hover {
+    background: #4752c4;
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(88, 101, 242, 0.4);
+  }
+  .databot-btn-outline {
+    background: transparent;
+    color: #5865F2;
+    border: 2px solid #5865F2;
+    padding: 12px 28px;
+  }
+  .databot-btn-outline:hover {
+    background: #5865F2;
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(88, 101, 242, 0.3);
+  }
+
 
   .hidden-description {
     border-top: 1px solid #e3e3e3;
