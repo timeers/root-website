@@ -29,7 +29,7 @@ from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserMa
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, GuildLFGRole
 from .services.discordservice import (update_discord_avatar, get_discord_invite_info, get_user_guilds,
                                       get_guild_roles, get_guild_forum_channels, get_forum_channel_info,
-                                      bot_in_guild)
+                                      bot_in_guild, user_can_manage_guild)
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
 from .tasks import send_rich_discord_message_task, send_discord_message_task
@@ -1445,6 +1445,13 @@ def add_guild_from_invite(request):
         guild.save()
 
     request.user.profile.guilds.add(guild)
+
+    # Auto-grant guild moderation when the user has server-management permission in
+    # Discord (Manage Guild / Administrator, or is the owner). Add-only: we never strip
+    # someone who was added manually or whose Discord perms later change. Cheap here —
+    # one deliberate single-guild action — unlike sweeping every guild on a list page.
+    if user_can_manage_guild(request.user, guild_id):
+        guild.guild_moderators.add(request.user.profile)
 
     return JsonResponse({
         'success': True,
