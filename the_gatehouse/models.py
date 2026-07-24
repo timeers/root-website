@@ -200,7 +200,7 @@ class GuildLFGRole(models.Model):
     )
     name = models.CharField(
         max_length=100,
-        help_text="Display tag for the role, e.g. @LFG or @LFG_TTS",
+        help_text="Display tag for the role, e.g. Root Digital LFG or Root TTS LFG",
     )
     role_id = models.CharField(
         max_length=32,
@@ -216,7 +216,7 @@ class GuildLFGRole(models.Model):
     description = models.TextField(
         blank=True,
         null=True,
-        help_text="What this LFG role is for.",
+        help_text="Brief description of what this LFG role is for.",
     )
     forum_channel_id = models.CharField(
         max_length=32,
