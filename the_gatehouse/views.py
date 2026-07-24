@@ -1534,7 +1534,7 @@ def manage_guilds(request):
 
 @login_required
 def edit_guild(request, guild_id):
-    guild = get_object_or_404(DiscordGuild, pk=guild_id)
+    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     profile = request.user.profile
     if not can_moderate_guild(profile, guild):
         raise PermissionDenied()
@@ -1551,7 +1551,7 @@ def edit_guild(request, guild_id):
                 messages.info(request, "You can't remove yourself from a guild you moderate.")
             guild.guild_moderators.set(valid_mods)
             messages.success(request, 'Guild updated.')
-            return redirect('edit-guild', guild_id=guild.id)
+            return redirect('edit-guild', guild_id=guild.guild_id)
     else:
         form = GuildEditForm(instance=guild)
 
@@ -1575,7 +1575,7 @@ def edit_guild(request, guild_id):
 
 @login_required
 def hx_save_lfg_role(request, guild_id, pk=None):
-    guild = get_object_or_404(DiscordGuild, pk=guild_id)
+    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     if not can_moderate_guild(request.user.profile, guild):
         raise PermissionDenied()
     role = get_object_or_404(GuildLFGRole, pk=pk, guild=guild) if pk else None
@@ -1630,7 +1630,7 @@ def hx_save_lfg_role(request, guild_id, pk=None):
 
 @login_required
 def hx_delete_lfg_role(request, guild_id, pk):
-    guild = get_object_or_404(DiscordGuild, pk=guild_id)
+    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     if not can_moderate_guild(request.user.profile, guild):
         raise PermissionDenied()
     if request.method != 'POST':

@@ -7,13 +7,13 @@
     </div>
     <div class="text-nowrap ms-2">
         <button type="button" class="btn btn-sm btn-outline-secondary"
-                hx-get="{% url 'guild-lfg-role-edit' guild.id role.pk %}"
+                hx-get="{% url 'guild-lfg-role-edit' guild.guild_id role.pk %}"
                 hx-target="#lfg-role-row-{{ role.pk }}"
                 hx-swap="outerHTML">
             <i class="bi bi-pencil"></i>
         </button>
         <button type="button" class="btn btn-sm btn-outline-danger"
-                hx-post="{% url 'guild-lfg-role-delete' guild.id role.pk %}"
+                hx-post="{% url 'guild-lfg-role-delete' guild.guild_id role.pk %}"
                 hx-target="#lfg-role-row-{{ role.pk }}"
                 hx-swap="outerHTML"
                 hx-confirm="{% trans 'Delete this role?' %}">

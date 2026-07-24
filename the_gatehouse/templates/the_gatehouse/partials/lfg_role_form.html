@@ -2,13 +2,13 @@
 {% if role %}
 {# ----- Edit an existing role: replaces its row, swaps back to the row on save/cancel ----- #}
 <div id="lfg-role-row-{{ role.pk }}" class="border rounded p-2 mb-2">
-    <form hx-post="{% url 'guild-lfg-role-edit' guild.id role.pk %}"
+    <form hx-post="{% url 'guild-lfg-role-edit' guild.guild_id role.pk %}"
           hx-target="#lfg-role-row-{{ role.pk }}" hx-swap="outerHTML">
         {% csrf_token %}
         {% include 'the_gatehouse/partials/lfg_role_form_fields.html' with form=form role=role guild=guild field_ctx=field_ctx %}
         <div class="text-end">
             <button type="button" class="btn btn-sm btn-secondary"
-                    hx-get="{% url 'guild-lfg-role-edit' guild.id role.pk %}?display=1"
+                    hx-get="{% url 'guild-lfg-role-edit' guild.guild_id role.pk %}?display=1"
                     hx-target="#lfg-role-row-{{ role.pk }}" hx-swap="outerHTML">
                 {% trans 'Cancel' %}
             </button>
@@ -27,7 +27,7 @@
             <i class="bi bi-check2-all me-1"></i>{% trans 'Every role has an LFG entry. Delete one to add a different role.' %}
         </div>
     {% else %}
-    <form hx-post="{% url 'guild-lfg-role-add' guild.id %}"
+    <form hx-post="{% url 'guild-lfg-role-add' guild.guild_id %}"
           hx-target="#lfg-add-form" hx-swap="outerHTML">
         {% csrf_token %}
         {% include 'the_gatehouse/partials/lfg_role_form_fields.html' with form=form role=role guild=guild field_ctx=field_ctx %}
