@@ -36,7 +36,7 @@ window.onGuildAdded = function(guild) {
     const col = document.createElement('div');
     col.className = 'col-12 col-md-6 col-lg-4';
     col.innerHTML =
-        '<a href="/guild/' + guild.id + '/edit/" class="text-decoration-none text-reset" id="guild-card-' + guild.id + '">' +
+        '<a href="/guild/' + guild.guild_id + '/edit/" class="text-decoration-none text-reset" id="guild-card-' + guild.id + '">' +
         '<article class="content-section post-card d-flex align-items-center h-100">' +
         iconHtml + '<h5 class="mb-0"></h5></article></a>';
     col.querySelector('h5').textContent = guild.name;  // set text safely
