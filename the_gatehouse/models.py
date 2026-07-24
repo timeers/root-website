@@ -218,6 +218,27 @@ class GuildLFGRole(models.Model):
         null=True,
         help_text="What this LFG role is for.",
     )
+    forum_channel_id = models.CharField(
+        max_length=32,
+        blank=True,
+        null=True,
+        validators=[validate_discord_snowflake],
+        help_text=(
+            "Optional Discord forum channel ID (a 17–20 digit number). When set, "
+            "starting a game with this role creates the game thread as a post in "
+            "that forum channel instead of hanging it off the LFG message. In "
+            "Discord: enable Developer Mode, right-click the forum channel, choose "
+            "“Copy Channel ID”. Leave blank to thread off the message."
+        ),
+    )
+    thread_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text=(
+            "Optional extra text appended to the thread's kickoff message when a "
+            "game with this role starts, e.g. a link to the rules."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

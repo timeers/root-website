@@ -1048,26 +1048,51 @@ def _lfg_member_display_name(payload):
     return member.get("nick") or user.get("global_name") or user.get("username") or "Player"
 
 
-def _lfg_message_data(author, owner, description, players_value, notify_value="—",
+def _lfg_set_notify_ids(embed, ids):
+    """Write the Notify subscriber set into the embed. The Notify field is only
+    present when it has subscribers: add it (right after Players) when the first
+    person subscribes, and drop it entirely when the last one leaves."""
+    fields = embed.setdefault("fields", [])
+    idx = next((i for i, f in enumerate(fields) if f.get("name") == LFG_NOTIFY_FIELD), None)
+    if not ids:
+        if idx is not None:
+            fields.pop(idx)
+        return
+    value = " ".join(f"<@{i}>" for i in ids)
+    if idx is None:
+        # Insert just after the Players field (or at the end if it's missing).
+        p = next((i for i, f in enumerate(fields) if f.get("name") == LFG_PLAYERS_FIELD), len(fields) - 1)
+        fields.insert(p + 1, {"name": LFG_NOTIFY_FIELD, "value": value, "inline": False})
+    else:
+        fields[idx]["value"] = value
+
+
+def _lfg_message_data(author, owner, description, players_value,
                       content=None, title=LFG_DEFAULT_TITLE):
     """Build the full join-message payload (embed + button row). Used ONLY for the
     initial post and the picker→join transition — never to re-render on Join/Notify
-    (that would wipe the other field; those handlers mutate the echoed embed)."""
+    (that would wipe the other field; those handlers mutate the echoed embed).
+
+    The Notify field is omitted until someone subscribes (added on first 🔔)."""
     embed = {
         "author": author,
         "title": title,
         "description": description,
         "fields": [
             {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
-            {"name": LFG_NOTIFY_FIELD, "value": notify_value, "inline": False},
         ],
     }
+    # Join and 🔔 end in the non-snowflake "g" marker so the dispatcher owner-lock
+    # does NOT fire — anyone may click them (they toggle: Join = join/leave, 🔔 =
+    # subscribe/unsubscribe; the owner rides in a non-last arg so those handlers can
+    # still identify the host). ✖ Cancel and ✔ Start end in the owner snowflake, so
+    # the dispatcher owner-locks them — only the host can cancel or start.
     row = action_row(
         button("Join", encode_custom_id("lfg_join", owner, "g"), style=STYLE_PRIMARY),
         button("Notify", encode_custom_id("lfg_notify", owner, "g"),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
-        button("", encode_custom_id("lfg_cancel", owner), style=STYLE_DANGER, emoji={"name": "❌"}),
-        button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✅"}),
+        button("", encode_custom_id("lfg_cancel", owner), style=STYLE_DANGER, emoji={"name": "✖"}),
+        button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✔"}),
     )
     data = {"embeds": [embed], "components": [row]}
     if content:
@@ -1179,28 +1204,54 @@ def _lfg_jump_url(payload):
 
 
 def _handle_lfg_join(payload):
-    """Join (anyone): add the clicker to the Players field if not already present,
-    DM the notify subscribers, and onboard the clicker. Mutates the echoed embed so
-    the Notify field is preserved."""
+    """Join (anyone, toggle): a player already in the game LEAVES; anyone else JOINS
+    (added to Players, notify subscribers DM'd, clicker onboarded). The owner can't
+    leave via Join — they're told to use ✖ to cancel. Mutates the echoed embed so the
+    Notify field is preserved."""
     try:
         embed = payload["message"]["embeds"][0]
         clicker = _interaction_user_id(payload)
-        joined = _lfg_ids_in_field(embed, LFG_PLAYERS_FIELD)
-        if clicker in joined:
-            return _ephemeral("You're already in this game.")
-
-        display = _lfg_member_display_name(payload)
         field = _lfg_field(embed, LFG_PLAYERS_FIELD)
         if field is None:
             return _ephemeral("Couldn't update the game, try again.")
+
+        # The game owner rides in the Join button's custom_id (lfg_join:{owner}:g).
+        _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+        owner_id = args[0] if args else None
+
+        players = _lfg_player_lines(embed)
+        joined = {p["id"] for p in players}
+
+        # Already in the game → leave (unless owner, who cancels via ✖ instead).
+        if clicker in joined:
+            if clicker == owner_id:
+                return _ephemeral("You're hosting this game — you can't leave it, "
+                                  "but you can cancel it with ✖.")
+            remaining = [p for p in players if p["id"] != clicker]
+            field["value"] = "\n".join(_lfg_player_line(p["name"], p["id"]) for p in remaining) or "—"
+            return JsonResponse({
+                "type": RESPONSE_UPDATE_MESSAGE,
+                "data": {"embeds": [embed]},
+            })
+
+        # Not in the game → join.
+        display = _lfg_member_display_name(payload)
         existing = field.get("value", "").strip()
-        field["value"] = (existing + "\n" if existing else "") + _lfg_player_line(display, clicker)
+        existing = "" if existing == "—" else existing
+        new_line = _lfg_player_line(display, clicker)
+        new_value = (existing + "\n" if existing else "") + new_line
+        # Discord caps an embed field value at 1024 chars; refuse the join rather
+        # than send an edit Discord would reject (which would drop the whole update).
+        if len(new_value) > 1024:
+            return _ephemeral("This game already has too many players to add you.")
+        field["value"] = new_value
 
         # Notify the subscribers (excluding the joiner), and onboard the joiner.
+        # Pass the owner so the host gets a host-specific DM (they can start the game).
         notify_ids = list(_lfg_ids_in_field(embed, LFG_NOTIFY_FIELD) - {clicker})
         if notify_ids:
             notify_lfg_task.delay(notify_ids, display, embed.get("description", ""),
-                                  _lfg_jump_url(payload))
+                                  _lfg_jump_url(payload), owner_id)
         user = (payload.get("member") or {}).get("user") or {}
         ensure_profile_from_discord_task.delay(clicker, user.get("username"), display)
 
@@ -1214,27 +1265,23 @@ def _handle_lfg_join(payload):
 
 
 def _handle_lfg_notify(payload):
-    """Notify (anyone): subscribe the clicker to join DMs. Does NOT add them to
-    Players. Mutates the echoed embed so the Players field is preserved."""
+    """Notify (anyone, toggle): subscribe the clicker to join DMs, or unsubscribe if
+    they're already on the list. Does NOT add them to Players. Mutates the echoed
+    embed (Notify field is hidden while empty). Preserves the Players field."""
     try:
         embed = payload["message"]["embeds"][0]
         clicker = _interaction_user_id(payload)
-        subscribed = _lfg_ids_in_field(embed, LFG_NOTIFY_FIELD)
-        if clicker in subscribed:
-            return _ephemeral("You're already getting notified.")
-
+        # Preserve order: parse the current subscriber ids, then toggle the clicker.
         field = _lfg_field(embed, LFG_NOTIFY_FIELD)
-        if field is None:
-            return _ephemeral("Couldn't update the game, try again.")
-        existing = field.get("value", "").strip()
-        if existing in ("", "—"):
-            field["value"] = f"<@{clicker}>"
+        ids = _LFG_MENTION_RE.findall(field.get("value", "")) if field else []
+        if clicker in ids:
+            ids = [i for i in ids if i != clicker]  # unsubscribe
         else:
-            field["value"] = f"{existing} <@{clicker}>"
-
-        display = _lfg_member_display_name(payload)
-        user = (payload.get("member") or {}).get("user") or {}
-        ensure_profile_from_discord_task.delay(clicker, user.get("username"), display)
+            ids.append(clicker)  # subscribe
+            display = _lfg_member_display_name(payload)
+            user = (payload.get("member") or {}).get("user") or {}
+            ensure_profile_from_discord_task.delay(clicker, user.get("username"), display)
+        _lfg_set_notify_ids(embed, ids)
 
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
@@ -1246,9 +1293,12 @@ def _handle_lfg_notify(payload):
 
 
 def _handle_lfg_cancel(payload):
-    """Cancel (owner-only): remove the buttons and note the game was cancelled."""
+    """✖ Cancel (owner-only, enforced by the dispatcher owner-lock): remove the
+    buttons and note the game was cancelled. Players leave via the Join toggle."""
     embed = (payload.get("message", {}).get("embeds") or [{}])[0]
-    embed["description"] = (embed.get("description") or "") + "\n\n*Game was cancelled.*"
+    # Status subtext goes in the embed footer (small text at the very bottom).
+    # Use the monochrome ✖ to match the Cancel button glyph.
+    embed["footer"] = {"text": "✖ Game was cancelled."}
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"embeds": [embed], "components": []},
@@ -1263,14 +1313,18 @@ def _handle_lfg_start(payload):
     players = _lfg_player_lines(embed)
     description = embed.get("description", "")
 
-    embed["description"] = description + "\n\n✅ *Game has started.*"
+    # Status subtext goes in the embed footer (small text at the very bottom).
+    # Use the monochrome ✔ to match the Start button glyph.
+    embed["footer"] = {"text": "✔ Game has started."}
 
     role_match = _LFG_ROLE_MENTION_RE.search(message.get("content", "") or "")
     role_id = role_match.group(1) if role_match else None
 
+    # Pass the started embed so the task can re-edit it with the title linked to the
+    # thread once the thread id is known (the thread is created in the task).
     create_lfg_thread_task.delay(
         payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
-        role_id, description, players,
+        role_id, description, players, embed,
     )
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -1541,7 +1595,7 @@ def discord_interactions(request):
             owner_id = last if (last.isdigit() and len(last) >= 17) else None
             clicker_id = _interaction_user_id(payload)
             if owner_id and clicker_id and clicker_id != owner_id:
-                return _ephemeral("Only the person who started this can use these buttons.")
+                return _ephemeral("Only the commander can use this button.")
             try:
                 return handler(payload)  # component handlers take the full payload
             except Exception:

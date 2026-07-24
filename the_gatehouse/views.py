@@ -1479,11 +1479,18 @@ def databot_info(request):
         ext_config = json.load(config_file)
     discord_id = ext_config.get('DISCORD_ID')
 
-    # HTTP-interactions bot: it only needs slash commands, so the invite requests
-    # applications.commands and no bot/permissions scope.
+    # The bot is primarily HTTP-interactions (slash commands), but /lfg needs the
+    # bot to be a guild member with thread powers: it creates a game thread, posts
+    # in it, edits the original message to link its title, and DMs notify
+    # subscribers (which requires a shared guild). So the invite requests the `bot`
+    # scope alongside applications.commands, with these permissions:
+    #   View Channel (1<<10) | Send Messages (1<<11) | Embed Links (1<<14)
+    #   | Create Public Threads (1<<34) | Send Messages in Threads (1<<38)
+    LFG_BOT_PERMISSIONS = (1 << 10) | (1 << 11) | (1 << 14) | (1 << 34) | (1 << 38)
     invite_url = (
         f"https://discord.com/oauth2/authorize?client_id={discord_id}"
-        "&scope=applications.commands"
+        "&scope=bot+applications.commands"
+        f"&permissions={LFG_BOT_PERMISSIONS}"
     ) if discord_id else None
 
     # Whether the visitor shares a guild with the bot (Discord's DM requirement),
