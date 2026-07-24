@@ -557,7 +557,7 @@ class GuildEditForm(forms.ModelForm):
 class GuildLFGRoleForm(forms.ModelForm):
     class Meta:
         model = GuildLFGRole
-        fields = ['name', 'role_id', 'description', 'forum_channel_id', 'thread_message']
+        fields = ['name', 'role_id', 'description', 'forum_channel_id', 'forum_tag_id', 'thread_message']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 2}),
             'thread_message': forms.Textarea(attrs={'rows': 2}),

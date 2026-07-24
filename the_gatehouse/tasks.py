@@ -403,7 +403,8 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
             forum_embed = dict(embed)
             forum_embed["url"] = _lfg_message_jump_url(guild_id, channel_id, message_id)
         thread_id = create_forum_thread(role.forum_channel_id, thread_name, content=kickoff,
-                                        embeds=[forum_embed] if forum_embed else None)
+                                        embeds=[forum_embed] if forum_embed else None,
+                                        tag_id=role.forum_tag_id)
     else:
         thread_id = create_message_thread(channel_id, message_id, thread_name)
         if thread_id:

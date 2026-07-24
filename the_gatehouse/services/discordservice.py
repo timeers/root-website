@@ -157,10 +157,11 @@ def create_message_thread(channel_id, message_id, name, auto_archive_duration=14
         return None
 
 
-def create_forum_thread(forum_channel_id, name, content=None, embeds=None):
+def create_forum_thread(forum_channel_id, name, content=None, embeds=None, tag_id=None):
     """Create a new thread (post) in a forum channel. Unlike a message thread, this
     posts a fresh starter message (content/embeds) rather than hanging off an
-    existing one. Returns the thread id on success, or None on failure. Never raises.
+    existing one. `tag_id` optionally applies one forum tag to the post. Returns the
+    thread id on success, or None on failure. Never raises.
     No DEBUG_VALUE guard — see create_message_thread."""
     name = (name or "Game")[:100]
     message = {}
@@ -170,11 +171,14 @@ def create_forum_thread(forum_channel_id, name, content=None, embeds=None):
         message["embeds"] = embeds
     if not message:
         message["content"] = "​"  # Discord requires a non-empty starter message
+    body = {"name": name, "auto_archive_duration": 1440, "message": message}
+    if tag_id:
+        body["applied_tags"] = [str(tag_id)]
     try:
         r = requests.post(
             f"{DISCORD_API}/channels/{forum_channel_id}/threads",
             headers=_bot_headers(),
-            json={"name": name, "auto_archive_duration": 1440, "message": message},
+            json=body,
             timeout=5,
         )
         r.raise_for_status()

@@ -231,6 +231,19 @@ class GuildLFGRole(models.Model):
             "“Copy Channel ID”. Leave blank to thread off the message."
         ),
     )
+    forum_tag_id = models.CharField(
+        max_length=32,
+        blank=True,
+        null=True,
+        validators=[validate_discord_snowflake],
+        help_text=(
+            "Optional forum tag ID (a 17–20 digit number) applied to the game thread "
+            "when it's created in the forum channel above. Only used when a Forum "
+            "channel ID is set. In Discord: enable Developer Mode, then in the forum "
+            "channel's settings right-click a tag to copy its ID (or copy it from the "
+            "channel's tag list). Leave blank for no tag."
+        ),
+    )
     thread_message = models.TextField(
         blank=True,
         null=True,
