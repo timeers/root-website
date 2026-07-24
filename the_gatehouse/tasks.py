@@ -362,7 +362,7 @@ def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=Non
     for uid in notify_ids:
         if owner_id and str(uid) == str(owner_id):
             content = (f"**{joiner_name}** joined {game}.{link}\n"
-                       "When it's full, press ✅ to start the thread. Every player will be pinged.")
+                       "When it's full, press ✅ to start the thread and ping each player.")
         else:
             content = (f"**{joiner_name}** joined {game}.{link}\n"
                        "You'll be pinged in the game thread when it starts.")

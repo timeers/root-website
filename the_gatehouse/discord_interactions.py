@@ -1299,6 +1299,8 @@ def _handle_lfg_cancel(payload):
     # Status subtext goes in the embed footer (small text at the very bottom).
     # Use the monochrome ✖ to match the Cancel button glyph.
     embed["footer"] = {"text": "✖ Game was cancelled."}
+    # The Notify list is only useful while recruiting; drop it once cancelled.
+    _lfg_set_notify_ids(embed, [])
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"embeds": [embed], "components": []},
@@ -1316,6 +1318,8 @@ def _handle_lfg_start(payload):
     # Status subtext goes in the embed footer (small text at the very bottom).
     # Use the monochrome ✔ to match the Start button glyph.
     embed["footer"] = {"text": "✔ Game has started."}
+    # The Notify list is only useful while recruiting; drop it once started.
+    _lfg_set_notify_ids(embed, [])
 
     role_match = _LFG_ROLE_MENTION_RE.search(message.get("content", "") or "")
     role_id = role_match.group(1) if role_match else None
