@@ -351,30 +351,73 @@ def ensure_profile_from_discord_task(discord_id, username, display_name):
 
 
 @shared_task
-def notify_lfg_task(notify_ids, joiner_name, description, jump_url):
-    """DM every notify subscriber that a new player joined. Raw-id DMs (subscribers
-    may have no Profile/SocialAccount); Discord's 403 is swallowed per id."""
+def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=None):
+    """DM every notify subscriber that a new player joined. The game host (owner_id)
+    gets a host-specific line (they can start the game); everyone else is told they'll
+    be pinged in the thread. Raw-id DMs (subscribers may have no Profile/SocialAccount);
+    Discord's 403 is swallowed per id."""
     from .services.discordservice import send_dm_by_id
+    game = f"*{description}*" if description else "your game"
+    link = f" {jump_url}" if jump_url else ""
     for uid in notify_ids:
-        link = f" {jump_url}" if jump_url else ""
-        send_dm_by_id(uid, content=f"**{joiner_name}** joined the game *{description}*.{link}")
+        if owner_id and str(uid) == str(owner_id):
+            content = (f"**{joiner_name}** joined {game}.{link}\n"
+                       "When it's full, press ✅ to start the thread. Every player will be pinged.")
+        else:
+            content = (f"**{joiner_name}** joined {game}.{link}\n"
+                       "You'll be pinged in the game thread when it starts.")
+        send_dm_by_id(uid, content=content)
 
 
 @shared_task
-def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description, players):
-    """Create the game thread, ping the players, and persist the LFGThread row.
-    `players` = [{"id","name"}] parsed from the Players field lines, so this task
-    resolves-or-creates every Profile itself (no dependency on Join-time onboarding)."""
-    from .services.discordservice import create_message_thread, post_channel_message
-    thread_id = create_message_thread(channel_id, message_id, (description or "Game")[:100])
-    if not thread_id:
-        return  # no thread → nothing to persist; message already shows "started"
-    pings = " ".join(f"<@{p['id']}>" for p in players)
-    post_channel_message(thread_id, f"{pings} your game can start!".strip())
+def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description,
+                           players, embed=None):
+    """Create the game thread, ping the players, link the original message's title
+    to the thread, and persist the LFGThread row. `players` = [{"id","name"}] parsed
+    from the Players field lines, so this task resolves-or-creates every Profile
+    itself (no dependency on Join-time onboarding).
 
+    If the game's LFG role has a `forum_channel_id`, the thread is created as a post
+    in that forum channel; otherwise it hangs off the LFG message. A role's optional
+    `thread_message` is appended to the kickoff ping."""
+    from .services.discordservice import (
+        create_message_thread, create_forum_thread, post_channel_message,
+        edit_channel_message,
+    )
     guild = DiscordGuild.objects.filter(guild_id=guild_id).first() if guild_id else None
     role = (GuildLFGRole.objects.filter(guild=guild, role_id=role_id).first()
             if role_id and guild else None)
+
+    pings = " ".join(f"<@{p['id']}>" for p in players)
+    kickoff = f"{pings} your game can start!".strip()
+    if role and role.thread_message:
+        kickoff = f"{kickoff} {role.thread_message}".strip()
+
+    thread_name = (description or "Game")[:100]
+
+    if role and role.forum_channel_id:
+        # Forum post: the starter message carries the kickoff ping (+ the game embed
+        # for context). No parent message to hang off of.
+        forum_embed = None
+        if embed is not None:
+            forum_embed = dict(embed)
+            forum_embed["url"] = _lfg_message_jump_url(guild_id, channel_id, message_id)
+        thread_id = create_forum_thread(role.forum_channel_id, thread_name, content=kickoff,
+                                        embeds=[forum_embed] if forum_embed else None)
+    else:
+        thread_id = create_message_thread(channel_id, message_id, thread_name)
+        if thread_id:
+            post_channel_message(thread_id, kickoff)
+
+    if not thread_id:
+        return  # no thread → nothing to persist; message already shows "started"
+
+    # Link the original message's title to the new thread (embed titles support a url).
+    if embed is not None:
+        gid = guild_id or "@me"
+        embed["url"] = f"https://discord.com/channels/{gid}/{thread_id}"
+        edit_channel_message(channel_id, message_id, [embed])
+
     thread, _ = LFGThread.objects.get_or_create(
         thread_id=thread_id,
         defaults={"guild": guild, "lfg_role": role, "description": description or ""},
@@ -383,6 +426,11 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
     # embed line), so players.set attaches everyone — no reliance on Join-time tasks.
     profiles = [ensure_profile_from_discord(p["id"], None, p.get("name")) for p in players]
     thread.players.set([p for p in profiles if p])
+
+
+def _lfg_message_jump_url(guild_id, channel_id, message_id):
+    gid = guild_id or "@me"
+    return f"https://discord.com/channels/{gid}/{channel_id}/{message_id}"
 
 
 # kinds whose result is one of the Game's direct FKs (latest selection/roll wins)

@@ -137,9 +137,11 @@ THREAD_ERROR = "error"
 
 def create_message_thread(channel_id, message_id, name, auto_archive_duration=1440):
     """Create a thread hanging off an existing message. Returns the thread id
-    (a snowflake string) on success, or None on failure. Never raises."""
-    if config["DEBUG_VALUE"] == "True":
-        return None
+    (a snowflake string) on success, or None on failure. Never raises.
+
+    No DEBUG_VALUE guard: this is a public, user-initiated action in the channel
+    where the /lfg command was used (like the /lfg message and its button edits,
+    which also post live), not an unsolicited DM."""
     name = (name or "Game")[:100]  # Discord thread name cap
     try:
         r = requests.post(
@@ -155,11 +157,36 @@ def create_message_thread(channel_id, message_id, name, auto_archive_duration=14
         return None
 
 
+def create_forum_thread(forum_channel_id, name, content=None, embeds=None):
+    """Create a new thread (post) in a forum channel. Unlike a message thread, this
+    posts a fresh starter message (content/embeds) rather than hanging off an
+    existing one. Returns the thread id on success, or None on failure. Never raises.
+    No DEBUG_VALUE guard — see create_message_thread."""
+    name = (name or "Game")[:100]
+    message = {}
+    if content:
+        message["content"] = content
+    if embeds:
+        message["embeds"] = embeds
+    if not message:
+        message["content"] = "​"  # Discord requires a non-empty starter message
+    try:
+        r = requests.post(
+            f"{DISCORD_API}/channels/{forum_channel_id}/threads",
+            headers=_bot_headers(),
+            json={"name": name, "auto_archive_duration": 1440, "message": message},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return r.json()["id"]
+    except (requests.RequestException, KeyError, ValueError) as e:
+        logger.error("Failed to create forum thread in %s: %s", forum_channel_id, e)
+        return None
+
+
 def post_channel_message(channel_id, content):
     """Post a message into a channel/thread. Returns THREAD_OK / THREAD_ERROR.
-    Never raises."""
-    if config["DEBUG_VALUE"] == "True":
-        return THREAD_ERROR
+    Never raises. No DEBUG_VALUE guard — see create_message_thread."""
     try:
         r = requests.post(
             f"{DISCORD_API}/channels/{channel_id}/messages",
@@ -171,6 +198,23 @@ def post_channel_message(channel_id, content):
         return THREAD_OK
     except requests.RequestException as e:
         logger.error("Failed to post message in channel %s: %s", channel_id, e)
+        return THREAD_ERROR
+
+
+def edit_channel_message(channel_id, message_id, embeds):
+    """Edit an existing bot message's embeds (PATCH). Returns THREAD_OK / THREAD_ERROR.
+    Never raises. No DEBUG_VALUE guard — see create_message_thread."""
+    try:
+        r = requests.patch(
+            f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
+            headers=_bot_headers(),
+            json={"embeds": embeds},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return THREAD_OK
+    except requests.RequestException as e:
+        logger.error("Failed to edit message %s in channel %s: %s", message_id, channel_id, e)
         return THREAD_ERROR
 
 

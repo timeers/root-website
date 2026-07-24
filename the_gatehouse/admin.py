@@ -35,7 +35,7 @@ class GuildLFGRoleInline(admin.TabularInline):
     extra = 0
 
 class GuildLFGRoleAdmin(admin.ModelAdmin):
-    list_display = ['name', 'guild', 'role_id']
+    list_display = ['name', 'guild', 'role_id', 'forum_channel_id']
     search_fields = ['name', 'guild__name']
 
 class DiscordGuildAdmin(admin.ModelAdmin):
