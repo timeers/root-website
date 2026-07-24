@@ -3,16 +3,31 @@
 {% block title %}{% trans 'Manage Guilds' %} | {% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h1 class="root-title mb-0">{% trans 'Manage Guilds' %}</h1>
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+
+      <div class="guilds-hero">
+        <h1 class="guilds-hero-title root-title">{% trans 'Manage Guilds' %}</h1>
+        <p class="guilds-hero-tagline">
+          {% trans 'Configure the Discord guilds you moderate.' %}
+        </p>
+      </div>
+
+      {% include 'the_gatehouse/partials/guild_list.html' %}
+
+      <div class="text-center mt-4">
+        <a href="{% url 'databot-info' %}" class="databot-btn databot-btn-primary">
+          <i class="bi bi-discord me-2"></i>{% trans 'Learn about the Databot' %}
+        </a>
+      </div>
+
+      {% if is_admin %}
+      {% include 'the_gatehouse/partials/add_guild_modal.html' %}
+      {% endif %}
+
     </div>
-
-    {% include 'the_gatehouse/partials/guild_list.html' %}
-
-    {% if is_admin %}
-    {% include 'the_gatehouse/partials/add_guild_modal.html' %}
-    {% endif %}
+  </div>
 </div>
 {% endblock %}
 
@@ -28,7 +43,7 @@ window.onGuildAdded = function(guild) {
 
     let iconHtml;
     if (guild.icon_url) {
-        iconHtml = '<img src="' + guild.icon_url + '" alt="" class="md-avatar-icon me-3">';
+        iconHtml = '<img src="' + guild.icon_url + '" alt="" class="guild-tile-icon me-3">';
     } else {
         iconHtml = '<i class="bi bi-discord me-3 text-muted" style="font-size: 2rem;"></i>';
     }
@@ -37,7 +52,7 @@ window.onGuildAdded = function(guild) {
     col.className = 'col-12 col-md-6 col-lg-4';
     col.innerHTML =
         '<a href="/guild/' + guild.guild_id + '/edit/" class="text-decoration-none text-reset" id="guild-card-' + guild.id + '">' +
-        '<article class="content-section post-card d-flex align-items-center h-100">' +
+        '<article class="guild-tile">' +
         iconHtml + '<h5 class="mb-0"></h5></article></a>';
     col.querySelector('h5').textContent = guild.name;  // set text safely
 

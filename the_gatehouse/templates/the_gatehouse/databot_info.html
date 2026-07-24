@@ -121,14 +121,17 @@
         </div>
       </div>
 
-      {% if invite_url %}
-      <div class="text-center mb-4">
+      <div class="text-center mb-4 d-flex flex-wrap justify-content-center gap-3">
+        {% if invite_url %}
         <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
            class="databot-btn databot-btn-primary">
-          <i class="bi bi-discord me-2"></i>Add the Bot to Your Server
+          <i class="bi bi-discord me-2"></i>Add Databot to Your Server
+        </a>
+        {% endif %}
+        <a href="{% url 'manage-guilds' %}" class="databot-btn databot-btn-outline">
+          <i class="bi bi-gear me-2"></i>Manage your Guilds
         </a>
       </div>
-      {% endif %}
 
       <!-- Discord notifications -->
       <div class="databot-card mb-4">
@@ -137,7 +140,7 @@
             <i class="bi bi-bell-fill text-primary me-2"></i>Get notified in Discord
           </h2>
           <p class="databot-notify-intro">
-            If you share a server with Root Databot, it can send you a direct message when things you
+            If you share a server with the Root Databot, it can send you a direct message when things you
             care about happen on the Root Database.
           </p>
 
@@ -226,51 +229,8 @@
   color: rgba(255, 255, 255, 0.92);
 }
 
-/* ── Buttons ──────────────────────────────────────────────────────── */
-.databot-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 14px 30px;
-  border-radius: 10px;
-  font-weight: 700;
-  font-size: 16px;
-  border: none;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-decoration: none;
-}
-.databot-btn-hero {
-  background: #fff;
-  color: #4752c4;
-}
-.databot-btn-hero:hover {
-  color: #4752c4;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
-}
-.databot-btn-primary {
-  background: #5865F2;
-  color: #fff;
-}
-.databot-btn-primary:hover {
-  background: #4752c4;
-  color: #fff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(88, 101, 242, 0.4);
-}
-.databot-btn-outline {
-  background: transparent;
-  color: #5865F2;
-  border: 2px solid #5865F2;
-  padding: 12px 28px;
-}
-.databot-btn-outline:hover {
-  background: #5865F2;
-  color: #fff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(88, 101, 242, 0.3);
-}
+/* Discord-style buttons (.databot-btn*) now live in the_keep/main.css so
+   they can be reused on other pages (e.g. Manage Guilds). */
 
 /* ── Discord notifications ────────────────────────────────────────── */
 .databot-notify-intro {
