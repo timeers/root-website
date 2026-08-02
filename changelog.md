@@ -1,6 +1,11 @@
 # Changelog
 
-## [1.12.109] - 2026-8-1 Better RDB Bots
+## [1.12.20] - 2026-8-2 August Improvements
+
+### New Features
+- Portuguese added to the Forge
+
+## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot
 
 ### New Features

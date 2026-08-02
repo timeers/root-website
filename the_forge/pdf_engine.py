@@ -532,6 +532,41 @@ PDF_TEXT = {
             'title': 'CONFIGURACIÓN AVANZADA'
         },
     },
+    'pt': {
+        'crafted_items': {
+            'title': 'Itens Artesanais',
+            'body': 'O Malandro pode te dar cartas para ficar com esses itens.',
+        },
+        'phases': {
+            'birdsong': 'Amanhecer',
+            'daylight': 'Dia',
+            'evening': 'Anoitecer',
+        },
+        'back': {
+            'manifest': 'Lista de Componentes da Facção',
+            'warriors': 'Guerreiros',
+            'tokens': 'Marcadores',
+            'buildings': 'Construções',
+            'other': 'Outros Componentes',
+            'complexity': 'Complexidade',
+            'aggression': 'Agressividade',
+            'card_wealth': 'Riqueza de Cartas',
+            'crafting_ability': 'Habilidade para Criação',
+            'setup': 'Preparação',
+            'playing': 'Jogando com',
+            'none': 'nenhum',
+        },
+        'attr_levels': {
+            'N': 'NENHUMA',
+            'L': 'BAIXA',
+            'M': 'MODERADA',
+            'H': 'ALTA',
+        },
+        'adset': {
+            'title': 'PREPARAÇÃO AVANÇADA'
+        },
+    },
+
     # 'es', 'nl', 'pl', 'ru', 'de', 'pt' to be filled in later.
 }
 
@@ -8008,19 +8043,17 @@ class SetupCardLayoutEngine:
         title_font_size = SETUP_CARD_TITLE_FONT_SIZE
         title_char_spacing = SETUP_CARD_TITLE_CHAR_SPACING
         is_militant = self.card.type == 'M'
-        title_max_w = SETUP_CARD_TITLE_MAX_W
-        if is_militant:
-            # The sword's left edge is clamped to SETUP_CARD_SWORD_MIN_LEFT_INSET
-            # from the card edge, with a mirrored gutter on the right so the
-            # title stays visually centered. The title window is whatever is
-            # left between sword + gap on each side. This caps how far the
-            # sword can slide outward — once the title gets long enough to
-            # bump into this window, the title shrinks instead of the sword
-            # drifting further left.
-            militant_max_w = CARD_SLOT_W - 2 * (
-                SETUP_CARD_SWORD_MIN_LEFT_INSET + SETUP_CARD_SWORD_SIZE + SETUP_CARD_SWORD_TITLE_GAP
-            )
-            title_max_w = min(title_max_w, militant_max_w)
+        # Always size the title against the militant title window (which
+        # reserves room for the sword + gutters) so the title renders at the
+        # same font size on both militant and insurgent cards. On militant
+        # cards the sword's left edge is clamped to
+        # SETUP_CARD_SWORD_MIN_LEFT_INSET from the card edge, with a mirrored
+        # gutter on the right; once the title gets long enough to bump into
+        # this window it shrinks instead of the sword drifting further left.
+        militant_max_w = CARD_SLOT_W - 2 * (
+            SETUP_CARD_SWORD_MIN_LEFT_INSET + SETUP_CARD_SWORD_SIZE + SETUP_CARD_SWORD_TITLE_GAP
+        )
+        title_max_w = min(SETUP_CARD_TITLE_MAX_W, militant_max_w)
 
         def _title_width(font_size, char_spacing):
             return (
