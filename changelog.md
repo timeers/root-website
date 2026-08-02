@@ -5,6 +5,9 @@
 ### New Features
 - Portuguese added to the Forge
 
+### Improvements
+- Can no longer edit components from the Post Detail page (cleans up layout)
+
 ## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot
 

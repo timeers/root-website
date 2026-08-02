@@ -3,7 +3,7 @@
 {% if object.pieces.count or object.component == 'Vagabond' or can_edit and user.profile.editor_onboard %}
 <div class='mt-2 mb-2'>
 
-    {% if object.designer == user.profile and user.profile.editor_onboard and user.profile.editor or user.profile.admin %}
+    {% if allow_edit_components and object.designer == user.profile and user.profile.editor_onboard and user.profile.editor or allow_edit_components and user.profile.admin %}
         <div class="d-flex justify-content-end">
             <button id="edit-button" class="btn btn-warning btn-sm mt-1 mb-1 ms-2">
                 {% trans 'Edit Components' %} <i class="bi bi-pencil-square"></i>
