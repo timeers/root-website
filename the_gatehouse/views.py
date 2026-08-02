@@ -15,6 +15,7 @@ from django.http import JsonResponse, Http404, HttpResponseBadRequest, HttpRespo
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_POST
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import activate, get_language
 from django.urls import reverse
@@ -2557,6 +2558,7 @@ def dismiss_global_message(request):
 
 
 @login_required
+@require_POST
 def dismiss_notification(request, notification_id):
     """Dismiss a user notification."""
     from .models import UserNotification

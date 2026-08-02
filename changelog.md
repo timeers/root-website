@@ -14,6 +14,7 @@
 
 ### Bug Fixes
 - Submit game preview ignores leading zeros
+- Strenghtened the dismiss process for notifications
 
 ## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot
