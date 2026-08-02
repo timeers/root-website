@@ -519,9 +519,9 @@ def submitted_component_view(request, slug):
     component = request.GET.get('component')  # e.g., /artist/john-doe/component/?component=some_component
     # Filter posts based on the artist and the component (if provided)
     if component:
-        components = profile.submissions.filter(component__icontains=component, status='9')
+        components = profile.submissions.filter(component__icontains=component, status__in=['9', '8'])
     else:
-        components = profile.submissions.filter(status='9')
+        components = profile.submissions.filter(status__in=['9', '8'])
     # print(f'Components: {components.count()}')
     # Get the total count of components (total posts matching the filter)
     total_count = components.count()

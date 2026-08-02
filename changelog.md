@@ -7,6 +7,9 @@
 
 ### Improvements
 - Can no longer edit components from the Post Detail page (cleans up layout)
+- Record game tile added to Faction Settings page
+- Rejected factions are shown alongside submitted factions on a user's profile
+- Reason for rejection now shown on the Faction's status page
 
 ## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot

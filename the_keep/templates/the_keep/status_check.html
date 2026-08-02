@@ -41,6 +41,12 @@
         {% blocktrans %}
             This {{ object_component }} has been submitted but requires changes before it can be approved.
         {% endblocktrans %}
+        {% if object.rejection_reason %}
+            <div>
+                <strong>{% trans 'Reson:' %}</strong>
+                <p class="mb-0">{{ object.rejection_reason|linebreaksbr }}</p>
+            </div>
+        {% endif %}
 
     {% elif object.status == '9' %}
         {% blocktrans %}
