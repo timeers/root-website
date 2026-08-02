@@ -334,5 +334,8 @@ class GameListView(generics.ListAPIView):
                 'landmarks',
                 'hirelings',
                 'undrafted_captains',
+                # Load extra_rounds' tournaments/EloSystems so GameSerializer.get_elo_systems()
+                # stays query-free (the primary round is covered by select_related above).
+                'extra_rounds__stage__tournament__elo_system',
             )
         )

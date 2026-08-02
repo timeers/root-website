@@ -16,7 +16,7 @@ from the_gatehouse.models import Profile
 
 from .models import (
     Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round,
-    PlayerGroup, TournamentPlayer, Stage, StageParticipant, Match, MatchSeries
+    PlayerGroup, TournamentPlayer, Stage, StageParticipant, Match, MatchSeries, EloSystem
 )
 from .services.root_league_api import get_game_round
 
@@ -40,6 +40,7 @@ class TournamentAdmin(admin.ModelAdmin):
     list_display = ('name', 'classification', 'is_active', 'start_date', 'end_date', 'status', 'platform')
     list_filter = ('is_active', 'status', 'classification', 'platform')
     search_fields = ('name', 'description')
+    raw_id_fields = ('elo_system',)
     inlines = [StageInline]
     fieldsets = (
         (None, {
@@ -49,7 +50,7 @@ class TournamentAdmin(admin.ModelAdmin):
             'fields': ('is_active', 'start_date', 'end_date', 'status')
         }),
         ('Game Settings', {
-            'fields': ('default_format', 'platform', 'link_required', 'teams', 'coalition_type')
+            'fields': ('default_format', 'platform', 'link_required', 'teams', 'coalition_type', 'elo_system')
         }),
         ('Player Settings', {
             'fields': ('open_roster', 'enforce_player_count', 'min_players', 'max_players')
@@ -64,6 +65,11 @@ class TournamentAdmin(admin.ModelAdmin):
             'fields': ('use_stages', 'publicly_visible')
         }),
     )
+
+class EloSystemAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'owner', 'calculation_type', 'k_factor', 'min_players', 'max_players')
+    search_fields = ('name',)
+    raw_id_fields = ('owner',)
 
 class RoundAdmin(admin.ModelAdmin):
     list_display = ('name', 'stage', 'stage__tournament', 'round_number', 'is_active', 'start_date', 'end_date', 'status')
@@ -541,6 +547,7 @@ admin.site.register(GameBookmark, GameBookmarkAdmin)
 admin.site.register(Game, GameAdmin)
 # admin.site.register(Effort, EffortAdmin)
 admin.site.register(Tournament, TournamentAdmin)
+admin.site.register(EloSystem, EloSystemAdmin)
 admin.site.register(Round, RoundAdmin)
 admin.site.register(ScoreCard, ScoreCardAdmin)
 # admin.site.register(TurnScore)

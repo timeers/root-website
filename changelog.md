@@ -5,6 +5,8 @@
 ### New Features
 - Portuguese added to the Forge
 - Auto select winner if a score greater than 30 is recorded
+- Elo systems can be assigned to a series. Eligible games expose their elo systems (and are filterable) in the game API
+- Game API `tournament` field now returns `{display, series, stage, round}` display string and slugs instead of only a display string
 
 ### Improvements
 - Can no longer edit components from the Post Detail page (cleans up layout)

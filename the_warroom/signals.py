@@ -1,7 +1,7 @@
 from django.db.models.signals import pre_delete, pre_save, post_save, post_delete, m2m_changed
 from django.dispatch import receiver
-from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, CompetitionStatus
-from .services.slugify_titles import slugify_tournament_name, slugify_round_name, slugify_stage_name
+from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, CompetitionStatus, EloSystem
+from .services.slugify_titles import slugify_tournament_name, slugify_round_name, slugify_stage_name, slugify_elo_system_name
 
 
 def _tournament_ids_for_game(game):
@@ -137,6 +137,16 @@ def handle_effort_change_update_counts(sender, instance, **kwargs):
         _enqueue_tournament_counts(_tournament_ids_for_game(game))
 
 
+@receiver(post_save, sender=Effort)
+@receiver(post_delete, sender=Effort)
+def handle_effort_change_update_game_count(sender, instance, **kwargs):
+    """Refresh the game's denormalized cached_player_count. Async (like tournament counts)
+    to avoid writing the game once per effort when several are added/removed together."""
+    if instance.game_id:
+        from .tasks import update_game_player_count
+        update_game_player_count.delay(instance.game_id)
+
+
 def _slug_should_follow_name(instance, model_class, update_fields):
     """Return True if the slug should be regenerated because the name changed.
 
@@ -165,6 +175,19 @@ def tournament_pre_save(sender, instance, update_fields=None, *args, **kwargs):
 def tournament_post_save(sender, instance, created, *args, **kwargs):
     if created:
         slugify_tournament_name(instance, save=True)
+
+
+@receiver(pre_save, sender=EloSystem)
+def elo_system_pre_save(sender, instance, update_fields=None, *args, **kwargs):
+    if instance.slug is None:
+        slugify_elo_system_name(instance, save=False)
+    elif instance.pk and _slug_should_follow_name(instance, EloSystem, update_fields):
+        slugify_elo_system_name(instance, save=False)
+
+@receiver(post_save, sender=EloSystem)
+def elo_system_post_save(sender, instance, created, *args, **kwargs):
+    if created:
+        slugify_elo_system_name(instance, save=True)
 
 
 @receiver(pre_save, sender=Round)

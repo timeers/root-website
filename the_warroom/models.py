@@ -203,6 +203,49 @@ ASSET_TYPES = {
     'hirelings': Hireling,
 }
 
+# A configurable Elo rating system that can be assigned to a Tournament. Games in that
+# tournament are eligible for the system when they are finalized and their player count
+# falls within min_players/max_players. `Local` math is not implemented yet; only the
+# external `RootELO` strategy is used for now.
+class EloSystem(models.Model):
+    class CalculationType(models.TextChoices):
+        # Stored value is a simplified lowercase string; second element is the
+        # human-readable label (mirrors Tournament.RecordingAccessTypes).
+        LOCAL = 'local', 'Local'
+        ROOTELO = 'rootelo', 'RootELO'
+
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(unique=True, null=True, blank=True)
+    owner = models.ForeignKey(
+        Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='elo_systems'
+    )
+    calculation_type = models.CharField(
+        max_length=20, choices=CalculationType.choices, default=CalculationType.ROOTELO
+    )
+    k_factor = models.FloatField(default=32)
+    k_provisional = models.FloatField(default=64)
+    provisional_games = models.IntegerField(default=15)
+    initial_rating = models.FloatField(default=1500)
+    min_players = models.PositiveSmallIntegerField(default=2)
+    max_players = models.PositiveSmallIntegerField(default=6)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    def game_is_eligible(self, game):
+        """True if the game is finalized AND its cached player count is within bounds.
+
+        `final` is required so only completed games can be rated. The player-count
+        check uses the denormalized count (no per-call effort counting)."""
+        return (
+            game.final
+            and self.min_players <= game.cached_player_count <= self.max_players
+        )
+
+
 # This is a Tournament (or Series). It can be a structured tournament or a loose grouping of playtests to show stats and leaderboards for specific games.
 # Currently hidden on the site and not really being used.
 class Tournament(models.Model):
@@ -268,6 +311,12 @@ class Tournament(models.Model):
         null=True,
         blank=True,
         choices=FormatChoices.choices,
+    )
+
+    # Elo rating system this tournament's games are eligible for (SET_NULL so removing a
+    # system doesn't delete tournaments). Eligibility per game also depends on player count.
+    elo_system = models.ForeignKey(
+        'EloSystem', on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments'
     )
 
     # Access & Roster
@@ -1705,6 +1754,11 @@ class Game(models.Model):
     status = models.CharField(max_length=15 , null=True, blank=True, choices=StatusChoices.choices)
     reach_value = models.IntegerField(null=True, blank=True)
 
+    # Denormalized count of efforts (seats) on this game, kept fresh async via the Effort
+    # save/delete signal. Raw count (not filtered by final/test_match) so it stays valid as
+    # a game moves in/out of final; the `final` gate lives in EloSystem.game_is_eligible().
+    cached_player_count = models.PositiveIntegerField(default=0)
+
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()
 
@@ -1717,6 +1771,44 @@ class Game(models.Model):
 
     def get_winners(self):
         return self.get_efforts().filter(win=True)
+
+    def refresh_cached_player_count(self):
+        """Recompute cached_player_count from the game's efforts, persisting only if changed."""
+        count = self.efforts.count()
+        if count != self.cached_player_count:
+            self.cached_player_count = count
+            self.save(update_fields=['cached_player_count'])
+
+    def get_tournaments(self):
+        """All tournaments this game counts toward: its primary round's tournament plus
+        every extra_rounds tournament (mirrors GameQuerySet.counting_for_tournament)."""
+        tournaments = []
+        seen = set()
+        rounds = list(self.extra_rounds.all())
+        if self.round:
+            rounds.append(self.round)
+        for rnd in rounds:
+            t = rnd.get_tournament()
+            if t and t.pk not in seen:
+                seen.add(t.pk)
+                tournaments.append(t)
+        return tournaments
+
+    def get_elo_systems(self):
+        """Distinct EloSystems this game is eligible for, across all its tournaments.
+
+        Attribute-access only (no counting): eligibility is a range check against the
+        stored cached_player_count. To stay query-free in list views, callers should
+        select_related('round__stage__tournament__elo_system') and
+        prefetch_related('extra_rounds__stage__tournament__elo_system')."""
+        systems = []
+        seen = set()
+        for t in self.get_tournaments():
+            elo = t.elo_system
+            if elo and elo.pk not in seen and elo.game_is_eligible(self):
+                seen.add(elo.pk)
+                systems.append(elo)
+        return systems
 
     @property
     def video_source(self):
@@ -1750,7 +1842,7 @@ class Game(models.Model):
     def with_efforts():
         """Standard select/prefetch for game list views."""
         return {
-            'select': ['deck', 'map', 'round__stage__tournament'],
+            'select': ['deck', 'map', 'round__stage__tournament__elo_system'],
             'prefetch': [
                 Prefetch(
                     'efforts',

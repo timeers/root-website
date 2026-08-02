@@ -48,6 +48,17 @@ def update_tournament_counts(tournament_ids):
 
 
 @shared_task
+def update_game_player_count(game_id):
+    """
+    Refresh a Game's denormalized cached_player_count from its efforts.
+    Called asynchronously from signals after Effort changes.
+    """
+    game = Game.objects.filter(pk=game_id).first()
+    if game:
+        game.refresh_cached_player_count()
+
+
+@shared_task
 def update_competition_statuses():
     """Update statuses for tournaments, stages, and rounds based on dates. Cascades completion to children."""
     now = timezone.now().date()
