@@ -8,7 +8,7 @@ from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmar
 from the_warroom.models import Game, Effort
 from .models import BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile
 
-from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, DM_ERROR
+from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, DM_ERROR
 from .services.context_service import get_daily_user_summary
 from .utils import format_bulleted_list
 
@@ -255,6 +255,22 @@ def send_discord_dm_task(user_id, content=None, embed=None):
     # is permanent — return quietly instead of retrying 3x per recipient.
     if result == DM_ERROR:
         raise RuntimeError(f"Transient failure sending DM to user {user_id}")
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def update_discord_avatar_task(user_id, force=False):
+    # Deferred from user_logged_in_handler: the avatar download is a pure
+    # side-effect (its result isn't used in the login flow), so it doesn't
+    # need to block the request path on a Discord CDN call.
+    from django.contrib.auth import get_user_model
+    user = get_user_model().objects.filter(pk=user_id).first()
+    if user is None:
+        return
+    update_discord_avatar(user, force=force)
 
 
 @shared_task(

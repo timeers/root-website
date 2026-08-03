@@ -23,6 +23,7 @@
 - Submit game preview ignores leading zeros
 - Strenghtened the dismiss process for notifications
 - Added final=True filter to user games context processor count to match the number displayed on the my games page
+- Added response timeout to discord services
 
 ## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot

@@ -619,7 +619,11 @@ def update_discord_avatar(user, force=False):
         return None
 
     # Download and save to Profile.image
-    response = requests.get(avatar_url)
+    try:
+        response = requests.get(avatar_url, timeout=10)
+    except requests.RequestException as e:
+        logger.warning("Failed to download Discord avatar for %s: %s", user, e)
+        return None
     if response.status_code == 200:
         filename = f"discord_{user.id}.png"
         profile.image.save(filename, ContentFile(response.content), save=True)
@@ -681,7 +685,7 @@ def get_user_guilds(user):
     try:
         url = 'https://discord.com/api/v10/users/@me/guilds'
         headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
 
         if response.status_code == 200:
             return response.json()
@@ -928,7 +932,7 @@ def send_discord_message(message, category=None):
     }
 
     # Send POST request to Discord webhook URL
-    response = requests.post(webhook_url, json=payload)
+    response = requests.post(webhook_url, json=payload, timeout=5)
     
     if response.status_code != 204:
         logger.error(

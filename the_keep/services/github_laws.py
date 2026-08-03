@@ -151,7 +151,11 @@ def get_latest_commit_date(file_path, token=None):
         headers["Authorization"] = f"token {token}"
 
     params = {"path": file_path, "per_page": 1}
-    response = requests.get(commits_url, headers=headers, params=params)
+    try:
+        response = requests.get(commits_url, headers=headers, params=params, timeout=10)
+    except requests.exceptions.RequestException as err:
+        print(f"Error fetching commit date for path {file_path}: {err}")
+        return timezone.now()  # fallback
 
     if response.status_code == 200 and response.json():
         commit_date_str = response.json()[0]["commit"]["committer"]["date"]
