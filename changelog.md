@@ -14,6 +14,7 @@
 - Record game tile added to Faction Settings page
 - Rejected factions are shown alongside submitted factions on a user's profile
 - Reason for rejection now shown on the Faction's status page
+- Game Detail page uses Series name for meta if no nickname exists
 
 ### Bug Fixes
 - Submit game preview ignores leading zeros

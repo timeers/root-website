@@ -578,9 +578,18 @@ def game_detail_view(request, id=None, league_id=None):
             open_roster = True
     # _vlog.warning(f"[game_detail_view] all_players: {_time.time()-_t0:.3f}s")
 
+    # Open Graph title: game nickname, else "<Tournament> Game" (via get_tournament so
+    # flat tournaments with no stage still resolve), else "<Platform> Game".
+    if game.nickname:
+        og_title = game.nickname
+    else:
+        og_tournament = game.get_tournament()
+        og_title = f'{og_tournament.name} Game' if og_tournament else f'{game.platform} Game'
+
     commentform = GameCommentCreateForm()
     context = {
         'game': game,
+        'og_title': og_title,
         'commentform': commentform,
         'participants': participants,
         'efforts': efforts,
