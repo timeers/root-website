@@ -397,8 +397,18 @@ class ProfileAdmin(admin.ModelAdmin):
 
         reverse_fks, reverse_m2ms = self._inbound_relations()
 
+        from the_warroom.models import Game
+        from the_warroom.services.elo_service import mark_games_dirty
         for player in players:
             summary = {}
+
+            # Capture the loser's eligible games BEFORE reassigning Effort.player below:
+            # that reassignment is a bulk .update() (no Effort signals), so the local Elo
+            # systems for these games would otherwise never be marked dirty. Snapshot the
+            # ids now while they still resolve through the loser.
+            elo_dirty_game_ids = list(Game.objects.filter(
+                efforts__player=player, final=True, test_match=False
+            ).distinct().values_list('id', flat=True))
 
             # Reassign every inbound FK before deleting, so CASCADE children
             # (comments, bookmarks, notifications, ...) are moved, not destroyed.
@@ -422,6 +432,10 @@ class ProfileAdmin(admin.ModelAdmin):
                 survivor.save(update_fields=['dwd'])
                 no_dwd_username = False
                 self.message_user(request, f"{player}'s DWD Username ({dwd_name}) added to {survivor}.")
+
+            # Now that Effort.player has been reassigned, mark the affected games' local Elo
+            # systems dirty (from each game's date) so the scheduled recompute replays them.
+            mark_games_dirty(elo_dirty_game_ids)
 
             # Delete the merged-in profile.
             player.delete()

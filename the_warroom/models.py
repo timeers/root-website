@@ -278,6 +278,42 @@ class EloSystem(models.Model):
             ).update(recompute_from=dt)
 
 
+# A season boundary within one EloSystem. A season is the date interval
+# [start_date, next_season.start_date); a game's season is DERIVED from its
+# date_posted. Games before the first boundary are "season 0" (the implicit
+# preseason); the first EloSeason row is season 1, the next season 2, etc.
+# Each row's reset_mode governs the transition INTO the season it represents
+# (season 1's row governs the season-0 -> season-1 reset).
+class EloSeason(models.Model):
+    class ResetMode(models.TextChoices):
+        # Mirrors EloSystem.CalculationType: lowercase stored value + label.
+        NONE = 'none', 'No Reset'      # label only; ratings carry across the boundary
+        SOFT = 'soft', 'Soft Reset'    # seed from prior-season rating, compressed toward mean
+        HARD = 'hard', 'Hard Reset'    # everyone back to initial_rating
+
+    elo_system = models.ForeignKey(EloSystem, on_delete=models.CASCADE, related_name='seasons')
+    # Inclusive lower bound. DateTime (not Date) so it compares directly against the
+    # engine's played_at / date_posted values with no date-vs-datetime ambiguity.
+    start_date = models.DateTimeField(db_index=True)
+    name = models.CharField(max_length=100, blank=True)  # optional cosmetic label
+    reset_mode = models.CharField(
+        max_length=20, choices=ResetMode.choices, default=ResetMode.HARD
+    )
+    # Only used when reset_mode == SOFT. Seed for a player entering the season:
+    #   seeded = r + soft_reset_factor * (initial_rating - r)
+    # 0.0 = carry rating unchanged, 1.0 = full reset to initial_rating.
+    soft_reset_factor = models.FloatField(
+        default=0.0, validators=[MinValueValidator(0.0), MaxValueValidator(1.0)]
+    )
+
+    class Meta:
+        unique_together = ('elo_system', 'start_date')
+        ordering = ['elo_system', 'start_date']
+
+    def __str__(self):
+        return f'{self.name or self.start_date:%Y-%m-%d} @ {self.elo_system}'
+
+
 # Current standing for a player in one local Elo system. Rebuilt by the scheduled recompute.
 class EloParticipant(models.Model):
     """One row per (elo_system, player). Denormalized current rating for leaderboards."""
@@ -1889,6 +1925,21 @@ class Game(models.Model):
                 systems.append(elo)
         return systems
 
+    def get_elo_systems_with_seasons(self):
+        """[(EloSystem, season_number)] for each eligible system.
+
+        season_number is DERIVED from this game's date_posted: it's the count of
+        the system's season boundaries at or before that date (0 = preseason, first
+        boundary = season 1, ...). Uses the shared _season_number_for so the API label
+        always matches the engine's reset points. Query-free when the system's
+        `seasons` are prefetched (see with_efforts / GameListView)."""
+        from .services.elo_service import _season_number_for
+        out = []
+        for elo in self.get_elo_systems():
+            starts = sorted(s.start_date for s in elo.seasons.all())
+            out.append((elo, _season_number_for(starts, self.date_posted)))
+        return out
+
     @property
     def video_source(self):
         """Resolve the video link to show for this game, preferring the game's
@@ -1929,6 +1980,11 @@ class Game(models.Model):
                         'player', 'faction', 'vagabond', 'coalition_with'
                     )
                 ),
+                # Season boundaries for get_elo_systems_with_seasons() — keeps the
+                # season-number derivation query-free in list views. Both the primary
+                # round and extra_rounds legs, since get_elo_systems() spans both.
+                'round__stage__tournament__elo_system__seasons',
+                'extra_rounds__stage__tournament__elo_system__seasons',
             ],
         }
 

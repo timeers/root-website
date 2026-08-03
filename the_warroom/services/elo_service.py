@@ -13,11 +13,13 @@ Ratings are recomputed asynchronously by the scheduled `recompute_dirty_local_el
 task, which replays each dirty system from its `recompute_from` watermark.
 """
 
+from bisect import bisect_right
+
 from django.db import transaction
 from django.db.models import Min, Q
 
 from the_warroom.models import (
-    Game, Effort, EloSystem, EloParticipant, EloRating,
+    Game, Effort, EloSystem, EloSeason, EloParticipant, EloRating,
 )
 
 
@@ -34,6 +36,47 @@ def _k(elo_system, games_played):
     """Provisional K while a player is below the provisional threshold, else the base K."""
     return (elo_system.k_provisional if games_played < elo_system.provisional_games
             else elo_system.k_factor)
+
+
+def _season_number_for(starts, dt):
+    """Season number of a game played at `dt`, given ascending boundary `starts`.
+
+    Pure. Number = count of boundaries at or before dt (bisect_right). Games before
+    the first boundary are season 0 (preseason); the first boundary is season 1, etc.
+    Shared by the replay engine and the MatchAPI so the label always matches the
+    engine's reset points. `starts` MUST be sorted ascending.
+    """
+    return bisect_right(starts, dt)
+
+
+def _soft_seed(rating, factor, initial_rating):
+    """Rating a player carries into a SOFT-reset season: compress toward initial_rating.
+
+    factor 0.0 -> rating unchanged; 1.0 -> initial_rating.
+    """
+    return rating + factor * (initial_rating - rating)
+
+
+def _apply_boundary_reset(working, season, initial_rating):
+    """Mutate every player in `working` for the season being ENTERED, per its reset_mode.
+
+    working: {player_id: [rating, games_played, wins]}.
+    season: (start_date, reset_mode, soft_reset_factor).
+    HARD -> [initial_rating, 0, 0.0]; SOFT -> [soft_seed(rating), 0, 0.0]; NONE -> no-op.
+    Resets games_played (fresh provisional period) and wins on HARD/SOFT. Applies to ALL
+    carried players, not just the next game's — a player who sits out the opener still
+    enters the new season reset.
+    """
+    _, reset_mode, factor = season
+    if reset_mode == EloSeason.ResetMode.NONE:
+        return
+    for pid, state in working.items():
+        if reset_mode == EloSeason.ResetMode.HARD:
+            state[0] = initial_rating
+        else:  # SOFT
+            state[0] = _soft_seed(state[0], factor, initial_rating)
+        state[1] = 0
+        state[2] = 0.0
 
 
 def apply_game_to_ratings(elo_system, winners, losers, ratings, credit):
@@ -112,6 +155,16 @@ def game_participants(game):
     return winners, losers, credit
 
 
+def _seasons_for(elo_system):
+    """Ascending list of (start_date, reset_mode, soft_reset_factor) for this system.
+
+    Empty ⇒ a single implicit season (season 0) with no resets — the caller takes the
+    plain, season-free replay path.
+    """
+    return list(elo_system.seasons.order_by('start_date')
+                .values_list('start_date', 'reset_mode', 'soft_reset_factor'))
+
+
 def _bounds_q(sys):
     """Q matching games whose cached player count is within this system's bounds."""
     return Q(cached_player_count__gte=sys.min_players,
@@ -154,6 +207,20 @@ def affected_local_system_ids(game):
     return set(structural) | set(historical)
 
 
+def mark_games_dirty(game_ids):
+    """Dirty every LOCAL EloSystem for each of the given games, from that game's date_posted.
+
+    Use for bulk operations that change who-played/who-won WITHOUT firing Effort signals
+    (e.g. a profile merge reassigns Effort.player via a bulk .update()). Because
+    mark_dirty_from only lowers the watermark, each system settles on the EARLIEST affected
+    game automatically. Pass game ids captured while they still resolve (e.g. before a merge
+    deletes the loser). The scheduled recompute_dirty_local_elo task then replays each system.
+    """
+    from the_warroom.signals import _mark_local_systems_dirty  # local: avoid circular import
+    for game in Game.objects.filter(id__in=game_ids):
+        _mark_local_systems_dirty(affected_local_system_ids(game), game.date_posted)
+
+
 def elo_config_change_cutoff(old, new):
     """Earliest date_posted whose stored ratings must change given an EloSystem config edit.
 
@@ -191,17 +258,24 @@ def elo_config_change_cutoff(old, new):
     return min(dates) if dates else None
 
 
-def _anchor_ratings_before(elo_system, player_ids, cutoff_dt):
+def _anchor_ratings_before(elo_system, player_ids, cutoff_dt, not_before=None):
     """Reconstruct each player's (rating, games_played, wins) as of just before cutoff_dt.
 
     One query over pre-cutoff EloRating rows: rating = last row's rating_after,
     games_played = row count, wins = sum(win_credit). Players with no pre-cutoff rows are
     absent (seeded with initial_rating when first seen during replay).
+
+    `not_before` (optional) floors the window at a season start: under a HARD/SOFT reset the
+    cutoff's season must be reconstructed WITHOUT inheriting the previous season's rows, so
+    the anchor only reads rows in [not_before, cutoff_dt). None ⇒ read all pre-cutoff rows
+    (NONE reset / season-free systems carry ratings across).
     """
     working = {}
     rows = (EloRating.objects
-            .filter(elo_system=elo_system, player_id__in=player_ids, played_at__lt=cutoff_dt)
-            .order_by('player_id', 'played_at', 'game_id')
+            .filter(elo_system=elo_system, player_id__in=player_ids, played_at__lt=cutoff_dt))
+    if not_before is not None:
+        rows = rows.filter(played_at__gte=not_before)
+    rows = (rows.order_by('player_id', 'played_at', 'game_id')
             .values_list('player_id', 'rating_after', 'win_credit'))
     for player_id, rating_after, win_credit in rows:
         if player_id not in working:
@@ -248,19 +322,56 @@ def recompute_system_from(elo_system, cutoff_dt):
         # Coarse per-system lock so overlapping replays serialize.
         EloSystem.objects.select_for_update().get(pk=elo_system.pk)
 
-        games = list(_eligible_games_for_system(elo_system, since=cutoff_dt))
+        seasons = _seasons_for(elo_system)
+        starts = [s[0] for s in seasons]
+
+        # Decide, per the season the cutoff falls in, how to anchor and where to start the
+        # replay so season resets are honored:
+        #   effective_cutoff  — where deletion + replay begin (may be earlier than cutoff_dt).
+        #   not_before        — floor for the anchor window (None = read all pre-cutoff rows).
+        #   current_season    — the season the replay cursor is in BEFORE the loop, so the
+        #                       while-loop below applies the right boundary resets.
+        # HARD entry: the [entry_start, cutoff) anchor rows already carry the post-reset
+        #   ratings, so we can replay cheaply from cutoff_dt without re-crossing the boundary.
+        # SOFT entry: the seed is produced by _apply_boundary_reset compressing the PRIOR
+        #   season's finals, so we must replay the whole season from entry_start, anchor from
+        #   the prior season (not_before=None), and start the cursor one season back so the
+        #   crossing into this season actually runs.
+        # NONE entry / season 0 / season-free: carry ratings across (anchor unfloored).
+        not_before = None
+        effective_cutoff = cutoff_dt
+        cutoff_season = _season_number_for(starts, cutoff_dt)  # 0 = preseason
+        current_season = cutoff_season
+        if cutoff_season >= 1:
+            entry_start, entry_mode, _ = seasons[cutoff_season - 1]  # row entered at this season
+            if entry_mode == EloSeason.ResetMode.HARD:
+                not_before = entry_start
+            elif entry_mode == EloSeason.ResetMode.SOFT:
+                effective_cutoff = entry_start          # replay the season from its start
+                current_season = cutoff_season - 1      # so the boundary crossing re-runs
+                # not_before stays None: anchor from the prior season's finals to seed from.
+
+        games = list(_eligible_games_for_system(elo_system, since=effective_cutoff))
         affected = set(Effort.objects.filter(game__in=games, player__isnull=False)
                        .values_list('player_id', flat=True))
 
-        # 1. Re-anchor affected players to their state as of just before cutoff.
-        working = _anchor_ratings_before(elo_system, affected, cutoff_dt)
+        # 1. Re-anchor affected players to their state as of just before the cutoff,
+        #    without reaching across a HARD boundary (not_before).
+        working = _anchor_ratings_before(elo_system, affected, effective_cutoff, not_before)
 
         # 2. Drop the history we're rewriting.
-        EloRating.objects.filter(elo_system=elo_system, played_at__gte=cutoff_dt).delete()
+        EloRating.objects.filter(elo_system=elo_system, played_at__gte=effective_cutoff).delete()
 
-        # 3. Replay chronologically.
+        # 3. Replay chronologically, applying each season reset as the cursor crosses it.
         new_rows = []
         for game in games:
+            # Advance across any season boundaries this game sits beyond, resetting the
+            # whole working set at each one per that season's reset_mode.
+            game_season = _season_number_for(starts, game.date_posted)
+            while current_season < game_season:
+                _apply_boundary_reset(working, seasons[current_season], elo_system.initial_rating)
+                current_season += 1
+
             winners, losers, credit = game_participants(game)
             if not winners or not losers:
                 continue  # degenerate game — skip (no rating rows written)

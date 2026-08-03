@@ -2,7 +2,7 @@ from django.db.models.signals import pre_delete, pre_save, post_save, post_delet
 from django.dispatch import receiver
 from django.db.models import Min
 from django.utils import timezone
-from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, CompetitionStatus, EloSystem
+from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, CompetitionStatus, EloSystem, EloSeason
 from .services.slugify_titles import slugify_tournament_name, slugify_round_name, slugify_stage_name, slugify_elo_system_name
 
 
@@ -291,6 +291,56 @@ def elo_system_pre_save_mark_dirty(sender, instance, update_fields=None, **kwarg
     cutoff = elo_config_change_cutoff(old, instance)
     if cutoff is not None:
         instance.recompute_from = min(cutoff, instance.recompute_from or cutoff)
+
+
+# --- EloSeason: adding/moving/retyping a season boundary changes stored ratings from that
+#     date forward, so dirty the (LOCAL) system so the scheduled recompute re-derives resets.
+#     A NONE boundary that neither moves nor changes type only affects the live-computed
+#     MatchAPI season label (no stored rating), so it can be skipped. ---
+
+def _season_affects_ratings(reset_mode):
+    return reset_mode in (EloSeason.ResetMode.HARD, EloSeason.ResetMode.SOFT)
+
+
+@receiver(pre_save, sender=EloSeason)
+def elo_season_pre_save_snapshot(sender, instance, **kwargs):
+    """Snapshot the old start_date/reset_mode so post_save can tell what changed."""
+    if instance.pk:
+        old = EloSeason.objects.filter(pk=instance.pk).first()
+        instance._old_start_date = old.start_date if old else None
+        instance._old_reset_mode = old.reset_mode if old else None
+    else:
+        instance._old_start_date = None
+        instance._old_reset_mode = None
+
+
+@receiver(post_save, sender=EloSeason)
+def elo_season_saved_mark_dirty(sender, instance, created, **kwargs):
+    """Mark the system dirty from the earliest boundary date the change affects."""
+    old_start = getattr(instance, '_old_start_date', None)
+    old_mode = getattr(instance, '_old_reset_mode', None)
+
+    if created:
+        if _season_affects_ratings(instance.reset_mode):
+            _mark_local_systems_dirty([instance.elo_system_id], instance.start_date)
+        return
+
+    # Update. Dirty when the boundary moved, or the reset behavior changed, or it is
+    # (still) a resetting season being edited. Skip a pure NONE->NONE no-move edit.
+    moved = old_start is not None and old_start != instance.start_date
+    mode_changed = old_mode != instance.reset_mode
+    if not (moved or mode_changed
+            or _season_affects_ratings(instance.reset_mode)):
+        return
+    dt = min(instance.start_date, old_start) if moved else instance.start_date
+    _mark_local_systems_dirty([instance.elo_system_id], dt)
+
+
+@receiver(post_delete, sender=EloSeason)
+def elo_season_deleted_mark_dirty(sender, instance, **kwargs):
+    """Removing a boundary merges its games into the previous season — dirty from its start."""
+    if _season_affects_ratings(instance.reset_mode):
+        _mark_local_systems_dirty([instance.elo_system_id], instance.start_date)
 
 
 @receiver(pre_save, sender=Round)

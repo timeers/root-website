@@ -120,6 +120,9 @@ class GameSerializer(serializers.ModelSerializer):
         return obj.map.slug if obj.map else None
 
     def get_elo_systems(self, obj):
-        # Slugs of every EloSystem this game is eligible for (via its tournament(s)).
-        # Empty list when none apply. Query-free given the view's select/prefetch.
-        return [elo.slug for elo in obj.get_elo_systems()]
+        # One {slug, season} per EloSystem this game is eligible for (via its tournament(s)).
+        # season is derived from the game's date_posted: 0 = preseason (before the system's
+        # first boundary), 1 = first season, etc. Empty list when none apply. Query-free
+        # given the view's select/prefetch (including the systems' seasons).
+        return [{'slug': elo.slug, 'season': season}
+                for elo, season in obj.get_elo_systems_with_seasons()]

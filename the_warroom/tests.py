@@ -298,3 +298,138 @@ class ExtraRoundsControlTests(TestCase):
         # round_b is already added; round_b2 shares its tournament, so neither is offered.
         self.assertNotIn(self.round_b, addable)
         self.assertNotIn(self.round_b2, addable)
+
+
+class EloSeasonTests(TestCase):
+    """Season boundaries reset/reseed the local Elo replay per the season's reset_mode,
+    and games are numbered 0 (preseason) / 1 / 2... by date."""
+
+    def setUp(self):
+        from datetime import datetime, timezone as dt_tz
+        from the_warroom.models import EloSystem, EloSeason
+
+        self.dt = lambda m, d: datetime(2026, m, d, 12, 0, tzinfo=dt_tz.utc)
+
+        self.system = EloSystem.objects.create(
+            name="Local S", calculation_type=EloSystem.CalculationType.LOCAL,
+            min_players=2, max_players=6, k_factor=32, k_provisional=32,
+            provisional_games=0, initial_rating=1500,
+        )
+        self.tournament = Tournament.objects.create(name="T", elo_system=self.system)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+
+        self.p1 = Profile.objects.create(discord="p1")
+        self.p2 = Profile.objects.create(discord="p2")
+        self.EloSeason = EloSeason
+
+    def _make_game(self, month, day, winner, loser):
+        """A final 2-player game on the given date; winner beats loser."""
+        game = Game.objects.create(round=self.round, date_posted=self.dt(month, day),
+                                   final=True, cached_player_count=2)
+        Effort.objects.create(game=game, player=winner, win=True)
+        Effort.objects.create(game=game, player=loser, win=False)
+        return game
+
+    def _recompute(self, cutoff):
+        from the_warroom.services.elo_service import recompute_system_from
+        recompute_system_from(self.system, cutoff)
+
+    def test_no_seasons_is_plain_replay(self):
+        from the_warroom.models import EloRating, EloParticipant
+        self._make_game(1, 5, self.p1, self.p2)
+        self._recompute(self.dt(1, 1))
+        # p1 won, so p1 rating rose above and p2 fell below initial.
+        self.assertGreater(EloParticipant.objects.get(elo_system=self.system, player=self.p1).rating, 1500)
+        self.assertLess(EloParticipant.objects.get(elo_system=self.system, player=self.p2).rating, 1500)
+        self.assertEqual(EloRating.objects.filter(elo_system=self.system).count(), 2)
+
+    def test_hard_reset_starts_new_season_at_initial(self):
+        from the_warroom.models import EloRating
+        # Season 0: p1 beats p2 twice in January -> p1 climbs.
+        self._make_game(1, 5, self.p1, self.p2)
+        g_jan2 = self._make_game(1, 20, self.p1, self.p2)
+        # HARD season 1 starts Feb 1.
+        self.EloSeason.objects.create(elo_system=self.system, start_date=self.dt(2, 1),
+                                      reset_mode=self.EloSeason.ResetMode.HARD)
+        g_feb = self._make_game(2, 10, self.p2, self.p1)
+        self._recompute(self.dt(1, 1))
+
+        # First season-1 game: both players enter at initial_rating (HARD reset).
+        feb_rows = EloRating.objects.filter(game=g_feb)
+        self.assertEqual(feb_rows.count(), 2)
+        for r in feb_rows:
+            self.assertEqual(r.rating_before, 1500)
+        # Season-0 rows are preserved and did NOT reset (p1's 2nd Jan win builds on the 1st).
+        jan2_p1 = EloRating.objects.get(game=g_jan2, player=self.p1)
+        self.assertGreater(jan2_p1.rating_before, 1500)
+
+    def test_soft_reset_seeds_from_prior_season(self):
+        from the_warroom.models import EloRating
+        # Season 0: p1 beats p2 -> p1 ends above 1500.
+        self._make_game(1, 5, self.p1, self.p2)
+        # SOFT season 1, factor 0.5 -> seed compresses halfway toward 1500.
+        self.EloSeason.objects.create(elo_system=self.system, start_date=self.dt(2, 1),
+                                      reset_mode=self.EloSeason.ResetMode.SOFT,
+                                      soft_reset_factor=0.5)
+        g_feb = self._make_game(2, 10, self.p1, self.p2)
+        self._recompute(self.dt(1, 1))
+
+        end_s0 = EloRating.objects.get(game__date_posted=self.dt(1, 5), player=self.p1).rating_after
+        seed = EloRating.objects.get(game=g_feb, player=self.p1).rating_before
+        self.assertAlmostEqual(seed, end_s0 + 0.5 * (1500 - end_s0), places=6)
+        self.assertNotAlmostEqual(seed, 1500, places=3)  # not a full reset
+
+    def test_soft_reset_seeds_on_midseason_recompute(self):
+        """The dirty-watermark path: a recompute whose cutoff lands INSIDE a SOFT season
+        must still regenerate the seed from the prior season's final (not hard-reset)."""
+        from the_warroom.models import EloRating
+        self._make_game(1, 5, self.p1, self.p2)  # season 0
+        self.EloSeason.objects.create(elo_system=self.system, start_date=self.dt(2, 1),
+                                      reset_mode=self.EloSeason.ResetMode.SOFT,
+                                      soft_reset_factor=0.5)
+        g_feb = self._make_game(2, 10, self.p1, self.p2)  # season 1
+        # Establish full history first (as a from-scratch recompute would).
+        self._recompute(self.dt(1, 1))
+        # Then recompute from INSIDE season 1 (mimics an effort edit dated Feb 10).
+        self._recompute(self.dt(2, 10))
+        end_s0 = EloRating.objects.get(game__date_posted=self.dt(1, 5), player=self.p1).rating_after
+        seed = EloRating.objects.get(game=g_feb, player=self.p1).rating_before
+        self.assertAlmostEqual(seed, end_s0 + 0.5 * (1500 - end_s0), places=6)
+        self.assertNotAlmostEqual(seed, 1500, places=3)
+
+    def test_none_reset_carries_ratings_across(self):
+        from the_warroom.models import EloRating
+        self._make_game(1, 5, self.p1, self.p2)
+        self.EloSeason.objects.create(elo_system=self.system, start_date=self.dt(2, 1),
+                                      reset_mode=self.EloSeason.ResetMode.NONE)
+        g_feb = self._make_game(2, 10, self.p1, self.p2)
+        self._recompute(self.dt(1, 1))
+        end_s0 = EloRating.objects.get(game__date_posted=self.dt(1, 5), player=self.p1).rating_after
+        seed = EloRating.objects.get(game=g_feb, player=self.p1).rating_before
+        self.assertAlmostEqual(seed, end_s0, places=6)  # carried across unchanged
+
+    def test_season_number_derivation(self):
+        from the_warroom.services.elo_service import _season_number_for
+        starts = [self.dt(2, 1), self.dt(5, 1)]
+        self.assertEqual(_season_number_for(starts, self.dt(1, 15)), 0)  # preseason
+        self.assertEqual(_season_number_for(starts, self.dt(2, 1)), 1)   # boundary inclusive
+        self.assertEqual(_season_number_for(starts, self.dt(3, 1)), 1)
+        self.assertEqual(_season_number_for(starts, self.dt(6, 1)), 2)
+
+    def test_creating_hard_season_marks_system_dirty(self):
+        from the_warroom.models import EloSystem
+        self.EloSeason.objects.create(elo_system=self.system, start_date=self.dt(2, 1),
+                                      reset_mode=self.EloSeason.ResetMode.HARD)
+        self.system.refresh_from_db()
+        self.assertEqual(self.system.recompute_from, self.dt(2, 1))
+
+    def test_matchapi_season_number(self):
+        self.EloSeason.objects.create(elo_system=self.system, start_date=self.dt(2, 1),
+                                      reset_mode=self.EloSeason.ResetMode.HARD)
+        g_jan = self._make_game(1, 5, self.p1, self.p2)
+        g_feb = self._make_game(2, 10, self.p1, self.p2)
+        jan = dict(g_jan.get_elo_systems_with_seasons())
+        feb = dict(g_feb.get_elo_systems_with_seasons())
+        self.assertEqual(jan[self.system], 0)  # preseason
+        self.assertEqual(feb[self.system], 1)

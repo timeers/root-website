@@ -6,6 +6,7 @@
 - Portuguese added to the Forge
 - Game API `tournament` field now returns `{display, series, stage, round}` display string and slugs instead of only a display string
 - Elo systems can be assigned to a series. Eligible games expose their elo systems (and are filterable) in the game API
+- Elo seasons can be created to signify a hard or soft reset date
 - RootELO designation for external Elo rating
 - Option for future Local Elo rating engines to compute player ranking on schedule
 
