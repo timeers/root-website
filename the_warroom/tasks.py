@@ -13,7 +13,7 @@ from django.utils import timezone
 from the_gatehouse.utils import format_bulleted_list
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 
-from .models import Game, Tournament, Stage, Round, CompetitionStatus
+from .models import Game, Tournament, Stage, Round, CompetitionStatus, EloSystem, EloRating
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
 from .services.winrate_service import calculate_and_cache_winrate
 
@@ -56,6 +56,34 @@ def update_game_player_count(game_id):
     game = Game.objects.filter(pk=game_id).first()
     if game:
         game.refresh_cached_player_count()
+
+
+@shared_task
+def recompute_dirty_local_elo():
+    """Replay every dirty LOCAL EloSystem from its recompute_from watermark, then clear it.
+
+    Scheduled (~every 30 min via django_celery_beat, configured in admin). Mark-dirty
+    signals set recompute_from; this task does all the heavy replay.
+    """
+    from .services.elo_service import recompute_system_from
+    systems = EloSystem.objects.filter(
+        calculation_type=EloSystem.CalculationType.LOCAL,
+        recompute_from__isnull=False,
+    )
+    processed = 0
+    for system in systems:
+        cutoff = system.recompute_from
+        try:
+            recompute_system_from(system, cutoff)
+            # Clear ONLY if no newer (earlier) mark arrived mid-run — otherwise leave it so
+            # the next run picks up the earlier cutoff. Safe: no mark is ever lost.
+            EloSystem.objects.filter(pk=system.pk, recompute_from=cutoff).update(recompute_from=None)
+            processed += 1
+        except Exception:
+            pass  # leave recompute_from set so the next run retries this system
+    # Cheap housekeeping: drop rating rows orphaned by games deleted outside a replay window.
+    EloRating.objects.filter(game__isnull=True).delete()
+    return f'Recomputed {processed} elo system(s)'
 
 
 @shared_task

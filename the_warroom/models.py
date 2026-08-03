@@ -214,20 +214,42 @@ class EloSystem(models.Model):
         LOCAL = 'local', 'Local'
         ROOTELO = 'rootelo', 'RootELO'
 
+    # --- Identity / cosmetic (changing these never affects ratings) ---
     name = models.CharField(max_length=100)
     slug = models.SlugField(unique=True, null=True, blank=True)
     owner = models.ForeignKey(
         Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='elo_systems'
     )
+
+    # --- ELIGIBILITY fields: change WHICH games are rated. Editing any of these forces a
+    #     full-history replay (the set of rated games changes). ---
     calculation_type = models.CharField(
         max_length=20, choices=CalculationType.choices, default=CalculationType.ROOTELO
     )
+    min_players = models.PositiveSmallIntegerField(default=2)
+    max_players = models.PositiveSmallIntegerField(default=6)
+
+    # --- MATH fields: change HOW MUCH each game moves ratings. Editing any of these forces a
+    #     full-history replay (every game's delta changes). ---
     k_factor = models.FloatField(default=32)
     k_provisional = models.FloatField(default=64)
     provisional_games = models.IntegerField(default=15)
     initial_rating = models.FloatField(default=1500)
-    min_players = models.PositiveSmallIntegerField(default=2)
-    max_players = models.PositiveSmallIntegerField(default=6)
+
+    # --- Internal bookkeeping (not user-editable) ---
+    # When non-null, this system has pending rating changes: the scheduled recompute task
+    # replays eligible games from this date_posted forward, then clears the field. Set by
+    # mark-dirty signals to min(existing value, earliest affected game's date_posted).
+    recompute_from = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    # Field groups — a change to any field in EITHER group requires a full-history replay.
+    # A future EloSystem form uses these to warn the user what kind of change they're making:
+    #   ELIGIBILITY_FIELDS -> "This changes which games count toward ratings."
+    #   MATH_FIELDS        -> "This changes how ratings are calculated for all past games."
+    # Both cases -> "Saving will recompute this system's entire rating history."
+    ELIGIBILITY_FIELDS = ('calculation_type', 'min_players', 'max_players')
+    MATH_FIELDS = ('k_factor', 'k_provisional', 'provisional_games', 'initial_rating')
+    RECOMPUTE_FIELDS = ELIGIBILITY_FIELDS + MATH_FIELDS
 
     class Meta:
         ordering = ['name']
@@ -244,6 +266,63 @@ class EloSystem(models.Model):
             game.final
             and self.min_players <= game.cached_player_count <= self.max_players
         )
+
+    def mark_dirty_from(self, dt):
+        """Lower the recompute_from watermark to dt (earliest affected date). Idempotent.
+
+        Uses a filtered .update() so concurrent marks race safely toward the minimum
+        without a lost update. The scheduled recompute task replays from this date."""
+        if dt is not None and (self.recompute_from is None or dt < self.recompute_from):
+            EloSystem.objects.filter(pk=self.pk).filter(
+                Q(recompute_from__isnull=True) | Q(recompute_from__gt=dt)
+            ).update(recompute_from=dt)
+
+
+# Current standing for a player in one local Elo system. Rebuilt by the scheduled recompute.
+class EloParticipant(models.Model):
+    """One row per (elo_system, player). Denormalized current rating for leaderboards."""
+    elo_system = models.ForeignKey(EloSystem, on_delete=models.CASCADE, related_name='participants')
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='elo_participations')
+    rating = models.FloatField()
+    games_played = models.PositiveIntegerField(default=0)
+    wins = models.FloatField(default=0)  # float: coalition win counts as 0.5
+    updated_at = models.DateTimeField(auto_now=True)  # debugging
+
+    class Meta:
+        unique_together = ('elo_system', 'player')
+        indexes = [models.Index(fields=['elo_system', '-rating'])]  # leaderboard order
+
+    def __str__(self):
+        return f'{self.player} @ {self.elo_system}: {self.rating:.0f}'
+
+
+# History row: the rating change one game produced for one player in one local Elo system.
+class EloRating(models.Model):
+    elo_system = models.ForeignKey(EloSystem, on_delete=models.CASCADE, related_name='ratings')
+    # SET_NULL (not CASCADE): deleting a Game must NOT wipe these rows before the post_delete
+    # recompute can run; the forward replay deletes them by played_at instead.
+    game = models.ForeignKey('Game', on_delete=models.SET_NULL, null=True, related_name='elo_ratings')
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='elo_ratings')
+    rating_before = models.FloatField()
+    rating_after = models.FloatField()
+    win_credit = models.FloatField(default=0)  # 1.0 solo win, 0.5 coalition, 0 loss
+    played_at = models.DateTimeField(db_index=True)  # copied from game.date_posted
+    updated_at = models.DateTimeField(auto_now=True)  # debugging
+
+    class Meta:
+        constraints = [
+            # Partial constraint: uniqueness holds only for real games. Orphaned rows
+            # (game=NULL after a delete) are transient and swept by the recompute task.
+            models.UniqueConstraint(
+                fields=['elo_system', 'game', 'player'],
+                condition=Q(game__isnull=False),
+                name='uniq_elorating_system_game_player',
+            )
+        ]
+        indexes = [models.Index(fields=['elo_system', 'played_at'])]
+
+    def __str__(self):
+        return f'{self.player} {self.rating_before:.0f}->{self.rating_after:.0f} ({self.elo_system})'
 
 
 # This is a Tournament (or Series). It can be a structured tournament or a loose grouping of playtests to show stats and leaderboards for specific games.
