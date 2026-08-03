@@ -67,6 +67,29 @@
             </div>
         </div>
 
+        <!-- Commands -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-slash-square me-2"></i>{% trans 'Commands' %}</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    {% trans 'Choose which slash commands are available in this server. /help is always available.' %}
+                </p>
+                {% for name, desc in whitelist_options %}
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox"
+                           name="enabled_commands" value="{{ name }}"
+                           id="cmd-{{ name }}"
+                           {% if name in enabled_commands %}checked{% endif %}>
+                    <label class="form-check-label" for="cmd-{{ name }}">
+                        <code>/{{ name }}</code> &mdash; {{ desc }}
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
         <button type="submit" class="btn btn-primary mb-4">{% trans 'Save Guild' %}</button>
     </form>
 

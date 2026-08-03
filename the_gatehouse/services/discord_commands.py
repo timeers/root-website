@@ -179,6 +179,24 @@ def all_command_definitions():
     return list(COMMANDS)
 
 
+# /help is always available in every guild and is never a whitelist toggle, so the
+# whitelistable set is every other command. Derived from COMMANDS so a new command
+# becomes toggleable automatically.
+WHITELISTABLE = [c["name"] for c in COMMANDS if c["name"] != "help"]
+
+
+def whitelistable_commands():
+    """(name, description) for every command a guild moderator can toggle (all but /help)."""
+    return [(c["name"], c["description"]) for c in COMMANDS if c["name"] != "help"]
+
+
+def commands_for_guild(enabled_names):
+    """Definitions to register for a guild: always /help, plus each enabled, whitelistable
+    command. Ignores unknown/removed names so a stale whitelist never breaks registration."""
+    allowed = set(enabled_names) & set(WHITELISTABLE)
+    return [c for c in COMMANDS if c["name"] == "help" or c["name"] in allowed]
+
+
 def grouped_commands():
     """Yield (group_name, [(command_name, description), ...]) in display order.
 

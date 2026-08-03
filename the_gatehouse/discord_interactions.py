@@ -42,7 +42,7 @@ from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
-    roll_emoji_for, suit_static_image_url, embed_color,
+    roll_emoji_for, suit_static_image_url, embed_color, permissions_can_manage_guild,
 )
 from .services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
@@ -458,11 +458,25 @@ def _handle_law_command(data):
 
 
 def _handle_help_command(data):
-    """/help: list the bot's available commands, grouped by category. Ephemeral
-    so the listing only shows to the invoking user and doesn't clutter the channel."""
+    """/help: list the commands available in this server, grouped by category. Ephemeral
+    so the listing only shows to the invoking user and doesn't clutter the channel.
+
+    In a guild, only the guild's enabled commands (plus /help) are listed; if the invoker
+    can manage the server and some commands are still disabled, a link to enable more is
+    appended. In a DM (no guild) the full command set is shown."""
+    guild_id = data.get("_guild_id")
+    enabled_names = None
+    can_manage = False
+    if guild_id:
+        guild = DiscordGuild.objects.filter(guild_id=guild_id).first()
+        # Absent guild row → treat as no commands enabled (only /help). It also can't be
+        # managed from the site until it exists, so no link.
+        enabled_names = list(guild.enabled_commands or []) if guild else []
+        can_manage = permissions_can_manage_guild(data.get("_member_permissions"))
+    embed = build_help_embed(enabled_names=enabled_names, guild_id=guild_id, can_manage=can_manage)
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"embeds": [build_help_embed()], "flags": EPHEMERAL},
+        "data": {"embeds": [embed], "flags": EPHEMERAL},
     })
 
 
@@ -1576,6 +1590,10 @@ def discord_interactions(request):
                 data["_guild_id"] = guild_id
                 data["_author_username"] = member_user.get("username")
                 data["_channel_id"] = payload.get("channel_id")
+                # The invoker's computed permissions in this channel (Discord resolves
+                # roles/owner/admin for us). Lets /help decide, without an API call,
+                # whether to offer the "enable more commands" link.
+                data["_member_permissions"] = (payload.get("member") or {}).get("permissions")
                 return handler(data)
             except Exception:
                 logger.exception("Error handling /%s interaction", command_name)

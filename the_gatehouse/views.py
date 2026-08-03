@@ -30,7 +30,7 @@ from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserMa
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, GuildLFGRole
 from .services.discordservice import (update_discord_avatar, get_discord_invite_info, get_user_guilds,
                                       get_guild_roles, get_guild_forum_channels, get_forum_channel_info,
-                                      bot_in_guild, user_can_manage_guild)
+                                      bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
 from .tasks import send_rich_discord_message_task, send_discord_message_task
@@ -1484,6 +1484,7 @@ def databot_info(request):
     """Public landing page for the Root Database Discord bot: what it does, its
     commands, and an 'Add to Server' invite. No login required."""
     from .services.discord_commands import grouped_commands
+    from urllib.parse import quote
 
     with open('/etc/config.json') as config_file:
         ext_config = json.load(config_file)
@@ -1497,11 +1498,19 @@ def databot_info(request):
     #   View Channel (1<<10) | Send Messages (1<<11) | Embed Links (1<<14)
     #   | Create Public Threads (1<<34) | Send Messages in Threads (1<<38)
     LFG_BOT_PERMISSIONS = (1 << 10) | (1 << 11) | (1 << 14) | (1 << 34) | (1 << 38)
+    # response_type=code + redirect_uri make Discord bounce the user back to us after
+    # they pick a server (with ?guild_id=...), so databot_added can create the
+    # DiscordGuild and drop them on its manage page. The redirect_uri must be listed in
+    # the app's OAuth2 Redirects in the Discord Developer Portal or Discord rejects it.
+    site_url = ext_config.get('SITE_URL', '').rstrip('/')
+    redirect_uri = f"{site_url}/databot/added/"
     invite_url = (
         f"https://discord.com/oauth2/authorize?client_id={discord_id}"
         "&scope=bot+applications.commands"
         f"&permissions={LFG_BOT_PERMISSIONS}"
-    ) if discord_id else None
+        "&response_type=code"
+        f"&redirect_uri={quote(redirect_uri, safe='')}"
+    ) if discord_id and site_url else None
 
     # Whether the visitor shares a guild with the bot (Discord's DM requirement),
     # same check as the notification settings page. Public page: anonymous or
@@ -1515,6 +1524,73 @@ def databot_info(request):
         'can_receive_dms': can_receive_dms,
         'user_is_authenticated': request.user.is_authenticated,
     })
+
+
+@login_required
+def databot_added(request):
+    """OAuth redirect target after a user adds the bot to a server via /databot/.
+
+    Discord returns here with ?guild_id=... (and an unused ?code=...). We record the
+    guild, make the adder a moderator when Discord says they can manage the server, and
+    drop them on the guild's manage page. The guild starts with only /help available."""
+    guild_id = request.GET.get('guild_id')
+    if not guild_id:
+        # No guild in the callback: the user cancelled, or authorized without picking a
+        # server. Nothing to record.
+        messages.info(request, "No server was added. Pick a server when adding the bot.")
+        return redirect('databot-info')
+
+    # guild_id is an attacker-controllable query param, so confirm the bot is actually in
+    # this guild before creating a DiscordGuild row and attaching it to the user. None
+    # (couldn't tell) is treated as "not added" — we don't record on uncertainty.
+    if not bot_in_guild(guild_id):
+        messages.error(request, "We couldn't confirm the bot was added to that server. Please try again.")
+        return redirect('databot-info')
+
+    profile = request.user.profile
+    guild_data = _get_guild(guild_id) or {}
+    name = guild_data.get('name') or f"Guild {guild_id}"
+    icon_hash = guild_data.get('icon') or ''
+    description = guild_data.get('description') or ''
+
+    guild, created = DiscordGuild.objects.get_or_create(
+        guild_id=guild_id,
+        defaults={
+            'name': name,
+            'actual_name': name,
+            'icon_hash': icon_hash,
+            'description': description,
+            'bot_member': True,
+        }
+    )
+    if not created:
+        guild.actual_name = name
+        guild.icon_hash = icon_hash
+        guild.description = description
+        guild.bot_member = True
+        guild.save(update_fields=['actual_name', 'icon_hash', 'description', 'bot_member'])
+
+    profile.guilds.add(guild)
+
+    # Push the initial command set (default whitelist is empty → only /help) so the server's
+    # slash menu is correct immediately.
+    register_guild_commands(guild)
+
+    # Auto-grant guild moderation only when Discord says the user can manage the server
+    # (Manage Guild / Administrator / owner), mirroring add_guild_from_invite.
+    if user_can_manage_guild(request.user, guild_id):
+        guild.guild_moderators.add(profile)
+        messages.success(request, f"Added {guild.guild_name()}! Enable the commands you want below.")
+        return redirect('edit-guild', guild_id=guild.guild_id)
+
+    # The bot is in the server, but this user can't manage it, so sending them to the edit
+    # page would 403. Record the guild and let them know who can manage it.
+    messages.warning(
+        request,
+        f"Added {guild.guild_name()}, but you need the Manage Server permission (or a site "
+        "admin) to manage its commands."
+    )
+    return redirect('databot-info')
 
 
 GUILD_PAGE_SIZE = 20  # local; NOT settings.PAGE_SIZE (25)
@@ -1535,6 +1611,7 @@ def manage_guilds(request):
 
 @login_required
 def edit_guild(request, guild_id):
+    from .services.discord_commands import WHITELISTABLE, whitelistable_commands
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     profile = request.user.profile
     if not can_moderate_guild(profile, guild):
@@ -1551,6 +1628,20 @@ def edit_guild(request, guild_id):
                 valid_mods = Profile.objects.filter(Q(pk__in=mod_ids) | Q(pk=profile.pk))
                 messages.info(request, "You can't remove yourself from a guild you moderate.")
             guild.guild_moderators.set(valid_mods)
+
+            # Enabled commands: keep only real, whitelistable names (never trust the
+            # client). Only save + re-register with Discord when the set actually changed,
+            # so an unrelated save (e.g. editing the invite message) doesn't fire an API
+            # call. /help is always available and isn't in this list.
+            submitted = set(request.POST.getlist('enabled_commands'))
+            new_commands = [n for n in WHITELISTABLE if n in submitted]
+            if set(new_commands) != set(guild.enabled_commands or []):
+                guild.enabled_commands = new_commands
+                guild.save(update_fields=['enabled_commands'])
+                if not register_guild_commands(guild):
+                    messages.warning(request, "Saved, but Discord didn't accept the command "
+                                              "changes. They'll sync on the next attempt.")
+
             messages.success(request, 'Guild updated.')
             return redirect('edit-guild', guild_id=guild.guild_id)
     else:
@@ -1570,6 +1661,8 @@ def edit_guild(request, guild_id):
                'lfg_roles': guild.lfg_roles.all(),
                'lfg_add_form': lfg_add_form,
                'lfg_add_ctx': _lfg_field_context(guild, lfg_add_form),
+               'whitelist_options': whitelistable_commands(),  # [(name, desc), ...]
+               'enabled_commands': set(guild.enabled_commands or []),
                'is_admin': profile.admin}
     return render(request, 'the_gatehouse/edit_guild.html', context)
 

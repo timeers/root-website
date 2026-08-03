@@ -19,6 +19,7 @@
 - Game Detail page uses Series name for meta if no nickname exists
 - Added starting leader to MatchAPI
 - Added sub items to the mobile menu for faster navigation
+- Bot Commands are now whitelisted so each guild can choose which commands they want
 
 ### Bug Fixes
 - Submit game preview ignores leading zeros

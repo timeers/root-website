@@ -156,6 +156,16 @@ class DiscordGuild(models.Model):
         related_name="moderated_guilds",
         help_text="Profiles who moderate this guild.",
     )
+
+    # Slash command names enabled in this guild. Only these (plus /help, which is
+    # always available and not stored here) are registered with Discord for the
+    # guild. A moderator toggles them on the guild edit page. New guilds start
+    # empty, so only /help is available until a moderator opts in to more.
+    enabled_commands = models.JSONField(
+        default=list, blank=True,
+        help_text="Slash command names enabled in this guild. /help is always "
+                  "available and is not stored here.",
+    )
     
     
 

@@ -270,6 +270,23 @@ def bot_in_guild(guild_id):
     return True
 
 
+def register_guild_commands(guild):
+    """PUT this guild's enabled command set (always /help + whitelisted) to Discord's
+    guild-scoped command endpoint. Returns True on success. Guild-scoped registration is
+    ~instant (unlike global). Call on bot-add and whenever the whitelist changes."""
+    from .discord_commands import commands_for_guild
+    app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
+    url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild.guild_id}/commands"
+    body = commands_for_guild(guild.enabled_commands or [])
+    try:
+        resp = requests.put(url, headers=_bot_headers(), json=body, timeout=10)
+        resp.raise_for_status()
+        return True
+    except requests.RequestException:
+        logger.exception("Failed to register commands for guild %s", guild.guild_id)
+        return False
+
+
 # Cached (~5 min) reads of a guild's roles/forums/tags, used to build the LFG-role
 # settings dropdowns. Each requires only that the bot is a member of the guild (no
 # special permission bit); a 403/404 → None so the form can fall back to manual entry.
@@ -336,6 +353,18 @@ def _get_guild_role_permissions(guild_id):
 # Discord permission bits (https://discord.com/developers/docs/topics/permissions).
 _PERM_ADMINISTRATOR = 1 << 3
 _PERM_MANAGE_GUILD = 1 << 5
+
+
+def permissions_can_manage_guild(permissions):
+    """Whether a Discord `permissions` bitfield grants server management (Administrator
+    or Manage Guild). `permissions` is the computed value Discord sends on a guild
+    interaction (payload["member"]["permissions"]), a decimal string. Lets /help decide
+    synchronously — from the payload, no API call — whether to offer the manage link."""
+    try:
+        bits = int(permissions or 0)
+    except (TypeError, ValueError):
+        return False
+    return bool(bits & (_PERM_ADMINISTRATOR | _PERM_MANAGE_GUILD))
 
 
 def user_can_manage_guild(user, guild_id):
@@ -1875,21 +1904,41 @@ def build_upcoming_embed(match, series=None, player=None):
     return {k: v for k, v in embed.items() if v is not None}
 
 
-def build_help_embed():
+def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
     """Build a Discord embed listing the bot's commands, grouped by category.
 
     Driven by the shared command definitions (the_gatehouse.services.
     discord_commands), so any command registered with Discord automatically
     appears here. Imported inside the function to avoid an import cycle
     (discord_commands imports models that pull in this package).
+
+    When `enabled_names` is given (a guild's whitelist), only the commands actually
+    available in that server are listed: /help (always available) plus the enabled,
+    whitelistable commands. Empty groups are dropped. If some commands are hidden and
+    the invoker can manage the server (`can_manage`), a link to the guild's command
+    settings is appended so they can enable more. Pass `enabled_names=None` (the default,
+    e.g. in DMs) to list every command unfiltered.
     """
-    from the_gatehouse.services.discord_commands import grouped_commands
+    from the_gatehouse.services.discord_commands import grouped_commands, WHITELISTABLE
 
     site_url = config.get("SITE_URL", "").rstrip("/")
 
+    # None → list everything (no guild context). Otherwise a command is shown only if it's
+    # /help or in the guild's whitelist.
+    if enabled_names is None:
+        def is_available(name):
+            return True
+    else:
+        enabled = set(enabled_names)
+        def is_available(name):
+            return name == "help" or name in enabled
+
     fields = []
     for group_name, rows in grouped_commands():
-        value = "\n".join(f"`/{name}` — {desc}" for name, desc in rows)
+        shown = [(name, desc) for name, desc in rows if is_available(name)]
+        if not shown:
+            continue
+        value = "\n".join(f"`/{name}` — {desc}" for name, desc in shown)
         fields.append({"name": group_name, "value": value, "inline": False})
 
     embed = {
@@ -1898,6 +1947,19 @@ def build_help_embed():
         "fields": fields,
         "url": site_url or None,
     }
+
+    # Offer a link to enable more commands when the invoker can manage the server and
+    # some whitelistable commands aren't enabled yet.
+    if enabled_names is not None and can_manage and guild_id and site_url:
+        hidden = [n for n in WHITELISTABLE if n not in set(enabled_names)]
+        if hidden:
+            manage_url = f"{site_url}/guild/{guild_id}/edit/"
+            embed["fields"].append({
+                "name": "More commands available",
+                "value": f"[Enable more commands for this server]({manage_url})",
+                "inline": False,
+            })
+
     return {k: v for k, v in embed.items() if v is not None}
 
 
