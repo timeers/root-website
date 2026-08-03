@@ -22,7 +22,7 @@ class ParticipantSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'player', 'player_id', 'coalition', 'faction',
             'game_score', 'dominance', 'vagabond', 'captains', 'discarded_captain',
-            'brazen_demagogue', 'tournament_score', 'turn_order',
+            'starting_leader', 'brazen_demagogue', 'tournament_score', 'turn_order',
         ]
 
     def get_player(self, obj):

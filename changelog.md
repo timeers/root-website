@@ -4,17 +4,19 @@
 
 ### New Features
 - Portuguese added to the Forge
-- Auto select winner if a score greater than 30 is recorded
-- Elo systems can be assigned to a series. Eligible games expose their elo systems (and are filterable) in the game API
 - Game API `tournament` field now returns `{display, series, stage, round}` display string and slugs instead of only a display string
-- Local Elo rating engine computes player ratings on schedule
+- Elo systems can be assigned to a series. Eligible games expose their elo systems (and are filterable) in the game API
+- RootELO designation for external Elo rating
+- Option for future Local Elo rating engines to compute player ranking on schedule
 
 ### Improvements
+- Auto select winner if a score greater than 30 is recorded
 - Can no longer edit components from the Post Detail page (cleans up layout)
 - Record game tile added to Faction Settings page
 - Rejected factions are shown alongside submitted factions on a user's profile
 - Reason for rejection now shown on the Faction's status page
 - Game Detail page uses Series name for meta if no nickname exists
+- Added starting leader to MatchAPI
 
 ### Bug Fixes
 - Submit game preview ignores leading zeros
