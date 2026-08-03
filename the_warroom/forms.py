@@ -1118,9 +1118,9 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             with open('/etc/config.json') as config_file:
                 config = json.load(config_file)
             if user.profile.admin:
-                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID'])
+                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID']).distinct()
             else:
-                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
+                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID']).distinct()
 
         # Remove admin-only fields for non-admins
         if user and not user.profile.admin:
@@ -1270,9 +1270,9 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             with open('/etc/config.json') as config_file:
                 config = json.load(config_file)
             if user.profile.admin:
-                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID'])
+                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID']).distinct()
             else:
-                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
+                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID']).distinct()
 
         # Remove admin-only fields for non-admins
         if user and not user.profile.admin:
@@ -1718,9 +1718,9 @@ class TournamentPlayerSettingsForm(forms.ModelForm):
             with open('/etc/config.json') as config_file:
                 config = json.load(config_file)
             if user.profile.admin:
-                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID'])
+                self.fields['guild'].queryset = DiscordGuild.objects.all().exclude(guild_id=config['WW_GUILD_ID']).distinct()
             else:
-                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
+                self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID']).distinct()
 
         instance = kwargs.get('instance')
         if instance and instance.classification != Tournament.ClassificationTypes.LEAGUE:
