@@ -17,10 +17,12 @@
 - Reason for rejection now shown on the Faction's status page
 - Game Detail page uses Series name for meta if no nickname exists
 - Added starting leader to MatchAPI
+- Added sub items to the mobile menu for faster navigation
 
 ### Bug Fixes
 - Submit game preview ignores leading zeros
 - Strenghtened the dismiss process for notifications
+- Added final=True filter to user games context processor count to match the number displayed on the my games page
 
 ## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot
