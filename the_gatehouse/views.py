@@ -33,7 +33,7 @@ from .services.discordservice import (update_discord_avatar, get_discord_invite_
                                       bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
-from .tasks import send_rich_discord_message_task, send_discord_message_task
+from .tasks import send_rich_discord_message_task, send_discord_message_task, register_guild_commands_task
 
 
 def trigger_error(request):
@@ -1669,6 +1669,7 @@ def edit_guild(request, guild_id):
 
 @login_required
 def hx_save_lfg_role(request, guild_id, pk=None):
+    from .services.discord_commands import LFG_TAG_LIMIT
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     if not can_moderate_guild(request.user.profile, guild):
         raise PermissionDenied()
@@ -1691,6 +1692,15 @@ def hx_save_lfg_role(request, guild_id, pk=None):
 
     form = GuildLFGRoleForm(request.POST, instance=role)
     if form.is_valid():
+        # Discord caps a slash-command option at 25 choices, so a guild can have at most
+        # LFG_TAG_LIMIT tags. Block adding beyond that (edits don't grow the count).
+        if pk is None and guild.lfg_roles.count() >= LFG_TAG_LIMIT:
+            form.add_error(
+                'role_id',
+                f'Discord allows at most {LFG_TAG_LIMIT} LFG tags per server.')
+            return render(request, 'the_gatehouse/partials/lfg_role_form.html',
+                          {'form': form, 'role': role, 'guild': guild,
+                           'field_ctx': _lfg_field_context(guild, form)}, status=422)
         obj = form.save(commit=False)
         obj.guild = guild
         # `name` isn't a form field — derive it from the picked role's real Discord name
@@ -1707,6 +1717,9 @@ def hx_save_lfg_role(request, guild_id, pk=None):
             form.add_error('role_id', 'This guild already has an LFG entry for that role.')
         else:
             obj.save()
+            # A tag change can flip /lfg between SINGLE/MULTI or change its choices;
+            # re-register off the request path (debounced to absorb rapid edits).
+            register_guild_commands_task.apply_async((guild.id,), countdown=10)
             if pk is None:
                 # Add: replace the add-form in place with a fresh one, and append the
                 # new row out-of-band into the list.
@@ -1730,6 +1743,9 @@ def hx_delete_lfg_role(request, guild_id, pk):
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
     get_object_or_404(GuildLFGRole, pk=pk, guild=guild).delete()
+    # Removing a tag can flip /lfg between SINGLE/MULTI or change its choices; re-register
+    # off the request path (debounced).
+    register_guild_commands_task.apply_async((guild.id,), countdown=10)
     # Remove the row (hx-swap="outerHTML" on an empty response) and OOB-refresh the add
     # form so the freed role reappears in its dropdown and the form un-hides if it had
     # been hidden (no roles left).

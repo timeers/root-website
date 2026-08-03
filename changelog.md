@@ -20,6 +20,7 @@
 - Added starting leader to MatchAPI
 - Added sub items to the mobile menu for faster navigation
 - Bot Commands are now whitelisted so each guild can choose which commands they want
+- LFG command doesn't prompt for tag if multiple options don't exist
 
 ### Bug Fixes
 - Submit game preview ignores leading zeros

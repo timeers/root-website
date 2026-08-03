@@ -274,10 +274,20 @@ def register_guild_commands(guild):
     """PUT this guild's enabled command set (always /help + whitelisted) to Discord's
     guild-scoped command endpoint. Returns True on success. Guild-scoped registration is
     ~instant (unlike global). Call on bot-add and whenever the whitelist changes."""
-    from .discord_commands import commands_for_guild
+    from .discord_commands import commands_for_guild, lfg_command_for_roles
     app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
     url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild.guild_id}/commands"
-    body = commands_for_guild(guild.enabled_commands or [])
+    # commands_for_guild returns references to the shared module-level command dicts, so
+    # build a NEW list and substitute the /lfg element with the per-guild variant (SINGLE
+    # vs MULTI, choices baked from this guild's tags). lfg_command_for_roles deep-copies,
+    # so the shared /lfg singleton is never mutated. Only touch /lfg when it's actually in
+    # the body (i.e. whitelisted).
+    base = commands_for_guild(guild.enabled_commands or [])
+    if any(c["name"] == "lfg" for c in base):
+        roles = list(guild.lfg_roles.all())
+        body = [lfg_command_for_roles(roles) if c["name"] == "lfg" else c for c in base]
+    else:
+        body = base
     try:
         resp = requests.put(url, headers=_bot_headers(), json=body, timeout=10)
         resp.raise_for_status()

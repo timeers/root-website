@@ -43,6 +43,7 @@ from .services.discordservice import (
     build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
     roll_emoji_for, suit_static_image_url, embed_color, permissions_can_manage_guild,
+    get_guild_roles,
 )
 from .services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
@@ -1111,16 +1112,31 @@ def _lfg_message_data(author, owner, description, players_value,
     data = {"embeds": [embed], "components": [row]}
     if content:
         data["content"] = content
-        # Authorize the role ping on fresh posts (single-role flow). Harmless on the
-        # picker EDIT — Discord never notifies on edits, so that path also fires a
-        # separate fresh followup message to actually ping (see _handle_lfg_pick).
+        # Authorize the role ping. This is always a fresh channel message (the tag is
+        # chosen up front in /lfg), so the mention notifies natively.
         data["allowed_mentions"] = {"parse": ["roles"]}
     return data
 
 
+def _lfg_role_is_live(role, guild_id):
+    """Whether the chosen tag's Discord role still exists, so we can ping it. A blank
+    role_id has nothing to ping (mention() is a plain name) → treat as live. On a role
+    fetch failure (None) we can't tell, so assume live rather than silently drop the
+    ping during a transient Discord/network error. Only a definitive 'not in the live
+    set' suppresses the ping — avoids rendering a broken @deleted-role mention."""
+    if not role.role_id:
+        return True
+    live = get_guild_roles(guild_id)
+    if live is None:
+        return True
+    return role.role_id in {r["id"] for r in live}
+
+
 def _handle_lfg_command(data):
-    """/lfg: post a Looking-For-Game call. If the guild has LFG roles, ping the
-    single role (or show an owner-only picker for several); otherwise a plain post."""
+    """/lfg: post a Looking-For-Game call. The tag (if any) is chosen up front via the
+    `type` option (present only when the guild has 2+ tags); with one tag it's used
+    automatically, with none it's a plain post. When there are no tags and the invoker
+    can manage the server, an ephemeral followup links them to add some."""
     description = (_get_option(data, "description") or "").strip()
     author = data.get("_author")
     owner = data.get("_author_id")
@@ -1131,43 +1147,58 @@ def _handle_lfg_command(data):
     ensure_profile_from_discord_task.delay(owner, data.get("_author_username"),
                                            (author or {}).get("name"))
 
-    guild = DiscordGuild.objects.filter(guild_id=data.get("_guild_id")).first()
+    guild_id = data.get("_guild_id")
+    guild = DiscordGuild.objects.filter(guild_id=guild_id).first()
     roles = list(guild.lfg_roles.all()) if guild else []
-
     players_value = _lfg_player_line(_author_display_from_data(data), owner)
 
-    if not roles:
+    def plain_post():
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
             "data": _lfg_message_data(author, owner, description, players_value),
         })
 
-    if len(roles) == 1:
-        role = roles[0]
-        title = role.description or role.name or LFG_DEFAULT_TITLE
-        return JsonResponse({
-            "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _lfg_message_data(author, owner, description, players_value,
-                                      content=role.mention(), title=title),
-        })
+    # No tags configured. Post the plain call; if the invoker can manage the server,
+    # nudge them (ephemerally) to add LFG tags so future calls can ping.
+    if not roles:
+        if permissions_can_manage_guild(data.get("_member_permissions")):
+            site_url = config.get("SITE_URL", "").rstrip("/")
+            token = data.get("_token")
+            if site_url and guild_id and token:
+                manage_url = f"{site_url}/guild/{guild_id}/edit/"
+                # Sequence after the ACK (a followup before it 404s); the small countdown
+                # lets the initial response reach Discord first.
+                post_interaction_followup_task.apply_async(
+                    (token, {
+                        "content": f"Add LFG tags to ping members when someone posts a "
+                                   f"game: {manage_url}",
+                        "flags": EPHEMERAL,
+                    }),
+                    countdown=2,
+                )
+        return plain_post()
 
-    # Multiple roles: owner-only picker. Carry the game description in the picker
-    # embed's description so the pick handler can rebuild the join message.
-    embed = {"author": author, "title": "Pick an LFG role", "description": description}
-    if len(roles) <= 5:
-        row = action_row(*[
-            button(role.name[:80], encode_custom_id("lfg_pick", role.pk, owner),
-                   style=STYLE_SECONDARY)
-            for role in roles
-        ])
-        components = [row]
+    # Resolve the chosen tag. `type` is only present in the MULTI variant (2+ tags);
+    # its value is a GuildLFGRole pk. With one tag (SINGLE variant) there's no `type`
+    # option, so fall back to the sole role.
+    type_val = _get_option(data, "type")
+    if type_val:
+        role = GuildLFGRole.objects.filter(pk=type_val, guild=guild).first()
+        # Stale choice: the tag was deleted between registration and use. Don't silently
+        # ping a different tag — post plain.
+        if role is None:
+            return plain_post()
     else:
-        options = [select_option(role.name, str(role.pk)) for role in roles]
-        components = [action_row(string_select(
-            encode_custom_id("lfg_pick", owner), options, placeholder="Choose an LFG role"))]
+        role = roles[0]
+
+    title = role.description or role.name or LFG_DEFAULT_TITLE
+    # Ping only if the underlying Discord role still exists; otherwise post with the tag
+    # name as the title but no mention (avoids a broken @deleted-role ping).
+    content = role.mention() if _lfg_role_is_live(role, guild_id) else None
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"embeds": [embed], "components": components},
+        "data": _lfg_message_data(author, owner, description, players_value,
+                                  content=content, title=title),
     })
 
 
@@ -1176,53 +1207,6 @@ def _author_display_from_data(data):
     payload doesn't carry member.nick down to `data`, so use the author embed name
     (global_name/username) — good enough for the poster's own line."""
     return (data.get("_author") or {}).get("name") or "Player"
-
-
-def _handle_lfg_pick(payload):
-    """Picker resolved (button or select): transition the picker into the join
-    message with the chosen role pinged and its description as the title."""
-    data = payload["data"]
-    custom_id = data.get("custom_id", "")
-    _action, args = decode_custom_id(custom_id)
-    # Button picker: lfg_pick:{rolePk}:{owner}. Select picker: lfg_pick:{owner} with
-    # the chosen pk in data["values"].
-    if data.get("values"):
-        role_pk = data["values"][0]
-        owner = args[-1] if args else None
-    else:
-        role_pk = args[0] if args else None
-        owner = args[-1] if len(args) > 1 else None
-
-    message = payload.get("message", {})
-    embed = (message.get("embeds") or [{}])[0]
-    author = embed.get("author")
-    description = embed.get("description", "")
-
-    role = GuildLFGRole.objects.filter(pk=role_pk).first()
-    if not role:
-        return _ephemeral("That role no longer exists.")
-
-    title = role.description or role.name or LFG_DEFAULT_TITLE
-    players_value = _lfg_player_line(_lfg_member_display_name(payload), owner)
-
-    # The picker→join transition is an EDIT (RESPONSE_UPDATE_MESSAGE), and Discord
-    # never fires mention notifications on edits. So the role mention in the edited
-    # message renders but doesn't ping. Post a SEPARATE fresh followup message with
-    # the mention (a fresh message DOES ping). Offloaded to Celery: the edit below is
-    # the interaction ACK (must return <3s), and the task's retry sequences the
-    # followup after the ACK. Skip when role_id is blank — mention() is then a plain
-    # name with nothing to ping.
-    if role.role_id:
-        post_interaction_followup_task.delay(
-            payload["token"],
-            {"content": role.mention(), "allowed_mentions": {"parse": ["roles"]}},
-        )
-
-    return JsonResponse({
-        "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _lfg_message_data(author, owner, description, players_value,
-                                  content=role.mention(), title=title),
-    })
 
 
 def _lfg_jump_url(payload):
@@ -1390,7 +1374,6 @@ COMPONENT_HANDLERS = {
     "random_post": _handle_random_post,
     "random_roll": _handle_random_roll,
     "random_hireling": _handle_random_hireling,
-    "lfg_pick": _handle_lfg_pick,
     "lfg_join": _handle_lfg_join,
     "lfg_notify": _handle_lfg_notify,
     "lfg_cancel": _handle_lfg_cancel,
@@ -1594,6 +1577,9 @@ def discord_interactions(request):
                 # roles/owner/admin for us). Lets /help decide, without an API call,
                 # whether to offer the "enable more commands" link.
                 data["_member_permissions"] = (payload.get("member") or {}).get("permissions")
+                # Interaction token, so a handler can send a followup after its ACK
+                # (e.g. /lfg's ephemeral "add tags" nudge).
+                data["_token"] = payload.get("token")
                 return handler(data)
             except Exception:
                 logger.exception("Error handling /%s interaction", command_name)
