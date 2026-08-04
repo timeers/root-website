@@ -756,6 +756,8 @@ SETUP_STEP_INDENT = 0.1 * inch            # left indent applied to each setup st
 HOWTOPLAY_TITLE_SIZE = 22
 HOWTOPLAY_TITLE_GAP = 0.13 * inch
 HOWTOPLAY_BODY_SIZE = 10
+HOWTOPLAY_BODY_MIN_SIZE = 6                 # smallest body size before we stop shrinking
+HOWTOPLAY_BODY_BOTTOM_MARGIN = 0.12 * inch  # buffer kept below the body so text clears the page edge
 HOWTOPLAY_IMAGE_GAP = 0.10 * inch          # horizontal gap between text and the image
 
 BACK_X_MARGIN = 0.7 * inch             # left/right page margin for the FactionBack
@@ -7099,16 +7101,7 @@ class FactionBackLayoutEngine:
             alignment=TA_LEFT,
             spaceAfter=0,
         )
-        self.howtoplay_body_style = ParagraphStyle(
-            'BackHowToPlayBody',
-            fontName='Baskerville',
-            fontSize=HOWTOPLAY_BODY_SIZE,
-            leading=HOWTOPLAY_BODY_SIZE + 2.5,
-            autoLeading='max',
-            textColor=colors.black,
-            alignment=TA_LEFT,
-            spaceAfter=HOWTOPLAY_BODY_SIZE * 0.5,
-        )
+        self.howtoplay_body_style = self._howtoplay_body_style_at(HOWTOPLAY_BODY_SIZE)
         self.piece_label_style = ParagraphStyle(
             'BackPieceLabel',
             fontName='Baskerville',
@@ -7752,6 +7745,81 @@ class FactionBackLayoutEngine:
 
     # ---------- How to play ----------
 
+    def _howtoplay_body_style_at(self, size):
+        """Body ParagraphStyle at a given font size. Leading/spacing scale with
+        size so the shrink-to-fit loop can trade font size for vertical room."""
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_LEFT
+        from reportlab.lib import colors
+        return ParagraphStyle(
+            f'BackHowToPlayBody_{size}',
+            fontName='Baskerville',
+            fontSize=size,
+            leading=size + 2.5,
+            autoLeading='max',
+            textColor=colors.black,
+            alignment=TA_LEFT,
+            spaceAfter=size * 0.5,
+        )
+
+    def _fit_full_width_body(self, markup, avail_w, avail_h):
+        """Build a full-width body Paragraph, stepping the font size down from
+        HOWTOPLAY_BODY_SIZE to HOWTOPLAY_BODY_MIN_SIZE until its wrapped height
+        fits avail_h. Returns the last (smallest) paragraph if nothing fits, so
+        oversized text is rendered as small as allowed rather than rejected."""
+        para = None
+        for size in range(HOWTOPLAY_BODY_SIZE, HOWTOPLAY_BODY_MIN_SIZE - 1, -1):
+            para = Paragraph(markup, self._howtoplay_body_style_at(size))
+            _, para_h = para.wrap(avail_w, 1_000_000)
+            tighten_large_font_lines(para)
+            para_h = getattr(para, 'height', para_h)
+            if para_h <= avail_h:
+                break
+        return para
+
+    def _fit_wrapped_body(self, markup, x, body_top, full_w, narrow_w,
+                          img_top, avail_h):
+        """Build a body Paragraph whose lines flow around the image (wide above
+        img_top, narrow beside it) via a per-line widthList, stepping the font
+        size down until the paragraph height fits avail_h. Returns the last
+        (smallest) paragraph if nothing fits."""
+        para = None
+        for size in range(HOWTOPLAY_BODY_SIZE, HOWTOPLAY_BODY_MIN_SIZE - 1, -1):
+            style = self._howtoplay_body_style_at(size)
+            leading = style.leading
+
+            # Lines that fit above the image's top edge stay full width; the rest
+            # are clamped beside the image. Transition one line early so the last
+            # wide line doesn't crowd the image's top edge.
+            wide_space = max(body_top - img_top, 0)
+            n_wide = int(wide_space // leading) if leading > 0 else 0
+            n_wide = max(n_wide - 1, 0)
+
+            total_lines = len(Paragraph(markup, style).breakLines([full_w]).lines)
+            n_wide = min(n_wide, total_lines)
+
+            widths = [full_w] * n_wide + [narrow_w] * max(total_lines - n_wide, 0)
+            # Pad with narrow widths so breakLines never runs out (harmless if unused).
+            if len(widths) < total_lines + 8:
+                widths += [narrow_w] * (total_lines + 8 - len(widths))
+
+            para = Paragraph(markup, style)
+            para.blPara = para.breakLines(widths)
+            para.width = full_w
+
+            def _line_h(line):
+                a = getattr(line, 'ascent', None)
+                d = getattr(line, 'descent', None)
+                if a is None or d is None:
+                    return leading
+                return max(a - d, leading)
+
+            para.height = sum(_line_h(line) for line in para.blPara.lines)
+            tighten_large_font_lines(para)
+            if para.height <= avail_h:
+                break
+        return para
+
     def _draw_how_to_play(self, c, x, top_y, w, h):
         suffix = getattr(self.back, 'how_to_play_title', '') or 'Faction'
         title = f"{self._label('playing', 'Playing the')} {suffix}"
@@ -7767,12 +7835,15 @@ class FactionBackLayoutEngine:
         body_top = title_baseline - HOWTOPLAY_TITLE_GAP
         body_bottom = top_y - h
         body_h = body_top - body_bottom
+        # Height the body must fit within, keeping a buffer above the page edge.
+        fit_h = body_h - HOWTOPLAY_BODY_BOTTOM_MARGIN
 
         # Resolve optional back_image path, scaled by user back_image_size against
         # the available text envelope (column width × body height after title).
         img_path, img_w, img_h = self._resolve_back_image(w_avail=w, h_avail=body_h)
 
-        # Draw the image (if any) regardless of whether body text exists.
+        # Draw the image (if any) regardless of whether body text exists. In
+        # behind-text mode the body is drawn afterward, on top of the image.
         if img_path:
             img_x = PAGE_W - img_w
             img_y = 0
@@ -7784,18 +7855,17 @@ class FactionBackLayoutEngine:
             return
 
         markup = format_step_markup(body)
-        para = Paragraph(markup, self.howtoplay_body_style)
+        behind = bool(getattr(self.back, 'image_behind_text', False))
 
-        if not img_path:
-            _, para_h = para.wrap(w, body_h)
-            tighten_large_font_lines(para)
-            para_h = getattr(para, 'height', para_h)
+        # Full-width text when there's no image, or when the image is layered
+        # behind the text. Otherwise the text wraps around the image.
+        if not img_path or behind:
+            para = self._fit_full_width_body(markup, w, fit_h)
+            para_h = getattr(para, 'height', 0)
             para.drawOn(c, x, body_top - para_h)
             return
 
-        # Variable-width wrap within a single Paragraph. Passing a per-line
-        # widthList to breakLines lets the width change mid-paragraph at
-        # img_top, so running prose continues seamlessly from wide to narrow.
+        # Wrap-around mode: text flows full width above the image, narrow beside it.
         img_top = img_y + img_h
         img_left = img_x  # left edge of the image on the page
         right_edge = x + w
@@ -7806,37 +7876,8 @@ class FactionBackLayoutEngine:
         # clamped to stop before the image.
         narrow_w = max(min(right_edge, img_left - HOWTOPLAY_IMAGE_GAP) - x, 20)
 
-        # Estimate how many leading lines fit above img_top at full width, then
-        # transition one line earlier so the narrow section starts before the
-        # last full-width line crowds the image's top edge.
-        leading = para.style.leading
-        wide_space = max(body_top - img_top, 0)
-        n_wide = int(wide_space // leading) if leading > 0 else 0
-        n_wide = max(n_wide - 1, 0)
-
-        # Cap against the total number of lines this body will produce at full
-        # width, so we never promise more wide lines than exist.
-        total_lines = len(para.breakLines([full_w]).lines)
-        n_wide = min(n_wide, total_lines)
-
-        widths = [full_w] * n_wide + [narrow_w] * max(total_lines - n_wide, 0)
-        # Pad with narrow widths so breakLines never runs out (harmless if unused).
-        if len(widths) < total_lines + 8:
-            widths += [narrow_w] * (total_lines + 8 - len(widths))
-
-        para = Paragraph(markup, self.howtoplay_body_style)
-        para.blPara = para.breakLines(widths)
-        para.width = full_w
-
-        def _line_h(line):
-            a = getattr(line, 'ascent', None)
-            d = getattr(line, 'descent', None)
-            if a is None or d is None:
-                return leading
-            return max(a - d, leading)
-
-        para.height = sum(_line_h(line) for line in para.blPara.lines)
-        tighten_large_font_lines(para)
+        para = self._fit_wrapped_body(markup, x, body_top, full_w, narrow_w,
+                                      img_top, fit_h)
         para.drawOn(c, x, body_top - para.height)
 
     def _resolve_back_image(self, w_avail, h_avail):

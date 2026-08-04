@@ -9,6 +9,7 @@
 - Elo seasons can be created to signify a hard or soft reset date
 - RootELO designation for external Elo rating
 - Option for future Local Elo rating engines to compute player ranking on schedule
+- Can now layer the character image on the Faction Board back behind the how to play text in the Forge
 
 ### Improvements
 - Auto select winner if a score greater than 30 is recorded
@@ -21,6 +22,7 @@
 - Added sub items to the mobile menu for faster navigation
 - Bot Commands are now whitelisted so each guild can choose which commands they want
 - LFG command doesn't prompt for tag if multiple options don't exist
+- How to Play text scales down to size 6 in the Forge for faction backs when necessary
 
 ### Bug Fixes
 - Submit game preview ignores leading zeros

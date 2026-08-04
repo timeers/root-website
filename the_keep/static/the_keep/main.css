@@ -5026,6 +5026,18 @@ body.forge-modal-open { overflow: hidden; }
   pointer-events: none;
   margin-right: calc(-1 * var(--howto-pad-right, 0px));
 }
+/* Overlay mode: drop the float so text flows full width over the image, and
+   push the image behind the text, mirroring the PDF's image-behind-text layout. */
+.forge-howtoplay-preview.is-overlay .forge-howtoplay-image-shape {
+  display: none;
+}
+.forge-howtoplay-preview.is-overlay .forge-howtoplay-image {
+  z-index: 0;
+}
+.forge-howtoplay-preview.is-overlay .forge-howtoplay-body {
+  position: relative;
+  z-index: 1;
+}
 .forge-howtoplay-image {
   position: absolute;
   right: calc(-1 * var(--howto-pad-right, 0px));
