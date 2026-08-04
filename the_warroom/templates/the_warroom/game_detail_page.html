@@ -10,6 +10,53 @@
 <meta property="og:title" content="{{ og_title }}">
 <meta property="og:description" content="{{game.platform}} game with {% for effort in efforts %}{% if forloop.last and not forloop.first %}and {% endif %}{% if effort.player %}{{ effort.player.name }} as {% endif %}{{ effort.faction.title }}{% if not forloop.last %}, {% endif %}{% endfor %} - {{ game.date_posted|date:"F j, Y" }}">
 <meta name="description" content="{{game.platform}} game with {% for effort in efforts %}{% if forloop.last and not forloop.first %}and {% endif %}{% if effort.player %}{{ effort.player.name }} as {% endif %}{{ effort.faction.title }}{% if not forloop.last %}, {% endif %}{% endfor %} - {{ game.date_posted|date:"F j, Y" }}">
+<style>
+    {% comment %}Board score-track overlay: faction icons positioned over their score (0-30).{% endcomment %}
+    .board-score-overlay-wrap { position: relative; display: inline-block; line-height: 0; }
+
+    .board-score-overlay {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;   /* clicks pass through to the image so the lightbox still works */
+    }
+
+    .board-score-icon {
+        position: absolute;
+        width: var(--score-icon-size, 7%);
+        aspect-ratio: 1;
+        /* Horizontal: center of slot. usable = 100% - 2*padX; slot = usable/31;
+           center = padX + (score + 0.5) * slot. translateX(-50%) centers the icon. */
+        left: calc(
+            var(--score-pad-x)
+            + (var(--score) + 0.5) * ((100% - 2 * var(--score-pad-x)) / 31)
+        );
+        /* Vertical: stack tied scores upward. bottom = padBottom + stack * (iconSize + gap). */
+        bottom: calc(
+            var(--score-pad-bottom)
+            + var(--stack) * (var(--score-icon-size) + var(--score-stack-gap))
+        );
+        transform: translateX(-50%);
+    }
+
+    .board-score-icon img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+    {% comment %}Dominance cards: pinned top-right, stacking leftward, faction icon centered.{% endcomment %}
+    .board-dominance-overlay { position: absolute; inset: 0; pointer-events: none; }
+
+    .board-dominance-card {
+        position: absolute;
+        top: var(--dom-pad-top, 3%);
+        /* Stack leftward from the right padding: right = padRight + stack*(cardW + gap). */
+        right: calc(var(--dom-pad-right, 2.5%) + var(--dom-stack) * (var(--dom-card-size, 12%) + var(--dom-stack-gap, 1%)));
+        width: var(--dom-card-size, 12%);
+        aspect-ratio: 825 / 1125;   /* true card proportions */
+    }
+    .board-dominance-card .dom-card-img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 6%; }
+    .board-dominance-card .dom-card-faction {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: var(--dom-faction-size, 55%); aspect-ratio: 1; object-fit: contain;
+    }
+</style>
 {% endblock meta%}
 
 
@@ -50,19 +97,59 @@
 
             {% if game.map.board_image %}
             <div class="col-md-8 text-center mb-3 mb-md-0">
-                <picture>
-                    {% if game.map.small_board_image %}
-                        <source media="(max-width: 500px)" srcset="{{ game.map.small_board_image.url }}">
-                    {% endif %}
-                    <img
-                        class="rounded-corner-img responsive-img zoomable"
-                        src="{{ game.map.board_image.url }}"
-                        data-full="{{ game.map.board_image.url }}"
-                        onclick="openLightbox(this)"
-                        alt="{{ game.map.title }}"
-                        loading="lazy"
-                    >
-                </picture>
+                <div class="board-score-overlay-wrap"
+                     style="--score-pad-x: 2.5%; --score-pad-bottom: 2.6%; --score-icon-size: 3.5%; --score-stack-gap: 0.4%;
+                            --dom-pad-top: 13%; --dom-pad-right: 2.5%; --dom-card-size: 12%; --dom-stack-gap: 1%; --dom-faction-size: 55%;">
+                    <picture>
+                        {% if game.map.small_board_image %}
+                            <source media="(max-width: 500px)" srcset="{{ game.map.small_board_image.url }}">
+                        {% endif %}
+                        <img
+                            class="rounded-corner-img responsive-img zoomable"
+                            src="{{ game.map.board_image.url }}"
+                            data-full="{{ game.map.board_image.url }}"
+                            onclick="openLightbox(this)"
+                            alt="{{ game.map.title }}"
+                            loading="lazy"
+                        >
+                    </picture>
+
+                    {% comment %}Score-track overlay: one icon per effort, positioned over its faction's score.
+                    board_score_efforts is pre-filtered/sorted in the view (skips null scores,
+                    missing icons, and dominance efforts unless brazen demagogue).{% endcomment %}
+                    <div class="board-score-overlay">
+                        {% regroup board_score_efforts by score as score_groups %}
+                        {% for group in score_groups %}
+                            {% for effort in group.list %}
+                                {% comment %}Clamp >30 to 30 in-template; stack tied scores upward via forloop.counter0.{% endcomment %}
+                                <div class="board-score-icon"
+                                     style="--score: {% if group.grouper > 30 %}30{% else %}{{ group.grouper }}{% endif %}; --stack: {{ forloop.counter0 }};"
+                                     title="{{ effort.faction.title }}">
+                                    <img src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}"
+                                         alt="{{ effort.faction.title }}" loading="lazy">
+                                </div>
+                            {% endfor %}
+                        {% endfor %}
+                    </div>
+
+                    {% comment %}Dominance cards: top-right, faction icon centered, stacking leftward.
+                    board_dominance_efforts is built in the view (every effort with a dominance value).{% endcomment %}
+                    <div class="board-dominance-overlay">
+                        {% for effort in board_dominance_efforts %}
+                            {% with dom_card='images/dominance/'|add:effort.dominance|add:'_Card.png' %}
+                            <div class="board-dominance-card" style="--dom-stack: {{ forloop.counter0 }};"
+                                 title="{{ effort.dominance }} Dominance{% if effort.faction %} — {{ effort.faction.title }}{% endif %}">
+                                <img class="dom-card-img" src="{% static dom_card %}" alt="{{ effort.dominance }} Dominance">
+                                {% if effort.faction and effort.faction.small_icon %}
+                                    <img class="dom-card-faction"
+                                         src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}"
+                                         alt="{{ effort.faction.title }}">
+                                {% endif %}
+                            </div>
+                            {% endwith %}
+                        {% endfor %}
+                    </div>
+                </div>
             </div>
             {% endif %}
 

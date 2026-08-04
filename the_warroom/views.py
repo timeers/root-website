@@ -586,6 +586,26 @@ def game_detail_view(request, id=None, league_id=None):
         og_tournament = game.get_tournament()
         og_title = f'{og_tournament.name} Game' if og_tournament else f'{game.platform} Game'
 
+    # Efforts for the board score-track overlay: only those that sit on the track
+    # (have a faction icon and a score, and aren't dominance wins unless brazen
+    # demagogue). Filtering here keeps the {% regroup %} stack gapless and lets the
+    # template use forloop.counter0 as the stack index. Sorted by score so regroup
+    # groups tied scores; does not disturb the seat-ordered `efforts` used elsewhere.
+    board_score_efforts = sorted(
+        (
+            e for e in efforts
+            if e.score is not None
+            and e.faction and e.faction.small_icon
+            and (not e.dominance or e.brazen_demagogue)
+        ),
+        key=lambda e: e.score,
+    )
+
+    # Efforts that went for dominance: each gets a dominance card overlaid in the
+    # board's top-right, faction icon centered. Includes brazen-demagogue efforts
+    # (they also appear on the score track). Faction icon optional (card still shows).
+    board_dominance_efforts = [e for e in efforts if e.dominance]
+
     commentform = GameCommentCreateForm()
     context = {
         'game': game,
@@ -593,6 +613,8 @@ def game_detail_view(request, id=None, league_id=None):
         'commentform': commentform,
         'participants': participants,
         'efforts': efforts,
+        'board_score_efforts': board_score_efforts,
+        'board_dominance_efforts': board_dominance_efforts,
         'scorecard_count': scorecard_count,
         'show_detail': show_detail,
         'can_edit': edit_permission,

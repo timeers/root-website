@@ -124,5 +124,5 @@ class GameSerializer(serializers.ModelSerializer):
         # season is derived from the game's date_posted: 0 = preseason (before the system's
         # first boundary), 1 = first season, etc. Empty list when none apply. Query-free
         # given the view's select/prefetch (including the systems' seasons).
-        return [{'slug': elo.slug, 'season': season}
+        return [{'name': elo.name, 'slug': elo.slug, 'season': season}
                 for elo, season in obj.get_elo_systems_with_seasons()]

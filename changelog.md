@@ -5,6 +5,7 @@
 ### New Features
 - Portuguese added to the Forge
 - Game API `tournament` field now returns `{display, series, stage, round}` display string and slugs instead of only a display string
+- New Game API `elo-systems` field that returns `{name, slug, season}` for each applicable system
 - Elo systems can be assigned to a series. Eligible games expose their elo systems (and are filterable) in the game API
 - Elo seasons can be created to signify a hard or soft reset date
 - RootELO designation for external Elo rating
@@ -23,6 +24,7 @@
 - Bot Commands are now whitelisted so each guild can choose which commands they want
 - LFG command doesn't prompt for tag if multiple options don't exist
 - How to Play text scales down to size 6 in the Forge for faction backs when necessary
+- in game detail page overlay faction icon on score track and corresponding dominance cards
 
 ### Bug Fixes
 - Submit game preview ignores leading zeros
