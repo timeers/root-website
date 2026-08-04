@@ -21,12 +21,41 @@
             <a class="nav-item nav-link" href="{% url 'archive-home' %}">
               {% trans 'Archive' %}
             </a>
-            <a class="nav-item nav-link position-relative" href="{% url 'games-home' %}">
+            {% comment %} Archive sub-items: shown only inside the open offcanvas (see .nav-subitems in main.css); mirrors workshop_nav_header {% endcomment %}
+            <div class="nav-subitems">
+              {% comment %} <a class="nav-item nav-link" href="{% url 'archive-home' %}">{% trans 'Search' %}</a> {% endcomment %}
+              <a class="nav-item nav-link" href="{% url 'advanced-search' 'faction' %}">{% trans 'Advanced Search' %}</a>
+            </div>
+            <a class="nav-item nav-link" href="{% url 'games-home' %}">
               {% trans 'Battlefield' %}
             </a>
+            {% comment %} Battlefield sub-items: shown only inside the open offcanvas (see .nav-subitems in main.css); mirrors warroom_nav_header {% endcomment %}
+            <div class="nav-subitems">
+              <a class="nav-item nav-link" href="{% url 'games-home' %}">{% trans 'Games' %}</a>
+              <a class="nav-item nav-link" href="{% url 'leaderboard-view' %}">{% trans 'Leaderboards' %}</a>
+              <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a>
+              {% if user.is_authenticated and user_recorded_game_count %}
+                <a class="nav-item nav-link" href="{% url 'my-submitted-games' %}">{% trans 'Submitted Games' %}</a>
+              {% endif %}
+              {% if user_active_count %}
+                <a class="nav-item nav-link" href="{% url 'in-progress' %}">
+                  {% trans 'In Progress' %}
+                  {% if user_active_games_count %}<span class="section-nav-tab-badge">{{ user_active_games_count }}</span>{% endif %}
+                </a>
+              {% endif %}
+            </div>
             <a class="nav-item nav-link" href="{% url 'asset-list' %}">
               {% trans 'Workshop' %}
             </a>
+            {% comment %} Workshop sub-items: shown only inside the open offcanvas (see .nav-subitems in main.css); mirrors workshop_nav_header {% endcomment %}
+            <div class="nav-subitems">
+              <a class="nav-item nav-link" href="{% url 'asset-list' %}">{% trans 'Community Resources' %}</a>
+              {% if user.is_authenticated and user_has_shared_assets %}
+                <a class="nav-item nav-link" href="{% url 'my-resources' %}">{% trans 'My Resources' %}</a>
+              {% endif %}
+              <a class="nav-item nav-link" href="{% url 'survey-list' %}">{% trans 'Surveys' %}</a>
+              <a class="nav-item nav-link" href="{% url 'forge-home' %}">{% trans 'Forge' %}</a>
+            </div>
             <a class="nav-item nav-link" href="{% url 'law-home' %}">
               {% trans 'Laws' %}
             </a>

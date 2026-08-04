@@ -1,6 +1,40 @@
 # Changelog
 
-## [1.12.109] - 2026-8-1 Better RDB Bots
+## [1.12.20] - 2026-8-2 August Improvements
+
+### New Features
+- Portuguese added to the Forge
+- Game API `tournament` field now returns `{display, series, stage, round}` display string and slugs instead of only a display string
+- New Game API `elo-systems` field that returns `{name, slug, season}` for each applicable system
+- Elo systems can be assigned to a series. Eligible games expose their elo systems (and are filterable) in the game API
+- Elo seasons can be created to signify a hard or soft reset date
+- RootELO designation for external Elo rating
+- Option for future Local Elo rating engines to compute player ranking on schedule
+- Can now layer the character image on the Faction Board back behind the how to play text in the Forge
+
+### Improvements
+- Auto select winner if a score greater than 30 is recorded
+- Can no longer edit components from the Post Detail page (cleans up layout)
+- Record game tile added to Faction Settings page
+- Rejected factions are shown alongside submitted factions on a user's profile
+- Reason for rejection now shown on the Faction's status page
+- Game Detail page uses Series name for meta if no nickname exists
+- Added starting leader to MatchAPI
+- Added sub items to the mobile menu for faster navigation
+- Bot Commands are now whitelisted so each guild can choose which commands they want
+- LFG command doesn't prompt for tag if multiple options don't exist
+- How to Play text scales down to size 6 in the Forge for faction backs when necessary
+- in game detail page overlay faction icon on score track and corresponding dominance cards
+
+### Bug Fixes
+- Submit game preview ignores leading zeros
+- Strenghtened the dismiss process for notifications
+- Added final=True filter to user games context processor count to match the number displayed on the my games page
+- Added response timeout to discord services
+- Fixed discord guild duplication in Series form dropdown
+- Submitting a faction from the Forge now validates name uniqueness
+
+## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot
 
 ### New Features

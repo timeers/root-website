@@ -18,12 +18,14 @@
                     </div>
                 {% endfor %}
                 {% for notification in user_notifications %}
-                    <div class="alert alert-{{ notification.message_type }} fade show alert-stack-item" role="alert">
+                    <div class="alert alert-{{ notification.message_type }} fade show alert-stack-item" role="alert"
+                         data-notification-id="{{ notification.id }}"
+                         data-dismiss-url="{% url 'dismiss-notification' notification.id %}">
                         {{ notification.message }}
                         {% if notification.related_url %}
                             <a href="{{ notification.related_url }}" class="alert-link ms-2" onclick="dismissNotification({{ notification.id }}, '{% url 'dismiss-notification' notification.id %}')">View</a>
                         {% endif %}
-                        <button type="button" class="btn-close" data-stack-close aria-label="Close" onclick="dismissNotification({{ notification.id }}, '{% url 'dismiss-notification' notification.id %}')"></button>
+                        <button type="button" class="btn-close" data-stack-close aria-label="Close"></button>
                     </div>
                 {% endfor %}
                 {% if global_message %}

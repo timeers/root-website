@@ -8,7 +8,7 @@ from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmar
 from the_warroom.models import Game, Effort
 from .models import BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile
 
-from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, DM_ERROR
+from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, register_guild_commands, DM_ERROR
 from .services.context_service import get_daily_user_summary
 from .utils import format_bulleted_list
 
@@ -262,6 +262,22 @@ def send_discord_dm_task(user_id, content=None, embed=None):
     retry_kwargs={'max_retries': 3, 'countdown': 30},
     retry_backoff=True,
 )
+def update_discord_avatar_task(user_id, force=False):
+    # Deferred from user_logged_in_handler: the avatar download is a pure
+    # side-effect (its result isn't used in the login flow), so it doesn't
+    # need to block the request path on a Discord CDN call.
+    from django.contrib.auth import get_user_model
+    user = get_user_model().objects.filter(pk=user_id).first()
+    if user is None:
+        return
+    update_discord_avatar(user, force=force)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
 def sync_bot_guilds_task():
     if sync_bot_guilds() is None:
         raise RuntimeError("Failed to sync bot guilds from Discord")
@@ -285,6 +301,21 @@ def post_interaction_followup_task(token, message_data):
     except Exception:
         logger.exception("Discord interaction followup failed")
         raise
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def register_guild_commands_task(guild_id):
+    """Re-register a guild's slash commands off the request path. Enqueued (debounced
+    with a short countdown) after LFG-role changes so /lfg swaps SINGLE↔MULTI and its
+    tag choices stay current. register_guild_commands swallows errors and returns False;
+    re-raise so Celery retries with backoff on a transient failure / 429."""
+    guild = DiscordGuild.objects.filter(pk=guild_id).first()
+    if guild and not register_guild_commands(guild):
+        raise RuntimeError(f"guild command registration failed for {guild.guild_id}")
+
 
 @shared_task
 def record_bot_usage_task(guild_id, user_id, command):

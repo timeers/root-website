@@ -203,6 +203,164 @@ ASSET_TYPES = {
     'hirelings': Hireling,
 }
 
+# A configurable Elo rating system that can be assigned to a Tournament. Games in that
+# tournament are eligible for the system when they are finalized and their player count
+# falls within min_players/max_players. `Local` math is not implemented yet; only the
+# external `RootELO` strategy is used for now.
+class EloSystem(models.Model):
+    class CalculationType(models.TextChoices):
+        # Stored value is a simplified lowercase string; second element is the
+        # human-readable label (mirrors Tournament.RecordingAccessTypes).
+        LOCAL = 'local', 'Local'
+        ROOTELO = 'rootelo', 'RootELO'
+
+    # --- Identity / cosmetic (changing these never affects ratings) ---
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(unique=True, null=True, blank=True)
+    owner = models.ForeignKey(
+        Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='elo_systems'
+    )
+
+    # --- ELIGIBILITY fields: change WHICH games are rated. Editing any of these forces a
+    #     full-history replay (the set of rated games changes). ---
+    calculation_type = models.CharField(
+        max_length=20, choices=CalculationType.choices, default=CalculationType.ROOTELO
+    )
+    min_players = models.PositiveSmallIntegerField(default=2)
+    max_players = models.PositiveSmallIntegerField(default=6)
+
+    # --- MATH fields: change HOW MUCH each game moves ratings. Editing any of these forces a
+    #     full-history replay (every game's delta changes). ---
+    k_factor = models.FloatField(default=32)
+    k_provisional = models.FloatField(default=64)
+    provisional_games = models.IntegerField(default=15)
+    initial_rating = models.FloatField(default=1500)
+
+    # --- Internal bookkeeping (not user-editable) ---
+    # When non-null, this system has pending rating changes: the scheduled recompute task
+    # replays eligible games from this date_posted forward, then clears the field. Set by
+    # mark-dirty signals to min(existing value, earliest affected game's date_posted).
+    recompute_from = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    # Field groups — a change to any field in EITHER group requires a full-history replay.
+    # A future EloSystem form uses these to warn the user what kind of change they're making:
+    #   ELIGIBILITY_FIELDS -> "This changes which games count toward ratings."
+    #   MATH_FIELDS        -> "This changes how ratings are calculated for all past games."
+    # Both cases -> "Saving will recompute this system's entire rating history."
+    ELIGIBILITY_FIELDS = ('calculation_type', 'min_players', 'max_players')
+    MATH_FIELDS = ('k_factor', 'k_provisional', 'provisional_games', 'initial_rating')
+    RECOMPUTE_FIELDS = ELIGIBILITY_FIELDS + MATH_FIELDS
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    def game_is_eligible(self, game):
+        """True if the game is finalized AND its cached player count is within bounds.
+
+        `final` is required so only completed games can be rated. The player-count
+        check uses the denormalized count (no per-call effort counting)."""
+        return (
+            game.final
+            and self.min_players <= game.cached_player_count <= self.max_players
+        )
+
+    def mark_dirty_from(self, dt):
+        """Lower the recompute_from watermark to dt (earliest affected date). Idempotent.
+
+        Uses a filtered .update() so concurrent marks race safely toward the minimum
+        without a lost update. The scheduled recompute task replays from this date."""
+        if dt is not None and (self.recompute_from is None or dt < self.recompute_from):
+            EloSystem.objects.filter(pk=self.pk).filter(
+                Q(recompute_from__isnull=True) | Q(recompute_from__gt=dt)
+            ).update(recompute_from=dt)
+
+
+# A season boundary within one EloSystem. A season is the date interval
+# [start_date, next_season.start_date); a game's season is DERIVED from its
+# date_posted. Games before the first boundary are "season 0" (the implicit
+# preseason); the first EloSeason row is season 1, the next season 2, etc.
+# Each row's reset_mode governs the transition INTO the season it represents
+# (season 1's row governs the season-0 -> season-1 reset).
+class EloSeason(models.Model):
+    class ResetMode(models.TextChoices):
+        # Mirrors EloSystem.CalculationType: lowercase stored value + label.
+        NONE = 'none', 'No Reset'      # label only; ratings carry across the boundary
+        SOFT = 'soft', 'Soft Reset'    # seed from prior-season rating, compressed toward mean
+        HARD = 'hard', 'Hard Reset'    # everyone back to initial_rating
+
+    elo_system = models.ForeignKey(EloSystem, on_delete=models.CASCADE, related_name='seasons')
+    # Inclusive lower bound. DateTime (not Date) so it compares directly against the
+    # engine's played_at / date_posted values with no date-vs-datetime ambiguity.
+    start_date = models.DateTimeField(db_index=True)
+    name = models.CharField(max_length=100, blank=True)  # optional cosmetic label
+    reset_mode = models.CharField(
+        max_length=20, choices=ResetMode.choices, default=ResetMode.HARD
+    )
+    # Only used when reset_mode == SOFT. Seed for a player entering the season:
+    #   seeded = r + soft_reset_factor * (initial_rating - r)
+    # 0.0 = carry rating unchanged, 1.0 = full reset to initial_rating.
+    soft_reset_factor = models.FloatField(
+        default=0.0, validators=[MinValueValidator(0.0), MaxValueValidator(1.0)]
+    )
+
+    class Meta:
+        unique_together = ('elo_system', 'start_date')
+        ordering = ['elo_system', 'start_date']
+
+    def __str__(self):
+        return f'{self.name or self.start_date:%Y-%m-%d} @ {self.elo_system}'
+
+
+# Current standing for a player in one local Elo system. Rebuilt by the scheduled recompute.
+class EloParticipant(models.Model):
+    """One row per (elo_system, player). Denormalized current rating for leaderboards."""
+    elo_system = models.ForeignKey(EloSystem, on_delete=models.CASCADE, related_name='participants')
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='elo_participations')
+    rating = models.FloatField()
+    games_played = models.PositiveIntegerField(default=0)
+    wins = models.FloatField(default=0)  # float: coalition win counts as 0.5
+    updated_at = models.DateTimeField(auto_now=True)  # debugging
+
+    class Meta:
+        unique_together = ('elo_system', 'player')
+        indexes = [models.Index(fields=['elo_system', '-rating'])]  # leaderboard order
+
+    def __str__(self):
+        return f'{self.player} @ {self.elo_system}: {self.rating:.0f}'
+
+
+# History row: the rating change one game produced for one player in one local Elo system.
+class EloRating(models.Model):
+    elo_system = models.ForeignKey(EloSystem, on_delete=models.CASCADE, related_name='ratings')
+    # SET_NULL (not CASCADE): deleting a Game must NOT wipe these rows before the post_delete
+    # recompute can run; the forward replay deletes them by played_at instead.
+    game = models.ForeignKey('Game', on_delete=models.SET_NULL, null=True, related_name='elo_ratings')
+    player = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='elo_ratings')
+    rating_before = models.FloatField()
+    rating_after = models.FloatField()
+    win_credit = models.FloatField(default=0)  # 1.0 solo win, 0.5 coalition, 0 loss
+    played_at = models.DateTimeField(db_index=True)  # copied from game.date_posted
+    updated_at = models.DateTimeField(auto_now=True)  # debugging
+
+    class Meta:
+        constraints = [
+            # Partial constraint: uniqueness holds only for real games. Orphaned rows
+            # (game=NULL after a delete) are transient and swept by the recompute task.
+            models.UniqueConstraint(
+                fields=['elo_system', 'game', 'player'],
+                condition=Q(game__isnull=False),
+                name='uniq_elorating_system_game_player',
+            )
+        ]
+        indexes = [models.Index(fields=['elo_system', 'played_at'])]
+
+    def __str__(self):
+        return f'{self.player} {self.rating_before:.0f}->{self.rating_after:.0f} ({self.elo_system})'
+
+
 # This is a Tournament (or Series). It can be a structured tournament or a loose grouping of playtests to show stats and leaderboards for specific games.
 # Currently hidden on the site and not really being used.
 class Tournament(models.Model):
@@ -268,6 +426,12 @@ class Tournament(models.Model):
         null=True,
         blank=True,
         choices=FormatChoices.choices,
+    )
+
+    # Elo rating system this tournament's games are eligible for (SET_NULL so removing a
+    # system doesn't delete tournaments). Eligibility per game also depends on player count.
+    elo_system = models.ForeignKey(
+        'EloSystem', on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments'
     )
 
     # Access & Roster
@@ -1705,6 +1869,11 @@ class Game(models.Model):
     status = models.CharField(max_length=15 , null=True, blank=True, choices=StatusChoices.choices)
     reach_value = models.IntegerField(null=True, blank=True)
 
+    # Denormalized count of efforts (seats) on this game, kept fresh async via the Effort
+    # save/delete signal. Raw count (not filtered by final/test_match) so it stays valid as
+    # a game moves in/out of final; the `final` gate lives in EloSystem.game_is_eligible().
+    cached_player_count = models.PositiveIntegerField(default=0)
+
     bookmarks = models.ManyToManyField(Profile, related_name='bookmarkedgames', through='GameBookmark')
     objects = GameQuerySet.as_manager()
 
@@ -1717,6 +1886,59 @@ class Game(models.Model):
 
     def get_winners(self):
         return self.get_efforts().filter(win=True)
+
+    def refresh_cached_player_count(self):
+        """Recompute cached_player_count from the game's efforts, persisting only if changed."""
+        count = self.efforts.count()
+        if count != self.cached_player_count:
+            self.cached_player_count = count
+            self.save(update_fields=['cached_player_count'])
+
+    def get_tournaments(self):
+        """All tournaments this game counts toward: its primary round's tournament plus
+        every extra_rounds tournament (mirrors GameQuerySet.counting_for_tournament)."""
+        tournaments = []
+        seen = set()
+        rounds = list(self.extra_rounds.all())
+        if self.round:
+            rounds.append(self.round)
+        for rnd in rounds:
+            t = rnd.get_tournament()
+            if t and t.pk not in seen:
+                seen.add(t.pk)
+                tournaments.append(t)
+        return tournaments
+
+    def get_elo_systems(self):
+        """Distinct EloSystems this game is eligible for, across all its tournaments.
+
+        Attribute-access only (no counting): eligibility is a range check against the
+        stored cached_player_count. To stay query-free in list views, callers should
+        select_related('round__stage__tournament__elo_system') and
+        prefetch_related('extra_rounds__stage__tournament__elo_system')."""
+        systems = []
+        seen = set()
+        for t in self.get_tournaments():
+            elo = t.elo_system
+            if elo and elo.pk not in seen and elo.game_is_eligible(self):
+                seen.add(elo.pk)
+                systems.append(elo)
+        return systems
+
+    def get_elo_systems_with_seasons(self):
+        """[(EloSystem, season_number)] for each eligible system.
+
+        season_number is DERIVED from this game's date_posted: it's the count of
+        the system's season boundaries at or before that date (0 = preseason, first
+        boundary = season 1, ...). Uses the shared _season_number_for so the API label
+        always matches the engine's reset points. Query-free when the system's
+        `seasons` are prefetched (see with_efforts / GameListView)."""
+        from .services.elo_service import _season_number_for
+        out = []
+        for elo in self.get_elo_systems():
+            starts = sorted(s.start_date for s in elo.seasons.all())
+            out.append((elo, _season_number_for(starts, self.date_posted)))
+        return out
 
     @property
     def video_source(self):
@@ -1750,7 +1972,7 @@ class Game(models.Model):
     def with_efforts():
         """Standard select/prefetch for game list views."""
         return {
-            'select': ['deck', 'map', 'round__stage__tournament'],
+            'select': ['deck', 'map', 'round__stage__tournament__elo_system'],
             'prefetch': [
                 Prefetch(
                     'efforts',
@@ -1758,6 +1980,11 @@ class Game(models.Model):
                         'player', 'faction', 'vagabond', 'coalition_with'
                     )
                 ),
+                # Season boundaries for get_elo_systems_with_seasons() — keeps the
+                # season-number derivation query-free in list views. Both the primary
+                # round and extra_rounds legs, since get_elo_systems() spans both.
+                'round__stage__tournament__elo_system__seasons',
+                'extra_rounds__stage__tournament__elo_system__seasons',
             ],
         }
 

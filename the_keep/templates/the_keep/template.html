@@ -239,8 +239,11 @@
       }
 
     function dismissGlobalMessage(dismissUrl) {
+        // keepalive guarantees the POST is delivered even if the page navigates
+        // or unloads right after the click.
         fetch(dismissUrl, {
             method: 'POST',
+            keepalive: true,
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
                 'X-CSRFToken': getCookie('csrftoken')
@@ -249,24 +252,16 @@
     }
 
     function dismissNotification(notificationId, dismissUrl) {
-        // Send AJAX request to dismiss the notification
+        // keepalive guarantees the POST is delivered even if the page navigates
+        // or unloads right after the click (the "comes back on reload" bug).
         fetch(dismissUrl, {
             method: 'POST',
+            keepalive: true,
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
                 'X-CSRFToken': getCookie('csrftoken')
             }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // The Bootstrap alert will handle the visual dismissal
-                console.log('Notification dismissed');
-            }
-        })
-        .catch(error => {
-            console.error('Error dismissing notification:', error);
-        });
+        }).catch(error => console.error('Error dismissing notification:', error));
     }
 
     function getCookie(name) {
@@ -334,6 +329,11 @@
         function dismissItem(item) {
             if (wrapper.classList.contains('is-stacked') && item.getAttribute('data-stack-index') !== '0') {
                 return;
+            }
+            // If this is a user notification, persist the dismissal server-side.
+            var dismissUrl = item.dataset.dismissUrl;
+            if (dismissUrl) {
+                dismissNotification(item.dataset.notificationId, dismissUrl);
             }
             item.classList.add('stack-dismissing');
             setTimeout(function() {

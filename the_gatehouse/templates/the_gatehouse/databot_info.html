@@ -1,14 +1,18 @@
 {% extends 'the_keep/base.html' %}
 {% load static %}
 
-{% block title %}Root Database Discord Bot | {% endblock %}
+{% block title %}Root Databot | {% endblock %}
 
-{% block meta %}
-  <meta name="description" content="Add the Root Database Discord bot to your server for instant faction stats, rules lookups, drafts, and random rolls — right inside Discord.">
-  <meta property="og:title" content="Root Database Discord Bot">
-  <meta property="og:description" content="Instant faction stats, rules lookups, drafts, and random rolls for Root — right inside Discord.">
-  <meta property="og:type" content="website">
+{% block meta %}    {# Open Graph tags #}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="Root Databot">
+<meta property="og:description" content="The Root Databot is a Discord bot for looking up Root stats, laws, factions and more.">
+<meta name="description" content="The Root Databot is a Discord bot for looking up Root stats, laws, factions and more.">
 {% endblock meta %}
+
 
 {% block content %}
 <div class="container py-5">

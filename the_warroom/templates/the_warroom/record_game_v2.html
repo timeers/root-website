@@ -838,7 +838,11 @@ window.ScorecardGrid = (function () {
         if (scoreCell) scoreCell.textContent = lastValue;
         const formIndex = tr.getAttribute('data-form-index');
         const scoreField = document.getElementById('id_form-' + formIndex + '-score');
-        if (scoreField && lastValue !== '') scoreField.value = lastValue;
+        if (scoreField && lastValue !== '') {
+            scoreField.value = lastValue;
+            // A winning score (30+) auto-checks the effort's Win box (grid path).
+            if (window.autoCheckWinFromScore) autoCheckWinFromScore(scoreField);
+        }
     }
 
     // Dominance toggle mirroring selectDominance: activating forward-fills all
@@ -1421,7 +1425,32 @@ document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal',
 });
 {% endif %}
 
+// A score of 30+ wins the game, so auto-check that effort's Win box when
+// its score reaches the threshold. Only ever checks, lowering the score back
+// below 30 never unchecks it. Exposed on window so the grid's recalcRow can reach it.
+const WIN_SCORE_THRESHOLD = 30;
+window.autoCheckWinFromScore = function (scoreField) {
+    if (!scoreField) return;
+    const raw = String(scoreField.value).trim();
+    if (raw === '') return;
+    const score = parseInt(raw, 10);
+    if (isNaN(score) || score < WIN_SCORE_THRESHOLD) return;
+    const winField = document.getElementById(scoreField.id.replace(/-score$/, '-win'));
+    if (winField && !winField.checked) {
+        winField.checked = true;
+    }
+};
+
 document.addEventListener('DOMContentLoaded', function() {
+    // A winning score typed into any effort's Score field auto-checks its Win box.
+    // Delegated so it also covers dynamically-added effort rows.
+    document.addEventListener('input', function (event) {
+        const el = event.target;
+        if (el && el.id && /^id_form-\d+-score$/.test(el.id)) {
+            window.autoCheckWinFromScore(el);
+        }
+    });
+
     // Prevent the mouse wheel from changing score number inputs (it's easy to
     // scroll over a focused field and accidentally alter the value). Delegated
     // so it also covers dynamically-added effort rows. passive:false lets us
@@ -2593,12 +2622,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 const domEl = document.getElementById('id_form-' + i + '-dominance');
                 const brazenEl = document.getElementById('id_form-' + i + '-brazen_demagogue');
 
-                const score = (scoreEl && scoreEl.value !== '') ? scoreEl.value : '—';
                 const isWin = winEl && winEl.checked;
                 const domType = domEl ? domEl.value : '';
                 const domIcon = domType ? DOMINANCE_ICONS[domType] : null;
                 const isBrazen = brazenEl && brazenEl.checked;
                 const scoreNum = scoreEl && scoreEl.value !== '' ? parseInt(scoreEl.value, 10) : null;
+                // Display the parsed number so a leading zero (e.g. "07") shows as 7.
+                const score = (scoreNum !== null && !isNaN(scoreNum)) ? scoreNum : '—';
 
                 // Decide how to render the seat's deciding value — mirrors the
                 // box score grid's cell modes (_expand_grid_rows in utils.py):

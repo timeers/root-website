@@ -3079,6 +3079,26 @@ def forgedfaction_submit(request, pk):
         )
         return redirect('forge-faction-detail', pk=forged.pk)
 
+    # Unique-name gate. The submit button is only offered when the name is
+    # free, but the URL can be navigated to directly after renaming — so guard
+    # here too. Matches the name_taken check in forgedfaction_detail and the
+    # clean_title_uniqueness rule in ForgedFactionSubmitForm.
+    name_taken = (
+        Faction.objects.exclude(id=forged.published_faction_id)
+        .filter(title__iexact=forged.faction_name).exists()
+        or PostTranslation.objects.filter(
+            translated_title__iexact=forged.faction_name,
+            post__component__in=('Faction', 'Clockwork'),
+        ).exists()
+    )
+    if name_taken:
+        messages.error(
+            request,
+            f'A Faction named "{forged.faction_name}" already exists. '
+            'Rename your Faction before submitting.',
+        )
+        return redirect('forge-faction-detail', pk=forged.pk)
+
     if request.method == 'POST':
         form = ForgedFactionSubmitForm(
             request.POST, request.FILES,

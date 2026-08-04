@@ -22,7 +22,7 @@ class ParticipantSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'player', 'player_id', 'coalition', 'faction',
             'game_score', 'dominance', 'vagabond', 'captains', 'discarded_captain',
-            'brazen_demagogue', 'tournament_score', 'turn_order',
+            'starting_leader', 'brazen_demagogue', 'tournament_score', 'turn_order',
         ]
 
     def get_player(self, obj):
@@ -66,6 +66,7 @@ class GameSerializer(serializers.ModelSerializer):
     deck = serializers.SerializerMethodField()
     board_map = serializers.SerializerMethodField()
     random_suits = serializers.BooleanField(source='random_clearing', read_only=True)
+    elo_systems = serializers.SerializerMethodField()
 
     class Meta:
         model = Game
@@ -73,11 +74,26 @@ class GameSerializer(serializers.ModelSerializer):
             'id', 'participants', 'tournament', 'hirelings', 'landmarks',
             'title', 'date_registered', 'date_modified', 'date_closed',
             'turn_timing', 'table_talk_url', 'undrafted_faction', 'undrafted_vagabond',
-            'undrafted_captains', 'deck', 'board_map', 'random_suits',
+            'undrafted_captains', 'deck', 'board_map', 'random_suits', 'elo_systems',
         ]
 
     def get_tournament(self, obj):
-        return str(obj.round) if obj.round else None
+        """Identifiers for the game's competition context, or None.
+
+        Returns nested slugs for the series (tournament), stage and round so consumers key
+        off stable values (slugs are auto-generated for all three and don't change on
+        rename the way __str__ does), plus a human-readable `display` string for UI."""
+        rnd = obj.round
+        if not rnd:
+            return None
+        stage = rnd.stage
+        tournament = stage.tournament if stage else None
+        return {
+            'display': str(rnd),
+            'series': tournament.slug if tournament else None,
+            'stage': stage.slug if stage else None,
+            'round': rnd.slug,
+        }
 
     def get_hirelings(self, obj):
         return [hireling.slug for hireling in obj.hirelings.all()]
@@ -102,3 +118,11 @@ class GameSerializer(serializers.ModelSerializer):
 
     def get_board_map(self, obj):
         return obj.map.slug if obj.map else None
+
+    def get_elo_systems(self, obj):
+        # One {slug, season} per EloSystem this game is eligible for (via its tournament(s)).
+        # season is derived from the game's date_posted: 0 = preseason (before the system's
+        # first boundary), 1 = first season, etc. Empty list when none apply. Query-free
+        # given the view's select/prefetch (including the systems' seasons).
+        return [{'name': elo.name, 'slug': elo.slug, 'season': season}
+                for elo, season in obj.get_elo_systems_with_seasons()]

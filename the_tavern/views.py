@@ -2594,7 +2594,7 @@ def survey_edit_view(request, slug):
     # Get user's guilds and hosted tournaments for dropdowns
     user_guilds = profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
     if survey.guild:
-        user_guilds = user_guilds | DiscordGuild.objects.filter(pk=survey.guild.pk)
+        user_guilds = (user_guilds | DiscordGuild.objects.filter(pk=survey.guild.pk)).distinct()
 
     # All tournaments (open first), filtered by permission
     _open_q = Q(end_date__isnull=True) | Q(end_date__gt=timezone.now())
@@ -2980,7 +2980,7 @@ def survey_create_view(request):
         user_tournaments = Tournament.objects.filter(
             Q(designer=profile) | Q(moderators=profile)
         ).distinct()
-        user_guilds = profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID'])
+        user_guilds = profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID']).distinct()
     user_tournaments = user_tournaments.annotate(
         open_sort=Case(
             When(_open_q, then=Value(0)),

@@ -12,6 +12,10 @@ Add a new command by defining it here and adding it to COMMANDS (and, if it has
 behaviour, a handler in discord_interactions.py). Keeping definitions here means
 `/help` picks the command up automatically.
 """
+import copy
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _lookup_command(name, label):
@@ -130,14 +134,57 @@ RANDOM_COMMAND = {
 }
 
 
-LFG_COMMAND = {
+# Discord caps a string option at 25 choices; the site enforces the same cap on the
+# number of LFG tags a guild can create so the /lfg dropdown can list them all.
+LFG_TAG_LIMIT = 25
+
+# Two /lfg variants, both registered as `/lfg` but only one PUT per guild depending on
+# its LFG-tag count (see lfg_command_for_roles):
+#   * SINGLE — no `type` option; used for 0 or 1 tags (0 → plain post, 1 → sole tag used).
+#   * MULTI  — a required `type` dropdown of the guild's tags; used for 2+ tags.
+# `description` is optional in both.
+LFG_COMMAND_SINGLE = {
     "name": "lfg",
     "description": "Post a Looking For Game call others can join",
     "options": [
         {"name": "description", "description": "What game you're looking for",
-         "type": 3, "required": True},
+         "type": 3, "required": False},
     ],
 }
+
+LFG_COMMAND_MULTI = {
+    "name": "lfg",
+    "description": "Post a Looking For Game call others can join",
+    "options": [
+        {"name": "type", "description": "Which LFG tag to ping",
+         "type": 3, "required": True, "choices": []},
+        {"name": "description", "description": "What game you're looking for",
+         "type": 3, "required": False},
+    ],
+}
+
+# The base COMMANDS entry (registration template + /help listing) is the SINGLE variant;
+# the per-guild MULTI swap happens at registration time in register_guild_commands.
+LFG_COMMAND = LFG_COMMAND_SINGLE
+
+
+def lfg_command_for_roles(roles):
+    """The /lfg definition to register for a guild given its LFG roles: SINGLE (no
+    `type` option) for 0–1 roles, MULTI (required `type` dropdown) for 2+. Deep-copies
+    the shared module dict so the caller never mutates the singleton."""
+    if len(roles) < 2:
+        return copy.deepcopy(LFG_COMMAND_SINGLE)
+    cmd = copy.deepcopy(LFG_COMMAND_MULTI)
+    if len(roles) > LFG_TAG_LIMIT:
+        logger.warning(
+            "Guild has %d LFG roles; /lfg dropdown truncated to Discord's %d-choice limit.",
+            len(roles), LFG_TAG_LIMIT,
+        )
+    type_opt = next(o for o in cmd["options"] if o["name"] == "type")
+    type_opt["choices"] = [
+        {"name": r.name[:100], "value": str(r.pk)} for r in roles[:LFG_TAG_LIMIT]
+    ]
+    return cmd
 
 
 # All command definitions registered with Discord.
@@ -177,6 +224,24 @@ COMMAND_GROUPS = [
 def all_command_definitions():
     """Every command definition."""
     return list(COMMANDS)
+
+
+# /help is always available in every guild and is never a whitelist toggle, so the
+# whitelistable set is every other command. Derived from COMMANDS so a new command
+# becomes toggleable automatically.
+WHITELISTABLE = [c["name"] for c in COMMANDS if c["name"] != "help"]
+
+
+def whitelistable_commands():
+    """(name, description) for every command a guild moderator can toggle (all but /help)."""
+    return [(c["name"], c["description"]) for c in COMMANDS if c["name"] != "help"]
+
+
+def commands_for_guild(enabled_names):
+    """Definitions to register for a guild: always /help, plus each enabled, whitelistable
+    command. Ignores unknown/removed names so a stale whitelist never breaks registration."""
+    allowed = set(enabled_names) & set(WHITELISTABLE)
+    return [c for c in COMMANDS if c["name"] == "help" or c["name"] in allowed]
 
 
 def grouped_commands():

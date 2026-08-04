@@ -273,7 +273,10 @@ em, i {
   /* Mobile offcanvas navigation panel — only below the lg breakpoint, where
      the .offcanvas is an actual sliding panel. At lg+ Bootstrap renders the
      same element inline, so these overrides must NOT apply there (otherwise
-     they'd recolor the desktop avatar dropdown, which lives inside it). */
+     they'd recolor the desktop avatar dropdown, which lives inside it).
+     Keyed off the breakpoint (not .offcanvas.show) so the panel is styled at
+     parse time — .show is added by JS after the open animation starts, which
+     caused a white flash on the first frame. */
   @media (max-width: 991.98px) {
     .site-header .offcanvas {
       background-color: var(--theme-color);
@@ -291,7 +294,8 @@ em, i {
        language selector) keep Bootstrap's default dark-on-white styling, so
        they're excluded here. */
     .site-header .offcanvas .dropdown-item:not(.dropdown-menu .dropdown-item),
-    .site-header .offcanvas .navbar-nav > .nav-link {
+    .site-header .offcanvas .navbar-nav > .nav-link,
+    .site-header .offcanvas .nav-subitems > .nav-link {
       color: var(--foreground-color);
       white-space: normal;
       padding: 0.55rem 0.5rem;
@@ -301,7 +305,9 @@ em, i {
     .site-header .offcanvas .dropdown-item:not(.dropdown-menu .dropdown-item):hover,
     .site-header .offcanvas .dropdown-item:not(.dropdown-menu .dropdown-item):active,
     .site-header .offcanvas .navbar-nav > .nav-link:hover,
-    .site-header .offcanvas .navbar-nav > .nav-link:focus {
+    .site-header .offcanvas .navbar-nav > .nav-link:focus,
+    .site-header .offcanvas .nav-subitems > .nav-link:hover,
+    .site-header .offcanvas .nav-subitems > .nav-link:focus {
       background-color: rgba(255, 255, 255, 0.12);
       color: var(--foreground-color);
     }
@@ -348,6 +354,28 @@ em, i {
     .site-header .offcanvas .dropdown-header,
     .site-header .offcanvas .scheduled-time {
       color: rgba(255, 255, 255, 0.65);
+    }
+
+    /* Header sub-items (e.g. under Battlefield / Workshop): indented list shown
+       inside the offcanvas. Their .nav-link color/hover come from the shared
+       offcanvas nav-link rules above. */
+    .site-header .nav-subitems {
+      padding-left: 0.75rem;
+      margin-left: 0.25rem;
+      /* border-left: 1px solid rgba(255, 255, 255, 0.2); */
+    }
+
+    .site-header .nav-subitems > .nav-link {
+      font-size: 0.925rem;
+      padding: 0.4rem 0.5rem;
+    }
+  }
+
+  /* Sub-items only make sense inside the offcanvas; at lg+ the nav renders
+     inline, so hide them there. */
+  @media (min-width: 992px) {
+    .site-header .nav-subitems {
+      display: none;
     }
   }
 
@@ -4997,6 +5025,18 @@ body.forge-modal-open { overflow: hidden; }
   shape-outside: inset(var(--howto-img-spacer, 0px) 0 0 0);
   pointer-events: none;
   margin-right: calc(-1 * var(--howto-pad-right, 0px));
+}
+/* Overlay mode: drop the float so text flows full width over the image, and
+   push the image behind the text, mirroring the PDF's image-behind-text layout. */
+.forge-howtoplay-preview.is-overlay .forge-howtoplay-image-shape {
+  display: none;
+}
+.forge-howtoplay-preview.is-overlay .forge-howtoplay-image {
+  z-index: 0;
+}
+.forge-howtoplay-preview.is-overlay .forge-howtoplay-body {
+  position: relative;
+  z-index: 1;
 }
 .forge-howtoplay-image {
   position: absolute;

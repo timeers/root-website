@@ -14,9 +14,9 @@ from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
 from .models import Profile, ForegroundImage, BackgroundImage, Changelog, BotBlacklist
-from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds, update_discord_avatar
+from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
-from .tasks import send_discord_message_task
+from .tasks import send_discord_message_task, update_discord_avatar_task
 
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
 from the_keep.models import (Post, Piece, PostTranslation, Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak,
@@ -238,8 +238,9 @@ def user_logged_in_handler(request, user, **kwargs):
             else:
                 # Handle conflict
                 send_discord_message_task.delay(f"Discord ID {discord_id} already exists for another profile and cannot be assigned to {user}",category='report')
-    # Add discord Avatar if profile is using the default
-    update_discord_avatar(user, force=False)
+    # Add discord Avatar if profile is using the default. Deferred to Celery so a
+    # slow Discord CDN call can't block (and time out) the login request.
+    update_discord_avatar_task.delay(user.id, force=False)
 
     # Set the display name
     if display_name and profile.display_name != display_name:

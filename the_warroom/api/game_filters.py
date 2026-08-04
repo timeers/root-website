@@ -4,7 +4,7 @@ from django.db.models import Count, Q
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, HTML
 
-from the_warroom.models import Game, Tournament, PlatformChoices, game_counts_for_tournament_q
+from the_warroom.models import Game, Tournament, EloSystem, PlatformChoices, game_counts_for_tournament_q
 from the_keep.models import Faction, Vagabond, Landmark, Hireling, Deck, Map
 from the_gatehouse.models import Profile
 
@@ -44,6 +44,10 @@ class GameFilter(django_filters.FilterSet):
         method='filter_tournament', to_field_name='slug',
         queryset=Tournament.objects.all(), label='Tournament',
     )
+    elo_system = django_filters.ModelChoiceFilter(
+        method='filter_elo_system', to_field_name='slug',
+        queryset=EloSystem.objects.all(), label='Elo System',
+    )
     recorder = django_filters.ModelChoiceFilter(
         field_name='recorder', to_field_name='slug',
         queryset=Profile.objects.all(), label='Recorder',
@@ -78,6 +82,22 @@ class GameFilter(django_filters.FilterSet):
         if value is None:
             return queryset
         return queryset.filter(game_counts_for_tournament_q(value)).distinct()
+
+    @staticmethod
+    def filter_elo_system(queryset, name, value):
+        # Games whose primary round OR an extra round belongs to a tournament using this
+        # EloSystem, that are finalized, and whose player count fits the system's bounds.
+        # Keeps the DB filter consistent with GameSerializer.get_elo_systems() eligibility.
+        # .distinct() guards against duplicate rows from the extra_rounds M2M join.
+        if value is None:
+            return queryset
+        return queryset.filter(
+            Q(round__stage__tournament__elo_system=value)
+            | Q(extra_rounds__stage__tournament__elo_system=value),
+            final=True,
+            cached_player_count__gte=value.min_players,
+            cached_player_count__lte=value.max_players,
+        ).distinct()
 
     # Presence dropdowns. Blank = any game; 'none' = games without; 'has' = games with at
     # least one. A single labelled dropdown avoids the confusing yes/no-to-"no landmarks"
@@ -152,7 +172,7 @@ class GameFilter(django_filters.FilterSet):
         # bottom, just above the date/official fields.
         fields = [
             'factions', 'vagabonds', 'players',
-            'map', 'deck', 'tournament', 'recorder', 'type', 'platform',
+            'map', 'deck', 'tournament', 'elo_system', 'recorder', 'type', 'platform',
             'landmarks_present', 'landmarks', 'hirelings_present', 'hirelings', 
             'date_after', 'date_before', 'official',
         ]

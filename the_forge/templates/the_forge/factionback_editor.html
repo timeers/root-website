@@ -121,23 +121,31 @@
       <div class="mb-2">
         <div class="mb-3">
           <label class="form-label small text-muted text-uppercase mb-1 d-block">{{ form.back_image.label }}</label>
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            <input type="file" name="{{ form.back_image.html_name }}"
-                   id="{{ form.back_image.id_for_label }}"
-                   accept="image/*"
-                   class="visually-hidden">
-            <input type="checkbox" name="{{ form.back_image.html_name }}-clear"
-                   id="forge-back-image-clear-input" class="visually-hidden">
-            <button type="button" class="btn btn-outline-secondary btn-sm" id="forge-back-image-choose-btn">
-              <i class="bi bi-upload"></i>
-              <span class="ms-1">{% if back.back_image %}Change Image{% else %}Choose Image{% endif %}</span>
-            </button>
-            <button type="button" class="btn btn-outline-danger btn-sm" id="forge-back-image-remove-btn"
-                    {% if not back.back_image %}hidden{% endif %}>
-              <i class="bi bi-x-lg"></i>
-              <span class="ms-1">Remove</span>
-            </button>
-            <span id="forge-back-image-filename" class="small text-muted text-truncate" style="max-width: 16rem;"></span>
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <input type="file" name="{{ form.back_image.html_name }}"
+                     id="{{ form.back_image.id_for_label }}"
+                     accept="image/*"
+                     class="visually-hidden">
+              <input type="checkbox" name="{{ form.back_image.html_name }}-clear"
+                     id="forge-back-image-clear-input" class="visually-hidden">
+              <button type="button" class="btn btn-outline-secondary btn-sm" id="forge-back-image-choose-btn">
+                <i class="bi bi-upload"></i>
+                <span class="ms-1">{% if back.back_image %}Change Image{% else %}Choose Image{% endif %}</span>
+              </button>
+              <button type="button" class="btn btn-outline-danger btn-sm" id="forge-back-image-remove-btn"
+                      {% if not back.back_image %}hidden{% endif %}>
+                <i class="bi bi-x-lg"></i>
+                <span class="ms-1">Remove</span>
+              </button>
+              <span id="forge-back-image-filename" class="small text-muted text-truncate" style="max-width: 16rem;"></span>
+            </div>
+            <div class="form-check form-switch mb-0">
+              {{ form.image_behind_text }}
+              <label class="form-check-label small" for="{{ form.image_behind_text.id_for_label }}">
+                {{ form.image_behind_text.label }}
+              </label>
+            </div>
           </div>
         </div>
         {% if form.back_image.errors %}<div class="text-danger small mt-1 mb-2">{{ form.back_image.errors }}</div>{% endif %}
@@ -186,6 +194,19 @@
 document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('factionback-form');
   if (!form) return;
+
+  // ----- Scroll to the topmost server-rendered validation error on load -----
+  // Django re-renders the form with .alert-danger (non-field) and .text-danger
+  // (per-field) error blocks. Exclude the rich-text char counter, which reuses
+  // .text-danger transiently while over cap.
+  (function scrollToFirstServerError() {
+    const errs = Array.from(
+      form.querySelectorAll('.alert-danger, .text-danger')
+    ).filter(el => !el.hasAttribute('data-richtext-counter') && el.offsetParent !== null);
+    if (errs.length) {
+      errs[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  })();
 
   // ----- Rich-text length counters -----
   function blockInputAtCap(ta, max) {
@@ -438,7 +459,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const backFilename   = document.getElementById('forge-back-image-filename');
   const backSizeControl = document.getElementById('back-image-size-control');
   const backSizeInput  = form.querySelector('input[name="back_image_size"]');
+  const behindTextInput = form.querySelector('input[name="image_behind_text"]');
   let backObjectUrl = null;
+
+  // Overlay mode drops the wrap-around float so preview text flows full width
+  // over the image, matching the PDF's image-behind-text layout.
+  function applyOverlayMode() {
+    if (!preview) return;
+    preview.classList.toggle('is-overlay', !!(behindTextInput && behindTextInput.checked));
+  }
 
   // PDF body envelope: 350pt wide × 330pt tall (after title chrome stripped).
   const PDF_BODY_RATIO = 330 / 350;
@@ -504,8 +533,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   applyImageSizing();
+  applyOverlayMode();
 
   backSizeInput?.addEventListener('input', applyImageSizing);
+  behindTextInput?.addEventListener('change', applyOverlayMode);
   window.addEventListener('resize', applyImageSizing);
 
   if (imageEl) {

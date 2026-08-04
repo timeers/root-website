@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from django.db.models import Q
 from django.utils import timezone
-from the_keep.models import Post
+from the_keep.models import Post, PNPAsset
 from the_warroom.models import Game, ScoreCard, Match, Round, CompetitionStatus
 from .models import Website
 from .services.context_service import get_theme
@@ -34,6 +34,7 @@ def active_user_data(request):
         scorecard_count = 0
         unassigned_scorecards = 0
         bookmarks = 0
+        has_shared_assets = False
         approved_invites = []
         user_notifications = []
         next_scheduled_matches = []
@@ -46,13 +47,18 @@ def active_user_data(request):
                     Q(designer=profile) | Q(co_designers=profile, co_designers_can_edit=True)
                     ).exclude(status='9').order_by('-date_updated')[:3]
                 in_process_games = Game.objects.filter(final=False, recorder=profile).count()
-                game_count = Game.objects.filter(efforts__player=profile).distinct().count()
+                game_count = Game.objects.filter(final=True, efforts__player=profile).distinct().count()
                 recorded_game_count = Game.objects.filter(recorder=profile).distinct().count()
                 scorecard_count = ScoreCard.objects.filter(recorder=profile, final=True).count()
                 unassigned_scorecards = ScoreCard.objects.filter(final=False, recorder=profile).count()
                 bookmarked_games = profile.bookmarkedgames.count()
                 bookmarked_posts = profile.bookmarkedposts.count()
                 bookmarks = bookmarked_posts + bookmarked_games
+
+                # Whether the user has any shared workshop resources (drives the
+                # "My Resources" header sub-item; mirrors `shared_assets` in the
+                # workshop views but as a cheap global existence check).
+                has_shared_assets = PNPAsset.objects.filter(shared_by=profile).exists()
 
                 # Get approved invites for guilds the user is not yet a member of
                 # Excludes completed invites (user already joined) and guilds already in
@@ -109,6 +115,7 @@ def active_user_data(request):
             'user_active_scorecards_count': unassigned_scorecards,
             'user_active_count': unassigned_scorecards + in_process_games,
             'user_bookmarks_count': bookmarks,
+            'user_has_shared_assets': has_shared_assets,
             'user_scorecard_count': scorecard_count,
             'approved_invites': approved_invites,
             'user_notifications': user_notifications,

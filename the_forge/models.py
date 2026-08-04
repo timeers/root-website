@@ -851,6 +851,10 @@ class FactionBack(models.Model):
         ],
         help_text="Back image size as a percentage of the maximum that fits the How To Play area.",
     )
+    image_behind_text = models.BooleanField(
+        default=False,
+        help_text="Layer the character image behind the text instead of wrapping text around it.",
+    )
 
     image_preview = models.ImageField(upload_to=back_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
