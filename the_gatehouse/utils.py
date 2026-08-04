@@ -27,6 +27,9 @@ def slugify_instance_discord(instance, save=False, new_slug=None):
             slug = slugify(unidecode(instance.user.username))
         else:
             slug = slugify(unidecode(instance.dwd))
+    # Fallback for a slug that slugified to empty (e.g. a name of only symbols).
+    if not slug:
+        slug = str(random.randint(1000, 9999))
     Klass = instance.__class__
     qs = Klass.objects.filter(slug=slug).exclude(id=instance.id)
     if qs.exists():
@@ -46,6 +49,9 @@ def slugify_changelog(instance, save=False, new_slug=None):
     else:
         slug = slugify(unidecode(instance.version.replace('.', '-')))
 
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
     Klass = instance.__class__
     qs = Klass.objects.filter(slug=slug).exclude(id=instance.id)
     if qs.exists():
@@ -63,6 +69,9 @@ def slugify_survey_title(instance, save=False, new_slug=None):
         slug = new_slug
     else:
         slug = slugify(unidecode(instance.title))
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
     # Check if the slug is reserved
     if slug in RESERVED_SLUGS:
         slug = f"{slug}-{random.randint(1000, 9999)}"

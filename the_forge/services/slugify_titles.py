@@ -13,6 +13,10 @@ def slugify_forged_faction_name(instance, save=False, new_slug=None):
     else:
         slug = slugify(unidecode(instance.faction_name))
 
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
+
     if slug in RESERVED_SLUGS:
         slug = f"{slug}-{random.randint(1000, 9999)}"
 

@@ -11,7 +11,10 @@ def slugify_post_title(instance, save=False, new_slug=None):
         slug = new_slug
     else:
         slug = slugify(unidecode(instance.title))
-    
+
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
     # Check if the slug is reserved
     if slug in RESERVED_SLUGS:
         slug = f"{slug}-{random.randint(1000, 9999)}"
@@ -38,6 +41,9 @@ def slugify_expansion_title(instance, save=False, new_slug=None):
     else:
         slug = slugify(unidecode(instance.title))
 
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
 
     qs = Expansion.objects.filter(slug=slug).exclude(id=instance.id)
     if qs.exists():
@@ -60,6 +66,10 @@ def slugify_law_group_title(instance, save=False, new_slug=None):
     else:
         slug = slugify(unidecode(instance.title))
 
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
+
     qs = LawGroup.objects.filter(slug=slug).exclude(id=instance.id)
     if qs.exists():
         # auto generate new slug
@@ -74,6 +84,9 @@ def slugify_law_group_title(instance, save=False, new_slug=None):
 def slugify_deck_group_title(instance, save=False):
     from the_keep.models import DeckGroup
     base_slug = slugify(unidecode(instance.name))
+    # Fallback for a slug that slugified to empty.
+    if not base_slug:
+        base_slug = str(random.randint(1000, 9999))
     slug = base_slug
 
     # Check if the slug is reserved

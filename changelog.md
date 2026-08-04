@@ -1,11 +1,10 @@
 # Changelog
 
-## [1.12.20] - 2026-8-2 August Improvements
+## [1.13.0] - 2026-8-2 August Improvements
 
 ### New Features
 - Portuguese added to the Forge
-- Game API `tournament` field now returns `{display, series, stage, round}` display string and slugs instead of only a display string
-- New Game API `elo-systems` field that returns `{name, slug, season}` for each applicable system
+- New Match API `elo-systems` field that returns `{name, slug, season}` for each applicable system
 - Elo systems can be assigned to a series. Eligible games expose their elo systems (and are filterable) in the game API
 - Elo seasons can be created to signify a hard or soft reset date
 - RootELO designation for external Elo rating
@@ -33,6 +32,10 @@
 - Added response timeout to discord services
 - Fixed discord guild duplication in Series form dropdown
 - Submitting a faction from the Forge now validates name uniqueness
+
+### Breaking Changes
+- Match API `tournament` field now returns `{display, series, stage, round}` display string and slugs instead of only a display string
+- Match API `player` field now returns player's slug instead of discord username
 
 ## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot
