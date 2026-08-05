@@ -835,6 +835,9 @@ def user_can_edit(request, post=None):
             # Co-designers can only make changes if the post is marked as such
             if post.co_designers.filter(pk=profile.pk).exists() and post.co_designers_can_edit:
                 return True
+            # Moderators assigned to this post can edit it
+            if post.moderators.filter(pk=profile.pk).exists():
+                return True
 
     return False
 

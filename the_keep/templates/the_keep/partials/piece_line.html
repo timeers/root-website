@@ -8,7 +8,7 @@
         {% if piece.suited %} Fox/Mouse/Rabbit {% endif %}
         {{ piece.get_name }}
     </div>
-    {% if user.profile.admin or object.designer == user.profile and user.profile.editor %}
+    {% if can_edit %}
         <div class="d-flex">
             <button class="btn btn-outline-warning btn-sm ms-1 mb-1 hidden-buttons"
                 hx-get="{% url 'update-piece' piece.id %}?piece={{ piece.type }}&slug={{ object.slug }}"

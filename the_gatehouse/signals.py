@@ -4,6 +4,7 @@ from io import BytesIO
 from PIL import Image
 
 from django.core.cache import cache
+from django.db.models import Q
 from django.db.models.signals import post_save, pre_save, post_delete
 from django.shortcuts import redirect
 from django.dispatch import receiver
@@ -247,14 +248,20 @@ def user_logged_in_handler(request, user, **kwargs):
         profile.display_name = display_name
         profile_updated = True
 
-    # If user is a member of a Root Discord but in group O (add to group P)
-    if (current_group == 'O' and in_ww):
-        user_posts = Post.objects.filter(designer=profile)
-        if user_posts:
+    # If the user is a member of the Woodland Warriors Discord and still an Outcast or
+    # Player, promote them based on their posts. Anyone attached to a post (as designer,
+    # co-designer, or moderator) becomes an Editor so they can actually edit it; this also
+    # catches collaborators who were added while still a Player and never re-promoted.
+    if current_group in ('O', 'P') and in_ww:
+        has_posts = Post.objects.filter(
+            Q(designer=profile) | Q(co_designers=profile) | Q(moderators=profile)
+        ).exists()
+        if has_posts:
             profile.group = 'E'
-        else:
+            profile_updated = True
+        elif current_group == 'O':
             profile.group = 'P'
-        profile_updated = True
+            profile_updated = True
 
     # If user is a member of WR but does not have the weird view (add view)
     if not profile.in_weird_root and in_wr:

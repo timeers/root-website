@@ -33,7 +33,7 @@
             </a>
         </div>
         
-        {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
+        {% if can_edit %}
 
         <!-- Second div (Update Translation button) -->
         <div>
@@ -52,7 +52,7 @@
 
 {% if available_languages %}
 
-    {% if user.profile.admin and not object.designer.designer or object.designer == user.profile and user.profile.editor %}
+    {% if can_edit %}
         <div class="d-flex justify-content-center align-items-center">
             <a href="{% url 'translation-create' slug=object.slug %}" class="btn btn-sm btn-success mb-3 ms-3">
                 {% trans 'New Translation' %}

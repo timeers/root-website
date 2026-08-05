@@ -315,14 +315,23 @@
                 </div>
                 {% comment %} End Links {% endcomment %}
             
+                {% if form.designer or form.co_designers or form.co_designers_can_edit or form.moderators %}
                 <div class='soft-shadow'>
                     <span class="h5 root-title">Designers</span>
                     {% if form.designer %}
                         {{ form.designer|as_crispy_field }}
                     {% endif %}
-                    {{ form.co_designers|as_crispy_field }}
-                    {{ form.co_designers_can_edit|as_crispy_field }}
+                    {% if form.co_designers %}
+                        {{ form.co_designers|as_crispy_field }}
+                    {% endif %}
+                    {% if form.co_designers_can_edit %}
+                        {{ form.co_designers_can_edit|as_crispy_field }}
+                    {% endif %}
+                    {% if form.moderators %}
+                        {{ form.moderators|as_crispy_field }}
+                    {% endif %}
                 </div>
+                {% endif %}
             
                 {% if form.language %}
                 <div class='soft-shadow'>
@@ -614,6 +623,10 @@
             }
             $('#id_co_designers').select2({
                 placeholder: "Search for co-designers...",
+                allowClear: true
+            });
+            $('#id_moderators').select2({
+                placeholder: "Search for moderators...",
                 allowClear: true
             });
 

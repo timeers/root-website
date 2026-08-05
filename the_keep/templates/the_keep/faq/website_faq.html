@@ -118,7 +118,7 @@
                 {% trans 'FAQ' %} <i class="bi bi-plus"></i>
             </a>
         </div>
-    {% elif post and user.profile.admin or user.profile == post.designer and user.profile.editor %}
+    {% elif post and edit_authorized %}
       <div class="d-flex flex-wrap justify-content-end">
           <a class="btn btn-success btn-sm mt-1 mb-1 ms-1" href="{% url 'post-faq-add' slug=post.slug language_code=language_code %}">
               {% trans 'FAQ' %} <i class="bi bi-plus"></i>

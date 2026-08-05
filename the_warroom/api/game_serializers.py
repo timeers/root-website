@@ -26,7 +26,7 @@ class ParticipantSerializer(serializers.ModelSerializer):
         ]
 
     def get_player(self, obj):
-        return obj.player.discord if obj.player else None
+        return obj.player.slug if obj.player else None
 
     def get_coalition(self, obj):
         return obj.coalition_with.slug if obj.coalition_with else None

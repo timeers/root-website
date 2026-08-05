@@ -231,10 +231,10 @@ class EloSystem(models.Model):
 
     # --- MATH fields: change HOW MUCH each game moves ratings. Editing any of these forces a
     #     full-history replay (every game's delta changes). ---
-    k_factor = models.FloatField(default=32)
-    k_provisional = models.FloatField(default=64)
-    provisional_games = models.IntegerField(default=15)
-    initial_rating = models.FloatField(default=1500)
+    k_factor = models.FloatField(default=40)
+    k_provisional = models.FloatField(default=80)
+    provisional_games = models.IntegerField(default=10)
+    initial_rating = models.FloatField(default=1200)
 
     # --- Internal bookkeeping (not user-editable) ---
     # When non-null, this system has pending rating changes: the scheduled recompute task

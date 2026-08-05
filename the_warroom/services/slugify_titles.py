@@ -15,6 +15,9 @@ def slugify_tournament_name(instance, save=False, new_slug=None):
     else:
         slug = slugify(unidecode(instance.name))
 
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
     # Check if the slug is reserved
     if slug in RESERVED_SLUGS:
         slug = f"{slug}-{random.randint(1000, 9999)}"
@@ -36,6 +39,9 @@ def slugify_elo_system_name(instance, save=False, new_slug=None):
     else:
         slug = slugify(unidecode(instance.name))
 
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
     # Check if the slug is reserved
     if slug in RESERVED_SLUGS:
         slug = f"{slug}-{random.randint(1000, 9999)}"
@@ -57,6 +63,10 @@ def slugify_stage_name(instance, save=False, new_slug=None):
     else:
         slug = slugify(unidecode(instance.name))
 
+    # Fallback for a slug that slugified to empty.
+    if not slug:
+        slug = str(random.randint(1000, 9999))
+
     qs = Stage.objects.filter(slug=slug, tournament=instance.tournament).exclude(id=instance.id)
     if qs.exists():
         # auto generate new slug
@@ -77,6 +87,9 @@ def slugify_round_name(instance, save=False, new_slug=None):
             slug = slugify(unidecode(instance.name))
         else:
             slug = f"round-{random.randint(1_000, 9_999)}"
+    # Fallback for a non-empty name that still slugified to empty (e.g. only symbols).
+    if not slug:
+        slug = f"round-{random.randint(1_000, 9_999)}"
     # If either the stage's use_rounds or the tournament's use_stages is False, the
     # structure is flat - need tournament-wide uniqueness. If both are True, there's
     # a proper hierarchy - need stage-level uniqueness.

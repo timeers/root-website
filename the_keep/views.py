@@ -758,6 +758,7 @@ def translations_view(request, slug):
         'object': obj,
         'other_translations': other_translations,
         'available_languages': available_languages,
+        'can_edit': user_can_edit(request, post),
     }
 
     return render(request, 'the_keep/post_translations.html', context)
@@ -766,9 +767,9 @@ def translations_view(request, slug):
 def create_post_translation(request, slug, lang=None):
     post = get_object_or_404(Post, slug=slug)  # Get the post object
     
-    if not post.designer==request.user.profile and not request.user.profile.admin:
+    if not user_can_edit(request, post):
         messages.error(request, f'You are not authorized to translate { post.title }.')
-        raise PermissionDenied() 
+        raise PermissionDenied()
 
     if lang:
         # Check if there's an existing translation for this post and language
@@ -1223,12 +1224,11 @@ def ultimate_component_view(request, slug, component):
 
     stable_ready = None
     testing_ready = None
-    if request.user.is_authenticated:
-        if obj.designer == request.user.profile:
-            stable_ready_result = obj.stable_check()
-            stable_ready = stable_ready_result.stable_ready
-            if obj.status == '3' and games.count() > 0:
-                testing_ready = True
+    if user_can_edit(request, obj):
+        stable_ready_result = obj.stable_check()
+        stable_ready = stable_ready_result.stable_ready
+        if obj.status == '3' and games.count() > 0:
+            testing_ready = True
 
     # Apply the conditional filter if needed
     if request.user.is_authenticated:
@@ -2949,12 +2949,12 @@ def delete_piece(request, id):
     if not request.htmx:
         raise Http404("Not an HTMX request")
     piece = get_object_or_404(Piece, id=id)
-    # Check if user owns this object
-    if piece.parent.designer==request.user.profile or request.user.profile.admin:
+    # Check if the user can edit the parent post
+    if user_can_edit(request, piece.parent):
         piece.delete()
         return HttpResponse('')
     else:
-        raise PermissionDenied() 
+        raise PermissionDenied()
 
 
 @login_required
@@ -2973,10 +2973,10 @@ def post_settings_hub(request, slug):
     language_code = request.GET.get('lang') or get_language()
     language = Language.objects.filter(code=language_code).first()
 
-    # Stable/Testing readiness (designer only)
+    # Stable/Testing readiness (anyone who can edit the post)
     stable_ready = None
     testing_ready = None
-    if is_designer:
+    if can_edit:
         games = obj.get_games_queryset()
         stable_ready_result = obj.stable_check()
         stable_ready = stable_ready_result.stable_ready
@@ -3287,11 +3287,11 @@ def confirm_stable(request, slug):
         messages.info(request, _('{} has not yet met the stability requirements.').format(object))
         return redirect('status-check', slug=obj.slug)
     
-    # Check if the current user is the designer
-    if obj.designer != request.user.profile:
+    # Check if the current user can edit this post
+    if not user_can_edit(request, obj):
         messages.error(request, _("You are not authorized to make this change."))
         return redirect('status-check', slug=obj.slug)
-    
+
 
     # If form is submitted (POST request)
     if request.method == 'POST':
@@ -3330,8 +3330,8 @@ def confirm_testing(request, slug):
         messages.info(request, _('{} has not yet recorded a playtest.').format(object))
         return redirect('status-check', slug=obj.slug)
     
-    # Check if the current user is the designer
-    if obj.designer != request.user.profile:
+    # Check if the current user can edit this post
+    if not user_can_edit(request, obj):
         messages.error(request, _("You are not authorized to make this change."))
         return redirect('status-check', slug=obj.slug)
 
@@ -3889,13 +3889,13 @@ def add_law_ajax(request):
             reference_laws = Law.objects.filter(id__in=reference_ids)
 
             if group.post:
-                if group.post.designer != user_profile and not user_profile.admin:
+                if not user_can_edit(request, group.post):
                     messages.error(request, f"You do not have authorization to add laws to {group}.")
-                    raise PermissionDenied() 
+                    raise PermissionDenied()
             else:
                 if not user_profile.admin:
                     messages.error(request, f"You do not have authorization to add to the Law of Root.")
-                    raise PermissionDenied() 
+                    raise PermissionDenied()
                 
             position = Law.get_new_position(language=language, previous_law=previous, next_law=next_law, parent_law=parent)
 
@@ -3926,9 +3926,9 @@ def move_law_ajax(request, law_id, direction):
         law = get_object_or_404(Law, id=law_id)
 
         if law.group.post:
-            if law.group.post.designer != user_profile and not user_profile.admin:
+            if not user_can_edit(request, law.group.post):
                 messages.error(request, f"You do not have authorization to move laws in {law.group}.")
-                raise PermissionDenied() 
+                raise PermissionDenied()
         else:
             if not user_profile.admin:
                 messages.error(request, f"You do not have authorization to move in the Law of Root.")
@@ -3983,9 +3983,9 @@ def edit_law_ajax(request):
     if request.method == 'POST':
         law = get_object_or_404(Law, id=request.POST.get('law_id'))
         if law.group.post:
-            if law.group.post.designer != user_profile and not user_profile.admin:
+            if not user_can_edit(request, law.group.post):
                 messages.error(request, f"You do not have authorization to edit laws in {law.group}.")
-                raise PermissionDenied() 
+                raise PermissionDenied()
         else:
             if not user_profile.admin:
                 messages.error(request, f"You do not have authorization to edit the Law of Root.")
@@ -4006,9 +4006,9 @@ def edit_law_description_ajax(request):
     if request.method == 'POST':
         law = get_object_or_404(Law, id=request.POST.get('law_id'))
         if law.group.post:
-            if law.group.post.designer != user_profile and not user_profile.admin:
+            if not user_can_edit(request, law.group.post):
                 messages.error(request, f"You do not have authorization to edit laws in {law.group}.")
-                raise PermissionDenied() 
+                raise PermissionDenied()
         else:
             if not user_profile.admin:
                 messages.error(request, f"You do not have authorization to edit the Law of Root.")
@@ -4034,9 +4034,9 @@ def delete_law_ajax(request):
 
         law = get_object_or_404(Law, id=law_id)
         if law.group.post:
-            if law.group.post.designer != user_profile and not user_profile.admin:
+            if not user_can_edit(request, law.group.post):
                 messages.error(request, f"You do not have authorization to delete laws in {law.group}.")
-                raise PermissionDenied() 
+                raise PermissionDenied()
         else:
             if not user_profile.admin:
                 messages.error(request, f"You do not have authorization to delete the Law of Root.")
@@ -4053,7 +4053,7 @@ def create_law_group(request, slug):
 
 
     user_profile = request.user.profile
-    if post.designer != user_profile and not user_profile.admin:
+    if not user_can_edit(request, post):
         messages.error(request, f"You do not have authorization to create laws for {post}.")
         raise PermissionDenied()
 
@@ -4227,13 +4227,13 @@ def update_law_group(request, slug, language_code):
         raise Http404(f"No laws found in {source_group}.")
     # Authorization
     if source_group.post:
-        if source_group.post.designer != user_profile and not user_profile.admin:
+        if not user_can_edit(request, source_group.post):
             messages.error(request, f"You do not have authorization to edit {source_group}.")
-            raise PermissionDenied() 
+            raise PermissionDenied()
     else:
         if not user_profile.admin:
             messages.error(request, f"You do not have authorization to edit the Law of Root.")
-            raise PermissionDenied() 
+            raise PermissionDenied()
 
     if request.method == 'POST':
         form = EditLawGroupForm(request.POST, instance=source_group, user=request.user)
@@ -4259,13 +4259,13 @@ def delete_law_group(request, slug, language_code):
 
     # Authorization
     if source_group.post:
-        if source_group.post.designer != user_profile and not user_profile.admin:
+        if not user_can_edit(request, source_group.post):
             messages.error(request, f"You do not have authorization to delete laws in {source_group}.")
-            raise PermissionDenied() 
+            raise PermissionDenied()
     else:
         if not user_profile.admin:
             messages.error(request, f"You do not have authorization to delete the Law of Root.")
-            raise PermissionDenied() 
+            raise PermissionDenied()
         
     # POST: Perform deletion
     if request.method == "POST":
@@ -4313,9 +4313,9 @@ def copy_law_group_view(request, slug, language_code=None):
     if user_profile.admin:
         pass
 
-    # If there's a post, allow only if user is both editor and the designer of that post
+    # If there's a post, allow only if the user can edit that post
     elif source_group.post:
-        if not (user_profile.editor and source_group.post.designer == user_profile):
+        if not user_can_edit(request, source_group.post):
             messages.error(request, f"You do not have authorization to copy '{source_group.title}'.")
             raise PermissionDenied()
 
@@ -4590,7 +4590,7 @@ def law_group_view(request, slug, language_code):
         if not user_profile:
             access_denied = True
         elif group.post:
-            if not (user_profile.admin or group.post.designer == user_profile):
+            if not user_can_edit(request, group.post):
                 access_denied = True
         else:
             if not user_profile.admin:
@@ -4628,9 +4628,12 @@ def law_group_edit_view(request, slug, language_code):
         all_laws = Law.objects.filter(language=language).prefetch_related('group__post')
     else:
         all_laws = Law.objects.filter(
-            Q(group__type="Official") | Q(group__post__designer=user_profile),
+            Q(group__type="Official")
+            | Q(group__post__designer=user_profile)
+            | Q(group__post__co_designers=user_profile)
+            | Q(group__post__moderators=user_profile),
             language=language
-                ).prefetch_related('group__post')
+                ).distinct().prefetch_related('group__post')
 
     context = get_law_group_context(request, slug=slug, edit_mode=True, language_code=language_code)
     context['all_laws'] = all_laws
@@ -5017,10 +5020,7 @@ def faq_search(request, slug=None, language_code=None):
         #     )
         # )
 
-        if user_profile and (
-            user_profile.admin or
-            (user_profile == post.designer and user_profile.editor)
-        ):
+        if user_can_edit(request, post):
             faq_editable = True
 
     else:
@@ -5224,7 +5224,7 @@ class FAQCreateView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
     def test_func(self):
         post = self.get_post()
         if post:
-            return self.request.user.profile.admin or post.designer == self.request.user.profile
+            return user_can_edit(self.request, post)
         return self.request.user.is_staff
 
     def get_context_data(self, **kwargs):
@@ -5274,11 +5274,10 @@ class FAQUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     def test_func(self):
         faq = self.get_object()
         post = faq.post
-        user_profile = self.request.user.profile
 
-        # Allow if user is admin or designer of the post (if post exists)
-        if post and user_profile:
-            return user_profile.admin or post.designer == user_profile
+        # Allow if the user can edit the post (admin, designer, co-designer w/ edit, moderator)
+        if post:
+            return user_can_edit(self.request, post)
         # Or allow if user is staff (for FAQs without post)
         return self.request.user.is_staff
     
@@ -5346,10 +5345,9 @@ class FAQDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     def test_func(self):
         faq = self.get_object()
         post = faq.post
-        user_profile = self.request.user.profile
 
         if post:
-            return user_profile.admin or post.designer == user_profile
+            return user_can_edit(self.request, post)
         return self.request.user.is_staff
 
     def get_success_url(self):
