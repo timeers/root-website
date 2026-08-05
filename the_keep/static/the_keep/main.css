@@ -787,6 +787,31 @@ em, i {
     gap: 0; /* optional: explicitly removes space */
 }
 
+  /* Reusable elo rank tile (see partials/elo_tile.html). Background color is
+     applied inline per-tier by the template. */
+  .elo-tile {
+    padding: 6px 12px;
+    border-radius: 12px;
+  }
+  .elo-tile-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+  }
+  .elo-tile-body {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+  }
+  .elo-tile-rank {
+    font-weight: 700;
+  }
+  .elo-tile-rating {
+    display: block;
+    font-size: 0.8em;
+    opacity: 0.85;
+  }
+
 /* Per-player faction icons on the matches page. The player names stay fixed on
    the left (.effort-names); only the icon grid (.effort-grid-scroll) scrolls
    horizontally, as a single unit. Both columns use the same fixed row height so

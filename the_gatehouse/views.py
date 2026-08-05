@@ -21,7 +21,7 @@ from django.utils.translation import activate, get_language
 from django.urls import reverse
 from django.views.generic import ListView
 
-from the_warroom.models import (Tournament, Round, Effort, Game,
+from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
                                  effort_counts_for_round_q,
                                  effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
@@ -397,11 +397,21 @@ def player_page_view(request, slug=None):
     ).filter(status__lte=view_status).distinct()
     submissions = player.submissions.filter(status='9')
     posts_count = components.count()
+    # Feed-backed elo standings (systems with an api_url). Only these carry the
+    # rank/tier/icon the badge needs; other ROOTELO systems are locally computed.
+    rootelo_participants = (
+        player.elo_participations
+              .filter(elo_system__calculation_type=EloSystem.CalculationType.ROOTELO)
+              .exclude(elo_system__api_url__isnull=True)
+              .exclude(elo_system__api_url__exact='')
+              .select_related('elo_system')
+    )
     context = {
         'player': player,
         'games_played': games_played,
         'posts_count': posts_count,
         'submissions': submissions,
+        'rootelo_participants': rootelo_participants,
         }
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
 

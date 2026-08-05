@@ -214,11 +214,38 @@ class EloSystem(models.Model):
         LOCAL = 'local', 'Local'
         ROOTELO = 'rootelo', 'RootELO'
 
+    class UrlKeySource(models.TextChoices):
+        # Which Profile attribute supplies the {key} in player_detail_url_template.
+        # CANONICAL keeps the historical behaviour: rdl_cannonical_dwd with its
+        # '+' separator swapped to '-' (e.g. 'Tricholome+4276' -> 'Tricholome-4276').
+        # The others use the raw attribute value verbatim.
+        CANONICAL = 'canonical', 'RDL Canonical DWD'
+        SLUG = 'slug', 'Slug'
+        DISCORD = 'discord', 'Discord'
+        PK = 'pk', 'ID (pk)'
+
     # --- Identity / cosmetic (changing these never affects ratings) ---
     name = models.CharField(max_length=100)
     slug = models.SlugField(unique=True, null=True, blank=True)
     owner = models.ForeignKey(
         Profile, on_delete=models.SET_NULL, null=True, blank=True, related_name='elo_systems'
+    )
+
+    # --- External source (ROOTELO systems only) ---
+    # When set, the daily refresh_rootelo_ranks task pulls this feed and upserts
+    # EloParticipant rows. Leave blank for LOCAL systems (they're computed here).
+    api_url = models.URLField(max_length=300, null=True, blank=True,
+                              help_text="Rootelo live_elo JSON feed URL.")
+    # {key} is replaced with the player reference chosen by url_key_source.
+    player_detail_url_template = models.CharField(
+        max_length=300, null=True, blank=True,
+        help_text="External player detail page, with {key} placeholder.",
+        default="https://tricholome.github.io/rootelo/trends.html?player={key}",
+    )
+    # Which Profile field the {key} above is drawn from (see UrlKeySource).
+    url_key_source = models.CharField(
+        max_length=20, choices=UrlKeySource.choices, default=UrlKeySource.CANONICAL,
+        help_text="Which player reference the player detail URL uses.",
     )
 
     # --- ELIGIBILITY fields: change WHICH games are rated. Editing any of these forces a
@@ -324,12 +351,56 @@ class EloParticipant(models.Model):
     wins = models.FloatField(default=0)  # float: coalition win counts as 0.5
     updated_at = models.DateTimeField(auto_now=True)  # debugging
 
+    # Rootelo badge display cache (populated for ROOTELO systems by the daily task).
+    rank = models.CharField(max_length=10, null=True, blank=True)    # int-as-str or "-"
+    tier = models.CharField(max_length=30, null=True, blank=True)    # "stag", "unranked", ...
+    bg_color = models.CharField(max_length=9, null=True, blank=True)  # "#C686FF" or null
+    icon_url = models.URLField(max_length=300, null=True, blank=True)
+    win_rate = models.CharField(max_length=10, null=True, blank=True)  # feed string e.g. "88.9%"
+    feed_key = models.CharField(max_length=100, null=True, blank=True)  # e.g. 'led_slash-3579'
+
     class Meta:
         unique_together = ('elo_system', 'player')
         indexes = [models.Index(fields=['elo_system', '-rating'])]  # leaderboard order
 
     def __str__(self):
         return f'{self.player} @ {self.elo_system}: {self.rating:.0f}'
+
+    @property
+    def has_rank(self):
+        """True when this participant has a real (non-'-') rank + icon to show."""
+        return bool(self.icon_url and self.rank and self.rank != '-')
+
+    @property
+    def trends_url(self):
+        """Trends page for this participant. The {key} in the system's
+        player_detail_url_template is drawn from the player field chosen by the system's
+        url_key_source. Case is preserved (the trends site's query is case-
+        sensitive). For the CANONICAL source, rdl_cannonical_dwd's '+' separator
+        becomes '-' (e.g. 'Tricholome+4276' -> 'Tricholome-4276'). Returns None
+        when the template or the chosen reference value is missing (e.g. a
+        dwd-fallback match has no canonical value, which would be a broken link)."""
+        system = self.elo_system
+        tmpl = system.player_detail_url_template
+        if not tmpl:
+            return None
+
+        source = system.url_key_source
+        Source = EloSystem.UrlKeySource
+        if source == Source.CANONICAL:
+            canonical = self.player.rdl_cannonical_dwd
+            if not canonical:
+                return None
+            name, sep, num = canonical.rpartition('+')
+            key = f'{name}-{num}' if sep else canonical
+        elif source == Source.PK:
+            key = self.player.pk
+        else:  # SLUG or DISCORD — use the attribute value verbatim
+            key = getattr(self.player, source, None)
+
+        if not key:
+            return None
+        return tmpl.format(key=key)
 
 
 # History row: the rating change one game produced for one player in one local Elo system.

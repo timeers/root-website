@@ -87,7 +87,7 @@ class EloSeasonAdmin(admin.ModelAdmin):
 
 class EloParticipantAdmin(admin.ModelAdmin):
     list_display = ('elo_system', 'player', 'rating', 'games_played', 'wins', 'updated_at')
-    search_fields = ('player__discord', 'player__name', 'elo_system__name')
+    search_fields = ('player__discord', 'player__slug', 'player__discord', 'elo_system__name')
     raw_id_fields = ('player', 'elo_system')
     ordering = ('-rating',)
 

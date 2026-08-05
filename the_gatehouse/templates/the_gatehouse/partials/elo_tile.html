@@ -1,0 +1,26 @@
+{% load i18n %}
+{% comment %}
+Self-contained, reusable elo tile. Pass any subset of:
+  url, icon_url, bg_color, rank, tier, rating, label, games, win_rate.
+Renders a linked badge when rank is real; a plain "Unranked" chip otherwise.
+When `url` is empty the tile renders as a non-link <span> (no dead links).
+No model dependency — driven entirely by the parameters above.
+{% endcomment %}
+{% if rank and rank != '-' and icon_url %}
+  <{% if url %}a href="{{ url }}" target="_blank" rel="noopener noreferrer"{% else %}span{% endif %}
+     class="elo-tile d-inline-flex align-items-center gap-2 text-decoration-none"
+     title="{{ label }}{% if tier %} — {{ tier|capfirst }}{% endif %}{% if rating %} · Elo {{ rating|floatformat:0 }}{% endif %}"
+     data-bs-toggle="tooltip"
+     {% if bg_color %}style="background-color: {{ bg_color }};"{% endif %}>
+    <img class="elo-tile-icon" src="{{ icon_url }}" alt="{{ tier|default:'rank'|capfirst }}">
+    <span class="elo-tile-body">
+      {% if rating %}<span class="elo-tile-rank">{{ rating|floatformat:0 }}</span>{% endif %}
+      <span class="elo-tile-rating">#{{ rank }}</span>
+    </span>
+  </{% if url %}a{% else %}span{% endif %}>
+{% elif tier == 'unranked' %}
+  <{% if url %}a href="{{ url }}" target="_blank" rel="noopener noreferrer"{% else %}span{% endif %}
+     class="elo-tile elo-tile-unranked text-secondary small text-decoration-none">
+    {% trans 'Unranked' %}
+  </{% if url %}a{% else %}span{% endif %}>
+{% endif %}

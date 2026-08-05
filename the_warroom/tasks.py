@@ -1,3 +1,5 @@
+import logging
+import re
 import requests
 import time
 
@@ -10,12 +12,15 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from the_gatehouse.models import Profile
 from the_gatehouse.utils import format_bulleted_list
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 
-from .models import Game, Tournament, Stage, Round, CompetitionStatus, EloSystem, EloRating
+from .models import Game, Tournament, Stage, Round, CompetitionStatus, EloSystem, EloRating, EloParticipant
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
 from .services.winrate_service import calculate_and_cache_winrate
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task
@@ -666,3 +671,159 @@ def count_games_from_api(tournament_name):
     except requests.RequestException as e:
         print(f"Error fetching API data: {e}")
         return None
+
+
+def _apikey_to_canonical(api_key):
+    """'led_slash-3579' -> 'led_slash+3579'. Split on the LAST dash so names with
+    dashes/underscores survive. Returns None if there's no dash."""
+    name, sep, num = api_key.rpartition('-')
+    return f'{name}+{num}' if sep else None
+
+
+def _feed_key_lookup(feed_key, source):
+    """Normalize a feed player key to the lowercased value used to look up a
+    Profile, per the system's url_key_source. Returns None when the key can't
+    produce a lookup value for that source."""
+    UrlKeySource = EloSystem.UrlKeySource
+    if source == UrlKeySource.CANONICAL:
+        canonical = _apikey_to_canonical(feed_key)
+        return canonical.lower() if canonical else None
+    # SLUG, DISCORD, PK: the feed key IS the reference (used verbatim, lowercased).
+    return feed_key.lower() if feed_key else None
+
+
+def _build_profile_lookup(source):
+    """Return {lowercased reference value -> Profile} for matching a feed against
+    profiles, per the system's url_key_source. First writer wins on a collision."""
+    UrlKeySource = EloSystem.UrlKeySource
+    lookup = {}
+    if source == UrlKeySource.CANONICAL:
+        # Prefer rdl_cannonical_dwd; fall back to dwd when it's missing.
+        qs = Profile.objects.filter(
+            Q(rdl_cannonical_dwd__isnull=False, rdl_cannonical_dwd__gt='')
+            | Q(dwd__isnull=False, dwd__gt=''))
+        for p in qs:
+            value = p.rdl_cannonical_dwd or p.dwd
+            if value:
+                lookup.setdefault(value.lower(), p)
+    elif source == UrlKeySource.PK:
+        for p in Profile.objects.all():
+            lookup.setdefault(str(p.pk), p)
+    else:  # SLUG or DISCORD — the field name equals the source value
+        field = source  # 'slug' or 'discord'
+        qs = Profile.objects.filter(**{f'{field}__isnull': False}).exclude(**{field: ''})
+        for p in qs:
+            value = getattr(p, field, None)
+            if value:
+                lookup.setdefault(value.lower(), p)
+    return lookup
+
+
+def _normalize_icon_url(url):
+    """Collapse accidental duplicate path segments in a feed icon_url. The feed
+    sometimes emits '.../rootelo//rootelo/assets/...' (a doubled base); reduce any
+    run of repeated '/rootelo/' back to a single one, and clean stray '//' in the
+    path. Returns None unchanged."""
+    if not url:
+        return url
+    # Fix the specific doubled base the feed produces, then any generic '//' in the
+    # path portion (but not the '://' after the scheme).
+    url = url.replace('/rootelo//rootelo/', '/rootelo/')
+    scheme, sep, rest = url.partition('://')
+    if sep:
+        rest = re.sub(r'/{2,}', '/', rest)
+        url = f'{scheme}://{rest}'
+    return url
+
+
+def _refresh_one_rootelo_system(system, dry_run=False):
+    """Fetch one ROOTELO system's feed and upsert its EloParticipants. Returns a
+    per-system summary dict. On fetch/parse error, returns without writing so a
+    bad feed never wipes existing participant rows."""
+    try:
+        resp = requests.get(system.api_url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        logger.warning("refresh_rootelo: fetch failed for %s (%s)", system, system.api_url,
+                       exc_info=True)
+        return {'system': system.name, 'matched': 0, 'error': True}
+
+    players = data.get('players', {}) or {}
+
+    # How feed keys map to profiles is configured per system by url_key_source
+    # (the same setting drives trends_url). Build a {lowercased value -> Profile}
+    # lookup for that source, then normalize each feed key the same way.
+    source = system.url_key_source
+    profiles = _build_profile_lookup(source)
+    by_lookup = {}
+    for feed_key, entry in players.items():
+        key = _feed_key_lookup(feed_key, source)
+        if key:
+            by_lookup[key] = (feed_key, entry)
+
+    # Existing participants for this system, keyed by player_id (single query).
+    existing = {ep.player_id: ep for ep in system.participants.all()}
+
+    to_create, to_update, matched = [], [], 0
+    for key, (feed_key, entry) in by_lookup.items():
+        profile = profiles.get(key)
+        if not profile:
+            continue
+        matched += 1
+        rating = entry.get('elo')
+        if rating is None:
+            rating = system.initial_rating
+        fields = dict(
+            rating=rating,
+            games_played=entry.get('games') or 0,
+            wins=entry.get('wins') or 0,
+            rank=(str(entry['rank']) if entry.get('rank') is not None else None),
+            tier=entry.get('tier'),
+            bg_color=entry.get('bg_color'),
+            icon_url=_normalize_icon_url(entry.get('icon_url')),
+            win_rate=entry.get('win_rate'),
+            feed_key=feed_key,
+        )
+        ep = existing.get(profile.pk)
+        if ep:
+            for k, v in fields.items():
+                setattr(ep, k, v)
+            to_update.append(ep)
+        else:
+            to_create.append(EloParticipant(elo_system=system, player=profile, **fields))
+
+    if not dry_run:
+        with transaction.atomic():
+            if to_create:
+                EloParticipant.objects.bulk_create(to_create, batch_size=500)
+            if to_update:
+                EloParticipant.objects.bulk_update(
+                    to_update,
+                    ['rating', 'games_played', 'wins', 'rank', 'tier', 'bg_color',
+                     'icon_url', 'win_rate', 'feed_key'],
+                    batch_size=500,
+                )
+    return {'system': system.name, 'matched': matched,
+            'created': len(to_create), 'updated': len(to_update)}
+
+
+def refresh_rootelo_ranks_impl(dry_run=False):
+    """Refresh every ROOTELO EloSystem that has an api_url. Returns a list of
+    per-system summary dicts."""
+    systems = (EloSystem.objects
+               .filter(calculation_type=EloSystem.CalculationType.ROOTELO)
+               .exclude(api_url__isnull=True)
+               .exclude(api_url__exact=''))
+    results = []
+    for system in systems:
+        results.append(_refresh_one_rootelo_system(system, dry_run=dry_run))
+        time.sleep(0.5)  # be polite between feeds (matches import_league_games cadence)
+    return results
+
+
+@shared_task
+def refresh_rootelo_ranks():
+    """Fetch every ROOTELO EloSystem's feed and upsert its EloParticipants.
+    Scheduled (~once/day via django_celery_beat, configured in admin)."""
+    return refresh_rootelo_ranks_impl()
