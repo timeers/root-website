@@ -368,8 +368,9 @@ class EloParticipant(models.Model):
 
     @property
     def has_rank(self):
-        """True when this participant has a real (non-'-') rank + icon to show."""
-        return bool(self.icon_url and self.rank and self.rank != '-')
+        """True when this participant has a real (non-'-') rank to show. The tile
+        supplies a placeholder icon when icon_url is missing."""
+        return bool(self.rank and self.rank != '-')
 
     @property
     def trends_url(self):

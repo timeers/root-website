@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.13.2] - 2026-8-5 Rootelo Rankings
+
+### New Features
+- Root elo rankings pulled from Rootelo
+- Elo Ranking displayed in the stats section of the profile page
+
 ## [1.13.1] - 2026-8-4 Post Moderators
 
 ### New Features

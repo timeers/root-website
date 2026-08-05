@@ -788,15 +788,46 @@ em, i {
 }
 
   /* Reusable elo rank tile (see partials/elo_tile.html). Background color is
-     applied inline per-tier by the template. */
+     applied inline per-tier by the template. Column layout: full-width system
+     name header on top, icon + rank row below. */
   .elo-tile {
     padding: 6px 12px;
     border-radius: 12px;
+    /* Tier color (passed inline as --tile-bg) at 80% opacity, mixed with
+       transparent so only the background fades, not the text/icon. */
+    background-color: color-mix(in srgb, var(--tile-bg, #e8e8e8) 40%, transparent);
+    /* Subtle outline so the tile edge stays visible even when the tier color is
+       white or very light. */
+    border: 1px solid rgba(0, 0, 0, 0.15);
+  }
+  /* System name banner across the top of the tile. */
+  .elo-tile-header {
+    display: block;
+    text-align: center;
+    font-size: 0.8em;
+    font-weight: 700;
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+  }
+  /* Icon + rank row. Centered so it stays balanced when a long header title
+     makes the tile wider than its contents. */
+  .elo-tile-main {
+    justify-content: center;
   }
   .elo-tile-icon {
     width: 28px;
     height: 28px;
     object-fit: contain;
+  }
+  /* Placeholder <i> icon (bi-person-raised-hand) when no icon_url is provided:
+     size it to match the 28px image and center the glyph within that box. */
+  i.elo-tile-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    line-height: 1;
   }
   .elo-tile-body {
     display: flex;
