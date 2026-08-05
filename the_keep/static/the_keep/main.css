@@ -820,15 +820,6 @@ em, i {
     height: 28px;
     object-fit: contain;
   }
-  /* Placeholder <i> icon (bi-person-raised-hand) when no icon_url is provided:
-     size it to match the 28px image and center the glyph within that box. */
-  i.elo-tile-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
-    line-height: 1;
-  }
   .elo-tile-body {
     display: flex;
     flex-direction: column;
