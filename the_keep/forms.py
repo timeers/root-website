@@ -20,7 +20,7 @@ from .models import (
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
-top_fields = ['designer', 'co_designers', 'co_designers_can_edit', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
+top_fields = ['designer', 'co_designers', 'co_designers_can_edit', 'moderators', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
 bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'ai_generated_art', 'language']
 
 
@@ -397,6 +397,13 @@ class PostCreateForm(forms.ModelForm):
         label="Allow co-designers to make changes",
         required=False,
     )
+    moderators = forms.ModelMultipleChoiceField(
+        required=False,
+        queryset=Profile.objects.all(),
+        widget=forms.SelectMultiple,
+        help_text="Moderators with an authorized account can edit this design. They are not credited as designers.",
+        label="Moderators (Optional)"
+    )
     designer = forms.ModelChoiceField(
         queryset=Profile.objects.all(),
         help_text='Once approved, the designer will be able to make changes and authorize co-designers.'
@@ -467,6 +474,7 @@ class PostCreateForm(forms.ModelForm):
         if not user.profile.admin:
             self.fields['artist'].queryset = Profile.objects.exclude(discord__in=exclude_profiles)
             self.fields['co_designers'].queryset = self.fields['co_designers'].queryset.exclude(discord__in=exclude_profiles)
+            self.fields['moderators'].queryset = self.fields['moderators'].queryset.exclude(discord__in=exclude_profiles)
             self.fields['designer'].queryset = self.fields['designer'].queryset.exclude(discord__in=exclude_profiles)
             # self.fields['designer'].queryset = self.fields['designer'].queryset.filter(id=user.profile.id)
 
@@ -481,9 +489,13 @@ class PostCreateForm(forms.ModelForm):
             self.fields['co_designers'].queryset = self.fields['co_designers'].queryset.exclude(
                 id=post_instance.designer.id
             )
+            self.fields['moderators'].queryset = self.fields['moderators'].queryset.exclude(
+                id=post_instance.designer.id
+            )
             if not user.profile.admin and not user.profile == post_instance.designer:
                 self.fields.pop('co_designers_can_edit', None)
                 self.fields.pop('co_designers', None)
+                self.fields.pop('moderators', None)
 
         self.fields['designer'].queryset = self.fields['designer'].queryset.filter(
             Q(id=user.profile.id) | Q(group="O") | Q(group="P") | Q(group="B") | Q(group='E')
@@ -558,6 +570,7 @@ class PostCreateForm(forms.ModelForm):
             official = cleaned_data.get('official')
             in_root_digital = cleaned_data.get('in_root_digital')
             co_designers = cleaned_data.get('co_designers')
+            moderators = cleaned_data.get('moderators')
             designer = cleaned_data.get('designer')
 
             # Check that at least one of the links are filled
@@ -622,6 +635,9 @@ class PostCreateForm(forms.ModelForm):
             
             if designer and co_designers and designer in co_designers:
                 self.add_error("co_designers", f"Designer {designer} cannot also be listed as a co-designer.")
+
+            if designer and moderators and designer in moderators:
+                self.add_error("moderators", f"Designer {designer} cannot also be listed as a moderator.")
 
             return cleaned_data
 

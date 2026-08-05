@@ -343,6 +343,12 @@ class Post(models.Model):
     rejection_reason = models.TextField(blank=True, null=True)
     co_designers_can_edit = models.BooleanField(default=False)
     co_designers = models.ManyToManyField(Profile, related_name="co_designed_posts", blank=True)
+    moderators = models.ManyToManyField(
+        Profile,
+        related_name="moderated_posts",
+        blank=True,
+        help_text="Profiles who can edit this post even though they do not own it.",
+    )
     animal = models.CharField(max_length=50, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)
     expansion = models.ForeignKey(Expansion, on_delete=models.SET_NULL, null=True, blank=True, related_name='posts')

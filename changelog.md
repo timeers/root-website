@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.13.1] - 2026-8-4 Post Moderators
+
+### New Features
+- Designer of a post can now set Moderators for their post. Moderators have full edit access without design credit.
+
+### Bug Fixes
+- Co-designers promoted to Editor role on addition without needing their own Posts on the site
+- co-designers can edit and create translations for their factions
+- co-designers can edit and create faqs for their factions
+- co-designers can edit and create components for their factions
+
+### Breaking Changes
+- Match API `player` field now returns player's slug instead of discord username
+
 ## [1.13.0] - 2026-8-2 August Improvements
 
 ### New Features
@@ -35,7 +49,6 @@
 
 ### Breaking Changes
 - Match API `tournament` field now returns `{display, series, stage, round}` display string and slugs instead of only a display string
-- Match API `player` field now returns player's slug instead of discord username
 
 ## [1.12.19] - 2026-7-23 Better RDB Bots
 This update fills out the bot functionality and adds more complex features for the bot

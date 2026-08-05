@@ -7,6 +7,7 @@ from .models import (
     Expansion, LawGroup, RulesFile, DeckGroup, Card, CardDeck,
     Post
 )
+from the_gatehouse.models import Profile
 from .services.slugify_titles import (
     slugify_post_title,
     slugify_expansion_title,
@@ -114,13 +115,31 @@ def delete_deck_group_back_image(sender, instance, **kwargs):
         os.remove(instance.back_image.path)
 
 
+def _promote_players_to_editor(model, pk_set):
+    """Promote any newly-added collaborators from Player (P) to Editor (E) so they
+    can actually edit the posts they've been attached to."""
+    if not pk_set:
+        return
+    model.objects.filter(pk__in=pk_set, group=Profile.GroupChoices.PLAYER).update(
+        group=Profile.GroupChoices.EDITOR
+    )
+
+
 @receiver(m2m_changed, sender=Post.co_designers.through)
-def update_designers_list_on_m2m(sender, instance, action, **kwargs):
+def update_designers_list_on_m2m(sender, instance, action, pk_set=None, **kwargs):
+    if action == "post_add":
+        _promote_players_to_editor(instance.co_designers.model, pk_set)
     if action in ("post_add", "post_remove", "post_clear"):
         designers_list = instance.get_designers_list()
         Post.objects.filter(pk=instance.pk).update(
             designers_list=designers_list
         )
+
+
+@receiver(m2m_changed, sender=Post.moderators.through)
+def promote_moderators_on_m2m(sender, instance, action, pk_set=None, **kwargs):
+    if action == "post_add":
+        _promote_players_to_editor(instance.moderators.model, pk_set)
 
 @receiver(m2m_changed, sender=Expansion.co_designers.through)
 def update_designers_list_on_m2m(sender, instance, action, **kwargs):
