@@ -36,9 +36,9 @@
       </div>
 
       <!-- What it does -->
-      <div class="databot-card mb-4">
-        <div class="databot-card-body">
-          <h2 class="databot-section-title">What it does</h2>
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">What it does</h2>
           <div class="row g-3 databot-features">
             <div class="col-sm-6">
               <div class="databot-feature">
@@ -81,9 +81,9 @@
       </div>
 
       <!-- Flagship commands -->
-      <div class="databot-card mb-4">
-        <div class="databot-card-body">
-          <h2 class="databot-section-title">Try these first</h2>
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">Try these first</h2>
           <div class="databot-flagship">
             <div class="databot-chip">
               <code>/faction</code>
@@ -106,9 +106,9 @@
       </div>
 
       <!-- Full command list -->
-      <div class="databot-card mb-4">
-        <div class="databot-card-body">
-          <h2 class="databot-section-title">All Commands</h2>
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">All Commands</h2>
           {% for group_name, rows in command_groups %}
           <div class="databot-cmd-group">
             <h5 class="databot-cmd-group-title">{{ group_name }}</h5>
@@ -138,9 +138,9 @@
       </div>
 
       <!-- Discord notifications -->
-      <div class="databot-card mb-4">
-        <div class="databot-card-body">
-          <h2 class="databot-section-title">
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">
             <i class="bi bi-bell-fill text-primary me-2"></i>Get notified in Discord
           </h2>
           <p class="databot-notify-intro">
@@ -283,23 +283,8 @@
   border-color: #f5d79a;
 }
 
-/* ── Cards ────────────────────────────────────────────────────────── */
-.databot-card {
-  background: #fff;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-  border: 1px solid #e3e5e8;
-}
-.databot-card-body {
-  padding: 28px;
-}
-.databot-section-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #2c2f33;
-  margin-bottom: 20px;
-}
+/* Card styles (.info-card, .info-card-body, .info-card-title) now live in
+   the_keep/main.css so they can be reused (e.g. the status confirm pages). */
 
 /* ── Feature grid ─────────────────────────────────────────────────── */
 .databot-feature {
@@ -403,7 +388,7 @@
 @media (max-width: 768px) {
   .databot-hero { padding: 36px 20px; }
   .databot-hero-title { font-size: 30px; }
-  .databot-card-body { padding: 20px; }
+  .info-card-body { padding: 20px; }
 }
 </style>
 {% endblock content %}

@@ -568,8 +568,11 @@ class Post(models.Model):
                 new_post = False
                 approved_from_submitted = False
             # Transition into Stable (from any other status) on an existing post.
-            became_stable = (old_instance.status != StatusChoices.STABLE
-                             and self.status == StatusChoices.STABLE)
+            # Compare as strings: some callers set status to the raw int 1 rather
+            # than StatusChoices.STABLE ('1'), and 1 == '1' is False in Python,
+            # which would silently skip the "marked Stable" notification.
+            became_stable = (str(old_instance.status) != StatusChoices.STABLE
+                             and str(self.status) == StatusChoices.STABLE)
         else:
             new_post = True
             approved_from_submitted = False

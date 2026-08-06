@@ -1489,7 +1489,7 @@ def woodland_warriors_info(request):
         'guild_icon_url': guild_icon_url,
     })
 
-
+@player_onboard_required
 def databot_info(request):
     """Public landing page for the Root Database Discord bot: what it does, its
     commands, and an 'Add to Server' invite. No login required."""

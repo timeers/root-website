@@ -555,6 +555,24 @@ em, i {
     box-shadow: 0 6px 18px rgba(88, 101, 242, 0.3);
   }
 
+  /* Reusable white content card (shared by /databot/ and the status confirm pages). */
+  .info-card {
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e3e5e8;
+  }
+  .info-card-body {
+    padding: 28px;
+  }
+  .info-card-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #2c2f33;
+    margin-bottom: 20px;
+  }
+
 
   .hidden-description {
     border-top: 1px solid #e3e3e3;

@@ -3295,8 +3295,11 @@ def confirm_stable(request, slug):
 
     # If form is submitted (POST request)
     if request.method == 'POST':
-        # Update the `stable` property to True
-        obj.status = 1
+        # Update the `stable` property to True. Use the enum value ('1'), not the
+        # raw int 1: Post.save() compares self.status against StatusChoices.STABLE
+        # (a string) to detect the Stable transition and fire notify_component_stable.
+        # A raw int would make that comparison False and silently skip the DM.
+        obj.status = StatusChoices.STABLE
         obj.save()
 
         # Redirect to a success page or back to the post detail page

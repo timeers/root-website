@@ -8,6 +8,10 @@
 
 ### Improvements
 - Auto de-select winner if a score less than 30 is recorded
+- Cleaned up and improved the mark stable/testing pages
+
+### Bug Fixes
+- Posts marked as stable trigger discord notifications opted in users
 
 ## [1.13.1] - 2026-8-4 Post Moderators
 

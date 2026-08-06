@@ -2,36 +2,97 @@
 {% load i18n %}
 {% block title %}{% trans 'Stable' %} | {% endblock %}
 {% block content %}
-<article class="content-section">
-<h1>
-    {% blocktrans  with post_title=post_title %}
-    Mark {{ post_title }} as Stable?
-    {% endblocktrans %}
-</h1>
-<div>
-    {% blocktrans with post_title=post_title %}
-        It looks like {{ post_title }} might be in a stable state. 
-    {% endblocktrans %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+
+      <!-- Hero -->
+      <div class="confirm-hero confirm-hero-stable mb-4">
+        <i class="bi bi-check-circle-fill confirm-hero-icon"></i>
+        <h1 class="confirm-hero-title root-title">
+          {% blocktrans with post_title=post_title %}
+          Mark {{ post_title }} as Stable?
+          {% endblocktrans %}
+        </h1>
+        <p class="confirm-hero-tagline">
+          {% blocktrans with post_title=post_title %}
+            It looks like {{ post_title }} might be in a stable state.
+          {% endblocktrans %}
+        </p>
+      </div>
+
+      <!-- Details card -->
+      <div class="info-card mb-4">
+        <div class="info-card-body confirm-body">
+          <h2 class="info-card-title">{% trans 'What this means' %}</h2>
+          <p>
+            {% blocktrans with post_component=post_component %}
+              If you think you will make any large changes to this {{ post_component }} you can always do this later.
+            {% endblocktrans %}
+          </p>
+          <p>
+            {% blocktrans with post_title=post_title post_component=post_component %}
+              By marking {{ post_title }} as "Stable" you convey to other users that they can confidently use it without any large rule gaps or balance issues.
+              Of course this does not mean that this {{ post_component }} will be completely balanced. Much of the balance in Root comes from the player interaction.
+            {% endblocktrans %}
+          </p>
+          <p class="confirm-prompt">
+            {% trans 'If you are ready to confirm, click "Yes!"' %}
+          </p>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <form method="post" class="confirm-actions">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="databot-btn databot-btn-primary" type="submit">{% trans 'Yes!' %}</button>
+        <a href="{{ post.get_absolute_url }}" class="databot-btn databot-btn-outline">{% trans 'Not yet...' %}</a>
+      </form>
+
+    </div>
+  </div>
 </div>
-<div>
-    {% blocktrans  with post_component=post_component %}
-        If you think you will make any large changes to this {{ post_component }} you can always do this later.
-    {% endblocktrans %}
-</div>
-<div>
-    {% blocktrans with post_title=post_title post_component=post_component %}
-        By marking {{ post_title }} as "Stable" you convey to other users that they can confidently use it without any large rule gaps or balance issues.
-        Of course this does not mean that this {{ post_component }} will be completely balanced. Much of the balance in Root comes from the player interaction.
-    {% endblocktrans %}
-</div>
-<div>
-    {% trans 'If you are ready to confirm, click "Yes!"' %}
-</div>
-<form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button class="btn btn-success" type="submit">{% trans 'Yes!' %}</button>
-    <a href="{{ post.get_absolute_url }}" class="btn btn-secondary">{% trans 'Not yet...' %}</a href="{{ post.get_absolute_url }}">
-</form>
-</article>
+
+<style>
+.confirm-hero {
+  border-radius: 16px;
+  padding: 40px 28px;
+  text-align: center;
+  color: #fff;
+}
+.confirm-hero-stable {
+  background: linear-gradient(135deg, #2e9e5b 0%, #3fbf74 100%);
+  box-shadow: 0 8px 24px rgba(46, 158, 91, 0.25);
+}
+.confirm-hero-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 14px;
+  color: #fff;
+}
+.confirm-hero-title {
+  font-size: 34px;
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: #fff;
+}
+.confirm-hero-tagline {
+  font-size: 17px;
+  line-height: 1.6;
+  max-width: 560px;
+  margin: 0 auto;
+  color: rgba(255, 255, 255, 0.92);
+}
+.confirm-body p { font-size: 15px; color: #4f5660; line-height: 1.7; margin-bottom: 16px; }
+.confirm-body p:last-child { margin-bottom: 0; }
+.confirm-prompt { font-weight: 600; color: #2c2f33 !important; }
+.confirm-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 24px; }
+.confirm-actions p { margin: 0; }
+
+@media (max-width: 768px) {
+  .confirm-hero { padding: 32px 20px; }
+  .confirm-hero-title { font-size: 26px; }
+}
+</style>
 {% endblock content %}
