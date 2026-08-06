@@ -6,6 +6,9 @@
 - Root elo rankings pulled from Rootelo
 - Elo Ranking displayed in the stats section of the profile page
 
+### Improvements
+- Auto de-select winner if a score less than 30 is recorded
+
 ## [1.13.1] - 2026-8-4 Post Moderators
 
 ### New Features

@@ -1425,20 +1425,17 @@ document.getElementById('registerPlayerModal').addEventListener('hide.bs.modal',
 });
 {% endif %}
 
-// A score of 30+ wins the game, so auto-check that effort's Win box when
-// its score reaches the threshold. Only ever checks, lowering the score back
-// below 30 never unchecks it. Exposed on window so the grid's recalcRow can reach it.
+// A score of 30+ wins the game, so the effort's Win box tracks its score:
+// checked when the score is a number >= threshold, unchecked otherwise
+// (a lower score, or a blank/non-numeric field). Exposed on window so the
+// grid's recalcRow can reach it.
 const WIN_SCORE_THRESHOLD = 30;
 window.autoCheckWinFromScore = function (scoreField) {
     if (!scoreField) return;
-    const raw = String(scoreField.value).trim();
-    if (raw === '') return;
-    const score = parseInt(raw, 10);
-    if (isNaN(score) || score < WIN_SCORE_THRESHOLD) return;
     const winField = document.getElementById(scoreField.id.replace(/-score$/, '-win'));
-    if (winField && !winField.checked) {
-        winField.checked = true;
-    }
+    if (!winField) return;
+    const score = parseInt(String(scoreField.value).trim(), 10);
+    winField.checked = (!isNaN(score) && score >= WIN_SCORE_THRESHOLD);
 };
 
 document.addEventListener('DOMContentLoaded', function() {
