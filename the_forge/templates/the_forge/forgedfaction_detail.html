@@ -69,9 +69,6 @@
 
     <div class="forge-header-preview mb-3 position-relative">
       <div class="forge-header-preview-bar">
-        {% if sheet.header_image %}
-          <img class="forge-header-preview-image" src="{{ sheet.header_image.url }}" alt="">
-        {% endif %}
         <div class="forge-header-preview-title luminari"
              data-faction-color="{{ faction.color|default:'#888888' }}">
           {{ faction.faction_name }}

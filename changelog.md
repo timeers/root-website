@@ -9,6 +9,8 @@
 ### Improvements
 - Auto de-select winner if a score less than 30 is recorded
 - Cleaned up and improved the mark stable/testing pages
+- Auto capitalize first letter of Faction names in the Forge on mobile
+- Note in the Forge Style Guide about faction name conventions
 
 ### Bug Fixes
 - Posts marked as stable trigger discord notifications opted in users
