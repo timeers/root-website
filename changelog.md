@@ -16,6 +16,9 @@
 - MatchAPI filter for tournaments now filters includes secondary tournaments as well as the primary
 - added ELO rank to /stats command when filtering for player and a series with an ELO System
 - Improved link at bottom of /help command
+- Improved bot requests to cut out unneccessary work
+- Added postgres connection age so workers can reuse connection
+- Improved profile settings page layout
 
 ### Bug Fixes
 - Posts marked as stable trigger discord notifications opted in users

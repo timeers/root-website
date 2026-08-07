@@ -173,6 +173,14 @@ if config['POSTGRES_VALUE'] == 'True':
             'PASSWORD': config["POSTGRES_PASS"],
             'HOST': 'localhost',
             'PORT': '5432',
+            # Reuse each worker's Postgres connection for up to 10s instead of opening a
+            # fresh one per request (Django's default CONN_MAX_AGE=0). Cuts per-request
+            # connect/teardown latency on the hot paths (Discord interactions, autocomplete).
+            # Health-check so a persistent connection dropped by the server isn't reused.
+            # Max concurrent connections stays ~= mod_wsgi processes * threads, well under
+            # Postgres max_connections (100).
+            'CONN_MAX_AGE': 10,
+            'CONN_HEALTH_CHECKS': True,
         }
     }
 else:

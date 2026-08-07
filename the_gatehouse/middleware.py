@@ -12,6 +12,14 @@ class SetLanguageMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        # The Discord interactions endpoint is an unauthenticated bot POST that never
+        # renders translated content and never reuses a session. Skip all language/session
+        # work for it — otherwise the assignment below marks the session modified and
+        # forces a synchronous django_session write on every interaction (and every
+        # autocomplete keystroke), which competes for the 3s Discord response budget.
+        if request.path == '/discord/interactions/':
+            return self.get_response(request)
+
         language = None
 
         if request.user.is_authenticated:
@@ -31,9 +39,12 @@ class SetLanguageMiddleware:
         if not language:
             language = 'en'
 
-        # Set the language in the current session (useful for later requests)
+        # Set the language in the current session (useful for later requests). Only write
+        # when it actually changed, so an unchanged request doesn't needlessly mark the
+        # session modified (which would trigger a session save on every request).
         activate(language)
-        request.session['language'] = language
+        if request.session.get('language') != language:
+            request.session['language'] = language
 
         response = self.get_response(request)
         return response
