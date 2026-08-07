@@ -14,6 +14,7 @@
 - Auto capitalize first letter of Faction names in the Forge on mobile
 - Note in the Forge Style Guide about faction name conventions
 - MatchAPI filter for tournaments now filters includes secondary tournaments as well as the primary
+- added ELO rank to /stats command when filtering for player and a series with an ELO System
 
 ### Bug Fixes
 - Posts marked as stable trigger discord notifications opted in users

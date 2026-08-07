@@ -1749,7 +1749,7 @@ def build_captain_embed(vagabond):
     return _enforce_embed_limits({k: v for k, v in embed.items() if v is not None})
 
 
-def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None, include_fan_content=False):
+def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None, include_fan_content=False, elo_participant=None):
     """Build a Discord embed dict for a /stats win-rate result.
 
     `stats` is the dict from filtered_winrate (total, games, win_points, win_rate).
@@ -1757,6 +1757,10 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     the result and, when a single subject is in focus, link/thumbnail it.
     include_fan_content: when False (default), the faction board excludes
     unofficial (fan-made) factions.
+    elo_participant: the player's EloParticipant for the series' Elo system, when a
+    player + series (with a system) are in focus and no faction is selected. When
+    given, its rating/rank lead the fields and its icon_url/bg_color drive the
+    thumbnail/color (mutually exclusive with the faction thumbnail/color).
     """
     site_url = config.get("SITE_URL", "").rstrip("/")
 
@@ -1779,6 +1783,17 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     if player or faction:
         fields.insert(0, {"name": "Win Rate", "value": f"{stats['win_rate']:.1f}%", "inline": True})
         fields.append({"name": "Wins", "value": f"{stats['win_points']:g}", "inline": True})
+
+    # Elo standing leads the fields when a participant is in focus. Two insert(0)
+    # calls reverse order, so add Rank first then Rating to keep Rating leftmost.
+    # rank/icon_url/bg_color are only populated for RootELO systems; LOCAL systems
+    # show the rating with an "Unranked" label and no thumbnail/color.
+    if elo_participant:
+        rank = elo_participant.rank
+        rank_display = f"#{rank}" if (rank and rank != "-") else "Unranked"
+        fields.insert(0, {"name": "Rank", "value": rank_display, "inline": True})
+        fields.insert(0, {"name": elo_participant.elo_system.name,
+                          "value": f"{round(elo_participant.rating)}", "inline": True})
 
     embed = {
         "title": "Win Rate",
@@ -1813,6 +1828,14 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         except (ValueError, AttributeError):
             pass
 
+    # Elo only appears with no faction, so this never competes with the faction
+    # color above. Mask to 24 bits since bg_color may carry an 8-digit #RRGGBBAA.
+    if elo_participant and elo_participant.bg_color:
+        try:
+            embed["color"] = int(elo_participant.bg_color.lstrip("#"), 16) & 0xFFFFFF
+        except (ValueError, AttributeError):
+            pass
+
     # Player gets the author slot (icon + name + link); faction gets the
     # thumbnail. Either may be present alone, or both together.
     if player:
@@ -1829,6 +1852,11 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         faction_image = _image_url(faction)
         if faction_image:
             embed["thumbnail"] = {"url": faction_image}
+
+    # icon_url is a full external URL (from the RootELO feed), so it bypasses the
+    # site-relative _image_url helper. Only reached when no faction is present.
+    if elo_participant and elo_participant.icon_url:
+        embed["thumbnail"] = {"url": elo_participant.icon_url}
 
     # When only one subject is in focus, also link the embed title to it.
     subject = player if (player and not faction) else (faction if (faction and not player) else None)

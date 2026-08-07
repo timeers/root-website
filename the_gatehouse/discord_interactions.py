@@ -32,7 +32,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
-from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate
+from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant
 from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
@@ -361,6 +361,18 @@ def _handle_stats_command(data):
         if not tournament:
             return _ephemeral("Couldn't find that series.")
 
+    # When a player + series (with an Elo system) are both in focus and no faction
+    # narrows the query, surface that player's standing in the system. Faction
+    # filtering makes Elo irrelevant, so it's skipped there.
+    elo_participant = None
+    if player and tournament and not faction and tournament.elo_system_id:
+        elo_participant = (
+            EloParticipant.objects
+            .select_related('elo_system')
+            .filter(elo_system_id=tournament.elo_system_id, player=player)
+            .first()
+        )
+
     stats = filtered_winrate(
         player=player, faction=faction, tournament=tournament, platform=platform
     )
@@ -374,7 +386,7 @@ def _handle_stats_command(data):
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {"embeds": [build_stats_embed(
             stats, player=player, faction=faction, tournament=tournament, platform=platform,
-            include_fan_content=include_fan_content,
+            include_fan_content=include_fan_content, elo_participant=elo_participant,
         )]},
     })
 
