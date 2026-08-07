@@ -1,0 +1,41 @@
+<div class="modal fade" id="duplicateFactionModal" tabindex="-1" aria-labelledby="duplicateFactionModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-info text-dark">
+        <h5 class="modal-title" id="duplicateFactionModalLabel">
+          <i class="bi bi-files"></i> Duplicate Faction
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-info">
+          <i class="bi bi-info-circle-fill"></i>
+          <strong>This will create a full copy of:</strong>
+          <ul class="mb-0 mt-2">
+            <li>All faction settings, colors, icons, and markers</li>
+            {% if sheet %}<li>The Faction Board and its layout</li>{% endif %}
+            {% if back %}<li>The Board Back</li>{% endif %}
+            {% if setup_card %}<li>The Adset Card</li>{% endif %}
+            <li>All pieces, decks, and cards (including their images)</li>
+          </ul>
+        </div>
+
+        <div class="alert alert-warning">
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          <strong>Note:</strong> The copy is a separate, unpublished version. Editing
+          it won't affect the original. Copying a large faction may take a moment.
+        </div>
+
+        <p>Do you want to create a copy of "<strong>{{ faction.faction_name }}</strong>"?</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-info forge-duplicate"
+                data-url="{% url 'forge-faction-duplicate' pk=faction.pk %}"
+                data-status-base="{% url 'forge-faction-duplicate-status' task_id='TASK_ID' %}">
+          <i class="bi bi-files"></i><span class="ms-1">Duplicate Faction</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

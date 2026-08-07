@@ -568,6 +568,44 @@ def forgedfaction_delete(request, pk):
     return redirect('forge-faction-list')
 
 
+@forge_onboard_required
+@require_http_methods(["POST"])
+def forgedfaction_duplicate(request, pk):
+    """Kick off an async deep-clone of a faction the user can edit.
+
+    Runs in Celery (a big faction is minutes of image copies + saves, past the
+    120s request timeout). Returns the task id; the browser polls
+    ``forgedfaction_duplicate_status`` and redirects to the copy when done.
+    """
+    source = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, source)):
+        return resp
+    from .tasks import duplicate_forged_faction_task
+    result = duplicate_forged_faction_task.delay(source.pk)
+    return JsonResponse({'task_id': result.id})
+
+
+@forge_onboard_required
+def forgedfaction_duplicate_status(request, task_id):
+    """Report clone-task state; on success return the new faction's detail URL.
+
+    The task id is an opaque UUID and the kick-off already enforced edit
+    permission; the redirected detail page re-checks view permission, so nothing
+    is bypassed here.
+    """
+    from celery.result import AsyncResult
+    result = AsyncResult(task_id)
+    if result.successful():
+        new_pk = result.result['new_pk']
+        return JsonResponse({
+            'state': 'SUCCESS',
+            'redirect': reverse('forge-faction-detail', kwargs={'pk': new_pk}),
+        })
+    if result.failed():
+        return JsonResponse({'state': 'FAILURE'}, status=500)
+    return JsonResponse({'state': result.state})  # PENDING / STARTED
+
+
 # ---------- FactionSheet ----------
 
 @forge_onboard_required

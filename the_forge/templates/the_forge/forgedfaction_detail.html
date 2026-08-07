@@ -44,6 +44,10 @@
       <a href="{% url 'forge-faction-edit' pk=faction.pk %}" class="btn btn-sm btn-warning">
         <i class="bi bi-pencil-square"></i><span class="d-none d-md-inline ms-1">Edit</span>
       </a>
+
+      <button type="button" class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#duplicateFactionModal">
+        <i class="bi bi-files"></i><span class="d-none d-md-inline ms-1">Duplicate</span>
+      </button>
     {% endif %}
 
     {% if can_edit %}{% if sheet or back or setup_card %}
@@ -595,6 +599,7 @@
   })();
 </script>
 <script src="{% static 'the_forge/forge_async_download.js' %}"></script>
+<script src="{% static 'the_forge/forge_duplicate.js' %}"></script>
 
 {% if can_edit %}
   {% if publish_target %}
@@ -627,6 +632,7 @@
     </div>
   {% endif %}
   {% include 'the_forge/partials/_delete_faction_modal.html' %}
+  {% include 'the_forge/partials/_duplicate_faction_modal.html' %}
   {% if sheet %}
     {% url 'forge-sheet-delete' pk=sheet.pk as sheet_delete_url %}
     {% include 'the_forge/partials/_delete_child_modal.html' with modal_id='deleteSheetModal' child_label='Faction Board' delete_url=sheet_delete_url %}

@@ -5,6 +5,7 @@
 ### New Features
 - Root elo rankings pulled from Rootelo
 - Elo Ranking displayed in the stats section of the profile page
+- Duplicate Factions in the Forge so you can make changes without losing an old design
 
 ### Improvements
 - Auto de-select winner if a score less than 30 is recorded
@@ -14,6 +15,7 @@
 
 ### Bug Fixes
 - Posts marked as stable trigger discord notifications opted in users
+- Fixed some static image links with cache busting
 
 ## [1.13.1] - 2026-8-4 Post Moderators
 

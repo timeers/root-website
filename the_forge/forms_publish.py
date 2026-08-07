@@ -2,9 +2,10 @@ import html
 import re
 
 from django import forms
-from django.core.files.base import ContentFile
 from django.db.models import Q
 from django.utils.html import strip_tags
+
+from .services.upload_paths import copy_image_field
 
 from the_keep.forms import FactionCreateForm
 from the_keep.models import Faction, Piece as KeepPiece, PostTranslation
@@ -569,17 +570,9 @@ class ForgedFactionSubmitForm(FactionCreateForm):
         return cleaned
 
 
-def _copy_image_field(image_field):
-    """Return a Django File the form can save as a fresh upload, copied from
-    an existing ImageField. Reading the file leaves the original untouched and
-    avoids both fields pointing at the same storage path."""
-    image_field.open('rb')
-    try:
-        data = image_field.read()
-    finally:
-        image_field.close()
-    name = image_field.name.rsplit('/', 1)[-1]
-    return ContentFile(data, name=name)
+# Re-homed to services.upload_paths so the clone service can reuse it without a
+# forms->service import cycle. Kept aliased here for the existing call sites.
+_copy_image_field = copy_image_field
 
 
 class ForgedFactionLinkForm(forms.Form):

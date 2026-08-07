@@ -6,6 +6,7 @@ from django.utils import timezone
 from the_gatehouse.models import Profile
 from the_keep.utils import validate_hex_color, delete_old_image
 
+from .services.clone_flag import clone_in_progress
 from .services.upload_paths import (
     sheet_preview_upload_path,
     decree_preview_upload_path,
@@ -209,7 +210,7 @@ class ForgedFaction(models.Model):
                 sheet__faction=self,
                 element_color=ElementColor.FACTION,
             ).update(element_color=CardPile._meta.get_field('element_color').default)
-        if new:
+        if new and not clone_in_progress():
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
             url = reverse('forge-faction-detail', kwargs={'pk': self.pk})
@@ -293,7 +294,7 @@ class FactionSheet(models.Model):
                 pass
         super().save(*args, **kwargs)
         ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
-        if new:
+        if new and not clone_in_progress():
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
@@ -880,7 +881,7 @@ class FactionBack(models.Model):
                 pass
         super().save(*args, **kwargs)
         ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
-        if new:
+        if new and not clone_in_progress():
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
@@ -964,7 +965,7 @@ class SetupCard(models.Model):
                 pass
         super().save(*args, **kwargs)
         ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
-        if new:
+        if new and not clone_in_progress():
             from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})

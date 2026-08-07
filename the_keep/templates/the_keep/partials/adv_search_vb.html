@@ -16,7 +16,7 @@
               </div>
               {% else %}
               <div class="select-option root-title m-2" data-value="{{ item_option.value }}">
-                  <img class="item-option" src="{% static 'items/' %}{{ item_option.label|lower }}_flip.png" alt="{{ item_option.label }}">
+                  <img class="item-option" src="{% static 'items/'|add:item_option.label|lower|add:'_flip.png' %}" alt="{{ item_option.label }}">
               </div>
               {% endif %}
 
