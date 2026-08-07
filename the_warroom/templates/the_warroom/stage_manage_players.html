@@ -21,6 +21,12 @@
         Adding unregistered players will also add them to <strong>{{ tournament.name }}</strong>.
     </p>
 
+
+    {% url 'stage-players-export' tournament_slug=tournament.slug stage_slug=stage.slug as export_url %}
+    {% url 'stage-players-import' tournament_slug=tournament.slug stage_slug=stage.slug as import_url %}
+    {% include 'the_warroom/partials/player_csv_tools.html' with export_url=export_url import_url=import_url import_summary=import_summary %}
+
+
     <!-- Search to Add Players -->
     <div class="card mb-4">
         <div class="card-header bg-light">

@@ -7,6 +7,7 @@
 - Elo Ranking displayed in the stats section of the profile page
 - Duplicate Factions in the Forge so you can make changes without losing an old design
 - new /card command for the discord bot to lookup cards
+- Added import/export to player roster for Series and Stages
 
 ### Improvements
 - Auto de-select winner if a score less than 30 is recorded
