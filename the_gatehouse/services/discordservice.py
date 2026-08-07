@@ -154,7 +154,13 @@ def create_message_thread(channel_id, message_id, name, auto_archive_duration=14
         r.raise_for_status()
         return r.json()["id"]
     except (requests.RequestException, KeyError, ValueError) as e:
-        logger.error("Failed to create thread on message %s: %s", message_id, e)
+        # Include Discord's HTTP status + error body so the reason is diagnosable
+        # (e.g. 403 / 50013 Missing Permissions in a restricted channel). `response`
+        # is only present on RequestException, and is None for a timeout/conn error.
+        resp = getattr(e, "response", None)
+        status = resp.status_code if resp is not None else "?"
+        detail = resp.text if resp is not None else str(e)
+        logger.error("Failed to create thread on message %s: %s %s", message_id, status, detail)
         return None
 
 
@@ -2012,12 +2018,14 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
 
     When `enabled_names` is given (a guild's whitelist), only the commands actually
     available in that server are listed: /help (always available) plus the enabled,
-    whitelistable commands. Empty groups are dropped. If some commands are hidden and
-    the invoker can manage the server (`can_manage`), a link to the guild's command
-    settings is appended so they can enable more. Pass `enabled_names=None` (the default,
-    e.g. in DMs) to list every command unfiltered.
+    whitelistable commands. Empty groups are dropped. Pass `enabled_names=None` (the
+    default, e.g. in DMs) to list every command unfiltered.
+
+    A single useful link is always appended: a server manager (`can_manage`, in a guild)
+    gets a link to that guild's command settings; everyone else (including in DMs) gets a
+    link to add the bot to their own server.
     """
-    from the_gatehouse.services.discord_commands import grouped_commands, WHITELISTABLE
+    from the_gatehouse.services.discord_commands import grouped_commands
 
     site_url = config.get("SITE_URL", "").rstrip("/")
 
@@ -2046,15 +2054,22 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
         "url": site_url or None,
     }
 
-    # Offer a link to enable more commands when the invoker can manage the server and
-    # some whitelistable commands aren't enabled yet.
-    if enabled_names is not None and can_manage and guild_id and site_url:
-        hidden = [n for n in WHITELISTABLE if n not in set(enabled_names)]
-        if hidden:
+    # Always offer one useful link. A server manager gets a link to this guild's command
+    # settings; anyone else (including in DMs, where there's no guild/manage context) gets
+    # a link to add the bot to their own server.
+    if site_url:
+        if enabled_names is not None and can_manage and guild_id:
             manage_url = f"{site_url}/guild/{guild_id}/edit/"
             embed["fields"].append({
-                "name": "More commands available",
-                "value": f"[Enable more commands for this server]({manage_url})",
+                "name": "Manage this server",
+                "value": f"[Manage commands for this server]({manage_url})",
+                "inline": False,
+            })
+        else:
+            databot_url = f"{site_url}/databot/"
+            embed["fields"].append({
+                "name": "Add the Databot",
+                "value": f"[Add the Databot to your server]({databot_url})",
                 "inline": False,
             })
 

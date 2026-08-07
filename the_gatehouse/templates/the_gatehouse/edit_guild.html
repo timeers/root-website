@@ -7,7 +7,7 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1 class="root-title mb-0">
             {% if guild.get_icon_url %}
-                <img src="{{ guild.get_icon_url }}" alt="" class="lg-faction-icon me-2">
+                <img src="{{ guild.get_icon_url }}" alt="" class="lg-avatar-icon me-2"">
             {% endif %}
             {{ guild.guild_name }}
         </h1>
@@ -16,12 +16,22 @@
         </a>
     </div>
 
-    <form method="post">
+    <form method="post" id="guild-edit-form">
         {% csrf_token %}
 
-        <article class="content-section">
+        {% comment %} Guild Details (invite / rules / approval settings) is admin-only.
+        Non-admin moderators never see or submit this form, so the view also skips
+        binding/saving it for them — otherwise an empty POST would wipe these fields. {% endcomment %}
+        {% if is_admin %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-square me-2"></i>{% trans 'Guild Details' %}</h5>
+            </div>
+            <div class="card-body">
             {{ form|crispy }}
-        </article>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Moderators -->
         <div class="card mb-3">
@@ -90,14 +100,13 @@
             </div>
         </div>
 
-        <button type="submit" class="btn btn-primary mb-4">{% trans 'Save Guild' %}</button>
     </form>
 
     <!-- LFG Roles (managed independently via HTMX) -->
     {% comment %} hx-headers here sends the CSRF token on every HTMX request in this card
     (it's inherited by descendants). The delete button is a bare hx-post with no wrapping
     form, so it has no {% csrf_token %} of its own and needs the header from here. {% endcomment %}
-    <div class="card mb-4" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+    <div class="card mb-3" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
         <div class="card-header">
             <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'LFG Roles' %}</h5>
         </div>
@@ -114,6 +123,12 @@
             {% include 'the_gatehouse/partials/lfg_role_form.html' with form=lfg_add_form role=None guild=guild field_ctx=lfg_add_ctx %}
         </div>
     </div>
+
+    {% comment %} The LFG Roles card contains its own <form> elements (add/edit), so it
+    can't live inside the main guild form (HTML forbids nested forms). This Save button
+    sits outside that card but reconnects to the main form via the `form` attribute, so
+    the visual order is Details → Moderators → Commands → LFG → Save. {% endcomment %}
+    <button type="submit" form="guild-edit-form" class="btn btn-primary mb-4">{% trans 'Save Guild' %}</button>
 </div>
 {% endblock %}
 

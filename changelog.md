@@ -15,10 +15,12 @@
 - Note in the Forge Style Guide about faction name conventions
 - MatchAPI filter for tournaments now filters includes secondary tournaments as well as the primary
 - added ELO rank to /stats command when filtering for player and a series with an ELO System
+- Improved link at bottom of /help command
 
 ### Bug Fixes
 - Posts marked as stable trigger discord notifications opted in users
 - Fixed some static image links with cache busting
+- LFG thread creation bug fixes
 
 ### Breaking Changes
 - MatchAPI `tournament` field now returns a list of tournaments the game counts in instead of just the primary tournament

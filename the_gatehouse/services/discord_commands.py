@@ -40,7 +40,7 @@ def _lookup_command(name, label):
 
 CARD_COMMAND = {
     "name": "card",
-    "description": "Look up an individual Root card by name, source, or suit",
+    "description": "Look up an individual card by name, source, or suit",
     "options": [
         {"name": "name", "description": "Card name to search",
          "type": 3, "required": True, "autocomplete": True},

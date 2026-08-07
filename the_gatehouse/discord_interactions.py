@@ -1388,10 +1388,12 @@ def _handle_lfg_start(payload):
     role_id = role_match.group(1) if role_match else None
 
     # Pass the started embed so the task can re-edit it with the title linked to the
-    # thread once the thread id is known (the thread is created in the task).
+    # thread once the thread id is known (the thread is created in the task). The
+    # interaction token lets the task send the owner an ephemeral notice if thread
+    # creation fails (e.g. missing channel permissions).
     create_lfg_thread_task.delay(
         payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
-        role_id, description, players, embed,
+        role_id, description, players, embed, token=payload.get("token"),
     )
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,

@@ -16,6 +16,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Discord message flag: only the invoking user sees the message. Mirrors EPHEMERAL in
+# discord_interactions.py — defined locally to avoid a circular import (that module
+# imports from this one).
+EPHEMERAL = 64
+
 
 @shared_task
 def test_task(message=None):
@@ -402,7 +407,7 @@ def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=Non
 
 @shared_task
 def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description,
-                           players, embed=None):
+                           players, embed=None, token=None):
     """Create the game thread, ping the players, link the original message's title
     to the thread, and persist the LFGThread row. `players` = [{"id","name"}] parsed
     from the Players field lines, so this task resolves-or-creates every Profile
@@ -442,7 +447,16 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
             post_channel_message(thread_id, kickoff)
 
     if not thread_id:
-        return  # no thread → nothing to persist; message already shows "started"
+        # Thread creation failed (already logged with the Discord error). The message
+        # was optimistically flipped to "started" in the synchronous response, so tell
+        # the owner privately why no thread appeared. Ephemeral follow-up needs the
+        # interaction token; skip if we weren't given one.
+        if token:
+            notice = "Couldn't create the game thread — check my permissions in this channel."
+            if not (role and role.forum_channel_id):
+                notice += " I likely need **Create Public Threads** and **Send Messages in Threads** here."
+            post_interaction_followup_task.delay(token, {"content": notice, "flags": EPHEMERAL})
+        return  # no thread → nothing to persist
 
     # Link the original message's title to the new thread (embed titles support a url).
     if embed is not None:

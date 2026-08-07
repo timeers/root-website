@@ -1606,7 +1606,7 @@ def databot_added(request):
 GUILD_PAGE_SIZE = 20  # local; NOT settings.PAGE_SIZE (25)
 
 
-@login_required
+@player_onboard_required
 def manage_guilds(request):
     profile = request.user.profile
     is_admin = profile.admin
@@ -1619,7 +1619,7 @@ def manage_guilds(request):
     return render(request, template, context)
 
 
-@login_required
+@player_onboard_required
 def edit_guild(request, guild_id):
     from .services.discord_commands import WHITELISTABLE, whitelistable_commands
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
@@ -1628,9 +1628,13 @@ def edit_guild(request, guild_id):
         raise PermissionDenied()
 
     if request.method == 'POST':
-        form = GuildEditForm(request.POST, instance=guild)
-        if form.is_valid():
-            form.save()
+        # Guild Details (invite / rules / approval settings) is admin-only and isn't
+        # rendered for non-admins, so don't bind it from their POST — an empty form
+        # would wipe those fields. Non-admins can still update moderators + commands.
+        form = GuildEditForm(request.POST, instance=guild) if profile.admin else GuildEditForm(instance=guild)
+        if not profile.admin or form.is_valid():
+            if profile.admin:
+                form.save()
             mod_ids = request.POST.getlist('moderators')
             valid_mods = Profile.objects.filter(pk__in=mod_ids)
             # A non-admin must not remove their own access.
