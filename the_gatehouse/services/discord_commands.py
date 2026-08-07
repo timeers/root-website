@@ -15,6 +15,8 @@ behaviour, a handler in discord_interactions.py). Keeping definitions here means
 import copy
 import logging
 
+from the_keep.models import CardTag
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +36,21 @@ def _lookup_command(name, label):
             },
         ],
     }
+
+
+CARD_COMMAND = {
+    "name": "card",
+    "description": "Look up an individual Root card by name, source, or suit",
+    "options": [
+        {"name": "name", "description": "Card name to search",
+         "type": 3, "required": True, "autocomplete": True},
+        {"name": "from", "description": "Post the card is from",
+         "type": 3, "required": False, "autocomplete": True},
+        {"name": "tag", "description": "Card suit / tag",
+         "type": 3, "required": False,
+         "choices": [{"name": label, "value": value} for value, label in CardTag.choices]},
+    ],
+}
 
 
 STATS_COMMAND = {
@@ -199,6 +216,7 @@ COMMANDS = [
     _lookup_command("landmark", "landmark"),
     _lookup_command("hireling", "hireling"),
     _lookup_command("houserule", "house rule"),
+    CARD_COMMAND,
     STATS_COMMAND,
     UPCOMING_COMMAND,
     LAW_COMMAND,
@@ -214,7 +232,7 @@ COMMANDS = [
 COMMAND_GROUPS = [
     ("General", ["help"]),
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
-                 "captain", "landmark", "hireling", "houserule"]),
+                 "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats"]),
     ("Games", ["upcoming", "lfg"]),
     ("Random", ["draft", "random"]),

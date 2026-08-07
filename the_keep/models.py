@@ -2987,6 +2987,20 @@ class CardDeck(models.Model):
     def card_count(self):
         return len(self.cards_in_deck)
 
+# Single source of truth for suit/tag colors, reusable site-wide (templates, CSS,
+# PDF export) and by the Discord bot. Keyed by CardTag value (suit name); values
+# are "#RRGGBB" strings. The bot's RANDOM_SUIT_COLORS derives its ints from these,
+# so /card and /random Suit can never drift.
+SUIT_HEX = {
+    "Fox": "#EC2121",
+    "Rabbit": "#FFE400",
+    "Mouse": "#F78B57",
+    "Bird": "#44C3BC",
+    "Frog": "#27AE60",
+    "Dominance": "#808080",
+}
+
+
 class CardTag(models.TextChoices):
     FOX = "Fox", "Fox"
     RABBIT = "Rabbit", "Rabbit"
@@ -2994,6 +3008,13 @@ class CardTag(models.TextChoices):
     BIRD = "Bird", "Bird"
     FROG = "Frog", "Frog"
     DOMINANCE = "Dominance", "Dominance"
+
+    @classmethod
+    def hex_for(cls, tag):
+        """Representative '#RRGGBB' color for a suit/tag value, or None. The single
+        source for suit/tag colors — usable in templates/CSS/PDF directly; Discord
+        converts via int(hex.lstrip('#'), 16)."""
+        return SUIT_HEX.get(tag) if tag else None
 
 class Card(models.Model):
     """

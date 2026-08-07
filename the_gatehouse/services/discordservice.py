@@ -1660,6 +1660,66 @@ def build_law_embed(law):
     return {k: v for k, v in embed.items() if v is not None}
 
 
+def build_card_embed(card):
+    """Build a Discord embed dict for a single Card (a row in a DeckGroup, not a
+    Post). Title links to the card; body is the card text; the footer lists the
+    published post(s) a card of this name appears in (up to two, then "+X more");
+    color comes from the card's first tag, falling back to the source post's."""
+    from the_keep.models import Post, CardTag
+
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    post = card.group.post
+
+    embed = {
+        "title": card.name or "Card",
+        "url": f"{site_url}{card.get_absolute_url()}" if site_url else None,
+        "description": card.text or None,
+    }
+
+    # Footer: the published posts a card of this NAME appears in. Fetch the order
+    # columns and sort/dedupe in Python — combining .distinct() with an order_by on
+    # official/status while selecting only title raises a Postgres "SELECT DISTINCT
+    # ... ORDER BY must appear in select list" error.
+    if card.name:
+        rows = (
+            Post.objects.filter(decks__cards__name=card.name, status__lte=4)
+            .values_list("title", "official", "status")
+            .distinct()
+        )
+        # official desc (True first), then status asc ('1' before '2').
+        rows = sorted(rows, key=lambda r: (not r[1], r[2]))
+        seen, titles = set(), []
+        for title, _official, _status in rows:
+            if title not in seen:
+                seen.add(title)
+                titles.append(title)
+    else:
+        titles = [post.title] if post else []
+    if titles:
+        footer = ", ".join(titles[:2])
+        if len(titles) > 2:
+            footer += f" +{len(titles) - 2} more"
+        embed["footer"] = {"text": footer}
+
+    # Color: the card's first tag (via the site-wide CardTag.hex_for), else the
+    # source post's color. tags can be None (JSONField null=True), so guard it.
+    first_tag = (card.tags or [None])[0]
+    tag_hex = CardTag.hex_for(first_tag)
+    color = int(tag_hex.lstrip("#"), 16) if tag_hex else embed_color(post)
+    if color is not None:
+        embed["color"] = color
+
+    # Card image (plain ImageField — not get_translated_image_url, a Post method).
+    try:
+        img = card.front_image.url
+    except ValueError:
+        img = None
+    if site_url and img:
+        embed["image"] = {"url": f"{site_url}{img}"}
+
+    return _enforce_embed_limits({k: v for k, v in embed.items() if v is not None})
+
+
 def build_captain_embed(vagabond):
     """Build a Discord embed for a vagabond's captain (Advanced) profile:
     captain ability and captain starting items, rather than the base ones."""
