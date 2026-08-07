@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models.signals import pre_delete, pre_save, post_save, post_delete, m2m_changed
 from django.dispatch import receiver
 from django.db.models import Min
@@ -33,11 +34,20 @@ def _tournament_ids_for_round(round_id):
     return {tid} if tid else set()
 
 
+def _on_commit(fn):
+    """Run fn after the current transaction commits (immediately if none is active).
+    Ensures Celery tasks are only enqueued once the rows they read are committed and
+    visible to the worker — avoids the race where a task fetches a not-yet-committed
+    (or rolled-back) Game/Effort and silently no-ops."""
+    transaction.on_commit(fn)
+
+
 def _enqueue_tournament_counts(ids):
     ids = {i for i in ids if i}
     if ids:
         from .tasks import update_tournament_counts
-        update_tournament_counts.delay(list(ids))
+        ids = list(ids)
+        _on_commit(lambda: update_tournament_counts.delay(ids))
 
 
 def _mark_local_systems_dirty(system_ids, dt):
@@ -129,7 +139,8 @@ def handle_effort_save_update_winrates(sender, instance, **kwargs):
     objects = _collect_winrate_objects(instance, include_old=True)
     if objects:
         from .tasks import update_cached_winrates
-        update_cached_winrates.delay([_obj_to_tuple(obj) for obj in objects])
+        payload = [_obj_to_tuple(obj) for obj in objects]
+        _on_commit(lambda: update_cached_winrates.delay(payload))
 
 
 @receiver(post_delete, sender=Effort)
@@ -137,7 +148,8 @@ def handle_effort_delete_update_winrates(sender, instance, **kwargs):
     objects = _collect_winrate_objects(instance, include_old=False)
     if objects:
         from .tasks import update_cached_winrates
-        update_cached_winrates.delay([_obj_to_tuple(obj) for obj in objects])
+        payload = [_obj_to_tuple(obj) for obj in objects]
+        _on_commit(lambda: update_cached_winrates.delay(payload))
 
 
 @receiver(post_save, sender=Effort)
@@ -159,7 +171,8 @@ def handle_effort_change_update_game_count(sender, instance, **kwargs):
     to avoid writing the game once per effort when several are added/removed together."""
     if instance.game_id:
         from .tasks import update_game_player_count
-        update_game_player_count.delay(instance.game_id)
+        game_id = instance.game_id
+        _on_commit(lambda: update_game_player_count.delay(game_id))
 
 
 @receiver(post_save, sender=Effort)
@@ -443,7 +456,7 @@ def game_post_save_check_match(sender, instance, **kwargs):
                 objects_to_update.append(_obj_to_tuple(effort.player))
         if objects_to_update:
             from .tasks import update_cached_winrates
-            update_cached_winrates.delay(objects_to_update)
+            _on_commit(lambda: update_cached_winrates.delay(objects_to_update))
 
 
 @receiver(post_save, sender=Game)
