@@ -267,16 +267,24 @@
                         <h5 class="mb-0"><i class="bi bi-trophy me-2"></i>{% trans 'Leaderboard Settings' %}</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small mb-3">Set the defaults for the Leaderboard. <strong>Positions</strong> controls how many players and factions are displayed. <strong>Threshold</strong> sets the minimum number of games required before a player or faction becomes eligible.</p>
+                        <p class="text-muted small">Set the defaults for the Leaderboard. <strong>Positions</strong> controls how many players and factions are displayed. <strong>Threshold</strong> sets the minimum number of games required before a player or faction becomes eligible.</p>
 
                         <div class="row">
-                            <div class="col-md-6 mb-2">
+                            <div class="col-md-6 mt-2">
                                 {{ form.leaderboard_positions|as_crispy_field }}
                             </div>
-                            <div class="col-md-6 mb-2">
+                            <div class="col-md-6 mt-2">
                                 {{ form.game_threshold|as_crispy_field }}
                             </div>
                         </div>
+
+                        {% if form.elo_system %}
+                        <div class="row">
+                            <div class="col-md-6 mt-2">
+                                {{ form.elo_system|as_crispy_field }}
+                            </div>
+                        </div>
+                        {% endif %}
 
                     </div>
                 </div>
@@ -335,6 +343,9 @@
     }
     if ($('#id_guild').length) {
         $('#id_guild').select2();
+    }
+    if ($('#id_elo_system').length) {
+        $('#id_elo_system').select2({ placeholder: 'Select an ELO System', allowClear: true, width: '100%' });
     }
 
     // Cross-constrain native date inputs

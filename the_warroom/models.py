@@ -503,7 +503,11 @@ class Tournament(models.Model):
     # Elo rating system this tournament's games are eligible for (SET_NULL so removing a
     # system doesn't delete tournaments). Eligibility per game also depends on player count.
     elo_system = models.ForeignKey(
-        'EloSystem', on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments'
+        'EloSystem', 
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
+        related_name='tournaments',
+        help_text='Games from this series will feed into the selected ELO system.'
     )
 
     # Access & Roster
