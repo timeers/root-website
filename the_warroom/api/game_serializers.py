@@ -78,22 +78,32 @@ class GameSerializer(serializers.ModelSerializer):
         ]
 
     def get_tournament(self, obj):
-        """Identifiers for the game's competition context, or None.
+        """Identifiers for every round the game counts toward — its primary round
+        plus any ``extra_rounds`` — as a list (empty when the game has none).
 
-        Returns nested slugs for the series (tournament), stage and round so consumers key
-        off stable values (slugs are auto-generated for all three and don't change on
-        rename the way __str__ does), plus a human-readable `display` string for UI."""
-        rnd = obj.round
-        if not rnd:
-            return None
-        stage = rnd.stage
-        tournament = stage.tournament if stage else None
-        return {
-            'display': str(rnd),
-            'series': tournament.slug if tournament else None,
-            'stage': stage.slug if stage else None,
-            'round': rnd.slug,
-        }
+        Each entry carries nested slugs for the series (tournament), stage and round
+        so consumers key off stable values (slugs are auto-generated for all three and
+        don't change on rename the way __str__ does), plus a human-readable `display`
+        string for UI. The primary round is listed first. Query-free given the view's
+        select_related('round__stage__tournament...') and
+        prefetch_related('extra_rounds__stage__tournament...')."""
+        rounds = []
+        if obj.round_id:
+            rounds.append(obj.round)
+        # extra_rounds is prefetched; skip any that duplicate the primary round.
+        rounds.extend(r for r in obj.extra_rounds.all() if r.pk != obj.round_id)
+
+        entries = []
+        for rnd in rounds:
+            stage = rnd.stage
+            tournament = stage.tournament if stage else None
+            entries.append({
+                'display': str(rnd),
+                'series': tournament.slug if tournament else None,
+                'stage': stage.slug if stage else None,
+                'round': rnd.slug,
+            })
+        return entries
 
     def get_hirelings(self, obj):
         return [hireling.slug for hireling in obj.hirelings.all()]

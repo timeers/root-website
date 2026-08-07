@@ -433,3 +433,66 @@ class EloSeasonTests(TestCase):
         feb = dict(g_feb.get_elo_systems_with_seasons())
         self.assertEqual(jan[self.system], 0)  # preseason
         self.assertEqual(feb[self.system], 1)
+
+
+class GameApiTournamentTests(TestCase):
+    """The api/games `tournament` field lists every round a game counts toward
+    (primary + extra_rounds), and the tournament filter matches games linked to a
+    tournament through any of those rounds."""
+
+    def setUp(self):
+        self.alpha = Tournament.objects.create(name="Alpha Cup")
+        self.beta = Tournament.objects.create(name="Beta Cup")
+        self.alpha_stage = Stage.objects.create(tournament=self.alpha, name="Groups", order=0)
+        self.beta_stage = Stage.objects.create(tournament=self.beta, name="Finals", order=0)
+        self.alpha_round = Round.objects.create(round_number=1, stage=self.alpha_stage, name="A01")
+        self.beta_round = Round.objects.create(round_number=2, stage=self.beta_stage, name="B01")
+
+    def _serialize(self, game):
+        from the_warroom.api.game_serializers import GameSerializer
+        return GameSerializer(game).data['tournament']
+
+    def test_primary_round_only(self):
+        game = Game.objects.create(round=self.alpha_round, final=True)
+        data = self._serialize(game)
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['series'], self.alpha.slug)
+        self.assertEqual(data[0]['round'], self.alpha_round.slug)
+
+    def test_no_round_returns_empty_list(self):
+        game = Game.objects.create(final=True)
+        self.assertEqual(self._serialize(game), [])
+
+    def test_primary_and_extra_rounds_listed(self):
+        game = Game.objects.create(round=self.alpha_round, final=True)
+        game.extra_rounds.add(self.beta_round)
+        data = self._serialize(game)
+        # Primary first, then the extra round.
+        self.assertEqual([e['series'] for e in data], [self.alpha.slug, self.beta.slug])
+        self.assertEqual([e['round'] for e in data], [self.alpha_round.slug, self.beta_round.slug])
+
+    def test_extra_round_duplicate_of_primary_not_repeated(self):
+        game = Game.objects.create(round=self.alpha_round, final=True)
+        game.extra_rounds.add(self.alpha_round)  # same as primary
+        data = self._serialize(game)
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['round'], self.alpha_round.slug)
+
+    def _filter_pks(self, tournament):
+        from the_warroom.api.game_filters import GameFilter
+        f = GameFilter({'tournament': tournament.slug}, queryset=Game.objects.filter(final=True))
+        return set(f.qs.values_list('pk', flat=True))
+
+    def test_filter_matches_primary_round_tournament(self):
+        game = Game.objects.create(round=self.alpha_round, final=True)
+        self.assertIn(game.pk, self._filter_pks(self.alpha))
+
+    def test_filter_matches_extra_round_tournament(self):
+        # Linked to Beta ONLY via an extra round — must still match the Beta filter.
+        game = Game.objects.create(round=self.alpha_round, final=True)
+        game.extra_rounds.add(self.beta_round)
+        self.assertIn(game.pk, self._filter_pks(self.beta))
+
+    def test_filter_excludes_unrelated_tournament(self):
+        game = Game.objects.create(round=self.alpha_round, final=True)
+        self.assertNotIn(game.pk, self._filter_pks(self.beta))

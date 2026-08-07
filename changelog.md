@@ -12,10 +12,14 @@
 - Cleaned up and improved the mark stable/testing pages
 - Auto capitalize first letter of Faction names in the Forge on mobile
 - Note in the Forge Style Guide about faction name conventions
+- MatchAPI filter for tournaments now filters includes secondary tournaments as well as the primary
 
 ### Bug Fixes
 - Posts marked as stable trigger discord notifications opted in users
 - Fixed some static image links with cache busting
+
+### Breaking Changes
+- MatchAPI `tournament` field now returns a list of tournaments the game counts in instead of just the primary tournament
 
 ## [1.13.1] - 2026-8-4 Post Moderators
 

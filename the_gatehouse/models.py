@@ -258,7 +258,7 @@ class GuildLFGRole(models.Model):
         blank=True,
         null=True,
         help_text=(
-            "Optional extra text appended to the thread's kickoff message when a "
+            "Optional extra text appended to the thread's first message when a "
             "game with this role starts, e.g. a link to the rules."
         ),
     )

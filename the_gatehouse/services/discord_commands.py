@@ -145,20 +145,20 @@ LFG_TAG_LIMIT = 25
 # `description` is optional in both.
 LFG_COMMAND_SINGLE = {
     "name": "lfg",
-    "description": "Post a Looking For Game call others can join",
+    "description": "Post a Looking For Game message others can join",
     "options": [
-        {"name": "description", "description": "What game you're looking for",
+        {"name": "description", "description": "What kind of game you're looking for",
          "type": 3, "required": False},
     ],
 }
 
 LFG_COMMAND_MULTI = {
     "name": "lfg",
-    "description": "Post a Looking For Game call others can join",
+    "description": "Post a Looking For Game message others can join",
     "options": [
         {"name": "type", "description": "Which LFG tag to ping",
          "type": 3, "required": True, "choices": []},
-        {"name": "description", "description": "What game you're looking for",
+        {"name": "description", "description": "What kind of game you're looking for",
          "type": 3, "required": False},
     ],
 }

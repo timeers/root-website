@@ -834,8 +834,8 @@ em, i {
     justify-content: center;
   }
   .elo-tile-icon {
-    width: 28px;
-    height: 28px;
+    width: 46px;
+    height: 46px;
     object-fit: contain;
   }
   .elo-tile-body {

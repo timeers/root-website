@@ -167,8 +167,8 @@
 
             {% if rootelo_participants %}
             <div class="content-section">
-                <h2 class="root-title">{% trans 'Rankings' %}</h2>
-                <div class="d-flex flex-wrap gap-2">
+                <h2 class="root-title text-center">{% trans 'Current Ranking' %}</h2>
+                <div class="d-flex flex-wrap gap-2 justify-content-center">
                     {% for ep in rootelo_participants %}
                         {% include 'the_gatehouse/partials/elo_tile_participant.html' with ep=ep %}
                     {% endfor %}
