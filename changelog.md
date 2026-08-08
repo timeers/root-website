@@ -26,6 +26,8 @@
 - Fixed some static image links with cache busting
 - LFG thread creation bug fixes
 - Moved async tasks on game save to on commit instead of within transaction
+- Strenghtened robots.txt restrictions
+- 404 on overflow pagination
 
 ### Breaking Changes
 - MatchAPI `tournament` field now returns a list of tournaments the game counts in instead of just the primary tournament

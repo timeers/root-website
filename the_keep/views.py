@@ -2615,6 +2615,18 @@ def paginate(queryset, page_number):
     except (PageNotAnInteger, EmptyPage, ValueError):
         return paginator.page(1)
 
+
+def paginate_or_404(queryset, page_number):
+    # Like paginate(), but 404s on an out-of-range or non-integer page instead of
+    # clamping to page 1 / the last page. Used by the tournament leaderboard views:
+    # a valid user only ever links pages within range, so an out-of-range ?page=N
+    # (e.g. a bot walking ?page=207) is a 404, not a silent 200 that keeps crawls alive.
+    paginator = Paginator(queryset, settings.PAGE_SIZE)
+    try:
+        return paginator.page(page_number or 1)
+    except (PageNotAnInteger, EmptyPage, ValueError):
+        raise Http404("Invalid page")
+
 COMPONENT_TYPE_MAP = {
     "map": Post.ComponentChoices.MAP,
     "deck": Post.ComponentChoices.DECK,

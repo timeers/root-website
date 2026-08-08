@@ -47,6 +47,7 @@ from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter
 from .utils import get_single_round, get_single_stage, build_scorecard_grid, build_single_scorecard_grid
 
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
+from the_keep.views import paginate_or_404
 
 from the_gatehouse.models import Profile, Language
 from the_gatehouse.views import (player_required, admin_required, 
@@ -4006,16 +4007,11 @@ def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_
     else:
         filter_url = reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': post_slug})
 
-    # Paginate games
+    # Paginate games. 404 on an out-of-range/non-integer page (bot deep-crawl of
+    # ?page=N) instead of clamping to the last page, which returned 200 and kept
+    # crawls walking. Real users only link in-range pages, so they're unaffected.
     games_count = filtered_games.count()
-    paginator = Paginator(filtered_games, settings.PAGE_SIZE)
-    page_number = request.GET.get('page')
-    try:
-        page_obj = paginator.page(page_number)
-    except PageNotAnInteger:
-        page_obj = paginator.page(1)
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)
+    page_obj = paginate_or_404(filtered_games, request.GET.get('page'))
 
     # Build query string without 'page' for pagination links
     query_params = request.GET.copy()
@@ -4137,16 +4133,11 @@ def tournament_player_leaderboard(request, tournament_slug, profile_slug, stage_
     else:
         filter_url = reverse('tournament-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'profile_slug': profile_slug})
 
-    # Paginate games
+    # Paginate games. 404 on an out-of-range/non-integer page (bot deep-crawl of
+    # ?page=N) instead of clamping to the last page, which returned 200 and kept
+    # crawls walking. Real users only link in-range pages, so they're unaffected.
     games_count = filtered_games.count()
-    paginator = Paginator(filtered_games, settings.PAGE_SIZE)
-    page_number = request.GET.get('page')
-    try:
-        page_obj = paginator.page(page_number)
-    except PageNotAnInteger:
-        page_obj = paginator.page(1)
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)
+    page_obj = paginate_or_404(filtered_games, request.GET.get('page'))
 
     # Build query string without 'page' for pagination links
     query_params = request.GET.copy()
