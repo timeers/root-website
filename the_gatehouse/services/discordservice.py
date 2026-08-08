@@ -704,7 +704,9 @@ def get_valid_discord_token(user):
                     'grant_type': 'refresh_token',
                     'refresh_token': token_obj.token_secret,
                 },
-                timeout=10,
+                # Reachable from a request thread (add-guild-from-invite view); keep short
+                # so a slow Discord API can't hold a WSGI worker (defense in depth).
+                timeout=5,
             )
             response.raise_for_status()
             data = response.json()
@@ -730,7 +732,10 @@ def get_user_guilds(user):
     try:
         url = 'https://discord.com/api/v10/users/@me/guilds'
         headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get(url, headers=headers, timeout=10)
+        # Reachable from a request thread (add-guild-from-invite view); keep short so a
+        # slow Discord API can't hold a WSGI worker (defense in depth). The login path
+        # no longer calls this synchronously (moved to refresh_user_guilds_task).
+        response = requests.get(url, headers=headers, timeout=5)
 
         if response.status_code == 200:
             return response.json()
@@ -809,14 +814,11 @@ def is_user_in_guild(user, guild_id):
     return False
 
 
-def check_user_guilds(user):
-    guilds = get_user_guilds(user)
-    in_ww = False
-    in_wr = False
-    in_fr = False
-
-    update_user_guilds(user, guilds)
-
+def derive_guild_membership(guilds):
+    """Map an already-fetched Discord guild list to (in_ww, in_wr, in_fr).
+    Pure/no network so callers that already have `guilds` (e.g. the async
+    refresh task) don't hit the Discord API a second time."""
+    in_ww = in_wr = in_fr = False
     if guilds:
         for guild in guilds:
             if guild['id'] == config['WW_GUILD_ID']:
@@ -825,8 +827,13 @@ def check_user_guilds(user):
                 in_wr = True
             if guild['id'] == config['FR_GUILD_ID']:
                 in_fr = True
-
     return in_ww, in_wr, in_fr
+
+
+def check_user_guilds(user):
+    guilds = get_user_guilds(user)
+    update_user_guilds(user, guilds)
+    return derive_guild_membership(guilds)
 
 
 # Decorator

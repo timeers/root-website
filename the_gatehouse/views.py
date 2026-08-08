@@ -1873,6 +1873,24 @@ def status_check(request):
     return JsonResponse({'status': 'ok'}, status=200)
 
 
+def profile_guilds_status(request):
+    """HTMX poll target for the header avatar "syncing Discord roles" spinner.
+
+    While refresh_user_guilds_task is running (profile.guilds_refreshing) return an
+    empty 200 so the hidden poller (hx-swap="none") leaves the spinner untouched. Once
+    the task clears the flag, emit HX-Refresh so the page reloads with fresh
+    group/membership and the spinner gone. HX-Refresh is emitted ONLY on the cleared
+    branch (and thus only once) so there's no reload loop. Anonymous / no-profile
+    requests get a plain empty 200 and never trigger a refresh."""
+    profile = getattr(request.user, 'profile', None)
+    if profile is None or profile.guilds_refreshing:
+        return HttpResponse(status=200)
+
+    response = HttpResponse(status=200)
+    response['HX-Refresh'] = 'true'
+    return response
+
+
 
 
 def set_language_custom(request):

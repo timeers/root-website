@@ -71,11 +71,13 @@
               {% if user.is_authenticated %}
 
                 {{ django_language }}
+                {% include 'includes/_guilds_refreshing_poller.html' %}
 
                   <!-- Desktop: avatar dropdown (lg and up) -->
                   <li class="nav-item dropdown d-none d-lg-block">
                     <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                       <img class="md-avatar-icon img-fluid me-1" src="{{ user.profile.image.url }}">
+                      {% include 'includes/_guilds_refreshing_spinner.html' %}
                       {{ user.profile.name }}
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end">
@@ -88,6 +90,7 @@
                     <hr class="mobile-section-divider">
                     <div class="mobile-user-header d-flex align-items-center">
                       <img class="lg-avatar-icon img-fluid me-2" src="{{ user.profile.image.url }}">
+                      {% include 'includes/_guilds_refreshing_spinner.html' %}
                       <span class="fw-bold">{{ user.profile.name }}</span>
                     </div>
                     <ul class="navbar-nav">

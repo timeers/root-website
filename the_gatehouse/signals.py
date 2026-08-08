@@ -4,7 +4,6 @@ from io import BytesIO
 from PIL import Image
 
 from django.core.cache import cache
-from django.db.models import Q
 from django.db.models.signals import post_save, pre_save, post_delete
 from django.shortcuts import redirect
 from django.dispatch import receiver
@@ -14,10 +13,12 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
+from django.db import transaction
+
 from .models import Profile, ForegroundImage, BackgroundImage, Changelog, BotBlacklist
-from .services.discordservice import get_discord_display_name, get_discord_id, check_user_guilds
+from .services.discordservice import get_discord_id
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
-from .tasks import send_discord_message_task, update_discord_avatar_task
+from .tasks import send_discord_message_task, update_discord_avatar_task, refresh_user_guilds_task
 
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
 from the_keep.models import (Post, Piece, PostTranslation, Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak,
@@ -227,8 +228,6 @@ def user_logged_in_handler(request, user, **kwargs):
     profile = user.profile
     profile_updated = False
     current_group = profile.group
-    in_ww, in_wr, in_fr = check_user_guilds(user)
-    display_name = get_discord_display_name(user)
 
     if not profile.discord_id:
         discord_id = get_discord_id(user)
@@ -243,49 +242,31 @@ def user_logged_in_handler(request, user, **kwargs):
     # slow Discord CDN call can't block (and time out) the login request.
     update_discord_avatar_task.delay(user.id, force=False)
 
-    # Set the display name
-    if display_name and profile.display_name != display_name:
-        profile.display_name = display_name
-        profile_updated = True
-
-    # If the user is a member of the Woodland Warriors Discord and still an Outcast or
-    # Player, promote them based on their posts. Anyone attached to a post (as designer,
-    # co-designer, or moderator) becomes an Editor so they can actually edit it; this also
-    # catches collaborators who were added while still a Player and never re-promoted.
-    if current_group in ('O', 'P') and in_ww:
-        has_posts = Post.objects.filter(
-            Q(designer=profile) | Q(co_designers=profile) | Q(moderators=profile)
-        ).exists()
-        if has_posts:
-            profile.group = 'E'
-            profile_updated = True
-        elif current_group == 'O':
-            profile.group = 'P'
-            profile_updated = True
-
-    # If user is a member of WR but does not have the weird view (add view)
-    if not profile.in_weird_root and in_wr:
-        profile.in_weird_root = True
-        profile.weird = True
-        profile_updated = True
-
-    if not profile.in_french_root and in_fr:
-        profile.in_french_root = True
-        profile_updated = True
-
-    if not profile.in_woodland_warriors and in_ww:
-        profile.in_woodland_warriors = True
-        profile_updated = True
+    # Guild membership + display name + group promotion used to run SYNCHRONOUSLY here
+    # via check_user_guilds()/get_discord_display_name() — up to ~25s of blocking Discord
+    # API calls that could exhaust the WSGI worker pool and take the whole site down.
+    # They're now refreshed off the request thread by refresh_user_guilds_task (the
+    # authority for guild flags + promotion). This session runs against the CACHED
+    # profile flags; the task updates them for next time and, on any change, the header
+    # spinner's poll triggers a reload so the change goes live within seconds.
+    profile.guilds_refreshing = True
+    profile_updated = True
 
     if profile_updated:
         profile.save()
+    # Enqueue AFTER the request commits so the task can't read the profile before
+    # guilds_refreshing=True is persisted (matches the on_commit pattern elsewhere).
+    transaction.on_commit(lambda: refresh_user_guilds_task.delay(user.id))
 
     if new_user:
         send_discord_message_task.delay(f'Profile created for [{profile.user}]({build_absolute_uri(request, profile.get_absolute_url())}) ({profile.group})', category='user_updates')
+        # display_name may still be blank on a brand-new user (the task backfills it);
+        # fall back to the username so the welcome never reads "Welcome, None!".
+        welcome_name = profile.display_name or user.username
         if profile.group == "O":
-            messages.info(request, f'Welcome, {user.profile.display_name}! You can now bookmark posts for quick access. Join the Woodland Warriors Discord and log back in to record games.')
+            messages.info(request, f'Welcome, {welcome_name}! You can now bookmark posts for quick access. Join the Woodland Warriors Discord and log back in to record games.')
         else:
-            messages.info(request, f'Welcome, {user.profile.display_name}! You can now bookmark posts for quick access and record games to track stats.')
+            messages.info(request, f'Welcome, {welcome_name}! You can now bookmark posts for quick access and record games to track stats.')
 
 
     group_name = 'admin'  

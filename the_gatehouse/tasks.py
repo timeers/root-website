@@ -278,6 +278,95 @@ def update_discord_avatar_task(user_id, force=False):
     update_discord_avatar(user, force=force)
 
 
+@shared_task(bind=True, max_retries=3)
+def refresh_user_guilds_task(self, user_id):
+    """Refresh a user's Discord guild membership OFF the login request thread.
+
+    Deferred from user_logged_in_handler so a slow/rate-limited Discord API call can
+    never block (and eventually exhaust) the WSGI worker pool — the outage this fixes.
+    This task is the AUTHORITY for guild flags + group promotion (it has fresh data);
+    login itself runs against the cached Profile flags.
+
+    Retry is manual (NOT autoretry_for) so `guilds_refreshing` stays True across pending
+    retries — clearing it per-failed-attempt would drop the header spinner while a retry
+    is still queued. The flag clears exactly once: on success, on the no-token no-op, or
+    when retries are exhausted.
+    """
+    from django.contrib.auth import get_user_model
+    from django.db.models import Q
+    from the_keep.models import Post
+    from .services.discordservice import (
+        get_user_guilds, update_user_guilds, derive_guild_membership,
+        get_discord_display_name,
+    )
+
+    user = get_user_model().objects.filter(pk=user_id).first()
+    if user is None or not hasattr(user, 'profile'):
+        return
+
+    def _clear_flag(profile):
+        profile.guilds_refreshing = False
+        profile.guilds_synced_at = timezone.now()
+        profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
+
+    profile = user.profile
+
+    guilds = get_user_guilds(user)
+    if guilds is None:
+        # API/token failure — distinct from "really in no guilds" ([]). Do NOT touch
+        # flags/group (never demote on a transient failure). Retry a few times, then
+        # give up and clear the spinner so it can't get stuck.
+        if self.request.retries < self.max_retries:
+            raise self.retry(countdown=30 * (self.request.retries + 1))
+        _clear_flag(profile)
+        return
+
+    update_user_guilds(user, guilds)
+    in_ww, in_wr, in_fr = derive_guild_membership(guilds)
+
+    updated = False
+
+    # Promote a Woodland Warriors member who's still Outcast/Player (moved here from the
+    # login signal so it runs against FRESH membership, incl. first login).
+    if profile.group in ('O', 'P') and in_ww:
+        has_posts = Post.objects.filter(
+            Q(designer=profile) | Q(co_designers=profile) | Q(moderators=profile)
+        ).exists()
+        if has_posts:
+            profile.group = 'E'
+            updated = True
+        elif profile.group == 'O':
+            profile.group = 'P'
+            updated = True
+
+    # Feature flags are only ever turned ON (never demoted here) — matches prior behavior.
+    if not profile.in_weird_root and in_wr:
+        profile.in_weird_root = True
+        profile.weird = True
+        updated = True
+    if not profile.in_french_root and in_fr:
+        profile.in_french_root = True
+        updated = True
+    if not profile.in_woodland_warriors and in_ww:
+        profile.in_woodland_warriors = True
+        updated = True
+
+    display_name = get_discord_display_name(user)
+    if display_name and profile.display_name != display_name:
+        profile.display_name = display_name
+        updated = True
+
+    profile.guilds_refreshing = False
+    profile.guilds_synced_at = timezone.now()
+    if updated:
+        profile.save(update_fields=[
+            'group', 'in_weird_root', 'weird', 'in_french_root', 'in_woodland_warriors',
+            'display_name', 'guilds_refreshing', 'guilds_synced_at',
+        ])
+    else:
+        profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
+
+
 @shared_task(
     autoretry_for=(Exception,),
     retry_kwargs={'max_retries': 3, 'countdown': 30},

@@ -1,0 +1,13 @@
+{% load i18n %}
+{% comment %}
+Small "syncing your Discord roles" spinner shown next to the header avatar while
+refresh_user_guilds_task runs (profile.guilds_refreshing). Include this next to each
+avatar (desktop + mobile) for the visual cue. The HTMX poller that watches for the
+task to finish is rendered ONCE, separately (see _guilds_refreshing_poller.html), so
+we don't double-poll from the two avatar spots.
+{% endcomment %}
+{% if user.is_authenticated and user.profile.guilds_refreshing %}
+  <span class="guilds-refreshing-spinner spinner-border spinner-border-sm text-light me-1"
+        role="status" aria-hidden="true"
+        title="{% trans 'Syncing your Discord roles…' %}"></span>
+{% endif %}

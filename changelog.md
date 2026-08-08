@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.2] - 2026-8-5 Rootelo Rankings
+## [1.13.2] - 2026-8-8 Rootelo Rankings
 
 ### New Features
 - Root elo rankings pulled from Rootelo
@@ -28,6 +28,7 @@
 - Moved async tasks on game save to on commit instead of within transaction
 - Strenghtened robots.txt restrictions
 - 404 on overflow pagination
+- Update on login no longer synchronous to prevent stalling
 
 ### Breaking Changes
 - MatchAPI `tournament` field now returns a list of tournaments the game counts in instead of just the primary tournament
