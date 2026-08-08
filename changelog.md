@@ -29,6 +29,7 @@
 - Strenghtened robots.txt restrictions
 - 404 on overflow pagination
 - Update on login no longer synchronous to prevent stalling
+- fix slow related animals page
 
 ### Breaking Changes
 - MatchAPI `tournament` field now returns a list of tournaments the game counts in instead of just the primary tournament

@@ -1553,7 +1553,14 @@ def animal_match_view(request, slug):
                     'lore'  # Fall back to the default lore if there's no translation
                 )
             ).first()
-    matching_posts = post.matching_animals().annotate(
+    # This page is public and identical for every visitor, but the matching-animals
+    # query (icontains OR per animal word across a M2M) plus the per-row FK access in
+    # partials/post.html is expensive — a scraper hitting it uncached pinned a worker
+    # for 269s in prod. Cache the fully-resolved match list per (slug, language) so the
+    # heavy work runs at most once per window. select_related the FKs the template reads
+    # (designer.image, based_on.color, artist.name) so a cache miss still avoids N+1.
+    def _build_matching_posts():
+        qs = post.matching_animals().annotate(
                 selected_title=Coalesce(
                     Subquery(
                         PostTranslation.objects.filter(
@@ -1584,7 +1591,12 @@ def animal_match_view(request, slug):
                     ),
                     'lore'  # Fall back to the default lore if there's no translation
                 )
-            ).distinct()
+            ).select_related('designer', 'based_on', 'artist').distinct()
+        return list(qs)  # evaluate now so the N+1 resolves once, before caching
+
+    matching_posts = cache.get_or_set(
+        f'animal_match:{slug}:{language_code}', _build_matching_posts, 300
+    )
     # Try to get the translated animal name from PostTranslation
     translated_animal = None
     if language_object:
