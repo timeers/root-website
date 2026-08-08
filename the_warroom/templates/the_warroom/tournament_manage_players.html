@@ -77,6 +77,13 @@
         </div>
     </div>
     {% endif %}
+
+    {% if not round %}
+    {% url 'tournament-players-export' slug=tournament.slug as export_url %}
+    {% url 'tournament-players-import' slug=tournament.slug as import_url %}
+    {% include 'the_warroom/partials/player_csv_tools.html' with export_url=export_url import_url=import_url import_summary=import_summary %}
+    {% endif %}
+
     <!-- Search to Add Players -->
     <div class="card mb-4">
         <div class="card-header bg-light">
@@ -99,6 +106,7 @@
             <div id="player-search-results" class="mt-2"></div>
         </div>
     </div>
+
 
     <!-- Three Column Player Groups -->
     <div class="row">

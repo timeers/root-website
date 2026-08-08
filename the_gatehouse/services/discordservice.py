@@ -154,7 +154,13 @@ def create_message_thread(channel_id, message_id, name, auto_archive_duration=14
         r.raise_for_status()
         return r.json()["id"]
     except (requests.RequestException, KeyError, ValueError) as e:
-        logger.error("Failed to create thread on message %s: %s", message_id, e)
+        # Include Discord's HTTP status + error body so the reason is diagnosable
+        # (e.g. 403 / 50013 Missing Permissions in a restricted channel). `response`
+        # is only present on RequestException, and is None for a timeout/conn error.
+        resp = getattr(e, "response", None)
+        status = resp.status_code if resp is not None else "?"
+        detail = resp.text if resp is not None else str(e)
+        logger.error("Failed to create thread on message %s: %s %s", message_id, status, detail)
         return None
 
 
@@ -698,7 +704,9 @@ def get_valid_discord_token(user):
                     'grant_type': 'refresh_token',
                     'refresh_token': token_obj.token_secret,
                 },
-                timeout=10,
+                # Reachable from a request thread (add-guild-from-invite view); keep short
+                # so a slow Discord API can't hold a WSGI worker (defense in depth).
+                timeout=5,
             )
             response.raise_for_status()
             data = response.json()
@@ -724,7 +732,10 @@ def get_user_guilds(user):
     try:
         url = 'https://discord.com/api/v10/users/@me/guilds'
         headers = {'Authorization': f'Bearer {access_token}'}
-        response = requests.get(url, headers=headers, timeout=10)
+        # Reachable from a request thread (add-guild-from-invite view); keep short so a
+        # slow Discord API can't hold a WSGI worker (defense in depth). The login path
+        # no longer calls this synchronously (moved to refresh_user_guilds_task).
+        response = requests.get(url, headers=headers, timeout=5)
 
         if response.status_code == 200:
             return response.json()
@@ -803,14 +814,11 @@ def is_user_in_guild(user, guild_id):
     return False
 
 
-def check_user_guilds(user):
-    guilds = get_user_guilds(user)
-    in_ww = False
-    in_wr = False
-    in_fr = False
-
-    update_user_guilds(user, guilds)
-
+def derive_guild_membership(guilds):
+    """Map an already-fetched Discord guild list to (in_ww, in_wr, in_fr).
+    Pure/no network so callers that already have `guilds` (e.g. the async
+    refresh task) don't hit the Discord API a second time."""
+    in_ww = in_wr = in_fr = False
     if guilds:
         for guild in guilds:
             if guild['id'] == config['WW_GUILD_ID']:
@@ -819,8 +827,13 @@ def check_user_guilds(user):
                 in_wr = True
             if guild['id'] == config['FR_GUILD_ID']:
                 in_fr = True
-
     return in_ww, in_wr, in_fr
+
+
+def check_user_guilds(user):
+    guilds = get_user_guilds(user)
+    update_user_guilds(user, guilds)
+    return derive_guild_membership(guilds)
 
 
 # Decorator
@@ -1660,6 +1673,66 @@ def build_law_embed(law):
     return {k: v for k, v in embed.items() if v is not None}
 
 
+def build_card_embed(card):
+    """Build a Discord embed dict for a single Card (a row in a DeckGroup, not a
+    Post). Title links to the card; body is the card text; the footer lists the
+    published post(s) a card of this name appears in (up to two, then "+X more");
+    color comes from the card's first tag, falling back to the source post's."""
+    from the_keep.models import Post, CardTag
+
+    site_url = config.get("SITE_URL", "").rstrip("/")
+    post = card.group.post
+
+    embed = {
+        "title": card.name or "Card",
+        "url": f"{site_url}{card.get_absolute_url()}" if site_url else None,
+        "description": card.text or None,
+    }
+
+    # Footer: the published posts a card of this NAME appears in. Fetch the order
+    # columns and sort/dedupe in Python — combining .distinct() with an order_by on
+    # official/status while selecting only title raises a Postgres "SELECT DISTINCT
+    # ... ORDER BY must appear in select list" error.
+    if card.name:
+        rows = (
+            Post.objects.filter(decks__cards__name=card.name, status__lte=4)
+            .values_list("title", "official", "status")
+            .distinct()
+        )
+        # official desc (True first), then status asc ('1' before '2').
+        rows = sorted(rows, key=lambda r: (not r[1], r[2]))
+        seen, titles = set(), []
+        for title, _official, _status in rows:
+            if title not in seen:
+                seen.add(title)
+                titles.append(title)
+    else:
+        titles = [post.title] if post else []
+    if titles:
+        footer = ", ".join(titles[:2])
+        if len(titles) > 2:
+            footer += f" +{len(titles) - 2} more"
+        embed["footer"] = {"text": footer}
+
+    # Color: the card's first tag (via the site-wide CardTag.hex_for), else the
+    # source post's color. tags can be None (JSONField null=True), so guard it.
+    first_tag = (card.tags or [None])[0]
+    tag_hex = CardTag.hex_for(first_tag)
+    color = int(tag_hex.lstrip("#"), 16) if tag_hex else embed_color(post)
+    if color is not None:
+        embed["color"] = color
+
+    # Card image (plain ImageField — not get_translated_image_url, a Post method).
+    try:
+        img = card.front_image.url
+    except ValueError:
+        img = None
+    if site_url and img:
+        embed["image"] = {"url": f"{site_url}{img}"}
+
+    return _enforce_embed_limits({k: v for k, v in embed.items() if v is not None})
+
+
 def build_captain_embed(vagabond):
     """Build a Discord embed for a vagabond's captain (Advanced) profile:
     captain ability and captain starting items, rather than the base ones."""
@@ -1689,7 +1762,7 @@ def build_captain_embed(vagabond):
     return _enforce_embed_limits({k: v for k, v in embed.items() if v is not None})
 
 
-def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None, include_fan_content=False):
+def build_stats_embed(stats, *, player=None, faction=None, tournament=None, platform=None, include_fan_content=False, elo_participant=None):
     """Build a Discord embed dict for a /stats win-rate result.
 
     `stats` is the dict from filtered_winrate (total, games, win_points, win_rate).
@@ -1697,6 +1770,10 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     the result and, when a single subject is in focus, link/thumbnail it.
     include_fan_content: when False (default), the faction board excludes
     unofficial (fan-made) factions.
+    elo_participant: the player's EloParticipant for the series' Elo system, when a
+    player + series (with a system) are in focus and no faction is selected. When
+    given, its rating/rank lead the fields and its icon_url/bg_color drive the
+    thumbnail/color (mutually exclusive with the faction thumbnail/color).
     """
     site_url = config.get("SITE_URL", "").rstrip("/")
 
@@ -1719,6 +1796,17 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     if player or faction:
         fields.insert(0, {"name": "Win Rate", "value": f"{stats['win_rate']:.1f}%", "inline": True})
         fields.append({"name": "Wins", "value": f"{stats['win_points']:g}", "inline": True})
+
+    # Elo standing leads the fields when a participant is in focus. Two insert(0)
+    # calls reverse order, so add Rank first then Rating to keep Rating leftmost.
+    # rank/icon_url/bg_color are only populated for RootELO systems; LOCAL systems
+    # show the rating with an "Unranked" label and no thumbnail/color.
+    if elo_participant:
+        rank = elo_participant.rank
+        rank_display = f"#{rank}" if (rank and rank != "-") else "Unranked"
+        fields.insert(0, {"name": "Rank", "value": rank_display, "inline": True})
+        fields.insert(0, {"name": elo_participant.elo_system.name,
+                          "value": f"{round(elo_participant.rating)}", "inline": True})
 
     embed = {
         "title": "Win Rate",
@@ -1753,6 +1841,14 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         except (ValueError, AttributeError):
             pass
 
+    # Elo only appears with no faction, so this never competes with the faction
+    # color above. Mask to 24 bits since bg_color may carry an 8-digit #RRGGBBAA.
+    if elo_participant and elo_participant.bg_color:
+        try:
+            embed["color"] = int(elo_participant.bg_color.lstrip("#"), 16) & 0xFFFFFF
+        except (ValueError, AttributeError):
+            pass
+
     # Player gets the author slot (icon + name + link); faction gets the
     # thumbnail. Either may be present alone, or both together.
     if player:
@@ -1769,6 +1865,11 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
         faction_image = _image_url(faction)
         if faction_image:
             embed["thumbnail"] = {"url": faction_image}
+
+    # icon_url is a full external URL (from the RootELO feed), so it bypasses the
+    # site-relative _image_url helper. Only reached when no faction is present.
+    if elo_participant and elo_participant.icon_url:
+        embed["thumbnail"] = {"url": elo_participant.icon_url}
 
     # When only one subject is in focus, also link the embed title to it.
     subject = player if (player and not faction) else (faction if (faction and not player) else None)
@@ -1924,12 +2025,14 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
 
     When `enabled_names` is given (a guild's whitelist), only the commands actually
     available in that server are listed: /help (always available) plus the enabled,
-    whitelistable commands. Empty groups are dropped. If some commands are hidden and
-    the invoker can manage the server (`can_manage`), a link to the guild's command
-    settings is appended so they can enable more. Pass `enabled_names=None` (the default,
-    e.g. in DMs) to list every command unfiltered.
+    whitelistable commands. Empty groups are dropped. Pass `enabled_names=None` (the
+    default, e.g. in DMs) to list every command unfiltered.
+
+    A single useful link is always appended: a server manager (`can_manage`, in a guild)
+    gets a link to that guild's command settings; everyone else (including in DMs) gets a
+    link to add the bot to their own server.
     """
-    from the_gatehouse.services.discord_commands import grouped_commands, WHITELISTABLE
+    from the_gatehouse.services.discord_commands import grouped_commands
 
     site_url = config.get("SITE_URL", "").rstrip("/")
 
@@ -1958,15 +2061,22 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
         "url": site_url or None,
     }
 
-    # Offer a link to enable more commands when the invoker can manage the server and
-    # some whitelistable commands aren't enabled yet.
-    if enabled_names is not None and can_manage and guild_id and site_url:
-        hidden = [n for n in WHITELISTABLE if n not in set(enabled_names)]
-        if hidden:
+    # Always offer one useful link. A server manager gets a link to this guild's command
+    # settings; anyone else (including in DMs, where there's no guild/manage context) gets
+    # a link to add the bot to their own server.
+    if site_url:
+        if enabled_names is not None and can_manage and guild_id:
             manage_url = f"{site_url}/guild/{guild_id}/edit/"
             embed["fields"].append({
-                "name": "More commands available",
-                "value": f"[Enable more commands for this server]({manage_url})",
+                "name": "Manage this server",
+                "value": f"[Manage commands for this server]({manage_url})",
+                "inline": False,
+            })
+        else:
+            databot_url = f"{site_url}/databot/"
+            embed["fields"].append({
+                "name": "Add the Databot",
+                "value": f"[Add the Databot to your server]({databot_url})",
                 "inline": False,
             })
 

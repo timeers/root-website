@@ -2,154 +2,200 @@
 {% load crispy_forms_tags static i18n %}
 {% block title %}Profile | {% endblock %}
 {% block content %}
-    <div class="content-section">
-        <div class="d-flex">
-   
-        <img class="xl-avatar-icon me-2" src="{{ user.profile.image.url }}">
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
 
+      <!-- Header card -->
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <div class="d-flex align-items-center">
+            <img class="xl-avatar-icon me-3" src="{{ user.profile.image.url }}">
             <div class="flex-fill" style="min-width: 0;">
-
-                {% if user.profile.player %}
-                    <h1 class="account-heading root-title"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h1>
-                {% else %}
-                    <h1 class="account-heading root-title">{{ user.profile.name }}</h1>
-                {% endif %}
-                {% if user.profile.discord %}
-                    <span class="text-secondary">Discord: {{ user.profile.discord }}</span><br>
-                {% endif %}
-                {% if user.profile.dwd %}
-                        <span class="text-secondary">DWD: {{ user.profile.dwd }}</span><br>
-                {% endif %}
-                
+              {% if user.profile.player %}
+                <h1 class="account-heading root-title mb-1"><a href="{% url 'player-detail' user.profile.slug %}">{{ user.profile.name }}</a></h1>
+              {% else %}
+                <h1 class="account-heading root-title mb-1">{{ user.profile.name }}</h1>
+              {% endif %}
+              {% if user.profile.discord %}
+                <span class="text-secondary">Discord: {{ user.profile.discord }}</span><br>
+              {% endif %}
+              {% if user.profile.dwd %}
+                <span class="text-secondary">DWD: {{ user.profile.dwd }}</span><br>
+              {% endif %}
             </div>
+          </div>
         </div>
+      </div>
 
-    <fieldset class="mb-3">
-        <legend class="border-bottom mb-4 mt-2">Profile Info</legend>
+      <!-- Profile Info -->
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title"><i class="bi bi-person-gear me-2"></i>Profile Info</h2>
 
-        <div>Customize Avatar</div>
-        <form action="{% url 'sync-avatar' %}" method="post" style="display:inline;">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-primary">
-                <i class="bi bi-discord"></i> Sync with Discord
-            </button>
-          </form>
-
-        <form method="POST" enctype="multipart/form-data">
+          <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
 
-
-
-                {% if user.profile.player %}
-                    {{ p_form | crispy }}
-                {% else %}
-                    {% if user.profile.banned %}
-                    <div class="alert alert-warning">Your account has been deactivated. Please contact an Administrator to reinstate your account.</div>
-                    {% else %}
-                    <a class='d-flex justify-content-around align-items-center' href="{{woodland_warriors_invite}}">
-                        <img class="responsive-img mb-4" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
-                    </a>
-                    <div class="alert alert-secondary">
-                        Your account has not yet been verified. Join the Woodland Warriors Discord to enable additional features.
-                        Once you have joined on Discord, log out and then log back in to register your profile.
-                    </div>
-                    {% endif %}
-
-                {% endif %}
-                
-            
-            {% if not user.profile.banned and not user.profile.outcast %}
-            <div class="mb-3">
-                <button class="btn btn-outline-info" type="submit">{% trans 'Save' %}</button>
-            </div>
-        
-            {% endif %}
-        </form>
-        </fieldset>
-
-    {% if user.profile.player %}
-    <div class="row g-3">
-      <div class="col-lg-6">
-    <fieldset class="mb-3 h-100">
-        <legend class="border-bottom mb-4 mt-2">{% trans 'Game List API Key' %}</legend>
-
-        <p class="text-secondary">
-            {% trans 'Use a personal API key to filter and download game data.' %}
-        </p>
-
-        {# The freshly generated key is injected here by JS; shown once, never re-fetched. #}
-        <div id="api-key-reveal" class="alert alert-warning" style="display:none;">
-            <strong><i class="bi bi-exclamation-triangle"></i> {% trans 'Copy your key now — it will not be shown again.' %}</strong>
-            <div class="input-group mt-2">
-                <input type="text" class="form-control" id="api-key-field" readonly>
-                <button type="button" class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('api-key-field').value)">
-                    <i class="bi bi-clipboard"></i> {% trans 'Copy' %}
-                </button>
-            </div>
-        </div>
-
-        <div id="api-key-status" class="alert alert-secondary" {% if new_api_key %}style="display:none;"{% endif %}>
-            {% if has_api_key %}
-                {% trans 'API key active.' %}
-                {% if api_key_created %}<span class="text-muted">({% trans 'generated' %} {{ api_key_created|date:"Y-m-d" }})</span>{% endif %}
-                <br>{% trans 'For security the key is stored hashed and cannot be shown again. Regenerate if you have lost it.' %}
+            {% if user.profile.player %}
+              {{ p_form | crispy }}
             {% else %}
-                {% trans 'You have not generated an API key yet.' %}
+              {% if user.profile.banned %}
+              <div class="alert alert-warning">Your account has been deactivated. Please contact an Administrator to reinstate your account.</div>
+              {% else %}
+              <a class='d-flex justify-content-around align-items-center' href="{{woodland_warriors_invite}}">
+                <img class="responsive-img mb-4" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
+              </a>
+              <div class="alert alert-secondary">
+                Your account has not yet been verified. Join the Woodland Warriors Discord to enable additional features.
+                Once you have joined on Discord, log out and then log back in to register your profile.
+              </div>
+              {% endif %}
             {% endif %}
+
+            {% if not user.profile.banned and not user.profile.outcast %}
+            <div class="mb-1">
+              <button class="databot-btn databot-btn-primary btn-sm" type="submit">{% trans 'Save' %}</button>
+            </div>
+            {% endif %}
+          </form>
+        </div>
+      </div>
+
+      {% if user.profile.player %}
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-key me-2"></i>{% trans 'Game List API Key' %}</h2>
+
+              <p class="text-secondary">
+                {% trans 'Use a personal API key to filter and download game data.' %}
+              </p>
+
+              {# The freshly generated key is injected here by JS; shown once, never re-fetched. #}
+              <div id="api-key-reveal" class="alert alert-warning" style="display:none;">
+                <strong><i class="bi bi-exclamation-triangle"></i> {% trans 'Copy your key now — it will not be shown again.' %}</strong>
+                <div class="input-group mt-2">
+                  <input type="text" class="form-control" id="api-key-field" readonly>
+                  <button type="button" class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('api-key-field').value)">
+                    <i class="bi bi-clipboard"></i> {% trans 'Copy' %}
+                  </button>
+                </div>
+              </div>
+
+              <div id="api-key-status" class="alert alert-secondary" {% if new_api_key %}style="display:none;"{% endif %}>
+                {% if has_api_key %}
+                  {% trans 'API key active.' %}
+                  {% if api_key_created %}<span class="text-muted">({% trans 'generated' %} {{ api_key_created|date:"Y-m-d" }})</span>{% endif %}
+                  <br>{% trans 'For security the key is stored hashed and cannot be shown again. Regenerate if you have lost it.' %}
+                {% else %}
+                  {% trans 'You have not generated an API key yet.' %}
+                {% endif %}
+              </div>
+
+              <div class="d-flex flex-wrap gap-2 mb-3 justify-content-center">
+                <button type="button" id="generate-api-key-btn" class="databot-btn databot-btn-primary btn-sm"
+                        data-url="{% url 'generate-api-key' %}"
+                        data-has-key="{% if has_api_key %}1{% else %}0{% endif %}">
+                  {% if has_api_key %}{% trans 'Regenerate Key' %}{% else %}{% trans 'Generate Key' %}{% endif %}
+                </button>
+                <a href="{% url 'api-game-list' %}" target="_blank" rel="noopener" class="databot-btn databot-btn-outline btn-sm">
+                  <i class="bi bi-box-arrow-up-right me-2"></i> {% trans 'Go to API' %}
+                </a>
+              </div>
+
+              <script>
+              (function () {
+                  var btn = document.getElementById('generate-api-key-btn');
+                  btn.addEventListener('click', function () {
+                      if (btn.dataset.hasKey === '1' &&
+                          !confirm('{% trans "Generating a new key will invalidate your current one. Continue?" %}')) {
+                          return;
+                      }
+                      btn.disabled = true;
+                      fetch(btn.dataset.url, {
+                          method: 'POST',
+                          headers: {
+                              'X-CSRFToken': '{{ csrf_token }}',
+                              'X-Requested-With': 'XMLHttpRequest'
+                          }
+                      })
+                      .then(function (resp) { return resp.json(); })
+                      .then(function (data) {
+                          document.getElementById('api-key-field').value = data.api_key;
+                          document.getElementById('api-key-reveal').style.display = '';
+                          document.getElementById('api-key-status').style.display = 'none';
+                          btn.textContent = '{% trans "Regenerate Key" %}';
+                          btn.dataset.hasKey = '1';
+                          btn.disabled = false;
+                      })
+                      .catch(function () {
+                          btn.disabled = false;
+                          alert('{% trans "Could not generate a key. Please try again." %}');
+                      });
+                  });
+              })();
+              </script>
+
+              <div class="d-flex justify-content-center">
+                <button type="button" class="databot-btn databot-btn-outline btn-sm"
+                        data-bs-toggle="modal" data-bs-target="#apiHowToModal">
+                  <i class="bi bi-info-circle me-2"></i>{% trans 'How to use' %}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="d-flex gap-2 mb-3 justify-content-center">
-            <button type="button" id="generate-api-key-btn" class="btn btn-sm btn-primary"
-                    data-url="{% url 'generate-api-key' %}"
-                    data-has-key="{% if has_api_key %}1{% else %}0{% endif %}">
-                {% if has_api_key %}{% trans 'Regenerate Key' %}{% else %}{% trans 'Generate Key' %}{% endif %}
-            </button>
-            <a href="{% url 'api-game-list' %}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-box-arrow-up-right"></i> {% trans 'Go to API' %}
-            </a>
+        <div class="col-lg-6">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-discord me-2"></i>{% trans 'Discord' %}</h2>
+
+              <h6 class="fw-bold">{% trans 'Notifications' %}</h6>
+              <p class="text-secondary">
+                {% trans 'Choose which events you want to send you a Discord message.' %}
+              </p>
+              <div class="d-flex gap-2 mb-3 justify-content-center">
+                <a href="{% url 'discord-notifications' %}" class="databot-btn databot-btn-primary btn-sm">
+                  <i class="bi bi-bell me-2"></i> {% trans 'Manage Notifications' %}
+                </a>
+              </div>
+
+              <hr>
+
+              <h6 class="fw-bold">{% trans 'Sync Avatar' %}</h6>
+              <p class="text-secondary">
+                {% trans 'Update your profile picture to your current Discord avatar.' %}
+              </p>
+              <div class="d-flex gap-2 mb-3 justify-content-center">
+                <form action="{% url 'sync-avatar' %}" method="post">
+                  {% csrf_token %}
+                  <button type="submit" class="databot-btn databot-btn-outline btn-sm">
+                    <i class="bi bi-arrow-repeat me-2"></i> {% trans 'Sync with Discord' %}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <script>
-        (function () {
-            var btn = document.getElementById('generate-api-key-btn');
-            btn.addEventListener('click', function () {
-                if (btn.dataset.hasKey === '1' &&
-                    !confirm('{% trans "Generating a new key will invalidate your current one. Continue?" %}')) {
-                    return;
-                }
-                btn.disabled = true;
-                fetch(btn.dataset.url, {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': '{{ csrf_token }}',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                })
-                .then(function (resp) { return resp.json(); })
-                .then(function (data) {
-                    document.getElementById('api-key-field').value = data.api_key;
-                    document.getElementById('api-key-reveal').style.display = '';
-                    document.getElementById('api-key-status').style.display = 'none';
-                    btn.textContent = '{% trans "Regenerate Key" %}';
-                    btn.dataset.hasKey = '1';
-                    btn.disabled = false;
-                })
-                .catch(function () {
-                    btn.disabled = false;
-                    alert('{% trans "Could not generate a key. Please try again." %}');
-                });
-            });
-        })();
-        </script>
-
-        <details class="text-secondary">
-            <summary>{% trans 'How to use' %}</summary>
-            <p class="mt-2">
-                {% trans 'Send your key in the Authorization header:' %}
-            </p>
-            <pre class="bg-light p-2"><code>curl -H "Authorization: Api-Key YOUR_KEY" \
+      <!-- How to use: API modal (top-level so it isn't clipped by the .info-card) -->
+      <div class="modal fade" id="apiHowToModal" tabindex="-1" aria-labelledby="apiHowToModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="root-title modal-title" id="apiHowToModalLabel">
+                <i class="bi bi-key me-2"></i>{% trans 'Game List API Key' %}
+              </h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <p>{% trans 'Send your key in the Authorization header:' %}</p>
+              <pre class="bg-light p-2"><code>curl -H "Authorization: Api-Key YOUR_KEY" \
   "{{ request.scheme }}://{{ request.get_host }}{% url 'api-game-list' %}?page_size=50"</code></pre>
-            <p>
+              <p class="mb-0">
                 {% trans 'Filters (multi-select filters may be repeated):' %}<br>
                 <code>?factions=&vagabonds=&players=&landmarks=&hirelings=</code><br>
                 <code>?map=&deck=&tournament=&recorder=&type=&platform=</code><br>
@@ -157,26 +203,17 @@
                 {% trans 'Page through results by following the "next" URL until null.' %}
                 <br>
                 Max page size: 500
-            </p>
-
-        </details>
-    </fieldset>
-      </div>
-
-      <div class="col-lg-6">
-    <fieldset class="mb-3 h-100">
-        <legend class="border-bottom mb-4 mt-2">{% trans 'Discord Notifications' %}</legend>
-        <p class="text-secondary">
-            {% trans 'Choose which events you want to send you a Discord message.' %}
-        </p>
-        <div class="d-flex gap-2 mb-3 justify-content-center">
-            <a href="{% url 'discord-notifications' %}" class="btn btn-sm btn-primary">
-                <i class="bi bi-discord"></i> {% trans 'Manage Discord Notifications' %}
-            </a>
+              </p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="databot-btn databot-btn-outline btn-sm" data-bs-dismiss="modal">{% trans 'Close' %}</button>
+            </div>
+          </div>
         </div>
-    </fieldset>
       </div>
+      {% endif %}
+
     </div>
-    {% endif %}
-    </div>
+  </div>
+</div>
 {% endblock content %}

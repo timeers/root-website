@@ -9,7 +9,7 @@
     {% if component == 'Vagabond' %}
         {% if object.ability_item != 'None' %}
             <div class="d-flex align-items-center">
-                <img class="lg-faction-icon" src="{% static 'items/' %}{{ object.ability_item|lower }}_flip.png" alt="{{ object.ability_item }}">
+                <img class="lg-faction-icon" src="{% static 'items/'|add:object.ability_item|lower|add:'_flip.png' %}" alt="{{ object.ability_item }}">
                 <i class="bi bi-arrow-right ms-2 me-2"></i>
             </div>
         {% endif %}

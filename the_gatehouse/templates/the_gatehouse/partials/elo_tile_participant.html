@@ -1,0 +1,4 @@
+{% comment %}
+Thin glue: map an EloParticipant (`ep`) onto the reusable elo_tile partial.
+{% endcomment %}
+{% include 'the_gatehouse/partials/elo_tile.html' with url=ep.trends_url icon_url=ep.icon_url bg_color=ep.bg_color rank=ep.rank tier=ep.tier rating=ep.rating label=ep.elo_system.name games=ep.games_played win_rate=ep.win_rate %}

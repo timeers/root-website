@@ -1,0 +1,29 @@
+{% load i18n static %}
+{% comment %}
+Self-contained, reusable elo tile. Pass any subset of:
+  url, icon_url, bg_color, rank, tier, rating, label, games, win_rate.
+Ranked and unranked players get the same tile shape; unranked shows an
+"Unranked" label in place of the rank number.
+Defaults: no bg_color -> light grey (#e8e8e8); no icon_url -> static unranked.webp.
+When `url` is empty the tile renders as a non-link <span> (no dead links).
+No model dependency — driven entirely by the parameters above.
+{% endcomment %}
+{% if rank and rank != '-' or tier %}
+  <{% if url %}a href="{{ url }}" target="_blank" rel="noopener noreferrer"{% else %}span{% endif %}
+     class="elo-tile d-inline-flex flex-column text-decoration-none"
+     style="--tile-bg: {{ bg_color|default:'#e8e8e8' }};">
+    {% if label %}<span class="elo-tile-header">{{ label }}</span>{% endif %}
+    <span class="elo-tile-main d-flex align-items-center gap-2">
+      <img class="elo-tile-icon" src="{% if icon_url %}{{ icon_url }}{% else %}{% static 'images/unranked.webp' %}{% endif %}" alt="{{ tier|default:'rank'|capfirst }}">
+
+      <span class="elo-tile-body">
+        {% if rating %}<span class="elo-tile-rank">{{ rating|floatformat:0 }}</span>{% endif %}
+        {% if rank and rank != '-' %}
+          <span class="elo-tile-rating">#{{ rank }}</span>
+        {% else %}
+          <span class="elo-tile-rating">{% trans 'Unranked' %}</span>
+        {% endif %}
+      </span>
+    </span>
+  </{% if url %}a{% else %}span{% endif %}>
+{% endif %}

@@ -1,7 +1,9 @@
 import re
 import time
 import json
+import csv
 
+from io import StringIO
 from datetime import timedelta
 from itertools import groupby
 from django.shortcuts import render
@@ -45,6 +47,7 @@ from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter
 from .utils import get_single_round, get_single_stage, build_scorecard_grid, build_single_scorecard_grid
 
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
+from the_keep.views import paginate_or_404
 
 from the_gatehouse.models import Profile, Language
 from the_gatehouse.views import (player_required, admin_required, 
@@ -4004,16 +4007,11 @@ def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_
     else:
         filter_url = reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': post_slug})
 
-    # Paginate games
+    # Paginate games. 404 on an out-of-range/non-integer page (bot deep-crawl of
+    # ?page=N) instead of clamping to the last page, which returned 200 and kept
+    # crawls walking. Real users only link in-range pages, so they're unaffected.
     games_count = filtered_games.count()
-    paginator = Paginator(filtered_games, settings.PAGE_SIZE)
-    page_number = request.GET.get('page')
-    try:
-        page_obj = paginator.page(page_number)
-    except PageNotAnInteger:
-        page_obj = paginator.page(1)
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)
+    page_obj = paginate_or_404(filtered_games, request.GET.get('page'))
 
     # Build query string without 'page' for pagination links
     query_params = request.GET.copy()
@@ -4135,16 +4133,11 @@ def tournament_player_leaderboard(request, tournament_slug, profile_slug, stage_
     else:
         filter_url = reverse('tournament-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'profile_slug': profile_slug})
 
-    # Paginate games
+    # Paginate games. 404 on an out-of-range/non-integer page (bot deep-crawl of
+    # ?page=N) instead of clamping to the last page, which returned 200 and kept
+    # crawls walking. Real users only link in-range pages, so they're unaffected.
     games_count = filtered_games.count()
-    paginator = Paginator(filtered_games, settings.PAGE_SIZE)
-    page_number = request.GET.get('page')
-    try:
-        page_obj = paginator.page(page_number)
-    except PageNotAnInteger:
-        page_obj = paginator.page(1)
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)
+    page_obj = paginate_or_404(filtered_games, request.GET.get('page'))
 
     # Build query string without 'page' for pagination links
     query_params = request.GET.copy()
@@ -4759,8 +4752,120 @@ def tournament_manage_players(request, slug):
         'players': tournament.get_players_queryset(),
         'waitlist_players': tournament.get_waitlist_players_queryset(),
         'eliminated_players': tournament.get_eliminated_players_queryset(),
+        'import_summary': request.session.pop('player_import_summary', None),
     }
     return render(request, 'the_warroom/tournament_manage_players.html', context)
+
+
+# Accepted headers (normalized to lowercase) for the required Discord column in an
+# uploaded player CSV. 'player (discord)' matches files produced by our own export.
+PLAYER_CSV_DISCORD_HEADERS = ('player', 'player (discord)')
+
+
+def _parse_player_csv(csv_file):
+    """Validate an uploaded player CSV and return (discord_values, error_message).
+
+    On success, discord_values is a list of the stripped non-empty Discord cells
+    and error_message is None. On failure, discord_values is [] and error_message
+    describes the problem (the caller should change nothing).
+    """
+    if not csv_file.name.lower().endswith('.csv'):
+        return [], 'Wrong file type — please upload a .csv file.'
+
+    try:
+        file_data = csv_file.read().decode('utf-8-sig')
+    except UnicodeDecodeError:
+        return [], 'Could not read the file — please upload a valid UTF-8 CSV.'
+
+    reader = csv.reader(StringIO(file_data))
+    try:
+        header = next(reader)
+    except StopIteration:
+        return [], 'The file is empty.'
+
+    normalized = [h.strip().lower() for h in header]
+    discord_index = next(
+        (i for i, h in enumerate(normalized) if h in PLAYER_CSV_DISCORD_HEADERS),
+        None,
+    )
+    if discord_index is None:
+        return [], 'Missing required column "Player".'
+
+    discord_values = []
+    for row in reader:
+        if len(row) <= discord_index:
+            continue
+        value = row[discord_index].strip()
+        if value:
+            discord_values.append(value)
+
+    return discord_values, None
+
+
+@player_onboard_required
+def tournament_players_export(request, slug):
+    """Download the tournament roster as a CSV (Player, Display Name, Status)."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    response = HttpResponse(content_type='text/csv')
+    filename = f"players_tournament_{tournament.slug}.csv"
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+    writer = csv.writer(response)
+    writer.writerow(['Player', 'Display Name', 'Status'])
+
+    players = TournamentPlayer.objects.filter(
+        tournament=tournament
+    ).select_related('profile')
+    for tp in players:
+        writer.writerow([
+            tp.profile.discord or '',
+            tp.profile.display_name or '',
+            tp.get_status_display(),
+        ])
+
+    return response
+
+
+@player_onboard_required
+def tournament_players_import(request, slug):
+    """Bulk-register players from an uploaded CSV, keyed by the Discord column."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if request.method != 'POST' or 'csv_upload' not in request.FILES:
+        return redirect('tournament-manage-players', slug=slug)
+
+    discord_values, error = _parse_player_csv(request.FILES['csv_upload'])
+    if error:
+        messages.warning(request, f'Invalid CSV format: {error}')
+        return redirect('tournament-manage-players', slug=slug)
+
+    registered, skipped, errors = [], [], []
+    for value in discord_values:
+        profile = Profile.objects.filter(discord__iexact=value).first()
+        if profile is None:
+            errors.append(value)
+            continue
+        if TournamentPlayer.objects.filter(tournament=tournament, profile=profile).exists():
+            skipped.append(profile.name)
+            continue
+        tournament.add_player(profile)
+        registered.append(profile.name)
+
+    request.session['player_import_summary'] = {
+        'registered_count': len(registered),
+        'skipped_count': len(skipped),
+        'error_count': len(errors),
+        'skipped': skipped,
+        'errors': errors,
+    }
+    return redirect('tournament-manage-players', slug=slug)
 
 
 @player_onboard_required
@@ -6196,8 +6301,78 @@ def stage_manage_players(request, tournament_slug, stage_slug):
         'eliminated_participants': eliminated_participants,
         'withdrawn_participants': withdrawn_participants,
         'advanced_participants': advanced_participants,
+        'import_summary': request.session.pop('player_import_summary', None),
     }
     return render(request, 'the_warroom/stage_manage_players.html', context)
+
+
+@player_onboard_required
+def stage_players_export(request, tournament_slug, stage_slug):
+    """Download the stage roster as a CSV (Player, Display Name, Status)."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    response = HttpResponse(content_type='text/csv')
+    filename = f"players_stage_{tournament.slug}_{stage.slug}.csv"
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+    writer = csv.writer(response)
+    writer.writerow(['Player', 'Display Name', 'Status'])
+
+    participants = StageParticipant.objects.filter(
+        stage=stage
+    ).select_related('tournament_player__profile')
+    for sp in participants:
+        profile = sp.tournament_player.profile
+        writer.writerow([
+            profile.discord or '',
+            profile.display_name or '',
+            sp.get_status_display(),
+        ])
+
+    return response
+
+
+@player_onboard_required
+def stage_players_import(request, tournament_slug, stage_slug):
+    """Bulk-add players to a stage from an uploaded CSV, keyed by the Discord column."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    if request.method != 'POST' or 'csv_upload' not in request.FILES:
+        return redirect('stage-manage-players', tournament_slug=tournament_slug, stage_slug=stage_slug)
+
+    discord_values, error = _parse_player_csv(request.FILES['csv_upload'])
+    if error:
+        messages.warning(request, f'Invalid CSV format: {error}')
+        return redirect('stage-manage-players', tournament_slug=tournament_slug, stage_slug=stage_slug)
+
+    registered, skipped, errors = [], [], []
+    for value in discord_values:
+        profile = Profile.objects.filter(discord__iexact=value).first()
+        if profile is None:
+            errors.append(value)
+            continue
+        if StageParticipant.objects.filter(stage=stage, tournament_player__profile=profile).exists():
+            skipped.append(profile.name)
+            continue
+        stage.add_player(profile)
+        registered.append(profile.name)
+
+    request.session['player_import_summary'] = {
+        'registered_count': len(registered),
+        'skipped_count': len(skipped),
+        'error_count': len(errors),
+        'skipped': skipped,
+        'errors': errors,
+    }
+    return redirect('stage-manage-players', tournament_slug=tournament_slug, stage_slug=stage_slug)
 
 
 @player_required

@@ -555,6 +555,24 @@ em, i {
     box-shadow: 0 6px 18px rgba(88, 101, 242, 0.3);
   }
 
+  /* Reusable white content card (shared by /databot/ and the status confirm pages). */
+  .info-card {
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e3e5e8;
+  }
+  .info-card-body {
+    padding: 28px;
+  }
+  .info-card-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #2c2f33;
+    margin-bottom: 20px;
+  }
+
 
   .hidden-description {
     border-top: 1px solid #e3e3e3;
@@ -786,6 +804,53 @@ em, i {
     display: flex;
     gap: 0; /* optional: explicitly removes space */
 }
+
+  /* Reusable elo rank tile (see partials/elo_tile.html). Background color is
+     applied inline per-tier by the template. Column layout: full-width system
+     name header on top, icon + rank row below. */
+  .elo-tile {
+    padding: 6px 12px;
+    border-radius: 12px;
+    /* Tier color (passed inline as --tile-bg) at 80% opacity, mixed with
+       transparent so only the background fades, not the text/icon. */
+    background-color: color-mix(in srgb, var(--tile-bg, #e8e8e8) 40%, transparent);
+    /* Subtle outline so the tile edge stays visible even when the tier color is
+       white or very light. */
+    border: 1px solid rgba(0, 0, 0, 0.15);
+  }
+  /* System name banner across the top of the tile. */
+  .elo-tile-header {
+    display: block;
+    text-align: center;
+    font-size: 0.8em;
+    font-weight: 700;
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+  }
+  /* Icon + rank row. Centered so it stays balanced when a long header title
+     makes the tile wider than its contents. */
+  .elo-tile-main {
+    justify-content: center;
+  }
+  .elo-tile-icon {
+    width: 46px;
+    height: 46px;
+    object-fit: contain;
+  }
+  .elo-tile-body {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+  }
+  .elo-tile-rank {
+    font-weight: 700;
+  }
+  .elo-tile-rating {
+    display: block;
+    font-size: 0.8em;
+    opacity: 0.85;
+  }
 
 /* Per-player faction icons on the matches page. The player names stay fixed on
    the left (.effort-names); only the icon grid (.effort-grid-scroll) scrolls

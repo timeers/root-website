@@ -5,7 +5,7 @@
       {% if not component_filter %}
       <div class="mb-2">
         {% if item_filter %}
-          <img class="item-option" src="{% static 'items/' %}{{ prefix|lower }}.png" alt="{{ prefix }}">
+          <img class="item-option" src="{% static 'items/'|add:prefix|lower|add:'.png' %}" alt="{{ prefix }}">
         {% else %}
           <label class='h5 root-title' for="{{ prefix }}_qty">{{ label }}</label>
         {% endif %}

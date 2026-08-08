@@ -222,7 +222,7 @@
                 class="edit-card-tag"
                 value="{{ value }}">
             <img class="lg-faction-icon"  
-                src="{% static 'images/tags/' %}{{ label }}_Tag.png" 
+                src="{% static 'images/tags/'|add:label|add:'_Tag.png' %}"
                 alt="{{ label }} Tag">
        
             </label>
@@ -277,7 +277,7 @@
                 class="add-card-tag"
                 value="{{ value }}">
               <img class="lg-faction-icon"
-                src="{% static 'images/tags/' %}{{ label }}_Tag.png"
+                src="{% static 'images/tags/'|add:label|add:'_Tag.png' %}"
                 alt="{{ label }} Tag">
             </label>
           {% endfor %}

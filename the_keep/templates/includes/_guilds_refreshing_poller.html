@@ -1,0 +1,14 @@
+{% comment %}
+Single HTMX poller for the guild-refresh spinner. Rendered ONCE per page (not per
+avatar) so we don't double-poll. While profile.guilds_refreshing is True it hits the
+status endpoint every 2s (hx-swap="none", so nothing on the page changes); when the
+task clears the flag the endpoint responds with HX-Refresh and the page reloads —
+picking up any group/membership change and removing the spinner.
+{% endcomment %}
+{% if user.is_authenticated and user.profile.guilds_refreshing %}
+  <span
+    hx-get="{% url 'profile-guilds-status' %}"
+    hx-trigger="every 2s"
+    hx-swap="none"
+    style="display:none;"></span>
+{% endif %}

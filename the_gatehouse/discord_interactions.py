@@ -31,8 +31,8 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post
-from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate
+from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
+from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant
 from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
@@ -40,7 +40,7 @@ from .tasks import (
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
-    build_captain_embed, build_law_embed, build_help_embed, build_upcoming_embed,
+    build_captain_embed, build_card_embed, build_law_embed, build_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
     roll_emoji_for, suit_static_image_url, embed_color, permissions_can_manage_guild,
     get_guild_roles,
@@ -301,6 +301,42 @@ def _handle_captain_command(data):
     })
 
 
+def _handle_card_command(data):
+    """/card: look up an individual card by name (dedup'd across decks), optionally
+    filtered by the post it's from and/or its suit/tag. Because many cards share a
+    name, pick the single best match: official posts first, then lower status."""
+    name = (_get_option(data, "name") or "").strip()
+    from_slug = _get_option(data, "from")
+    tag = _get_option(data, "tag")
+
+    if not (name or from_slug or tag):
+        return _ephemeral("Please provide a card name (or a from/tag filter) to search.")
+
+    base = Card.objects.select_related(
+        "group", "group__post", "group__language",
+    ).filter(group__post__status__lte=4)  # published posts only (site convention)
+    if from_slug:
+        base = base.filter(group__post__slug=from_slug)
+    if tag:
+        base = base.filter(tags__contains=[tag])  # JSONField list (Postgres)
+
+    order = ("-group__post__official", "group__post__status", "name", "id")
+    if name:
+        # Exact match wins, else substring (same idea as _lookup_post).
+        card = (base.filter(name__iexact=name).order_by(*order).first()
+                or base.filter(name__icontains=name).order_by(*order).first())
+    else:
+        card = base.order_by(*order).first()
+
+    if not card:
+        return _ephemeral(f'No card found matching "{name or from_slug or tag}".')
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"embeds": [build_card_embed(card)]},
+    })
+
+
 def _handle_stats_command(data):
     """/stats: win rate filtered by player, faction, series, and/or platform."""
     player_slug = _get_option(data, "player")
@@ -325,6 +361,18 @@ def _handle_stats_command(data):
         if not tournament:
             return _ephemeral("Couldn't find that series.")
 
+    # When a player + series (with an Elo system) are both in focus and no faction
+    # narrows the query, surface that player's standing in the system. Faction
+    # filtering makes Elo irrelevant, so it's skipped there.
+    elo_participant = None
+    if player and tournament and not faction and tournament.elo_system_id:
+        elo_participant = (
+            EloParticipant.objects
+            .select_related('elo_system')
+            .filter(elo_system_id=tournament.elo_system_id, player=player)
+            .first()
+        )
+
     stats = filtered_winrate(
         player=player, faction=faction, tournament=tournament, platform=platform
     )
@@ -338,7 +386,7 @@ def _handle_stats_command(data):
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {"embeds": [build_stats_embed(
             stats, player=player, faction=faction, tournament=tournament, platform=platform,
-            include_fan_content=include_fan_content,
+            include_fan_content=include_fan_content, elo_participant=elo_participant,
         )]},
     })
 
@@ -742,11 +790,10 @@ RANDOM_POST_MODELS = {
 RANDOM_SUITS = ["Bird", "Mouse", "Fox", "Rabbit"]
 RANDOM_CLEARINGS = ["Mouse", "Fox", "Rabbit"]
 # Embed color per suit (int, as Discord wants), for /random Suit and Clearing.
+# Derived from the single source of truth in the_keep.models (CardTag.hex_for), so
+# /random and /card can never drift apart.
 RANDOM_SUIT_COLORS = {
-    "Rabbit": 0xFFE400,
-    "Fox": 0xEC2121,
-    "Mouse": 0xF78B57,
-    "Bird": 0x44C3BC,
+    s: int(CardTag.hex_for(s).lstrip("#"), 16) for s in RANDOM_SUITS
 }
 RANDOM_PLATFORM_KEYS = DRAFT_PLATFORM_KEYS  # reuse tts/rd keys from /draft
 
@@ -1341,10 +1388,12 @@ def _handle_lfg_start(payload):
     role_id = role_match.group(1) if role_match else None
 
     # Pass the started embed so the task can re-edit it with the title linked to the
-    # thread once the thread id is known (the thread is created in the task).
+    # thread once the thread id is known (the thread is created in the task). The
+    # interaction token lets the task send the owner an ephemeral notice if thread
+    # creation fails (e.g. missing channel permissions).
     create_lfg_thread_task.delay(
         payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
-        role_id, description, players, embed,
+        role_id, description, players, embed, token=payload.get("token"),
     )
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -1358,6 +1407,7 @@ COMMAND_HANDLERS = {
 }
 COMMAND_HANDLERS["stats"] = _handle_stats_command
 COMMAND_HANDLERS["captain"] = _handle_captain_command
+COMMAND_HANDLERS["card"] = _handle_card_command
 COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
@@ -1406,6 +1456,34 @@ def _ac_captains(query, _data):
         qs = qs.filter(title__icontains=query)
     titles = qs.values_list("title", flat=True)[:25]
     return [{"name": t, "value": t} for t in titles]
+
+
+def _ac_card_name(query, data):
+    """Autocomplete for /card `name`: de-duplicated card names (many decks share a
+    name). Respects an already-chosen `from` post. Deliberately does NOT apply the
+    `tag` filter — JSONField `tags__contains` is Postgres-only and would error on
+    every keystroke on the SQLite dev backend; the tag filter runs in the handler."""
+    qs = Card.objects.filter(group__post__status__lte=4)
+    if query:
+        qs = qs.filter(name__icontains=query)
+    from_slug = _get_option(data, "from")
+    if from_slug:
+        qs = qs.filter(group__post__slug=from_slug)
+    names = (qs.exclude(name__isnull=True).exclude(name="")
+               .order_by("name").values_list("name", flat=True).distinct()[:25])
+    return [{"name": n, "value": n} for n in names]
+
+
+def _ac_card_from(query, _data):
+    """Autocomplete for /card `from`: only published posts that actually have cards.
+    Value is the post slug. Uses Exists (no .distinct()) to avoid a Postgres
+    DISTINCT+ORDER-BY conflict with Post's default Meta.ordering."""
+    has_cards = Card.objects.filter(group__post=OuterRef("pk"))
+    qs = Post.objects.filter(Exists(has_cards), status__lte=4).exclude(slug__isnull=True)
+    if query:
+        qs = qs.filter(title__icontains=query)
+    rows = qs.values_list("title", "slug")[:25]
+    return [{"name": title, "value": slug} for title, slug in rows]
 
 
 def _ac_players(query, _data):
@@ -1515,6 +1593,8 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
     ("captain", "name"): _ac_captains,
+    ("card", "name"): _ac_card_name,
+    ("card", "from"): _ac_card_from,
     ("upcoming", "series"): _ac_upcoming_series,
     ("upcoming", "player"): _ac_upcoming_player,
     ("law", "law"): _ac_law,

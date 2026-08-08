@@ -258,7 +258,7 @@ class GuildLFGRole(models.Model):
         blank=True,
         null=True,
         help_text=(
-            "Optional extra text appended to the thread's kickoff message when a "
+            "Optional extra text appended to the thread's first message when a "
             "game with this role starts, e.g. a link to the rules."
         ),
     )
@@ -567,6 +567,11 @@ class Profile(models.Model):
     theme = models.ForeignKey(Theme, on_delete=models.SET_NULL, null=True, blank=True)
     image = models.ImageField(default='default_images/default_user.png', upload_to=avatar_upload_path)
     last_avatar_sync = models.DateTimeField(null=True, blank=True)
+    # Set True by the login signal, cleared by refresh_user_guilds_task once the
+    # background Discord guild-membership sync finishes. Drives the "syncing" spinner
+    # on the header avatar so login never blocks on a slow Discord API call.
+    guilds_refreshing = models.BooleanField(default=False)
+    guilds_synced_at = models.DateTimeField(null=True, blank=True)
 
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
     rdl_cannonical_dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)

@@ -2,6 +2,21 @@ import os
 import uuid
 
 from django.conf import settings
+from django.core.files.base import ContentFile
+
+
+def copy_image_field(image_field):
+    """Return a Django File that can be saved as a fresh upload, copied from an
+    existing ImageField. Reading the file leaves the original untouched and
+    avoids both fields pointing at the same storage path (which would corrupt
+    one when the other is deleted)."""
+    image_field.open('rb')
+    try:
+        data = image_field.read()
+    finally:
+        image_field.close()
+    name = image_field.name.rsplit('/', 1)[-1]
+    return ContentFile(data, name=name)
 
 
 def upload_path(slug_parts, filename, force_ext='webp'):

@@ -2,21 +2,87 @@
 {% load i18n %}
 {% block title %}{% trans 'Testing' %} | {% endblock %}
 {% block content %}
-<article class="content-section">
-<h1>{% trans 'Ready for Testing?' %}</h1>
-<div>
-    {% blocktrans with post_title=post_title post_component=post_component %}
-        By marking {{ post_title }} as "Testing" you convey to other users that you are testing and fine tuning this {{ post_component }}, you can always undo this later.
-    {% endblocktrans %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+
+      <!-- Hero -->
+      <div class="confirm-hero confirm-hero-testing mb-4">
+        <i class="bi bi-play-circle confirm-hero-icon"></i>
+        <h1 class="confirm-hero-title root-title">{% trans 'Ready for Testing?' %}</h1>
+        <p class="confirm-hero-tagline">
+          {% blocktrans with post_title=post_title %}
+            Start fine tuning and playtesting {{ post_title }}.
+          {% endblocktrans %}
+        </p>
+      </div>
+
+      <!-- Details card -->
+      <div class="info-card mb-4">
+        <div class="info-card-body confirm-body">
+          <h2 class="info-card-title">{% trans 'What this means' %}</h2>
+          <p>
+            {% blocktrans with post_title=post_title post_component=post_component %}
+              By marking {{ post_title }} as "Testing" you convey to other users that you are testing and fine tuning this {{ post_component }}, you can always undo this later.
+            {% endblocktrans %}
+          </p>
+          <p class="confirm-prompt">
+            {% trans 'If you have started testing, click "Yes!"' %}
+          </p>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <form method="post" class="confirm-actions">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="databot-btn databot-btn-primary" type="submit">{% trans 'Yes!' %}</button>
+        <a href="{{ post.get_absolute_url }}" class="databot-btn databot-btn-outline">{% trans 'Not yet...' %}</a>
+      </form>
+
+    </div>
+  </div>
 </div>
-<div>
-    {% trans 'If you have started testing, click "Yes!"' %}
-</div>
-<form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button class="btn btn-success" type="submit">{% trans 'Yes!' %}</button>
-    <a href="{{ post.get_absolute_url }}" class="btn btn-secondary">{% trans 'Not yet...' %}</a href="{{ post.get_absolute_url }}">
-</form>
-</article>
+
+<style>
+.confirm-hero {
+  border-radius: 16px;
+  padding: 40px 28px;
+  text-align: center;
+  color: #fff;
+}
+.confirm-hero-testing {
+  background: linear-gradient(135deg, #2f6fd6 0%, #5b9bf2 100%);
+  box-shadow: 0 8px 24px rgba(47, 111, 214, 0.25);
+}
+.confirm-hero-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 14px;
+  color: #fff;
+}
+.confirm-hero-title {
+  font-size: 34px;
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: #fff;
+}
+.confirm-hero-tagline {
+  font-size: 17px;
+  line-height: 1.6;
+  max-width: 560px;
+  margin: 0 auto;
+  color: rgba(255, 255, 255, 0.92);
+}
+.confirm-body p { font-size: 15px; color: #4f5660; line-height: 1.7; margin-bottom: 16px; }
+.confirm-body p:last-child { margin-bottom: 0; }
+.confirm-prompt { font-weight: 600; color: #2c2f33 !important; }
+.confirm-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 24px; }
+.confirm-actions p { margin: 0; }
+
+@media (max-width: 768px) {
+  .confirm-hero { padding: 32px 20px; }
+  .confirm-hero-title { font-size: 26px; }
+}
+</style>
 {% endblock content %}

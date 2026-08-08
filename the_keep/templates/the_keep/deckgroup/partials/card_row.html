@@ -18,7 +18,7 @@
         {% if card.tags %}
         {% for tag in card.tags %}
         <img class="lg-faction-icon"  
-            src="{% static 'images/tags/' %}{{ tag }}_Tag.png" 
+            src="{% static 'images/tags/'|add:tag|add:'_Tag.png' %}"
             alt="{{ tag }} Tag">
         {% endfor %}
         {% else %}

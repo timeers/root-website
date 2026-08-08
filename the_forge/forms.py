@@ -95,6 +95,7 @@ class ForgedFactionForm(forms.ModelForm):
             'faction_name': forms.TextInput(attrs={
                 'class': 'form-control form-control-lg forge-faction-title-input',
                 'placeholder': 'Faction Name',
+                'autocapitalize': 'words',
             }),
             'color': forms.TextInput(attrs={
                 'type': 'color',
@@ -557,6 +558,7 @@ class FactionHeaderForm(forms.Form):
         widget=forms.TextInput(attrs={
             'class': 'form-control luminari forge-header-name-input',
             'placeholder': 'Faction Name',
+            'autocapitalize': 'words',
         }),
     )
     header_image = forms.ImageField(
@@ -639,6 +641,7 @@ class SetupCardForm(forms.Form):
         widget=forms.TextInput(attrs={
             'class': 'form-control luminari',
             'placeholder': 'Faction Name',
+            'autocapitalize': 'words',
         }),
     )
     type = forms.ChoiceField(

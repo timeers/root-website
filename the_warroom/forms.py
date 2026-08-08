@@ -2,7 +2,7 @@ import json
 import re
 from django import forms
 from django.utils import timezone
-from .models import Effort, Game, TurnScore, ScoreCard, Round, Stage, Tournament, Match, MatchSeat, AssetModeChoices, PlatformChoices
+from .models import Effort, Game, TurnScore, ScoreCard, Round, Stage, Tournament, Match, MatchSeat, AssetModeChoices, PlatformChoices, EloSystem
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond, Tweak
 from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
@@ -1022,6 +1022,40 @@ class AssignEffortForm(forms.ModelForm):
         self.fields['effort'].queryset = selected_efforts       
 
 
+def _scope_elo_system_field(form, user):
+    """Scope the `elo_system` dropdown by ownership and add select2 styling.
+
+    Admins see all EloSystems. Non-admins see only the systems they own plus the
+    tournament's currently-assigned system (if any). If a non-admin has no owned
+    systems and there is no current system, the field is removed entirely.
+    """
+    field = form.fields.get('elo_system')
+    if field is None:
+        return
+
+    # select2 styling to match the designer/guild dropdowns
+    field.widget.attrs.setdefault('class', 'select2')
+    field.required = False
+
+    if user and user.profile.admin:
+        field.queryset = EloSystem.objects.all()
+        return
+
+    # Non-admin: owned systems + the current one (if any)
+    current = getattr(form.instance, 'elo_system_id', None)
+    owned_qs = EloSystem.objects.filter(owner=user.profile) if user else EloSystem.objects.none()
+
+    if not owned_qs.exists() and not current:
+        # Nothing to choose from -> hide the field entirely
+        form.fields.pop('elo_system', None)
+        return
+
+    q = Q(owner=user.profile) if user else Q(pk__in=[])
+    if current:
+        q |= Q(pk=current)
+    field.queryset = EloSystem.objects.filter(q).distinct()
+
+
 # Dynamic forms for new tournament create/update views with permission-based field access
 class TournamentDynamicCreateForm(forms.ModelForm):
     PLATFORM_CHOICES = [
@@ -1057,7 +1091,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
             'platform', 'default_format', 'link_required', 'box_score_required',
             'asset_mode', 'include_clockwork', 'show_assets',
-            'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
+            'leaderboard_positions', 'game_threshold', 'elo_system', 'coalition_type', 'teams',
             'picture'
         ]
         labels = {
@@ -1071,6 +1105,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
             'is_active': 'Active Status',
             'leaderboard_positions': 'Leaderboard Positions',
             'game_threshold': 'Leaderboard Game Threshold',
+            'elo_system': 'ELO System',
             'link_required': 'Require Link with Game Submission',
             'box_score_required': 'Require Box Score for Each Seat',
             'teams': 'Allow for multiple non-Coalition Wins (Teams)',
@@ -1125,6 +1160,9 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         # Remove admin-only fields for non-admins
         if user and not user.profile.admin:
             self.fields.pop('designer', None)
+
+        # Scope the elo_system dropdown by ownership (or remove it entirely)
+        _scope_elo_system_field(self, user)
 
     def save(self, commit=True):
         """Save tournament and set default assets based on platform"""
@@ -1202,7 +1240,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'max_players', 'min_players', 'enforce_player_count', 'open_roster', 'recording_access',
             'platform', 'link_required', 'box_score_required',
             'asset_mode', 'include_clockwork', 'show_assets',
-            'leaderboard_positions', 'game_threshold', 'coalition_type', 'teams',
+            'leaderboard_positions', 'game_threshold', 'elo_system', 'coalition_type', 'teams',
             'default_format',
             'picture'
         ]
@@ -1220,6 +1258,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
             'is_active': 'Active Status',
             'leaderboard_positions': 'Leaderboard Positions',
             'game_threshold': 'Leaderboard Game Threshold',
+            'elo_system': 'ELO System',
             'coalition_type': 'Allowed Coalitions',
             'platform': 'Required Platform',
             'link_required': 'Require Link with Game Submission',
@@ -1287,6 +1326,9 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
                     self.fields['guild'].queryset = DiscordGuild.objects.filter(pk=self.instance.guild.pk)
                 else:
                     self.fields['guild'].queryset = DiscordGuild.objects.none()
+
+        # Scope the elo_system dropdown by ownership (or remove it entirely)
+        _scope_elo_system_field(self, user)
 
     def save(self, commit=True):
         instance = super().save(commit=False)

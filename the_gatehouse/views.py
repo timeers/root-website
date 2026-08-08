@@ -21,7 +21,7 @@ from django.utils.translation import activate, get_language
 from django.urls import reverse
 from django.views.generic import ListView
 
-from the_warroom.models import (Tournament, Round, Effort, Game,
+from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
                                  effort_counts_for_round_q,
                                  effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
@@ -397,11 +397,21 @@ def player_page_view(request, slug=None):
     ).filter(status__lte=view_status).distinct()
     submissions = player.submissions.filter(status='9')
     posts_count = components.count()
+    # Feed-backed elo standings (systems with an api_url). Only these carry the
+    # rank/tier/icon the badge needs; other ROOTELO systems are locally computed.
+    rootelo_participants = (
+        player.elo_participations
+              .filter(elo_system__calculation_type=EloSystem.CalculationType.ROOTELO)
+              .exclude(elo_system__api_url__isnull=True)
+              .exclude(elo_system__api_url__exact='')
+              .select_related('elo_system')
+    )
     context = {
         'player': player,
         'games_played': games_played,
         'posts_count': posts_count,
         'submissions': submissions,
+        'rootelo_participants': rootelo_participants,
         }
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
 
@@ -1479,7 +1489,7 @@ def woodland_warriors_info(request):
         'guild_icon_url': guild_icon_url,
     })
 
-
+@player_onboard_required
 def databot_info(request):
     """Public landing page for the Root Database Discord bot: what it does, its
     commands, and an 'Add to Server' invite. No login required."""
@@ -1596,7 +1606,7 @@ def databot_added(request):
 GUILD_PAGE_SIZE = 20  # local; NOT settings.PAGE_SIZE (25)
 
 
-@login_required
+@player_onboard_required
 def manage_guilds(request):
     profile = request.user.profile
     is_admin = profile.admin
@@ -1609,7 +1619,7 @@ def manage_guilds(request):
     return render(request, template, context)
 
 
-@login_required
+@player_onboard_required
 def edit_guild(request, guild_id):
     from .services.discord_commands import WHITELISTABLE, whitelistable_commands
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
@@ -1618,9 +1628,13 @@ def edit_guild(request, guild_id):
         raise PermissionDenied()
 
     if request.method == 'POST':
-        form = GuildEditForm(request.POST, instance=guild)
-        if form.is_valid():
-            form.save()
+        # Guild Details (invite / rules / approval settings) is admin-only and isn't
+        # rendered for non-admins, so don't bind it from their POST — an empty form
+        # would wipe those fields. Non-admins can still update moderators + commands.
+        form = GuildEditForm(request.POST, instance=guild) if profile.admin else GuildEditForm(instance=guild)
+        if not profile.admin or form.is_valid():
+            if profile.admin:
+                form.save()
             mod_ids = request.POST.getlist('moderators')
             valid_mods = Profile.objects.filter(pk__in=mod_ids)
             # A non-admin must not remove their own access.
@@ -1857,6 +1871,24 @@ def status_check(request):
 
     # Return a successful status
     return JsonResponse({'status': 'ok'}, status=200)
+
+
+def profile_guilds_status(request):
+    """HTMX poll target for the header avatar "syncing Discord roles" spinner.
+
+    While refresh_user_guilds_task is running (profile.guilds_refreshing) return an
+    empty 200 so the hidden poller (hx-swap="none") leaves the spinner untouched. Once
+    the task clears the flag, emit HX-Refresh so the page reloads with fresh
+    group/membership and the spinner gone. HX-Refresh is emitted ONLY on the cleared
+    branch (and thus only once) so there's no reload loop. Anonymous / no-profile
+    requests get a plain empty 200 and never trigger a refresh."""
+    profile = getattr(request.user, 'profile', None)
+    if profile is None or profile.guilds_refreshing:
+        return HttpResponse(status=200)
+
+    response = HttpResponse(status=200)
+    response['HX-Refresh'] = 'true'
+    return response
 
 
 

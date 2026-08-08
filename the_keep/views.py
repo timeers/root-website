@@ -2615,6 +2615,18 @@ def paginate(queryset, page_number):
     except (PageNotAnInteger, EmptyPage, ValueError):
         return paginator.page(1)
 
+
+def paginate_or_404(queryset, page_number):
+    # Like paginate(), but 404s on an out-of-range or non-integer page instead of
+    # clamping to page 1 / the last page. Used by the tournament leaderboard views:
+    # a valid user only ever links pages within range, so an out-of-range ?page=N
+    # (e.g. a bot walking ?page=207) is a 404, not a silent 200 that keeps crawls alive.
+    paginator = Paginator(queryset, settings.PAGE_SIZE)
+    try:
+        return paginator.page(page_number or 1)
+    except (PageNotAnInteger, EmptyPage, ValueError):
+        raise Http404("Invalid page")
+
 COMPONENT_TYPE_MAP = {
     "map": Post.ComponentChoices.MAP,
     "deck": Post.ComponentChoices.DECK,
@@ -3295,8 +3307,11 @@ def confirm_stable(request, slug):
 
     # If form is submitted (POST request)
     if request.method == 'POST':
-        # Update the `stable` property to True
-        obj.status = 1
+        # Update the `stable` property to True. Use the enum value ('1'), not the
+        # raw int 1: Post.save() compares self.status against StatusChoices.STABLE
+        # (a string) to detect the Stable transition and fire notify_component_stable.
+        # A raw int would make that comparison False and silently skip the DM.
+        obj.status = StatusChoices.STABLE
         obj.save()
 
         # Redirect to a success page or back to the post detail page
@@ -3723,9 +3738,9 @@ def universal_search(request):
                 scorecards = ScoreCard.objects.filter(game_group__icontains=query, effort=None, recorder=request.user.profile)
         
         games = Game.objects.filter(nickname__icontains=query)     
-        tournaments = Tournament.objects.filter(name__icontains=query, publicly_visible=True)  
-        stages = Stage.objects.filter(name__icontains=query, tournament__use_stages=True, tournament__publicly_visible=True)
-        rounds = Round.objects.filter(name__icontains=query, stage__isnull=False, stage__use_rounds=True, stage__tournament__publicly_visible=True)
+        tournaments = Tournament.objects.filter(name__icontains=query)  
+        stages = Stage.objects.filter(name__icontains=query, tournament__use_stages=True)
+        rounds = Round.objects.filter(name__icontains=query, stage__isnull=False, stage__use_rounds=True)
         resources = PNPAsset.objects.filter(Q(title__icontains=query)|Q(shared_by__display_name__icontains=query)|Q(shared_by__discord__icontains=query), pinned=True)
         pieces = Piece.objects.filter(name__icontains=query, parent__status__lte=view_status).order_by('parent__status')
         color_group = ColorChoices.get_color_by_name(color_name=query)
