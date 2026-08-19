@@ -27,6 +27,7 @@ class EditPermission:
         labels = {
             'recorder': 'Recorder Actions',
             'participant': 'Match Participant Actions',
+            'group_moderator': 'Group Moderator Actions',
             'organizer': 'Organizer Actions',
             'admin': 'Admin Actions',
         }
@@ -1853,6 +1854,36 @@ class Match(models.Model):
     def stage(self):
         """Convenience accessor — equivalent to match.round.stage."""
         return self.round.stage
+
+    def can_schedule(self, profile):
+        """Who may set this match's scheduled_time (used by the /schedule Discord
+        command). Mirrors the tiers in Game.can_edit: group moderators and
+        organizers always; seated players only when the tournament's
+        recording_access lets players record their own matches.
+
+        Seating comes from MatchSeat rather than player_group.tournament_players —
+        seats are the authoritative roster for a specific series."""
+        if not profile or not profile.pk:
+            return EditPermission(False)
+
+        group = self.player_group
+        if group and group.group_moderator_id == profile.pk:
+            return EditPermission(True, 'group_moderator')
+        if profile.admin:
+            return EditPermission(True, 'admin')
+
+        tournament = self.round.get_tournament()
+        if tournament and tournament.has_permission(profile):
+            return EditPermission(True, 'organizer')
+
+        if not tournament or tournament.players_can_record_matches():
+            if MatchSeat.objects.filter(
+                series_id=self.series_id,
+                stage_participant__tournament_player__profile=profile,
+            ).exists():
+                return EditPermission(True, 'participant')
+
+        return EditPermission(False)
 
     def get_matches_url(self):
         """URL of the page that lists this match, accounting for the variable

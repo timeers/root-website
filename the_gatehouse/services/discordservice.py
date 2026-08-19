@@ -14,6 +14,9 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from the_gatehouse.models import DiscordGuild, DiscordGuildJoinRequest
+# Safe at module level: time_parsing imports only stdlib + dateutil, nothing from
+# this module or the ORM.
+from .time_parsing import format_discord_timestamp
 
 from django.urls import reverse
 from django.templatetags.static import static
@@ -1974,13 +1977,11 @@ def build_upcoming_embed(match, series=None, player=None):
 
     fields = []
 
-    # Scheduled time as a Discord timestamp so each viewer sees it localized,
-    # plus a relative "in X" hint.
+    # Localized per viewer; see format_discord_timestamp.
     if match.scheduled_time:
-        ts = int(match.scheduled_time.timestamp())
         fields.append({
             "name": "Scheduled",
-            "value": f"<t:{ts}:F> (<t:{ts}:R>)",
+            "value": format_discord_timestamp(match.scheduled_time),
             "inline": False,
         })
 

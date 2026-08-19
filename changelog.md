@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.13.3] - 2026-8-19 Post Spain Updates
+
+### New Features
+- new /schedule command to schedule series games. Must be used in a thread and the server needs to be linked to the series.
+- French Law of Rootbotics added
+
 ## [1.13.2] - 2026-8-8 Rootelo Rankings
 
 ### New Features

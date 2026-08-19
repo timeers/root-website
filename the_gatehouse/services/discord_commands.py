@@ -93,6 +93,22 @@ UPCOMING_COMMAND = {
 }
 
 
+SCHEDULE_COMMAND = {
+    "name": "schedule",
+    "description": "Set or clear the scheduled time for this thread's match",
+    "options": [
+        # Optional so that omitting it means "clear the current time" (the handler
+        # asks for confirmation first, and errors when there's nothing to clear).
+        {"name": "time",
+         "description": 'e.g. "Mar 15 8pm" or a pasted <t:...> timestamp — leave empty to clear',
+         "type": 3, "required": False},
+        {"name": "timezone",
+         "description": "Your timezone (only needed once — it's remembered)",
+         "type": 3, "required": False, "autocomplete": True},
+    ],
+}
+
+
 HELP_COMMAND = {
     "name": "help",
     "description": "List the bot's available commands",
@@ -219,6 +235,7 @@ COMMANDS = [
     CARD_COMMAND,
     STATS_COMMAND,
     UPCOMING_COMMAND,
+    SCHEDULE_COMMAND,
     LAW_COMMAND,
     DRAFT_COMMAND,
     RANDOM_COMMAND,
@@ -234,7 +251,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats"]),
-    ("Games", ["upcoming", "lfg"]),
+    ("Games", ["lfg", "upcoming", "schedule"]),
     ("Random", ["draft", "random"]),
 ]
 
