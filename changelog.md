@@ -6,6 +6,9 @@
 - new /schedule command to schedule series games. Must be used in a thread and the server needs to be linked to the series.
 - French Law of Rootbotics added
 
+### Bug Fixes
+- fixed bot cold start issues with slow response time
+
 ## [1.13.2] - 2026-8-8 Rootelo Rankings
 
 ### New Features
