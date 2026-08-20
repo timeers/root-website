@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from django.db import models, transaction
-from django.db.models import Q, Sum, Max, Prefetch, Count
+from django.db.models import Q, Sum, Max, Prefetch, Count, Value
+from django.db.models.functions import Coalesce
 
 from django.utils import timezone
 from django.utils.translation import gettext_lazy
@@ -2267,9 +2268,61 @@ class Effort(models.Model):
         # Return True if regular scorecards exist
         return scorecards.exists()
 
-    
+
     class Meta:
         ordering = ['game', 'seat']
+
+
+class SeatDraftOption(models.Model):
+    """One option that was available to one seat during the faction draft.
+
+    The draft unit is (faction, vagabond) — not faction alone — because all 12 vagabond
+    variants share a single Faction row ("Vagabond") with the real identity on `vagabond`.
+    Ranger and Thief are distinct draft options that would otherwise collapse into one.
+
+    The draft runs in reverse seat order (seat 1 picks last), so a seat's pool is
+    everything still unclaimed when it picked: size seat + 1. Rows exist only for drafted
+    games — either undrafted field set — and are cached asynchronously by
+    refresh_game_draft_options. Derived data: never edit directly.
+    """
+    effort = models.ForeignKey(Effort, on_delete=models.CASCADE, related_name='draft_options')
+    faction = models.ForeignKey(Faction, on_delete=models.PROTECT, related_name='offered_in_efforts')
+    vagabond = models.ForeignKey(
+        Vagabond, on_delete=models.PROTECT, null=True, blank=True, related_name='offered_in_efforts'
+    )
+    # Denormalized from Effort.seat: primary grouping dimension of the headline query, and
+    # Effort.seat carries NO index. NOTE seat is TURN ORDER and confounds draft position —
+    # group winrate by pick_number, not seat.
+    seat = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Draft position: 1 = picked first (from the full pool), n = picked last. Computed as
+    # player_count + 1 - seat, since the draft runs in reverse seat order. NOT recoverable
+    # from `seat` alone — the mapping depends on player_count, which varies.
+    pick_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    # True when this option is the one the seat actually took. Denormalized so offer-rate
+    # queries are a single aggregate over this table with no join back to Effort.
+    chosen = models.BooleanField(default=False)
+
+    def __str__(self):
+        label = self.vagabond.title if self.vagabond else self.faction.title
+        return f'Seat {self.seat}: {label}{" (chosen)" if self.chosen else ""}'
+
+    class Meta:
+        constraints = [
+            # Coalesce because Postgres treats NULLs as distinct in a unique index, so a
+            # plain unique_together would NOT prevent duplicate (effort, faction, NULL)
+            # rows — and vagabond is NULL on most rows.
+            models.UniqueConstraint(
+                'effort', 'faction', Coalesce('vagabond', Value(0)),
+                name='uniq_seat_draft_option',
+            ),
+        ]
+        indexes = [
+            # 'chosen' as a trailing column serves the offered-vs-declined split at no
+            # extra cost over a bare ('faction','vagabond') index.
+            models.Index(fields=['faction', 'vagabond', 'chosen']),
+            models.Index(fields=['seat', 'faction', 'vagabond']),
+            models.Index(fields=['pick_number', 'faction', 'vagabond']),
+        ]
 
 
 def filtered_winrate(player=None, faction=None, vagabond=None, deck=None, tournament=None, platform=None):

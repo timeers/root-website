@@ -19,6 +19,7 @@ from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_mes
 from .models import Game, Tournament, Stage, Round, CompetitionStatus, EloSystem, EloRating, EloParticipant
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
 from .services.winrate_service import calculate_and_cache_winrate
+from .services.draft_service import refresh_game_draft_options
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,21 @@ def update_game_player_count(game_id):
     game = Game.objects.filter(pk=game_id).first()
     if game:
         game.refresh_cached_player_count()
+
+
+@shared_task
+def update_game_draft_options(game_id):
+    """Refresh the cached per-seat draft pools for a game.
+
+    Logs failures rather than swallowing them like the neighbouring tasks — a derivation
+    bug here would otherwise leave silently wrong offer-rate denominators.
+    """
+    game = Game.objects.filter(pk=game_id).first()
+    if game:
+        try:
+            refresh_game_draft_options(game)
+        except Exception:
+            logger.exception('draft options refresh failed for game %s', game_id)
 
 
 @shared_task
