@@ -14,6 +14,9 @@ from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from the_gatehouse.models import DiscordGuild, DiscordGuildJoinRequest
+# Safe at module level: time_parsing imports only stdlib + dateutil, nothing from
+# this module or the ORM.
+from .time_parsing import format_discord_timestamp
 
 from django.urls import reverse
 from django.templatetags.static import static
@@ -133,7 +136,15 @@ def send_dm_by_id(discord_id, content=None, embed=None, force=False):
 
 # Thread helper result codes
 THREAD_OK = "ok"
-THREAD_ERROR = "error"
+THREAD_BLOCKED = "blocked"  # permanent: message deleted, missing perms — do not retry
+THREAD_ERROR = "error"      # transient: network error, 5xx, rate limit — safe to retry
+
+
+def _is_terminal_edit_error(exc):
+    """A 403 (missing perms) or 404 (message/channel gone) won't fix itself on retry.
+    A 429/5xx/network error will, so those stay retryable."""
+    response = getattr(exc, "response", None)
+    return response is not None and response.status_code in (403, 404)
 
 
 def create_message_thread(channel_id, message_id, name, auto_archive_duration=1440):
@@ -212,20 +223,45 @@ def post_channel_message(channel_id, content):
         return THREAD_ERROR
 
 
-def edit_channel_message(channel_id, message_id, embeds):
-    """Edit an existing bot message's embeds (PATCH). Returns THREAD_OK / THREAD_ERROR.
-    Never raises. No DEBUG_VALUE guard — see create_message_thread."""
+def edit_channel_message(channel_id, message_id, embeds=None, components=None):
+    """Edit an existing bot message (PATCH). Never raises. Returns one of:
+        THREAD_OK      — edited
+        THREAD_BLOCKED — permanent failure (403 missing perms / 404 gone); do not retry
+        THREAD_ERROR   — transient failure (network/5xx/rate limit); safe to retry
+
+    Only the parts you pass are sent, and an omitted key leaves that part of the
+    message untouched. Note the `is not None` tests: `components=[]` is meaningful
+    (it CLEARS the button row) and must not be confused with "leave components
+    alone", so truthiness would be wrong here.
+
+    No DEBUG_VALUE guard — see create_message_thread."""
+    body = {}
+    if embeds is not None:
+        body["embeds"] = embeds
+    if components is not None:
+        body["components"] = components
+    if not body:
+        return THREAD_OK  # nothing to change; don't spend a request
     try:
         r = requests.patch(
             f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
             headers=_bot_headers(),
-            json={"embeds": embeds},
+            json=body,
             timeout=5,
         )
         r.raise_for_status()
         return THREAD_OK
     except requests.RequestException as e:
-        logger.error("Failed to edit message %s in channel %s: %s", message_id, channel_id, e)
+        # Include Discord's status + body so a rejected field (e.g. components on a
+        # message we're not allowed to edit that way) is diagnosable rather than opaque.
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        if _is_terminal_edit_error(e):
+            logger.warning("Cannot edit message %s in channel %s (permanent): %s",
+                           message_id, channel_id, detail)
+            return THREAD_BLOCKED
+        logger.error("Failed to edit message %s in channel %s: %s",
+                     message_id, channel_id, detail)
         return THREAD_ERROR
 
 
@@ -1803,7 +1839,7 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     # show the rating with an "Unranked" label and no thumbnail/color.
     if elo_participant:
         rank = elo_participant.rank
-        rank_display = f"#{rank}" if (rank and rank != "-") else "Unranked"
+        rank_display = f"#{rank}" if rank else "Unranked"
         fields.insert(0, {"name": "Rank", "value": rank_display, "inline": True})
         fields.insert(0, {"name": elo_participant.elo_system.name,
                           "value": f"{round(elo_participant.rating)}", "inline": True})
@@ -1974,13 +2010,11 @@ def build_upcoming_embed(match, series=None, player=None):
 
     fields = []
 
-    # Scheduled time as a Discord timestamp so each viewer sees it localized,
-    # plus a relative "in X" hint.
+    # Localized per viewer; see format_discord_timestamp.
     if match.scheduled_time:
-        ts = int(match.scheduled_time.timestamp())
         fields.append({
             "name": "Scheduled",
-            "value": f"<t:{ts}:F> (<t:{ts}:R>)",
+            "value": format_discord_timestamp(match.scheduled_time),
             "inline": False,
         })
 
@@ -2058,7 +2092,9 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
         "title": "Bot Commands",
         "description": "Here are the commands you can use:",
         "fields": fields,
-        "url": site_url or None,
+        # Title links to the bot's own page rather than the site homepage — someone
+        # reading /help wants to know about the bot.
+        "url": f"{site_url}/databot/" if site_url else None,
     }
 
     # Always offer one useful link. A server manager gets a link to this guild's command

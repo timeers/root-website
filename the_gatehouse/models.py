@@ -308,6 +308,13 @@ class LFGThread(models.Model):
                   'component surfaced in this thread (/random, /map, /deck, other '
                   'lookups, /draft).')
 
+    # Unlike `rolls`, this is NOT append-only: a thread has one current seating,
+    # so re-seating after another /draft replaces it outright.
+    seating = models.JSONField(
+        default=list, blank=True,
+        help_text='Seat assignments as an ordered list of {"id","name","seat"}, '
+                  'seat 1 first. The LAST seat has first pick of the faction draft.')
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -585,6 +592,14 @@ class Profile(models.Model):
     in_french_root = models.BooleanField(default=False)
     view_status = models.CharField(max_length=15 , default=StatusChoices.INACTIVE, choices=StatusChoices.choices)
     language = models.ForeignKey(Language, on_delete=models.SET_NULL, null=True, blank=True)
+    # IANA zone name (e.g. "America/New_York") used to interpret times the user types
+    # at the bot, e.g. /schedule. Set once from the command's `timezone` option and
+    # reused after that. NOTE: this field shadows the module-level `django.utils.timezone`
+    # import inside model methods — always reach it through an instance (profile.timezone).
+    timezone = models.CharField(
+        max_length=64, blank=True, null=True,
+        help_text="IANA timezone (e.g. America/New_York) used to interpret times "
+                  "given to the Discord bot.")
 
     display_name = models.CharField(max_length=100, null=True, blank=True)
     slug = models.SlugField(unique=True, null=True, blank=True)

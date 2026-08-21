@@ -1,42 +1,33 @@
 {% load i18n crispy_forms_tags %}
-{% if role %}
-{# ----- Edit an existing role: replaces its row, swaps back to the row on save/cancel ----- #}
-<div id="lfg-role-row-{{ role.pk }}" class="border rounded p-2 mb-2">
-    <form hx-post="{% url 'guild-lfg-role-edit' guild.guild_id role.pk %}"
-          hx-target="#lfg-role-row-{{ role.pk }}" hx-swap="outerHTML">
-        {% csrf_token %}
-        {% include 'the_gatehouse/partials/lfg_role_form_fields.html' with form=form role=role guild=guild field_ctx=field_ctx %}
-        <div class="text-end">
-            <button type="button" class="btn btn-sm btn-secondary"
-                    hx-get="{% url 'guild-lfg-role-edit' guild.guild_id role.pk %}?display=1"
-                    hx-target="#lfg-role-row-{{ role.pk }}" hx-swap="outerHTML">
-                {% trans 'Cancel' %}
-            </button>
-            <button type="submit" class="btn btn-sm btn-primary">{% trans 'Save' %}</button>
-        </div>
-    </form>
-</div>
-{% else %}
-{# ----- Persistent add form. It replaces itself in place, so validation errors render here. ----- #}
-{# ----- On success the view returns a fresh copy of this form (clearing inputs) plus the new  ----- #}
-{# ----- row appended out-of-band to #lfg-role-list. When every role is already used, show a   ----- #}
-{# ----- placeholder instead of the form (deleting a role re-renders this and brings it back). ----- #}
-<div id="lfg-add-form" class="border rounded p-2 mb-2 bg-light"{% if oob %} hx-swap-oob="true"{% endif %}>
-    {% if field_ctx.no_roles_left %}
-        <div class="text-muted small mb-0">
-            <i class="bi bi-check2-all me-1"></i>{% trans 'Every role has an LFG entry. Delete one to add a different role.' %}
-        </div>
-    {% else %}
-    <form hx-post="{% url 'guild-lfg-role-add' guild.guild_id %}"
-          hx-target="#lfg-add-form" hx-swap="outerHTML">
-        {% csrf_token %}
-        {% include 'the_gatehouse/partials/lfg_role_form_fields.html' with form=form role=role guild=guild field_ctx=field_ctx %}
-        <div class="text-end">
-            <button type="submit" class="btn btn-sm btn-success">
-                <i class="bi bi-plus-circle me-1"></i>{% trans 'Add Role' %}
-            </button>
-        </div>
-    </form>
-    {% endif %}
-</div>
-{% endif %}
+{% comment %} The LFG-role add/edit form, rendered into #lfg-role-modal-body. One markup
+path for both: only the POST url differs (`role` is None on an add).
+
+hx-target is the modal body — the same element this form lives in — so an invalid POST
+(422) re-renders the form here with its errors and the modal stays open with the user's
+input intact. htmx doesn't swap non-2xx by default; lfg_role_modal.js opts this one target
+in. On success the view returns lfg_role_saved.html plus an HX-Trigger that closes the modal.
+
+The footer sits inside the <form> (not in the modal shell) so the submit button needs no
+form= attribute. Spinner visibility is toggled explicitly rather than via .htmx-indicator,
+because includeIndicatorStyles is false in this project's htmx config.
+{% endcomment %}
+<form id="lfg-role-form"
+      hx-post="{% if role %}{% url 'guild-lfg-role-edit' guild.guild_id role.pk %}{% else %}{% url 'guild-lfg-role-add' guild.guild_id %}{% endif %}"
+      hx-target="#lfg-role-modal-body"
+      hx-swap="innerHTML"
+      hx-disabled-elt="find button[type=submit]"
+      hx-on:htmx:before-request="
+        this.querySelector('.lfg-save-spinner').classList.remove('d-none');
+        this.querySelector('.lfg-save-icon').classList.add('d-none');
+      ">
+    {% csrf_token %}
+    {% include 'the_gatehouse/partials/lfg_role_form_fields.html' with form=form role=role guild=guild field_ctx=field_ctx %}
+
+    <div class="d-flex justify-content-end gap-2 border-top pt-3 mt-3">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+        <button type="submit" class="btn btn-primary">
+            <span class="lfg-save-spinner spinner-border spinner-border-sm d-none me-1" role="status"></span>
+            <i class="lfg-save-icon bi bi-check-lg me-1"></i>{% if role %}{% trans 'Save Role' %}{% else %}{% trans 'Add Role' %}{% endif %}
+        </button>
+    </div>
+</form>

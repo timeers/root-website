@@ -1,0 +1,39 @@
+{% load i18n %}
+{% comment %} The 'Add LFG Role' button and its disabled states. Re-rendered out-of-band
+(oob=True) after every add/delete so the button reflects the new role counts without a
+page reload — replacing the old persistent inline add form's OOB refresh.
+
+Two independent reasons the button disables: every guild role already has an LFG entry
+(no_roles_left), or the guild is at Discord's 25-choice cap (at_limit). Context comes from
+_lfg_add_controls_ctx in views.py.
+
+data-bs-toggle opens the modal immediately (showing its spinner) while hx-get fetches the
+form into the body, so the click feels instant.
+{% endcomment %}
+<div id="lfg-add-controls" class="mt-2"{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% if add_ctx.at_limit %}
+        <button type="button" class="btn btn-sm btn-success" disabled>
+            <i class="bi bi-plus-circle me-1"></i>{% trans 'Add LFG Role' %}
+        </button>
+        <div class="text-muted small mt-1">
+            <i class="bi bi-exclamation-circle me-1"></i>
+            {% blocktrans with limit=add_ctx.tag_limit %}Discord allows at most {{ limit }} LFG tags per server. Delete one to add another.{% endblocktrans %}
+        </div>
+    {% elif add_ctx.no_roles_left %}
+        <button type="button" class="btn btn-sm btn-success" disabled>
+            <i class="bi bi-plus-circle me-1"></i>{% trans 'Add LFG Role' %}
+        </button>
+        <div class="text-muted small mt-1">
+            <i class="bi bi-check2-all me-1"></i>{% trans 'Every role has an LFG entry. Delete one to add a different role.' %}
+        </div>
+    {% else %}
+        <button type="button" class="btn btn-sm btn-success"
+                data-bs-toggle="modal" data-bs-target="#lfg-role-modal"
+                data-modal-title="{% trans 'Add LFG Role' %}"
+                hx-get="{% url 'guild-lfg-role-add' add_ctx.guild.guild_id %}"
+                hx-target="#lfg-role-modal-body"
+                hx-swap="innerHTML">
+            <i class="bi bi-plus-circle me-1"></i>{% trans 'Add LFG Role' %}
+        </button>
+    {% endif %}
+</div>

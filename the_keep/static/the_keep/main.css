@@ -438,28 +438,83 @@ em, i {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Add a subtle drop shadow */
   }
 
-  /* ── Discord-style guild management (matches /databot/ palette) ────── */
-  .guilds-hero {
-    background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
+  /* ── Discord-style page hero ───────────────────────────────────────
+     Shared by /databot/, /notifications/, /guilds/ and /elo/. The gradient
+     stops and shadow tint are custom properties defaulting to Discord
+     blurple, so a page can recolor its own hero inline without overriding
+     the rule (same pattern as --bar-color and .elo-tile's --tile-bg):
+       style="--hero-from: #2f8f5b; --hero-to: #46b377;
+              --hero-glow: rgba(47,143,91,0.25);"                        */
+  .discord-hero {
+    background: linear-gradient(
+      135deg,
+      var(--hero-from, #5865F2) 0%,
+      var(--hero-to, #7289da) 100%
+    );
     border-radius: 16px;
     padding: 32px 28px;
     text-align: center;
     color: #fff;
-    box-shadow: 0 8px 24px rgba(88, 101, 242, 0.25);
-    margin-bottom: 24px;
+    box-shadow: 0 8px 24px var(--hero-glow, rgba(88, 101, 242, 0.25));
   }
-  .guilds-hero-title {
+  /* Horizontal variant: icon badge beside left-aligned text. */
+  .discord-hero-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    text-align: left;
+    padding: 28px;
+  }
+  .discord-hero-icon {
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .discord-hero-icon i {
+    font-size: 28px;
+    color: #fff;
+  }
+  .discord-hero-title {
     font-size: 32px;
     font-weight: 800;
     margin-bottom: 8px;
     color: #fff;
   }
-  .guilds-hero-tagline {
+  .discord-hero-tagline {
     font-size: 16px;
     line-height: 1.6;
     max-width: 520px;
     margin: 0 auto;
     color: rgba(255, 255, 255, 0.92);
+  }
+  /* In the row variant the text block is already constrained by flex, so the
+     centering margin would misalign it. */
+  .discord-hero-row .discord-hero-tagline {
+    margin: 0;
+    max-width: none;
+  }
+  /* The row variant's title sits beside an icon; slightly smaller reads better. */
+  .discord-hero-row .discord-hero-title {
+    font-size: 26px;
+    margin-bottom: 4px;
+  }
+
+  @media (max-width: 768px) {
+    .discord-hero {
+      padding: 24px 20px;
+    }
+    .discord-hero-row {
+      flex-direction: column;
+      text-align: center;
+    }
+    .discord-hero-title {
+      font-size: 26px;
+    }
   }
 
   .guild-tile {
@@ -504,13 +559,9 @@ em, i {
     color: #4752c4;
   }
 
-  @media (max-width: 768px) {
-    .guilds-hero { padding: 24px 20px; }
-    .guilds-hero-title { font-size: 26px; }
-  }
-
-  /* Discord-style buttons (shared with /databot/). */
-  .databot-btn {
+  /* Discord-style buttons (shared with /databot/ and /notifications/). */
+  .databot-btn,
+  .dn-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -532,45 +583,60 @@ em, i {
     transform: translateY(-2px);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
   }
-  .databot-btn-primary {
+  .databot-btn-primary,
+  .dn-btn-primary {
     background: #5865F2;
     color: #fff;
   }
-  .databot-btn-primary:hover {
+  .databot-btn-primary:hover,
+  .dn-btn-primary:hover {
     background: #4752c4;
     color: #fff;
     transform: translateY(-2px);
     box-shadow: 0 6px 18px rgba(88, 101, 242, 0.4);
   }
-  .databot-btn-outline {
+  .databot-btn-outline,
+  .dn-btn-outline {
     background: transparent;
     color: #5865F2;
     border: 2px solid #5865F2;
     padding: 12px 28px;
   }
-  .databot-btn-outline:hover {
+  .databot-btn-outline:hover,
+  .dn-btn-outline:hover {
     background: #5865F2;
     color: #fff;
     transform: translateY(-2px);
     box-shadow: 0 6px 18px rgba(88, 101, 242, 0.3);
   }
 
-  /* Reusable white content card (shared by /databot/ and the status confirm pages). */
-  .info-card {
+  /* Reusable white content card (shared by /databot/, /notifications/, /elo/
+     and the status confirm pages). */
+  .info-card,
+  .dn-card {
     background: #fff;
     border-radius: 14px;
     overflow: hidden;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
     border: 1px solid #e3e5e8;
   }
-  .info-card-body {
+  .info-card-body,
+  .dn-card-body {
     padding: 28px;
   }
-  .info-card-title {
+  .info-card-title,
+  .dn-card-title {
     font-size: 20px;
     font-weight: 700;
     color: #2c2f33;
     margin-bottom: 20px;
+  }
+
+  @media (max-width: 768px) {
+    .info-card-body,
+    .dn-card-body {
+      padding: 20px;
+    }
   }
 
 

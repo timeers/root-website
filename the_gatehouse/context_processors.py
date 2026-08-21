@@ -38,6 +38,7 @@ def active_user_data(request):
         approved_invites = []
         user_notifications = []
         next_scheduled_matches = []
+        has_scheduled_matches = False
 
         if hasattr(request, 'user') and request.user.is_authenticated:
             try:
@@ -75,26 +76,39 @@ def active_user_data(request):
                     is_dismissed=False
                 ).order_by('-created_at')
 
-                # Next upcoming scheduled matches the player is seated in. Mirrors
+                # Scheduled matches the player is seated in. Mirrors
                 # _upcoming_scheduled_matches() in the_warroom.views: finalized
-                # bracket, a future scheduled_time (6h leeway), and no recorded
-                # result yet. Scoped to this player's seats across all tournaments.
+                # bracket, a scheduled_time, and no recorded result yet. Scoped to
+                # this player's seats across all tournaments.
                 # distinct() guards against duplicate rows when the player holds
-                # more than one seat in a series; the first 2 are kept.
-                schedule_cutoff = timezone.now() - timedelta(hours=6)
-                next_scheduled_matches = list(
+                # more than one seat in a series.
+                scheduled_matches = (
                     Match.objects.filter(
                         series__matchseat__stage_participant__tournament_player__profile=profile,
                         round__bracket_status=Round.BracketStatusChoices.FINALIZED,
                         scheduled_time__isnull=False,
-                        scheduled_time__gte=schedule_cutoff,
                     )
                     .exclude(status=CompetitionStatus.COMPLETED)
                     .exclude(game__final=True)
-                    .select_related('round', 'round__stage', 'round__stage__tournament', 'series')
-                    .order_by('scheduled_time')
-                    .distinct()[:1]
+                    .distinct()
                 )
+
+                # The menu's "Next Scheduled Match" entry keeps a 6h leeway so it
+                # points at the genuinely next game rather than the oldest overdue
+                # one: a match that just kicked off still counts, one from last
+                # month does not.
+                schedule_cutoff = timezone.now() - timedelta(hours=6)
+                next_scheduled_matches = list(
+                    scheduled_matches
+                    .filter(scheduled_time__gte=schedule_cutoff)
+                    .select_related('round', 'round__stage', 'round__stage__tournament', 'series')
+                    .order_by('scheduled_time')[:1]
+                )
+
+                # Gates the "View all scheduled matches" link independently, with no
+                # cutoff, so a player whose matches are all overdue can still reach
+                # the schedule page (which lists them).
+                has_scheduled_matches = scheduled_matches.exists()
 
             except ObjectDoesNotExist:
                 pass  # profile or related object not found
@@ -120,6 +134,7 @@ def active_user_data(request):
             'approved_invites': approved_invites,
             'user_notifications': user_notifications,
             'next_scheduled_matches': next_scheduled_matches,
+            'has_scheduled_matches': has_scheduled_matches,
             'theme': theme,
             'theme_artists': theme_artists,
             'global_message': global_message,

@@ -1,3 +1,5 @@
+import threading
+
 from django.db import transaction
 from django.db.models.signals import pre_delete, pre_save, post_save, post_delete, m2m_changed
 from django.dispatch import receiver
@@ -48,6 +50,51 @@ def _enqueue_tournament_counts(ids):
         from .tasks import update_tournament_counts
         ids = list(ids)
         _on_commit(lambda: update_tournament_counts.delay(ids))
+
+
+_draft_state = threading.local()
+
+
+def _enqueue_draft_options(game_id):
+    """Queue a draft-pool refresh, deduped per transaction.
+
+    The RDL update path deletes and recreates every effort inside one atomic block
+    (tasks.py: game.efforts.all().delete() then create_efforts_from_api), and queryset
+    .delete() still emits post_delete per instance — so a 4-player game would otherwise
+    enqueue 4 deletes + 1 game save + 4 creates = 9 identical tasks, times 50 games per
+    API page. Collect ids and flush once on commit.
+
+    Dedup is owned by the on_commit callback itself, not by thread state: the first call
+    in a block registers one callback closing over a fresh set, and later calls add to
+    that same set. Rollback is then safe for free — Django discards the callback, and the
+    set goes with it, so nothing can leak into the next transaction.
+
+    The thread-local holds only a (callback-identity, set) pair used to recognise "my
+    callback is still queued on this connection"; if it isn't queued, the previous block
+    ended and we start fresh.
+    """
+    if not game_id:
+        return
+    conn = transaction.get_connection()
+    state = getattr(_draft_state, 'pending', None)
+    # Reuse the set only while its callback is still queued for THIS block. A rolled-back
+    # block's callback is gone from run_on_commit, so this correctly starts fresh.
+    # run_on_commit entries are (sids, func, ...) — indexed rather than unpacked because
+    # the tuple's arity is an internal detail that has grown across Django versions.
+    if state is not None and any(entry[1] is state[0] for entry in conn.run_on_commit):
+        state[1].add(game_id)
+        return
+
+    pending = {game_id}
+
+    def _flush():
+        _draft_state.pending = None
+        from .tasks import update_game_draft_options
+        for gid in pending:
+            update_game_draft_options.delay(gid)
+
+    _draft_state.pending = (_flush, pending)
+    transaction.on_commit(_flush)
 
 
 def _mark_local_systems_dirty(system_ids, dt):
@@ -173,6 +220,21 @@ def handle_effort_change_update_game_count(sender, instance, **kwargs):
         from .tasks import update_game_player_count
         game_id = instance.game_id
         _on_commit(lambda: update_game_player_count.delay(game_id))
+
+
+@receiver(post_save, sender=Effort)
+@receiver(post_delete, sender=Effort)
+def handle_effort_change_update_draft_options(sender, instance, **kwargs):
+    """Any seat change re-derives the whole game — seat N's pool depends on every earlier
+    seat's pick.
+
+    DELIBERATELY UNCONDITIONAL. Do not add an `_old_faction_id` change-guard mirroring
+    effort_saved_mark_elo_dirty below: editing seat 2's faction invalidates seats 2, 3 and
+    4's pools, so a guard scoped to the changed effort would leave the others stale.
+    Firing on every effort save is also what keeps `chosen`, `seat` and `pick_number` from
+    drifting — they're rebuilt from scratch each time, including on seat renumbering.
+    """
+    _enqueue_draft_options(instance.game_id)
 
 
 @receiver(post_save, sender=Effort)
@@ -392,6 +454,8 @@ def game_pre_save_snapshot(sender, instance, **kwargs):
             instance._pre_save_test_match = old.test_match
             instance._pre_save_round_id = old.round_id
             instance._pre_save_date_posted = old.date_posted
+            instance._pre_save_undrafted_faction_id = old.undrafted_faction_id
+            instance._pre_save_undrafted_vagabond_id = old.undrafted_vagabond_id
             from .services.elo_service import affected_local_system_ids
             instance._pre_save_elo_system_ids = affected_local_system_ids(old)
         except Game.DoesNotExist:
@@ -480,6 +544,26 @@ def game_pre_delete_snapshot_counts(sender, instance, **kwargs):
 @receiver(post_delete, sender=Game)
 def game_post_delete_update_counts(sender, instance, **kwargs):
     _enqueue_tournament_counts(getattr(instance, '_pre_delete_tournament_ids', set()))
+
+
+@receiver(post_save, sender=Game)
+def game_post_save_update_draft_options(sender, instance, **kwargs):
+    """Re-derive the draft pools when the game's undrafted option changes, including
+    clearing them when it's removed.
+
+    Deliberately not on `created`: every creation path saves the Game before its Efforts
+    exist, so a create-time run would compute against zero efforts and be immediately
+    superseded by the Effort signals. The getattr defaults to the CURRENT value (not None)
+    because game_pre_save_snapshot only sets the attribute when instance.pk exists — a
+    missing snapshot must read as "no change", not as "changed from NULL".
+    """
+    old_faction = getattr(
+        instance, '_pre_save_undrafted_faction_id', instance.undrafted_faction_id)
+    old_vagabond = getattr(
+        instance, '_pre_save_undrafted_vagabond_id', instance.undrafted_vagabond_id)
+    if (old_faction != instance.undrafted_faction_id
+            or old_vagabond != instance.undrafted_vagabond_id):
+        _enqueue_draft_options(instance.pk)
 
 
 @receiver(post_save, sender=Game)

@@ -6,6 +6,7 @@ from the_warroom.models import Game, Effort
 class ParticipantSerializer(serializers.ModelSerializer):
     """One seat (Effort) in a game."""
     player = serializers.SerializerMethodField()
+    player_name = serializers.SerializerMethodField()
     player_id = serializers.IntegerField(read_only=True)
     coalition = serializers.SerializerMethodField()
     faction = serializers.SerializerMethodField()
@@ -20,13 +21,17 @@ class ParticipantSerializer(serializers.ModelSerializer):
     class Meta:
         model = Effort
         fields = [
-            'id', 'player', 'player_id', 'coalition', 'faction',
+            'id', 'player', 'player_name', 'player_id', 'coalition', 'faction',
             'game_score', 'dominance', 'vagabond', 'captains', 'discarded_captain',
             'starting_leader', 'brazen_demagogue', 'tournament_score', 'turn_order',
         ]
 
     def get_player(self, obj):
         return obj.player.slug if obj.player else None
+
+    def get_player_name(self, obj):
+        # Profile.name falls back to the discord handle when display_name is unset.
+        return obj.player.name if obj.player else None
 
     def get_coalition(self, obj):
         return obj.coalition_with.slug if obj.coalition_with else None

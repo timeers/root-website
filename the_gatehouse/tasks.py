@@ -1,6 +1,6 @@
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -252,6 +252,21 @@ def send_discord_message_task(*args, **kwargs):
     retry_kwargs={'max_retries': 3, 'countdown': 30},
     retry_backoff=True,
 )
+def post_channel_message_task(channel_id, content):
+    """Post a message into a channel/thread off the request path (the underlying
+    call blocks for up to 5s, which an interaction response can't afford).
+    post_channel_message never raises, so surface a transient failure as one to
+    trigger the retry."""
+    from .services.discordservice import post_channel_message, THREAD_ERROR
+    if post_channel_message(channel_id, content) == THREAD_ERROR:
+        raise RuntimeError(f"Transient failure posting message in channel {channel_id}")
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
 def send_discord_dm_task(user_id, content=None, embed=None):
     from django.contrib.auth import get_user_model
     user = get_user_model().objects.get(pk=user_id)
@@ -383,13 +398,11 @@ def sync_bot_guilds_task():
     retry_backoff=True,
 )
 def post_interaction_followup_task(token, message_data):
-    # UNUSED: /draft and /random now edit their public prompt into the result in
-    # place (RESPONSE_UPDATE_MESSAGE), so no separate followup message is posted.
-    # Kept for future use — any interaction flow that must send an ADDITIONAL
-    # public message after its initial response (e.g. an ephemeral command whose
-    # result should also post publicly, or a multi-message result) should enqueue
-    # this task with (interaction_token, message_data). Retries heal Discord's
-    # transient 404s when a followup briefly races ahead of the initial ACK.
+    # Sends an ADDITIONAL message after an interaction's initial response, on the
+    # interaction token. Used by /lfg's "add LFG tags" nudge and by /draft's
+    # ephemeral seating prompt. Retries heal Discord's transient 404s when a
+    # followup briefly races ahead of the initial ACK (callers also pass a small
+    # countdown to let the initial response land first).
     try:
         post_interaction_followup(token, message_data)
     except Exception:
@@ -462,11 +475,19 @@ def ensure_profile_from_discord(discord_id, username, display_name):
         return Profile.objects.create(
             discord=discord_val, discord_id=discord_id, display_name=display_name,
         )
-    except Exception:
+    except IntegrityError:
         # Lost a create race (unique discord/discord_id): fall back to the now-existing row.
-        logger.exception("Profile create raced for discord_id %s", discord_id)
-        return (Profile.objects.filter(discord_id=discord_id).first()
-                or Profile.objects.filter(discord__iexact=discord_val).first())
+        # Only IntegrityError means "raced" — anything else is a real fault and is
+        # re-raised below rather than being mislabelled and swallowed.
+        profile = (Profile.objects.filter(discord_id=discord_id).first()
+                   or Profile.objects.filter(discord__iexact=discord_val).first())
+        if profile is None:
+            # Neither the id nor the handle resolves: we return None and the caller
+            # silently drops this player. Log it — this is the one path that can
+            # quietly shrink an LFGThread's player list.
+            logger.warning("Profile lookup failed after IntegrityError for discord_id "
+                           "%s (discord=%s)", discord_id, discord_val)
+        return profile
 
 
 @shared_task
@@ -507,7 +528,6 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
     `thread_message` is appended to the kickoff ping."""
     from .services.discordservice import (
         create_message_thread, create_forum_thread, post_channel_message,
-        edit_channel_message,
     )
     guild = DiscordGuild.objects.filter(guild_id=guild_id).first() if guild_id else None
     role = (GuildLFGRole.objects.filter(guild=guild, role_id=role_id).first()
@@ -548,10 +568,16 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
         return  # no thread → nothing to persist
 
     # Link the original message's title to the new thread (embed titles support a url).
+    # Dispatched with a countdown to settle the race with ✔ Start's own interaction
+    # edit — see link_lfg_message_task. Enqueued BEFORE the DB write below so a
+    # persistence failure can't also cost the user the title link.
     if embed is not None:
         gid = guild_id or "@me"
-        embed["url"] = f"https://discord.com/channels/{gid}/{thread_id}"
-        edit_channel_message(channel_id, message_id, [embed])
+        link_lfg_message_task.apply_async(
+            (channel_id, message_id, embed,
+             f"https://discord.com/channels/{gid}/{thread_id}"),
+            countdown=2,
+        )
 
     thread, _ = LFGThread.objects.get_or_create(
         thread_id=thread_id,
@@ -559,13 +585,55 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
     )
     # Resolve-or-create each player's Profile synchronously (display name is in the
     # embed line), so players.set attaches everyone — no reliance on Join-time tasks.
+    if not players:
+        logger.warning("LFG thread %s: no players parsed from the embed", thread_id)
     profiles = [ensure_profile_from_discord(p["id"], None, p.get("name")) for p in players]
-    thread.players.set([p for p in profiles if p])
+    resolved = [p for p in profiles if p]
+    if len(resolved) != len(players):
+        unresolved = [p["id"] for p, prof in zip(players, profiles) if not prof]
+        logger.error("LFG thread %s: resolved %d/%d player profiles; unresolved ids=%s",
+                     thread_id, len(resolved), len(players), unresolved)
+    thread.players.set(resolved)
+    logger.info("LFG thread %s: attached %d players", thread_id, len(resolved))
 
 
 def _lfg_message_jump_url(guild_id, channel_id, message_id):
     gid = guild_id or "@me"
     return f"https://discord.com/channels/{gid}/{channel_id}/{message_id}"
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 5},
+)
+def link_lfg_message_task(channel_id, message_id, embed, thread_url):
+    """Point the started LFG message's embed title at the new game thread.
+
+    Split out of create_lfg_thread_task and dispatched with a small countdown to
+    settle a race: ✔ Start answers the interaction with RESPONSE_UPDATE_MESSAGE,
+    but the embed Celery serialized at .delay() time predates `url`, so whichever
+    write Discord applies LAST wins. The countdown lets the interaction's own edit
+    land first, and this PATCH re-sends `components: []` so it's a strict superset
+    of that edit and wins on content regardless of arrival order.
+
+    Unlike thread creation this edit is idempotent, so retrying is safe — but only
+    for transient failures; a 403/404 is permanent and must not burn retries."""
+    from .services.discordservice import (
+        edit_channel_message, THREAD_OK, THREAD_BLOCKED, THREAD_ERROR,
+    )
+    embed = dict(embed or {})
+    embed["url"] = thread_url
+    result = edit_channel_message(channel_id, message_id, embeds=[embed], components=[])
+    if result == THREAD_BLOCKED:
+        # Permanent (message deleted, or we may not edit components this way).
+        # Fall back to an embeds-only edit so we still land the title link rather
+        # than leaving the message worse off than before this task existed.
+        if edit_channel_message(channel_id, message_id, embeds=[embed]) == THREAD_OK:
+            logger.warning("LFG link: components edit rejected for message %s; "
+                           "fell back to embeds-only", message_id)
+        return
+    if result == THREAD_ERROR:
+        raise RuntimeError(f"transient failure linking LFG message {message_id}")
 
 
 # kinds whose result is one of the Game's direct FKs (latest selection/roll wins)

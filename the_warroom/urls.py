@@ -46,7 +46,7 @@ from .views import (game_list_view, leaderboard_view,
                     round_leaderboard_page, round_games_page,
                     round_roster_page, round_details_page, round_matches_page,
                     tournament_schedule_page, stage_schedule_page, round_schedule_page,
-                    my_scheduled_matches_page)
+                    my_scheduled_matches_page, elo_system_detail_view)
 
 urlpatterns = [
     path('record/game/', manage_game, name='record-game'),
@@ -202,6 +202,8 @@ urlpatterns = [
     path('about/series/', about_series_view, name='about-series'),
     path('about/games/', about_games_view, name='about-games'),
     path('series/', tournaments_home, name='tournaments-home'),
+
+    path('elo/<slug:slug>/', elo_system_detail_view, name='elo-system-detail'),
 
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),
     path("hx/games/effort/delete/<int:id>/", effort_hx_delete, name='effort-hx-delete'),

@@ -11,11 +11,11 @@
         {% csrf_token %}
 
         <!-- Header -->
-        <div class="dn-header mb-4">
-          <div class="dn-header-icon"><i class="bi bi-bell-fill"></i></div>
+        <div class="discord-hero discord-hero-row mb-4">
+          <div class="discord-hero-icon"><i class="bi bi-bell-fill"></i></div>
           <div>
-            <h1 class="dn-title mb-1">{% trans 'Discord Notifications' %}</h1>
-            <p class="dn-subtitle mb-0">
+            <h1 class="discord-hero-title mb-1">{% trans 'Discord Notifications' %}</h1>
+            <p class="discord-hero-tagline mb-0">
               {% trans 'Pick which events send you a DM from the Root Databot. Everything is off by default.' %}
             </p>
           </div>
@@ -137,30 +137,7 @@
 </script>
 
 <style>
-/* ── Header ────────────────────────────────────────────────────────── */
-.dn-header {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
-  border-radius: 16px;
-  padding: 28px;
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(88, 101, 242, 0.25);
-}
-.dn-header-icon {
-  width: 56px;
-  height: 56px;
-  flex-shrink: 0;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.15);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.dn-header-icon i { font-size: 28px; color: #fff; }
-.dn-title { font-size: 26px; font-weight: 800; color: #fff; }
-.dn-subtitle { font-size: 15px; color: rgba(255, 255, 255, 0.92); line-height: 1.5; }
+/* Header uses the shared .discord-hero / .discord-hero-row from the_keep/main.css. */
 
 /* ── Status notes ──────────────────────────────────────────────────── */
 .dn-note {
@@ -175,21 +152,15 @@
 .dn-note-link { color: inherit; font-weight: 700; text-decoration: underline; }
 
 /* ── Cards ─────────────────────────────────────────────────────────── */
-.dn-card {
-  background: #fff;
-  border-radius: 14px;
-  border: 1px solid #e3e5e8;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-  overflow: hidden;
-}
-.dn-card-body { padding: 24px 28px; }
+/* .dn-card / .dn-card-body / .dn-card-title share the .info-card rules in
+   the_keep/main.css. Only the notification-specific bits live here. */
 .dn-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.dn-card-title { font-size: 18px; font-weight: 700; color: #2c2f33; margin-bottom: 16px; }
+.dn-card-title { font-size: 18px; margin-bottom: 16px; }
 .dn-card-hint { font-size: 13px; color: #6a7178; margin: 4px 0 16px; }
 
 /* ── Standalone toggles ────────────────────────────────────────────── */
@@ -260,32 +231,10 @@
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────── */
+/* .dn-btn / -primary / -outline share the .databot-btn rules in the_keep/main.css. */
 .dn-actions { display: flex; gap: 12px; flex-wrap: wrap; }
-.dn-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px 26px;
-  border-radius: 10px;
-  font-weight: 700;
-  font-size: 15px;
-  border: none;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-decoration: none;
-}
-.dn-btn-primary { background: #5865F2; color: #fff; }
-.dn-btn-primary:hover {
-  background: #4752c4; color: #fff;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(88, 101, 242, 0.4);
-}
-.dn-btn-outline { background: transparent; color: #5865F2; border: 2px solid #5865F2; padding: 10px 24px; }
-.dn-btn-outline:hover { background: #5865F2; color: #fff; }
 
 @media (max-width: 768px) {
-  .dn-header { flex-direction: column; text-align: center; padding: 24px 20px; }
-  .dn-card-body { padding: 20px; }
   .dn-card-head { flex-direction: column; align-items: flex-start; }
 }
 </style>

@@ -79,61 +79,83 @@
 
         <!-- Commands -->
         <div class="card mb-3">
-            <div class="card-header">
+            <div class="card-header d-flex align-items-center justify-content-between">
                 <h5 class="mb-0"><i class="bi bi-slash-square me-2"></i>{% trans 'Commands' %}</h5>
+                {% comment %} Mirrors the "All" master checkbox on the Discord notification
+                settings page: ticks/unticks every command below and reflects their state.
+                It carries no name, so it is never submitted — the view reads only the
+                individual enabled_commands values. {% endcomment %}
+                <label class="form-check-label d-flex align-items-center gap-2 mb-0" for="cmd-master">
+                    <input type="checkbox" class="form-check-input mt-0" id="cmd-master"
+                           data-group="command-group">
+                    <span>{% trans 'All' %}</span>
+                </label>
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">
                     {% trans 'Choose which slash commands are available in this server. /help is always available.' %}
                 </p>
-                {% for name, desc in whitelist_options %}
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox"
-                           name="enabled_commands" value="{{ name }}"
-                           id="cmd-{{ name }}"
-                           {% if name in enabled_commands %}checked{% endif %}>
-                    <label class="form-check-label" for="cmd-{{ name }}">
-                        <code>/{{ name }}</code> &mdash; {{ desc }}
-                    </label>
+                <div id="command-group">
+                    {% for name, desc in whitelist_options %}
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox"
+                               name="enabled_commands" value="{{ name }}"
+                               id="cmd-{{ name }}"
+                               {% if name in enabled_commands %}checked{% endif %}>
+                        <label class="form-check-label" for="cmd-{{ name }}">
+                            <code>/{{ name }}</code> &mdash; {{ desc }}
+                        </label>
+                    </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
             </div>
         </div>
 
     </form>
 
-    <!-- LFG Roles (managed independently via HTMX) -->
-    {% comment %} hx-headers here sends the CSRF token on every HTMX request in this card
-    (it's inherited by descendants). The delete button is a bare hx-post with no wrapping
-    form, so it has no {% csrf_token %} of its own and needs the header from here. {% endcomment %}
+    <!-- LFG Roles (each add/edit/delete commits immediately via its own modal) -->
+    {% comment %} hx-headers sends the CSRF token on HTMX requests originating in this card
+    (inherited by descendants). Nothing here POSTs today — Add/Edit are hx-gets and the
+    delete POST is issued by htmx.ajax with an explicit header — but it's kept so a future
+    hx-post added in this card is covered by default. {% endcomment %}
     <div class="card mb-3" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
         <div class="card-header">
             <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'LFG Roles' %}</h5>
         </div>
         <div class="card-body">
-            {% comment %} {# Single page-level forum→tag map, read by every LFG-role form (add + HTMX-swapped
-               edit forms) to build the tag <select> client-side. Lives in this persistent shell
-               so it's still present after any HTMX swap. See static/js/lfg_forum_tags.js. #} {% endcomment %}
-            {{ lfg_add_ctx.forum_tag_map|json_script:'lfg-forum-tags' }}
+            <p class="text-muted small mb-3">
+                {% trans 'These save immediately — they are not part of Save Guild below.' %}
+            </p>
+            {% comment %} Single page-level forum→tag map, read by every LFG-role form to
+            build the tag <select> client-side. Wrapped so each add/edit/delete response can
+            refresh it out-of-band (see partials/lfg_forum_tag_blob.html), keeping it from
+            going stale while the page stays open. See static/js/lfg_forum_tags.js. {% endcomment %}
+            <div id="lfg-forum-tags-wrap">{{ lfg_add_ctx.forum_tag_map|json_script:'lfg-forum-tags' }}</div>
             <div id="lfg-role-list">
                 {% for role in lfg_roles %}
                     {% include 'the_gatehouse/partials/lfg_role_row.html' with role=role guild=guild %}
                 {% endfor %}
             </div>
-            {% include 'the_gatehouse/partials/lfg_role_form.html' with form=lfg_add_form role=None guild=guild field_ctx=lfg_add_ctx %}
+            {% include 'the_gatehouse/partials/lfg_add_controls.html' with add_ctx=add_ctx %}
         </div>
     </div>
 
-    {% comment %} The LFG Roles card contains its own <form> elements (add/edit), so it
-    can't live inside the main guild form (HTML forbids nested forms). This Save button
-    sits outside that card but reconnects to the main form via the `form` attribute, so
-    the visual order is Details → Moderators → Commands → LFG → Save. {% endcomment %}
+    {% comment %} This Save button sits outside the LFG card and reconnects to the main
+    form via the `form` attribute, so the visual order stays Details → Moderators →
+    Commands → LFG → Save. It does not (and need not) save LFG roles: those commit
+    individually through their modal. {% endcomment %}
     <button type="submit" form="guild-edit-form" class="btn btn-primary mb-4">{% trans 'Save Guild' %}</button>
+
+    {% comment %} Modal shells live outside #guild-edit-form: the add/edit modal contains a
+    <form> and HTML forbids nesting it inside another. {% endcomment %}
+    {% include 'the_gatehouse/partials/lfg_role_modal.html' %}
+    {% include 'the_gatehouse/partials/lfg_role_delete_modal.html' %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{% static 'js/lfg_forum_tags.js' %}"></script>
+<script src="{% static 'js/lfg_role_modal.js' %}"></script>
 <script>
     function getModeratorExcludeIds() {
         const inputs = document.querySelectorAll('input[name="moderators"]');
@@ -180,5 +202,31 @@
             emptyMsg.classList.remove('d-none');
         }
     }
+
+    // "All" checkbox for the Commands card: ticks/unticks every command, and
+    // reflects their combined state when they change individually. Indeterminate
+    // shows a partial selection. Matches the master checkbox on the Discord
+    // notification settings page.
+    (function () {
+        const master = document.getElementById('cmd-master');
+        const group = master && document.getElementById(master.dataset.group);
+        if (!group) return;
+
+        const boxes = Array.from(group.querySelectorAll('input[type="checkbox"]'));
+        if (!boxes.length) return;
+
+        function syncMaster() {
+            const checked = boxes.filter(b => b.checked).length;
+            master.checked = checked === boxes.length;
+            master.indeterminate = checked > 0 && checked < boxes.length;
+        }
+
+        master.addEventListener('change', () => {
+            boxes.forEach(cb => { cb.checked = master.checked; });
+            master.indeterminate = false;
+        });
+        boxes.forEach(cb => cb.addEventListener('change', syncMaster));
+        syncMaster();
+    })();
 </script>
 {% endblock %}

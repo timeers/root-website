@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.13.3] - 2026-8-21 Post Spain Updates
+
+### New Features
+- new /schedule command to schedule games. Must be used in a thread and the server needs to be linked to the series.
+- French Law of Rootbotics added
+- framework for draft pool selection data and analysis 
+- New Elo Leaderboard page
+
+### Improvements
+- added time field to game form
+- lfg role management now uses modals for better user experience
+- /draft can now seat players when used within an lfg thread
+- added player_name to MatchAPI
+- added a select all button to the Databot commands form
+
+### Bug Fixes
+- fixed bot cold start issues with slow response time
+- bug where lfg bot removed thread link after game start. Added delay to avoid overwriting link
+- removed 6hr cutoff from game schedule so that delayed games still appear
+
 ## [1.13.2] - 2026-8-8 Rootelo Rankings
 
 ### New Features

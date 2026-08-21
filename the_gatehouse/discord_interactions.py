@@ -11,15 +11,15 @@ Currently handles:
   APPLICATION_COMMAND (type 2)         -> dispatches by command name (e.g.
                                           /faction, /clockwork, /map, /deck,
                                           /vagabond, /landmark, /hireling,
-                                          /houserule, /stats, /upcoming, /law,
-                                          /help)
+                                          /houserule, /stats, /upcoming,
+                                          /schedule, /law, /help)
   APPLICATION_COMMAND_AUTOCOMPLETE (4) -> live option suggestions (type 8)
 """
 import json
 import logging
 import random
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
@@ -33,10 +33,11 @@ from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
 from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant
-from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole
+from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
+    post_channel_message_task,
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
@@ -47,6 +48,10 @@ from .services.discordservice import (
 )
 from .services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
+)
+from .services.time_parsing import (
+    NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
+    valid_timezone, search_timezones,
 )
 from .services.discord_components import (
     action_row, button, string_select, select_option,
@@ -274,6 +279,14 @@ def _lfg_item(kind, post):
             "title": getattr(post, "title", None)}
 
 
+def _lfg_thread_for_channel(channel_id):
+    """The LFGThread for this channel, or None when it isn't a game thread.
+    An LFGThread's `thread_id` IS the channel id inside the thread."""
+    if not channel_id:
+        return None
+    return LFGThread.objects.filter(thread_id=channel_id).first()
+
+
 def _handle_captain_command(data):
     """/captain: look up a captain-capable vagabond and show its captain
     (Advanced) profile — captain ability and captain starting items."""
@@ -438,6 +451,379 @@ def _handle_upcoming_command(data):
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {"embeds": [build_upcoming_embed(match, series=tournament, player=player)]},
     })
+
+
+# ── /schedule ────────────────────────────────────────────────────────────────
+# Sets — or, with no `time` option, clears — Match.scheduled_time from inside the
+# match's own Discord thread. The thread is identified by id
+# (PlayerGroup.discord_thread holds its URL), falling back to the thread's title
+# matched against the player group's name.
+#
+# Neither set nor clear writes straight away. A set echoes the parsed time back as
+# a Discord <t:...> timestamp — which renders in the clicker's own timezone — so a
+# misparse is visible before it's saved; a clear shows the time about to be
+# removed. Both sit behind a button the invoker has to press.
+
+# Discord thread types (channel.type) — used to tell "in a thread" from "in a channel".
+_THREAD_CHANNEL_TYPES = {10, 11, 12}
+
+# Collapse whitespace and strip leading decoration when comparing a thread title to
+# a group name; thread names routinely pick up an emoji or separator prefix.
+_TITLE_NOISE_RE = re.compile(r"^[^\w(]+|[^\w)]+$")
+_WS_RE = re.compile(r"\s+")
+
+
+def _normalize_title(text):
+    return _WS_RE.sub(" ", _TITLE_NOISE_RE.sub("", (text or "").strip())).strip().lower()
+
+
+def _schedulable_matches(guild_id):
+    """Matches in this guild's tournaments that could still be scheduled: not
+    completed and not yet linked to a recorded game.
+
+    A round reaches its tournament directly (no-stage tournaments) or through its
+    stage, so both paths must be matched — same as /upcoming."""
+    return Match.objects.filter(
+        Q(round__stage__tournament__guild__guild_id=guild_id)
+        | Q(round__tournament__guild__guild_id=guild_id),
+        game__isnull=True,
+    ).exclude(status=CompetitionStatus.COMPLETED).select_related(
+        "series", "series__player_group", "series__player_group__group_moderator",
+        "round", "round__stage", "round__stage__tournament", "round__tournament",
+    )
+
+
+def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unscheduled"):
+    """The Match to schedule for this thread. Returns (match, error) where `error`
+    is a user-facing message.
+
+    Primary key is the thread id inside PlayerGroup.discord_thread. Falls back to
+    the thread's title matched against the player group's name (the name shown
+    everywhere in the UI; MatchSeries.name is usually blank), for groups whose
+    thread URL was never filled in.
+
+    `prefer` picks which match of a multi-game series to act on: "unscheduled"
+    (setting a time) takes the first game still missing one; "scheduled"
+    (clearing) takes the LAST game that has one."""
+    if not guild_id or not channel_id or not str(channel_id).isdigit():
+        return None, "This command only works inside a server."
+
+    base = _schedulable_matches(guild_id)
+
+    # discord_thread is a URL ending in the thread id
+    # (https://discord.com/channels/<guild>/<thread>). Anchor on the leading slash
+    # so a thread id can't match part of the guild id.
+    matches = list(base.filter(
+        series__player_group__discord_thread__contains=f"/{channel_id}"
+    ).order_by("match_number"))
+
+    if not matches:
+        title = _normalize_title(channel_name)
+        if not title:
+            return None, (
+                "I couldn't find a tournament match linked to this thread. A "
+                "moderator can link it on the series edit page (set the group's "
+                "Discord thread), then try again."
+            )
+        # Title fallback. Compare in Python so normalization matches on both sides
+        # (emoji prefixes, collapsed whitespace) rather than relying on __iexact.
+        candidates = [
+            m for m in base.filter(series__player_group__isnull=False)
+            if _normalize_title(m.series.player_group.name) == title
+        ]
+        groups = {m.series.player_group_id for m in candidates}
+        if len(groups) > 1:
+            # Group names are unique per round, not per tournament, so a title can
+            # legitimately match several groups. Don't guess.
+            return None, (
+                f'Several player groups are named "{channel_name}", so I can\'t tell '
+                "which match this thread is for. A moderator can link this thread to "
+                "the group on the series edit page."
+            )
+        matches = sorted(candidates, key=lambda m: (m.match_number is None, m.match_number))
+
+    if not matches:
+        return None, (
+            "I couldn't find a tournament match linked to this thread. A moderator "
+            "can link it on the series edit page (set the group's Discord thread), "
+            "then try again."
+        )
+
+    # `matches` is ordered by match_number, so [0] is the earliest game of a
+    # series and [-1] the latest.
+    if prefer == "scheduled":
+        # Clearing: the last game that actually has a time — most likely the one
+        # just set by mistake. With none scheduled, hand back the earliest so the
+        # caller can say "nothing to remove" naming a real match.
+        scheduled = [m for m in matches if m.scheduled_time is not None]
+        return (scheduled[-1] if scheduled else matches[0]), None
+
+    # Setting: the first match with no time yet; if every match in the series is
+    # already scheduled, target the earliest one and treat this as a reschedule.
+    unscheduled = [m for m in matches if m.scheduled_time is None]
+    return (unscheduled[0] if unscheduled else matches[0]), None
+
+
+def _match_label(match):
+    """How a match is named back to the user: the player group's name (what the UI
+    shows everywhere), falling back to the derived match name."""
+    group = match.series.player_group if match.series_id else None
+    return (group.name if group and group.name else None) or match.name or "this match"
+
+
+def _schedule_confirm_data(match, when, owner):
+    """The ephemeral confirm prompt: the time as Discord renders it in the clicker's
+    own timezone, plus Confirm / Cancel. The owner snowflake rides LAST in each
+    custom_id so the dispatcher's owner-lock applies without extra checks."""
+    label = _match_label(match)
+    ts = int(when.timestamp())
+    lines = [
+        f"Schedule **{label}** for:",
+        format_discord_timestamp(when),
+    ]
+    if match.scheduled_time:
+        lines.append(
+            f"\nThis replaces the current time of {format_discord_timestamp(match.scheduled_time)}."
+        )
+    lines.append("\nDoes that look right?")
+    return {
+        "content": "\n".join(lines),
+        "flags": EPHEMERAL,
+        "components": [action_row(
+            button("Confirm", encode_custom_id("schedule_confirm", match.id, ts, owner),
+                   style=STYLE_SUCCESS),
+            button("Cancel", encode_custom_id("schedule_cancel", owner), style=STYLE_SECONDARY),
+        )],
+    }
+
+
+def _schedule_clear_data(match, owner):
+    """Confirm prompt for REMOVING a match's scheduled time. Destructive, so the
+    action button is STYLE_DANGER (the ✖ vocabulary /lfg uses) rather than the
+    STYLE_SUCCESS the set flow reserves for adding a time."""
+    return {
+        "content": "\n".join([
+            f"Remove the scheduled time for **{_match_label(match)}**?",
+            f"Currently {format_discord_timestamp(match.scheduled_time)}",
+            # Clearing only affects where the match shows up, not who may record
+            # it — recording is gated on seating, never on scheduled_time.
+            "\nThe match stays in the bracket — it just won't show on the schedule "
+            "until a new time is set.",
+        ]),
+        "flags": EPHEMERAL,
+        "components": [action_row(
+            button("Clear Time", encode_custom_id("schedule_clear_confirm", match.id, owner),
+                   style=STYLE_DANGER),
+            button("Cancel", encode_custom_id("schedule_cancel", owner), style=STYLE_SECONDARY),
+        )],
+    }
+
+
+def _handle_schedule_command(data):
+    """/schedule: set — or, with no `time`, clear — the scheduled time of the match
+    belonging to this thread. Replies ephemerally with a confirm prompt; nothing is
+    written until the user clicks."""
+    guild_id = data.get("_guild_id")
+    channel_id = data.get("_channel_id")
+    author_id = data.get("_author_id")
+
+    if not guild_id:
+        return _ephemeral("This command only works inside a server.")
+    if not author_id:
+        return _ephemeral("User not found, try again.")
+
+    # Strict lookup: creating a profile here would only let the user fail the
+    # permission check below in a more confusing way.
+    profile = Profile.objects.filter(discord_id=str(author_id)).first()
+    if not profile:
+        site = config.get("SITE_URL") or ""
+        suffix = f" at {site}" if site else ""
+        return _ephemeral(
+            f"I don't have a site account linked to your Discord yet. Log in{suffix} "
+            "with Discord once, then try again."
+        )
+
+    # No time given = clear the existing one. That flips which match of a
+    # multi-game series we want: the last one that HAS a time, not the first
+    # one missing it.
+    time_text = (_get_option(data, "time") or "").strip()
+    clearing = not time_text
+
+    match, error = _match_for_thread(
+        channel_id, guild_id, data.get("_channel_name"),
+        prefer="scheduled" if clearing else "unscheduled",
+    )
+    if error:
+        # Discord tells us the channel type, so a command run in a normal channel
+        # gets the actionable message rather than "no match linked to this thread".
+        channel_type = data.get("_channel_type")
+        if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
+            return _ephemeral(
+                "Run this inside your game's thread to know which "
+                "game to schedule."
+            )
+        return _ephemeral(error)
+
+    # Checked before the clear branch so an unauthorized user gets the permission
+    # error rather than a prompt they can't act on.
+    permission = match.can_schedule(profile)
+    if not permission:
+        return _ephemeral(
+            "You can't set the time for this game: you need to be one of its "
+            "players, the group's moderator, or a tournament moderator."
+        )
+
+    if clearing:
+        if match.scheduled_time is None:
+            return _ephemeral(
+                f"**{_match_label(match)}** doesn't have a scheduled time to remove. "
+                "Give me a `time` to set one."
+            )
+        # No timezone needed to clear, so this path works even for a profile that
+        # has never set one.
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _schedule_clear_data(match, author_id),
+        })
+
+    # Timezone: an explicit option (remembered for next time) beats the stored one.
+    tz_option = (_get_option(data, "timezone") or "").strip()
+    if tz_option:
+        if not valid_timezone(tz_option):
+            return _ephemeral(
+                f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
+                "suggestions, e.g. `America/New_York`."
+            )
+        if profile.timezone != tz_option:
+            profile.timezone = tz_option
+            profile.save(update_fields=["timezone"])
+    tz_name = tz_option or profile.timezone
+
+    when, error = parse_user_datetime(time_text, tz_name)
+    if error == NEED_TIMEZONE:
+        return _ephemeral(
+            "I don't know your timezone yet, so I can't tell what that time means. "
+            "Run the command again with the `timezone` option (e.g. "
+            "`America/New_York`). I'll remember it after that."
+        )
+    if error:
+        return _ephemeral(error)
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": _schedule_confirm_data(match, when, author_id),
+    })
+
+
+def _handle_schedule_confirm(payload):
+    """Confirm button: write the scheduled time, then announce it in the thread."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, ts, owner]
+    if len(args) < 3:
+        return _ephemeral("That button is out of date — run /schedule again.")
+    match_id, ts, owner = args[0], args[1], args[2]
+
+    match = _schedulable_matches(payload.get("guild_id")).filter(pk=match_id).first()
+    if not match:
+        return _ephemeral(
+            "That match can no longer be scheduled: it may have been played or removed."
+        )
+
+    # The button is a second request, so re-check permission rather than trusting
+    # the check made when the prompt was built.
+    profile = Profile.objects.filter(discord_id=str(owner)).first()
+    if not profile or not match.can_schedule(profile):
+        return _ephemeral("You can't set the time for this match.")
+
+    try:
+        when = datetime.fromtimestamp(int(ts), tz=dt_timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        return _ephemeral("That time is no longer valid: run /schedule again.")
+
+    match.scheduled_time = when
+    # update_fields is required: a bare save() re-runs Match.save()'s name and
+    # match_number derivation.
+    match.save(update_fields=["scheduled_time"])
+
+    # Announce publicly in the thread so the whole group sees it. The followup is
+    # sequenced after this response's ACK (a followup before it 404s).
+    token = payload.get("token")
+    if token:
+        try:
+            embed = build_upcoming_embed(match)
+        except Exception:
+            logger.exception("Failed to build /schedule announcement embed")
+            embed = None
+        if embed:
+            post_interaction_followup_task.apply_async(
+                (token, {"embeds": [embed]}), countdown=2,
+            )
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {
+            "content": f"✔ Scheduled for {format_discord_timestamp(when)}.",
+            "components": [],
+        },
+    })
+
+
+def _handle_schedule_clear_confirm(payload):
+    """Clear button: remove the match's scheduled time, then say so in the thread.
+    Mirrors _handle_schedule_confirm's guards — the button is a second request, so
+    the match is re-fetched and permission re-checked."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, owner]
+    if len(args) < 2:
+        return _ephemeral("That button is out of date: run /schedule again.")
+    match_id, owner = args[0], args[1]
+
+    match = _schedulable_matches(payload.get("guild_id")).filter(pk=match_id).first()
+    if not match:
+        return _ephemeral(
+            "That match can no longer be changed: it may have been played or removed."
+        )
+
+    profile = Profile.objects.filter(discord_id=str(owner)).first()
+    if not profile or not match.can_schedule(profile):
+        return _ephemeral("You can't change the time for this match.")
+
+    if match.scheduled_time is None:
+        return _ephemeral("That match no longer has a scheduled time.")
+
+    label = _match_label(match)
+    match.scheduled_time = None
+    # update_fields is required: a bare save() re-runs Match.save()'s name and
+    # match_number derivation.
+    match.save(update_fields=["scheduled_time"])
+
+    # Supersede the announcement the set flow posted — otherwise the thread is left
+    # showing a time that no longer exists. Plain text rather than
+    # build_upcoming_embed, which omits its Scheduled field entirely when the time
+    # is null and so would read as if nothing had changed.
+    token = payload.get("token")
+    if token:
+        post_interaction_followup_task.apply_async(
+            (token, {"content": f"🗓️ The scheduled time for **{label}** was removed."}),
+            countdown=2,
+        )
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "✔ Scheduled time removed.", "components": []},
+    })
+
+
+def _handle_schedule_cancel(payload):
+    """Cancel button: drop the prompt without writing anything. Shared by the set
+    and clear flows, so the copy stays neutral."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Cancelled — nothing was changed.", "components": []},
+    })
+
+
+def _ac_schedule_timezone(query, _data):
+    """Autocomplete for /schedule `timezone`: IANA zone names, common ones first."""
+    return [{"name": z, "value": z} for z in search_timezones(query)]
 
 
 def _public_laws(language_code="en"):
@@ -658,8 +1044,15 @@ def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author
 
 
 def _handle_draft_command(data):
-    """/draft: open the public, owner-locked ban UI for the chosen players/platform."""
-    players = _get_option(data, "players") or 4
+    """/draft: open the public, owner-locked ban UI for the chosen players/platform.
+
+    With no `players` option, an LFG game thread defaults the count to its own
+    roster size (clamped to 2..6 like any other value); anywhere else falls back
+    to 4."""
+    players = _get_option(data, "players")
+    if players is None:
+        thread = _lfg_thread_for_channel(data.get("_channel_id"))
+        players = (thread.players.count() if thread else 0) or 4
     players = max(2, min(6, int(players)))
     platform = _get_option(data, "platform") or DRAFT_PLATFORM_TTS
 
@@ -756,12 +1149,61 @@ def _handle_draft_build(payload):
         drawn, players, platform, banned_slugs, factions,
         author=_interaction_author(payload), vagabond=vagabond, captains=captains,
     )
+    # Inside an LFG game thread, offer to seat the players (ephemeral, so only the
+    # drafter sees the prompt). Enqueued as a followup rather than returned, because
+    # this response is the public result edit.
+    _offer_lfg_seating(payload)
     # Edit the public prompt into the result: content "" clears the prompt text,
-    # components [] removes the buttons. (No follow-up — the message is already public.)
+    # components [] removes the buttons. (The result itself is already public; the
+    # only follow-up is the ephemeral seating prompt above.)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"embeds": [embed], "content": "", "components": []},
     })
+
+
+def _offer_lfg_seating(payload):
+    """After a draft inside an LFG thread, send the drafter an ephemeral Yes/No
+    prompt offering to seat the thread's players. No-op outside an LFG thread, or
+    when the roster is too small to seat.
+
+    When the thread already has a seating, the prompt warns that confirming
+    REPLACES it (a thread holds one current seating) and the confirm button turns
+    into a red "Overwrite"."""
+    thread = _lfg_thread_for_channel(payload.get("channel_id"))
+    if not thread or thread.players.count() < 2:
+        return
+    token = payload.get("token")
+    if not token:  # can't send a followup without the interaction token
+        return
+
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    if thread.seating:
+        prompt = ("This game already has a seating order — seating again will "
+                  "**overwrite it**. Seat the players again?")
+        confirm, style = "Overwrite", STYLE_DANGER
+    else:
+        prompt = "Seat the players for this game?"
+        confirm, style = "Yes", STYLE_SUCCESS
+    row = action_row(
+        button(confirm, encode_custom_id("draft_seat", owner), style=style),
+        button("No", encode_custom_id("draft_seat_no", owner), style=STYLE_SECONDARY),
+    )
+    # The countdown lets the initial interaction response reach Discord first — a
+    # followup that races ahead of the ACK 404s.
+    #
+    # The prompt is an optional extra on top of a draft that already succeeded, so a
+    # broker outage must cost only the prompt: swallow it rather than let the
+    # dispatcher's catch-all replace the finished draft with an error message.
+    try:
+        post_interaction_followup_task.apply_async(
+            (token, {"content": prompt, "components": [row], "flags": EPHEMERAL}),
+            countdown=2,
+        )
+    except Exception:
+        logger.exception("Could not enqueue the LFG seating prompt for thread %s",
+                         thread.thread_id)
 
 
 def _handle_draft_cancel(payload):
@@ -771,6 +1213,62 @@ def _handle_draft_cancel(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": "Draft cancelled.", "embeds": [], "components": []},
+    })
+
+
+def _draft_seating_message(seats, reseated=False):
+    """The public seating message: numbered seats, then who picks first. The LAST
+    seat has first pick (Root drafts factions in reverse seat order).
+
+    `reseated` prefixes a banner marking this as a replacement — the superseded
+    seating message stays in the thread history, so without it two numbered lists
+    sit there with nothing saying which is current.
+
+    Plain names, not mentions: everyone in the thread already sees this message,
+    and mentioning every player would ping the whole table."""
+    lines = []
+    if reseated:
+        lines += ["**Re-seated** — this replaces the previous seating order.", ""]
+    lines += [f"{s['seat']}. {s['name']}" for s in seats]
+    lines += ["", f"{seats[-1]['name']} has first pick of the faction draft"]
+    return "\n".join(lines)
+
+
+def _handle_draft_seat_no(payload):
+    """No: dismiss the ephemeral prompt. Nothing is posted or persisted."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "No seating assigned.", "components": []},
+    })
+
+
+def _handle_draft_seat(payload):
+    """Seat button: randomly assign seats 1..N to the LFG thread's roster, post the
+    seating publicly in the thread, and persist it on the LFGThread (replacing any
+    previous order)."""
+    thread = _lfg_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return _ephemeral("This isn't a game thread anymore.")
+    profiles = list(thread.players.all())
+    if len(profiles) < 2:
+        return _ephemeral("Not enough players in this thread to seat.")
+
+    random.shuffle(profiles)
+    seats = [{"id": p.discord_id, "name": p.name, "seat": i}
+             for i, p in enumerate(profiles, 1)]
+
+    # A thread holds ONE current seating, so this replaces rather than appends
+    # (unlike `rolls`). No select_for_update: it's a whole-field write by a single
+    # owner-locked clicker, not a read-append-write.
+    reseated = bool(thread.seating)
+    thread.seating = seats
+    thread.save(update_fields=["seating"])
+
+    post_channel_message_task.delay(
+        thread.thread_id, _draft_seating_message(seats, reseated))
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Seating posted.", "components": []},
     })
 
 
@@ -1288,7 +1786,7 @@ def _handle_lfg_join(payload):
         # Already in the game → leave (unless owner, who cancels via ✖ instead).
         if clicker in joined:
             if clicker == owner_id:
-                return _ephemeral("You're hosting this game — you can't leave it, "
+                return _ephemeral("You're hosting this game and can't join or leave it, "
                                   "but you can cancel it with ✖.")
             remaining = [p for p in players if p["id"] != clicker]
             field["value"] = "\n".join(_lfg_player_line(p["name"], p["id"]) for p in remaining) or "—"
@@ -1378,6 +1876,13 @@ def _handle_lfg_start(payload):
     players = _lfg_player_lines(embed)
     description = embed.get("description", "")
 
+    # Nothing parsed out of the Players field: starting would create a thread that
+    # pings nobody (kickoff collapses to "your game can start!") and an LFGThread
+    # with no players. The host can't leave, so this shouldn't happen in the normal
+    # flow — it guards a malformed/edited embed. Bail before mutating or enqueuing.
+    if not players:
+        return _ephemeral("This game has no players yet.")
+
     # Status subtext goes in the embed footer (small text at the very bottom).
     # Use the monochrome ✔ to match the Start button glyph.
     embed["footer"] = {"text": "✔ Game has started."}
@@ -1395,6 +1900,15 @@ def _handle_lfg_start(payload):
         payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
         role_id, description, players, embed, token=payload.get("token"),
     )
+    # Answer synchronously (type 7) rather than deferring (type 6) and letting the
+    # task be the sole writer. Deferring would leave the buttons LIVE until the
+    # worker gets to it, so with Celery/Redis down the game still looks joinable and
+    # a second ✔ Start would enqueue a duplicate thread. Answering here degrades to
+    # "buttons gone, started footer, title just isn't linked".
+    #
+    # Note this edit and link_lfg_message_task's PATCH both write this message; the
+    # embed serialized above predates `url`, so the task's edit re-sends the whole
+    # embed plus components:[] to win on content whichever order they land in.
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"embeds": [embed], "components": []},
@@ -1411,6 +1925,7 @@ COMMAND_HANDLERS["card"] = _handle_card_command
 COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
+COMMAND_HANDLERS["schedule"] = _handle_schedule_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command
@@ -1421,9 +1936,14 @@ COMPONENT_HANDLERS = {
     "draft_select": _handle_draft_select,
     "draft_build": _handle_draft_build,
     "draft_cancel": _handle_draft_cancel,
+    "draft_seat": _handle_draft_seat,
+    "draft_seat_no": _handle_draft_seat_no,
     "random_post": _handle_random_post,
     "random_roll": _handle_random_roll,
     "random_hireling": _handle_random_hireling,
+    "schedule_confirm": _handle_schedule_confirm,
+    "schedule_clear_confirm": _handle_schedule_clear_confirm,
+    "schedule_cancel": _handle_schedule_cancel,
     "lfg_join": _handle_lfg_join,
     "lfg_notify": _handle_lfg_notify,
     "lfg_cancel": _handle_lfg_cancel,
@@ -1597,6 +2117,7 @@ AUTOCOMPLETE_HANDLERS = {
     ("card", "from"): _ac_card_from,
     ("upcoming", "series"): _ac_upcoming_series,
     ("upcoming", "player"): _ac_upcoming_player,
+    ("schedule", "timezone"): _ac_schedule_timezone,
     ("law", "law"): _ac_law,
     ("law", "post"): _ac_law_post,
 }
@@ -1653,6 +2174,13 @@ def discord_interactions(request):
                 data["_guild_id"] = guild_id
                 data["_author_username"] = member_user.get("username")
                 data["_channel_id"] = payload.get("channel_id")
+                # Discord sends the full partial channel object on every
+                # interaction; the name and type let /schedule match a thread by
+                # its title (and tell a thread from a plain channel) without an
+                # API round-trip. Types 10/11/12 are threads.
+                channel = payload.get("channel") or {}
+                data["_channel_name"] = channel.get("name")
+                data["_channel_type"] = channel.get("type")
                 # The invoker's computed permissions in this channel (Discord resolves
                 # roles/owner/admin for us). Lets /help decide, without an API call,
                 # whether to offer the "enable more commands" link.

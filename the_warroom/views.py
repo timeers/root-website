@@ -4,7 +4,6 @@ import json
 import csv
 
 from io import StringIO
-from datetime import timedelta
 from itertools import groupby
 from django.shortcuts import render
 from django.views.generic import DeleteView
@@ -31,6 +30,7 @@ from urllib.parse import quote
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
                      TournamentPlayer, PlayerGroup, Stage, StageParticipant, FormatChoices,
                      Match, MatchSeries, MatchSeat, CompetitionStatus, EditPermission,
+                     EloSystem, EloParticipant,
                      effort_counts_for_round_q, effort_counts_for_stage_q,
                      effort_counts_for_tournament_q,
                      game_counts_for_round_q, game_counts_for_stage_q,
@@ -5573,15 +5573,14 @@ def _upcoming_scheduled_matches(match_filter):
     ``match_filter`` is a dict of Match field lookups scoping the object
     (e.g. {'round__stage__tournament': tournament}). Returns a queryset ordered
     by scheduled_time. A match counts as upcoming when its round's bracket is
-    finalized, it has a scheduled_time in the future (6h leeway), and it has no
-    finalized game."""
-    cutoff = timezone.now() - timedelta(hours=6)
+    finalized, it has a scheduled_time, and it has no finalized game. There is
+    deliberately no cutoff on scheduled_time: a match that ran late or was never
+    recorded stays listed (as overdue) rather than silently disappearing."""
     return (
         Match.objects.filter(**match_filter)
         .filter(
             round__bracket_status=Round.BracketStatusChoices.FINALIZED,
             scheduled_time__isnull=False,
-            scheduled_time__gte=cutoff,
         )
         .exclude(status=CompetitionStatus.COMPLETED)
         .exclude(game__final=True)
@@ -8398,3 +8397,33 @@ def stage_advancement_config(request, tournament_slug, stage_slug):
         stage.save(update_fields=update_fields)
 
     return JsonResponse({'success': True})
+
+def elo_system_detail_view(request, slug):
+    """Public detail page for one Elo system: the series feeding it and a
+    paginated leaderboard of its participants (prev/next page links)."""
+    elo_system = get_object_or_404(EloSystem, slug=slug)
+
+    # Unranked players (rank=NULL) sort last. 'pk' is a required tiebreaker, not a
+    # nicety: many rows share a null rank and/or a rating, and without a unique
+    # final key the row order can vary between queries, so the same player could
+    # appear on two pages (or none) as the user pages through.
+    participants = (
+        elo_system.participants
+                  .select_related('player', 'elo_system')
+                  .order_by(F('rank').asc(nulls_last=True), '-rating', 'pk')
+    )
+
+    paginator = Paginator(participants, settings.PAGE_SIZE)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    context = {
+        'elo_system': elo_system,
+        # start_date is nullable; DESC would otherwise float undated series to the top.
+        'tournaments': elo_system.tournaments.order_by(
+            F('start_date').desc(nulls_last=True), 'name'
+        ),
+        'participants': page_obj,
+        'page_obj': page_obj,
+        'participants_count': paginator.count,
+    }
+    return render(request, 'the_warroom/elo_system_detail_page.html', context)

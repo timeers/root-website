@@ -1,0 +1,270 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ elo_system.name }} | {% endblock %}
+
+{% block main_width_class %}col-md-12{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+
+      <!-- Hero -->
+      <div class="discord-hero discord-hero-row mb-4">
+        <div class="discord-hero-icon"><i class="bi bi-graph-up-arrow"></i></div>
+        <div>
+          <h1 class="discord-hero-title root-title mb-1">{{ elo_system.name }}</h1>
+          <p class="discord-hero-tagline mb-0">
+            {{ elo_system.get_calculation_type_display }}
+            &middot; {{ participants_count }} {% trans 'player' %}{{ participants_count|pluralize }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Series feeding this system -->
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          {% comment %} <h2 class="info-card-title">
+            <i class="bi bi-trophy me-2 text-warning"></i>{% trans 'Series' %}
+          </h2> {% endcomment %}
+          {% if tournaments %}
+          <div class="elo-series-list">
+            {% for tournament in tournaments %}
+              <a class="elo-series-item" href="{{ tournament.get_absolute_url }}">
+                <span class="elo-series-name">{{ tournament.name }}</span>
+                {% if tournament.start_date %}
+                  <span class="elo-series-date">{{ tournament.start_date|date:"M j, Y" }}</span>
+                {% endif %}
+              </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="alert alert-info mb-0">
+            <i class="bi bi-info-circle me-2"></i>{% trans 'No series use this system yet.' %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Leaderboard -->
+      <div class="info-card">
+        <div class="info-card-body">
+          {% comment %} <h2 class="info-card-title">
+            <i class="bi bi-bar-chart-line me-2 text-primary"></i>{% trans 'Leaderboard' %}
+          </h2> {% endcomment %}
+          <div class="table-responsive">
+            <table class="table elo-table align-middle" id="eloLeaderboard">
+              <thead>
+                <tr>
+                  <th>{% trans 'Rank' %}</th>
+                  <th class="elo-col-tier">{% trans 'Tier' %}</th>
+                  <th>{% trans 'Player' %}</th>
+                  <th class="text-end">{% trans 'ELO' %}</th>
+                  <th class="text-end elo-col-games">{% trans 'Games' %}</th>
+                  <th class="text-end elo-col-wins">{% trans 'Wins' %}</th>
+                  <th class="text-end elo-col-winrate">{% trans 'Win Rate' %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% include 'the_warroom/partials/elo_leaderboard_rows.html' %}
+              </tbody>
+            </table>
+          </div>
+
+          {% if page_obj.has_previous or page_obj.has_next %}
+          <nav aria-label="{% trans 'Leaderboard pages' %}" class="mt-3">
+            <ul class="pagination justify-content-center mb-0">
+              {% if page_obj.has_previous %}
+              <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.previous_page_number }}">{% trans 'Previous' %}</a>
+              </li>
+              {% else %}
+              <li class="page-item disabled"><span class="page-link">{% trans 'Previous' %}</span></li>
+              {% endif %}
+
+              {% for num in page_obj.paginator.page_range %}
+                {% if num == page_obj.number %}
+                <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+                {% endif %}
+              {% endfor %}
+
+              {% if page_obj.has_next %}
+              <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.next_page_number }}">{% trans 'Next' %}</a>
+              </li>
+              {% else %}
+              <li class="page-item disabled"><span class="page-link">{% trans 'Next' %}</span></li>
+              {% endif %}
+            </ul>
+          </nav>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<style>
+/* ── Series list ──────────────────────────────────────────────────── */
+.elo-series-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.elo-series-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  background: #f6f7fb;
+  border: 1px solid #e3e5e8;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: all 0.12s ease;
+}
+.elo-series-item:hover {
+  border-color: #5865F2;
+  background: #eef0fb;
+}
+.elo-series-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c2f33;
+}
+.elo-series-date {
+  font-size: 13px;
+  color: #6a7178;
+  white-space: nowrap;
+}
+
+/* ── Leaderboard table ────────────────────────────────────────────── */
+.elo-table {
+  margin-bottom: 0;
+}
+.elo-table thead th {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7289da;
+  background: transparent;
+  border-bottom: 2px solid #e3e5e8;
+  white-space: nowrap;
+}
+.elo-table tbody td {
+  border-bottom: 1px solid #f0f1f3;
+  vertical-align: middle;
+  font-size: 16px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.elo-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.elo-table tbody tr:hover td {
+  background-color: #f6f7fb;
+}
+.elo-rank {
+  font-weight: 700;
+  font-size: 17px;
+  color: #4f5660;
+  white-space: nowrap;
+}
+.elo-rating {
+  font-weight: 700;
+  font-size: 17px;
+  color: #2c2f33;
+}
+.elo-player-link {
+  color: #4752c4;
+  font-weight: 600;
+  text-decoration: none;
+}
+.elo-player-link:hover {
+  text-decoration: underline;
+}
+/* The shared .elo-tile-icon is 46px for the profile tile — too tall for a
+   table row, so leaderboard rows use their own smaller icon. */
+.elo-table-icon {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+}
+
+/* Columns the drop algorithm may hide (see the script below). Hiding is done
+   by adding .elo-col-hidden, so the base classes carry no display rule. */
+.elo-col-hidden {
+  display: none;
+}
+</style>
+
+<script>
+// Responsive column dropping, ported from the DataTables Responsive approach
+// used by the RootELO site (responsivePriority). Unlike CSS media queries this
+// measures the table's ACTUAL width against its container, so columns drop
+// exactly when they would overflow — accounting for long player names, the
+// card padding and zoom level rather than guessed viewport breakpoints.
+//
+// Drop order: lowest priority goes first. Rank, Player and ELO carry no class
+// and are therefore never dropped — they are the identity plus the ranking
+// figure, so the table stays meaningful at any width.
+(function () {
+  var table = document.getElementById('eloLeaderboard');
+  if (!table) return;
+
+  var scroller = table.closest('.table-responsive');
+  if (!scroller) return;
+
+  // Lowest priority first — this is the order columns are removed.
+  var PRIORITY = ['elo-col-wins', 'elo-col-games', 'elo-col-tier', 'elo-col-winrate'];
+
+  function cells(cls) {
+    return table.querySelectorAll('.' + cls);
+  }
+
+  function setHidden(cls, hidden) {
+    cells(cls).forEach(function (el) {
+      el.classList.toggle('elo-col-hidden', hidden);
+    });
+  }
+
+  function fits() {
+    // scrollWidth exceeds clientWidth exactly when .table-responsive would
+    // need to scroll horizontally. 1px of tolerance absorbs sub-pixel rounding.
+    return table.scrollWidth <= scroller.clientWidth + 1;
+  }
+
+  function apply() {
+    // Start from everything visible, then hide one column at a time until the
+    // table fits. Re-showing first is what lets columns come BACK on widening.
+    PRIORITY.forEach(function (cls) { setHidden(cls, false); });
+
+    for (var i = 0; i < PRIORITY.length; i++) {
+      if (fits()) break;
+      setHidden(PRIORITY[i], true);
+    }
+  }
+
+  // Debounced: the observer both reads (scrollWidth) and writes (class
+  // toggles), so running it synchronously on every frame risks the
+  // "ResizeObserver loop completed with undelivered notifications" warning.
+  var pending;
+  function schedule() {
+    clearTimeout(pending);
+    pending = setTimeout(apply, 100);
+  }
+
+  apply();
+
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(schedule).observe(scroller);
+  } else {
+    window.addEventListener('resize', schedule);
+  }
+})();
+</script>
+{% endblock content %}

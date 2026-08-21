@@ -1,0 +1,8 @@
+{% comment %} The forum→tag map read by static/js/lfg_forum_tags.js to build every tag
+<select> client-side. Included out-of-band in each add/edit/delete response so the map is
+refreshed from a live field_ctx rather than staying frozen at page load — a modal opened
+long after load (or on a page first rendered before the bot joined, when the map was
+empty) would otherwise have its fresh server-rendered tag options overwritten by a stale
+map. The wrapper div is the OOB target; json_script owns the inner <script> id.
+{% endcomment %}
+<div id="lfg-forum-tags-wrap" hx-swap-oob="true">{{ field_ctx.forum_tag_map|json_script:'lfg-forum-tags' }}</div>

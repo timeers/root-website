@@ -1,0 +1,33 @@
+{% load i18n %}
+{% comment %} Shell for the LFG-role add/edit modal. The body is an htmx target: the Add
+button and each row's Edit button hx-get their form into #lfg-role-modal-body, so all the
+server-rendered field machinery (role/forum dropdowns, crispy fields, validation errors)
+is reused unchanged. The Cancel/Save buttons ship INSIDE the swapped form so type="submit"
+works without a form= attribute — hence no modal-footer here.
+
+data-bs-backdrop="static" so a stray click outside can't discard a half-filled form (Esc
+still closes). The title is set from the trigger's data-modal-title by lfg_role_modal.js.
+{% endcomment %}
+<div class="modal fade" id="lfg-role-modal" tabindex="-1"
+     aria-labelledby="lfg-role-modal-label" aria-hidden="true"
+     data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="lfg-role-modal-label">
+                    <i class="bi bi-people me-2"></i><span id="lfg-role-modal-title-text">{% trans 'Add LFG Role' %}</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            {% comment %} Reset to this placeholder on hidden.bs.modal so reopening never
+            flashes the previous role's data while the new form loads. {% endcomment %}
+            <div class="modal-body" id="lfg-role-modal-body">
+                <div class="text-center text-muted py-4">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">{% trans 'Loading…' %}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
