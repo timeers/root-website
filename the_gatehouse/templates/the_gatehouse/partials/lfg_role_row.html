@@ -1,5 +1,13 @@
 {% load i18n %}
-<div id="lfg-role-row-{{ role.pk }}" class="d-flex justify-content-between align-items-start border rounded p-2 mb-2">
+{% comment %} Read-only row for one LFG role. Both buttons open a modal rather than
+mutating the page inline, so nothing here is a form and unsaved guild-form input is never
+disturbed. Edit hx-gets the form into the shared modal body; Delete hands its data to the
+confirm modal, which issues the POST (see static/js/lfg_role_modal.js).
+
+oob=True is set when this row is re-rendered as an out-of-band swap after an edit — the id
+already matches, so hx-swap-oob="true" replaces the row in place.
+{% endcomment %}
+<div id="lfg-role-row-{{ role.pk }}" class="d-flex justify-content-between align-items-start border rounded p-2 mb-2"{% if oob %} hx-swap-oob="true"{% endif %}>
     <div>
         <strong>@{{ role.name }}</strong>
         {% if role.role_id %}<code class="ms-1">{{ role.role_id }}</code>{% endif %}
@@ -7,16 +15,20 @@
     </div>
     <div class="text-nowrap ms-2">
         <button type="button" class="btn btn-sm btn-outline-secondary"
+                data-bs-toggle="modal" data-bs-target="#lfg-role-modal"
+                data-modal-title="{% trans 'Edit LFG Role' %}"
                 hx-get="{% url 'guild-lfg-role-edit' guild.guild_id role.pk %}"
-                hx-target="#lfg-role-row-{{ role.pk }}"
-                hx-swap="outerHTML">
+                hx-target="#lfg-role-modal-body"
+                hx-swap="innerHTML"
+                aria-label="{% trans 'Edit' %} {{ role.name }}">
             <i class="bi bi-pencil"></i>
         </button>
         <button type="button" class="btn btn-sm btn-outline-danger"
-                hx-post="{% url 'guild-lfg-role-delete' guild.guild_id role.pk %}"
-                hx-target="#lfg-role-row-{{ role.pk }}"
-                hx-swap="outerHTML"
-                hx-confirm="{% trans 'Delete this role?' %}">
+                data-bs-toggle="modal" data-bs-target="#lfg-role-delete-modal"
+                data-role-name="{{ role.name }}"
+                data-delete-url="{% url 'guild-lfg-role-delete' guild.guild_id role.pk %}"
+                data-row-target="#lfg-role-row-{{ role.pk }}"
+                aria-label="{% trans 'Delete' %} {{ role.name }}">
             <i class="bi bi-x-circle"></i>
         </button>
     </div>

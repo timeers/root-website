@@ -1,6 +1,9 @@
 import json
+import logging
 from functools import wraps
 from datetime import timedelta
+
+from kombu.exceptions import OperationalError
 
 from django.apps import apps
 from django.core.paginator import Paginator, EmptyPage
@@ -34,6 +37,8 @@ from .services.discordservice import (update_discord_avatar, get_discord_invite_
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
 from .tasks import send_rich_discord_message_task, send_discord_message_task, register_guild_commands_task
+
+logger = logging.getLogger(__name__)
 
 
 def trigger_error(request):
@@ -351,6 +356,23 @@ def can_moderate_guild(profile, guild):
     if profile.admin:
         return True
     return guild.guild_moderators.filter(pk=profile.pk).exists()
+
+
+def refresh_guild_commands(guild):
+    """Re-register a guild's slash commands after an LFG-role change.
+
+    Enqueued with no countdown so it lands promptly (an LFG role add/edit/delete can flip
+    /lfg between its SINGLE and MULTI shapes, or change its tag choices). If the broker is
+    unreachable, fall back to an inline PUT so the refresh is never silently dropped —
+    apply_async raises when Redis is down, which would otherwise 500 the save.
+    """
+    try:
+        register_guild_commands_task.apply_async((guild.id,))
+        return True
+    except OperationalError:
+        logger.warning("Celery broker unavailable; registering guild %s commands inline",
+                       guild.guild_id)
+        return register_guild_commands(guild)
 
 
 
@@ -1647,6 +1669,10 @@ def edit_guild(request, guild_id):
             # client). Only save + re-register with Discord when the set actually changed,
             # so an unrelated save (e.g. editing the invite message) doesn't fire an API
             # call. /help is always available and isn't in this list.
+            # This stays synchronous: it's a full page POST (latency is fine) and the user
+            # needs the warning below when Discord rejects it. It's also the authoritative
+            # last write — LFG-role modal saves always happen before this button is
+            # clicked, and register_guild_commands re-reads guild.lfg_roles.
             submitted = set(request.POST.getlist('enabled_commands'))
             new_commands = [n for n in WHITELISTABLE if n in submitted]
             if set(new_commands) != set(guild.enabled_commands or []):
@@ -1670,11 +1696,13 @@ def edit_guild(request, guild_id):
         guild.save(update_fields=['bot_member'])
 
     lfg_add_form = GuildLFGRoleForm()
+    lfg_add_ctx = _lfg_field_context(guild, lfg_add_form)
     context = {'form': form, 'guild': guild,
                'moderators': guild.guild_moderators.all(),
                'lfg_roles': guild.lfg_roles.all(),
                'lfg_add_form': lfg_add_form,
-               'lfg_add_ctx': _lfg_field_context(guild, lfg_add_form),
+               'lfg_add_ctx': lfg_add_ctx,
+               'add_ctx': _lfg_add_controls_ctx(guild, lfg_add_ctx),
                'whitelist_options': whitelistable_commands(),  # [(name, desc), ...]
                'enabled_commands': set(guild.enabled_commands or []),
                'is_admin': profile.admin}
@@ -1689,12 +1717,10 @@ def hx_save_lfg_role(request, guild_id, pk=None):
         raise PermissionDenied()
     role = get_object_or_404(GuildLFGRole, pk=pk, guild=guild) if pk else None
 
-    # GET on an existing role returns its inline edit form (Edit button), or the
-    # read-only display row when ?display=1 (Cancel button).
+    # GET returns the modal body: the add form (no pk) or an existing role's edit form.
+    # ?display=1 returns the read-only row instead (kept for callers that swap a row back).
     if request.method == 'GET':
-        if role is None:
-            return JsonResponse({'error': 'GET not supported'}, status=405)
-        if request.GET.get('display'):
+        if role is not None and request.GET.get('display'):
             return render(request, 'the_gatehouse/partials/lfg_role_row.html',
                           {'role': role, 'guild': guild})
         edit_form = GuildLFGRoleForm(instance=role)
@@ -1731,19 +1757,19 @@ def hx_save_lfg_role(request, guild_id, pk=None):
             form.add_error('role_id', 'This guild already has an LFG entry for that role.')
         else:
             obj.save()
-            # A tag change can flip /lfg between SINGLE/MULTI or change its choices;
-            # re-register off the request path (debounced to absorb rapid edits).
-            register_guild_commands_task.apply_async((guild.id,), countdown=10)
-            if pk is None:
-                # Add: replace the add-form in place with a fresh one, and append the
-                # new row out-of-band into the list.
-                fresh_form = GuildLFGRoleForm()
-                return render(request, 'the_gatehouse/partials/lfg_role_added.html',
-                              {'role': obj, 'guild': guild, 'form': fresh_form,
-                               'field_ctx': _lfg_field_context(guild, fresh_form)})
-            # Edit: swap the edit form back to the read-only row.
-            return render(request, 'the_gatehouse/partials/lfg_role_row.html',
-                          {'role': obj, 'guild': guild})
+            # A tag change can flip /lfg between SINGLE/MULTI or change its choices.
+            refresh_guild_commands(guild)
+            # The modal body gets a short "saved" stub; the row list, the Add button's
+            # state and the forum-tag map are all refreshed out-of-band from a FRESH
+            # field_ctx (the freed/used role set just changed). HX-Trigger closes the
+            # modal client-side (see static/js/lfg_role_modal.js).
+            fresh_ctx = _lfg_field_context(guild, GuildLFGRoleForm())
+            response = render(request, 'the_gatehouse/partials/lfg_role_saved.html',
+                              {'role': obj, 'guild': guild, 'created': pk is None,
+                               'field_ctx': fresh_ctx,
+                               'add_ctx': _lfg_add_controls_ctx(guild, fresh_ctx)})
+            response['HX-Trigger'] = 'lfgRoleSaved'
+            return response
     return render(request, 'the_gatehouse/partials/lfg_role_form.html',
                   {'form': form, 'role': role, 'guild': guild,
                    'field_ctx': _lfg_field_context(guild, form)}, status=422)
@@ -1757,16 +1783,29 @@ def hx_delete_lfg_role(request, guild_id, pk):
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
     get_object_or_404(GuildLFGRole, pk=pk, guild=guild).delete()
-    # Removing a tag can flip /lfg between SINGLE/MULTI or change its choices; re-register
-    # off the request path (debounced).
-    register_guild_commands_task.apply_async((guild.id,), countdown=10)
-    # Remove the row (hx-swap="outerHTML" on an empty response) and OOB-refresh the add
-    # form so the freed role reappears in its dropdown and the form un-hides if it had
-    # been hidden (no roles left).
-    fresh_form = GuildLFGRoleForm()
-    return render(request, 'the_gatehouse/partials/lfg_role_deleted.html',
-                  {'guild': guild, 'form': fresh_form,
-                   'field_ctx': _lfg_field_context(guild, fresh_form)})
+    # Removing a tag can flip /lfg between SINGLE/MULTI or change its choices.
+    refresh_guild_commands(guild)
+    # Remove the row (hx-swap="outerHTML" on an empty response) and OOB-refresh the Add
+    # button + forum-tag map so the freed role reappears in its dropdown and the button
+    # un-disables if every role had been used. HX-Trigger closes the confirm modal.
+    fresh_ctx = _lfg_field_context(guild, GuildLFGRoleForm())
+    response = render(request, 'the_gatehouse/partials/lfg_role_deleted.html',
+                      {'guild': guild, 'field_ctx': fresh_ctx,
+                       'add_ctx': _lfg_add_controls_ctx(guild, fresh_ctx)})
+    response['HX-Trigger'] = 'lfgRoleSaved'
+    return response
+
+
+def _lfg_add_controls_ctx(guild, field_ctx):
+    """Context for the 'Add LFG Role' button: whether it can be enabled, and why not.
+    Kept separate from _lfg_field_context (which is Discord-sourced dropdown data) because
+    `at_limit` is a plain DB count. Used by every render of lfg_add_controls.html so the
+    page-load, save and delete paths all agree."""
+    from .services.discord_commands import LFG_TAG_LIMIT
+    return {'guild': guild,
+            'no_roles_left': field_ctx['no_roles_left'],
+            'at_limit': guild.lfg_roles.count() >= LFG_TAG_LIMIT,
+            'tag_limit': LFG_TAG_LIMIT}
 
 
 def _lfg_field_context(guild, form):

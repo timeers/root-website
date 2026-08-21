@@ -102,38 +102,49 @@
 
     </form>
 
-    <!-- LFG Roles (managed independently via HTMX) -->
-    {% comment %} hx-headers here sends the CSRF token on every HTMX request in this card
-    (it's inherited by descendants). The delete button is a bare hx-post with no wrapping
-    form, so it has no {% csrf_token %} of its own and needs the header from here. {% endcomment %}
+    <!-- LFG Roles (each add/edit/delete commits immediately via its own modal) -->
+    {% comment %} hx-headers sends the CSRF token on HTMX requests originating in this card
+    (inherited by descendants). Nothing here POSTs today — Add/Edit are hx-gets and the
+    delete POST is issued by htmx.ajax with an explicit header — but it's kept so a future
+    hx-post added in this card is covered by default. {% endcomment %}
     <div class="card mb-3" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
         <div class="card-header">
             <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'LFG Roles' %}</h5>
         </div>
         <div class="card-body">
-            {% comment %} {# Single page-level forum→tag map, read by every LFG-role form (add + HTMX-swapped
-               edit forms) to build the tag <select> client-side. Lives in this persistent shell
-               so it's still present after any HTMX swap. See static/js/lfg_forum_tags.js. #} {% endcomment %}
-            {{ lfg_add_ctx.forum_tag_map|json_script:'lfg-forum-tags' }}
+            <p class="text-muted small mb-3">
+                {% trans 'These save immediately — they are not part of Save Guild below.' %}
+            </p>
+            {% comment %} Single page-level forum→tag map, read by every LFG-role form to
+            build the tag <select> client-side. Wrapped so each add/edit/delete response can
+            refresh it out-of-band (see partials/lfg_forum_tag_blob.html), keeping it from
+            going stale while the page stays open. See static/js/lfg_forum_tags.js. {% endcomment %}
+            <div id="lfg-forum-tags-wrap">{{ lfg_add_ctx.forum_tag_map|json_script:'lfg-forum-tags' }}</div>
             <div id="lfg-role-list">
                 {% for role in lfg_roles %}
                     {% include 'the_gatehouse/partials/lfg_role_row.html' with role=role guild=guild %}
                 {% endfor %}
             </div>
-            {% include 'the_gatehouse/partials/lfg_role_form.html' with form=lfg_add_form role=None guild=guild field_ctx=lfg_add_ctx %}
+            {% include 'the_gatehouse/partials/lfg_add_controls.html' with add_ctx=add_ctx %}
         </div>
     </div>
 
-    {% comment %} The LFG Roles card contains its own <form> elements (add/edit), so it
-    can't live inside the main guild form (HTML forbids nested forms). This Save button
-    sits outside that card but reconnects to the main form via the `form` attribute, so
-    the visual order is Details → Moderators → Commands → LFG → Save. {% endcomment %}
+    {% comment %} This Save button sits outside the LFG card and reconnects to the main
+    form via the `form` attribute, so the visual order stays Details → Moderators →
+    Commands → LFG → Save. It does not (and need not) save LFG roles: those commit
+    individually through their modal. {% endcomment %}
     <button type="submit" form="guild-edit-form" class="btn btn-primary mb-4">{% trans 'Save Guild' %}</button>
+
+    {% comment %} Modal shells live outside #guild-edit-form: the add/edit modal contains a
+    <form> and HTML forbids nesting it inside another. {% endcomment %}
+    {% include 'the_gatehouse/partials/lfg_role_modal.html' %}
+    {% include 'the_gatehouse/partials/lfg_role_delete_modal.html' %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{% static 'js/lfg_forum_tags.js' %}"></script>
+<script src="{% static 'js/lfg_role_modal.js' %}"></script>
 <script>
     function getModeratorExcludeIds() {
         const inputs = document.querySelectorAll('input[name="moderators"]');

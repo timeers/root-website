@@ -10,6 +10,7 @@
 
 ### Improvements
 - added time field to game form
+- lfg role management now uses modals for better user experience
 
 ### Bug Fixes
 - fixed bot cold start issues with slow response time

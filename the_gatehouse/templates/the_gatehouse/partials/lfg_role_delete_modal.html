@@ -1,0 +1,37 @@
+{% load i18n %}
+{% comment %} Confirm dialog for deleting an LFG role. Static markup — the only dynamic
+parts (role name, delete URL, row to remove) are read from the clicked button's data-*
+attributes on show.bs.modal, the same pattern as the deck-group editor's delete modal.
+The POST is issued by lfg_role_modal.js via htmx.ajax so the response's OOB swaps still
+apply; it passes the CSRF header explicitly (hx-headers is not inherited by htmx.ajax).
+{% endcomment %}
+<div class="modal fade" id="lfg-role-delete-modal" tabindex="-1"
+     aria-labelledby="lfg-role-delete-modal-label" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="lfg-role-delete-modal-label">
+                    <i class="bi bi-exclamation-triangle me-2"></i>{% trans 'Delete LFG Role' %}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1">
+                    {% trans 'Remove the LFG entry for' %}
+                    <strong id="lfg-delete-role-name"></strong>?
+                </p>
+                <p class="text-muted small mb-0">
+                    {% trans "/lfg will no longer be able to ping the role (The Discord role itself isn't deleted)." %}
+                </p>
+                <div id="lfg-delete-error" class="alert alert-danger mt-3 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-danger" id="lfg-delete-confirm">
+                    <span id="lfg-delete-spinner" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
+                    <i class="bi bi-trash me-1" id="lfg-delete-icon"></i>{% trans 'Delete Role' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

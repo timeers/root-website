@@ -1,15 +1,22 @@
 import json
 from unittest import mock
+from django.contrib.auth.models import User
+from django.contrib.auth.signals import user_logged_in
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
+from kombu.exceptions import OperationalError as KombuOperationalError
 from the_warroom.models import (
     Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup, Round, Stage,
     StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
 )
 from the_gatehouse.tasks import update_post_status
 from the_keep.models import StatusChoices, Faction
-from the_gatehouse.models import DiscordGuild, Profile
+from the_gatehouse.models import DiscordGuild, GuildLFGRole, Profile
+from the_gatehouse import views
+from the_gatehouse.signals import user_logged_in_handler
+from the_gatehouse.services import discord_commands as dc
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     search_timezones, valid_timezone,
@@ -928,3 +935,306 @@ class LFGStartGuardTests(TestCase):
         data = json.loads(response.content)["data"]
         self.assertEqual(data["components"], [])
         self.assertEqual(data["embeds"][0]["footer"]["text"], "✔ Game has started.")
+
+
+class _NoLoginSignalMixin:
+    """force_login fires user_logged_in, whose handler builds absolute URLs from the
+    request and enqueues Discord work — neither of which a bare test request supports.
+    None of that is under test here, so disconnect it for the duration."""
+
+    def setUp(self):
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        super().setUp()
+
+
+class LFGRoleModalViewTests(_NoLoginSignalMixin, TestCase):
+    """LFG roles are managed through modals: each add/edit/delete commits on its own,
+    independent of the main guild form."""
+
+    def setUp(self):
+        super().setUp()
+        self.guild = DiscordGuild.objects.create(guild_id="700100", name="LFG Guild",
+                                                 bot_member=True)
+        self.user = User.objects.create_user(username="lfgmod", password="pw")
+        self.profile = self.user.profile
+        self.profile.group = "P"          # plain player; moderates via guild_moderators
+        self.profile.player_onboard = True
+        self.profile.save()
+        self.guild.guild_moderators.add(self.profile)
+        self.client.force_login(self.user)
+
+        # Two roles exist on Discord; only one is claimed by default.
+        self.discord_roles = [{"id": "100000000000000011", "name": "Nightfall"},
+                              {"id": "100000000000000022", "name": "Dawn"}]
+
+    def _mock_discord(self):
+        """Patch the Discord reads on the views module (views.py imports them by name,
+        so patching the source module would not intercept the bound reference)."""
+        return [
+            mock.patch("the_gatehouse.views.get_guild_roles", return_value=self.discord_roles),
+            mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=[]),
+            mock.patch("the_gatehouse.views.get_forum_channel_info", return_value=None),
+            mock.patch("the_gatehouse.views.refresh_guild_commands"),
+        ]
+
+    def _with_discord(self, fn):
+        patches = self._mock_discord()
+        started = [p.start() for p in patches]
+        try:
+            return fn(started[-1])   # the refresh_guild_commands mock
+        finally:
+            for p in patches:
+                p.stop()
+
+    def _add_url(self):
+        return reverse("guild-lfg-role-add", args=[self.guild.guild_id])
+
+    def _edit_url(self, pk):
+        return reverse("guild-lfg-role-edit", args=[self.guild.guild_id, pk])
+
+    def _delete_url(self, pk):
+        return reverse("guild-lfg-role-delete", args=[self.guild.guild_id, pk])
+
+    def test_get_add_returns_the_form(self):
+        """The Add button hx-gets the blank form; this used to be a 405."""
+        response = self._with_discord(lambda _: self.client.get(self._add_url()))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="lfg-role-form"')
+        self.assertContains(response, self._add_url())
+
+    def test_get_edit_returns_bound_form_and_display_returns_row(self):
+        role = GuildLFGRole.objects.create(guild=self.guild, name="Nightfall", role_id="100000000000000011")
+
+        response = self._with_discord(lambda _: self.client.get(self._edit_url(role.pk)))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="lfg-role-form"')
+        self.assertContains(response, self._edit_url(role.pk))
+
+        # ?display=1 still swaps back to the read-only row.
+        response = self._with_discord(
+            lambda _: self.client.get(self._edit_url(role.pk) + "?display=1"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="lfg-role-row-%d"' % role.pk)
+
+    def test_valid_add_creates_role_and_signals_success(self):
+        response = self._with_discord(
+            lambda _: self.client.post(self._add_url(), {"role_id": "100000000000000011"}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Trigger"], "lfgRoleSaved")
+
+        role = GuildLFGRole.objects.get(guild=self.guild)
+        # `name` is derived from the picked role's real Discord name.
+        self.assertEqual(role.name, "Nightfall")
+        # The row, the Add button and the tag map all refresh out-of-band.
+        self.assertContains(response, 'id="lfg-role-row-%d"' % role.pk)
+        self.assertContains(response, 'id="lfg-add-controls"')
+        self.assertContains(response, 'id="lfg-forum-tags-wrap"')
+
+    def test_valid_edit_updates_row_out_of_band(self):
+        role = GuildLFGRole.objects.create(guild=self.guild, name="Nightfall", role_id="100000000000000011")
+        response = self._with_discord(
+            lambda _: self.client.post(self._edit_url(role.pk),
+                                       {"role_id": "100000000000000011", "description": "evening games"}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Trigger"], "lfgRoleSaved")
+        role.refresh_from_db()
+        self.assertEqual(role.description, "evening games")
+        # An edit replaces the row in place rather than appending a second one.
+        self.assertContains(response, 'hx-swap-oob="true"')
+        self.assertNotContains(response, 'hx-swap-oob="beforeend"')
+
+    def test_invalid_add_returns_422_so_the_modal_stays_open(self):
+        """422 is what lfg_role_modal.js opts into swapping; a 200 here would let the
+        modal close on an unsaved form."""
+        response = self._with_discord(lambda _: self.client.post(self._add_url(), {}))
+        self.assertEqual(response.status_code, 422)
+        self.assertContains(response, 'id="lfg-role-form"', status_code=422)
+        self.assertNotIn("HX-Trigger", response)
+        self.assertFalse(GuildLFGRole.objects.exists())
+
+    def test_duplicate_role_is_rejected(self):
+        GuildLFGRole.objects.create(guild=self.guild, name="Nightfall", role_id="100000000000000011")
+        response = self._with_discord(
+            lambda _: self.client.post(self._add_url(), {"role_id": "100000000000000011"}))
+        self.assertEqual(response.status_code, 422)
+        self.assertContains(response, "already has an LFG entry", status_code=422)
+        self.assertEqual(GuildLFGRole.objects.count(), 1)
+
+    def test_add_button_disables_at_the_tag_limit(self):
+        from the_gatehouse.services.discord_commands import LFG_TAG_LIMIT
+        for i in range(LFG_TAG_LIMIT):
+            GuildLFGRole.objects.create(guild=self.guild, name="Role %d" % i,
+                                        role_id=str(100000000000001000 + i))
+        response = self._with_discord(
+            lambda _: self.client.get(reverse("edit-guild", args=[self.guild.guild_id])))
+        self.assertContains(response, "at most %d LFG tags" % LFG_TAG_LIMIT)
+
+    def test_delete_removes_role_and_signals_success(self):
+        role = GuildLFGRole.objects.create(guild=self.guild, name="Nightfall", role_id="100000000000000011")
+        response = self._with_discord(
+            lambda _: self.client.post(self._delete_url(role.pk)))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Trigger"], "lfgRoleSaved")
+        self.assertFalse(GuildLFGRole.objects.filter(pk=role.pk).exists())
+        self.assertContains(response, 'id="lfg-add-controls"')
+
+    def test_delete_requires_post(self):
+        role = GuildLFGRole.objects.create(guild=self.guild, name="Nightfall", role_id="100000000000000011")
+        response = self._with_discord(lambda _: self.client.get(self._delete_url(role.pk)))
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(GuildLFGRole.objects.filter(pk=role.pk).exists())
+
+    def test_non_moderator_is_denied(self):
+        role = GuildLFGRole.objects.create(guild=self.guild, name="Nightfall", role_id="100000000000000011")
+        outsider = User.objects.create_user(username="outsider", password="pw")
+        outsider.profile.group = "P"
+        outsider.profile.player_onboard = True
+        outsider.profile.save()
+        self.client.force_login(outsider)
+
+        for method, url in (("get", self._add_url()),
+                            ("get", self._edit_url(role.pk)),
+                            ("post", self._add_url()),
+                            ("post", self._delete_url(role.pk))):
+            with self.subTest(method=method, url=url):
+                response = self._with_discord(
+                    lambda _: getattr(self.client, method)(url))
+                self.assertEqual(response.status_code, 403)
+        self.assertTrue(GuildLFGRole.objects.filter(pk=role.pk).exists())
+
+
+class LFGCommandRefreshTests(_NoLoginSignalMixin, TestCase):
+    """Every LFG-role change re-registers the guild's slash commands promptly, and a
+    broker outage falls back to an inline PUT instead of silently dropping it."""
+
+    def setUp(self):
+        super().setUp()
+        self.guild = DiscordGuild.objects.create(guild_id="700200", name="Refresh Guild",
+                                                 bot_member=True)
+
+    def test_enqueues_immediately_with_no_countdown(self):
+        """The old countdown=10 debounce meant the refresh was never prompt."""
+        with mock.patch("the_gatehouse.views.register_guild_commands_task") as task:
+            self.assertTrue(views.refresh_guild_commands(self.guild))
+        task.apply_async.assert_called_once_with((self.guild.id,))
+
+    def test_broker_outage_falls_back_to_inline_registration(self):
+        with mock.patch("the_gatehouse.views.register_guild_commands_task") as task, \
+             mock.patch("the_gatehouse.views.register_guild_commands",
+                        return_value=True) as inline:
+            task.apply_async.side_effect = KombuOperationalError("redis down")
+            self.assertTrue(views.refresh_guild_commands(self.guild))
+        inline.assert_called_once_with(self.guild)
+
+    def test_add_edit_and_delete_each_refresh_once(self):
+        user = User.objects.create_user(username="refreshmod", password="pw")
+        user.profile.group = "A"          # admin moderates every guild
+        user.profile.player_onboard = True
+        user.profile.save()
+        self.client.force_login(user)
+
+        roles = [{"id": "100000000000000011", "name": "Nightfall"}]
+        with mock.patch("the_gatehouse.views.get_guild_roles", return_value=roles), \
+             mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=[]), \
+             mock.patch("the_gatehouse.views.get_forum_channel_info", return_value=None), \
+             mock.patch("the_gatehouse.views.refresh_guild_commands") as refresh:
+            self.client.post(reverse("guild-lfg-role-add", args=[self.guild.guild_id]),
+                             {"role_id": "100000000000000011"})
+            self.assertEqual(refresh.call_count, 1)
+
+            role = GuildLFGRole.objects.get(guild=self.guild)
+            self.client.post(reverse("guild-lfg-role-edit",
+                                     args=[self.guild.guild_id, role.pk]),
+                             {"role_id": "100000000000000011", "description": "x"})
+            self.assertEqual(refresh.call_count, 2)
+
+            self.client.post(reverse("guild-lfg-role-delete",
+                                     args=[self.guild.guild_id, role.pk]))
+            self.assertEqual(refresh.call_count, 3)
+
+
+class LFGCommandShapeTests(TestCase):
+    """/lfg is registered as SINGLE below 2 roles and MULTI at 2+ — the shape flip that
+    makes a dropped re-registration obvious."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="700300", name="Shape Guild")
+
+    def _roles(self, count, name="Role"):
+        return [GuildLFGRole.objects.create(guild=self.guild, name="%s %d" % (name, i),
+                                            role_id=str(100000000000000500 + i))
+                for i in range(count)]
+
+    def _type_option(self, cmd):
+        return next((o for o in cmd["options"] if o["name"] == "type"), None)
+
+    def test_zero_or_one_role_registers_the_single_variant(self):
+        for count in (0, 1):
+            with self.subTest(roles=count):
+                GuildLFGRole.objects.all().delete()
+                cmd = dc.lfg_command_for_roles(self._roles(count))
+                self.assertIsNone(self._type_option(cmd))
+
+    def test_two_roles_register_the_multi_variant_with_choices(self):
+        roles = self._roles(2)
+        cmd = dc.lfg_command_for_roles(roles)
+        type_opt = self._type_option(cmd)
+        self.assertIsNotNone(type_opt)
+        self.assertTrue(type_opt["required"])
+        self.assertEqual(type_opt["choices"],
+                         [{"name": r.name, "value": str(r.pk)} for r in roles])
+
+    def test_choices_truncate_to_the_discord_limit_without_mutating_the_singleton(self):
+        roles = self._roles(dc.LFG_TAG_LIMIT + 1)
+        cmd = dc.lfg_command_for_roles(roles)
+        self.assertEqual(len(self._type_option(cmd)["choices"]), dc.LFG_TAG_LIMIT)
+        # lfg_command_for_roles deep-copies; the shared module dict must stay pristine.
+        self.assertEqual(self._type_option(dc.LFG_COMMAND_MULTI)["choices"], [])
+
+    def test_long_role_names_are_truncated_for_discord(self):
+        GuildLFGRole.objects.create(guild=self.guild, name="x" * 150, role_id="100000000000000999")
+        roles = list(self.guild.lfg_roles.all()) + self._roles(1)
+        cmd = dc.lfg_command_for_roles(roles)
+        self.assertTrue(all(len(c["name"]) <= 100
+                            for c in self._type_option(cmd)["choices"]))
+
+
+class EditGuildCommandSyncTests(_NoLoginSignalMixin, TestCase):
+    """The guild form re-registers commands only when the enabled set actually changed."""
+
+    def setUp(self):
+        super().setUp()
+        self.guild = DiscordGuild.objects.create(guild_id="700400", name="Sync Guild",
+                                                 bot_member=True, enabled_commands=["lfg"])
+        self.user = User.objects.create_user(username="syncadmin", password="pw")
+        self.user.profile.group = "A"
+        self.user.profile.player_onboard = True
+        self.user.profile.save()
+        self.client.force_login(self.user)
+        self.url = reverse("edit-guild", args=[self.guild.guild_id])
+
+    def _post(self, commands, register_ok=True):
+        with mock.patch("the_gatehouse.views.get_guild_roles", return_value=[]), \
+             mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=[]), \
+             mock.patch("the_gatehouse.views.get_forum_channel_info", return_value=None), \
+             mock.patch("the_gatehouse.views.register_guild_commands",
+                        return_value=register_ok) as register:
+            response = self.client.post(self.url, {"enabled_commands": commands},
+                                        follow=True)
+        return response, register
+
+    def test_unchanged_command_set_does_not_re_register(self):
+        _, register = self._post(["lfg"])
+        register.assert_not_called()
+
+    def test_changed_command_set_re_registers_once(self):
+        _, register = self._post([])
+        register.assert_called_once()
+        self.guild.refresh_from_db()
+        self.assertEqual(self.guild.enabled_commands, [])
+
+    def test_discord_rejection_warns_the_user(self):
+        response, register = self._post([], register_ok=False)
+        register.assert_called_once()
+        self.assertTrue(any("didn't accept" in str(m) for m in response.context["messages"]))
