@@ -12,6 +12,7 @@
 - added time field to game form
 - lfg role management now uses modals for better user experience
 - /draft can now seat players when used within an lfg thread
+- added player_name to MatchAPI
 
 ### Bug Fixes
 - fixed bot cold start issues with slow response time
