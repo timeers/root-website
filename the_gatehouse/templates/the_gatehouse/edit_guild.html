@@ -79,24 +79,35 @@
 
         <!-- Commands -->
         <div class="card mb-3">
-            <div class="card-header">
+            <div class="card-header d-flex align-items-center justify-content-between">
                 <h5 class="mb-0"><i class="bi bi-slash-square me-2"></i>{% trans 'Commands' %}</h5>
+                {% comment %} Mirrors the "All" master checkbox on the Discord notification
+                settings page: ticks/unticks every command below and reflects their state.
+                It carries no name, so it is never submitted — the view reads only the
+                individual enabled_commands values. {% endcomment %}
+                <label class="form-check-label d-flex align-items-center gap-2 mb-0" for="cmd-master">
+                    <input type="checkbox" class="form-check-input mt-0" id="cmd-master"
+                           data-group="command-group">
+                    <span>{% trans 'All' %}</span>
+                </label>
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">
                     {% trans 'Choose which slash commands are available in this server. /help is always available.' %}
                 </p>
-                {% for name, desc in whitelist_options %}
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="checkbox"
-                           name="enabled_commands" value="{{ name }}"
-                           id="cmd-{{ name }}"
-                           {% if name in enabled_commands %}checked{% endif %}>
-                    <label class="form-check-label" for="cmd-{{ name }}">
-                        <code>/{{ name }}</code> &mdash; {{ desc }}
-                    </label>
+                <div id="command-group">
+                    {% for name, desc in whitelist_options %}
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox"
+                               name="enabled_commands" value="{{ name }}"
+                               id="cmd-{{ name }}"
+                               {% if name in enabled_commands %}checked{% endif %}>
+                        <label class="form-check-label" for="cmd-{{ name }}">
+                            <code>/{{ name }}</code> &mdash; {{ desc }}
+                        </label>
+                    </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
             </div>
         </div>
 
@@ -191,5 +202,31 @@
             emptyMsg.classList.remove('d-none');
         }
     }
+
+    // "All" checkbox for the Commands card: ticks/unticks every command, and
+    // reflects their combined state when they change individually. Indeterminate
+    // shows a partial selection. Matches the master checkbox on the Discord
+    // notification settings page.
+    (function () {
+        const master = document.getElementById('cmd-master');
+        const group = master && document.getElementById(master.dataset.group);
+        if (!group) return;
+
+        const boxes = Array.from(group.querySelectorAll('input[type="checkbox"]'));
+        if (!boxes.length) return;
+
+        function syncMaster() {
+            const checked = boxes.filter(b => b.checked).length;
+            master.checked = checked === boxes.length;
+            master.indeterminate = checked > 0 && checked < boxes.length;
+        }
+
+        master.addEventListener('change', () => {
+            boxes.forEach(cb => { cb.checked = master.checked; });
+            master.indeterminate = false;
+        });
+        boxes.forEach(cb => cb.addEventListener('change', syncMaster));
+        syncMaster();
+    })();
 </script>
 {% endblock %}

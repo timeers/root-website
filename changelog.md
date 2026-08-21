@@ -13,10 +13,12 @@
 - lfg role management now uses modals for better user experience
 - /draft can now seat players when used within an lfg thread
 - added player_name to MatchAPI
+- added a select all button to the Databot commands form
 
 ### Bug Fixes
 - fixed bot cold start issues with slow response time
-- bug where lfg bot removed thread link after game start. Added delay to avoid overwriting link.
+- bug where lfg bot removed thread link after game start. Added delay to avoid overwriting link
+- removed 6hr cutoff from game schedule so that delayed games still appear
 
 ## [1.13.2] - 2026-8-8 Rootelo Rankings
 
