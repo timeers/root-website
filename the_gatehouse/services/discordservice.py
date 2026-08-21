@@ -136,7 +136,15 @@ def send_dm_by_id(discord_id, content=None, embed=None, force=False):
 
 # Thread helper result codes
 THREAD_OK = "ok"
-THREAD_ERROR = "error"
+THREAD_BLOCKED = "blocked"  # permanent: message deleted, missing perms — do not retry
+THREAD_ERROR = "error"      # transient: network error, 5xx, rate limit — safe to retry
+
+
+def _is_terminal_edit_error(exc):
+    """A 403 (missing perms) or 404 (message/channel gone) won't fix itself on retry.
+    A 429/5xx/network error will, so those stay retryable."""
+    response = getattr(exc, "response", None)
+    return response is not None and response.status_code in (403, 404)
 
 
 def create_message_thread(channel_id, message_id, name, auto_archive_duration=1440):
@@ -215,20 +223,45 @@ def post_channel_message(channel_id, content):
         return THREAD_ERROR
 
 
-def edit_channel_message(channel_id, message_id, embeds):
-    """Edit an existing bot message's embeds (PATCH). Returns THREAD_OK / THREAD_ERROR.
-    Never raises. No DEBUG_VALUE guard — see create_message_thread."""
+def edit_channel_message(channel_id, message_id, embeds=None, components=None):
+    """Edit an existing bot message (PATCH). Never raises. Returns one of:
+        THREAD_OK      — edited
+        THREAD_BLOCKED — permanent failure (403 missing perms / 404 gone); do not retry
+        THREAD_ERROR   — transient failure (network/5xx/rate limit); safe to retry
+
+    Only the parts you pass are sent, and an omitted key leaves that part of the
+    message untouched. Note the `is not None` tests: `components=[]` is meaningful
+    (it CLEARS the button row) and must not be confused with "leave components
+    alone", so truthiness would be wrong here.
+
+    No DEBUG_VALUE guard — see create_message_thread."""
+    body = {}
+    if embeds is not None:
+        body["embeds"] = embeds
+    if components is not None:
+        body["components"] = components
+    if not body:
+        return THREAD_OK  # nothing to change; don't spend a request
     try:
         r = requests.patch(
             f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
             headers=_bot_headers(),
-            json={"embeds": embeds},
+            json=body,
             timeout=5,
         )
         r.raise_for_status()
         return THREAD_OK
     except requests.RequestException as e:
-        logger.error("Failed to edit message %s in channel %s: %s", message_id, channel_id, e)
+        # Include Discord's status + body so a rejected field (e.g. components on a
+        # message we're not allowed to edit that way) is diagnosable rather than opaque.
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        if _is_terminal_edit_error(e):
+            logger.warning("Cannot edit message %s in channel %s (permanent): %s",
+                           message_id, channel_id, detail)
+            return THREAD_BLOCKED
+        logger.error("Failed to edit message %s in channel %s: %s",
+                     message_id, channel_id, detail)
         return THREAD_ERROR
 
 

@@ -621,7 +621,7 @@ def _handle_schedule_command(data):
     if not guild_id:
         return _ephemeral("This command only works inside a server.")
     if not author_id:
-        return _ephemeral("I couldn't tell who you are — try again.")
+        return _ephemeral("User not found, try again.")
 
     # Strict lookup: creating a profile here would only let the user fail the
     # permission check below in a more confusing way.
@@ -650,8 +650,8 @@ def _handle_schedule_command(data):
         channel_type = data.get("_channel_type")
         if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
             return _ephemeral(
-                "Run this inside your match's thread — that's how I know which "
-                "match you mean."
+                "Run this inside your game's thread to know which "
+                "game to schedule."
             )
         return _ephemeral(error)
 
@@ -660,7 +660,7 @@ def _handle_schedule_command(data):
     permission = match.can_schedule(profile)
     if not permission:
         return _ephemeral(
-            "You can't set the time for this match: you need to be one of its "
+            "You can't set the time for this game: you need to be one of its "
             "players, the group's moderator, or a tournament moderator."
         )
 
@@ -695,7 +695,7 @@ def _handle_schedule_command(data):
         return _ephemeral(
             "I don't know your timezone yet, so I can't tell what that time means. "
             "Run the command again with the `timezone` option (e.g. "
-            "`America/New_York`) — I'll remember it after that."
+            "`America/New_York`). I'll remember it after that."
         )
     if error:
         return _ephemeral(error)
@@ -716,7 +716,7 @@ def _handle_schedule_confirm(payload):
     match = _schedulable_matches(payload.get("guild_id")).filter(pk=match_id).first()
     if not match:
         return _ephemeral(
-            "That match can no longer be scheduled — it may have been played or removed."
+            "That match can no longer be scheduled: it may have been played or removed."
         )
 
     # The button is a second request, so re-check permission rather than trusting
@@ -728,7 +728,7 @@ def _handle_schedule_confirm(payload):
     try:
         when = datetime.fromtimestamp(int(ts), tz=dt_timezone.utc)
     except (ValueError, OSError, OverflowError):
-        return _ephemeral("That time is no longer valid — run /schedule again.")
+        return _ephemeral("That time is no longer valid: run /schedule again.")
 
     match.scheduled_time = when
     # update_fields is required: a bare save() re-runs Match.save()'s name and
@@ -764,13 +764,13 @@ def _handle_schedule_clear_confirm(payload):
     the match is re-fetched and permission re-checked."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, owner]
     if len(args) < 2:
-        return _ephemeral("That button is out of date — run /schedule again.")
+        return _ephemeral("That button is out of date: run /schedule again.")
     match_id, owner = args[0], args[1]
 
     match = _schedulable_matches(payload.get("guild_id")).filter(pk=match_id).first()
     if not match:
         return _ephemeral(
-            "That match can no longer be changed — it may have been played or removed."
+            "That match can no longer be changed: it may have been played or removed."
         )
 
     profile = Profile.objects.filter(discord_id=str(owner)).first()
@@ -1665,7 +1665,7 @@ def _handle_lfg_join(payload):
         # Already in the game → leave (unless owner, who cancels via ✖ instead).
         if clicker in joined:
             if clicker == owner_id:
-                return _ephemeral("You're hosting this game — you can't leave it, "
+                return _ephemeral("You're hosting this game and can't join or leave it, "
                                   "but you can cancel it with ✖.")
             remaining = [p for p in players if p["id"] != clicker]
             field["value"] = "\n".join(_lfg_player_line(p["name"], p["id"]) for p in remaining) or "—"
@@ -1755,6 +1755,13 @@ def _handle_lfg_start(payload):
     players = _lfg_player_lines(embed)
     description = embed.get("description", "")
 
+    # Nothing parsed out of the Players field: starting would create a thread that
+    # pings nobody (kickoff collapses to "your game can start!") and an LFGThread
+    # with no players. The host can't leave, so this shouldn't happen in the normal
+    # flow — it guards a malformed/edited embed. Bail before mutating or enqueuing.
+    if not players:
+        return _ephemeral("This game has no players yet.")
+
     # Status subtext goes in the embed footer (small text at the very bottom).
     # Use the monochrome ✔ to match the Start button glyph.
     embed["footer"] = {"text": "✔ Game has started."}
@@ -1772,6 +1779,15 @@ def _handle_lfg_start(payload):
         payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
         role_id, description, players, embed, token=payload.get("token"),
     )
+    # Answer synchronously (type 7) rather than deferring (type 6) and letting the
+    # task be the sole writer. Deferring would leave the buttons LIVE until the
+    # worker gets to it, so with Celery/Redis down the game still looks joinable and
+    # a second ✔ Start would enqueue a duplicate thread. Answering here degrades to
+    # "buttons gone, started footer, title just isn't linked".
+    #
+    # Note this edit and link_lfg_message_task's PATCH both write this message; the
+    # embed serialized above predates `url`, so the task's edit re-sends the whole
+    # embed plus components:[] to win on content whichever order they land in.
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"embeds": [embed], "components": []},

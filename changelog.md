@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 - fixed bot cold start issues with slow response time
+- bug where lfg bot removed thread link after game start. Added delay to avoid overwriting link.
 
 ## [1.13.2] - 2026-8-8 Rootelo Rankings
 

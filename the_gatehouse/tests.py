@@ -1,4 +1,5 @@
 import json
+from unittest import mock
 from django.test import TestCase
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -14,6 +15,7 @@ from the_gatehouse.services.time_parsing import (
     search_timezones, valid_timezone,
 )
 from the_gatehouse.services.discordservice import build_upcoming_embed
+from the_gatehouse.services import discordservice as ds
 from the_gatehouse import discord_interactions as di
 
 class UpdatePostStatusTaskTest(TestCase):
@@ -847,3 +849,82 @@ class ScheduleAutocompleteTests(TestCase):
         choices = di._ac_schedule_timezone("", {})
         self.assertTrue(choices)
         self.assertIn(TZ, [c["value"] for c in choices])
+
+
+class EditChannelMessageBodyTests(TestCase):
+    """The PATCH body must send only the parts it was given. components=[] is
+    meaningful (it clears the button row), so it must be distinguished from
+    components=None ("leave them alone") by an `is not None` test, not truthiness."""
+
+    def _patch_body(self, **kwargs):
+        """Call edit_channel_message with requests.patch mocked; return the JSON body."""
+        with mock.patch.object(ds.requests, "patch") as patched:
+            patched.return_value.raise_for_status.return_value = None
+            ds.edit_channel_message("chan", "msg", **kwargs)
+            if not patched.called:
+                return None
+            return patched.call_args.kwargs["json"]
+
+    def test_components_empty_list_is_sent(self):
+        body = self._patch_body(embeds=[{"title": "x"}], components=[])
+        self.assertEqual(body["components"], [])
+        self.assertEqual(body["embeds"], [{"title": "x"}])
+
+    def test_components_omitted_when_none(self):
+        body = self._patch_body(embeds=[{"title": "x"}])
+        self.assertNotIn("components", body)
+
+    def test_embeds_omitted_when_none(self):
+        body = self._patch_body(components=[])
+        self.assertNotIn("embeds", body)
+
+    def test_no_request_when_nothing_to_change(self):
+        self.assertIsNone(self._patch_body())
+
+    def test_permanent_failure_is_blocked_not_error(self):
+        """403/404 must not be retried; 5xx must be."""
+        for status, expected in ((403, ds.THREAD_BLOCKED), (404, ds.THREAD_BLOCKED),
+                                 (500, ds.THREAD_ERROR), (429, ds.THREAD_ERROR)):
+            with self.subTest(status=status):
+                response = mock.Mock(status_code=status, text="boom")
+                err = ds.requests.RequestException("failed")
+                err.response = response
+                with mock.patch.object(ds.requests, "patch", side_effect=err):
+                    result = ds.edit_channel_message("chan", "msg", embeds=[{}])
+                self.assertEqual(result, expected)
+
+
+class LFGStartGuardTests(TestCase):
+    """✔ Start must not create a thread for a game with no parsed players."""
+
+    def _payload(self, players_value):
+        return {
+            "channel_id": "chan",
+            "guild_id": "guild",
+            "token": "tok",
+            "message": {
+                "id": "msg",
+                "content": "",
+                "embeds": [{
+                    "title": "Looking for Game",
+                    "description": "a game",
+                    "fields": [{"name": di.LFG_PLAYERS_FIELD,
+                                "value": players_value, "inline": False}],
+                }],
+            },
+        }
+
+    def test_empty_players_is_rejected(self):
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            response = di._handle_lfg_start(self._payload("—"))
+        delay.assert_not_called()
+        self.assertIn("no players", json.loads(response.content)["data"]["content"])
+
+    def test_start_with_players_enqueues_thread_creation(self):
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            response = di._handle_lfg_start(self._payload("Bob (<@123>)"))
+        delay.assert_called_once()
+        self.assertEqual(delay.call_args.args[5], [{"name": "Bob", "id": "123"}])
+        data = json.loads(response.content)["data"]
+        self.assertEqual(data["components"], [])
+        self.assertEqual(data["embeds"][0]["footer"]["text"], "✔ Game has started.")
