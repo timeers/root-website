@@ -585,6 +585,17 @@ class GameCreateFormV2(GameCreateForm):
 
         super().__init__(*args, **kwargs)
 
+        # date_posted is collected as a local date + local time by the template
+        # (see record_game_v2.html) and posted here as an ISO-8601 string with an
+        # explicit UTC offset, so this widget is hidden and JS-driven. Rendering
+        # the initial as a string is deliberate: Widget.format_value only localizes
+        # real datetime objects, so a str keeps the value ISO-parseable in every
+        # active language. Only V2 does this — v1 keeps its visible datepicker.
+        self.fields['date_posted'].widget = forms.HiddenInput()
+        self.fields['date_posted'].required = False
+        if self.instance and self.instance.pk and self.instance.date_posted:
+            self.initial['date_posted'] = self.instance.date_posted.isoformat()
+
         if match:
             self.fields['match_id'].initial = match.id
             # Lock the round field
@@ -598,6 +609,13 @@ class GameCreateFormV2(GameCreateForm):
                 self.fields['platform'].choices = [(tournament.platform, tournament.platform)]
                 self.fields['platform'].initial = tournament.platform
                 self.fields['platform'].widget.attrs['disabled'] = True
+
+    def clean_date_posted(self):
+        # The field is hidden and populated by JS, so an empty value means the
+        # client-side sync failed rather than that the user cleared anything.
+        # Fall back to now instead of erroring on a field with no visible input.
+        # (The model's default=timezone.now never fires through a ModelForm.)
+        return self.cleaned_data.get('date_posted') or timezone.now()
 
     def clean(self):
         cleaned_data = super().clean()

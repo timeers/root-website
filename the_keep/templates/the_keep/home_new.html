@@ -155,21 +155,21 @@
         </div>
 
 
-        {% comment %} <div class="col">
+        <div class="col">
             <a class="home-feature-card" href="{% url 'databot-info' %}">
                 <img class="home-feature-img" src="{% static 'images/homepage/features/about.png' %}" alt="" loading="lazy">
                 <span class="home-feature-title">{% trans "Root Databot" %}</span>
                 <span class="home-feature-desc">{% trans "Add the bot to your Discord server." %}</span>
             </a>
-        </div> {% endcomment %}
+        </div> 
 
-        <div class="col">
+        {% comment %} <div class="col">
             <a class="home-feature-card" href="{% url 'keep-about' %}">
                 <img class="home-feature-img" src="{% static 'images/homepage/features/about.png' %}" alt="" loading="lazy">
                 <span class="home-feature-title">{% trans "About" %}</span>
                 <span class="home-feature-desc">{% trans "Learn about the Root Database." %}</span>
             </a>
-        </div>
+        </div> {% endcomment %}
     </div>
 </section>
 

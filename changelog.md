@@ -8,6 +8,9 @@
 - framework for draft pool selection data and analysis 
 - New Elo Leaderboard page
 
+### Improvements
+- added time field to game form
+
 ### Bug Fixes
 - fixed bot cold start issues with slow response time
 - bug where lfg bot removed thread link after game start. Added delay to avoid overwriting link.

@@ -213,6 +213,15 @@
     .grid-score {
         font-weight: bold;
     }
+    /* Hide the native time picker indicator (WebKit/Blink) — it duplicates the
+       input-group clock icon, and the whole field is the click target instead
+       (see the showPicker() handler). Firefox renders no indicator, so there is
+       nothing to hide there. Scoped by id so the survey app's own time inputs
+       keep their indicator. */
+    #date_posted_time::-webkit-calendar-picker-indicator {
+        display: none;
+        -webkit-appearance: none;
+    }
 </style>
 {% endblock styles %}
 
@@ -556,10 +565,34 @@
         <div class="mt-2" id="game-notes-field">
             {{ form.notes }}
         </div>
-        <div class="mt-2" id="date-posted-field">
-            <div class="input-group">
-                <span class="input-group-text"><i class="bi bi-calendar2-date-fill"></i></span>
+        {% comment %} The user picks a date and a time in their own timezone; the JS at the
+           bottom of this file converts them to UTC and writes the result into the hidden
+           form.date_posted as an ISO-8601 string with an offset. The two visible inputs are
+           deliberately NOT the bound field — their date_posted_* names are ignored server-side. {% endcomment %}
+        <div class="row g-2 mt-2" id="date-posted-field">
+            <div class="col-12 col-md-6" id="date-posted-date-field">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-calendar2-date-fill"></i></span>
+                    <input type="text" class="datepicker form-control" name="date_posted_date"
+                           id="date_posted_date" autocomplete="off" aria-label="{% trans 'Date' %}">
+                </div>
+            </div>
+            <div class="col-12 col-md-6" id="date-posted-time-field">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-clock-fill"></i></span>
+                    <input type="time" class="form-control" name="date_posted_time"
+                           id="date_posted_time" aria-label="{% trans 'Time' %}">
+                </div>
                 {{ form.date_posted }}
+                {% if form.date_posted.errors %}
+                <div class="alert alert-warning" role="alert">
+                    <ul>
+                        {% for error in form.date_posted.errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -1717,6 +1750,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // ── Re-enable disabled fields on form submit + double-submit guard ──
     var formIsSubmitting = false;
     $('form#game-form-v2').on('submit', function(e) {
+        // Last resort: never POST an empty date_posted. Guarded on empty so it
+        // can't re-convert (and thus can't shift) an already-synced value.
+        // syncDatePosted is a hoisted declaration from the datepicker block below.
+        if (datePostedHidden && !datePostedHidden.value) syncDatePosted();
         // Block re-entry: a second submit (double-click, or Save Progress firing
         // while a submit is already in flight) would POST a duplicate game/efforts.
         if (formIsSubmitting) {
@@ -1751,15 +1788,90 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 0);
     });
 
-    // ── Datepicker ──
+    // ── Date + time (local) → hidden date_posted (UTC) ──
+    // The user works in their own timezone; the server stores UTC. The visible
+    // #date_posted_date / #date_posted_time inputs are unbound, and everything we
+    // actually submit goes through the hidden #id_date_posted as an ISO-8601 string
+    // with an explicit offset, which forms.DateTimeField parses natively.
+    //
+    // Select the hidden field BY ID: date_posted renders a sibling
+    // initial-date_posted (show_hidden_initial, because the model default is
+    // callable), and a name-prefix selector would clobber change detection.
+    var datePostedHidden = document.getElementById('id_date_posted');
+    var datePostedDate   = document.getElementById('date_posted_date');
+    var datePostedTime   = document.getElementById('date_posted_time');
+
+    function _dp_pad(n) { return String(n).padStart(2, '0'); }
+    function _dp_localDate(d) {
+        return d.getFullYear() + '-' + _dp_pad(d.getMonth() + 1) + '-' + _dp_pad(d.getDate());
+    }
+
+    // Hoisted declaration so the datepicker's onSelect below can close over it.
+    function syncDatePosted() {
+        if (!datePostedDate || !datePostedDate.value) return;  // never blank a good hidden value
+        // 'YYYY-MM-DDTHH:MM' with no offset is parsed as LOCAL time (a date-only
+        // string would be UTC), so always supply a time component.
+        var local = new Date(datePostedDate.value + 'T' + (datePostedTime.value || '00:00'));
+        if (!isNaN(local)) datePostedHidden.value = local.toISOString();  // keeps the trailing Z
+    }
+
+    // Seed the visible inputs from the hidden field. This is authoritative: we do
+    // NOT write back on load, because <input type="time"> is minute-granular and a
+    // write-back would silently drop the seconds of a stored value on every save.
+    var _dp_seeded = new Date();
+    (function seedDatePosted() {
+        if (!datePostedHidden || !datePostedDate || !datePostedTime) return;
+        var raw = datePostedHidden.value;
+        // Only trust a value carrying an explicit offset ('...Z' or '+HH:MM') — that
+        // is what the edit path renders (isoformat) and what a bound re-render echoes
+        // back. Create mode renders the model default as 'YYYY-MM-DD HH:MM:SS.ffffff',
+        // whose parse is implementation-defined, so treat it as absent and re-derive
+        // from the local clock instead.
+        var parsed = /[Zz]|[+-]\d{2}:?\d{2}$/.test(raw || '') ? new Date(raw) : null;
+        var valid = parsed && !isNaN(parsed);
+        if (valid) _dp_seeded = parsed;  // edit: stored instant, shown local
+        datePostedDate.value = _dp_localDate(_dp_seeded);
+        datePostedTime.value = _dp_pad(_dp_seeded.getHours()) + ':' + _dp_pad(_dp_seeded.getMinutes());
+        // Create mode (or an unparseable value) — canonicalize the hidden field now,
+        // since nothing else will until the user touches an input.
+        if (!valid) syncDatePosted();
+    })();
+
     $(document).ready(function(){
-        var today = new Date().toISOString().split('T')[0];
+        // Local today, not UTC: toISOString() here made the boundary wrong for
+        // anyone east or west of UTC (offering tomorrow, or forbidding today).
+        var today = _dp_localDate(new Date());
+        // An edit form can legitimately hold a date ahead of local-today (recorded
+        // by someone in a zone ahead of ours). Allow the later of the two so the
+        // picker doesn't silently snap the value back when opened.
+        var seededDate = _dp_localDate(_dp_seeded);
+        var maxDateStr = seededDate > today ? seededDate : today;
         $(".datepicker").datepicker({
             dateFormat: "yy-mm-dd",
             changeMonth: true,
             changeYear: true,
             yearRange: "2018:c+10",
-            maxDate: today
+            maxDate: maxDateStr,
+            // The calendar does NOT fire a native change event: _selectDate sets the
+            // value with .val() (silent) and then jQuery-triggers 'change', which
+            // never reaches addEventListener. Without this, picking a date from the
+            // popup would silently save the previously seeded date.
+            onSelect: function () { syncDatePosted(); }
+        });
+        // Typing/pasting a date. jQuery .on() so jQuery-triggered events land too.
+        // Note: supplying onSelect above suppresses the datepicker's own 'change'
+        // trigger, so these two paths don't double up.
+        $('#date_posted_date').on('change', syncDatePosted);
+        $('#date_posted_time').on('change', syncDatePosted);
+        // Open the time scroller on click, since the CSS above hides the native
+        // indicator. showPicker() needs transient user activation, so bind click
+        // rather than focus — a focus handler reached by tabbing throws
+        // NotAllowedError. Guarded for Firefox, which has no showPicker() for time
+        // inputs and simply keeps the plain typeable field.
+        $('#date_posted_time').on('click', function () {
+            if (typeof this.showPicker === 'function') {
+                try { this.showPicker(); } catch (e) { /* no user activation */ }
+            }
         });
     });
 
