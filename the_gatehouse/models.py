@@ -308,6 +308,13 @@ class LFGThread(models.Model):
                   'component surfaced in this thread (/random, /map, /deck, other '
                   'lookups, /draft).')
 
+    # Unlike `rolls`, this is NOT append-only: a thread has one current seating,
+    # so re-seating after another /draft replaces it outright.
+    seating = models.JSONField(
+        default=list, blank=True,
+        help_text='Seat assignments as an ordered list of {"id","name","seat"}, '
+                  'seat 1 first. The LAST seat has first pick of the faction draft.')
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

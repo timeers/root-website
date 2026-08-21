@@ -33,10 +33,11 @@ from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
 from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant
-from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole
+from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
+    post_channel_message_task,
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
@@ -276,6 +277,14 @@ def _capture_lfg_components(channel_id, items):
 def _lfg_item(kind, post):
     return {"kind": kind, "slug": getattr(post, "slug", None),
             "title": getattr(post, "title", None)}
+
+
+def _lfg_thread_for_channel(channel_id):
+    """The LFGThread for this channel, or None when it isn't a game thread.
+    An LFGThread's `thread_id` IS the channel id inside the thread."""
+    if not channel_id:
+        return None
+    return LFGThread.objects.filter(thread_id=channel_id).first()
 
 
 def _handle_captain_command(data):
@@ -1035,8 +1044,15 @@ def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author
 
 
 def _handle_draft_command(data):
-    """/draft: open the public, owner-locked ban UI for the chosen players/platform."""
-    players = _get_option(data, "players") or 4
+    """/draft: open the public, owner-locked ban UI for the chosen players/platform.
+
+    With no `players` option, an LFG game thread defaults the count to its own
+    roster size (clamped to 2..6 like any other value); anywhere else falls back
+    to 4."""
+    players = _get_option(data, "players")
+    if players is None:
+        thread = _lfg_thread_for_channel(data.get("_channel_id"))
+        players = (thread.players.count() if thread else 0) or 4
     players = max(2, min(6, int(players)))
     platform = _get_option(data, "platform") or DRAFT_PLATFORM_TTS
 
@@ -1133,12 +1149,61 @@ def _handle_draft_build(payload):
         drawn, players, platform, banned_slugs, factions,
         author=_interaction_author(payload), vagabond=vagabond, captains=captains,
     )
+    # Inside an LFG game thread, offer to seat the players (ephemeral, so only the
+    # drafter sees the prompt). Enqueued as a followup rather than returned, because
+    # this response is the public result edit.
+    _offer_lfg_seating(payload)
     # Edit the public prompt into the result: content "" clears the prompt text,
-    # components [] removes the buttons. (No follow-up — the message is already public.)
+    # components [] removes the buttons. (The result itself is already public; the
+    # only follow-up is the ephemeral seating prompt above.)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"embeds": [embed], "content": "", "components": []},
     })
+
+
+def _offer_lfg_seating(payload):
+    """After a draft inside an LFG thread, send the drafter an ephemeral Yes/No
+    prompt offering to seat the thread's players. No-op outside an LFG thread, or
+    when the roster is too small to seat.
+
+    When the thread already has a seating, the prompt warns that confirming
+    REPLACES it (a thread holds one current seating) and the confirm button turns
+    into a red "Overwrite"."""
+    thread = _lfg_thread_for_channel(payload.get("channel_id"))
+    if not thread or thread.players.count() < 2:
+        return
+    token = payload.get("token")
+    if not token:  # can't send a followup without the interaction token
+        return
+
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    if thread.seating:
+        prompt = ("This game already has a seating order — seating again will "
+                  "**overwrite it**. Seat the players again?")
+        confirm, style = "Overwrite", STYLE_DANGER
+    else:
+        prompt = "Seat the players for this game?"
+        confirm, style = "Yes", STYLE_SUCCESS
+    row = action_row(
+        button(confirm, encode_custom_id("draft_seat", owner), style=style),
+        button("No", encode_custom_id("draft_seat_no", owner), style=STYLE_SECONDARY),
+    )
+    # The countdown lets the initial interaction response reach Discord first — a
+    # followup that races ahead of the ACK 404s.
+    #
+    # The prompt is an optional extra on top of a draft that already succeeded, so a
+    # broker outage must cost only the prompt: swallow it rather than let the
+    # dispatcher's catch-all replace the finished draft with an error message.
+    try:
+        post_interaction_followup_task.apply_async(
+            (token, {"content": prompt, "components": [row], "flags": EPHEMERAL}),
+            countdown=2,
+        )
+    except Exception:
+        logger.exception("Could not enqueue the LFG seating prompt for thread %s",
+                         thread.thread_id)
 
 
 def _handle_draft_cancel(payload):
@@ -1148,6 +1213,62 @@ def _handle_draft_cancel(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": "Draft cancelled.", "embeds": [], "components": []},
+    })
+
+
+def _draft_seating_message(seats, reseated=False):
+    """The public seating message: numbered seats, then who picks first. The LAST
+    seat has first pick (Root drafts factions in reverse seat order).
+
+    `reseated` prefixes a banner marking this as a replacement — the superseded
+    seating message stays in the thread history, so without it two numbered lists
+    sit there with nothing saying which is current.
+
+    Plain names, not mentions: everyone in the thread already sees this message,
+    and mentioning every player would ping the whole table."""
+    lines = []
+    if reseated:
+        lines += ["**Re-seated** — this replaces the previous seating order.", ""]
+    lines += [f"{s['seat']}. {s['name']}" for s in seats]
+    lines += ["", f"{seats[-1]['name']} has first pick of the faction draft"]
+    return "\n".join(lines)
+
+
+def _handle_draft_seat_no(payload):
+    """No: dismiss the ephemeral prompt. Nothing is posted or persisted."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "No seating assigned.", "components": []},
+    })
+
+
+def _handle_draft_seat(payload):
+    """Seat button: randomly assign seats 1..N to the LFG thread's roster, post the
+    seating publicly in the thread, and persist it on the LFGThread (replacing any
+    previous order)."""
+    thread = _lfg_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return _ephemeral("This isn't a game thread anymore.")
+    profiles = list(thread.players.all())
+    if len(profiles) < 2:
+        return _ephemeral("Not enough players in this thread to seat.")
+
+    random.shuffle(profiles)
+    seats = [{"id": p.discord_id, "name": p.name, "seat": i}
+             for i, p in enumerate(profiles, 1)]
+
+    # A thread holds ONE current seating, so this replaces rather than appends
+    # (unlike `rolls`). No select_for_update: it's a whole-field write by a single
+    # owner-locked clicker, not a read-append-write.
+    reseated = bool(thread.seating)
+    thread.seating = seats
+    thread.save(update_fields=["seating"])
+
+    post_channel_message_task.delay(
+        thread.thread_id, _draft_seating_message(seats, reseated))
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Seating posted.", "components": []},
     })
 
 
@@ -1815,6 +1936,8 @@ COMPONENT_HANDLERS = {
     "draft_select": _handle_draft_select,
     "draft_build": _handle_draft_build,
     "draft_cancel": _handle_draft_cancel,
+    "draft_seat": _handle_draft_seat,
+    "draft_seat_no": _handle_draft_seat_no,
     "random_post": _handle_random_post,
     "random_roll": _handle_random_roll,
     "random_hireling": _handle_random_hireling,

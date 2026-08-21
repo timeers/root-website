@@ -2,6 +2,7 @@ import json
 from unittest import mock
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
+from django.db.models.signals import post_save
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -13,9 +14,9 @@ from the_warroom.models import (
 )
 from the_gatehouse.tasks import update_post_status
 from the_keep.models import StatusChoices, Faction
-from the_gatehouse.models import DiscordGuild, GuildLFGRole, Profile
+from the_gatehouse.models import DiscordGuild, GuildLFGRole, LFGThread, Profile
 from the_gatehouse import views
-from the_gatehouse.signals import user_logged_in_handler
+from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_gatehouse.services import discord_commands as dc
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -1238,3 +1239,192 @@ class EditGuildCommandSyncTests(_NoLoginSignalMixin, TestCase):
         response, register = self._post([], register_ok=False)
         register.assert_called_once()
         self.assertTrue(any("didn't accept" in str(m) for m in response.context["messages"]))
+
+
+class DraftLFGSeatingTests(TestCase):
+    """/draft inside an LFG game thread: the player count defaults to the thread's
+    roster, and the drafter is offered a random seating for it."""
+
+    THREAD_ID = "thread-900"
+
+    def setUp(self):
+        # Saving a Faction fires handle_image_resize, which rewrites the animal's
+        # image IN PLACE under media/ — for a stock animal that's the shared
+        # default_images file, which repeated test runs then truncate. Nothing here
+        # tests image handling, so disconnect it for the duration.
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        designer = Profile.objects.create(discord="draftdesigner", discord_id="800")
+        # Enough official/Stable factions for a 6-player draft (needs players + 1),
+        # all Militant so 2-player drafts (Militant-only) work from the same pool.
+        for i in range(8):
+            Faction.objects.create(
+                title=f"Draft Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT,
+            )
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+
+    def _roster(self, count):
+        profiles = [
+            Profile.objects.create(discord=f"player{i}", discord_id=f"90{i}",
+                                   display_name=f"Player {i}")
+            for i in range(1, count + 1)
+        ]
+        self.thread.players.set(profiles)
+        return profiles
+
+    # ── player-count default ────────────────────────────────────────────────
+    def _command(self, channel_id, players=None):
+        data = {"_channel_id": channel_id, "_author_id": "111"}
+        if players is not None:
+            data["options"] = [{"name": "players", "value": players}]
+        response = di._handle_draft_command(data)
+        return json.loads(response.content)["data"]["content"]
+
+    def test_count_defaults_to_the_threads_roster(self):
+        self._roster(5)
+        self.assertIn("**5 Player Draft**", self._command(self.THREAD_ID))
+
+    def test_explicit_option_beats_the_roster(self):
+        self._roster(5)
+        self.assertIn("**3 Player Draft**", self._command(self.THREAD_ID, players=3))
+
+    def test_non_lfg_channel_keeps_the_old_default(self):
+        self._roster(5)
+        self.assertIn("**4 Player Draft**", self._command("some-other-channel"))
+
+    def test_roster_outside_the_supported_range_is_clamped(self):
+        self._roster(7)
+        self.assertIn("**6 Player Draft**", self._command(self.THREAD_ID))
+        self.thread.players.set(self.thread.players.all()[:1])
+        self.assertIn("**2 Player Draft**", self._command(self.THREAD_ID))
+
+    def test_empty_roster_falls_back_to_four(self):
+        self.assertIn("**4 Player Draft**", self._command(self.THREAD_ID))
+
+    # ── the ephemeral seating offer ─────────────────────────────────────────
+    def _build_payload(self, channel_id):
+        return {
+            "channel_id": channel_id,
+            "token": "tok",
+            "data": {"custom_id": di.encode_custom_id("draft_build", 3, "tts", "111")},
+            "message": {"id": "msg", "components": []},
+        }
+
+    def _offer(self, channel_id):
+        with mock.patch.object(di.post_interaction_followup_task, "apply_async") as enqueue:
+            di._handle_draft_build(self._build_payload(channel_id))
+        return enqueue
+
+    def test_lfg_thread_offers_seating(self):
+        self._roster(3)
+        enqueue = self._offer(self.THREAD_ID)
+        enqueue.assert_called_once()
+        message = enqueue.call_args.args[0][1]
+        self.assertEqual(message["flags"], di.EPHEMERAL)
+        self.assertEqual(message["content"], "Seat the players for this game?")
+        buttons = message["components"][0]["components"]
+        self.assertEqual(buttons[0]["label"], "Yes")
+        self.assertTrue(buttons[0]["custom_id"].startswith("draft_seat:"))
+
+    def test_draft_result_itself_is_unchanged(self):
+        self._roster(3)
+        with mock.patch.object(di.post_interaction_followup_task, "apply_async"):
+            response = di._handle_draft_build(self._build_payload(self.THREAD_ID))
+        data = json.loads(response.content)["data"]
+        self.assertEqual(data["components"], [])
+        self.assertEqual(data["content"], "")
+        self.assertEqual(len(data["embeds"]), 1)
+
+    def test_no_offer_outside_an_lfg_thread(self):
+        self._roster(3)
+        self._offer("some-other-channel").assert_not_called()
+
+    def test_broker_outage_costs_the_prompt_not_the_draft(self):
+        """The prompt is an optional extra on an already-successful draft."""
+        self._roster(3)
+        with mock.patch.object(di.post_interaction_followup_task, "apply_async",
+                               side_effect=KombuOperationalError("redis down")):
+            response = di._handle_draft_build(self._build_payload(self.THREAD_ID))
+        data = json.loads(response.content)["data"]
+        self.assertEqual(len(data["embeds"]), 1)  # draft still delivered
+
+    def test_no_offer_when_the_roster_is_too_small_to_seat(self):
+        self._roster(1)
+        self._offer(self.THREAD_ID).assert_not_called()
+
+    def test_existing_seating_warns_before_overwriting(self):
+        self._roster(3)
+        self.thread.seating = [{"id": "901", "name": "Player 1", "seat": 1}]
+        self.thread.save(update_fields=["seating"])
+        message = self._offer(self.THREAD_ID).call_args.args[0][1]
+        self.assertIn("overwrite", message["content"].lower())
+        confirm = message["components"][0]["components"][0]
+        self.assertEqual(confirm["label"], "Overwrite")
+        self.assertEqual(confirm["style"], di.STYLE_DANGER)
+
+    # ── seating ─────────────────────────────────────────────────────────────
+    def _seat(self, channel_id=None):
+        payload = {"channel_id": channel_id or self.THREAD_ID,
+                   "data": {"custom_id": di.encode_custom_id("draft_seat", "111")}}
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            response = di._handle_draft_seat(payload)
+        return response, post
+
+    def test_seating_persists_and_posts(self):
+        self._roster(3)
+        response, post = self._seat()
+        self.thread.refresh_from_db()
+
+        self.assertEqual([s["seat"] for s in self.thread.seating], [1, 2, 3])
+        self.assertEqual({s["id"] for s in self.thread.seating}, {"901", "902", "903"})
+
+        channel_id, body = post.call_args.args
+        self.assertEqual(channel_id, self.THREAD_ID)
+        last = self.thread.seating[-1]["name"]
+        self.assertTrue(body.endswith(f"{last} has first pick of the faction draft"))
+        self.assertIn(f"1. {self.thread.seating[0]['name']}", body)
+        self.assertNotIn("Re-seated", body)
+        self.assertEqual(json.loads(response.content)["data"]["content"], "Seating posted.")
+
+    def test_reseating_replaces_the_previous_order_and_says_so(self):
+        self._roster(3)
+        self._seat()
+        self.thread.refresh_from_db()
+        first = self.thread.seating
+
+        _response, post = self._seat()
+        self.thread.refresh_from_db()
+        # Fully replaced, not appended.
+        self.assertEqual(len(self.thread.seating), 3)
+        self.assertEqual([s["seat"] for s in self.thread.seating], [1, 2, 3])
+        self.assertNotEqual(self.thread.seating, first + first)
+        self.assertTrue(post.call_args.args[1].startswith("**Re-seated**"))
+
+    def test_seating_is_randomised(self):
+        """Seats must not simply follow roster order. With 4 players, 10 rounds all
+        landing on the same order has probability (1/24)^9 — vanishingly small."""
+        self._roster(4)
+        orders = set()
+        for _ in range(10):
+            self._seat()
+            self.thread.refresh_from_db()
+            orders.add(tuple(s["id"] for s in self.thread.seating))
+        self.assertGreater(len(orders), 1)
+
+    def test_seat_declined_changes_nothing(self):
+        self._roster(3)
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            response = di._handle_draft_seat_no({"channel_id": self.THREAD_ID})
+        post.assert_not_called()
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.seating, [])
+        data = json.loads(response.content)["data"]
+        self.assertEqual(data["components"], [])
+
+    def test_seating_a_vanished_thread_is_refused(self):
+        response, post = self._seat("gone")
+        post.assert_not_called()
+        self.assertIn("game thread", json.loads(response.content)["data"]["content"])

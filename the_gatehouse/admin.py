@@ -67,7 +67,7 @@ class BotUsageAdmin(admin.ModelAdmin):
 class LFGThreadAdmin(admin.ModelAdmin):
     list_display = ['thread_id', 'guild', 'lfg_role', 'map', 'deck', 'created_at']
     search_fields = ['thread_id', 'description', 'guild__name']
-    readonly_fields = ['thread_id', 'rolls', 'created_at']
+    readonly_fields = ['thread_id', 'rolls', 'seating', 'created_at']
     filter_horizontal = ['players']
 
 class WebsiteAdmin(admin.ModelAdmin):

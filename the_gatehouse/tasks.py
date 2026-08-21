@@ -252,6 +252,21 @@ def send_discord_message_task(*args, **kwargs):
     retry_kwargs={'max_retries': 3, 'countdown': 30},
     retry_backoff=True,
 )
+def post_channel_message_task(channel_id, content):
+    """Post a message into a channel/thread off the request path (the underlying
+    call blocks for up to 5s, which an interaction response can't afford).
+    post_channel_message never raises, so surface a transient failure as one to
+    trigger the retry."""
+    from .services.discordservice import post_channel_message, THREAD_ERROR
+    if post_channel_message(channel_id, content) == THREAD_ERROR:
+        raise RuntimeError(f"Transient failure posting message in channel {channel_id}")
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
 def send_discord_dm_task(user_id, content=None, embed=None):
     from django.contrib.auth import get_user_model
     user = get_user_model().objects.get(pk=user_id)
@@ -383,13 +398,11 @@ def sync_bot_guilds_task():
     retry_backoff=True,
 )
 def post_interaction_followup_task(token, message_data):
-    # UNUSED: /draft and /random now edit their public prompt into the result in
-    # place (RESPONSE_UPDATE_MESSAGE), so no separate followup message is posted.
-    # Kept for future use — any interaction flow that must send an ADDITIONAL
-    # public message after its initial response (e.g. an ephemeral command whose
-    # result should also post publicly, or a multi-message result) should enqueue
-    # this task with (interaction_token, message_data). Retries heal Discord's
-    # transient 404s when a followup briefly races ahead of the initial ACK.
+    # Sends an ADDITIONAL message after an interaction's initial response, on the
+    # interaction token. Used by /lfg's "add LFG tags" nudge and by /draft's
+    # ephemeral seating prompt. Retries heal Discord's transient 404s when a
+    # followup briefly races ahead of the initial ACK (callers also pass a small
+    # countdown to let the initial response land first).
     try:
         post_interaction_followup(token, message_data)
     except Exception:
