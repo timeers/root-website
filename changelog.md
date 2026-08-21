@@ -1,9 +1,9 @@
 # Changelog
 
-## [1.13.3] - 2026-8-19 Post Spain Updates
+## [1.13.3] - 2026-8-21 Post Spain Updates
 
 ### New Features
-- new /schedule command to schedule series games. Must be used in a thread and the server needs to be linked to the series.
+- new /schedule command to schedule games. Must be used in a thread and the server needs to be linked to the series.
 - French Law of Rootbotics added
 - framework for draft pool selection data and analysis 
 - New Elo Leaderboard page

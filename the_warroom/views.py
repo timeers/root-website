@@ -4,7 +4,6 @@ import json
 import csv
 
 from io import StringIO
-from datetime import timedelta
 from itertools import groupby
 from django.shortcuts import render
 from django.views.generic import DeleteView
@@ -5574,15 +5573,14 @@ def _upcoming_scheduled_matches(match_filter):
     ``match_filter`` is a dict of Match field lookups scoping the object
     (e.g. {'round__stage__tournament': tournament}). Returns a queryset ordered
     by scheduled_time. A match counts as upcoming when its round's bracket is
-    finalized, it has a scheduled_time in the future (6h leeway), and it has no
-    finalized game."""
-    cutoff = timezone.now() - timedelta(hours=6)
+    finalized, it has a scheduled_time, and it has no finalized game. There is
+    deliberately no cutoff on scheduled_time: a match that ran late or was never
+    recorded stays listed (as overdue) rather than silently disappearing."""
     return (
         Match.objects.filter(**match_filter)
         .filter(
             round__bracket_status=Round.BracketStatusChoices.FINALIZED,
             scheduled_time__isnull=False,
-            scheduled_time__gte=cutoff,
         )
         .exclude(status=CompetitionStatus.COMPLETED)
         .exclude(game__final=True)

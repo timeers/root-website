@@ -59,20 +59,28 @@
   </li>
 {% endif %}
 
-{% if next_scheduled_matches %}
+{% if has_scheduled_matches %}
   <li><hr class="dropdown-divider"></li>
-  <li><h6 class="dropdown-header">{% trans 'Next Scheduled Match' %}</h6></li>
-  {% for match in next_scheduled_matches %}
-    <li>
-      <a class="dropdown-item d-flex align-items-center" href="{{ match.round.stage.tournament.get_schedule_url }}?mine=1">
-        <i class="bi bi-calendar2-event me-1"></i>
-        <span class="ms-1 d-flex flex-column">
-          <span>{{ match.round }}</span>
-          <span class="scheduled-time small" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
-        </span>
-      </a>
-    </li>
-  {% endfor %}
+  {% comment %}
+    The "Next Scheduled Match" entry is gated on next_scheduled_matches (6h
+    leeway, so it points at the genuinely next game), while the "view all" link
+    is gated on has_scheduled_matches (no cutoff). A player whose matches are
+    all overdue keeps the link to the schedule page that lists them.
+  {% endcomment %}
+  {% if next_scheduled_matches %}
+    <li><h6 class="dropdown-header">{% trans 'Next Scheduled Match' %}</h6></li>
+    {% for match in next_scheduled_matches %}
+      <li>
+        <a class="dropdown-item d-flex align-items-center" href="{{ match.round.stage.tournament.get_schedule_url }}?mine=1">
+          <i class="bi bi-calendar2-event me-1"></i>
+          <span class="ms-1 d-flex flex-column">
+            <span>{{ match.round }}</span>
+            <span class="scheduled-time small" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
+          </span>
+        </a>
+      </li>
+    {% endfor %}
+  {% endif %}
   <li>
     <a class="dropdown-item d-flex align-items-center" href="{% url 'my-scheduled-matches' %}">
       <i class="bi bi-calendar2-week me-1"></i>
