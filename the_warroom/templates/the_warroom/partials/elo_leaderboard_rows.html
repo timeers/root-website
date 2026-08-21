@@ -1,0 +1,33 @@
+{% load i18n %}
+{% comment %}
+One page of Elo leaderboard rows. Pagination is prev/next links (full page
+loads), so these rows carry no htmx attributes.
+
+The .elo-col-* classes mark which columns may be dropped when the table is too
+wide for its container; the drop order lives in the page template's script.
+{% endcomment %}
+{% for ep in participants %}
+    <tr>
+        <td class="elo-rank">{% if ep.rank %}{{ ep.rank }}{% else %}&ndash;{% endif %}</td>
+        <td class="elo-col-tier">
+            {% if ep.icon_url %}
+                <img class="elo-table-icon" src="{{ ep.icon_url }}" alt="{{ ep.tier|default:'rank'|capfirst }}">
+            {% endif %}
+        </td>
+        <td>
+            {% if ep.trends_url %}
+                <a class="elo-player-link" href="{{ ep.trends_url }}" target="_blank" rel="noopener noreferrer">{{ ep.player.display_name }}</a>
+            {% else %}
+                {{ ep.player.display_name }}
+            {% endif %}
+        </td>
+        <td class="elo-rating text-end">{{ ep.rating|floatformat:0 }}</td>
+        <td class="text-end elo-col-games">{{ ep.games_played }}</td>
+        <td class="text-end elo-col-wins">{{ ep.wins|floatformat:"-1" }}</td>
+        <td class="text-end elo-col-winrate">{{ ep.win_rate|default:"–" }}</td>
+    </tr>
+{% empty %}
+    <tr>
+        <td colspan="7" class="text-muted">{% trans 'No players yet.' %}</td>
+    </tr>
+{% endfor %}

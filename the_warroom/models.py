@@ -354,7 +354,7 @@ class EloParticipant(models.Model):
     updated_at = models.DateTimeField(auto_now=True)  # debugging
 
     # Rootelo badge display cache (populated for ROOTELO systems by the daily task).
-    rank = models.CharField(max_length=10, null=True, blank=True)    # int-as-str or "-"
+    rank = models.PositiveIntegerField(null=True, blank=True)        # null when unranked
     tier = models.CharField(max_length=30, null=True, blank=True)    # "stag", "unranked", ...
     bg_color = models.CharField(max_length=9, null=True, blank=True)  # "#C686FF" or null
     icon_url = models.URLField(max_length=300, null=True, blank=True)
@@ -370,9 +370,9 @@ class EloParticipant(models.Model):
 
     @property
     def has_rank(self):
-        """True when this participant has a real (non-'-') rank to show. The tile
+        """True when this participant has a real rank to show. The tile
         supplies a placeholder icon when icon_url is missing."""
-        return bool(self.rank and self.rank != '-')
+        return self.rank is not None
 
     @property
     def trends_url(self):

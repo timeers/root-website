@@ -1806,7 +1806,7 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     # show the rating with an "Unranked" label and no thumbnail/color.
     if elo_participant:
         rank = elo_participant.rank
-        rank_display = f"#{rank}" if (rank and rank != "-") else "Unranked"
+        rank_display = f"#{rank}" if rank else "Unranked"
         fields.insert(0, {"name": "Rank", "value": rank_display, "inline": True})
         fields.insert(0, {"name": elo_participant.elo_system.name,
                           "value": f"{round(elo_participant.rating)}", "inline": True})

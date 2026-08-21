@@ -752,6 +752,14 @@ def _normalize_icon_url(url):
     return url
 
 
+def _parse_rank(value):
+    """Feed rank -> int, or None when absent/non-numeric (the feed's '-')."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _refresh_one_rootelo_system(system, dry_run=False):
     """Fetch one ROOTELO system's feed and upsert its EloParticipants. Returns a
     per-system summary dict. On fetch/parse error, returns without writing so a
@@ -794,7 +802,7 @@ def _refresh_one_rootelo_system(system, dry_run=False):
             rating=rating,
             games_played=entry.get('games') or 0,
             wins=entry.get('wins') or 0,
-            rank=(str(entry['rank']) if entry.get('rank') is not None else None),
+            rank=_parse_rank(entry.get('rank')),
             tier=entry.get('tier'),
             bg_color=entry.get('bg_color'),
             icon_url=_normalize_icon_url(entry.get('icon_url')),
