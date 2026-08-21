@@ -2092,7 +2092,9 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
         "title": "Bot Commands",
         "description": "Here are the commands you can use:",
         "fields": fields,
-        "url": site_url or None,
+        # Title links to the bot's own page rather than the site homepage — someone
+        # reading /help wants to know about the bot.
+        "url": f"{site_url}/databot/" if site_url else None,
     }
 
     # Always offer one useful link. A server manager gets a link to this guild's command

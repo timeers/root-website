@@ -135,7 +135,7 @@ DRAFT_PLATFORM_RD = "Root Digital"
 
 DRAFT_COMMAND = {
     "name": "draft",
-    "description": "Build a factions draft for a game, banning any you want to omit",
+    "description": "Build a faction draft for a game, banning any you want to omit",
     "options": [
         {"name": "players", "description": "Number of players (default 4)",
          "type": 4, "required": False,
