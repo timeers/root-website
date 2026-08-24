@@ -850,7 +850,8 @@ class Tournament(models.Model):
         """Recalculate status from is_active and dates."""
         now = timezone.now().date()
         if not self.is_active:
-            has_games = Game.objects.filter(round__stage__tournament=self).exists()
+            # An unsaved tournament has no stages yet, so it cannot have games.
+            has_games = bool(self.pk) and Game.objects.filter(round__stage__tournament=self).exists()
             self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING
             return
         if self.end_date and self.end_date < now:
@@ -1071,7 +1072,8 @@ class Stage(models.Model):
         """Recalculate status from is_active and dates."""
         now = timezone.now().date()
         if not self.is_active:
-            has_games = Game.objects.filter(round__stage=self).exists()
+            # An unsaved stage has no rounds yet, so it cannot have games.
+            has_games = bool(self.pk) and Game.objects.filter(round__stage=self).exists()
             self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING
             return
         if self.end_date and self.end_date < now:
@@ -1395,7 +1397,8 @@ class Round(models.Model):
         """Recalculate status from is_active and dates."""
         now = timezone.now().date()
         if not self.is_active:
-            has_games = Game.objects.filter(round=self).exists()
+            # An unsaved round cannot have games attached to it yet.
+            has_games = bool(self.pk) and Game.objects.filter(round=self).exists()
             self.status = CompetitionStatus.COMPLETED if has_games else CompetitionStatus.PENDING
             return
         if self.end_date and self.end_date < now:

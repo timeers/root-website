@@ -102,8 +102,11 @@ SCHEDULE_COMMAND = {
         {"name": "time",
          "description": 'e.g. "Mar 15 8pm" or a pasted <t:...> timestamp — leave empty to clear',
          "type": 3, "required": False},
+        # Rarely needed: the handler asks for a timezone with a region/city picker
+        # when it doesn't have one. This option stays because that picker is a
+        # curated ~76 zones, and it's the only way to reach any of the others.
         {"name": "timezone",
-         "description": "Your timezone (only needed once — it's remembered)",
+         "description": "Override your saved timezone (otherwise I'll just ask)",
          "type": 3, "required": False, "autocomplete": True},
     ],
 }

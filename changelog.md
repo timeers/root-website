@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.13.4] - 2026-8-23 Bot Finishing Touches
+
 ## [1.13.3] - 2026-8-21 Post Spain Updates
 
 ### New Features

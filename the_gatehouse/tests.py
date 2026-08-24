@@ -21,6 +21,8 @@ from the_gatehouse.services import discord_commands as dc
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     search_timezones, valid_timezone,
+    TIMEZONE_REGIONS, timezone_regions, zones_for_region, timezone_label,
+    region_for_timezone, describe_timezone, format_utc_offset,
 )
 from the_gatehouse.services.discordservice import build_upcoming_embed
 from the_gatehouse.services import discordservice as ds
@@ -194,6 +196,140 @@ class ParseUserDatetimeTests(TestCase):
         self.assertLessEqual(len(search_timezones("")), 25)
         # An empty query should still be useful, not alphabetical noise.
         self.assertTrue(search_timezones(""))
+
+
+class TimezoneRegionTests(TestCase):
+    """The curated region/city lists behind the /schedule timezone picker."""
+
+    def test_every_curated_zone_is_a_real_iana_zone(self):
+        """A typo here would be a Discord 400 at runtime, not a visible error."""
+        for region in TIMEZONE_REGIONS:
+            for zone, _label in region["zones"]:
+                self.assertTrue(valid_timezone(zone), zone)
+
+    def test_no_region_exceeds_the_select_cap(self):
+        for region in TIMEZONE_REGIONS:
+            self.assertLessEqual(len(region["zones"]), 25, region["key"])
+
+    def test_no_duplicate_zones_within_or_across_regions(self):
+        zones = [z for r in TIMEZONE_REGIONS for z, _l in r["zones"]]
+        self.assertEqual(len(zones), len(set(zones)))
+
+    def test_region_keys_are_short_enough_for_a_custom_id(self):
+        for region in TIMEZONE_REGIONS:
+            self.assertLessEqual(len(region["key"]), 2)
+
+    def test_region_for_timezone_finds_curated_zones(self):
+        self.assertEqual(region_for_timezone("America/New_York"), "AM")
+        self.assertEqual(region_for_timezone("Europe/Paris"), "EU")
+        self.assertEqual(region_for_timezone("Asia/Tokyo"), "AP")
+        self.assertEqual(region_for_timezone("UTC"), "UT")
+
+    def test_region_for_timezone_falls_back_by_prefix(self):
+        """A zone set via the `timezone` option still pre-selects a region."""
+        self.assertEqual(region_for_timezone("Africa/Nairobi"), "EU")
+        self.assertEqual(region_for_timezone("Pacific/Chatham"), "AP")
+        self.assertEqual(region_for_timezone("Not/AZone"), "UT")
+
+    def test_region_for_timezone_handles_none(self):
+        self.assertIsNone(region_for_timezone(None))
+        self.assertIsNone(region_for_timezone(""))
+
+    def test_every_region_is_reachable(self):
+        """No region may become unselectable — each must own at least one zone
+        that resolves back to it."""
+        reachable = {region_for_timezone(z)
+                     for r in TIMEZONE_REGIONS for z, _l in r["zones"]}
+        self.assertEqual(reachable, {r["key"] for r in TIMEZONE_REGIONS})
+
+    def test_zones_for_region_unknown_key(self):
+        self.assertEqual(zones_for_region("XX"), [])
+        self.assertTrue(zones_for_region("AM"))
+
+    def test_timezone_regions_matches_the_underlying_list(self):
+        self.assertEqual(timezone_regions(), TIMEZONE_REGIONS)
+
+    def test_format_utc_offset_reflects_dst(self):
+        winter = datetime(2027, 1, 15, 20, 0, tzinfo=dt_timezone.utc)
+        self.assertEqual(format_utc_offset(TZ, NOW), "UTC-4")
+        self.assertEqual(format_utc_offset(TZ, winter), "UTC-5")
+        # Southern hemisphere moves the other way.
+        self.assertEqual(format_utc_offset("Australia/Sydney", NOW), "UTC+10")
+        self.assertEqual(format_utc_offset("Australia/Sydney", winter), "UTC+11")
+
+    def test_format_utc_offset_handles_partial_hours(self):
+        self.assertEqual(format_utc_offset("Asia/Kolkata", NOW), "UTC+5:30")
+        self.assertEqual(format_utc_offset("Asia/Kathmandu", NOW), "UTC+5:45")
+        self.assertEqual(format_utc_offset("America/St_Johns", NOW), "UTC-2:30")
+
+    def test_format_utc_offset_of_utc_is_bare(self):
+        self.assertEqual(format_utc_offset("UTC", NOW), "UTC")
+
+    def test_format_utc_offset_of_invalid_zone_is_empty(self):
+        self.assertEqual(format_utc_offset("Not/AZone", NOW), "")
+
+    def test_describe_timezone_uses_the_friendly_label(self):
+        self.assertEqual(describe_timezone(TZ, at=NOW), "New York (US Eastern) — UTC-4")
+
+    def test_describe_timezone_of_uncurated_zone_uses_the_iana_name(self):
+        self.assertEqual(describe_timezone("Asia/Kathmandu", at=NOW),
+                         "Kathmandu — UTC+5:45")
+        self.assertEqual(describe_timezone("Africa/Nairobi", at=NOW),
+                         "Africa/Nairobi — UTC+3")
+
+    def test_describe_timezone_does_not_stutter_on_utc(self):
+        self.assertEqual(describe_timezone("UTC", at=NOW),
+                         "UTC (Coordinated Universal Time)")
+
+    def test_describe_timezone_of_invalid_zone_is_empty(self):
+        self.assertEqual(describe_timezone("Not/AZone"), "")
+        self.assertEqual(describe_timezone(None), "")
+
+    def test_timezone_label_falls_back_to_the_iana_name(self):
+        self.assertEqual(timezone_label(TZ), "New York (US Eastern)")
+        self.assertEqual(timezone_label("Africa/Nairobi"), "Africa/Nairobi")
+        self.assertEqual(timezone_label(None), "")
+
+    def test_autocomplete_common_zones_stay_in_the_curated_lists(self):
+        """search_timezones floats a hardcoded `common` list; if a zone is dropped
+        from the picker the two would silently disagree."""
+        curated = {z for r in TIMEZONE_REGIONS for z, _l in r["zones"]}
+        for zone in search_timezones(""):
+            self.assertIn(zone, curated)
+
+
+class ScheduleInputMarkerTests(TestCase):
+    """The subtext line that carries the user's typed time between interactions."""
+
+    def _roundtrip(self, text):
+        content = "Pick a region.\n" + di._schedule_input_line(text)
+        return di._schedule_input_text({"message": {"content": content}})
+
+    def test_plain_text_roundtrips(self):
+        self.assertEqual(self._roundtrip("Mar 15 8pm"), "Mar 15 8pm")
+
+    def test_colons_survive(self):
+        """The custom_id codec is ':'-delimited; this carrier must not be."""
+        self.assertEqual(self._roundtrip("2026-03-15 20:00"), "2026-03-15 20:00")
+
+    def test_discord_timestamp_paste_survives(self):
+        self.assertEqual(self._roundtrip("<t:1789000000:F>"), "<t:1789000000:F>")
+
+    def test_backticks_are_stripped(self):
+        self.assertEqual(self._roundtrip("Mar 15 `8pm`"), "Mar 15 8pm")
+
+    def test_long_input_is_truncated(self):
+        self.assertLessEqual(len(self._roundtrip("a" * 300)), 200)
+
+    def test_a_forged_marker_line_cannot_hijack_the_value(self):
+        """Newlines are collapsed, so a fake marker ends up inside the real one
+        rather than replacing it."""
+        forged = "Mar 15 8pm\n-# From your input: `HACKED`"
+        self.assertNotEqual(self._roundtrip(forged), "HACKED")
+
+    def test_missing_marker_returns_empty(self):
+        self.assertEqual(di._schedule_input_text({"message": {"content": "nothing"}}), "")
+        self.assertEqual(di._schedule_input_text({}), "")
 
 
 class ScheduleFixtureMixin:
@@ -473,8 +609,22 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self.player.timezone, TZ)
 
     def test_missing_timezone_prompts(self):
+        """Asking must mean the region picker, not an error telling them to
+        re-type the command with an option."""
         body = self.assertEphemeral(di._handle_schedule_command(self._data()))
-        self.assertIn("timezone", body["data"]["content"].lower())
+        select = body["data"]["components"][0]["components"][0]
+        self.assertEqual(select["type"], 3)  # string select
+        self.assertTrue(select["custom_id"].startswith("schedule_tz_region:"))
+        # The typed time has to survive to the next interaction.
+        self.assertEqual(
+            di._schedule_input_text({"message": {"content": body["data"]["content"]}}),
+            "Sep 15 2026 8pm")
+
+    def test_timezone_option_not_saved_when_time_is_bad(self):
+        """The option and the time are one command: a bad time saves neither."""
+        di._handle_schedule_command(self._data(time="whenever", tz=TZ))
+        self.player.refresh_from_db()
+        self.assertIsNone(self.player.timezone)
 
     def test_invalid_timezone_rejected(self):
         body = self.assertEphemeral(
@@ -649,6 +799,267 @@ class MatchForThreadPreferTests(ScheduleFixtureMixin, TestCase):
             self.thread_id, self.guild.guild_id, prefer="unscheduled")
         default, _ = di._match_for_thread(self.thread_id, self.guild.guild_id)
         self.assertEqual(explicit, default)
+
+
+class ScheduleTimezoneSelectTests(ScheduleFixtureMixin, TestCase):
+    """The region/city selects that ask for a timezone, and the re-parse that
+    follows. Component handlers take the raw payload — none of the dispatcher's
+    underscore keys — and recover the typed time from the message itself."""
+
+    TIME = "Sep 15 2026 8pm"
+
+    def setUp(self):
+        self.build()
+
+    UNSET = object()
+
+    def _payload(self, action, *args, values=None, time_text=UNSET, owner=UNSET,
+                 guild=UNSET):
+        owner = self.player.discord_id if owner is self.UNSET else owner
+        text = self.TIME if time_text is self.UNSET else time_text
+        content = "Pick a region."
+        if text:
+            content += "\n" + di._schedule_input_line(text)
+        return {
+            "data": {
+                "custom_id": di.encode_custom_id(action, *args, owner),
+                "values": values or [],
+            },
+            "guild_id": self.guild.guild_id if guild is self.UNSET else guild,
+            "message": {"content": content},
+            "token": None,
+        }
+
+    def _body(self, response):
+        return json.loads(response.content)
+
+    def _confirm_ts(self, body):
+        confirm = body["data"]["components"][0]["components"][0]
+        return int(di.decode_custom_id(confirm["custom_id"])[1][1])
+
+    # ── region select ────────────────────────────────────────────────────────
+    def test_region_select_renders_the_city_select(self):
+        body = self._body(di._handle_schedule_tz_region(
+            self._payload("schedule_tz_region", self.match.id, values=["AM"])))
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        select = body["data"]["components"][0]["components"][0]
+        self.assertTrue(select["custom_id"].startswith(
+            f"schedule_tz_zone:{self.match.id}:AM:"))
+        self.assertLessEqual(len(select["options"]), 25)
+        for option in select["options"]:
+            self.assertTrue(valid_timezone(option["value"]), option["value"])
+
+    def test_city_labels_carry_an_offset(self):
+        body = self._body(di._handle_schedule_tz_region(
+            self._payload("schedule_tz_region", self.match.id, values=["AM"])))
+        options = body["data"]["components"][0]["components"][0]["options"]
+        for option in options:
+            self.assertIn("UTC", option["label"])
+
+    def test_region_select_carries_the_time_forward(self):
+        body = self._body(di._handle_schedule_tz_region(
+            self._payload("schedule_tz_region", self.match.id, values=["AM"])))
+        self.assertEqual(
+            di._schedule_input_text({"message": {"content": body["data"]["content"]}}),
+            self.TIME)
+
+    def test_unknown_region_is_rejected(self):
+        body = self._body(di._handle_schedule_tz_region(
+            self._payload("schedule_tz_region", self.match.id, values=["ZZ"])))
+        self.assertIn("region", body["data"]["content"].lower())
+
+    # ── city select ──────────────────────────────────────────────────────────
+    def test_city_select_saves_the_timezone(self):
+        di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=[TZ]))
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.timezone, TZ)
+
+    def test_city_select_returns_a_confirmation(self):
+        body = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=[TZ])))
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        confirm = body["data"]["components"][0]["components"][0]
+        self.assertTrue(confirm["custom_id"].startswith("schedule_confirm:"))
+        expected, _err = parse_user_datetime(self.TIME, TZ)
+        self.assertEqual(self._confirm_ts(body), int(expected.timestamp()))
+
+    def test_changing_timezone_reparses_the_same_wall_clock_time(self):
+        """The headline behavior: 8pm means 8pm wherever you actually are, so
+        two zones three hours apart give two instants three hours apart."""
+        east = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=["America/New_York"])))
+        west = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=["America/Los_Angeles"])))
+        self.assertEqual(self._confirm_ts(west) - self._confirm_ts(east), 3 * 3600)
+
+    def test_city_select_acknowledges_the_change(self):
+        """Discord renders <t:> in the viewer's own zone, so without a note the
+        re-shown prompt can look identical after a change."""
+        body = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=[TZ])))
+        self.assertIn("Saved your timezone", body["data"]["content"])
+
+    def test_city_select_rejects_a_forged_timezone(self):
+        body = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=["Not/AZone"])))
+        self.player.refresh_from_db()
+        self.assertIsNone(self.player.timezone)
+        self.assertIn("recognize", body["data"]["content"])
+
+    def test_city_select_without_the_marker_still_saves(self):
+        body = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=[TZ], time_text=None)))
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.timezone, TZ)
+        self.assertIn("/schedule again", body["data"]["content"])
+        self.assertEqual(body["data"]["components"], [])
+
+    def test_city_select_surfaces_a_parse_error_but_keeps_the_timezone(self):
+        body = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=[TZ],
+            time_text="whenever")))
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.timezone, TZ)
+        self.assertIn("couldn't read", body["data"]["content"])
+        self.assertEqual(body["data"]["components"], [])
+
+    def test_city_select_rechecks_permission(self):
+        body = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", self.match.id, "AM", values=[TZ],
+            owner=self.outsider.discord_id)))
+        self.outsider.refresh_from_db()
+        self.assertIsNone(self.outsider.timezone)
+        self.assertIn("can't set the time", body["data"]["content"])
+
+    def test_city_select_rejects_a_match_played_since_the_prompt(self):
+        self.match.delete()
+        body = self._body(di._handle_schedule_tz_zone(self._payload(
+            "schedule_tz_zone", 999999, "AM", values=[TZ])))
+        self.assertIn("no longer", body["data"]["content"])
+
+    # ── back / change ────────────────────────────────────────────────────────
+    def test_back_returns_to_the_region_select(self):
+        body = self._body(di._handle_schedule_tz_back(
+            self._payload("schedule_tz_back", self.match.id)))
+        select = body["data"]["components"][0]["components"][0]
+        self.assertTrue(select["custom_id"].startswith("schedule_tz_region:"))
+        self.assertEqual(
+            di._schedule_input_text({"message": {"content": body["data"]["content"]}}),
+            self.TIME)
+
+    def test_change_timezone_preselects_the_current_region(self):
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+        body = self._body(di._handle_schedule_tz_back(
+            self._payload("schedule_tz_change", self.match.id)))
+        options = body["data"]["components"][0]["components"][0]["options"]
+        selected = [o["value"] for o in options if o.get("default")]
+        self.assertEqual(selected, ["AM"])
+
+    def test_change_timezone_preselects_a_region_for_an_uncurated_zone(self):
+        """A zone set via the `timezone` option isn't in any city list, but must
+        still land the user somewhere sensible."""
+        self.player.timezone = "Asia/Kathmandu"
+        self.player.save(update_fields=["timezone"])
+        body = self._body(di._handle_schedule_tz_back(
+            self._payload("schedule_tz_change", self.match.id)))
+        options = body["data"]["components"][0]["components"][0]["options"]
+        self.assertEqual([o["value"] for o in options if o.get("default")], ["AP"])
+
+    def test_stale_custom_id_handled(self):
+        payload = self._payload("schedule_tz_back", self.match.id)
+        payload["data"]["custom_id"] = "schedule_tz_back"
+        body = self._body(di._handle_schedule_tz_back(payload))
+        self.assertIn("out of date", body["data"]["content"])
+
+    # ── owner lock ───────────────────────────────────────────────────────────
+    def test_every_prompt_custom_id_ends_in_the_owner_and_fits(self):
+        """The dispatcher owner-lock keys off the LAST custom_id arg."""
+        bodies = [
+            self._body(di._handle_schedule_tz_back(
+                self._payload("schedule_tz_back", self.match.id))),
+            self._body(di._handle_schedule_tz_region(
+                self._payload("schedule_tz_region", self.match.id, values=["AM"]))),
+            self._body(di._handle_schedule_tz_zone(
+                self._payload("schedule_tz_zone", self.match.id, "AM", values=[TZ]))),
+        ]
+        for body in bodies:
+            for row in body["data"]["components"]:
+                for component in row["components"]:
+                    custom_id = component["custom_id"]
+                    self.assertTrue(
+                        custom_id.endswith(f":{self.player.discord_id}"), custom_id)
+                    self.assertLessEqual(len(custom_id), 100, custom_id)
+
+
+class ScheduleConfirmDisplayTests(ScheduleFixtureMixin, TestCase):
+    """What the confirmation says about the timezone it used."""
+
+    def setUp(self):
+        self.build()
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+
+    def _buttons(self, **kwargs):
+        data = di._schedule_confirm_data(
+            self.match, self.when, self.player.discord_id, **kwargs)
+        return data, [c["custom_id"] for c in data["components"][0]["components"]]
+
+    def test_confirmation_shows_the_timezone(self):
+        data, _ = self._buttons(tz_name=TZ, time_text="Sep 15 2026 8pm")
+        self.assertIn("New York", data["content"])
+        self.assertIn("UTC-", data["content"])
+
+    def test_confirmation_shows_an_uncurated_timezone(self):
+        data, _ = self._buttons(tz_name="Asia/Kathmandu", time_text="Sep 15 2026 8pm")
+        self.assertIn("Kathmandu", data["content"])
+        self.assertIn("UTC+5:45", data["content"])
+
+    def test_confirmation_offers_a_change_timezone_button(self):
+        _data, ids = self._buttons(tz_name=TZ, time_text="Sep 15 2026 8pm")
+        self.assertEqual(len(ids), 3)
+        self.assertTrue(ids[0].startswith("schedule_confirm:"))
+        self.assertTrue(ids[1].startswith("schedule_tz_change:"))
+        self.assertTrue(ids[2].startswith("schedule_cancel:"))
+
+    def test_epoch_confirmation_has_no_timezone_line_or_button(self):
+        """An epoch is absolute — there's no zone to show and nothing to change."""
+        data, ids = self._buttons(tz_name=None, time_text="<t:1789000000:F>")
+        self.assertEqual(len(ids), 2)
+        self.assertNotIn("timezone", data["content"].lower())
+
+    def test_confirmation_offset_reflects_dst_at_the_scheduled_time(self):
+        """Not the offset in effect today — the one that will actually apply."""
+        january = datetime(2027, 1, 15, 20, 0, tzinfo=dt_timezone.utc)
+        data = di._schedule_confirm_data(
+            self.match, january, self.player.discord_id, tz_name=TZ)
+        self.assertIn("UTC-5", data["content"])
+
+    def test_confirmation_carries_the_time_text_forward(self):
+        data, _ = self._buttons(tz_name=TZ, time_text="Sep 15 2026 8pm")
+        self.assertEqual(
+            di._schedule_input_text({"message": {"content": data["content"]}}),
+            "Sep 15 2026 8pm")
+
+
+class ScheduleCommandShapeTests(TestCase):
+    """The `timezone` option is the only route to a zone the picker doesn't
+    curate — guard it against a well-meaning cleanup."""
+
+    def test_schedule_offers_time_and_timezone(self):
+        names = [o["name"] for o in dc.SCHEDULE_COMMAND["options"]]
+        self.assertEqual(names, ["time", "timezone"])
+
+    def test_timezone_option_still_autocompletes(self):
+        option = next(o for o in dc.SCHEDULE_COMMAND["options"]
+                      if o["name"] == "timezone")
+        self.assertTrue(option["autocomplete"])
+        self.assertIn(("schedule", "timezone"), di.AUTOCOMPLETE_HANDLERS)
+
+    def test_timezone_components_are_registered(self):
+        for action in ("schedule_tz_region", "schedule_tz_zone",
+                       "schedule_tz_back", "schedule_tz_change"):
+            self.assertIn(action, di.COMPONENT_HANDLERS)
 
 
 class ScheduleClearHandlerTests(ScheduleFixtureMixin, TestCase):

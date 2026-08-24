@@ -12,7 +12,10 @@ Currently handles:
                                           /faction, /clockwork, /map, /deck,
                                           /vagabond, /landmark, /hireling,
                                           /houserule, /stats, /upcoming,
-                                          /schedule, /law, /help)
+                                          /schedule, /law, /card, /captain,
+                                          /draft, /random, /lfg, /help)
+  MESSAGE_COMPONENT (type 3)           -> button/select clicks, dispatched by the
+                                          custom_id's leading action
   APPLICATION_COMMAND_AUTOCOMPLETE (4) -> live option suggestions (type 8)
 """
 import json
@@ -52,6 +55,8 @@ from .services.discord_commands import (
 from .services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     valid_timezone, search_timezones,
+    timezone_regions, zones_for_region, region_for_timezone,
+    describe_timezone, format_utc_offset,
 )
 from .services.discord_components import (
     action_row, button, string_select, select_option,
@@ -571,29 +576,163 @@ def _match_label(match):
     return (group.name if group and group.name else None) or match.name or "this match"
 
 
-def _schedule_confirm_data(match, when, owner):
+# ── /schedule timezone prompt ────────────────────────────────────────────────
+# When we don't know a user's timezone we ask for it with two selects (region,
+# then city) before showing the schedule confirmation. Those are separate
+# interactions, so the time the user typed has to survive between them — and it
+# can't ride in a custom_id (100-char cap, and the codec is ':'-delimited, which
+# a time like "20:00" would corrupt).
+#
+# So it rides in the prompt's own content, the way /lfg keeps its roster in embed
+# fields: every step edits the SAME ephemeral message (type 7), so whatever we
+# render is handed back to us on the next click. Discord's "-#" subtext renders
+# small and grey, which makes the carrier double as a useful echo of what the
+# user typed.
+_SCHEDULE_INPUT_PREFIX = "-# From your input: "
+_SCHEDULE_INPUT_RE = re.compile(r"^-# From your input: `(.+)`$", re.MULTILINE)
+_SCHEDULE_INPUT_MAX = 200
+
+
+def _schedule_input_line(time_text):
+    """The subtext line carrying the user's raw time text to the next interaction.
+
+    Backticks are stripped (an unescaped one would truncate the value on the way
+    back) and newlines collapsed — the latter also defeats a forged marker line,
+    since flattening it leaves the greedy pattern below matching the whole thing
+    rather than the forgery."""
+    text = (time_text or "").replace("`", "").replace("\n", " ").strip()
+    return f"{_SCHEDULE_INPUT_PREFIX}`{text[:_SCHEDULE_INPUT_MAX]}`"
+
+
+def _schedule_input_text(payload):
+    """Recover the raw time text from the prompt this component belongs to, or ""
+    when it's missing (a pre-deploy message, or one we didn't render)."""
+    content = (payload.get("message") or {}).get("content") or ""
+    match = _SCHEDULE_INPUT_RE.search(content)
+    return match.group(1) if match else ""
+
+
+def _tz_region_data(match, time_text, owner, current_tz=None):
+    """Step 1 of the timezone prompt: pick a broad region.
+
+    `current_tz` pre-selects the matching region (and switches the copy to the
+    "changing it" wording), so the Change-timezone button lands somewhere useful."""
+    if current_tz:
+        intro = f"Your timezone is set to **{describe_timezone(current_tz)}**."
+    else:
+        intro = ("I don't know your timezone yet, so I can't tell what that time "
+                 "means.")
+    current_region = region_for_timezone(current_tz)
+    options = [
+        select_option(region["label"], region["key"], emoji={"name": region["emoji"]},
+                      default=region["key"] == current_region)
+        for region in timezone_regions()
+    ]
+    return {
+        "content": "\n".join([
+            intro,
+            "Which part of the world are you in? I'll remember it for next time.",
+            # The picker is a curated list, so point at the escape hatch here —
+            # nothing else in this flow mentions it.
+            "-# Not listed? Re-run with the `timezone` option instead.",
+            _schedule_input_line(time_text),
+        ]),
+        "flags": EPHEMERAL,
+        "allowed_mentions": {"parse": []},
+        "components": [
+            action_row(string_select(
+                encode_custom_id("schedule_tz_region", match.id, owner), options,
+                placeholder="Pick your region", min_values=1, max_values=1,
+            )),
+            action_row(button("Cancel", encode_custom_id("schedule_cancel", owner),
+                              style=STYLE_SECONDARY)),
+        ],
+    }
+
+
+def _tz_zone_data(match, region_key, time_text, owner, current_tz=None):
+    """Step 2 of the timezone prompt: pick a city within the chosen region.
+
+    Offsets are appended to each label, which is what makes the list readable. They
+    are computed at the time the user is scheduling where we can parse it, not at
+    "now" — the two differ across a DST boundary (Sydney is UTC+10 in August and
+    UTC+11 in January), and it's the scheduled instant the user cares about."""
+    zones = zones_for_region(region_key)
+    region = next((r for r in timezone_regions() if r["key"] == region_key), None)
+    options = []
+    for zone, label in zones:
+        # Parse against each candidate so the offset shown is the one that would
+        # actually apply; an unparseable time just falls back to now.
+        when, _error = parse_user_datetime(time_text, zone)
+        options.append(select_option(
+            f"{label} — {format_utc_offset(zone, when)}", zone,
+            default=zone == current_tz,
+        ))
+    return {
+        "content": "\n".join([
+            f"Pick the closest city in **{region['label'] if region else region_key}**.",
+            _schedule_input_line(time_text),
+        ]),
+        "flags": EPHEMERAL,
+        "allowed_mentions": {"parse": []},
+        "components": [
+            action_row(string_select(
+                encode_custom_id("schedule_tz_zone", match.id, region_key, owner), options,
+                placeholder="Pick your timezone", min_values=1, max_values=1,
+            )),
+            action_row(
+                button("◀ Regions", encode_custom_id("schedule_tz_back", match.id, owner),
+                       style=STYLE_SECONDARY),
+                button("Cancel", encode_custom_id("schedule_cancel", owner),
+                       style=STYLE_SECONDARY),
+            ),
+        ],
+    }
+
+
+def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=None):
     """The ephemeral confirm prompt: the time as Discord renders it in the clicker's
-    own timezone, plus Confirm / Cancel. The owner snowflake rides LAST in each
-    custom_id so the dispatcher's owner-lock applies without extra checks."""
+    own timezone, plus Confirm / Change timezone / Cancel. The owner snowflake rides
+    LAST in each custom_id so the dispatcher's owner-lock applies without extra
+    checks.
+
+    `tz_name` is falsy for an epoch/`<t:…>` input, which is absolute: there's no
+    timezone to show and re-interpreting it in another one would be a no-op, so the
+    line and the button are both dropped. `note` acknowledges a just-changed
+    timezone — Discord renders `<t:…>` in the VIEWER's zone, so without it the
+    re-shown prompt can look unchanged even though it now means a different
+    instant."""
     label = _match_label(match)
     ts = int(when.timestamp())
-    lines = [
+    lines = []
+    if note:
+        lines.append(note)
+    lines += [
         f"Schedule **{label}** for:",
         format_discord_timestamp(when),
     ]
+    if tz_name:
+        lines.append(f"Interpreted in **{describe_timezone(tz_name, at=when)}**.")
     if match.scheduled_time:
         lines.append(
             f"\nThis replaces the current time of {format_discord_timestamp(match.scheduled_time)}."
         )
     lines.append("\nDoes that look right?")
+    if time_text:
+        lines.append(_schedule_input_line(time_text))
+    buttons = [button("Confirm", encode_custom_id("schedule_confirm", match.id, ts, owner),
+                      style=STYLE_SUCCESS)]
+    if tz_name:
+        buttons.append(button(
+            "Change timezone", encode_custom_id("schedule_tz_change", match.id, owner),
+            style=STYLE_SECONDARY))
+    buttons.append(button("Cancel", encode_custom_id("schedule_cancel", owner),
+                          style=STYLE_SECONDARY))
     return {
         "content": "\n".join(lines),
         "flags": EPHEMERAL,
-        "components": [action_row(
-            button("Confirm", encode_custom_id("schedule_confirm", match.id, ts, owner),
-                   style=STYLE_SUCCESS),
-            button("Cancel", encode_custom_id("schedule_cancel", owner), style=STYLE_SECONDARY),
-        )],
+        "allowed_mentions": {"parse": []},
+        "components": [action_row(*buttons)],
     }
 
 
@@ -687,31 +826,36 @@ def _handle_schedule_command(data):
         })
 
     # Timezone: an explicit option (remembered for next time) beats the stored one.
+    # It's rarely needed now that we ask, but it's the only route to a zone the
+    # region/city picker doesn't curate.
     tz_option = (_get_option(data, "timezone") or "").strip()
-    if tz_option:
-        if not valid_timezone(tz_option):
-            return _ephemeral(
-                f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
-                "suggestions, e.g. `America/New_York`."
-            )
-        if profile.timezone != tz_option:
-            profile.timezone = tz_option
-            profile.save(update_fields=["timezone"])
-    tz_name = tz_option or profile.timezone
+    if tz_option and not valid_timezone(tz_option):
+        return _ephemeral(
+            f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
+            "suggestions, e.g. `America/New_York` — or leave it blank and I'll ask."
+        )
+    tz_name = tz_option or profile.timezone or None
 
     when, error = parse_user_datetime(time_text, tz_name)
     if error == NEED_TIMEZONE:
-        return _ephemeral(
-            "I don't know your timezone yet, so I can't tell what that time means. "
-            "Run the command again with the `timezone` option (e.g. "
-            "`America/New_York`). I'll remember it after that."
-        )
+        # Ask, rather than erroring out and making them re-type the command. An
+        # epoch/`<t:…>` paste never lands here — it parses with no zone at all.
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _tz_region_data(match, time_text, author_id, current_tz=tz_name),
+        })
     if error:
         return _ephemeral(error)
 
+    # Persisted only once the whole command has succeeded, so a good timezone
+    # paired with an unreadable time doesn't get saved on the way out.
+    if tz_option and profile.timezone != tz_option:
+        profile.timezone = tz_option
+        profile.save(update_fields=["timezone"])
+
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": _schedule_confirm_data(match, when, author_id),
+        "data": _schedule_confirm_data(match, when, author_id, tz_name, time_text),
     })
 
 
@@ -818,6 +962,106 @@ def _handle_schedule_cancel(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": "Cancelled — nothing was changed.", "components": []},
+    })
+
+
+def _schedule_tz_context(payload, args):
+    """Shared guards for the timezone-prompt components: (match, profile, error).
+
+    The dispatcher's owner-lock already proved WHO clicked; this re-checks that the
+    match is still schedulable and they may still schedule it, exactly as the
+    confirm handlers do — the prompt may have been sitting there a while."""
+    if len(args) < 2:
+        return None, None, _ephemeral("That prompt is out of date — run /schedule again.")
+    match_id, owner = args[0], args[-1]
+    match = _schedulable_matches(payload.get("guild_id")).filter(pk=match_id).first()
+    if not match:
+        return None, None, _ephemeral(
+            "That match can no longer be scheduled: it may have been played or removed."
+        )
+    profile = Profile.objects.filter(discord_id=str(owner)).first()
+    if not profile or not match.can_schedule(profile):
+        return None, None, _ephemeral("You can't set the time for this match.")
+    return match, profile, None
+
+
+def _handle_schedule_tz_region(payload):
+    """Region select: show that region's cities."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, owner]
+    match, profile, error = _schedule_tz_context(payload, args)
+    if error:
+        return error
+    region_key = (payload["data"].get("values") or [None])[0]
+    if not zones_for_region(region_key):
+        return _ephemeral("I don't know that region — run /schedule again.")
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _tz_zone_data(match, region_key, _schedule_input_text(payload),
+                              args[-1], current_tz=profile.timezone),
+    })
+
+
+def _handle_schedule_tz_zone(payload):
+    """City select: save the timezone, then re-read the user's original time in it.
+
+    Re-parsing the TEXT (not reusing the instant) is the point: "Mar 15 8pm" means
+    8pm wherever they actually are."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, region, owner]
+    match, profile, error = _schedule_tz_context(payload, args)
+    if error:
+        return error
+    owner = args[-1]
+
+    # Never trust a value echoed back by the client.
+    tz_name = (payload["data"].get("values") or [None])[0]
+    if not valid_timezone(tz_name):
+        return _ephemeral("That isn't a timezone I recognize — run /schedule again.")
+    if profile.timezone != tz_name:
+        profile.timezone = tz_name
+        # update_fields is required: a bare save() re-derives display_name and can
+        # delete the profile's existing avatar.
+        profile.save(update_fields=["timezone"])
+
+    saved = f"✔ Saved your timezone as **{describe_timezone(tz_name)}**."
+    time_text = _schedule_input_text(payload)
+    if not time_text:
+        # The carrier line is gone (a pre-deploy prompt, say). The timezone is
+        # still worth keeping — they just have to ask for the time again.
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": f"{saved}\nRun /schedule again to set a time.",
+                     "components": []},
+        })
+
+    when, error = parse_user_datetime(time_text, tz_name)
+    if error:
+        # NEED_TIMEZONE can't happen — we just validated and stored a zone — so
+        # `error` is always user-facing copy here. Report the save too: the
+        # timezone is a real result even though the time didn't work out.
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": f"{saved}\n{error}", "components": []},
+        })
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_confirm_data(match, when, owner, tz_name, time_text,
+                                       note=f"{saved}\n"),
+    })
+
+
+def _handle_schedule_tz_back(payload):
+    """Back to the region list. Also serves the confirmation's Change timezone
+    button — the two want the same prompt, and _tz_region_data already varies its
+    copy on whether a timezone is stored."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, owner]
+    match, profile, error = _schedule_tz_context(payload, args)
+    if error:
+        return error
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _tz_region_data(match, _schedule_input_text(payload), args[-1],
+                                current_tz=profile.timezone),
     })
 
 
@@ -1944,6 +2188,11 @@ COMPONENT_HANDLERS = {
     "schedule_confirm": _handle_schedule_confirm,
     "schedule_clear_confirm": _handle_schedule_clear_confirm,
     "schedule_cancel": _handle_schedule_cancel,
+    "schedule_tz_region": _handle_schedule_tz_region,
+    "schedule_tz_zone": _handle_schedule_tz_zone,
+    "schedule_tz_back": _handle_schedule_tz_back,
+    # Same prompt as Back; the copy differs on whether a timezone is already set.
+    "schedule_tz_change": _handle_schedule_tz_back,
     "lfg_join": _handle_lfg_join,
     "lfg_notify": _handle_lfg_notify,
     "lfg_cancel": _handle_lfg_cancel,
