@@ -53,6 +53,183 @@ def valid_timezone(name):
     return True
 
 
+# ── Timezone regions ─────────────────────────────────────────────────────────
+# The /schedule follow-up asks for a timezone with two string selects: a region,
+# then a city. A Discord select caps at 25 options and can't autocomplete, so each
+# region's list is CURATED rather than derived from available_timezones() (~600
+# entries, mostly redundant aliases). The `timezone` command option keeps its
+# autocomplete over every zone, and is the escape hatch for anywhere not listed
+# here — don't remove it without replacing that coverage.
+#
+# Region keys are two characters because they ride in component custom_ids.
+# Labels are the city as a player would say it, with the offset appended at render
+# time (a fixed offset can't live here — it changes with DST).
+TIMEZONE_REGIONS = [
+    {"key": "AM", "label": "Americas", "emoji": "🌎", "zones": [
+        ("Pacific/Honolulu", "Honolulu (Hawaii)"),
+        ("America/Anchorage", "Anchorage (Alaska)"),
+        ("America/Los_Angeles", "Los Angeles (US Pacific)"),
+        ("America/Vancouver", "Vancouver (Pacific)"),
+        ("America/Phoenix", "Phoenix (Arizona, no DST)"),
+        ("America/Denver", "Denver (US Mountain)"),
+        ("America/Edmonton", "Edmonton (Mountain)"),
+        ("America/Chicago", "Chicago (US Central)"),
+        ("America/Winnipeg", "Winnipeg (Central)"),
+        ("America/Mexico_City", "Mexico City"),
+        ("America/Guatemala", "Guatemala City"),
+        ("America/New_York", "New York (US Eastern)"),
+        ("America/Toronto", "Toronto (Eastern)"),
+        ("America/Bogota", "Bogotá"),
+        ("America/Lima", "Lima"),
+        ("America/Panama", "Panama City"),
+        ("America/Halifax", "Halifax (Atlantic)"),
+        ("America/Puerto_Rico", "San Juan (Atlantic)"),
+        ("America/Caracas", "Caracas"),
+        ("America/La_Paz", "La Paz"),
+        ("America/Santiago", "Santiago"),
+        ("America/Sao_Paulo", "São Paulo"),
+        ("America/Argentina/Buenos_Aires", "Buenos Aires"),
+        ("America/Montevideo", "Montevideo"),
+        ("America/St_Johns", "St. John's (Newfoundland)"),
+    ]},
+    {"key": "EU", "label": "Europe & Africa", "emoji": "🌍", "zones": [
+        ("Europe/London", "London (UK)"),
+        ("Europe/Dublin", "Dublin"),
+        ("Europe/Lisbon", "Lisbon"),
+        ("Africa/Accra", "Accra"),
+        ("Africa/Casablanca", "Casablanca"),
+        ("Europe/Paris", "Paris"),
+        ("Europe/Berlin", "Berlin"),
+        ("Europe/Madrid", "Madrid"),
+        ("Europe/Rome", "Rome"),
+        ("Europe/Amsterdam", "Amsterdam"),
+        ("Europe/Brussels", "Brussels"),
+        ("Europe/Zurich", "Zurich"),
+        ("Europe/Vienna", "Vienna"),
+        ("Europe/Prague", "Prague"),
+        ("Europe/Warsaw", "Warsaw"),
+        ("Europe/Stockholm", "Stockholm"),
+        ("Europe/Oslo", "Oslo"),
+        ("Europe/Copenhagen", "Copenhagen"),
+        ("Africa/Lagos", "Lagos"),
+        ("Europe/Helsinki", "Helsinki"),
+        ("Europe/Athens", "Athens"),
+        ("Europe/Bucharest", "Bucharest"),
+        ("Europe/Kyiv", "Kyiv"),
+        ("Africa/Cairo", "Cairo"),
+        ("Africa/Johannesburg", "Johannesburg"),
+    ]},
+    {"key": "AP", "label": "Asia & Oceania", "emoji": "🌏", "zones": [
+        ("Asia/Jerusalem", "Jerusalem"),
+        ("Asia/Riyadh", "Riyadh"),
+        ("Asia/Tehran", "Tehran"),
+        ("Asia/Dubai", "Dubai"),
+        ("Asia/Karachi", "Karachi"),
+        ("Asia/Almaty", "Almaty"),
+        ("Asia/Kolkata", "India (Kolkata / Mumbai)"),
+        ("Asia/Kathmandu", "Kathmandu"),
+        ("Asia/Dhaka", "Dhaka"),
+        ("Asia/Bangkok", "Bangkok"),
+        ("Asia/Jakarta", "Jakarta"),
+        ("Asia/Ho_Chi_Minh", "Ho Chi Minh City"),
+        ("Asia/Singapore", "Singapore"),
+        ("Asia/Manila", "Manila"),
+        ("Asia/Hong_Kong", "Hong Kong"),
+        ("Asia/Shanghai", "China (Shanghai / Beijing)"),
+        ("Asia/Taipei", "Taipei"),
+        ("Asia/Seoul", "Seoul"),
+        ("Asia/Tokyo", "Tokyo"),
+        ("Australia/Perth", "Perth"),
+        ("Australia/Adelaide", "Adelaide"),
+        ("Australia/Brisbane", "Brisbane"),
+        ("Australia/Sydney", "Sydney / Melbourne"),
+        ("Pacific/Auckland", "Auckland"),
+        ("Pacific/Fiji", "Fiji"),
+    ]},
+    {"key": "UT", "label": "UTC / other", "emoji": "🕐", "zones": [
+        ("UTC", "UTC (Coordinated Universal Time)"),
+    ]},
+]
+
+# {iana: friendly label} across every region, for label lookups.
+_ZONE_LABELS = {z: label for r in TIMEZONE_REGIONS for z, label in r["zones"]}
+
+# Continent prefix -> region key, so a zone that ISN'T curated (set via the
+# `timezone` option) still resolves to a sensible region to pre-select.
+_REGION_BY_PREFIX = {
+    "America": "AM", "Europe": "EU", "Africa": "EU", "Atlantic": "EU",
+    "Asia": "AP", "Australia": "AP", "Pacific": "AP", "Indian": "AP",
+}
+
+
+def timezone_regions():
+    """The curated region list, in display order."""
+    return TIMEZONE_REGIONS
+
+
+def zones_for_region(key):
+    """[(iana, label)] for a region key, or [] when the key is unknown."""
+    for region in TIMEZONE_REGIONS:
+        if region["key"] == key:
+            return region["zones"]
+    return []
+
+
+def timezone_label(name):
+    """The friendly label for a zone, falling back to the IANA name so a zone set
+    via the `timezone` option still displays sensibly."""
+    return _ZONE_LABELS.get(name) or name or ""
+
+
+def region_for_timezone(name):
+    """The region key a zone belongs to, or None. Curated membership first, then
+    the continent prefix so uncurated zones still land somewhere. Used only to
+    pre-select a dropdown, so a wrong guess is cosmetic."""
+    if not name:
+        return None
+    for region in TIMEZONE_REGIONS:
+        if any(z == name for z, _label in region["zones"]):
+            return region["key"]
+    return _REGION_BY_PREFIX.get(name.split("/")[0], "UT")
+
+
+def format_utc_offset(name, at=None):
+    """`UTC-4` / `UTC+5:45` for a zone at a given instant, or "" if unknown.
+
+    Minutes are shown only when non-zero — five curated zones are on a half or
+    quarter hour (St John's, Tehran, Kolkata, Kathmandu, Adelaide)."""
+    try:
+        tzinfo = ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError):
+        return ""
+    at = at or datetime.now(dt_timezone.utc)
+    offset = at.astimezone(tzinfo).utcoffset()
+    if offset is None:
+        return ""
+    total = int(offset.total_seconds())
+    if total == 0:
+        return "UTC"
+    sign = "-" if total < 0 else "+"
+    hours, minutes = divmod(abs(total) // 60, 60)
+    return f"UTC{sign}{hours}:{minutes:02d}" if minutes else f"UTC{sign}{hours}"
+
+
+def describe_timezone(name, at=None):
+    """`New York (US Eastern) — UTC-4`, or "" when the zone isn't valid.
+
+    `at` matters: the offset shown should be the one in effect at the SCHEDULED
+    time, not today, or a booking across a DST boundary reads wrong."""
+    if not valid_timezone(name):
+        return ""
+    offset = format_utc_offset(name, at)
+    label = timezone_label(name)
+    # A zone sitting exactly on UTC renders as plain "UTC"; appending that to a
+    # label that already says so reads as a stutter.
+    if not offset or offset in label:
+        return label
+    return f"{label} — {offset}"
+
+
 def search_timezones(query, limit=25):
     """IANA zone names matching `query`, for the /schedule timezone autocomplete.
 
@@ -65,7 +242,8 @@ def search_timezones(query, limit=25):
     else:
         matches = []
     # Float widely-used zones to the top (of an empty query, or of a broad one like
-    # "america" that would otherwise surface obscure entries first).
+    # "america" that would otherwise surface obscure entries first). Drawn from the
+    # curated regions so the autocomplete and the picker can't drift apart.
     common = [
         "America/New_York", "America/Chicago", "America/Denver",
         "America/Los_Angeles", "Europe/London", "Europe/Paris", "Europe/Berlin",
