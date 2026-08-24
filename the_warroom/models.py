@@ -527,6 +527,21 @@ class Tournament(models.Model):
             'plus any member of the linked guild can record games for rounds.'
         ),
     )
+    # When True (the default), /schedule proposes a time that every player on the
+    # match roster must confirm before it's written. When False, /schedule keeps the
+    # original behavior: whoever runs it confirms once and the time is set.
+    #
+    # Only meaningful when players may schedule at all — under MODERATORS-only
+    # recording_access there is nobody to poll (see players_can_record_matches).
+    require_participant_schedule_confirmation = models.BooleanField(
+        default=True,
+        verbose_name="Require Player Confirmation for Scheduling",
+        help_text=(
+            "Require every player in a game to confirm a proposed time before "
+            "/schedule sets it. When off, whoever runs /schedule sets the time "
+            "directly. Only applies when players are allowed to record matches."
+        ),
+    )
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)
@@ -663,6 +678,14 @@ class Tournament(models.Model):
             self.RecordingAccessTypes.REGISTERED,
             self.RecordingAccessTypes.GUILD,
         )
+
+    def requires_schedule_confirmation(self):
+        """True when /schedule must collect every player's confirmation before it
+        writes a time. Requires BOTH the opt-in flag and players actually being
+        allowed to schedule — under MODERATORS-only access no player may set a
+        time, so there is nobody to poll and the moderator's word is already final."""
+        return (self.require_participant_schedule_confirmation
+                and self.players_can_record_matches())
 
     def players_can_record_standalone(self):
         """Registered players may record standalone games for rounds (REGISTERED, GUILD)."""

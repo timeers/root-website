@@ -323,6 +323,88 @@ class LFGThread(models.Model):
     def __str__(self):
         return f"LFGThread {self.thread_id} ({self.players.count()} players)"
 
+
+class ScheduleProposal(models.Model):
+    """A proposed time for a Match, pending confirmation from every roster player.
+
+    /schedule no longer writes Match.scheduled_time directly (when the tournament
+    opts in via require_participant_schedule_confirmation): it creates one of these
+    and posts a public message with Confirm/Reject. The time is written only once
+    every roster player has confirmed.
+
+    Several proposals may be OPEN for one match at once — two players may each
+    suggest a time. The first to reach full confirmation wins and supersedes the
+    rest; the losers are retired so their buttons can no longer overwrite it.
+
+    channel_id/message_id record the public message so a superseded or cancelled
+    proposal can have its buttons stripped from OUTSIDE its own interaction."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        CONFIRMED = "confirmed", "Confirmed"
+        REJECTED = "rejected", "Rejected"
+        SUPERSEDED = "superseded", "Superseded"   # another proposal won first
+        # Retired without a human rejecting it: the time was cleared or directly
+        # rewritten, the proposer lost permission, or the cleanup task expired it.
+        CANCELLED = "cancelled", "Cancelled"
+
+    # Lazy string: this module never imports the_warroom at module level.
+    match = models.ForeignKey(
+        "the_warroom.Match", on_delete=models.CASCADE,
+        related_name="schedule_proposals")
+    proposed_time = models.DateTimeField(help_text="The proposed instant (UTC).")
+    proposed_by = models.ForeignKey(
+        'Profile', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="schedule_proposals_made")
+
+    # Roster SNAPSHOT taken at proposal time, so a mid-flight roster change can't
+    # strand a proposal that everyone present already confirmed.
+    roster = models.ManyToManyField(
+        'Profile', blank=True, related_name="schedule_proposals_on_roster")
+    confirmed_by = models.ManyToManyField(
+        'Profile', blank=True, related_name="schedule_proposals_confirmed",
+        help_text="Roster players who pressed Confirm. The proposer is seeded here "
+                  "at creation — proposing IS confirming.")
+    rejected_by = models.ForeignKey(
+        'Profile', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="schedule_proposals_rejected")
+
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True)
+
+    # Where the public message lives, so it can be edited later from a task or from
+    # a DIFFERENT proposal's interaction (superseding).
+    channel_id = models.CharField(max_length=32, blank=True, default="")
+    message_id = models.CharField(max_length=32, blank=True, default="")
+    guild_id = models.CharField(max_length=32, blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["match", "status"])]
+
+    def __str__(self):
+        return f"ScheduleProposal #{self.pk} ({self.get_status_display()})"
+
+    @property
+    def is_open(self):
+        return self.status == self.Status.OPEN
+
+    def pending_profiles(self):
+        """Roster players who have not confirmed yet."""
+        return self.roster.exclude(
+            pk__in=self.confirmed_by.values_list("pk", flat=True))
+
+    def all_confirmed(self):
+        """True when every roster player has confirmed. An EMPTY roster is NOT
+        'all confirmed' — an unpopulated player group must never auto-finalize."""
+        roster_ids = set(self.roster.values_list("pk", flat=True))
+        return bool(roster_ids) and roster_ids <= set(
+            self.confirmed_by.values_list("pk", flat=True))
+
+
 class Holiday(models.Model):
     name = models.CharField(max_length=100)
     start_date = models.DateField(default=timezone.now)

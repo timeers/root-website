@@ -2,6 +2,14 @@
 
 ## [1.13.4] - 2026-8-23 Bot Finishing Touches
 
+### Improvements
+- /random commands now have option to include fan content
+- /schedule prompts for timezone if none was provided and the user does not already have a set timezone
+- /schedule now proposes a time for every player in the game to confirm before it is scheduled
+
+### Bug Fixes
+- inactive stages don't error out on creation
+
 ## [1.13.3] - 2026-8-21 Post Spain Updates
 
 ### New Features

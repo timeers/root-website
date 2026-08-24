@@ -223,6 +223,54 @@ def post_channel_message(channel_id, content):
         return THREAD_ERROR
 
 
+def post_channel_message_full(channel_id, content=None, embeds=None, components=None,
+                              allowed_mentions=None):
+    """Post a rich message into a channel/thread and return (result, message_id).
+
+    Unlike post_channel_message (content-only, status-only), this exists so the
+    caller can KEEP the new message's id: a /schedule proposal has to be edited
+    later — from a DIFFERENT interaction, or from a Celery task — to strip its
+    buttons once another proposal wins.
+
+    `result` is THREAD_OK / THREAD_BLOCKED / THREAD_ERROR with the same meaning as
+    edit_channel_message; `message_id` is None on any failure. Never raises.
+
+    No DEBUG_VALUE guard — see create_message_thread."""
+    body = {}
+    if content is not None:
+        body["content"] = content
+    if embeds is not None:
+        body["embeds"] = embeds
+    if components is not None:
+        body["components"] = components
+    if allowed_mentions is not None:
+        body["allowed_mentions"] = allowed_mentions
+    try:
+        r = requests.post(
+            f"{DISCORD_API}/channels/{channel_id}/messages",
+            headers=_bot_headers(),
+            json=body,
+            timeout=5,
+        )
+        r.raise_for_status()
+        return THREAD_OK, str(r.json()["id"])
+    except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        if _is_terminal_edit_error(e):
+            logger.warning("Cannot post message in channel %s (permanent): %s",
+                           channel_id, detail)
+            return THREAD_BLOCKED, None
+        logger.error("Failed to post message in channel %s: %s", channel_id, detail)
+        return THREAD_ERROR, None
+    except (KeyError, ValueError) as e:
+        # 2xx with a body we can't read an id out of. The message may well have been
+        # posted, so retrying would double-post: treat as permanent.
+        logger.warning("Posted to channel %s but could not read the message id: %s",
+                       channel_id, e)
+        return THREAD_BLOCKED, None
+
+
 def edit_channel_message(channel_id, message_id, embeds=None, components=None):
     """Edit an existing bot message (PATCH). Never raises. Returns one of:
         THREAD_OK      — edited

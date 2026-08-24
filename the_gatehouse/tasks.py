@@ -1,7 +1,9 @@
+from datetime import timedelta
+
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
@@ -662,3 +664,111 @@ def record_lfg_components_task(channel_id, items):
                 setattr(thread, field,
                         model.objects.filter(slug=slug).first() or getattr(thread, field))
         thread.save(update_fields=["rolls", "map", "deck"])
+
+
+# ── /schedule proposals ──────────────────────────────────────────────────────
+# A proposal's public message is posted by the BOT (not as an interaction followup)
+# so it stays editable indefinitely: an interaction token expires after 15 minutes
+# and proposals routinely outlive that.
+
+# Copy for a proposal retired without anyone rejecting it. Keyed by the `reason`
+# the caller passes, so the task stays a dumb renderer.
+_PROPOSAL_RETIRED_TEXT = {
+    "superseded": "A different time was confirmed for this match. This proposal is "
+                  "no longer active.",
+    "cancelled": "This proposed time is no longer active — the match's scheduled "
+                 "time was changed or cleared.",
+    "expired": "This proposed time has passed without everyone confirming.",
+}
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 5},
+)
+def post_schedule_proposal_task(proposal_id, message_data):
+    """Post a schedule proposal's public message and record its id on the row.
+
+    The id is the whole point: without it the proposal can't be edited later
+    (superseded/cancelled) from outside its own interaction.
+
+    Bails out when the proposal stopped being OPEN while the task sat queued — e.g.
+    another proposal finalized first. Posting live buttons for a dead proposal would
+    hand someone a control that could overwrite a confirmed time."""
+    from .models import ScheduleProposal
+    from .services.discordservice import (
+        post_channel_message_full, THREAD_OK, THREAD_ERROR,
+    )
+
+    proposal = ScheduleProposal.objects.filter(pk=proposal_id).first()
+    if not proposal or not proposal.is_open or not proposal.channel_id:
+        return
+
+    result, message_id = post_channel_message_full(
+        proposal.channel_id, **(message_data or {}))
+    if result == THREAD_ERROR:
+        # Transient: let autoretry have another go.
+        raise RuntimeError(f"transient failure posting proposal {proposal_id}")
+    if result == THREAD_OK and message_id:
+        # .update() rather than .save(): never clobber a status another request
+        # changed while this task was in flight.
+        ScheduleProposal.objects.filter(pk=proposal_id).update(message_id=message_id)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 10},
+)
+def strip_schedule_proposal_messages_task(proposal_ids, reason):
+    """Remove the buttons from retired proposal messages and replace the embed with
+    a short explanation.
+
+    Purely cosmetic: the DB status is what actually stops a retired proposal being
+    confirmed, so a PERMANENT failure (message deleted, missing perms) is logged and
+    skipped rather than retried. Only transient failures re-raise, and only after
+    every id has been attempted — one dead message must not block the rest."""
+    from .models import ScheduleProposal
+    from .services.discordservice import (
+        edit_channel_message, THREAD_ERROR,
+    )
+
+    text = _PROPOSAL_RETIRED_TEXT.get(reason, _PROPOSAL_RETIRED_TEXT["cancelled"])
+    transient = []
+    for proposal in ScheduleProposal.objects.filter(pk__in=list(proposal_ids or [])):
+        if not proposal.channel_id or not proposal.message_id:
+            continue  # never posted (or the id never landed) — nothing to strip
+        result = edit_channel_message(
+            proposal.channel_id, proposal.message_id,
+            embeds=[{"title": "Proposal closed", "description": text}],
+            components=[],
+        )
+        if result == THREAD_ERROR:
+            transient.append(proposal.pk)
+    if transient:
+        raise RuntimeError(f"transient failure stripping proposals {transient}")
+
+
+@shared_task
+def cleanup_stale_schedule_proposals(max_age_days=14):
+    """Retire OPEN proposals that can never complete: ones whose proposed time has
+    passed, and ones left open longer than `max_age_days`.
+
+    Runs on a schedule created in Django admin (django_celery_beat) — this project
+    uses DatabaseScheduler, so there is no beat_schedule in code to register it."""
+    from .models import ScheduleProposal
+
+    now = timezone.now()
+    stale = ScheduleProposal.objects.filter(
+        status=ScheduleProposal.Status.OPEN,
+    ).filter(
+        Q(proposed_time__lt=now)
+        | Q(created_at__lt=now - timedelta(days=max_age_days))
+    )
+    ids = list(stale.values_list("pk", flat=True))
+    if not ids:
+        return 0
+    ScheduleProposal.objects.filter(pk__in=ids).update(
+        status=ScheduleProposal.Status.CANCELLED, resolved_at=now)
+    strip_schedule_proposal_messages_task.delay(ids, "expired")
+    logger.info("Retired %d stale schedule proposals", len(ids))
+    return len(ids)

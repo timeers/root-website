@@ -7,7 +7,7 @@ from .models import (Profile, PlayerBookmark,
                      Theme, BackgroundImage, ForegroundImage,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
                      Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification,
-                     GuildLFGRole, BotUsage, BotBlacklist, LFGThread,
+                     GuildLFGRole, BotUsage, BotBlacklist, LFGThread, ScheduleProposal,
                      )
 from django import forms
 from django.http import HttpResponseRedirect 
@@ -69,6 +69,13 @@ class LFGThreadAdmin(admin.ModelAdmin):
     search_fields = ['thread_id', 'description', 'guild__name']
     readonly_fields = ['thread_id', 'rolls', 'seating', 'created_at']
     filter_horizontal = ['players']
+
+class ScheduleProposalAdmin(admin.ModelAdmin):
+    list_display = ['id', 'match', 'proposed_time', 'status', 'proposed_by', 'created_at']
+    list_filter = ['status']
+    search_fields = ['match__name', 'proposed_by__discord', 'channel_id', 'message_id']
+    readonly_fields = ['created_at', 'resolved_at', 'channel_id', 'message_id', 'guild_id']
+    filter_horizontal = ['roster', 'confirmed_by']
 
 class WebsiteAdmin(admin.ModelAdmin):
     list_display = ['site_title', 'default_theme', 'player_threshold', 'game_threshold']
@@ -576,5 +583,6 @@ admin.site.register(GuildLFGRole, GuildLFGRoleAdmin)
 admin.site.register(BotBlacklist, BotBlacklistAdmin)
 admin.site.register(BotUsage, BotUsageAdmin)
 admin.site.register(LFGThread, LFGThreadAdmin)
+admin.site.register(ScheduleProposal, ScheduleProposalAdmin)
 
 
