@@ -228,6 +228,19 @@ class GuildLFGRole(models.Model):
         null=True,
         help_text="Brief description of what this LFG role is for.",
     )
+    # String reference, not a direct import: the_warroom.models imports DiscordGuild /
+    # Profile from this module, so importing Tournament here would be circular.
+    tournament = models.ForeignKey(
+        "the_warroom.Tournament",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="lfg_roles",
+        help_text=(
+            "Optional series this LFG role is for. Only series linked to this "
+            "guild are available."
+        ),
+    )
     forum_channel_id = models.CharField(
         max_length=32,
         blank=True,

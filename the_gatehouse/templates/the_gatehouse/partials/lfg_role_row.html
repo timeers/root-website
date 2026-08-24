@@ -12,6 +12,7 @@ already matches, so hx-swap-oob="true" replaces the row in place.
         <strong>@{{ role.name }}</strong>
         {% if role.role_id %}<code class="ms-1">{{ role.role_id }}</code>{% endif %}
         {% if role.description %}<div class="text-muted small">{{ role.description }}</div>{% endif %}
+        {% if role.tournament %}<div class="text-muted small">{{ role.tournament.name }}</div>{% endif %}
     </div>
     <div class="text-nowrap ms-2">
         <button type="button" class="btn btn-sm btn-outline-secondary"

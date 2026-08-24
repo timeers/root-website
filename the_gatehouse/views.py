@@ -1695,11 +1695,11 @@ def edit_guild(request, guild_id):
         guild.bot_member = True
         guild.save(update_fields=['bot_member'])
 
-    lfg_add_form = GuildLFGRoleForm()
+    lfg_add_form = GuildLFGRoleForm(guild=guild)
     lfg_add_ctx = _lfg_field_context(guild, lfg_add_form)
     context = {'form': form, 'guild': guild,
                'moderators': guild.guild_moderators.all(),
-               'lfg_roles': guild.lfg_roles.all(),
+               'lfg_roles': guild.lfg_roles.select_related('tournament').all(),
                'lfg_add_form': lfg_add_form,
                'lfg_add_ctx': lfg_add_ctx,
                'add_ctx': _lfg_add_controls_ctx(guild, lfg_add_ctx),
@@ -1723,14 +1723,14 @@ def hx_save_lfg_role(request, guild_id, pk=None):
         if role is not None and request.GET.get('display'):
             return render(request, 'the_gatehouse/partials/lfg_role_row.html',
                           {'role': role, 'guild': guild})
-        edit_form = GuildLFGRoleForm(instance=role)
+        edit_form = GuildLFGRoleForm(instance=role, guild=guild)
         return render(request, 'the_gatehouse/partials/lfg_role_form.html',
                       {'form': edit_form, 'role': role, 'guild': guild,
                        'field_ctx': _lfg_field_context(guild, edit_form)})
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
 
-    form = GuildLFGRoleForm(request.POST, instance=role)
+    form = GuildLFGRoleForm(request.POST, instance=role, guild=guild)
     if form.is_valid():
         # Discord caps a slash-command option at 25 choices, so a guild can have at most
         # LFG_TAG_LIMIT tags. Block adding beyond that (edits don't grow the count).
@@ -1763,7 +1763,7 @@ def hx_save_lfg_role(request, guild_id, pk=None):
             # state and the forum-tag map are all refreshed out-of-band from a FRESH
             # field_ctx (the freed/used role set just changed). HX-Trigger closes the
             # modal client-side (see static/js/lfg_role_modal.js).
-            fresh_ctx = _lfg_field_context(guild, GuildLFGRoleForm())
+            fresh_ctx = _lfg_field_context(guild, GuildLFGRoleForm(guild=guild))
             response = render(request, 'the_gatehouse/partials/lfg_role_saved.html',
                               {'role': obj, 'guild': guild, 'created': pk is None,
                                'field_ctx': fresh_ctx,
@@ -1788,7 +1788,7 @@ def hx_delete_lfg_role(request, guild_id, pk):
     # Remove the row (hx-swap="outerHTML" on an empty response) and OOB-refresh the Add
     # button + forum-tag map so the freed role reappears in its dropdown and the button
     # un-disables if every role had been used. HX-Trigger closes the confirm modal.
-    fresh_ctx = _lfg_field_context(guild, GuildLFGRoleForm())
+    fresh_ctx = _lfg_field_context(guild, GuildLFGRoleForm(guild=guild))
     response = render(request, 'the_gatehouse/partials/lfg_role_deleted.html',
                       {'guild': guild, 'field_ctx': fresh_ctx,
                        'add_ctx': _lfg_add_controls_ctx(guild, fresh_ctx)})

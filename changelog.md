@@ -2,6 +2,9 @@
 
 ## [1.13.4] - 2026-8-23 Bot Finishing Touches
 
+### New Features
+- can now link LFG Roles to tournaments within the same guild
+
 ### Improvements
 - /random commands now have option to include fan content
 - /schedule prompts for timezone if none was provided and the user does not already have a set timezone
