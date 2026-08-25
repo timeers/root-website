@@ -112,6 +112,16 @@ SCHEDULE_COMMAND = {
 }
 
 
+RECORD_COMMAND = {
+    "name": "record",
+    "description": "Get a link to record this game's result",
+    # No options: the mode is resolved from the channel the command is used in
+    # (LFG thread -> lfg_mode, scheduled match thread -> match_mode, else
+    # standalone), the same way /schedule finds its match.
+    "options": [],
+}
+
+
 HELP_COMMAND = {
     "name": "help",
     "description": "List the bot's available commands",
@@ -239,6 +249,7 @@ COMMANDS = [
     STATS_COMMAND,
     UPCOMING_COMMAND,
     SCHEDULE_COMMAND,
+    RECORD_COMMAND,
     LAW_COMMAND,
     DRAFT_COMMAND,
     RANDOM_COMMAND,
@@ -254,7 +265,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats"]),
-    ("Games", ["lfg", "upcoming", "schedule"]),
+    ("Games", ["lfg", "upcoming", "schedule", "record"]),
     ("Random", ["draft", "random"]),
 ]
 

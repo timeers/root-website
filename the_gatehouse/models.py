@@ -328,6 +328,23 @@ class LFGThread(models.Model):
         help_text='Seat assignments as an ordered list of {"id","name","seat"}, '
                   'seat 1 first. The LAST seat has first pick of the faction draft.')
 
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        RECORDED = "recorded", "Recorded"
+        CANCELLED = "cancelled", "Cancelled"
+
+    nickname = models.CharField(
+        max_length=50, blank=True, default="",
+        help_text="Name for the recorded Game; seeds the game form's nickname.")
+    # OneToOne: a thread produces at most one Game, so revisiting the record form
+    # edits that game instead of creating a duplicate. String ref for the same
+    # circular-import reason as GuildLFGRole.tournament.
+    game = models.OneToOneField(
+        "the_warroom.Game", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="lfg_thread")
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -335,6 +352,15 @@ class LFGThread(models.Model):
 
     def __str__(self):
         return f"LFGThread {self.thread_id} ({self.players.count()} players)"
+
+    def thread_url(self):
+        """Discord permalink to this thread — seeds the game form's `link` field.
+        Matches the formula in tasks.py and passes GameCreateForm's
+        DISCORD_URL_PATTERN. `self.guild_id` is the FK column; `guild.guild_id` is
+        the Discord snowflake."""
+        if self.guild_id and self.guild and self.guild.guild_id:
+            return f"https://discord.com/channels/{self.guild.guild_id}/{self.thread_id}"
+        return None
 
 
 class ScheduleProposal(models.Model):

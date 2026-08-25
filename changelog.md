@@ -1,9 +1,11 @@
 # Changelog
 
-## [1.13.4] - 2026-8-23 Bot Finishing Touches
+## [1.13.4] - 2026-8-23 Bot Evolution
 
 ### New Features
 - can now link LFG Roles to tournaments within the same guild
+- /record command to generate link for recording game
+- recording from an lfg thread helps pre-build the game form
 
 ### Improvements
 - /random commands now have option to include fan content

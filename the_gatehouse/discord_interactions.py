@@ -296,6 +296,79 @@ def _lfg_thread_for_channel(channel_id):
     return LFGThread.objects.filter(thread_id=channel_id).first()
 
 
+def _record_url(path):
+    """Absolute record-game URL, or None when SITE_URL isn't configured."""
+    site = (config.get("SITE_URL") or "").rstrip("/")
+    return f"{site}{path}" if site else None
+
+
+def _handle_record_command(data):
+    """/record: hand back a link to record this game's result, picking the form's
+    mode from the channel the command was used in.
+
+    LFG thread -> lfg_mode (?lfg=), scheduled match thread -> match_mode
+    (?match=), anything else -> the plain standalone form. Resolution mirrors
+    /schedule, which finds its match from the same thread signals."""
+    guild_id = data.get("_guild_id")
+    channel_id = data.get("_channel_id")
+    channel_name = data.get("_channel_name")
+
+    if not guild_id:
+        return _ephemeral("This command only works inside a server.")
+
+    # 1) An LFG thread is the most specific signal: its thread_id IS the channel id.
+    thread = _lfg_thread_for_channel(channel_id)
+    if thread:
+        if thread.game_id:
+            url = _record_url(f"/game/{thread.game_id}/edit/v2/")
+            lead = "This game is already recorded — edit it here:"
+        else:
+            url = _record_url(f"/record/game/v2/?lfg={thread.id}")
+            lead = "Record this LFG game:"
+        if not url:
+            return _ephemeral("The site URL isn't configured, so I can't build a link.")
+
+        lines = [lead, url, ""]
+        players = list(thread.players.all())
+        if thread.seating:
+            order = ", ".join(
+                f"{s.get('seat')}. {s.get('name')}" for s in thread.seating)
+            lines.append(f"**Seating:** {order}")
+        elif players:
+            lines.append(f"**Players:** {', '.join(p.name for p in players)}")
+        if thread.map or thread.deck:
+            bits = [str(x) for x in (thread.map, thread.deck) if x]
+            lines.append(f"**Map/Deck:** {' · '.join(bits)}")
+        tournament = getattr(thread.lfg_role, "tournament", None)
+        if tournament:
+            lines.append(f"**Series:** {tournament}")
+        return _ephemeral("\n".join(lines))
+
+    # 2) Otherwise fall back to a scheduled match for this thread, the same way
+    #    /schedule resolves one. `prefer="unscheduled"` matches recording intent:
+    #    the first game of a series that still needs a result.
+    match, _err = _match_for_thread(channel_id, guild_id, channel_name)
+    if match:
+        if match.game_id:
+            url = _record_url(f"/game/{match.game_id}/edit/v2/")
+            lead = "This match already has a game — edit it here:"
+        else:
+            url = _record_url(f"/record/game/v2/?match={match.id}")
+            lead = "Record this match:"
+        if not url:
+            return _ephemeral("The site URL isn't configured, so I can't build a link.")
+        return _ephemeral(f"{lead}\n{url}\n\n**Match:** {match}\n**Round:** {match.round}")
+
+    # 3) Neither: hand over the standalone form rather than erroring — the user
+    #    can still record a game, just without any prefill.
+    url = _record_url("/record/game/v2/")
+    if not url:
+        return _ephemeral("The site URL isn't configured, so I can't build a link.")
+    return _ephemeral(
+        "I couldn't find an LFG game or scheduled match for this channel, "
+        f"so here's a blank game form:\n{url}")
+
+
 def _handle_captain_command(data):
     """/captain: look up a captain-capable vagabond and show its captain
     (Advanced) profile — captain ability and captain starting items."""
@@ -2783,6 +2856,7 @@ COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["schedule"] = _handle_schedule_command
+COMMAND_HANDLERS["record"] = _handle_record_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command

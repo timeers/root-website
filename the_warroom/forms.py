@@ -118,6 +118,14 @@ class GameCreateForm(forms.ModelForm):
         # Call the parent constructor
         super(GameCreateForm, self).__init__(*args, **kwargs)
 
+        # Was this game ALREADY finalized before this submit? Captured here because
+        # `final` comes from POST data, so by clean() self.instance.final reflects
+        # the incoming submit, not the stored state. Used to enforce
+        # box_score_required on new games only -- note a Save Progress draft has a
+        # pk but final=False, so `not self.instance.pk` would let anyone bypass the
+        # rule via Record -> Save Progress -> reopen -> Submit.
+        self._was_final = bool(self.instance.pk and self.instance.final)
+
         # Get today's date in the required format (YYYY-MM-DD)
         today = timezone.now().date()
 
@@ -282,9 +290,13 @@ class GameCreateForm(forms.ModelForm):
         hirelings = cleaned_data.get('hirelings')
         if round:
             tournament = round.get_tournament()
-            # Check that the deck, landmarks, hirelings and map are registered for the tournament
-            tournament_maps = tournament.maps.all()
-            tournament_decks = tournament.decks.all()
+            # Check that the deck, landmarks, hirelings and map are registered for the tournament.
+            # get_asset_querysets() resolves asset_mode (OPEN/OFFICIAL/SELECTED) rather
+            # than reading the raw M2Ms, which are only populated in SELECTED mode --
+            # under OFFICIAL the raw M2Ms can be empty and would reject every map/deck.
+            _tournament_assets = tournament.get_asset_querysets()
+            tournament_maps = _tournament_assets['maps']
+            tournament_decks = _tournament_assets['decks']
             if not tournament.asset_mode == AssetModeChoices.OPEN:
                 if landmarks:
                     tournament_landmarks = tournament.landmarks.all()
@@ -455,6 +467,21 @@ class GameCreateForm(forms.ModelForm):
 
                 player_roster = set()  # Set to track unique players
                 current_players = round.current_player_queryset()
+                # A match legitimately seats participants the bracket has since
+                # advanced or eliminated, and an LFG thread's players need not be
+                # stage participants at all -- but current_player_queryset() only
+                # returns ACTIVE ones. Without this union those games become
+                # unrecordable AND un-editable once the round is validated.
+                # getattr: `match`/`lfgthread` are set by GameCreateFormV2 only,
+                # and GameCreateForm is also instantiated bare (v1 record page).
+                _match = getattr(self, 'match', None)
+                _lfgthread = getattr(self, 'lfgthread', None)
+                if _match:
+                    current_players = current_players | Profile.objects.filter(
+                        tournament_participations__stage_participations__matchseat__series=_match.series
+                    )
+                elif _lfgthread:
+                    current_players = current_players | _lfgthread.players.all()
                 tournament_factions = tournament.factions.all()
                 tournament_vagabonds = tournament.vagabonds.all()
 
@@ -504,7 +531,11 @@ class GameCreateForm(forms.ModelForm):
                 # box-score data — either a submitted grid row whose final cell
                 # matches the effort's score, or an existing scorecard that
                 # matches. Empty rows (no faction) are exempt.
-                if tournament.box_score_required:
+                # Enforced for NEW games only: games finalized before this rule
+                # started being enforced must stay editable without retrofitting a
+                # scorecard. `_was_final` (not instance.pk) is the discriminator —
+                # a Save Progress draft has a pk but was never final.
+                if tournament.box_score_required and not self._was_final:
                     grid_final_by_index = {}
                     try:
                         _grid = json.loads(self.data.get('scorecard_grid') or '{"rows":[]}')
@@ -572,16 +603,22 @@ class GameCreateForm(forms.ModelForm):
 
 
 class GameCreateFormV2(GameCreateForm):
-    """Extended game form supporting match mode.
-    In match mode: round is locked, platform may be locked, match_id is tracked."""
+    """Extended game form supporting match mode and LFG mode.
+    In either mode: round is locked, platform may be locked, and the source id
+    (match_id / lfg_id) is tracked."""
     match_id = forms.IntegerField(widget=forms.HiddenInput(), required=False)
+    lfg_id = forms.IntegerField(widget=forms.HiddenInput(), required=False)
 
-    def __init__(self, *args, match=None, **kwargs):
+    def __init__(self, *args, match=None, lfgthread=None, lfg_round=None, **kwargs):
         self.match = match
+        self.lfgthread = lfgthread
 
-        if match:
-            # Force the round from the match
-            kwargs['round'] = match.round
+        # Both modes lock the round; match takes it from the match, LFG from the
+        # round the view resolved (newest available for the role's tournament).
+        locked_round = match.round if match else (lfg_round if lfgthread else None)
+        self._lfg_round = lfg_round if lfgthread else None
+        if locked_round:
+            kwargs['round'] = locked_round
 
         super().__init__(*args, **kwargs)
 
@@ -598,14 +635,34 @@ class GameCreateFormV2(GameCreateForm):
 
         if match:
             self.fields['match_id'].initial = match.id
-            # Lock the round field
+        if lfgthread:
+            self.fields['lfg_id'].initial = lfgthread.id
+
+        if locked_round:
+            # Lock the round field.
+            #
+            # `disabled` makes Django read the field's INITIAL instead of POST data
+            # (Field._clean_bound_field: `value = bf.initial if self.disabled`), so
+            # the initial below is what actually lands in cleaned_data -- and it is
+            # what makes a forged `round` in the POST body lose. Without it the
+            # field cleans to None (Game.round is null=True, so no error is raised)
+            # and the entire `if round:` block in GameCreateForm.clean() -- every
+            # tournament asset/roster/player-count/box-score check -- is skipped.
+            #
+            # ORDERING IS LOAD-BEARING: BoundField.initial is a cached_property, so
+            # this must run before anything touches self['round'], or the None is
+            # cached and the lock silently reverts to the old broken behavior.
+            self.initial['round'] = locked_round.pk
             self.fields['round'].disabled = True
-            self.fields['round'].queryset = Round.objects.filter(pk=match.round.pk)
+            self.fields['round'].queryset = Round.objects.filter(pk=locked_round.pk)
             self.fields['round'].empty_label = None
 
-            tournament = match.round.get_tournament()
-            # Lock platform if tournament specifies one
-            if tournament.platform:
+            tournament = locked_round.get_tournament()
+            # Lock platform if tournament specifies one. Unlike `round` this is only
+            # a widget attr + narrowed choices: the field itself stays enabled, and
+            # the template renders a sibling hidden input (a disabled control is not
+            # submitted by the browser) gated on the view's `platform_locked`.
+            if tournament and tournament.platform:
                 self.fields['platform'].choices = [(tournament.platform, tournament.platform)]
                 self.fields['platform'].initial = tournament.platform
                 self.fields['platform'].widget.attrs['disabled'] = True
@@ -619,9 +676,14 @@ class GameCreateFormV2(GameCreateForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        # For match mode, ensure round is set even though field is disabled
-        if self.match and 'round' not in cleaned_data:
-            cleaned_data['round'] = self.match.round
+        # Belt-and-braces: with the initial set in __init__ the disabled field
+        # already cleans to the locked round, so this is a redundant backstop
+        # rather than the thing holding it up. `not cleaned_data.get('round')` (not
+        # `'round' not in cleaned_data`) is the correct test -- a disabled field is
+        # ALWAYS present in cleaned_data, just possibly as None.
+        locked_round = self.match.round if self.match else getattr(self, '_lfg_round', None)
+        if locked_round and not cleaned_data.get('round'):
+            cleaned_data['round'] = locked_round
 
         # Validate all match seat players have an effort
         if self.match and self.effort_formset.is_valid():
