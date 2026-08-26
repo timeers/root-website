@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.4] - 2026-8-23 Bot Evolution
+## [1.13.4] - 2026-8-26 Bot Evolution
 
 ### New Features
 - can now link LFG Roles to tournaments within the same guild
