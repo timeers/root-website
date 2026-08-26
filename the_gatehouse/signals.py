@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from io import BytesIO
@@ -18,16 +19,25 @@ from django.db import transaction
 from .models import Profile, ForegroundImage, BackgroundImage, Changelog, BotBlacklist
 from .services.discordservice import get_discord_id
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
-from .tasks import send_discord_message_task, update_discord_avatar_task, refresh_user_guilds_task
+from .tasks import (send_discord_message_task, update_discord_avatar_task,
+                    refresh_user_guilds_task, refresh_user_guilds)
 
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
 from the_keep.models import (Post, Piece, PostTranslation, Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak,
                              Expansion, Card, DeckGroup)
 from the_tavern.models import Survey
 
+logger = logging.getLogger(__name__)
+
 SMALL_ICON = 100
 BOARD_IMAGE = 1600
 CARD_IMAGE = 600
+
+# Wall-clock allowance for the inline guild refresh on the login request thread. Kept
+# short deliberately: a blocking request thread also holds its Postgres connection
+# (CONN_MAX_AGE=10, max_connections=100), and this is the path that caused the outage
+# in d86eb458 when it was unbounded. Do not widen without revisiting both.
+INLINE_GUILD_SYNC_BUDGET = 6
 PICTURE_IMAGE = 350
 
 # Define models + field configs
@@ -226,15 +236,17 @@ def user_logged_in_handler(request, user, **kwargs):
         new_user = True
 
     profile = user.profile
-    profile_updated = False
-    current_group = profile.group
+    # Fields this handler owns and may write. The guild refresh below saves the profile
+    # itself, so this handler must never issue a bare save() that would write its stale
+    # in-memory copy back over the fresh group/flags.
+    dirty_fields = set()
 
     if not profile.discord_id:
         discord_id = get_discord_id(user)
         if discord_id:
             if not Profile.objects.filter(discord_id=discord_id).exists():
                 profile.discord_id = discord_id
-                profile_updated = True
+                dirty_fields.add('discord_id')
             else:
                 # Handle conflict
                 send_discord_message_task.delay(f"Discord ID {discord_id} already exists for another profile and cannot be assigned to {user}",category='report')
@@ -242,21 +254,39 @@ def user_logged_in_handler(request, user, **kwargs):
     # slow Discord CDN call can't block (and time out) the login request.
     update_discord_avatar_task.delay(user.id, force=False)
 
-    # Guild membership + display name + group promotion used to run SYNCHRONOUSLY here
-    # via check_user_guilds()/get_discord_display_name() — up to ~25s of blocking Discord
-    # API calls that could exhaust the WSGI worker pool and take the whole site down.
-    # They're now refreshed off the request thread by refresh_user_guilds_task (the
-    # authority for guild flags + promotion). This session runs against the CACHED
-    # profile flags; the task updates them for next time and, on any change, the header
-    # spinner's poll triggers a reload so the change goes live within seconds.
-    profile.guilds_refreshing = True
-    profile_updated = True
+    # Guild membership + display name + group promotion must NOT run synchronously for
+    # every login: that was up to ~20s of blocking Discord API calls, which exhausted the
+    # WSGI worker pool and took the whole site down (reverted in d86eb458).
+    #
+    # But a purely async refresh renders this session against the CACHED group, so a user
+    # whose cached group is wrong gets bounced by @player_required before the task lands.
+    # That only happens when the cache can't be trusted: a first login (never synced) or
+    # a still-Outcast user who may have joined the guild since. For that stale minority we
+    # refresh INLINE under a short budget; everyone else keeps the fully async path.
+    needs_sync_now = profile.guilds_synced_at is None or profile.group == 'O'
 
-    if profile_updated:
-        profile.save()
-    # Enqueue AFTER the request commits so the task can't read the profile before
-    # guilds_refreshing=True is persisted (matches the on_commit pattern elsewhere).
-    transaction.on_commit(lambda: refresh_user_guilds_task.delay(user.id))
+    # Set the flag BEFORE the inline attempt: mid-call, a second tab must see the spinner
+    # rather than a stale group with no indication anything is happening.
+    profile.guilds_refreshing = True
+    dirty_fields.add('guilds_refreshing')
+
+    profile.save(update_fields=sorted(dirty_fields))
+
+    synced_inline = False
+    if needs_sync_now:
+        try:
+            synced_inline = refresh_user_guilds(user, budget=INLINE_GUILD_SYNC_BUDGET)
+        except Exception:
+            # A Discord outage must never break login itself.
+            logger.exception("Inline guild refresh failed for user %s", user)
+            synced_inline = False
+
+    if not synced_inline:
+        # Either we didn't try, or Discord was slow/erroring. Leave guilds_refreshing True
+        # so the spinner + interstitial keep working, and hand off to the task.
+        # Enqueue AFTER the request commits so the task can't read the profile before
+        # guilds_refreshing=True is persisted (matches the on_commit pattern elsewhere).
+        transaction.on_commit(lambda: refresh_user_guilds_task.delay(user.id))
 
     if new_user:
         send_discord_message_task.delay(f'Profile created for [{profile.user}]({build_absolute_uri(request, profile.get_absolute_url())}) ({profile.group})', category='user_updates')
@@ -269,9 +299,14 @@ def user_logged_in_handler(request, user, **kwargs):
             messages.info(request, f'Welcome, {welcome_name}! You can now bookmark posts for quick access and record games to track stats.')
 
 
-    group_name = 'admin'  
+    group_name = 'admin'
     group_exists = user.groups.filter(name=group_name).exists()
-    
+
+    # Re-read the group rather than using the value cached at the top of the handler: the
+    # inline refresh above may have just changed it, and even without that the cached read
+    # made admin-group sync lag a login behind.
+    current_group = profile.group
+
     # If user is in group A but not in the Admin group (add to group)
     if not group_exists and current_group == "A":
         # Get the group object

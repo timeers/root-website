@@ -18,6 +18,7 @@ from django.http import JsonResponse, Http404, HttpResponseBadRequest, HttpRespo
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import activate, get_language
@@ -262,6 +263,21 @@ def forge_onboard_required(view_func):
 
 
 
+def _not_a_player_redirect(request):
+    """Where to send a logged-in user who isn't (yet) a player.
+
+    Normally the Woodland Warriors info page. But if their Discord guild sync is still
+    in flight (login couldn't finish it inline), the cached group may simply be stale —
+    bouncing them there would be wrong. Hold them on the interstitial instead, which
+    forwards to where they were headed once the sync lands.
+    """
+    if request.user.profile.guilds_refreshing:
+        # get_full_path(), not path: keep any query string across the round trip.
+        next_url = urlencode({'next': request.get_full_path()})
+        return redirect(f'{reverse("finishing-signin")}?{next_url}')
+    return redirect(reverse('woodland-warriors-info'))
+
+
 def player_required(view_func):
     @login_required  # Ensure the user is authenticated
     @wraps(view_func)  # Preserve the original function's metadata
@@ -269,7 +285,7 @@ def player_required(view_func):
         if request.user.profile.player:
             return view_func(request, *args, **kwargs)
         else:
-            return redirect(reverse('woodland-warriors-info'))
+            return _not_a_player_redirect(request)
     return wrapper
 
 def player_onboard_required(view_func):
@@ -287,7 +303,7 @@ def player_onboard_required(view_func):
             else:
                 return view_func(request, *args, **kwargs)
         else:
-            return redirect(reverse('woodland-warriors-info'))
+            return _not_a_player_redirect(request)
     return wrapper
 
 
@@ -1928,6 +1944,35 @@ def profile_guilds_status(request):
     response = HttpResponse(status=200)
     response['HX-Refresh'] = 'true'
     return response
+
+
+@login_required
+def finishing_signin(request):
+    """Hold page for a user whose Discord guild sync didn't finish during login.
+
+    Reached from @player_required when the cached group would deny access but
+    `guilds_refreshing` says the group may simply be stale. Polls the existing
+    profile-guilds-status endpoint; once the flag clears, that endpoint emits HX-Refresh
+    and the reload lands back here to be routed on.
+    """
+    next_url = request.GET.get('next', '')
+    if not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        next_url = reverse(settings.LOGIN_REDIRECT_URL)
+
+    profile = request.user.profile
+    if not profile.guilds_refreshing:
+        # Sync is done — decide on the REAL answer, not on the assumption that they're a
+        # player now. Sending a genuine non-player to `next` would just bounce them back
+        # through @player_required; route them explicitly instead.
+        if profile.player:
+            return redirect(next_url)
+        return redirect(reverse('woodland-warriors-info'))
+
+    return render(request, 'the_gatehouse/finishing_signin.html', {
+        'next_url': next_url,
+    })
 
 
 

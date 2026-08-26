@@ -1,3 +1,4 @@
+import time
 from datetime import timedelta
 
 from celery import shared_task
@@ -296,21 +297,23 @@ def update_discord_avatar_task(user_id, force=False):
     update_discord_avatar(user, force=force)
 
 
-@shared_task(bind=True, max_retries=3)
-def refresh_user_guilds_task(self, user_id):
-    """Refresh a user's Discord guild membership OFF the login request thread.
+def refresh_user_guilds(user, budget=None):
+    """Refresh a user's Discord guild membership, flags, group and display name.
 
-    Deferred from user_logged_in_handler so a slow/rate-limited Discord API call can
-    never block (and eventually exhaust) the WSGI worker pool — the outage this fixes.
-    This task is the AUTHORITY for guild flags + group promotion (it has fresh data);
-    login itself runs against the cached Profile flags.
+    Shared by refresh_user_guilds_task (the async path, no budget) and the login signal
+    (the inline path for a STALE profile, under a short budget). Returns True when the
+    refresh completed — the profile is saved with `guilds_refreshing` cleared — and
+    False when it could not, in which case NOTHING is written: the caller keeps the
+    spinner up and hands off to the task.
 
-    Retry is manual (NOT autoretry_for) so `guilds_refreshing` stays True across pending
-    retries — clearing it per-failed-attempt would drop the header spinner while a retry
-    is still queued. The flag clears exactly once: on success, on the no-token no-op, or
-    when retries are exhausted.
+    `budget` is a wall-clock allowance in seconds for the Discord calls. Enforced with a
+    monotonic deadline: each call gets whatever time is left as its `timeout`. Note
+    requests' timeout is per-socket-operation, not a hard wall-clock cap, so this bounds
+    the work closely but not exactly — fine here, since the fallback path is safe.
+
+    Retry lives in the TASK, not here: self.retry() needs the bound task context and is
+    meaningless on a request thread.
     """
-    from django.contrib.auth import get_user_model
     from django.db.models import Q
     from the_keep.models import Post
     from .services.discordservice import (
@@ -318,26 +321,27 @@ def refresh_user_guilds_task(self, user_id):
         get_discord_display_name,
     )
 
-    user = get_user_model().objects.filter(pk=user_id).first()
-    if user is None or not hasattr(user, 'profile'):
-        return
-
-    def _clear_flag(profile):
-        profile.guilds_refreshing = False
-        profile.guilds_synced_at = timezone.now()
-        profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
-
     profile = user.profile
+    deadline = None if budget is None else time.monotonic() + budget
 
-    guilds = get_user_guilds(user)
+    def _remaining():
+        """Seconds left for the next call, or None for 'no budget' (historical 5s)."""
+        if deadline is None:
+            return None
+        return deadline - time.monotonic()
+
+    def _timeout_kwargs():
+        left = _remaining()
+        return {} if left is None else {'timeout': left}
+
+    if _remaining() is not None and _remaining() <= 0:
+        return False
+
+    guilds = get_user_guilds(user, **_timeout_kwargs())
     if guilds is None:
         # API/token failure — distinct from "really in no guilds" ([]). Do NOT touch
-        # flags/group (never demote on a transient failure). Retry a few times, then
-        # give up and clear the spinner so it can't get stuck.
-        if self.request.retries < self.max_retries:
-            raise self.retry(countdown=30 * (self.request.retries + 1))
-        _clear_flag(profile)
-        return
+        # flags/group (never demote on a transient failure).
+        return False
 
     update_user_guilds(user, guilds)
     in_ww, in_wr, in_fr = derive_guild_membership(guilds)
@@ -369,10 +373,14 @@ def refresh_user_guilds_task(self, user_id):
         profile.in_woodland_warriors = True
         updated = True
 
-    display_name = get_discord_display_name(user)
-    if display_name and profile.display_name != display_name:
-        profile.display_name = display_name
-        updated = True
+    # The display name is cosmetic; the group promotion above is what gates access. If
+    # the budget is spent, skip it and let the async task backfill it later.
+    left = _remaining()
+    if left is None or left > 0:
+        display_name = get_discord_display_name(user, **_timeout_kwargs())
+        if display_name and profile.display_name != display_name:
+            profile.display_name = display_name
+            updated = True
 
     profile.guilds_refreshing = False
     profile.guilds_synced_at = timezone.now()
@@ -383,6 +391,41 @@ def refresh_user_guilds_task(self, user_id):
         ])
     else:
         profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
+    return True
+
+
+@shared_task(bind=True, max_retries=3)
+def refresh_user_guilds_task(self, user_id):
+    """Refresh a user's Discord guild membership OFF the login request thread.
+
+    Deferred from user_logged_in_handler so a slow/rate-limited Discord API call can
+    never block (and eventually exhaust) the WSGI worker pool — the outage this fixes.
+    This task is the AUTHORITY for guild flags + group promotion whenever login didn't
+    already do it inline (see user_logged_in_handler).
+
+    Retry is manual (NOT autoretry_for) so `guilds_refreshing` stays True across pending
+    retries — clearing it per-failed-attempt would drop the header spinner while a retry
+    is still queued. The flag clears exactly once: on success, on the no-token no-op, or
+    when retries are exhausted.
+    """
+    from django.contrib.auth import get_user_model
+
+    user = get_user_model().objects.filter(pk=user_id).first()
+    if user is None or not hasattr(user, 'profile'):
+        return
+
+    if refresh_user_guilds(user):
+        return
+
+    # Couldn't complete. Retry a few times, then give up and clear the spinner so it
+    # can't get stuck on the header forever.
+    if self.request.retries < self.max_retries:
+        raise self.retry(countdown=30 * (self.request.retries + 1))
+
+    profile = user.profile
+    profile.guilds_refreshing = False
+    profile.guilds_synced_at = timezone.now()
+    profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
 
 
 @shared_task(

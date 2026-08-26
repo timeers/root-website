@@ -4,7 +4,7 @@ from .views import (user_settings, player_page_view, dwd_profile_redirect,
                     designer_component_view, post_bookmarks, game_bookmarks, submitted_component_view,
                     player_stats, artist_component_view, manage_user,
                     ProfileListView, user_bookmarks, french_root_invite, bug_report,
-                    status_check, profile_guilds_status, general_feedback, post_feedback, player_feedback, law_feedback, faq_feedback,
+                    status_check, profile_guilds_status, finishing_signin, general_feedback, post_feedback, player_feedback, law_feedback, faq_feedback,
                     game_feedback, weird_root_invite, post_request, trigger_error, trigger_other_error,
                     forge_feedback, forge_faction_feedback,
                     admin_dashboard, sync_discord_avatar, generate_api_key, join_discord_server, changelog_select_view, latest_changelog_redirect,
@@ -27,6 +27,7 @@ urlpatterns = [
     # path("home/", list_view),
     path('status/', status_check, name='status_check'),
     path('profile/guilds-status/', profile_guilds_status, name='profile-guilds-status'),
+    path('finishing-signin/', finishing_signin, name='finishing-signin'),
 
     path('admin/', admin_dashboard, name='admin-dashboard'),
 

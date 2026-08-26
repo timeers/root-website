@@ -2,8 +2,12 @@ import json
 from unittest import mock
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
+from django.contrib.auth import login as auth_login
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.db.models.signals import post_save
-from django.test import TestCase
+from django.http import HttpResponse
+from django.test import TestCase, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -2954,3 +2958,280 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(retired, 1)
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+
+class InlineGuildSyncOnLoginTests(TestCase):
+    """Login refreshes Discord guilds INLINE when the cached group can't be trusted.
+
+    A returning player already has group='P' persisted, so @player_required passes and
+    the async refresh is fine. But a first login (never synced) or a still-Outcast user
+    renders against a stale group and gets bounced. Those cases sync on the request
+    thread, under a budget, so the group is right before the user's first click.
+
+    These tests keep user_logged_in_handler CONNECTED (unlike _NoLoginSignalMixin) since
+    the handler is what's under test; the Discord calls and Celery sends are mocked.
+    """
+
+    WW_GUILD = [{'id': 'ww-guild'}]
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='newbie', password='pw')
+        self.profile = self.user.profile
+        # Every test patches the Discord boundary; nothing here touches the network.
+        for target in ('send_discord_message_task', 'update_discord_avatar_task'):
+            p = mock.patch(f'the_gatehouse.signals.{target}')
+            p.start()
+            self.addCleanup(p.stop)
+    def _login(self):
+        """Log in with the signal connected; returns the mocked async task.
+
+        Fires the signal by logging the user in directly against a REAL request from
+        RequestFactory, with session + messages attached. client.login() builds a bare
+        request with no SERVER_NAME and no message storage, which the handler needs for
+        its absolute URLs and welcome message — that's why the rest of the suite
+        disconnects the handler, but here the handler is the thing under test.
+        """
+        request = RequestFactory().get('/')
+        SessionMiddleware(lambda r: None).process_request(request)
+        request._messages = FallbackStorage(request)
+        with mock.patch('the_gatehouse.signals.refresh_user_guilds_task') as task:
+            # The async hand-off is wrapped in transaction.on_commit, which never runs
+            # inside TestCase's rolled-back transaction unless captured.
+            with self.captureOnCommitCallbacks(execute=True):
+                auth_login(request, self.user,
+                           backend='django.contrib.auth.backends.ModelBackend')
+        request.session.save()
+        return task
+
+    def _patch_discord(self, guilds, display_name='Newbie'):
+        """Patch the Discord boundary as imported inside refresh_user_guilds."""
+        guilds_p = mock.patch(
+            'the_gatehouse.services.discordservice.get_user_guilds', return_value=guilds)
+        name_p = mock.patch(
+            'the_gatehouse.services.discordservice.get_discord_display_name',
+            return_value=display_name)
+        derive_p = mock.patch(
+            'the_gatehouse.services.discordservice.derive_guild_membership',
+            return_value=(bool(guilds), False, False))
+        update_p = mock.patch(
+            'the_gatehouse.services.discordservice.update_user_guilds')
+        mocks = [p.start() for p in (guilds_p, name_p, derive_p, update_p)]
+        for p in (guilds_p, name_p, derive_p, update_p):
+            self.addCleanup(p.stop)
+        return mocks[0], mocks[1]
+
+    def test_first_login_in_ww_promotes_inline(self):
+        """The bug: a brand-new WW member must be group P before their first click."""
+        self._patch_discord(self.WW_GUILD)
+        self._login()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.group, 'P')
+        self.assertTrue(self.profile.player)
+        self.assertFalse(self.profile.guilds_refreshing)
+        self.assertIsNotNone(self.profile.guilds_synced_at)
+
+    def test_successful_inline_sync_does_not_also_enqueue_task(self):
+        """Guards the double-refresh bug: no redundant Celery job after an inline sync."""
+        self._patch_discord(self.WW_GUILD)
+        task = self._login()
+        task.delay.assert_not_called()
+
+    def test_returning_player_makes_no_inline_discord_call(self):
+        """Regression guard for the outage: the common path must stay fully async."""
+        self.profile.group = 'P'
+        self.profile.guilds_synced_at = timezone.now()
+        self.profile.save(update_fields=['group', 'guilds_synced_at'])
+
+        get_guilds, _ = self._patch_discord(self.WW_GUILD)
+        task = self._login()
+
+        get_guilds.assert_not_called()
+        task.delay.assert_called_once_with(self.user.id)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.guilds_refreshing)
+
+    def test_discord_failure_falls_back_to_async(self):
+        """None means API failure: never demote, keep the spinner, hand off to Celery."""
+        self._patch_discord(None)
+        task = self._login()
+
+        task.delay.assert_called_once_with(self.user.id)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.group, 'O')
+        self.assertTrue(self.profile.guilds_refreshing)
+
+    def test_login_survives_discord_exception(self):
+        """A Discord outage must never break login itself."""
+        with mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+                        side_effect=RuntimeError('discord down')):
+            task = self._login()
+
+        task.delay.assert_called_once_with(self.user.id)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.guilds_refreshing)
+
+    def test_non_ww_user_stays_outcast(self):
+        self._patch_discord([])
+        self._login()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.group, 'O')
+        self.assertFalse(self.profile.player)
+
+    def test_discord_id_backfill_is_not_clobbered_by_inline_sync(self):
+        """The handler's own save() must not write its stale copy over the fresh group."""
+        self._patch_discord(self.WW_GUILD)
+        with mock.patch('the_gatehouse.signals.get_discord_id', return_value='42'):
+            self._login()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.discord_id, '42')
+        self.assertEqual(self.profile.group, 'P')
+
+
+class RefreshUserGuildsBudgetTests(TestCase):
+    """The inline path is bounded by a monotonic deadline, not per-call timeouts."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='budget', password='pw')
+
+    def _fake_clock(self):
+        """A monotonic clock the test advances explicitly, via clock.advance(n)."""
+        class Clock:
+            now = 0.0
+            def __call__(self):
+                return self.now
+            def advance(self, seconds):
+                self.now += seconds
+        return Clock()
+
+    def test_budget_exhaustion_skips_the_cosmetic_display_name(self):
+        """Group promotion gates access; the nickname can wait for the async task."""
+        from the_gatehouse import tasks
+
+        clock = self._fake_clock()
+
+        def slow_guilds(user, timeout=None):
+            clock.advance(99)   # a slow Discord eats the whole budget
+            return [{'id': 'ww-guild'}]
+
+        with mock.patch.object(tasks.time, 'monotonic', clock), \
+             mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+                        side_effect=slow_guilds), \
+             mock.patch('the_gatehouse.services.discordservice.update_user_guilds'), \
+             mock.patch('the_gatehouse.services.discordservice.derive_guild_membership',
+                        return_value=(True, False, False)), \
+             mock.patch('the_gatehouse.services.discordservice.get_discord_display_name'
+                        ) as name:
+            ok = tasks.refresh_user_guilds(self.user, budget=6)
+
+        # The group promotion still landed and was saved...
+        self.assertTrue(ok)
+        self.user.profile.refresh_from_db()
+        self.assertEqual(self.user.profile.group, 'P')
+        # ...but the optional display-name lookup was skipped.
+        name.assert_not_called()
+
+    def test_exhausted_budget_before_first_call_returns_false(self):
+        from the_gatehouse import tasks
+
+        clock = self._fake_clock()
+        clock.now = 99   # already past the deadline when we start
+
+        with mock.patch.object(tasks.time, 'monotonic', clock), \
+             mock.patch('the_gatehouse.services.discordservice.get_user_guilds'
+                        ) as get_guilds:
+            ok = tasks.refresh_user_guilds(self.user, budget=-1)
+
+        self.assertFalse(ok)
+        get_guilds.assert_not_called()
+
+    def test_no_budget_means_no_timeout_override(self):
+        """The async task path must keep the historical per-call 5s defaults."""
+        from the_gatehouse import tasks
+
+        with mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+                        return_value=[]) as get_guilds, \
+             mock.patch('the_gatehouse.services.discordservice.update_user_guilds'), \
+             mock.patch('the_gatehouse.services.discordservice.derive_guild_membership',
+                        return_value=(False, False, False)), \
+             mock.patch('the_gatehouse.services.discordservice.get_discord_display_name',
+                        return_value='x'):
+            tasks.refresh_user_guilds(self.user)
+
+        self.assertEqual(get_guilds.call_args.kwargs, {})
+
+
+class FinishingSigninViewTests(_NoLoginSignalMixin, TestCase):
+    """The interstitial holds a user whose sync didn't finish, then routes them on."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='holder', password='pw')
+        self.profile = self.user.profile
+        self.client.force_login(self.user)
+        self.url = reverse('finishing-signin')
+
+    def test_holds_while_refreshing(self):
+        self.profile.guilds_refreshing = True
+        self.profile.save(update_fields=['guilds_refreshing'])
+        response = self.client.get(self.url, {'next': '/some/page/'})
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'the_gatehouse/finishing_signin.html')
+
+    def test_forwards_to_next_once_synced_and_player(self):
+        self.profile.group = 'P'
+        self.profile.guilds_refreshing = False
+        self.profile.save(update_fields=['group', 'guilds_refreshing'])
+        response = self.client.get(self.url, {'next': '/some/page/'})
+        self.assertRedirects(response, '/some/page/', fetch_redirect_response=False)
+
+    def test_non_player_is_not_ping_ponged_back_to_next(self):
+        """Sync finished and they're genuinely not in WW: route explicitly, not via next."""
+        self.profile.group = 'O'
+        self.profile.guilds_refreshing = False
+        self.profile.save(update_fields=['group', 'guilds_refreshing'])
+        response = self.client.get(self.url, {'next': '/some/page/'})
+        self.assertRedirects(response, reverse('woodland-warriors-info'),
+                             fetch_redirect_response=False)
+
+    def test_rejects_off_host_next(self):
+        self.profile.group = 'P'
+        self.profile.guilds_refreshing = False
+        self.profile.save(update_fields=['group', 'guilds_refreshing'])
+        response = self.client.get(self.url, {'next': 'https://evil.example.com/'})
+        self.assertRedirects(response, reverse('site-home'),
+                             fetch_redirect_response=False)
+
+
+class PlayerRequiredInterstitialTests(_NoLoginSignalMixin, TestCase):
+    """@player_required sends a mid-sync user to the interstitial, not the WW info page."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='gated', password='pw')
+        self.profile = self.user.profile
+        self.factory = RequestFactory()
+
+    def _run_decorator(self, path='/gated/page/?x=1'):
+        @views.player_required
+        def view(request):
+            return HttpResponse('ok')
+
+        request = self.factory.get(path)
+        request.user = self.user
+        return view(request)
+
+    def test_redirects_to_interstitial_while_refreshing(self):
+        self.profile.guilds_refreshing = True
+        self.profile.save(update_fields=['guilds_refreshing'])
+        response = self._run_decorator()
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('finishing-signin'), response.url)
+        # The query string must survive the round trip.
+        self.assertIn('x%3D1', response.url)
+
+    def test_redirects_to_ww_info_when_not_refreshing(self):
+        self.profile.guilds_refreshing = False
+        self.profile.save(update_fields=['guilds_refreshing'])
+        response = self._run_decorator()
+        self.assertRedirects(response, reverse('woodland-warriors-info'),
+                             fetch_redirect_response=False)
