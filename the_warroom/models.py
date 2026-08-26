@@ -473,7 +473,7 @@ class Tournament(models.Model):
     # per-tab visibility/order passed to the nav headers, so adding a tab here
     # makes it controllable everywhere. 'overview' is included now that it can
     # be hidden and reordered like any other tab.
-    NAV_TABS = ['overview', 'leaderboard', 'games', 'bracket', 'players', 'surveys', 'details']
+    NAV_TABS = ['overview', 'leaderboard', 'games', 'bracket', 'players', 'surveys', 'details', 'elo']
 
     # key -> (url name, kwarg name for this tournament's slug). The surveys page
     # lives in the_tavern and takes `tournament_slug` while every warroom
@@ -487,6 +487,9 @@ class Tournament(models.Model):
         # the_tavern/urls.py -- NOT 'slug'
         'surveys':     ('tournament-surveys', 'tournament_slug'),
         'details':     ('tournament-details-page', 'slug'),
+        # Tournament-level only: Stage and Round have no elo tab, so their
+        # mappings deliberately omit this key (first_supported_tab skips it).
+        'elo':         ('tournament-elo-page', 'tournament_slug'),
     }
 
     type = "Tournament"

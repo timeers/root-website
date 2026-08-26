@@ -2596,6 +2596,10 @@ def _tournament_base_context(request, tournament):
     from the_tavern.models import Survey
     has_surveys = Survey.objects.filter(series=tournament).exists()
 
+    # Gate for the ELO Ranking tab. The _id form reads the FK column already
+    # loaded on the instance instead of fetching the related EloSystem.
+    has_elo = tournament.elo_system_id is not None
+
     user_in_guild = (
         request.user.is_authenticated
         and tournament.guild
@@ -2614,6 +2618,7 @@ def _tournament_base_context(request, tournament):
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
+        'has_elo': has_elo,
         **_tab_context(tournament),
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
@@ -3059,6 +3064,43 @@ def tournament_details_page(request, slug):
                 context['asset_types'] = _build_used_asset_types(games_qs)
 
     return render(request, 'the_warroom/tournament_details.html', context)
+
+
+def tournament_elo_page(request, tournament_slug):
+    """ELO Ranking tab: the leaderboard for the series' Elo system.
+
+    Public, matching the standalone elo_system_detail_view. Shows the whole
+    system's participants -- one EloSystem can feed several series and
+    EloParticipant has no tournament FK, so there is no per-tournament rating
+    to scope to.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
+
+    context = _tournament_base_context(request, tournament)
+    context['active_page'] = 'elo'
+
+    elo_system = tournament.elo_system
+    context['elo_system'] = elo_system
+
+    if elo_system:
+        # Same ordering as elo_system_detail_view: unranked last, then rating
+        # desc, with pk as a required unique tiebreaker so paging is stable.
+        # select_related('elo_system') feeds ep.trends_url, which reads the
+        # system's url template per row.
+        participants = (
+            elo_system.participants
+                      .select_related('player', 'elo_system')
+                      .order_by(F('rank').asc(nulls_last=True), '-rating', 'pk')
+        )
+        paginator = Paginator(participants, settings.PAGE_SIZE)
+        page_obj = paginator.get_page(request.GET.get('page'))
+        context.update({
+            'participants': page_obj,
+            'page_obj': page_obj,
+            'participants_count': paginator.count,
+        })
+
+    return render(request, 'the_warroom/tournament_elo.html', context)
 
 
 

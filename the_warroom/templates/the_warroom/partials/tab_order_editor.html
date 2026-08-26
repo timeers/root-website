@@ -56,7 +56,7 @@ The hidden input is the only thing actually submitted.
         <ul class="tab-order-list" id="visible-tabs" data-list="visible">
             {% for row in tournament_form.tab_rows %}
                 {% if row.visible %}
-                <li class="tab-order-item" data-tab-key="{{ row.key }}">
+                <li class="tab-order-item" data-tab-key="{{ row.key }}"{% if row.restricted %} data-restricted="1"{% endif %}>
                     <i class="bi bi-grip-vertical drag-handle"></i>
                     <span class="tab-order-label">{{ row.label }}</span>
                     <button type="button" class="btn btn-sm btn-outline-secondary tab-toggle" data-action="hide"
@@ -78,7 +78,7 @@ The hidden input is the only thing actually submitted.
         <ul class="tab-order-list" id="hidden-tabs" data-list="hidden">
             {% for row in tournament_form.tab_rows %}
                 {% if not row.visible %}
-                <li class="tab-order-item" data-tab-key="{{ row.key }}">
+                <li class="tab-order-item" data-tab-key="{{ row.key }}"{% if row.restricted %} data-restricted="1"{% endif %}>
                     <i class="bi bi-grip-vertical drag-handle"></i>
                     <span class="tab-order-label">{{ row.label }}</span>
                     <button type="button" class="btn btn-sm btn-outline-secondary tab-toggle" data-action="show"

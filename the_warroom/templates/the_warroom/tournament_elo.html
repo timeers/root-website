@@ -1,0 +1,54 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ tournament.name }} - {% trans 'ELO Ranking' %} | {% endblock %}
+
+{% block meta %}
+{% trans "ELO Ranking" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
+{% endblock meta %}
+
+{% block styles %}{{ block.super }}
+{% include 'the_warroom/partials/elo_leaderboard_styles.html' %}
+{% endblock %}
+
+{% block main_width_class %}col-md-12{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+    <!-- Breadcrumb -->
+    {% trans "ELO Ranking" as bc_page %}
+    {% include 'the_warroom/partials/breadcrumb.html' with breadcrumb_page=bc_page %}
+
+    <!-- Header -->
+    {% include 'the_warroom/partials/tournament_title_header.html' with page_name=tournament.name %}
+
+    <!-- Nav Header -->
+    {% include 'the_warroom/partials/tournament_nav_header.html' with active_page='elo' %}
+
+    <div class="card">
+        <div class="card-body">
+            {% comment %}
+            The null case must WRAP the include: elo_leaderboard_rows.html ends
+            in {% templatetag openblock %} empty {% templatetag closeblock %}, so including it with no participants would
+            render a table saying "No players yet." instead of this alert.
+            {% endcomment %}
+            {% if elo_system %}
+            <h4 class="card-title mb-3 root-title">
+                {{ elo_system.name }}
+                <small class="text-muted fs-6">
+                    {{ elo_system.get_calculation_type_display }}
+                    &middot; {{ participants_count }} {% trans 'player' %}{{ participants_count|pluralize }}
+                </small>
+            </h4>
+            {% include 'the_warroom/partials/elo_leaderboard.html' %}
+            {% else %}
+            <div class="alert alert-info mb-0">
+                <i class="bi bi-info-circle me-2"></i>{% trans 'This series is not linked to an ELO system.' %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock content %}

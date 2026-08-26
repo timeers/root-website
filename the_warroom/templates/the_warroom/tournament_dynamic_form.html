@@ -345,10 +345,18 @@
         return editor.querySelector('[data-empty-for="' + listEl.id + '"]');
     }
 
+    // Tournament-only tabs (Surveys, ELO Ranking) don't appear on stage or
+    // round navs, so a tab_order made only of them leaves those bars empty.
+    // The flag comes from TOURNAMENT_ONLY_TABS in forms.py via data-restricted
+    // -- never hardcode the key list here, or the two will drift.
+    const isRestricted = li => li.dataset.restricted === '1';
+    const universals = () => Array.from(visibleEl.children).filter(li => !isRestricted(li));
+
     // The hidden input is the only thing submitted, so it must be rewritten
     // after every move. Also re-skins each row's button to match the list it
-    // now sits in, and blocks removing the final visible tab (the server
-    // rejects that too -- this just avoids an error page).
+    // now sits in, and blocks removing either the final visible tab or the
+    // final universal one (the server rejects both -- this just avoids an
+    // error page).
     function sync() {
         input.value = Array.from(visibleEl.children)
             .map(li => li.dataset.tabKey)
@@ -366,11 +374,14 @@
             if (notice) notice.classList.toggle('d-none', listEl.children.length > 0);
         });
 
-        const lastVisible = visibleEl.children.length === 1;
-        const onlyBtn = lastVisible ? visibleEl.children[0].querySelector('.tab-toggle') : null;
+        // Two independent protections: a row is locked if it is the only
+        // visible tab, OR the only one that also appears on stages/rounds.
+        const remaining = universals();
+        const lastUniversal = remaining.length === 1 ? remaining[0] : null;
         Array.from(visibleEl.children).forEach(function (li) {
             const btn = li.querySelector('.tab-toggle');
-            if (btn) btn.disabled = (btn === onlyBtn);
+            if (!btn) return;
+            btn.disabled = (visibleEl.children.length === 1) || (li === lastUniversal);
         });
     }
 
@@ -381,10 +392,13 @@
         ghostClass: 'sortable-ghost',
         dragClass: 'sortable-drag',
         onEnd: sync,
-        // Refuse to drag the last visible tab out of the visible list.
+        // Refuse to drag out the last visible tab, or the last tab that also
+        // appears on stages/rounds. Both tests require evt.to === hiddenEl so
+        // reordering WITHIN the visible list stays unrestricted.
         onMove: function (evt) {
-            if (evt.from === visibleEl && evt.to === hiddenEl && visibleEl.children.length === 1) {
-                return false;
+            if (evt.from === visibleEl && evt.to === hiddenEl) {
+                if (visibleEl.children.length === 1) return false;
+                if (!isRestricted(evt.dragged) && universals().length === 1) return false;
             }
         }
     };

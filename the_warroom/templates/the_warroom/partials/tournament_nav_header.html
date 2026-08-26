@@ -49,6 +49,11 @@
                class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
                 {% trans 'Details' %}
             </a>
+                {% elif key == 'elo' and has_elo %}
+            <a href="{% url 'tournament-elo-page' tournament.slug %}"
+               class="section-nav-tab root-title {% if active_page == 'elo' %}active{% endif %}">
+                {% trans 'ELO Ranking' %}
+            </a>
                 {% endif %}
             {% endfor %}
         </nav>

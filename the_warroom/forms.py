@@ -25,7 +25,14 @@ TAB_LABELS = {
     'players': gettext_lazy('Players'),
     'surveys': gettext_lazy('Surveys'),
     'details': gettext_lazy('Details'),
+    'elo': gettext_lazy('ELO Ranking'),
 }
+
+# Tabs that only exist at the tournament level. Stage has no elo tab and Round
+# has neither, so a tab_order made up only of these leaves stage and round nav
+# bars with nothing to render. clean_tab_order requires at least one tab from
+# outside this set; the editor's JS mirrors the rule via data-restricted.
+TOURNAMENT_ONLY_TABS = {'surveys', 'elo'}
 
 
 class TabOrderFormMixin:
@@ -56,10 +63,20 @@ class TabOrderFormMixin:
         )
 
         # Rows for the editor partial: visible first (in order), then hidden.
+        # `restricted` drives the client-side mirror of the universal-tab rule,
+        # so the JS never has to hardcode which keys are tournament-only.
         hidden = [k for k in Tournament.NAV_TABS if k not in current]
+
+        def row(k, visible):
+            return {
+                'key': k,
+                'label': TAB_LABELS[k],
+                'visible': visible,
+                'restricted': k in TOURNAMENT_ONLY_TABS,
+            }
+
         self.tab_rows = (
-            [{'key': k, 'label': TAB_LABELS[k], 'visible': True} for k in current]
-            + [{'key': k, 'label': TAB_LABELS[k], 'visible': False} for k in hidden]
+            [row(k, True) for k in current] + [row(k, False) for k in hidden]
         )
 
     def clean_tab_order(self):
@@ -74,6 +91,11 @@ class TabOrderFormMixin:
                 keys.append(k)
         if not keys:
             raise forms.ValidationError(_('At least one tab must be visible.'))
+        if not [k for k in keys if k not in TOURNAMENT_ONLY_TABS]:
+            raise forms.ValidationError(
+                _('Select at least one tab that is available on stages and rounds. '
+                  'Surveys and ELO Ranking appear only on the series page.')
+            )
         return keys
 
     def apply_tab_order(self, instance):
