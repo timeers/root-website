@@ -6,6 +6,7 @@
 - can now link LFG Roles to tournaments within the same guild
 - /record command to generate link for recording game
 - recording from an lfg thread helps pre-build the game form
+- series can now reorganize tabs and any tab can be hidden
 
 ### Improvements
 - /random commands now have option to include fan content

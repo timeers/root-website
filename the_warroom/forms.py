@@ -9,9 +9,83 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db.models import Max, Q
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
 
 
 DISCORD_URL_PATTERN = re.compile(r'^https://(discord\.com|discordapp\.com)/')
+
+# Nav tab labels for the tab-order editor. gettext_lazy (not the eager `_`
+# above): this dict is built at import time, so eager translation would freeze
+# every label to whichever language happened to load first.
+TAB_LABELS = {
+    'overview': gettext_lazy('Overview'),
+    'leaderboard': gettext_lazy('Leaderboard'),
+    'games': gettext_lazy('Games'),
+    'bracket': gettext_lazy('Bracket'),
+    'players': gettext_lazy('Players'),
+    'surveys': gettext_lazy('Surveys'),
+    'details': gettext_lazy('Details'),
+}
+
+
+class TabOrderFormMixin:
+    """Adds the ordered visible-tabs control to the tournament forms.
+
+    The widget is a hidden comma-separated key list driven by the drag/drop
+    editor partial (tab_order_editor.html); `tab_rows` feeds that partial.
+    """
+
+    def init_tab_order_field(self):
+        # On a bound form (re-render after a validation error elsewhere) use
+        # what the user submitted, not the stored value -- otherwise their
+        # arrangement is silently reverted while they fix an unrelated field.
+        raw = self.data.get('tab_order') if self.is_bound else None
+        if raw:
+            current = [k for k in raw.split(',') if k in Tournament.NAV_TABS]
+        elif self.instance and self.instance.pk:
+            current = self.instance.visible_tabs()
+        else:
+            current = list(Tournament.NAV_TABS)  # new series: everything visible
+        if not current:
+            current = list(Tournament.NAV_TABS)
+
+        self.fields['tab_order'] = forms.CharField(
+            required=False,
+            widget=forms.HiddenInput(attrs={'id': 'id_tab_order'}),
+            initial=','.join(current),
+        )
+
+        # Rows for the editor partial: visible first (in order), then hidden.
+        hidden = [k for k in Tournament.NAV_TABS if k not in current]
+        self.tab_rows = (
+            [{'key': k, 'label': TAB_LABELS[k], 'visible': True} for k in current]
+            + [{'key': k, 'label': TAB_LABELS[k], 'visible': False} for k in hidden]
+        )
+
+    def clean_tab_order(self):
+        """Returns a list (not the raw string). Dedupes and drops unknown keys
+        so a mangled POST cannot corrupt the field."""
+        raw = self.cleaned_data.get('tab_order') or ''
+        keys, seen = [], set()
+        for k in raw.split(','):
+            k = k.strip()
+            if k in Tournament.NAV_TABS and k not in seen:
+                seen.add(k)
+                keys.append(k)
+        if not keys:
+            raise forms.ValidationError(_('At least one tab must be visible.'))
+        return keys
+
+    def apply_tab_order(self, instance):
+        """Assign tab_order onto an unsaved instance. Must be called in the
+        commit=False portion of save(): both tournament views call
+        save(commit=False) and then save the instance themselves."""
+        # clean_tab_order guarantees a non-empty list, so this fallback only
+        # fires if the field was absent from the POST entirely.
+        order = self.cleaned_data.get('tab_order') or list(Tournament.NAV_TABS)
+        instance.tab_order = order
+        # Keep the legacy field consistent while visible_tabs() still reads it.
+        instance.hidden_tabs = [k for k in Tournament.NAV_TABS if k not in order]
 
 
 class IconSelect(forms.Select):
@@ -1137,7 +1211,7 @@ def _scope_elo_system_field(form, user):
 
 
 # Dynamic forms for new tournament create/update views with permission-based field access
-class TournamentDynamicCreateForm(forms.ModelForm):
+class TournamentDynamicCreateForm(TabOrderFormMixin, forms.ModelForm):
     PLATFORM_CHOICES = [
         (None, 'Any platform'),
         ('Tabletop Simulator', 'Tabletop Simulator'),
@@ -1204,6 +1278,8 @@ class TournamentDynamicCreateForm(forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
         super(TournamentDynamicCreateForm, self).__init__(*args, **kwargs)
 
+        self.init_tab_order_field()
+
         # Set initial values for new tournaments
         if not self.instance.pk:
             if user:
@@ -1248,6 +1324,11 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         """Save tournament and set default assets based on platform"""
         instance = super().save(commit=False)
 
+        # Must stay outside the `if commit:` block below -- tournament_dynamic_create
+        # calls save(commit=False) and saves the instance itself, so anything
+        # inside that block never runs on the real create path.
+        self.apply_tab_order(instance)
+
         if commit:
             # Check if this is a new tournament to set the default assets
             set_default_assets = False
@@ -1286,7 +1367,7 @@ class TournamentDynamicCreateForm(forms.ModelForm):
         return cleaned_data
 
 
-class TournamentDynamicUpdateForm(forms.ModelForm):
+class TournamentDynamicUpdateForm(TabOrderFormMixin, forms.ModelForm):
     PLATFORM_CHOICES = [
         (None, 'Any platform'),
         ('Tabletop Simulator', 'Tabletop Simulator'),
@@ -1356,15 +1437,7 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
     def __init__(self, *args, user=None, **kwargs):
         super(TournamentDynamicUpdateForm, self).__init__(*args, **kwargs)
 
-        # Visible-tabs checkboxes (mapped to/from the JSON `hidden_tabs` field).
-        # Each "show this tab" checkbox is checked when the tab is NOT hidden.
-        hidden = self.instance.hidden_tabs or [] if self.instance else []
-        for key in Tournament.HIDEABLE_TABS:
-            self.fields[f'show_tab_{key}'] = forms.BooleanField(
-                required=False,
-                initial=(key not in hidden),
-                label=f'Show {key.capitalize()} tab',
-            )
+        self.init_tab_order_field()
 
         # Use native HTML5 date picker
         self.fields['start_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
@@ -1412,11 +1485,9 @@ class TournamentDynamicUpdateForm(forms.ModelForm):
 
     def save(self, commit=True):
         instance = super().save(commit=False)
-        # Translate the per-tab "show" checkboxes into the hidden_tabs list.
-        instance.hidden_tabs = [
-            key for key in Tournament.HIDEABLE_TABS
-            if not self.cleaned_data.get(f'show_tab_{key}')
-        ]
+        # Outside any `if commit:` guard on purpose -- tournament_dynamic_update
+        # calls save(commit=False) and saves the instance itself.
+        self.apply_tab_order(instance)
         if commit:
             instance.save()
             self.save_m2m()

@@ -237,7 +237,6 @@
 
                             {% include 'the_warroom/partials/asset_mode_toggle.html' with tournament_form=form %}
 
-                            {{ form.show_assets|as_crispy_field }}
 
                     </div>
                 </div>
@@ -248,16 +247,11 @@
                         <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>{% trans 'Visible Tabs' %}</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small mb-3">{% trans 'Choose which tabs appear in the navigation header. The Overview tab is always shown.' %}</p>
-                        <div class="row">
-                            {% for field in form %}
-                                {% if field.name|slice:":9" == "show_tab_" %}
-                                <div class="col-md-6 mb-2">
-                                    {{ field|as_crispy_field }}
-                                </div>
-                                {% endif %}
-                            {% endfor %}
-                        </div>
+                        <p class="text-muted small mb-3">{% trans 'Choose which tabs appear in the navigation header, and in what order.' %}</p>
+                        {% include 'the_warroom/partials/tab_order_editor.html' with tournament_form=form %}
+                    
+                        {{ form.show_assets|as_crispy_field }}
+
                     </div>
                 </div>
 
@@ -335,6 +329,81 @@
 
 {% include 'the_warroom/partials/asset_mode_scripts.html' %}
 {% include 'the_warroom/partials/status_toggle_scripts.html' %}
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+(function () {
+    const editor = document.getElementById('tab-order-editor');
+    if (!editor) return;
+
+    const visibleEl = document.getElementById('visible-tabs');
+    const hiddenEl = document.getElementById('hidden-tabs');
+    const input = document.getElementById('id_tab_order');
+    if (!visibleEl || !hiddenEl || !input) return;
+
+    function emptyNotice(listEl) {
+        return editor.querySelector('[data-empty-for="' + listEl.id + '"]');
+    }
+
+    // The hidden input is the only thing submitted, so it must be rewritten
+    // after every move. Also re-skins each row's button to match the list it
+    // now sits in, and blocks removing the final visible tab (the server
+    // rejects that too -- this just avoids an error page).
+    function sync() {
+        input.value = Array.from(visibleEl.children)
+            .map(li => li.dataset.tabKey)
+            .join(',');
+
+        [visibleEl, hiddenEl].forEach(function (listEl) {
+            const isVisibleList = listEl === visibleEl;
+            Array.from(listEl.children).forEach(function (li) {
+                const btn = li.querySelector('.tab-toggle');
+                if (!btn) return;
+                btn.dataset.action = isVisibleList ? 'hide' : 'show';
+                btn.querySelector('i').className = isVisibleList ? 'bi bi-x' : 'bi bi-plus';
+            });
+            const notice = emptyNotice(listEl);
+            if (notice) notice.classList.toggle('d-none', listEl.children.length > 0);
+        });
+
+        const lastVisible = visibleEl.children.length === 1;
+        const onlyBtn = lastVisible ? visibleEl.children[0].querySelector('.tab-toggle') : null;
+        Array.from(visibleEl.children).forEach(function (li) {
+            const btn = li.querySelector('.tab-toggle');
+            if (btn) btn.disabled = (btn === onlyBtn);
+        });
+    }
+
+    const opts = {
+        group: 'nav-tabs',
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+        dragClass: 'sortable-drag',
+        onEnd: sync,
+        // Refuse to drag the last visible tab out of the visible list.
+        onMove: function (evt) {
+            if (evt.from === visibleEl && evt.to === hiddenEl && visibleEl.children.length === 1) {
+                return false;
+            }
+        }
+    };
+    new Sortable(visibleEl, opts);
+    new Sortable(hiddenEl, opts);
+
+    editor.addEventListener('click', function (e) {
+        const btn = e.target.closest('.tab-toggle');
+        if (!btn || btn.disabled) return;
+        const li = btn.closest('.tab-order-item');
+        if (!li) return;
+        // Moving to a list always appends, so a re-shown tab lands at the end.
+        (btn.dataset.action === 'hide' ? hiddenEl : visibleEl).appendChild(li);
+        sync();
+    });
+
+    sync();
+})();
+</script>
 
 <script>
     // Initialize Select2 for designer and guild fields

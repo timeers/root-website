@@ -2562,6 +2562,17 @@ def _get_open_registration_survey(request, tournament):
     return None
 
 
+def _tab_context(tournament):
+    """Nav tab visibility + order. Identical at all three levels -- Stage and
+    Round navs both read the parent Tournament's settings. Computes
+    visible_tabs() once rather than once per key."""
+    visible = tournament.visible_tabs()
+    return {
+        'tab_order': visible,
+        'tab_visible': {key: key in visible for key in Tournament.NAV_TABS},
+    }
+
+
 def _tournament_base_context(request, tournament):
     """Shared context for all tournament pages."""
     view_as = get_view_as(request, tournament)
@@ -2603,7 +2614,7 @@ def _tournament_base_context(request, tournament):
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
-        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
+        **_tab_context(tournament),
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': tournament.name,
@@ -2651,7 +2662,7 @@ def _stage_base_context(request, tournament, stage):
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
-        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
+        **_tab_context(tournament),
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{stage.name} - {tournament.name}",
@@ -2693,7 +2704,7 @@ def _round_base_context(request, tournament, stage, round):
         'has_games': has_games,
         'has_players': has_players,
         'is_bracket_finalized': is_bracket_finalized,
-        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
+        **_tab_context(tournament),
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",

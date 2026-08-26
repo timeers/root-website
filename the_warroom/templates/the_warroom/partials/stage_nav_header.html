@@ -3,76 +3,63 @@
 <article class="content-section mt-2">
     <div class="section-nav-header">
         <!-- Navigation Tabs -->
+        {% comment %}
+        Order comes from tournament.tab_order (owner-configurable); stages
+        inherit the parent tournament's setting. The per-tab data gates below
+        are unchanged. Note the Players tab uses active_page 'roster'.
+        {% endcomment %}
         <nav class="section-nav-tabs">
+            {% for key in tab_order %}
+                {% if key == 'overview' %}
             <a href="{% url 'stage-overview' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'overview' %}active{% endif %}">
                 {% trans 'Overview' %}
             </a>
-            {% if has_games and tab_visible.leaderboard %}
+                {% elif key == 'leaderboard' and has_games %}
             <a href="{% url 'stage-leaderboard-page' tournament.slug stage.slug %}"
                data-carry-filters="leaderboard"
                class="section-nav-tab root-title {% if active_page == 'leaderboard' %}active{% endif %}">
                 {% trans 'Leaderboard' %}
             </a>
-            {% endif %}
-            {% if has_games and tab_visible.games %}
+                {% elif key == 'games' and has_games %}
             <a href="{% url 'stage-games-page' tournament.slug stage.slug %}"
                data-carry-filters="games"
                class="section-nav-tab root-title {% if active_page == 'games' %}active{% endif %}">
                 {% trans 'Games' %}
             </a>
-            {% endif %}
-            {% if has_bracket and tab_visible.bracket %}
-            {% if stage.use_rounds %}
+                {% elif key == 'bracket' and has_bracket %}
+                    {% if stage.use_rounds %}
             <a href="{% url 'stage-bracket-page' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'bracket' %}active{% endif %}">
                 {% trans 'Bracket' %}
             </a>
-            {% else %}
+                    {% else %}
             <a href="{% url 'stage-matches-page' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'bracket' %}active{% endif %}">
                 {% trans 'Matches' %}
             </a>
-            {% endif %}
-            {% endif %}
-            {% if has_games or has_players %}{% if tab_visible.players %}
+                    {% endif %}
+                {% elif key == 'players' %}{% if has_games or has_players %}
             <a href="{% url 'stage-roster-page' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'roster' %}active{% endif %}">
                 {% trans 'Players' %}
             </a>
-            {% endif %}{% endif %}
-            {% if has_surveys and tab_visible.surveys %}
+                {% endif %}
+                {% elif key == 'surveys' and has_surveys %}
             <a href="{% url 'stage-surveys' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'surveys' %}active{% endif %}">
                 {% trans 'Surveys' %}
             </a>
-            {% endif %}
-            {% if tab_visible.details %}
+                {% elif key == 'details' %}
             <a href="{% url 'stage-details-page' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'details' %}active{% endif %}">
                 {% trans 'Details' %}
             </a>
-            {% endif %}
+                {% endif %}
+            {% endfor %}
         </nav>
 
         <!-- Action Buttons -->
-        <div class="section-nav-action-buttons">
-            <div class="section-nav-actions-desktop">
-                {% if playable_round %}
-                <a class="btn btn-success btn-sm" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
-                {% endif %}
-                {% if can_manage %}
-                <a class="btn btn-outline-secondary btn-sm" href="{{ stage.get_settings_url }}"><i class="bi bi-gear me-1"></i>{% trans 'Settings' %}</a>
-                {% endif %}
-            </div>
-            <div class="section-nav-actions-mobile">
-                {% if playable_round %}
-                <a class="btn btn-success btn-sm p-0 px-1" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
-                {% endif %}
-                {% if can_manage %}
-                <a class="btn btn-outline-secondary btn-sm p-0 px-1" href="{{ stage.get_settings_url }}"><i class="bi bi-gear"></i></a>
-                {% endif %}
-            </div>
-        </div>
+        {% include 'the_warroom/partials/nav_action_buttons.html' with settings_owner=stage %}
     </div>
 </article>

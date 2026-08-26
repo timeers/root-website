@@ -1,0 +1,98 @@
+{% load i18n %}
+{% comment %}
+Drag/drop editor for the nav tab order. Expects `tournament_form` carrying the
+hidden `tab_order` field and the `tab_rows` list built by TabOrderFormMixin.
+Rows can be dragged within or between the two lists; the x/+ buttons do the
+same thing without dragging (the reliable path on touch and for keyboards).
+The hidden input is the only thing actually submitted.
+{% endcomment %}
+
+<style>
+    .tab-order-list {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 .25rem 0;
+        min-height: 2.5rem;
+    }
+    .tab-order-list .sortable-ghost {
+        opacity: .4;
+    }
+    .tab-order-list .sortable-drag {
+        opacity: .9;
+    }
+    .tab-order-item {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        padding: .4rem .6rem;
+        margin-bottom: .35rem;
+        border: 1px solid var(--bs-border-color);
+        border-radius: .375rem;
+        background-color: var(--bs-body-bg);
+    }
+    .tab-order-item .drag-handle {
+        cursor: grab;
+        opacity: .5;
+    }
+    .tab-order-item .drag-handle:active {
+        cursor: grabbing;
+    }
+    .tab-order-label {
+        flex: 1 1 auto;
+    }
+    .tab-order-empty {
+        padding: .4rem .6rem;
+        margin-bottom: .35rem;
+        border: 1px dashed var(--bs-border-color);
+        border-radius: .375rem;
+        font-size: .875rem;
+    }
+</style>
+
+<div id="tab-order-editor" class="row">
+    <div class="col-md-6 mb-3">
+        <label class="form-label fw-semibold mb-1">{% trans 'Visible Tabs' %}</label>
+        <p class="text-muted small mb-2">{% trans 'Drag to reorder. The first tab will be the default page.' %}</p>
+        <ul class="tab-order-list" id="visible-tabs" data-list="visible">
+            {% for row in tournament_form.tab_rows %}
+                {% if row.visible %}
+                <li class="tab-order-item" data-tab-key="{{ row.key }}">
+                    <i class="bi bi-grip-vertical drag-handle"></i>
+                    <span class="tab-order-label">{{ row.label }}</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary tab-toggle" data-action="hide"
+                            aria-label="{% trans 'Hide tab' %}" title="{% trans 'Hide tab' %}">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </li>
+                {% endif %}
+            {% endfor %}
+        </ul>
+        <div class="tab-order-empty text-muted d-none" data-empty-for="visible-tabs">
+            {% trans 'At least one tab must be visible.' %}
+        </div>
+    </div>
+
+    <div class="col-md-6 mb-3">
+        <label class="form-label fw-semibold mb-1">{% trans 'Hidden Tabs' %}</label>
+        <p class="text-muted small mb-2">{% trans 'These are not shown in the navigation header.' %}</p>
+        <ul class="tab-order-list" id="hidden-tabs" data-list="hidden">
+            {% for row in tournament_form.tab_rows %}
+                {% if not row.visible %}
+                <li class="tab-order-item" data-tab-key="{{ row.key }}">
+                    <i class="bi bi-grip-vertical drag-handle"></i>
+                    <span class="tab-order-label">{{ row.label }}</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary tab-toggle" data-action="show"
+                            aria-label="{% trans 'Show tab' %}" title="{% trans 'Show tab' %}">
+                        <i class="bi bi-plus"></i>
+                    </button>
+                </li>
+                {% endif %}
+            {% endfor %}
+        </ul>
+        <div class="tab-order-empty text-muted d-none" data-empty-for="hidden-tabs">
+            {% trans 'No hidden tabs.' %}
+        </div>
+    </div>
+
+    {{ tournament_form.tab_order }}
+</div>
