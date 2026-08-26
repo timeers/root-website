@@ -1,12 +1,16 @@
+import time
+from datetime import timedelta
+
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
-from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
+from the_keep.models import StatusChoices, Post, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
-from .models import BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile
+from .models import (BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile,
+                     LFGRoll, LFGDraft, LFGDraftPick)
 
 from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, register_guild_commands, DM_ERROR
 from .services.context_service import get_daily_user_summary
@@ -293,21 +297,23 @@ def update_discord_avatar_task(user_id, force=False):
     update_discord_avatar(user, force=force)
 
 
-@shared_task(bind=True, max_retries=3)
-def refresh_user_guilds_task(self, user_id):
-    """Refresh a user's Discord guild membership OFF the login request thread.
+def refresh_user_guilds(user, budget=None):
+    """Refresh a user's Discord guild membership, flags, group and display name.
 
-    Deferred from user_logged_in_handler so a slow/rate-limited Discord API call can
-    never block (and eventually exhaust) the WSGI worker pool — the outage this fixes.
-    This task is the AUTHORITY for guild flags + group promotion (it has fresh data);
-    login itself runs against the cached Profile flags.
+    Shared by refresh_user_guilds_task (the async path, no budget) and the login signal
+    (the inline path for a STALE profile, under a short budget). Returns True when the
+    refresh completed — the profile is saved with `guilds_refreshing` cleared — and
+    False when it could not, in which case NOTHING is written: the caller keeps the
+    spinner up and hands off to the task.
 
-    Retry is manual (NOT autoretry_for) so `guilds_refreshing` stays True across pending
-    retries — clearing it per-failed-attempt would drop the header spinner while a retry
-    is still queued. The flag clears exactly once: on success, on the no-token no-op, or
-    when retries are exhausted.
+    `budget` is a wall-clock allowance in seconds for the Discord calls. Enforced with a
+    monotonic deadline: each call gets whatever time is left as its `timeout`. Note
+    requests' timeout is per-socket-operation, not a hard wall-clock cap, so this bounds
+    the work closely but not exactly — fine here, since the fallback path is safe.
+
+    Retry lives in the TASK, not here: self.retry() needs the bound task context and is
+    meaningless on a request thread.
     """
-    from django.contrib.auth import get_user_model
     from django.db.models import Q
     from the_keep.models import Post
     from .services.discordservice import (
@@ -315,26 +321,27 @@ def refresh_user_guilds_task(self, user_id):
         get_discord_display_name,
     )
 
-    user = get_user_model().objects.filter(pk=user_id).first()
-    if user is None or not hasattr(user, 'profile'):
-        return
-
-    def _clear_flag(profile):
-        profile.guilds_refreshing = False
-        profile.guilds_synced_at = timezone.now()
-        profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
-
     profile = user.profile
+    deadline = None if budget is None else time.monotonic() + budget
 
-    guilds = get_user_guilds(user)
+    def _remaining():
+        """Seconds left for the next call, or None for 'no budget' (historical 5s)."""
+        if deadline is None:
+            return None
+        return deadline - time.monotonic()
+
+    def _timeout_kwargs():
+        left = _remaining()
+        return {} if left is None else {'timeout': left}
+
+    if _remaining() is not None and _remaining() <= 0:
+        return False
+
+    guilds = get_user_guilds(user, **_timeout_kwargs())
     if guilds is None:
         # API/token failure — distinct from "really in no guilds" ([]). Do NOT touch
-        # flags/group (never demote on a transient failure). Retry a few times, then
-        # give up and clear the spinner so it can't get stuck.
-        if self.request.retries < self.max_retries:
-            raise self.retry(countdown=30 * (self.request.retries + 1))
-        _clear_flag(profile)
-        return
+        # flags/group (never demote on a transient failure).
+        return False
 
     update_user_guilds(user, guilds)
     in_ww, in_wr, in_fr = derive_guild_membership(guilds)
@@ -366,10 +373,14 @@ def refresh_user_guilds_task(self, user_id):
         profile.in_woodland_warriors = True
         updated = True
 
-    display_name = get_discord_display_name(user)
-    if display_name and profile.display_name != display_name:
-        profile.display_name = display_name
-        updated = True
+    # The display name is cosmetic; the group promotion above is what gates access. If
+    # the budget is spent, skip it and let the async task backfill it later.
+    left = _remaining()
+    if left is None or left > 0:
+        display_name = get_discord_display_name(user, **_timeout_kwargs())
+        if display_name and profile.display_name != display_name:
+            profile.display_name = display_name
+            updated = True
 
     profile.guilds_refreshing = False
     profile.guilds_synced_at = timezone.now()
@@ -380,6 +391,41 @@ def refresh_user_guilds_task(self, user_id):
         ])
     else:
         profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
+    return True
+
+
+@shared_task(bind=True, max_retries=3)
+def refresh_user_guilds_task(self, user_id):
+    """Refresh a user's Discord guild membership OFF the login request thread.
+
+    Deferred from user_logged_in_handler so a slow/rate-limited Discord API call can
+    never block (and eventually exhaust) the WSGI worker pool — the outage this fixes.
+    This task is the AUTHORITY for guild flags + group promotion whenever login didn't
+    already do it inline (see user_logged_in_handler).
+
+    Retry is manual (NOT autoretry_for) so `guilds_refreshing` stays True across pending
+    retries — clearing it per-failed-attempt would drop the header spinner while a retry
+    is still queued. The flag clears exactly once: on success, on the no-token no-op, or
+    when retries are exhausted.
+    """
+    from django.contrib.auth import get_user_model
+
+    user = get_user_model().objects.filter(pk=user_id).first()
+    if user is None or not hasattr(user, 'profile'):
+        return
+
+    if refresh_user_guilds(user):
+        return
+
+    # Couldn't complete. Retry a few times, then give up and clear the spinner so it
+    # can't get stuck on the header forever.
+    if self.request.retries < self.max_retries:
+        raise self.retry(countdown=30 * (self.request.retries + 1))
+
+    profile = user.profile
+    profile.guilds_refreshing = False
+    profile.guilds_synced_at = timezone.now()
+    profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
 
 
 @shared_task(
@@ -641,24 +687,217 @@ _LFG_FK_KINDS = {"Map": "map", "Deck": "deck"}
 
 
 @shared_task
-def record_lfg_components_task(channel_id, items):
+def record_lfg_components_task(channel_id, items, source="", draft=None):
     """Record components surfaced inside an LFG thread (from /random, /map, /deck,
-    other lookups, /draft). No-op when the channel isn't a known LFG thread."""
-    if not channel_id or not items:
+    other lookups, /draft). No-op when the channel isn't a known LFG thread.
+
+    `source` tags where the items came from (random / lookup / draft). `draft`,
+    when given, REPLACES the thread's current draft: {"players", "platform",
+    "drafted_by": <discord id>, "picks": [{"faction","vagabond","captains",
+    "order"}]}. Everything on the wire is slugs and ids — Celery serializes as
+    JSON, so model instances would raise EncodeError in the caller.
+
+    `source` and `draft` are keyword-defaulted so the other capture call sites
+    keep working and so tasks enqueued by older code still deserialize.
+    """
+    if not channel_id or not (items or draft):
         return
-    # select_for_update guards against two concurrent captures in the same thread
-    # clobbering each other's rolls-list append (last-write-wins otherwise).
+    # select_for_update still earns its place: the map/deck update below is a
+    # read-modify-write, and the draft replacement must not interleave with a
+    # concurrent one. (The roll rows themselves are plain inserts and don't race.)
     with transaction.atomic():
         thread = LFGThread.objects.select_for_update().filter(thread_id=channel_id).first()
         if not thread:
             return  # not an LFG thread (the common case) — no-op
-        now = timezone.now().isoformat()
+
+        items = items or []
+        # One query for every rolled component. NOTE this dict holds base Post
+        # instances and must NOT be reused for the typed FKs below (map/deck/
+        # faction): MTI forbids assigning a parent instance to a child FK.
+        slugs = [it.get("slug") for it in items if it.get("slug")]
+        posts_by_slug = {}
+        if slugs:
+            posts_by_slug = {p.slug: p for p in Post.objects.filter(slug__in=slugs)}
+
+        rolls = []
         for it in items:
-            kind, slug, title = it.get("kind"), it.get("slug"), it.get("title")
-            thread.rolls.append({"kind": kind, "slug": slug, "title": title, "at": now})
-            field = _LFG_FK_KINDS.get(kind)
+            kind, slug = it.get("kind"), it.get("slug")
+            # created_at is deliberately not passed: letting the field default
+            # fire per row keeps draw order unambiguous.
+            rolls.append(LFGRoll(thread=thread, kind=kind or "", slug=slug or "",
+                                 post=posts_by_slug.get(slug), source=source or ""))
+        if rolls:
+            LFGRoll.objects.bulk_create(rolls)
+
+        # map/deck keep their own typed lookup -- posts_by_slug holds Post rows,
+        # and `thread.map = <Post>` raises ValueError under multi-table inheritance.
+        touched = []
+        for it in items:
+            field = _LFG_FK_KINDS.get(it.get("kind"))
+            slug = it.get("slug")
             if field and slug:
                 model = {"map": Map, "deck": Deck}[field]
-                setattr(thread, field,
-                        model.objects.filter(slug=slug).first() or getattr(thread, field))
-        thread.save(update_fields=["rolls", "map", "deck"])
+                obj = model.objects.filter(slug=slug).first()
+                if obj:
+                    setattr(thread, field, obj)
+                    touched.append(field)
+        if touched:
+            thread.save(update_fields=sorted(set(touched)))
+
+        if draft:
+            _replace_lfg_draft(thread, draft)
+
+
+def _replace_lfg_draft(thread, draft):
+    """Replace the thread's current draft with `draft` (a JSON-safe dict).
+
+    A thread holds ONE draft: re-running /draft supersedes the previous one
+    rather than accumulating. Runs inside record_lfg_components_task's locked
+    transaction. Unresolvable slugs are skipped and logged rather than aborting
+    the batch -- a bad slug must never cost the user their delivered draft.
+    """
+    picks = draft.get("picks") or []
+    faction_slugs = [p.get("faction") for p in picks if p.get("faction")]
+    # Typed querysets, NOT the Post dict from the caller (see the MTI note above).
+    factions = {f.slug: f for f in Faction.objects.filter(slug__in=faction_slugs)}
+
+    vb_slugs = set()
+    for p in picks:
+        if p.get("vagabond"):
+            vb_slugs.add(p["vagabond"])
+        vb_slugs.update(p.get("captains") or [])
+    vagabonds = {v.slug: v for v in Vagabond.objects.filter(slug__in=vb_slugs)} if vb_slugs else {}
+
+    drafted_by = None
+    if draft.get("drafted_by"):
+        drafted_by = Profile.objects.filter(discord_id=str(draft["drafted_by"])).first()
+
+    obj, _ = LFGDraft.objects.update_or_create(
+        thread=thread,
+        defaults={"players": draft.get("players"),
+                  "platform": draft.get("platform") or "",
+                  "drafted_by": drafted_by},
+    )
+    obj.picks.all().delete()
+
+    for p in picks:
+        faction = factions.get(p.get("faction"))
+        if not faction:
+            logger.warning("LFG draft: unknown faction slug %r for thread %s",
+                           p.get("faction"), thread.thread_id)
+            continue
+        pick = LFGDraftPick.objects.create(
+            draft=obj, faction=faction, order=p.get("order") or 0,
+            vagabond=vagabonds.get(p.get("vagabond")) if p.get("vagabond") else None,
+        )
+        caps = [vagabonds[s] for s in (p.get("captains") or []) if s in vagabonds]
+        if caps:
+            pick.captains.set(caps)
+
+
+# ── /schedule proposals ──────────────────────────────────────────────────────
+# A proposal's public message is posted by the BOT (not as an interaction followup)
+# so it stays editable indefinitely: an interaction token expires after 15 minutes
+# and proposals routinely outlive that.
+
+# Copy for a proposal retired without anyone rejecting it. Keyed by the `reason`
+# the caller passes, so the task stays a dumb renderer.
+_PROPOSAL_RETIRED_TEXT = {
+    "superseded": "A different time was confirmed for this match. This proposal is "
+                  "no longer active.",
+    "cancelled": "This proposed time is no longer active — the match's scheduled "
+                 "time was changed or cleared.",
+    "expired": "This proposed time has passed without everyone confirming.",
+}
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 5},
+)
+def post_schedule_proposal_task(proposal_id, message_data):
+    """Post a schedule proposal's public message and record its id on the row.
+
+    The id is the whole point: without it the proposal can't be edited later
+    (superseded/cancelled) from outside its own interaction.
+
+    Bails out when the proposal stopped being OPEN while the task sat queued — e.g.
+    another proposal finalized first. Posting live buttons for a dead proposal would
+    hand someone a control that could overwrite a confirmed time."""
+    from .models import ScheduleProposal
+    from .services.discordservice import (
+        post_channel_message_full, THREAD_OK, THREAD_ERROR,
+    )
+
+    proposal = ScheduleProposal.objects.filter(pk=proposal_id).first()
+    if not proposal or not proposal.is_open or not proposal.channel_id:
+        return
+
+    result, message_id = post_channel_message_full(
+        proposal.channel_id, **(message_data or {}))
+    if result == THREAD_ERROR:
+        # Transient: let autoretry have another go.
+        raise RuntimeError(f"transient failure posting proposal {proposal_id}")
+    if result == THREAD_OK and message_id:
+        # .update() rather than .save(): never clobber a status another request
+        # changed while this task was in flight.
+        ScheduleProposal.objects.filter(pk=proposal_id).update(message_id=message_id)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 10},
+)
+def strip_schedule_proposal_messages_task(proposal_ids, reason):
+    """Remove the buttons from retired proposal messages and replace the embed with
+    a short explanation.
+
+    Purely cosmetic: the DB status is what actually stops a retired proposal being
+    confirmed, so a PERMANENT failure (message deleted, missing perms) is logged and
+    skipped rather than retried. Only transient failures re-raise, and only after
+    every id has been attempted — one dead message must not block the rest."""
+    from .models import ScheduleProposal
+    from .services.discordservice import (
+        edit_channel_message, THREAD_ERROR,
+    )
+
+    text = _PROPOSAL_RETIRED_TEXT.get(reason, _PROPOSAL_RETIRED_TEXT["cancelled"])
+    transient = []
+    for proposal in ScheduleProposal.objects.filter(pk__in=list(proposal_ids or [])):
+        if not proposal.channel_id or not proposal.message_id:
+            continue  # never posted (or the id never landed) — nothing to strip
+        result = edit_channel_message(
+            proposal.channel_id, proposal.message_id,
+            embeds=[{"title": "Proposal closed", "description": text}],
+            components=[],
+        )
+        if result == THREAD_ERROR:
+            transient.append(proposal.pk)
+    if transient:
+        raise RuntimeError(f"transient failure stripping proposals {transient}")
+
+
+@shared_task
+def cleanup_stale_schedule_proposals(max_age_days=14):
+    """Retire OPEN proposals that can never complete: ones whose proposed time has
+    passed, and ones left open longer than `max_age_days`.
+
+    Runs on a schedule created in Django admin (django_celery_beat) — this project
+    uses DatabaseScheduler, so there is no beat_schedule in code to register it."""
+    from .models import ScheduleProposal
+
+    now = timezone.now()
+    stale = ScheduleProposal.objects.filter(
+        status=ScheduleProposal.Status.OPEN,
+    ).filter(
+        Q(proposed_time__lt=now)
+        | Q(created_at__lt=now - timedelta(days=max_age_days))
+    )
+    ids = list(stale.values_list("pk", flat=True))
+    if not ids:
+        return 0
+    ScheduleProposal.objects.filter(pk__in=ids).update(
+        status=ScheduleProposal.Status.CANCELLED, resolved_at=now)
+    strip_schedule_proposal_messages_task.delay(ids, "expired")
+    logger.info("Retired %d stale schedule proposals", len(ids))
+    return len(ids)

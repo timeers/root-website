@@ -435,6 +435,20 @@ class EloRating(models.Model):
         return f'{self.player} {self.rating_before:.0f}->{self.rating_after:.0f} ({self.elo_system})'
 
 
+def first_supported_tab(visible_tabs, supported):
+    """First key in ``visible_tabs`` also present in ``supported``, else None.
+
+    ``supported`` is any container of tab keys -- in practice each level's own
+    route mapping, so membership means "this level has a page for that tab".
+    Round passes a mapping without 'surveys', which is how the missing round
+    surveys tab is skipped without a special case.
+    """
+    for key in visible_tabs:
+        if key in supported:
+            return key
+    return None
+
+
 # This is a Tournament (or Series). It can be a structured tournament or a loose grouping of playtests to show stats and leaderboards for specific games.
 # Currently hidden on the site and not really being used.
 class Tournament(models.Model):
@@ -455,10 +469,28 @@ class Tournament(models.Model):
         GOOGLE = 'google', 'Google Drive'
         DROPBOX = 'dropbox', 'Dropbox'
 
-    # Nav tabs that moderators can hide (Overview is always shown). Drives both
-    # the settings form and the per-tab visibility passed to the nav headers, so
-    # adding a tab here makes it controllable everywhere without a migration.
-    HIDEABLE_TABS = ['leaderboard', 'games', 'bracket', 'players', 'surveys', 'details']
+    # Canonical nav tab keys in default order. Drives the settings form and the
+    # per-tab visibility/order passed to the nav headers, so adding a tab here
+    # makes it controllable everywhere. 'overview' is included now that it can
+    # be hidden and reordered like any other tab.
+    NAV_TABS = ['overview', 'leaderboard', 'games', 'bracket', 'players', 'surveys', 'details', 'elo']
+
+    # key -> (url name, kwarg name for this tournament's slug). The surveys page
+    # lives in the_tavern and takes `tournament_slug` while every warroom
+    # tournament route takes bare `slug`, so the kwarg name travels with the route.
+    TAB_URL_NAMES = {
+        'overview':    ('tournament-detail', 'slug'),
+        'leaderboard': ('tournament-leaderboard-page', 'slug'),
+        'games':       ('tournament-games-page', 'slug'),
+        'bracket':     ('tournament-bracket-page', 'slug'),
+        'players':     ('tournament-roster-page', 'slug'),
+        # the_tavern/urls.py -- NOT 'slug'
+        'surveys':     ('tournament-surveys', 'tournament_slug'),
+        'details':     ('tournament-details-page', 'slug'),
+        # Tournament-level only: Stage and Round have no elo tab, so their
+        # mappings deliberately omit this key (first_supported_tab skips it).
+        'elo':         ('tournament-elo-page', 'tournament_slug'),
+    }
 
     type = "Tournament"
     name = models.CharField(max_length=30, unique=True)
@@ -527,6 +559,21 @@ class Tournament(models.Model):
             'plus any member of the linked guild can record games for rounds.'
         ),
     )
+    # When True (the default), /schedule proposes a time that every player on the
+    # match roster must confirm before it's written. When False, /schedule keeps the
+    # original behavior: whoever runs it confirms once and the time is set.
+    #
+    # Only meaningful when players may schedule at all — under MODERATORS-only
+    # recording_access there is nobody to poll (see players_can_record_matches).
+    require_participant_schedule_confirmation = models.BooleanField(
+        default=True,
+        verbose_name="Require Player Confirmation for Scheduling",
+        help_text=(
+            "Require every player in a game to confirm a proposed time before "
+            "/schedule sets it. When off, whoever runs /schedule sets the time "
+            "directly. Only applies when players are allowed to record matches."
+        ),
+    )
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)
@@ -544,12 +591,24 @@ class Tournament(models.Model):
     )
 
     # Nav tab visibility
+    # Legacy field, superseded by `tab_order`. Still written on save and still
+    # read by visible_tabs() as a fallback for rows the backfill hasn't reached
+    # (see the backfill_tab_order management command). Do not drop it until
+    # every row has a tab_order.
     hidden_tabs = models.JSONField(
         default=list,
         blank=True,
         help_text=(
-            "List of nav tab keys to hide (e.g. ['leaderboard','surveys']). "
-            "Tabs not listed are shown. Overview is always shown."
+            "Deprecated: superseded by tab_order. List of nav tab keys to hide. "
+            "Kept as a fallback for tournaments not yet backfilled."
+        ),
+    )
+    tab_order = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Ordered list of visible nav tab keys, first = landing tab. "
+            "Empty means not yet backfilled; visibility then falls back to hidden_tabs."
         ),
     )
 
@@ -664,6 +723,14 @@ class Tournament(models.Model):
             self.RecordingAccessTypes.GUILD,
         )
 
+    def requires_schedule_confirmation(self):
+        """True when /schedule must collect every player's confirmation before it
+        writes a time. Requires BOTH the opt-in flag and players actually being
+        allowed to schedule — under MODERATORS-only access no player may set a
+        time, so there is nobody to poll and the moderator's word is already final."""
+        return (self.require_participant_schedule_confirmation
+                and self.players_can_record_matches())
+
     def players_can_record_standalone(self):
         """Registered players may record standalone games for rounds (REGISTERED, GUILD)."""
         return self.recording_access in (
@@ -680,15 +747,38 @@ class Tournament(models.Model):
             return False
         return profile.guilds.filter(pk=self.guild_id).exists()
 
+    def visible_tabs(self):
+        """Ordered list of visible nav tab keys.
+
+        Rows not yet backfilled (empty tab_order) fall back to the legacy
+        hidden_tabs field, so navs look the same between deploy and the
+        backfill command running. Falls back again to ['overview'] so a corrupt
+        row degrades to a minimal nav instead of raising from landing_tab().
+        """
+        # Drop unknown keys (e.g. a tab removed from NAV_TABS) but keep order.
+        tabs = [k for k in (self.tab_order or []) if k in self.NAV_TABS]
+        if tabs:
+            return tabs
+        hidden = self.hidden_tabs or []
+        return [k for k in self.NAV_TABS if k not in hidden] or ['overview']
+
     def tab_visible(self, key):
-        """Whether a nav tab is enabled (not in hidden_tabs). Unknown keys default visible."""
-        return key not in (self.hidden_tabs or [])
+        """Whether a nav tab is enabled. Unknown keys are not visible."""
+        return key in self.visible_tabs()
+
+    def landing_tab(self):
+        """The tab key that this series' canonical URL points at."""
+        tabs = self.visible_tabs()
+        return tabs[0] if tabs else 'overview'
 
     def __str__(self):
         return self.name
-    
+
     def get_absolute_url(self):
-        return reverse('tournament-detail', kwargs={'slug': self.slug})
+        """Canonical URL: the first visible tab, per the owner's configuration."""
+        key = first_supported_tab(self.visible_tabs(), self.TAB_URL_NAMES) or 'overview'
+        name, kwarg = self.TAB_URL_NAMES[key]
+        return reverse(name, kwargs={kwarg: self.slug})
 
     def get_settings_url(self):
         return reverse('tournament-settings', kwargs={'slug': self.slug})
@@ -923,6 +1013,20 @@ class Tournament(models.Model):
 class Stage(models.Model):
     type = "Stage"
 
+    # key -> url name. Unlike Tournament, every stage route (including
+    # stage-surveys in the_tavern) takes tournament_slug + stage_slug, so no
+    # per-route kwarg mapping is needed. 'bracket' is resolved in
+    # get_absolute_url because it depends on use_rounds.
+    TAB_URL_NAMES = {
+        'overview':    'stage-overview',
+        'leaderboard': 'stage-leaderboard-page',
+        'games':       'stage-games-page',
+        'bracket':     None,  # see _bracket_url_name()
+        'players':     'stage-roster-page',
+        'surveys':     'stage-surveys',
+        'details':     'stage-details-page',
+    }
+
     class GroupingTypeChoices(models.TextChoices):
         AVAILABILITY = 'availability', 'Availability-based'
         MANUAL = 'manual', 'Manual'
@@ -1142,10 +1246,21 @@ class Stage(models.Model):
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
 
+    def _bracket_url_name(self):
+        """The bracket tab links to the bracket page only when this stage lays
+        out multiple rounds; otherwise it is really showing Matches. Mirrors
+        the branch in stage_nav_header.html."""
+        return 'stage-bracket-page' if self.use_rounds else 'stage-matches-page'
+
     def get_absolute_url(self):
+        # Stages collapse into the tournament when stages are disabled. This
+        # short-circuit must stay first -- the tab routes below need a stage slug.
         if not self.tournament.use_stages:
             return self.tournament.get_absolute_url()
-        return reverse('stage-overview', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+
+        key = first_supported_tab(self.tournament.visible_tabs(), self.TAB_URL_NAMES) or 'overview'
+        name = self._bracket_url_name() if key == 'bracket' else self.TAB_URL_NAMES[key]
+        return reverse(name, kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
 
     def get_settings_url(self):
         return reverse('stage-settings', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
@@ -1263,6 +1378,20 @@ def add_player_to_waitlist(profile, tournament):
 # This is a round of a tournament, series or playtest. It allows for leaderboard splits and a set end date.
 class Round(models.Model):
     type = "Round"
+
+    # key -> method name. The helpers already handle the simple/hierarchical
+    # URL split, so the landing-tab dispatch just calls them. Note there is no
+    # 'surveys' entry: rounds have no surveys tab, and first_supported_tab()
+    # relies on that absence to skip the key.
+    ROUND_TAB_URL_METHODS = {
+        'overview':    'get_overview_url',
+        'leaderboard': 'get_leaderboard_url',
+        'games':       'get_games_url',
+        'bracket':     'get_matches_url',
+        'players':     'get_roster_url',
+        'details':     'get_details_url',
+    }
+
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
     description = models.TextField(null=True, blank=True)
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds', null=True, blank=True)  # Link to the tournament
@@ -1429,7 +1558,24 @@ class Round(models.Model):
     def _stage_slug(self):
         return self.stage.slug if self.stage else None
 
+    def get_overview_url(self):
+        tournament = self.stage.tournament
+        if not tournament.use_stages:
+            return reverse('round-overview-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-overview', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
+
     def get_absolute_url(self):
+        # The short-circuits below must stay FIRST. self.stage is nullable, and
+        # every get_*_url() helper dereferences self.stage.tournament without a
+        # guard -- dispatching to them before these checks raises AttributeError
+        # on a stage-less round.
         if not self.stage:
             tournament = self.get_tournament()
             if tournament:
@@ -1446,19 +1592,13 @@ class Round(models.Model):
         if not self.stage.use_rounds:
             return self.stage.get_absolute_url()
 
-        # No stages (simple round mode) — use simplified URL
-        if not tournament.use_stages:
-            return reverse('round-overview-simple', kwargs={
-                'tournament_slug': tournament.slug,
-                'round_slug': self.slug
-            })
-
-        # Full hierarchical URL
-        return reverse('round-overview', kwargs={
-            'tournament_slug': tournament.slug,
-            'stage_slug': self.stage.slug,
-            'round_slug': self.slug
-        })
+        # self.stage is guaranteed non-null here, so the tab helpers are safe.
+        # 'surveys' is absent from the mapping (rounds have no surveys tab), so
+        # first_supported_tab skips past it without a special case.
+        key = first_supported_tab(tournament.visible_tabs(), self.ROUND_TAB_URL_METHODS)
+        if not key:
+            return self.get_overview_url()
+        return getattr(self, self.ROUND_TAB_URL_METHODS[key])()
 
     def get_settings_url(self):
         tournament = self.stage.tournament

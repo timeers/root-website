@@ -228,6 +228,19 @@ class GuildLFGRole(models.Model):
         null=True,
         help_text="Brief description of what this LFG role is for.",
     )
+    # String reference, not a direct import: the_warroom.models imports DiscordGuild /
+    # Profile from this module, so importing Tournament here would be circular.
+    tournament = models.ForeignKey(
+        "the_warroom.Tournament",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="lfg_roles",
+        help_text=(
+            "Optional series this LFG role is for. Only series linked to this "
+            "guild are available."
+        ),
+    )
     forum_channel_id = models.CharField(
         max_length=32,
         blank=True,
@@ -293,27 +306,29 @@ class LFGThread(models.Model):
     description = models.TextField(blank=True, default="")
     players = models.ManyToManyField("Profile", blank=True, related_name="lfg_threads")
 
-    # Curated components surfaced inside the thread by /random, /map, /deck, other
-    # lookups, and /draft. `map`/`deck` hold the MOST RECENT of each (whether rolled
-    # or selected) — the fields a Game needs directly; `rolls` is the full append-only
-    # log so we retain every result and other kinds (faction/vagabond/clockwork/
-    # hireling/landmark/captain/tweak, incl. all /draft picks) for the future lfg_mode.
+    # `map`/`deck` hold the MOST RECENT of each (whether rolled or selected) — the
+    # fields a Game needs directly. The full history lives in the related LFGRoll
+    # rows (`roll_log`), which also drive the game form's option narrowing.
     map = models.ForeignKey(
         "the_keep.Map", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deck = models.ForeignKey(
         "the_keep.Deck", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    rolls = models.JSONField(
-        default=list, blank=True,
-        help_text='Append-only list of {"kind","slug","title","at"} for every '
-                  'component surfaced in this thread (/random, /map, /deck, other '
-                  'lookups, /draft).')
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        RECORDED = "recorded", "Recorded"
+        CANCELLED = "cancelled", "Cancelled"
 
-    # Unlike `rolls`, this is NOT append-only: a thread has one current seating,
-    # so re-seating after another /draft replaces it outright.
-    seating = models.JSONField(
-        default=list, blank=True,
-        help_text='Seat assignments as an ordered list of {"id","name","seat"}, '
-                  'seat 1 first. The LAST seat has first pick of the faction draft.')
+    nickname = models.CharField(
+        max_length=50, blank=True, default="",
+        help_text="Name for the recorded Game; seeds the game form's nickname.")
+    # OneToOne: a thread produces at most one Game, so revisiting the record form
+    # edits that game instead of creating a duplicate. String ref for the same
+    # circular-import reason as GuildLFGRole.tournament.
+    game = models.OneToOneField(
+        "the_warroom.Game", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="lfg_thread")
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -322,6 +337,225 @@ class LFGThread(models.Model):
 
     def __str__(self):
         return f"LFGThread {self.thread_id} ({self.players.count()} players)"
+
+    def thread_url(self):
+        """Discord permalink to this thread — seeds the game form's `link` field.
+        Matches the formula in tasks.py and passes GameCreateForm's
+        DISCORD_URL_PATTERN. `self.guild_id` is the FK column; `guild.guild_id` is
+        the Discord snowflake."""
+        if self.guild_id and self.guild and self.guild.guild_id:
+            return f"https://discord.com/channels/{self.guild.guild_id}/{self.thread_id}"
+        return None
+
+
+class LFGRoll(models.Model):
+    """One component surfaced in an LFG thread (/random, /map, /deck, the other
+    lookups, /draft). Append-only history, and the source the game form narrows
+    its component choices from.
+
+    `kind` is load-bearing and cannot be derived from `post`: two of the nine
+    kinds are not their own model. Clockwork is a Faction row with
+    component="Clockwork", and Captain is a Vagabond with captain=True — so a
+    rolled captain and a rolled vagabond resolve to the SAME Post row and are
+    told apart only by this column. See ROLL_KIND_TO_BUCKET in
+    services/lfg_game.py, which maps kind -> asset bucket.
+    """
+    thread = models.ForeignKey(
+        LFGThread, on_delete=models.CASCADE, related_name="roll_log")
+    kind = models.CharField(
+        max_length=16,
+        help_text="Faction/Clockwork/Map/Deck/Vagabond/Captain/Landmark/Hireling/Tweak")
+    post = models.ForeignKey(
+        "the_keep.Post", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
+    # Recovery value for when `post` goes NULL because the Post was deleted. NOT
+    # the read path: rolled_components emits post.slug first, because slugs are
+    # derived from the title and a rename would strand this snapshot.
+    slug = models.CharField(max_length=100, blank=True, default="")
+    source = models.CharField(
+        max_length=16, blank=True, default="",
+        help_text="Which command produced this: random / lookup / draft.")
+    # default=, not auto_now_add: auto_now_add's pre_save() overrides any value
+    # passed in, so an explicit timestamp could never be set.
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        # The `id` tiebreak is required, not decoration: writers that reuse one
+        # timestamp across a batch would otherwise leave draw order undefined.
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return f"{self.kind}: {self.slug or self.post_id}"
+
+
+class LFGDraft(models.Model):
+    """The thread's CURRENT draft. Like seating — and unlike the roll log — a
+    thread holds exactly one: re-running /draft REPLACES it.
+
+    Drafts used to be appended to the roll log only because there was no way to
+    tell a drafted faction from a rolled one. The roll log still keeps that
+    history; this is the single current draft.
+    """
+    thread = models.OneToOneField(
+        LFGThread, on_delete=models.CASCADE, related_name="draft")
+    players = models.PositiveSmallIntegerField(null=True, blank=True)
+    platform = models.CharField(max_length=32, blank=True, default="")
+    drafted_by = models.ForeignKey(
+        "Profile", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Draft for {self.thread_id} ({self.picks.count()} picks)"
+
+
+class LFGDraftPick(models.Model):
+    """One faction drawn in a draft, with the vagabond/captains rolled FOR it.
+
+    The draft unit is (faction, vagabond), not faction alone: all 12 vagabond
+    variants share one Faction row, so faction alone would collapse Ranger and
+    Thief. Same reasoning as the_warroom.SeatDraftOption. `captains` covers
+    Knaves of the Deepwood, whose captains are rolled as a set. The two are
+    mutually exclusive in a draft, so at most one pick carries either.
+    """
+    draft = models.ForeignKey(
+        LFGDraft, on_delete=models.CASCADE, related_name="picks")
+    faction = models.ForeignKey(
+        "the_keep.Faction", on_delete=models.PROTECT, related_name="+")
+    vagabond = models.ForeignKey(
+        "the_keep.Vagabond", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="+")
+    captains = models.ManyToManyField(
+        "the_keep.Vagabond", blank=True, related_name="+")
+    # Non-null: the draft builder returns an ordered list, so this is always
+    # enumerate(drawn, 1) -- never unknown.
+    order = models.PositiveSmallIntegerField(help_text="Draw order, 1-based.")
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        label = self.vagabond.title if self.vagabond else self.faction.title
+        return f"{self.order}. {label}"
+
+
+class LFGSeat(models.Model):
+    """One seat in a thread's CURRENT seating. Replaced wholesale on re-seat — a
+    thread holds exactly one seating, mirroring LFGDraft. (Only LFGRoll
+    accumulates; it is the history behind both.)
+
+    The LAST seat has first pick of the faction draft.
+    """
+    thread = models.ForeignKey(
+        LFGThread, on_delete=models.CASCADE, related_name="seats")
+    # Nullable + SET_NULL on purpose: if the Profile is ever deleted the seat
+    # must stay and render blank, not vanish. The record form places effort rows
+    # by list position and sizes the formset from len(seats), so a CASCADE delete
+    # would silently shrink the form by a player instead of leaving an empty slot.
+    profile = models.ForeignKey(
+        "Profile", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="lfg_seats")
+    seat_number = models.PositiveSmallIntegerField()
+    # Which faction this seat took. No production path writes this yet; a future
+    # "pick a faction from the draft" command will. seated_profiles already
+    # returns it and the game form already consumes it.
+    faction = models.ForeignKey(
+        "the_keep.Faction", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
+
+    class Meta:
+        ordering = ["seat_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["thread", "seat_number"],
+                name="uniq_lfg_seat_per_thread"),
+        ]
+
+    def __str__(self):
+        who = self.profile.name if self.profile_id else "(removed player)"
+        return f"Seat {self.seat_number}: {who}"
+
+
+class ScheduleProposal(models.Model):
+    """A proposed time for a Match, pending confirmation from every roster player.
+
+    /schedule no longer writes Match.scheduled_time directly (when the tournament
+    opts in via require_participant_schedule_confirmation): it creates one of these
+    and posts a public message with Confirm/Reject. The time is written only once
+    every roster player has confirmed.
+
+    Several proposals may be OPEN for one match at once — two players may each
+    suggest a time. The first to reach full confirmation wins and supersedes the
+    rest; the losers are retired so their buttons can no longer overwrite it.
+
+    channel_id/message_id record the public message so a superseded or cancelled
+    proposal can have its buttons stripped from OUTSIDE its own interaction."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        CONFIRMED = "confirmed", "Confirmed"
+        REJECTED = "rejected", "Rejected"
+        SUPERSEDED = "superseded", "Superseded"   # another proposal won first
+        # Retired without a human rejecting it: the time was cleared or directly
+        # rewritten, the proposer lost permission, or the cleanup task expired it.
+        CANCELLED = "cancelled", "Cancelled"
+
+    # Lazy string: this module never imports the_warroom at module level.
+    match = models.ForeignKey(
+        "the_warroom.Match", on_delete=models.CASCADE,
+        related_name="schedule_proposals")
+    proposed_time = models.DateTimeField(help_text="The proposed instant (UTC).")
+    proposed_by = models.ForeignKey(
+        'Profile', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="schedule_proposals_made")
+
+    # Roster SNAPSHOT taken at proposal time, so a mid-flight roster change can't
+    # strand a proposal that everyone present already confirmed.
+    roster = models.ManyToManyField(
+        'Profile', blank=True, related_name="schedule_proposals_on_roster")
+    confirmed_by = models.ManyToManyField(
+        'Profile', blank=True, related_name="schedule_proposals_confirmed",
+        help_text="Roster players who pressed Confirm. The proposer is seeded here "
+                  "at creation — proposing IS confirming.")
+    rejected_by = models.ForeignKey(
+        'Profile', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="schedule_proposals_rejected")
+
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True)
+
+    # Where the public message lives, so it can be edited later from a task or from
+    # a DIFFERENT proposal's interaction (superseding).
+    channel_id = models.CharField(max_length=32, blank=True, default="")
+    message_id = models.CharField(max_length=32, blank=True, default="")
+    guild_id = models.CharField(max_length=32, blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["match", "status"])]
+
+    def __str__(self):
+        return f"ScheduleProposal #{self.pk} ({self.get_status_display()})"
+
+    @property
+    def is_open(self):
+        return self.status == self.Status.OPEN
+
+    def pending_profiles(self):
+        """Roster players who have not confirmed yet."""
+        return self.roster.exclude(
+            pk__in=self.confirmed_by.values_list("pk", flat=True))
+
+    def all_confirmed(self):
+        """True when every roster player has confirmed. An EMPTY roster is NOT
+        'all confirmed' — an unpopulated player group must never auto-finalize."""
+        roster_ids = set(self.roster.values_list("pk", flat=True))
+        return bool(roster_ids) and roster_ids <= set(
+            self.confirmed_by.values_list("pk", flat=True))
+
 
 class Holiday(models.Model):
     name = models.CharField(max_length=100)

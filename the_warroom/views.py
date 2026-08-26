@@ -49,7 +49,8 @@ from .utils import get_single_round, get_single_stage, build_scorecard_grid, bui
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 from the_keep.views import paginate_or_404
 
-from the_gatehouse.models import Profile, Language
+from the_gatehouse.models import Profile, Language, LFGThread
+from the_gatehouse.services.lfg_game import seated_profiles, lfg_option_querysets
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
@@ -990,6 +991,64 @@ def _is_group_moderator(profile, match):
     return bool(group and group.group_moderator_id == profile.id)
 
 
+def _lfg_tournament_for(thread):
+    """The Tournament an LFG thread records into, or None when its role has no
+    link (or the thread has no role at all)."""
+    return getattr(thread.lfg_role, 'tournament', None)
+
+
+def _lfg_round_for(tournament):
+    """The round an LFG game should record into: the newest AVAILABLE round of
+    the tournament's latest stage.
+
+    Anchored on stage__tournament with stage__isnull=False -- filtering on a
+    possibly-None stage would match stage-less rounds belonging to OTHER
+    tournaments (is_available() filters via stage__tournament__*, which does not
+    exclude NULL-FK rows). Ordering is explicit rather than inherited from
+    Meta.ordering: round_number is not unique and collides across stages.
+    nulls_last keeps undated rounds from outranking dated ones."""
+    if tournament is None:
+        return None
+    return (Round.objects
+            .filter(stage__tournament=tournament, stage__isnull=False)
+            .is_available()
+            .order_by('-stage__order', '-round_number',
+                      F('start_date').desc(nulls_last=True), '-id')
+            .first())
+
+
+def _can_record_lfg(profile, thread, round_obj):
+    """Can this profile record the game for an LFG thread?
+
+    Thread membership is required of everyone (admins are checked at the call
+    site). If the LFG role names a tournament, the profile must also be allowed
+    to record games for it."""
+    if not thread.players.filter(pk=profile.pk).exists():
+        return False
+    tournament = getattr(thread.lfg_role, 'tournament', None)
+    if tournament is None:
+        return True                      # unlinked role: membership is the gate
+    if tournament.has_permission(profile):           # admin/designer/moderator
+        return True
+    if tournament.guild_members_can_record(profile):  # per-profile, GUILD tier
+        return True
+    if tournament.open_roster:
+        # Roster is unrestricted, so the form itself would accept any player
+        # (current_player_queryset returns everyone). Thread membership is the
+        # real gate; without this the StageParticipant check below rejects
+        # everyone on tournaments that have no stage participants at all.
+        return True
+    if not tournament.players_can_record_matches():
+        return False
+    if round_obj is None or round_obj.stage_id is None:
+        return False                     # no stage to check participation against
+    return StageParticipant.objects.filter(
+        stage=round_obj.stage,
+        tournament_player__profile=profile,
+        status=StageParticipant.ParticipantStatus.ACTIVE,
+    ).exists()
+
+
 def _can_record_match(profile, match):
     """Check if profile can record a game for a match."""
     tournament = match.round.get_tournament()
@@ -1011,16 +1070,26 @@ def _can_record_match(profile, match):
 
 @player_onboard_required
 def manage_game_v2(request, id=None):
-    """Game recording form v2. Supports match mode (?match=<id>) and standalone."""
+    """Game recording form v2. Supports match mode (?match=<id>),
+    LFG mode (?lfg=<id>) and standalone."""
     user = request.user
     match = None
     match_mode = False
+    lfg_mode = False
+    lfgthread = None
+    lfg_round = None
+    lfg_seats = []
+    lfg_opts = None
 
     # Determine mode
     match_id = request.GET.get('match') or request.POST.get('match_id')
     if match_id:
         match = get_object_or_404(Match, id=match_id)
         match_mode = True
+    lfg_id = request.GET.get('lfg') or request.POST.get('lfg_id')
+    if lfg_id:
+        lfgthread = get_object_or_404(LFGThread, id=lfg_id)
+        lfg_mode = True
 
     # Load or create game
     if id:
@@ -1063,6 +1132,27 @@ def manage_game_v2(request, id=None):
             obj = match.game
             id = obj.id
 
+    if lfg_mode and not id:
+        # Resolve the round FIRST: the permission gate needs its stage to check
+        # participation on restricted-roster tournaments.
+        _lfg_tournament = getattr(lfgthread.lfg_role, 'tournament', None)
+        lfg_round = _lfg_round_for(_lfg_tournament)
+        if _lfg_tournament and lfg_round is None:
+            messages.error(
+                request,
+                f"{_lfg_tournament} has no open round, so this game can't be recorded for it yet.")
+            return redirect('games-home')
+        if not (user.profile.admin or _can_record_lfg(user.profile, lfgthread, lfg_round)):
+            messages.error(request, "You do not have permission to record this game.")
+            return redirect('games-home')
+        # Same anti-duplicate guard as match mode: a thread yields at most one
+        # Game (OneToOne), so a second visit edits it rather than recording again.
+        if lfgthread.game_id:
+            if request.method != 'POST':
+                return redirect('game-update-v2', id=lfgthread.game_id)
+            obj = lfgthread.game
+            id = obj.id
+
     if id:
         if not obj.can_edit(user.profile):
             messages.error(request, "You do not have permission to edit this game.")
@@ -1092,9 +1182,16 @@ def manage_game_v2(request, id=None):
     else:
         existing_count = 0
 
+    if lfg_mode:
+        # Row count is fixed to the thread's seats/players -- the template hides
+        # the add/remove controls, so this is the final count.
+        lfg_seats = seated_profiles(lfgthread)
+
     if match_mode and not id:
         seat_count = MatchSeat.objects.filter(series=match.series).count()
         extra_forms = max(0, seat_count - existing_count)
+    elif lfg_mode and not id:
+        extra_forms = max(0, len(lfg_seats) - existing_count)
     else:
         extra_forms = max(0, 4 - existing_count)
 
@@ -1121,6 +1218,38 @@ def manage_game_v2(request, id=None):
         #             profile_obj = seat.stage_participant.tournament_player.profile
         #             formset.forms[i].initial['player'] = profile_obj.pk
 
+    if lfg_mode:
+        # Restrict the player dropdown to the thread's players, and narrow every
+        # component field to what was actually rolled/drafted in the thread
+        # (intersected with the tournament's allowed assets).
+        lfg_opts = lfg_option_querysets(lfgthread, _lfg_tournament_for(lfgthread))
+        thread_players = lfgthread.players.all()
+        for form in formset.forms:
+            form.fields['player'].queryset = thread_players
+            form.fields['faction'].queryset = lfg_opts['factions']
+            form.fields['vagabond'].queryset = lfg_opts['vagabonds']
+            form.fields['captains'].queryset = lfg_opts['captains']
+            form.fields['discarded_captain'].queryset = lfg_opts['captains']
+
+        # Seat order drives row order: seat 1 is the top row. Unresolved seats
+        # (no matching Profile) leave the row blank but KEEP their position.
+        if not id and not request.POST:
+            for i, (_seat_no, profile_obj, faction_slug) in enumerate(lfg_seats):
+                if i >= len(formset.forms):
+                    break
+                if profile_obj:
+                    formset.forms[i].initial['player'] = profile_obj.pk
+                # Optional per-seat faction: nothing writes this key today, so
+                # treat it as absent by default and only pre-select when the
+                # faction is actually offered on this row.
+                if faction_slug:
+                    seat_faction = lfg_opts['factions'].filter(slug=faction_slug).first()
+                    if seat_faction:
+                        formset.forms[i].initial['faction'] = seat_faction.pk
+
+        for notice in lfg_opts.get('notices', []):
+            messages.warning(request, notice)
+
     # Build game form
     form = GameCreateFormV2(
         request.POST or None,
@@ -1128,7 +1257,9 @@ def manage_game_v2(request, id=None):
         user=user,
         effort_formset=formset,
         match=match,
-        round=selected_round if not match_mode else None,
+        lfgthread=lfgthread,
+        lfg_round=lfg_round,
+        round=selected_round if not (match_mode or lfg_mode) else None,
     )
 
     # Auto-fill nickname with match name in match mode
@@ -1139,14 +1270,53 @@ def manage_game_v2(request, id=None):
         # if player_group and player_group.video_link:
         #     form.initial['video_link'] = player_group.video_link
 
-    # Determine platform lock status for template rendering
+    if lfg_mode and not obj.pk:
+        # Seed from what the thread already knows.
+        form.initial['nickname'] = (lfgthread.nickname or lfgthread.description or '')[:50]
+        thread_link = lfgthread.thread_url()
+        if thread_link:
+            form.initial['link'] = thread_link
+        # Only prefill map/deck when the value survives the narrowing above: a
+        # <select> given an option it doesn't contain renders with NO selection,
+        # which would silently leave a required field blank with no explanation.
+        if lfgthread.map_id:
+            if lfg_opts['maps'].filter(pk=lfgthread.map_id).exists():
+                form.initial['map'] = lfgthread.map_id
+            else:
+                messages.warning(
+                    request, f"{lfgthread.map} isn't playable here — pick another map.")
+        if lfgthread.deck_id:
+            if lfg_opts['decks'].filter(pk=lfgthread.deck_id).exists():
+                form.initial['deck'] = lfgthread.deck_id
+            else:
+                messages.warning(
+                    request, f"{lfgthread.deck} isn't playable here — pick another deck.")
+
+    # Narrow the game-level component fields to the thread's rolls as well.
+    if lfg_mode and lfg_opts:
+        form.fields['map'].queryset = lfg_opts['maps']
+        form.fields['deck'].queryset = lfg_opts['decks']
+        form.fields['landmarks'].queryset = lfg_opts['landmarks']
+        form.fields['tweaks'].queryset = lfg_opts['tweaks']
+        form.fields['hirelings'].queryset = lfg_opts['hirelings']
+        form.fields['undrafted_faction'].queryset = lfg_opts['factions']
+        form.fields['undrafted_vagabond'].queryset = lfg_opts['vagabonds']
+        form.fields['undrafted_captains'].queryset = lfg_opts['captains']
+
+    # Determine platform lock status for template rendering. A `disabled` control
+    # is not submitted by the browser, so the template pairs the visible select
+    # with a hidden input gated on platform_locked -- LFG needs it too, or a
+    # platform-locked tournament would post no platform at all.
     platform_locked = False
     locked_platform = None
+    _lock_tournament = None
     if match:
-        tournament = match.round.get_tournament()
-        if tournament.platform:
-            platform_locked = True
-            locked_platform = tournament.platform
+        _lock_tournament = match.round.get_tournament()
+    elif lfg_mode and lfg_round:
+        _lock_tournament = lfg_round.get_tournament()
+    if _lock_tournament and _lock_tournament.platform:
+        platform_locked = True
+        locked_platform = _lock_tournament.platform
 
     # ── Scorecard grid pre-fill data (keyed by effort formset index) ──
     # For each existing effort with a ScoreCard, classify it so the grid can
@@ -1224,6 +1394,10 @@ def manage_game_v2(request, id=None):
         'form_count': extra_forms + existing_count,
         'match': match,
         'match_mode': match_mode,
+        'lfg_mode': lfg_mode,
+        'lfgthread': lfgthread,
+        'lfg_seats': lfg_seats,
+        'lfg_round': lfg_round,
         'match_seats': match_seats,
         'player_form': player_form,
         'platform_locked': platform_locked,
@@ -1277,9 +1451,12 @@ def manage_game_v2(request, id=None):
                 if not id:
                     parent.recorder = user.profile
 
-                # For match mode, ensure round is set (disabled field not in cleaned_data)
+                # Belt-and-braces: the form now sets the locked round via the
+                # disabled field's initial, so this is a redundant backstop.
                 if match_mode and match:
                     parent.round = match.round
+                elif lfg_mode and lfg_round:
+                    parent.round = lfg_round
 
                 parent.save()
                 form.save_m2m()
@@ -1356,6 +1533,16 @@ def manage_game_v2(request, id=None):
                         from the_warroom.services.bracket import BracketService
                         BracketService.on_game_complete(match)
                     _vlog.warning(f"[manage_game_v2] after on_game_complete: {_time.time()-_t0:.3f}s")
+
+                # LFG thread linkage: the thread remembers its game (OneToOne, so a
+                # later visit edits it instead of recording a duplicate) and only
+                # counts as RECORDED once the game is final -- a save-progress
+                # draft leaves it OPEN.
+                if lfg_mode and lfgthread:
+                    lfgthread.game = parent
+                    lfgthread.status = (LFGThread.Status.RECORDED if parent.final
+                                        else LFGThread.Status.OPEN)
+                    lfgthread.save(update_fields=['game', 'status'])
 
                 # ── Scorecard grid → ScoreCard + TurnScore persistence ──
                 # Each grid row maps to one effort by its formset index. Turn cells
@@ -2375,6 +2562,17 @@ def _get_open_registration_survey(request, tournament):
     return None
 
 
+def _tab_context(tournament):
+    """Nav tab visibility + order. Identical at all three levels -- Stage and
+    Round navs both read the parent Tournament's settings. Computes
+    visible_tabs() once rather than once per key."""
+    visible = tournament.visible_tabs()
+    return {
+        'tab_order': visible,
+        'tab_visible': {key: key in visible for key in Tournament.NAV_TABS},
+    }
+
+
 def _tournament_base_context(request, tournament):
     """Shared context for all tournament pages."""
     view_as = get_view_as(request, tournament)
@@ -2398,6 +2596,10 @@ def _tournament_base_context(request, tournament):
     from the_tavern.models import Survey
     has_surveys = Survey.objects.filter(series=tournament).exists()
 
+    # Gate for the ELO Ranking tab. The _id form reads the FK column already
+    # loaded on the instance instead of fetching the related EloSystem.
+    has_elo = tournament.elo_system_id is not None
+
     user_in_guild = (
         request.user.is_authenticated
         and tournament.guild
@@ -2416,7 +2618,8 @@ def _tournament_base_context(request, tournament):
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
-        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
+        'has_elo': has_elo,
+        **_tab_context(tournament),
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': tournament.name,
@@ -2464,7 +2667,7 @@ def _stage_base_context(request, tournament, stage):
         'has_games': has_games,
         'has_players': has_players,
         'has_surveys': has_surveys,
-        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
+        **_tab_context(tournament),
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{stage.name} - {tournament.name}",
@@ -2506,7 +2709,7 @@ def _round_base_context(request, tournament, stage, round):
         'has_games': has_games,
         'has_players': has_players,
         'is_bracket_finalized': is_bracket_finalized,
-        'tab_visible': {key: tournament.tab_visible(key) for key in Tournament.HIDEABLE_TABS},
+        **_tab_context(tournament),
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",
@@ -2861,6 +3064,43 @@ def tournament_details_page(request, slug):
                 context['asset_types'] = _build_used_asset_types(games_qs)
 
     return render(request, 'the_warroom/tournament_details.html', context)
+
+
+def tournament_elo_page(request, tournament_slug):
+    """ELO Ranking tab: the leaderboard for the series' Elo system.
+
+    Public, matching the standalone elo_system_detail_view. Shows the whole
+    system's participants -- one EloSystem can feed several series and
+    EloParticipant has no tournament FK, so there is no per-tournament rating
+    to scope to.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug.lower())
+
+    context = _tournament_base_context(request, tournament)
+    context['active_page'] = 'elo'
+
+    elo_system = tournament.elo_system
+    context['elo_system'] = elo_system
+
+    if elo_system:
+        # Same ordering as elo_system_detail_view: unranked last, then rating
+        # desc, with pk as a required unique tiebreaker so paging is stable.
+        # select_related('elo_system') feeds ep.trends_url, which reads the
+        # system's url template per row.
+        participants = (
+            elo_system.participants
+                      .select_related('player', 'elo_system')
+                      .order_by(F('rank').asc(nulls_last=True), '-rating', 'pk')
+        )
+        paginator = Paginator(participants, settings.PAGE_SIZE)
+        page_obj = paginator.get_page(request.GET.get('page'))
+        context.update({
+            'participants': page_obj,
+            'page_obj': page_obj,
+            'participants_count': paginator.count,
+        })
+
+    return render(request, 'the_warroom/tournament_elo.html', context)
 
 
 

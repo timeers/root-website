@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% block title %}{% if match_mode %}Record Match{% elif object.id %}Update Game{% else %}Record Game{% endif %} | {% endblock %}
+{% block title %}{% if match_mode %}Record Match{% elif lfg_mode %}Record LFG Game{% elif object.id %}Update Game{% else %}Record Game{% endif %} | {% endblock %}
 {% load crispy_forms_tags i18n static %}
 
 {% block styles %}
@@ -245,6 +245,7 @@
     <legend>
         {% if object.id %}{% trans 'Update Game' %}
         {% elif match_mode %}{% trans 'Record Match Game' %}
+        {% elif lfg_mode %}{% trans 'Record LFG Game' %}
         {% else %}{% trans 'Record New Game' %}
         {% endif %}
     </legend>
@@ -254,6 +255,15 @@
     </button>
 </div>
 
+{% if lfg_mode %}
+<div class="alert alert-info d-flex align-items-center gap-2">
+    <i class="bi bi-people"></i>
+    <div>
+        <strong>{% trans 'LFG Game' %}</strong>{% if lfg_round %} {{ lfg_round }}{% endif %}
+        <br><small>{% trans 'Players and components come from the Discord thread.' %}</small>
+    </div>
+</div>
+{% endif %}
 {% if match_mode %}
 <div class="alert alert-info d-flex align-items-center gap-2">
     <i class="bi bi-trophy"></i>
@@ -311,6 +321,12 @@
                     <option value="{{ match.round.id }}" selected>{{ match.round }}</option>
                 </select>
                 <input type="hidden" name="round" value="{{ match.round.id }}">
+            {% elif lfg_mode and lfg_round %}
+                {# Locked to the LFG role's tournament round. The hidden input is what actually posts -- a disabled control is never submitted. #}
+                <select name="round" id="id_round" class="form-control" disabled>
+                    <option value="{{ lfg_round.id }}" selected>{{ lfg_round }}</option>
+                </select>
+                <input type="hidden" name="round" value="{{ lfg_round.id }}">
             {% else %}
                 {{ form.round }}
             {% endif %}
@@ -418,7 +434,7 @@
                     <div class="col-6"><span class="brazen-demagogue-field" style="display:none;">{{ form.brazen_demagogue }} {% trans 'Brazen Demagogue' %}</span></div>
                 </div>
 
-                {% if not match_mode %}
+                {% if not match_mode and not lfg_mode %}
                 <button class="btn btn-warning btn-sm" type="button" onclick="deleteForm(this)">
                     {% trans 'Remove' %}
                 </button>
@@ -443,7 +459,7 @@
         {% endfor %}
     </div>
 
-    {% if not match_mode %}
+    {% if not match_mode and not lfg_mode %}
     <div id="empty-form" class="hidden effort-form form-control drag-card">
         <div class="drag-bar sortable-handle"></div>
         <div class="drag-card-content">
@@ -494,7 +510,7 @@
 
     {# Add Player is standalone-only; Box Score (scorecard grid) shows in both modes. #}
     <div id="box-score-btn-row" class="d-flex flex-wrap align-items-center gap-2 mb-2 mt-2">
-        {% if not match_mode %}
+        {% if not match_mode and not lfg_mode %}
         <button class="btn btn-info" id="add-more" type="button">{% trans 'Add Player' %} +</button>
         {% endif %}
         <button class="btn btn-outline-primary ms-auto" id="open-grid-btn" type="button">
@@ -689,6 +705,11 @@
 {% block scripts %}
 <script>
 const matchMode = {{ match_mode|yesno:"true,false" }};
+// LFG mode also serves a server-narrowed set of choices (the thread's rolled
+// components) and a fixed row count, so every handler that repopulates a select
+// from the API must be gated on this too -- updateSelectOptions does innerHTML=""
+// and would wipe the narrowing on page load.
+const lfgMode = {{ lfg_mode|yesno:"true,false" }};
 const boxScoreRequired = {{ box_score_required|yesno:"true,false" }};
 
 // ══════════════════════════════════════════════════════════════════
@@ -2189,7 +2210,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const tournamentValue = tournamentSelect ? tournamentSelect.value : '';
         var tournamentBlock = document.getElementById("game-round-field");
 
-        if (!matchMode && tournamentSelect) {
+        if (!matchMode && !lfgMode && tournamentSelect) {
             let tournamentCount = tournamentSelect.options ? tournamentSelect.options.length : 0;
             if (tournamentCount < 2) {
                 tournamentBlock.style.display = "none";
@@ -2217,7 +2238,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSelectOptions(undraftedVagabondSelect, data.vagabonds, ' ');
                 updateSelectOptions(undraftedCaptainsSelect, data.captains);
 
-                if (!matchMode) {
+                if (!matchMode && !lfgMode) {
                     updatePlayerFields(data.players);
                     updateFactionFields(data.factions);
                     updateVagabondsFields(data.vagabonds);
@@ -2255,7 +2276,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSelectOptions(undraftedVagabondSelect, data.vagabonds, ' ');
                 updateSelectOptions(undraftedCaptainsSelect, data.captains);
 
-                if (!matchMode) {
+                if (!matchMode && !lfgMode) {
                     updatePlayerFields(data.players);
                     updateFactionFields(data.factions);
                     updateVagabondsFields(data.vagabonds);
@@ -2303,7 +2324,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ── Platform change event ──
-    if (!matchMode && platformSelect) {
+    if (!matchMode && !lfgMode && platformSelect) {
         platformSelect.addEventListener('change', function() {
             const platformValue = platformSelect.value;
 
@@ -2416,7 +2437,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ── Round/Tournament change event ──
-    if (!matchMode && tournamentSelect) {
+    if (!matchMode && !lfgMode && tournamentSelect) {
         tournamentSelect.addEventListener('change', function() {
             const tournamentValue = tournamentSelect.value;
 
@@ -2501,6 +2522,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             $('#id_deck').trigger('change');
         });
+    } else if (lfgMode) {
+        // Choices are already narrowed server-side to the thread's rolls; firing
+        // the round/platform change handlers here would refetch the full
+        // tournament lists and wipe that (and clear the map/deck prefills).
     } else if (tournamentSelect && tournamentSelect.value !== "") {
         document.getElementById('id_round').dispatchEvent(new Event('change'));
     } else {
@@ -2543,7 +2568,7 @@ document.addEventListener('DOMContentLoaded', function() {
     $('.effort-form').each((index, element) => {
         setupSelector(index, element);
         $("#id_form-" + index.toString() + "-faction").select2();
-        if (!matchMode) {
+        if (!matchMode && !lfgMode) {
             $("#id_form-" + index.toString() + "-player").select2({
                 placeholder: "{% trans 'Search for a player...' %}",
                 allowClear: true,
@@ -2806,7 +2831,7 @@ document.addEventListener('DOMContentLoaded', function() {
     })();
 
     // ── Platform / timing toggle ──
-    if (!matchMode && platformSelect) {
+    if (!matchMode && !lfgMode && platformSelect) {
         function updateTimingVisibility() {
             var timingBlock = document.getElementById('timing-field');
             if (!timingBlock) return;

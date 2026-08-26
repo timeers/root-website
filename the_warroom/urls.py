@@ -46,7 +46,8 @@ from .views import (game_list_view, leaderboard_view,
                     round_leaderboard_page, round_games_page,
                     round_roster_page, round_details_page, round_matches_page,
                     tournament_schedule_page, stage_schedule_page, round_schedule_page,
-                    my_scheduled_matches_page, elo_system_detail_view)
+                    my_scheduled_matches_page, elo_system_detail_view,
+                    tournament_elo_page)
 
 urlpatterns = [
     path('record/game/', manage_game, name='record-game'),
@@ -103,6 +104,7 @@ urlpatterns = [
     path('series/<slug:slug>/games/', tournament_games_page, name='tournament-games-page'),
     path('series/<slug:slug>/roster/', tournament_roster_page, name='tournament-roster-page'),
     path('series/<slug:slug>/details/', tournament_details_page, name='tournament-details-page'),
+    path('series/<slug:tournament_slug>/elo/', tournament_elo_page, name='tournament-elo-page'),
     path('series/<slug:slug>/settings/', tournament_settings_hub, name='tournament-settings'),
     path('series/<slug:slug>/players/', tournament_manage_players, name='tournament-manage-players'),
     path('series/<slug:slug>/players/export/', tournament_players_export, name='tournament-players-export'),

@@ -1,0 +1,25 @@
+{% load i18n %}
+{% comment %}
+Action buttons for the tournament/stage/round nav headers. Identical at all
+three levels apart from which object owns the settings page, so callers pass
+that in as `settings_owner`. `playable_round` and `can_manage` come from the
+shared base contexts in the_warroom/views.py.
+{% endcomment %}
+<div class="section-nav-action-buttons">
+    <div class="section-nav-actions-desktop">
+        {% if playable_round %}
+        <a class="btn btn-success btn-sm" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+        {% endif %}
+        {% if can_manage %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ settings_owner.get_settings_url }}"><i class="bi bi-gear me-1"></i>{% trans 'Settings' %}</a>
+        {% endif %}
+    </div>
+    <div class="section-nav-actions-mobile">
+        {% if playable_round %}
+        <a class="btn btn-success btn-sm p-0 px-1" href="{% url 'record-game-v2' %}?series-round={{ playable_round.id }}">{% trans 'New Game' %} +</a>
+        {% endif %}
+        {% if can_manage %}
+        <a class="btn btn-outline-secondary btn-sm p-0 px-1" href="{{ settings_owner.get_settings_url }}"><i class="bi bi-gear"></i></a>
+        {% endif %}
+    </div>
+</div>

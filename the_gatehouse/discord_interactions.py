@@ -28,6 +28,7 @@ from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q, Exists, OuterRef
 from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
@@ -36,11 +37,15 @@ from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
 from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant
-from the_gatehouse.models import Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread
+from the_gatehouse.models import (
+    Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
+    LFGSeat,
+)
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
-    post_channel_message_task,
+    post_channel_message_task, post_schedule_proposal_task,
+    strip_schedule_proposal_messages_task,
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
@@ -223,7 +228,8 @@ def _make_lookup_handler(label, queryset_factory):
         # map/deck updates the LFGThread FK like a random roll).
         kind = _LFG_LOOKUP_KIND.get(data.get("name"))
         if kind:
-            _capture_lfg_components(data.get("_channel_id"), [_lfg_item(kind, post)])
+            _capture_lfg_components(data.get("_channel_id"), [_lfg_item(kind, post)],
+                                    source="lookup")
 
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
@@ -271,12 +277,20 @@ _LFG_LOOKUP_KIND = {
 }
 
 
-def _capture_lfg_components(channel_id, items):
+def _capture_lfg_components(channel_id, items, source="", draft=None):
     """Fire-and-forget: record components surfaced by a command into an LFG thread
     (no-op in the worker when the channel isn't a known LFG thread). `items` is a
-    list of {"kind","slug","title"}. Safe to call with a falsy channel_id."""
-    if channel_id and items:
-        record_lfg_components_task.delay(channel_id, items)
+    list of {"kind","slug","title"}. Safe to call with a falsy channel_id.
+
+    `source` tags the originating command (random / lookup / draft). `draft`
+    carries a full draft to replace the thread's current one. Both must be
+    JSON-serializable -- slugs and ids only, never model instances.
+
+    Deliberately fire-and-forget: a capture failure must never damage a draft or
+    lookup that already succeeded.
+    """
+    if channel_id and (items or draft):
+        record_lfg_components_task.delay(channel_id, items, source=source, draft=draft)
 
 
 def _lfg_item(kind, post):
@@ -290,6 +304,83 @@ def _lfg_thread_for_channel(channel_id):
     if not channel_id:
         return None
     return LFGThread.objects.filter(thread_id=channel_id).first()
+
+
+def _record_url(path):
+    """Absolute record-game URL, or None when SITE_URL isn't configured."""
+    site = (config.get("SITE_URL") or "").rstrip("/")
+    return f"{site}{path}" if site else None
+
+
+def _handle_record_command(data):
+    """/record: hand back a link to record this game's result, picking the form's
+    mode from the channel the command was used in.
+
+    LFG thread -> lfg_mode (?lfg=), scheduled match thread -> match_mode
+    (?match=), anything else -> the plain standalone form. Resolution mirrors
+    /schedule, which finds its match from the same thread signals."""
+    guild_id = data.get("_guild_id")
+    channel_id = data.get("_channel_id")
+    channel_name = data.get("_channel_name")
+
+    if not guild_id:
+        return _ephemeral("This command only works inside a server.")
+
+    # 1) An LFG thread is the most specific signal: its thread_id IS the channel id.
+    thread = _lfg_thread_for_channel(channel_id)
+    if thread:
+        if thread.game_id:
+            url = _record_url(f"/game/{thread.game_id}/edit/v2/")
+            lead = "This game is already recorded — edit it here:"
+        else:
+            url = _record_url(f"/record/game/v2/?lfg={thread.id}")
+            lead = "Record this LFG game:"
+        if not url:
+            return _ephemeral("The site URL isn't configured, so I can't build a link.")
+
+        lines = [lead, url, ""]
+        players = list(thread.players.all())
+        # Materialize once (select_related: this runs in the 3-second budget).
+        seats = list(thread.seats.select_related("profile"))
+        if seats:
+            order = ", ".join(
+                f"{s.seat_number}. "
+                f"{s.profile.name if s.profile_id else '(removed player)'}"
+                for s in seats)
+            lines.append(f"**Seating:** {order}")
+        elif players:
+            lines.append(f"**Players:** {', '.join(p.name for p in players)}")
+        if thread.map or thread.deck:
+            bits = [str(x) for x in (thread.map, thread.deck) if x]
+            lines.append(f"**Map/Deck:** {' · '.join(bits)}")
+        tournament = getattr(thread.lfg_role, "tournament", None)
+        if tournament:
+            lines.append(f"**Series:** {tournament}")
+        return _ephemeral("\n".join(lines))
+
+    # 2) Otherwise fall back to a scheduled match for this thread, the same way
+    #    /schedule resolves one. `prefer="unscheduled"` matches recording intent:
+    #    the first game of a series that still needs a result.
+    match, _err = _match_for_thread(channel_id, guild_id, channel_name)
+    if match:
+        if match.game_id:
+            url = _record_url(f"/game/{match.game_id}/edit/v2/")
+            lead = "This match already has a game — edit it here:"
+        else:
+            url = _record_url(f"/record/game/v2/?match={match.id}")
+            lead = "Record this match:"
+        if not url:
+            return _ephemeral("The site URL isn't configured, so I can't build a link.")
+        return _ephemeral(f"{lead}\n{url}\n\n**Match:** {match}\n**Round:** {match.round}")
+
+    # 3) Neither: hand over the standalone form rather than erroring — the user
+    #    can still record a game, just without any prefill.
+    url = _record_url("/record/game/v2/")
+    if not url:
+        return _ephemeral("The site URL isn't configured, so I can't build a link.")
+    return _ephemeral(
+        "I couldn't find an LFG game or scheduled match for this channel, "
+        f"so here's a blank game form:\n{url}")
 
 
 def _handle_captain_command(data):
@@ -311,7 +402,8 @@ def _handle_captain_command(data):
         embed["image"] = {"url": image_url}
 
     # /captain is its own handler (not in the lookup loop); capture as "Captain".
-    _capture_lfg_components(data.get("_channel_id"), [_lfg_item("Captain", vagabond)])
+    _capture_lfg_components(data.get("_channel_id"), [_lfg_item("Captain", vagabond)],
+                            source="lookup")
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
@@ -576,6 +668,92 @@ def _match_label(match):
     return (group.name if group and group.name else None) or match.name or "this match"
 
 
+# ── /schedule roster + clicker resolution ────────────────────────────────────
+# The consensus flow polls the match's ROSTER, and every Confirm/Reject click has to
+# be attributed to one of those players. Both live here.
+
+def _match_roster(match):
+    """Every Profile on this match's roster, in a stable, deduped order.
+
+    PlayerGroup.tournament_players is an M2M to TournamentPlayer, not to Profile, so
+    this hops through .profile (skipping any row missing one).
+
+    Deliberately NOT MatchSeat: seats are the per-series seating chart (what
+    can_schedule and build_upcoming_embed read) and are often unpopulated before a
+    game is played. tournament_players is the group the round was actually formed
+    with — the people whose availability we're asking about."""
+    group = match.series.player_group if match.series_id else None
+    if not group:
+        return []
+    seen, roster = set(), []
+    for tp in group.tournament_players.select_related("profile"):
+        profile = tp.profile
+        if profile and profile.pk and profile.pk not in seen:
+            seen.add(profile.pk)
+            roster.append(profile)
+    return roster
+
+
+# Outcomes of resolving a button-clicker against a proposal's roster.
+CLICKER_MATCHED = "matched"    # verified: discord_id links them to a roster Profile
+CLICKER_UNLINKED = "unlinked"  # username looks like a roster player, but unverified
+CLICKER_UNKNOWN = "unknown"    # nobody on the roster corresponds to this user
+
+
+def _clicker_username(payload):
+    """The clicking user's raw Discord *username* — the only field comparable to
+    Profile.discord. Uses .get() chains (never subscripts) because `member` is
+    absent outside a guild."""
+    user = (payload.get("member") or {}).get("user") or payload.get("user") or {}
+    return user.get("username")
+
+
+def _resolve_clicker(roster, discord_id, username):
+    """Resolve a clicking Discord user against a roster: (profile, status).
+
+      CLICKER_MATCHED  — a roster Profile's discord_id IS this snowflake. The only
+                         outcome permitted to act on a proposal.
+      CLICKER_UNLINKED — a roster Profile with a NULL discord_id has a matching
+                         Discord username. Almost certainly this player, but a
+                         username is user-controlled and so is NOT proof of
+                         identity. The Profile comes back only so the caller can
+                         tell them to log in; the click does not count.
+      CLICKER_UNKNOWN  — nobody on the roster corresponds to this user.
+
+    This deliberately does NOT write Profile.discord_id. That field is how every bot
+    handler answers "who is this user" before running a permission check, and its
+    only other writer is the verified OAuth login (signals.py), which refuses to
+    reassign an id another Profile already holds. Backfilling it from a renameable
+    username would let anyone bind their snowflake to a roster player's Profile —
+    permanently, since the login path won't reclaim a taken id. So the username
+    comparison decides only WHICH MESSAGE the clicker sees."""
+    from the_warroom.services.root_league_api import sanitize_discord
+
+    discord_id = str(discord_id) if discord_id else None
+    if discord_id:
+        for profile in roster:
+            if profile.discord_id and str(profile.discord_id) == discord_id:
+                return profile, CLICKER_MATCHED
+
+    handle = sanitize_discord(username)
+    if handle:
+        for profile in roster:
+            # Only ever consider UNLINKED profiles, so a handle collision can never
+            # shadow a Profile that is already linked to a different account.
+            if profile.discord_id:
+                continue
+            if sanitize_discord(profile.discord) == handle:
+                return profile, CLICKER_UNLINKED
+    return None, CLICKER_UNKNOWN
+
+
+def _login_hint():
+    """'log in with Discord' copy, with the site URL when one is configured.
+    Mirrors the phrasing _handle_schedule_command uses for an unlinked invoker."""
+    site = (config.get("SITE_URL") or "").rstrip("/")
+    return f" at {site}/accounts/login/" if site else ""
+
+
 # ── /schedule timezone prompt ────────────────────────────────────────────────
 # When we don't know a user's timezone we ask for it with two selects (region,
 # then city) before showing the schedule confirmation. Those are separate
@@ -690,11 +868,17 @@ def _tz_zone_data(match, region_key, time_text, owner, current_tz=None):
     }
 
 
-def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=None):
+def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=None,
+                           pending_confirmers=0, already_proposed=False):
     """The ephemeral confirm prompt: the time as Discord renders it in the clicker's
     own timezone, plus Confirm / Change timezone / Cancel. The owner snowflake rides
     LAST in each custom_id so the dispatcher's owner-lock applies without extra
-    checks.
+    checks — correct in both modes, since only the invoker may act on their own
+    prompt.
+
+    `pending_confirmers` (>0) switches the copy to the consensus flow: the button
+    becomes "Propose Time" and the prompt says who still has to agree.
+    `already_proposed` adds the warning that another proposal is open.
 
     `tz_name` is falsy for an epoch/`<t:…>` input, which is absolute: there's no
     timezone to show and re-interpreting it in another one would be a no-op, so the
@@ -708,7 +892,7 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     if note:
         lines.append(note)
     lines += [
-        f"Schedule **{label}** for:",
+        f"{'Propose' if pending_confirmers else 'Schedule'} **{label}** for:",
         format_discord_timestamp(when),
     ]
     if tz_name:
@@ -717,10 +901,17 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
         lines.append(
             f"\nThis replaces the current time of {format_discord_timestamp(match.scheduled_time)}."
         )
+    if pending_confirmers:
+        others = "the other player" if pending_confirmers == 1 else f"the other {pending_confirmers} players"
+        lines.append(f"\nI'll ask {others} in this game to confirm before it's set.")
+    if already_proposed:
+        lines.append("\n⚠️ A time has already been proposed for this match. Proposing "
+                     "another is fine — the first one everyone confirms wins.")
     lines.append("\nDoes that look right?")
     if time_text:
         lines.append(_schedule_input_line(time_text))
-    buttons = [button("Confirm", encode_custom_id("schedule_confirm", match.id, ts, owner),
+    buttons = [button("Propose Time" if pending_confirmers else "Confirm",
+                      encode_custom_id("schedule_confirm", match.id, ts, owner),
                       style=STYLE_SUCCESS)]
     if tz_name:
         buttons.append(button(
@@ -756,6 +947,244 @@ def _schedule_clear_data(match, owner):
             button("Cancel", encode_custom_id("schedule_cancel", owner), style=STYLE_SECONDARY),
         )],
     }
+
+
+# ── /schedule consensus proposals ────────────────────────────────────────────
+# When the tournament opts in, a time isn't written on the invoker's say-so: it
+# becomes a ScheduleProposal that every roster player must confirm.
+
+def _consensus_required(match):
+    """(required, roster) — whether this match's time needs every player's
+    confirmation, plus the roster so callers don't re-query it.
+
+    Two conditions, both required:
+      * tournament.requires_schedule_confirmation() — the per-tournament opt-in flag
+        AND players actually being permitted to schedule. Under MODERATORS-only
+        recording_access no player may set a time, so there is nobody to poll and
+        the moderator schedules directly, exactly as before this feature.
+      * a non-empty roster. A player group with no tournament_players has nobody to
+        ask; consensus would be vacuous at best and a deadlock at worst.
+
+    A match with no tournament falls back to the old behavior — there's no setting
+    to opt in with."""
+    tournament = match.round.get_tournament() if match.round_id else None
+    if not tournament or not tournament.requires_schedule_confirmation():
+        return False, []
+    roster = _match_roster(match)
+    return bool(roster), roster
+
+
+def _roster_name(profile):
+    """A roster player as shown in the proposal lists: a mention once we know their
+    snowflake (so the people who owe a confirmation get pinged), otherwise their
+    display name plus a nudge — an unlinked player literally cannot click, and the
+    group deserves to know why the proposal is stuck on them."""
+    if profile.discord_id:
+        return f"<@{profile.discord_id}>"
+    name = profile.display_name or profile.discord or profile.slug or "—"
+    return f"{name} (not linked — log in with Discord once)"
+
+
+# Discord caps an embed field value at 1024 chars. /lfg guards this too (an
+# over-long field makes Discord reject the whole edit, which would silently discard
+# a change we've already committed to the DB).
+_FIELD_VALUE_MAX = 1024
+
+
+def _name_list_value(profiles, empty="—"):
+    """Newline-joined roster names, truncated to Discord's field cap with a
+    '…and N more' tail rather than overflowing it."""
+    names = [_roster_name(p) for p in profiles]
+    if not names:
+        return empty
+    out, used = [], 0
+    for i, name in enumerate(names):
+        remaining = len(names) - i
+        tail = f"\n…and {remaining} more"
+        # Keep room for the tail we'd need if this were the last one we could fit.
+        if used + len(name) + 1 + len(tail) > _FIELD_VALUE_MAX and out:
+            return "\n".join(out) + f"\n…and {remaining} more"
+        out.append(name)
+        used += len(name) + 1
+    return "\n".join(out)[:_FIELD_VALUE_MAX]
+
+
+def _schedule_proposal_data(proposal, match=None, mention=False):
+    """The public proposal message: the proposed time, who still owes a
+    confirmation, who has already given one, and Confirm / Reject.
+
+    Both custom_ids end in the non-snowflake "g" marker so the dispatcher's
+    owner-lock does NOT fire — every roster player must be able to click, which is
+    the opposite of what that lock does. Authorization therefore lives in the
+    handlers themselves.
+
+    `mention` pings the pending players; it's set only on the FIRST post so later
+    edits don't re-ping everyone on every click."""
+    match = match or proposal.match
+    pending = list(proposal.pending_profiles())
+    confirmed = list(proposal.confirmed_by.all())
+    lines = [
+        f"**{_match_label(match)}**",
+        format_discord_timestamp(proposal.proposed_time),
+    ]
+    if ScheduleProposal.objects.filter(
+        match_id=proposal.match_id, status=ScheduleProposal.Status.OPEN,
+    ).exclude(pk=proposal.pk).exists():
+        lines.append("\n-# Another time is also proposed for this match — "
+                     "whichever is confirmed first wins.")
+    return {
+        "embeds": [{
+            "title": "Proposed time",
+            "description": "\n".join(lines),
+            "fields": [
+                {"name": "Waiting on", "value": _name_list_value(pending),
+                 "inline": False},
+                {"name": "✅ Confirmed", "value": _name_list_value(confirmed),
+                 "inline": False},
+            ],
+        }],
+        "components": [action_row(
+            button("Confirm", encode_custom_id("sched_prop_ok", proposal.pk, "g"),
+                   style=STYLE_SUCCESS),
+            button("Reject", encode_custom_id("sched_prop_no", proposal.pk, "g"),
+                   style=STYLE_DANGER),
+        )],
+        "allowed_mentions": {"parse": ["users"] if mention else []},
+    }
+
+
+def _schedule_rejected_data(proposal):
+    """The rejected view. Deliberately does NOT name who rejected — scheduling is
+    social, and singling someone out publicly for declining a time is a needless
+    cost. The identity is on the row (rejected_by) for moderators."""
+    return {
+        "embeds": [{
+            "title": "Time rejected",
+            "description": (
+                "A player rejected the proposed time of "
+                f"{format_discord_timestamp(proposal.proposed_time)}.\n"
+                "Run `/schedule` to propose another."
+            ),
+        }],
+        "components": [],
+        "allowed_mentions": {"parse": []},
+    }
+
+
+def _schedule_finalized_data(proposal, match):
+    """The 'game has been scheduled' view: the standard announcement embed plus the
+    roster who agreed to it. build_upcoming_embed is treated as fallible here for
+    the same reason the legacy confirm path does."""
+    try:
+        embed = build_upcoming_embed(match)
+    except Exception:
+        logger.exception("Failed to build /schedule announcement embed")
+        embed = None
+    if not embed:
+        embed = {
+            "title": "🗓️ Scheduled",
+            "description": (f"**{_match_label(match)}**\n"
+                            f"{format_discord_timestamp(proposal.proposed_time)}"),
+        }
+    embed = dict(embed)
+    embed["title"] = f"🗓️ {embed.get('title') or _match_label(match)} scheduled"
+    fields = list(embed.get("fields") or [])
+    fields.append({
+        "name": "✅ Confirmed by",
+        "value": _name_list_value(list(proposal.confirmed_by.all())),
+        "inline": False,
+    })
+    embed["fields"] = fields
+    return {"embeds": [embed], "components": [],
+            "allowed_mentions": {"parse": []}}
+
+
+def _schedule_closed_data(title, description):
+    """A retired proposal (cancelled / superseded): explain, drop the buttons."""
+    return {
+        "embeds": [{"title": title, "description": description}],
+        "components": [],
+        "allowed_mentions": {"parse": []},
+    }
+
+
+def _cancel_open_proposals(match, reason, exclude_pk=None):
+    """Retire every OPEN proposal for this match and strip its buttons.
+
+    Called from EVERY path that writes or clears Match.scheduled_time, not just
+    finalize: a stale proposal is a live button that can overwrite a time someone
+    else just set. Returns the ids retired."""
+    qs = ScheduleProposal.objects.filter(
+        match_id=match.pk, status=ScheduleProposal.Status.OPEN)
+    if exclude_pk is not None:
+        qs = qs.exclude(pk=exclude_pk)
+    ids = list(qs.values_list("pk", flat=True))
+    if not ids:
+        return []
+    status = (ScheduleProposal.Status.SUPERSEDED if reason == "superseded"
+              else ScheduleProposal.Status.CANCELLED)
+    ScheduleProposal.objects.filter(pk__in=ids).update(
+        status=status, resolved_at=timezone.now())
+    # on_commit: the task must never observe a status this transaction rolls back.
+    # Each edit is a blocking HTTP call, so it belongs off the request path.
+    transaction.on_commit(
+        lambda: strip_schedule_proposal_messages_task.delay(ids, reason))
+    return ids
+
+
+def _finalize_proposal(proposal):
+    """Write the agreed time and retire every other proposal for this match.
+    Returns (ok, error).
+
+    The ordering is load-bearing, and `status` is written EXACTLY ONCE:
+
+      1. Authority first, while the row is still OPEN. Confirmations express
+         CONSENT; the authority to schedule comes from the PROPOSER, and their
+         permission can be revoked while a proposal sits open. A refusal has to be
+         able to land CANCELLED, which is impossible once the row reads CONFIRMED.
+      2. A compare-and-swap OPEN -> CONFIRMED claims the exclusive right to write.
+         This is the ONLY writer of CONFIRMED. It's a single conditional UPDATE
+         rather than a read-then-write because select_for_update is a no-op on
+         SQLite, so a lock-only guard would be untested in the suite.
+      3. Only then the scheduled_time write and the supersede sweep."""
+    with transaction.atomic():
+        # Re-fetch under lock rather than trusting the (possibly minutes-stale)
+        # object carried in from the interaction. Plain Match.objects: applying
+        # select_for_update to _schedulable_matches would join across nullable FKs,
+        # which Postgres rejects for FOR UPDATE.
+        match = Match.objects.select_for_update().filter(pk=proposal.match_id).first()
+        if not match:
+            return False, "that match no longer exists"
+
+        if proposal.proposed_by is None:
+            ScheduleProposal.objects.filter(
+                pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+            ).update(status=ScheduleProposal.Status.CANCELLED, resolved_at=timezone.now())
+            return False, "the player who proposed this time no longer has an account"
+        if not match.can_schedule(proposal.proposed_by):
+            ScheduleProposal.objects.filter(
+                pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+            ).update(status=ScheduleProposal.Status.CANCELLED, resolved_at=timezone.now())
+            return False, "whoever proposed it no longer has permission to schedule it"
+
+        won = ScheduleProposal.objects.filter(
+            pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+        ).update(status=ScheduleProposal.Status.CONFIRMED, resolved_at=timezone.now())
+        if not won:
+            return False, "another time was confirmed for this match first"
+
+        match.scheduled_time = proposal.proposed_time
+        # update_fields is required: a bare save() re-runs Match.save()'s name and
+        # match_number derivation.
+        match.save(update_fields=["scheduled_time"])
+
+        # exclude_pk is REQUIRED, not incidental: don't rely on the CAS above having
+        # already moved this row out of OPEN. If these are ever reordered, an
+        # unguarded sweep would supersede the winner and strip its own buttons.
+        _cancel_open_proposals(match, "superseded", exclude_pk=proposal.pk)
+
+    proposal.refresh_from_db()
+    return True, None
 
 
 def _handle_schedule_command(data):
@@ -853,14 +1282,32 @@ def _handle_schedule_command(data):
         profile.timezone = tz_option
         profile.save(update_fields=["timezone"])
 
+    # The preview is ephemeral in BOTH modes — it's what catches a misparse, and
+    # it's where the Change-timezone flow lands. Only the copy and what Confirm
+    # does differ.
+    consensus, roster = _consensus_required(match)
+    pending = 0
+    already_proposed = False
+    if consensus:
+        # The proposer doesn't confirm their own time, so they don't count toward
+        # the "others must agree" tally.
+        pending = sum(1 for p in roster if str(p.discord_id or "") != str(author_id))
+        already_proposed = ScheduleProposal.objects.filter(
+            match=match, status=ScheduleProposal.Status.OPEN).exists()
+
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": _schedule_confirm_data(match, when, author_id, tz_name, time_text),
+        "data": _schedule_confirm_data(match, when, author_id, tz_name, time_text,
+                                       pending_confirmers=pending,
+                                       already_proposed=already_proposed),
     })
 
 
 def _handle_schedule_confirm(payload):
-    """Confirm button: write the scheduled time, then announce it in the thread."""
+    """Confirm button. Either writes the scheduled time outright (the original
+    behavior, kept for tournaments that haven't opted in) or — when the tournament
+    requires player confirmation — opens a ScheduleProposal for the roster to
+    confirm, writing nothing yet."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, ts, owner]
     if len(args) < 3:
         return _ephemeral("That button is out of date — run /schedule again.")
@@ -883,10 +1330,21 @@ def _handle_schedule_confirm(payload):
     except (ValueError, OSError, OverflowError):
         return _ephemeral("That time is no longer valid: run /schedule again.")
 
+    # Re-read the gate rather than trusting a value baked into the custom_id, the
+    # same way the match and permission are re-checked above: a moderator may have
+    # flipped the tournament setting since the prompt was built.
+    consensus, roster = _consensus_required(match)
+    if consensus:
+        return _open_schedule_proposal(payload, match, when, profile, roster)
+
     match.scheduled_time = when
     # update_fields is required: a bare save() re-runs Match.save()'s name and
     # match_number derivation.
     match.save(update_fields=["scheduled_time"])
+
+    # A direct write supersedes anything still awaiting confirmation — otherwise a
+    # stale Confirm could overwrite the time just set here.
+    _cancel_open_proposals(match, "cancelled")
 
     # Announce publicly in the thread so the whole group sees it. The followup is
     # sequenced after this response's ACK (a followup before it 404s).
@@ -908,6 +1366,174 @@ def _handle_schedule_confirm(payload):
             "content": f"✔ Scheduled for {format_discord_timestamp(when)}.",
             "components": [],
         },
+    })
+
+
+def _open_schedule_proposal(payload, match, when, profile, roster):
+    """Create a ScheduleProposal and post it publicly for the roster to confirm.
+
+    The proposer is seeded into confirmed_by — they picked the time, so asking them
+    again is noise. But only when they're actually ON the roster: a group moderator
+    or organizer scheduling for a game they don't play in confirms nobody, and every
+    player still has to agree."""
+    proposal = ScheduleProposal.objects.create(
+        match=match,
+        proposed_time=when,
+        proposed_by=profile,
+        channel_id=str(payload.get("channel_id") or ""),
+        guild_id=str(payload.get("guild_id") or ""),
+    )
+    proposal.roster.set(roster)
+    if any(p.pk == profile.pk for p in roster):
+        proposal.confirmed_by.add(profile)
+
+    others = ScheduleProposal.objects.filter(
+        match=match, status=ScheduleProposal.Status.OPEN,
+    ).exclude(pk=proposal.pk).exists()
+
+    # countdown=2 sequences the post after this response's ACK, matching the
+    # followup convention elsewhere in this module.
+    post_schedule_proposal_task.apply_async(
+        (proposal.pk, _schedule_proposal_data(proposal, match, mention=True)),
+        countdown=2,
+    )
+
+    content = (f"✔ Proposed {format_discord_timestamp(when)}. "
+               "I've asked the other players to confirm.")
+    if others:
+        content += ("\n-# Another time is also awaiting confirmation — whichever is "
+                    "confirmed first wins.")
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": content, "components": []},
+    })
+
+
+def _proposal_for_click(payload):
+    """Shared guards for the proposal buttons: (proposal, match, error).
+
+    These custom_ids end in the non-snowflake "g" marker precisely so the
+    dispatcher's owner-lock does NOT fire — any roster player must be able to click
+    — so every check the lock would have made has to happen here instead."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [proposal_id, "g"]
+    if not args:
+        return None, None, _ephemeral("That button is out of date — run /schedule again.")
+
+    proposal = ScheduleProposal.objects.filter(pk=args[0]).first()
+    if not proposal:
+        return None, None, _ephemeral(
+            "That proposal is no longer available — run /schedule again.")
+    if not proposal.is_open:
+        return None, None, _ephemeral({
+            ScheduleProposal.Status.CONFIRMED: "That time has already been confirmed.",
+            ScheduleProposal.Status.REJECTED: "That proposed time was rejected.",
+            ScheduleProposal.Status.SUPERSEDED:
+                "A different time was confirmed for this match.",
+        }.get(proposal.status, "That proposed time is no longer active."))
+
+    # Guild scope + still-schedulable, exactly as the other schedule buttons do.
+    match = _schedulable_matches(payload.get("guild_id")).filter(
+        pk=proposal.match_id).first()
+    if not match:
+        return None, None, _ephemeral(
+            "That match can no longer be scheduled: it may have been played or removed.")
+
+    if proposal.proposed_time <= timezone.now():
+        return None, None, _ephemeral(
+            "That proposed time has already passed — run /schedule to propose another.")
+    return proposal, match, None
+
+
+def _handle_schedule_proposal_confirm(payload):
+    """Confirm on a public proposal. Only a roster player whose Discord is linked
+    may act; everyone else is told why they can't."""
+    proposal, match, error = _proposal_for_click(payload)
+    if error:
+        return error
+
+    roster = list(proposal.roster.all())
+    me, status = _resolve_clicker(
+        roster, _interaction_user_id(payload), _clicker_username(payload))
+    if status == CLICKER_UNLINKED:
+        return _ephemeral(
+            "You're on this game's roster, but your Discord isn't linked to your "
+            f"site account yet. Log in{_login_hint()} with Discord once, then click "
+            "Confirm again."
+        )
+    if status != CLICKER_MATCHED:
+        return _ephemeral(
+            "You cannot confirm or reject this schedule — you're not one of this "
+            "game's players."
+        )
+
+    # add() is idempotent, so a double-click is a no-op rather than an error.
+    proposal.confirmed_by.add(me)
+
+    if not proposal.all_confirmed():
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _schedule_proposal_data(proposal, match),
+        })
+
+    ok, failure = _finalize_proposal(proposal)
+    if not ok:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _schedule_closed_data(
+                "Proposal closed",
+                f"The time can no longer be set for this match — {failure}."),
+        })
+    match.refresh_from_db()
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_finalized_data(proposal, match),
+    })
+
+
+def _handle_schedule_proposal_reject(payload):
+    """Reject on a public proposal: retire it and drop the buttons.
+
+    Accepts a WIDER set than Confirm. A roster player may reject — including one who
+    already confirmed, since plans change and their earlier consent shouldn't trap
+    the group. So may anyone who passes can_schedule (a group moderator, organizer
+    or admin), who is often not on the roster at all: that's what lets a moderator
+    clear a proposal stuck behind an unresponsive player."""
+    proposal, match, error = _proposal_for_click(payload)
+    if error:
+        return error
+
+    roster = list(proposal.roster.all())
+    me, status = _resolve_clicker(
+        roster, _interaction_user_id(payload), _clicker_username(payload))
+
+    if status != CLICKER_MATCHED:
+        # Not a linked roster player — but a moderator/organizer may still reject.
+        clicker = Profile.objects.filter(
+            discord_id=str(_interaction_user_id(payload) or "")).first()
+        if clicker and match.can_schedule(clicker):
+            me = clicker
+        elif status == CLICKER_UNLINKED:
+            return _ephemeral(
+                "You're on this game's roster, but your Discord isn't linked to your "
+                f"site account yet. Log in{_login_hint()} with Discord once, then "
+                "click Reject again."
+            )
+        else:
+            return _ephemeral(
+                "You cannot confirm or reject this schedule — you're not one of this "
+                "game's players."
+            )
+
+    updated = ScheduleProposal.objects.filter(
+        pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+    ).update(status=ScheduleProposal.Status.REJECTED,
+             rejected_by=me, resolved_at=timezone.now())
+    if not updated:
+        return _ephemeral("That proposed time is no longer active.")
+    proposal.refresh_from_db()
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_rejected_data(proposal),
     })
 
 
@@ -938,6 +1564,10 @@ def _handle_schedule_clear_confirm(payload):
     # update_fields is required: a bare save() re-runs Match.save()'s name and
     # match_number derivation.
     match.save(update_fields=["scheduled_time"])
+
+    # Retire anything still awaiting confirmation: a stale Confirm would otherwise
+    # re-write the very time that was just cleared.
+    _cancel_open_proposals(match, "cancelled")
 
     # Supersede the announcement the set flow posted — otherwise the thread is left
     # showing a time that no longer exists. Plain text rather than
@@ -1380,14 +2010,39 @@ def _handle_draft_build(payload):
     captains = _random_draft_captains(platform) if "knaves-of-the-deepwood" in drawn else None
 
     # If used inside an LFG thread, record the drafted factions plus the rolled
-    # vagabond / captains onto the LFGThread.
+    # vagabond / captains onto the LFGThread. Everything here is slugs and ids:
+    # the payload is JSON-serialized by Celery, so a model instance would raise
+    # EncodeError -- and this call is NOT wrapped in try/except, so that would
+    # replace an already-delivered draft with an error message.
     titles = {slug: title for slug, title, _ftype in factions}
     items = [{"kind": "Faction", "slug": slug, "title": titles.get(slug, slug)} for slug in drawn]
     if vagabond:
         items.append(_lfg_item("Vagabond", vagabond))
     if captains:
         items.extend(_lfg_item("Captain", c) for c in captains)
-    _capture_lfg_components(payload.get("channel_id"), items)
+
+    # The drafter's Discord id (last custom_id arg), resolved to a Profile in the
+    # worker so no extra query lands in this 3-second interaction budget.
+    _action_id, id_args = decode_custom_id(payload["data"]["custom_id"])
+    owner = id_args[-1] if id_args else ""
+    # The vagabond attaches to the pick that drew "vagabond", and the captains to
+    # the one that drew "knaves-of-the-deepwood" -- never to picks[0]. The two are
+    # mutually exclusive (DRAFT_EXCLUSIONS), so at most one pick carries either.
+    draft_payload = {
+        "players": players,
+        "platform": platform,
+        "drafted_by": owner,
+        "picks": [
+            {"faction": slug,
+             "vagabond": vagabond.slug if (slug == "vagabond" and vagabond) else None,
+             "captains": ([c.slug for c in captains]
+                          if (slug == "knaves-of-the-deepwood" and captains) else []),
+             "order": i}
+            for i, slug in enumerate(drawn, 1)
+        ],
+    }
+    _capture_lfg_components(payload.get("channel_id"), items,
+                            source="draft", draft=draft_payload)
 
     embed = _draft_result_embed(
         drawn, players, platform, banned_slugs, factions,
@@ -1423,7 +2078,7 @@ def _offer_lfg_seating(payload):
 
     _action, args = decode_custom_id(payload["data"]["custom_id"])
     owner = args[-1] if args else ""
-    if thread.seating:
+    if thread.seats.exists():
         prompt = ("This game already has a seating order — seating again will "
                   "**overwrite it**. Seat the players again?")
         confirm, style = "Overwrite", STYLE_DANGER
@@ -1473,8 +2128,8 @@ def _draft_seating_message(seats, reseated=False):
     lines = []
     if reseated:
         lines += ["**Re-seated** — this replaces the previous seating order.", ""]
-    lines += [f"{s['seat']}. {s['name']}" for s in seats]
-    lines += ["", f"{seats[-1]['name']} has first pick of the faction draft"]
+    lines += [f"{s.seat_number}. {s.profile.name}" for s in seats]
+    lines += ["", f"{seats[-1].profile.name} has first pick of the faction draft"]
     return "\n".join(lines)
 
 
@@ -1498,15 +2153,20 @@ def _handle_draft_seat(payload):
         return _ephemeral("Not enough players in this thread to seat.")
 
     random.shuffle(profiles)
-    seats = [{"id": p.discord_id, "name": p.name, "seat": i}
-             for i, p in enumerate(profiles, 1)]
 
-    # A thread holds ONE current seating, so this replaces rather than appends
-    # (unlike `rolls`). No select_for_update: it's a whole-field write by a single
-    # owner-locked clicker, not a read-append-write.
-    reseated = bool(thread.seating)
-    thread.seating = seats
-    thread.save(update_fields=["seating"])
+    # A thread holds ONE current seating, so this REPLACES rather than appends
+    # (unlike the roll log). select_for_update serializes two concurrent reseats,
+    # which would otherwise collide on uniq_lfg_seat_per_thread.
+    with transaction.atomic():
+        locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
+        reseated = locked.seats.exists()
+        locked.seats.all().delete()
+        # Build the instances ourselves rather than reusing bulk_create's return:
+        # these already hold their Profile, so the message renderer below reads
+        # seat.profile.name with no extra query.
+        seats = [LFGSeat(thread=locked, profile=p, seat_number=i)
+                 for i, p in enumerate(profiles, 1)]
+        LFGSeat.objects.bulk_create(seats)
 
     post_channel_message_task.delay(
         thread.thread_id, _draft_seating_message(seats, reseated))
@@ -1540,17 +2200,64 @@ RANDOM_SUIT_COLORS = {
 RANDOM_PLATFORM_KEYS = DRAFT_PLATFORM_KEYS  # reuse tts/rd keys from /draft
 
 
-def _random_platform_prompt(kind, owner):
-    """Public Tabletop Simulator / Root Digital buttons for a post-backed kind.
-    `owner` (invoker's user id) rides in each custom_id so only they can click."""
-    row = action_row(
-        button("Tabletop Simulator", encode_custom_id("random_post", kind, "tts", owner)),
-        button("Root Digital", encode_custom_id("random_post", kind, "rd", owner)),
-    )
-    return JsonResponse({
-        "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"content": f"Random {kind} - choose platform:", "components": [row]},
-    })
+# Options-panel select choices, as (label, value). Values are short and stable:
+# they're echoed back in the message's component state and read by selected_values.
+RANDOM_PLATFORM_CHOICES = [("Tabletop Simulator", "tts"), ("Root Digital", "rd")]
+RANDOM_FAN_CHOICES = [("Official only", "0"), ("Include fan content", "1")]
+RANDOM_SIDE_CHOICES = [("Either", "E"), ("Promoted", "P"), ("Demoted", "D")]
+
+
+def _random_options_data(kind, owner, platform_key="tts", fan="0", side="E"):
+    """The public, owner-locked options panel for a post-backed /random kind:
+    platform and fan-content selects (plus a side select for Hirelings), then Roll.
+
+    The current choices ride as default=True on the select options rather than in
+    the custom_ids, so the Roll button can recover them via `selected_values` — the
+    same mechanism /draft uses for its bans. That leaves only `kind` and `owner` to
+    encode, which keeps the owner LAST in every id (the dispatcher's owner-lock
+    reads args[-1] and only honours it when it looks like a snowflake)."""
+    def options(choices, chosen):
+        return [select_option(label, value, default=value == chosen)
+                for label, value in choices]
+
+    rows = [
+        action_row(string_select(
+            encode_custom_id("random_opt_platform", kind, owner),
+            options(RANDOM_PLATFORM_CHOICES, platform_key),
+            placeholder="Platform", min_values=1, max_values=1,
+        )),
+        action_row(string_select(
+            encode_custom_id("random_opt_fan", kind, owner),
+            options(RANDOM_FAN_CHOICES, fan),
+            placeholder="Fan content", min_values=1, max_values=1,
+        )),
+    ]
+    if kind == "Hireling":
+        rows.append(action_row(string_select(
+            encode_custom_id("random_opt_side", kind, owner),
+            options(RANDOM_SIDE_CHOICES, side),
+            placeholder="Side", min_values=1, max_values=1,
+        )))
+    rows.append(action_row(
+        button("Roll", encode_custom_id("random_roll_post", kind, owner), style=STYLE_SUCCESS),
+        button("Cancel", encode_custom_id("random_cancel", owner), style=STYLE_SECONDARY),
+    ))
+    return {"content": f"**Random {kind}** — set options, then Roll.", "components": rows}
+
+
+def _random_panel_state(payload):
+    """Recover (platform, hireling_type, include_fan_content) from the panel's own
+    select state. A button press doesn't echo the selects' values, so read back the
+    options rendered default=True. Falls back to the historical defaults (TTS /
+    Either / official-only) when a select is absent or nothing is marked.
+
+    NOTE: `selected_values` matches by custom_id PREFIX, so the three select action
+    names must never prefix one another (see RANDOM_OPTION_ACTIONS)."""
+    platform_key = (selected_values(payload, "random_opt_platform") or ["tts"])[0]
+    fan = (selected_values(payload, "random_opt_fan") or ["0"])[0]
+    side = (selected_values(payload, "random_opt_side") or ["E"])[0]
+    return (RANDOM_PLATFORM_KEYS.get(platform_key, DRAFT_PLATFORM_TTS),
+            side, fan == "1")
 
 
 def _random_dice_prompt(owner):
@@ -1566,15 +2273,70 @@ def _random_dice_prompt(owner):
     })
 
 
-def _random_hireling_side_row(platform_key, owner):
-    """Promoted / Demoted / Either buttons for /random Hirelings, carrying the
-    already-chosen platform key and the owner forward in each custom_id
-    (random_hireling:<key>:<side>:<owner>)."""
-    return action_row(
-        button("Promoted", encode_custom_id("random_hireling", platform_key, "P", owner)),
-        button("Demoted", encode_custom_id("random_hireling", platform_key, "D", owner)),
-        button("Either", encode_custom_id("random_hireling", platform_key, "E", owner)),
+# The three panel selects, mapped to the piece of state each one sets. Their names
+# must stay mutually non-prefixing — `selected_values` matches by startswith, so a
+# shared stem would make the first select shadow the others.
+RANDOM_OPTION_ACTIONS = {
+    "random_opt_platform": "platform",
+    "random_opt_fan": "fan",
+    "random_opt_side": "side",
+}
+
+
+def _handle_random_option(payload):
+    """A panel select changed: re-render the panel with the new choice persisted as
+    default=True and the other selects left as they were.
+
+    The message state reflects what Discord rendered BEFORE this interaction, so the
+    select that fired still reads its OLD value there — it must be overridden with
+    the echoed `values`, or the change is dropped and the panel looks frozen."""
+    action, args = decode_custom_id(payload["data"]["custom_id"])
+    kind = args[0] if args else "Faction"
+    owner = args[-1] if args else None
+
+    platform, side, fan = _random_panel_state(payload)
+    state = {
+        "platform": DRAFT_PLATFORM_TO_KEY.get(platform, "tts"),
+        "fan": "1" if fan else "0",
+        "side": side,
+    }
+    chosen = (payload["data"].get("values") or [None])[0]
+    if chosen is not None and action in RANDOM_OPTION_ACTIONS:
+        state[RANDOM_OPTION_ACTIONS[action]] = chosen
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _random_options_data(kind, owner, state["platform"], state["fan"],
+                                     state["side"]),
+    })
+
+
+def _handle_random_roll_post(payload):
+    """Roll button: read the chosen options off the panel, pick a random post and
+    edit the panel into the result in place."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["<Kind>", owner]
+    kind = args[0] if args else None
+    if kind not in RANDOM_POST_MODELS:
+        return _random_error_edit(f"Unknown random kind: {kind}.")
+
+    platform, side, include_fan_content = _random_panel_state(payload)
+    result, error = _random_post_result(
+        kind, platform, hireling_type=side if kind == "Hireling" else None,
+        author=_interaction_author(payload), channel_id=payload.get("channel_id"),
+        include_fan_content=include_fan_content,
     )
+    if error:
+        return _random_error_edit(error)
+    return _random_result_edit(payload, result)
+
+
+def _handle_random_cancel(payload):
+    """Cancel button: edit the panel to a short notice, controls removed. Carries
+    only `random_cancel:{owner}`, so it deliberately parses no state from the id."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Random cancelled.", "embeds": [], "components": []},
+    })
 
 
 def _random_result_embed(kind, title, subtext="", author=None, url=None,
@@ -1627,20 +2389,14 @@ def _handle_random_command(data):
     kind = _get_option(data, "kind")
     author = data.get("_author")  # invoking user (embed author), stashed by the dispatch
     owner = data.get("_author_id")  # invoking user id, to owner-lock the prompts
-    if kind == "Captain":
-        # Captains don't vary by platform, so skip the prompt. Passing TTS avoids
-        # the Root Digital (in_root_digital) filter in _random_eligible. This is a
-        # component-less public result (type 4), so it needs no owner lock.
-        result, error = _random_post_result("Captain", DRAFT_PLATFORM_TTS, author=author,
-                                            channel_id=data.get("_channel_id"))
-        if error:
-            return _ephemeral(error)
-        return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": result})
-    if kind == "Hireling":
-        # Hirelings need platform AND side; ask platform first, then the side.
-        return _random_platform_prompt("Hireling", owner)
     if kind in RANDOM_POST_MODELS:
-        return _random_platform_prompt(kind, owner)
+        # Every post-backed kind (Hirelings and Captains included) opens the one
+        # options panel; it gathers platform, fan content and — for Hirelings — the
+        # side in a single step, then Roll resolves it.
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _random_options_data(kind, owner),
+        })
     if kind == "Roll":
         return _random_dice_prompt(owner)
     # Suit/Clearing resolve immediately to a component-less public result — no owner.
@@ -1651,11 +2407,14 @@ def _handle_random_command(data):
     return _ephemeral(f"Unknown random kind: {kind}")
 
 
-def _random_eligible(kind, platform, hireling_type=None):
-    """Eligible official, Stable posts for a random kind. Root Digital narrows to
-    factions/posts available there. `hireling_type` ('P'/'D') narrows Hirelings to
-    one side; None (or 'E') leaves both."""
-    qs = RANDOM_POST_MODELS[kind]().filter(official=True, status=1)
+def _random_eligible(kind, platform, hireling_type=None, include_fan_content=False):
+    """Eligible Stable posts for a random kind, official-only unless
+    `include_fan_content`. Root Digital narrows to factions/posts available there.
+    `hireling_type` ('P'/'D') narrows Hirelings to one side; None (or 'E') leaves
+    both."""
+    qs = RANDOM_POST_MODELS[kind]().filter(status=1)
+    if not include_fan_content:
+        qs = qs.filter(official=True)
     if platform == DRAFT_PLATFORM_RD:
         qs = qs.filter(in_root_digital=True)
     if kind == "Hireling" and hireling_type in ("P", "D"):
@@ -1663,16 +2422,22 @@ def _random_eligible(kind, platform, hireling_type=None):
     return qs
 
 
-def _random_chosen_from(kind, posts):
+def _random_chosen_from(kind, posts, include_fan_content=False):
     """The 'Chosen from' body text for a post-kind result. Faction -> emoji icons
     (name fallback), which is why this renders in the description not a footer;
-    Hireling -> a count (there are many); other kinds -> names if <=6, else a count."""
-    if kind == "Faction":
+    Hireling -> a count (there are many); other kinds -> names if <=6, else a count.
+
+    The Faction emoji strip only holds for the official pool: fan factions have no
+    emoji, so a fan-inclusive roll would fall back to dozens of bare titles. Those
+    use the count form instead. The suffix marks the wider pool on the result, since
+    the panel's own text is cleared when it becomes the result."""
+    suffix = " (incl. fan content)" if include_fan_content else ""
+    if kind == "Faction" and not include_fan_content:
         icons = [faction_emoji_for(p.slug) or p.title for p in posts]
-        return "Chosen from: " + " ".join(icons)
+        return "Chosen from: " + " ".join(icons) + suffix
     if len(posts) <= 6:
-        return "Chosen from: " + ", ".join(p.title for p in posts)
-    return f"Chosen from {len(posts)} options"
+        return "Chosen from: " + ", ".join(p.title for p in posts) + suffix
+    return f"Chosen from {len(posts)} options{suffix}"
 
 
 def _post_url(post):
@@ -1696,21 +2461,24 @@ def _random_post_image_url(kind, post):
     return _post_image_url(post, field="card_2_image" if kind == "Captain" else None)
 
 
-def _random_post_result(kind, platform, hireling_type=None, author=None, channel_id=None):
+def _random_post_result(kind, platform, hireling_type=None, author=None, channel_id=None,
+                        include_fan_content=False):
     """Return (message_data, error) for a post-backed random kind as the unified
     /random embed (linked title + large board/card image). `hireling_type` ('P'/'D')
-    narrows Hirelings to one side. When `channel_id` is a known LFG thread, the
-    chosen component is recorded on the LFGThread."""
-    posts = list(_random_eligible(kind, platform, hireling_type))
+    narrows Hirelings to one side; `include_fan_content` widens the pool past
+    official posts. When `channel_id` is a known LFG thread, the chosen component is
+    recorded on the LFGThread."""
+    posts = list(_random_eligible(kind, platform, hireling_type,
+                                  include_fan_content=include_fan_content))
     if not posts:
-        # Only Captain skips the platform prompt; every other post kind (incl.
-        # Hireling) picks a platform, so its "none found" error should mention it.
-        where = " for that platform" if kind in RANDOM_POST_MODELS and kind != "Captain" else ""
+        # Every post kind picks a platform on the options panel, so an empty pool
+        # should say so.
+        where = " for that platform" if kind in RANDOM_POST_MODELS else ""
         return None, f"No eligible {kind} found{where}."
     chosen = random.choice(posts)
-    _capture_lfg_components(channel_id, [_lfg_item(kind, chosen)])
+    _capture_lfg_components(channel_id, [_lfg_item(kind, chosen)], source="random")
     embed = _random_result_embed(
-        kind, chosen.title, _random_chosen_from(kind, posts),
+        kind, chosen.title, _random_chosen_from(kind, posts, include_fan_content),
         author=author, url=_post_url(chosen), image_url=_random_post_image_url(kind, chosen),
         color=embed_color(chosen),
     )
@@ -1750,43 +2518,6 @@ def _random_error_edit(error):
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": error, "embeds": [], "components": []},
     })
-
-
-def _handle_random_post(payload):
-    """Platform button: pick a random post for the kind and edit the prompt into
-    the result. For Hirelings the platform choice edits to a second prompt (the
-    side) rather than a result."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["<Kind>", "tts|rd", owner]
-    kind = args[0]
-    platform_key = args[1] if len(args) > 1 else "tts"
-    if kind == "Hireling":
-        # Platform chosen; edit to the side prompt, carrying platform and owner forward.
-        return JsonResponse({
-            "type": RESPONSE_UPDATE_MESSAGE,
-            "data": {"content": "Random Hireling — which side?",
-                     "components": [_random_hireling_side_row(platform_key, args[-1])]},
-        })
-    platform = RANDOM_PLATFORM_KEYS.get(platform_key, DRAFT_PLATFORM_TTS)
-    result, error = _random_post_result(kind, platform, author=_interaction_author(payload),
-                                        channel_id=payload.get("channel_id"))
-    if error:
-        return _random_error_edit(error)
-    return _random_result_edit(payload, result)
-
-
-def _handle_random_hireling(payload):
-    """Side button: pick a random hireling of the chosen platform and side
-    (Promoted/Demoted/Either) and edit the prompt into the result."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # ["tts|rd", "P"|"D"|"E", owner]
-    platform = RANDOM_PLATFORM_KEYS.get(args[0] if args else "", DRAFT_PLATFORM_TTS)
-    hireling_type = args[1] if len(args) > 1 else "E"  # default to Either
-    result, error = _random_post_result(
-        "Hireling", platform, hireling_type=hireling_type, author=_interaction_author(payload),
-        channel_id=payload.get("channel_id"),
-    )
-    if error:
-        return _random_error_edit(error)
-    return _random_result_edit(payload, result)
 
 
 def _handle_random_roll(payload):
@@ -2170,6 +2901,7 @@ COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["schedule"] = _handle_schedule_command
+COMMAND_HANDLERS["record"] = _handle_record_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command
@@ -2182,12 +2914,22 @@ COMPONENT_HANDLERS = {
     "draft_cancel": _handle_draft_cancel,
     "draft_seat": _handle_draft_seat,
     "draft_seat_no": _handle_draft_seat_no,
-    "random_post": _handle_random_post,
+    # The three options-panel selects share one handler; `random_roll` is the
+    # (unrelated) dice prompt, hence `random_roll_post` for the panel's Roll button.
+    "random_opt_platform": _handle_random_option,
+    "random_opt_fan": _handle_random_option,
+    "random_opt_side": _handle_random_option,
+    "random_roll_post": _handle_random_roll_post,
+    "random_cancel": _handle_random_cancel,
     "random_roll": _handle_random_roll,
-    "random_hireling": _handle_random_hireling,
     "schedule_confirm": _handle_schedule_confirm,
     "schedule_clear_confirm": _handle_schedule_clear_confirm,
     "schedule_cancel": _handle_schedule_cancel,
+    # Public proposal buttons. Their custom_ids end in "g" (not a snowflake) so the
+    # dispatcher's owner-lock stays off and any roster player can click; the
+    # handlers do their own authorization.
+    "sched_prop_ok": _handle_schedule_proposal_confirm,
+    "sched_prop_no": _handle_schedule_proposal_reject,
     "schedule_tz_region": _handle_schedule_tz_region,
     "schedule_tz_zone": _handle_schedule_tz_zone,
     "schedule_tz_back": _handle_schedule_tz_back,

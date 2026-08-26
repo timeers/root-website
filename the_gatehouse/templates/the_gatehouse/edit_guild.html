@@ -103,7 +103,7 @@
                                id="cmd-{{ name }}"
                                {% if name in enabled_commands %}checked{% endif %}>
                         <label class="form-check-label" for="cmd-{{ name }}">
-                            <code>/{{ name }}</code> &mdash; {{ desc }}
+                            <code>/{{ name }}</code> - {{ desc }}
                         </label>
                     </div>
                     {% endfor %}
@@ -123,9 +123,6 @@
             <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'LFG Roles' %}</h5>
         </div>
         <div class="card-body">
-            <p class="text-muted small mb-3">
-                {% trans 'These save immediately — they are not part of Save Guild below.' %}
-            </p>
             {% comment %} Single page-level forum→tag map, read by every LFG-role form to
             build the tag <select> client-side. Wrapped so each add/edit/delete response can
             refresh it out-of-band (see partials/lfg_forum_tag_blob.html), keeping it from

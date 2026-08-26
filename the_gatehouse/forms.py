@@ -558,13 +558,27 @@ class GuildLFGRoleForm(forms.ModelForm):
     # `name` is NOT a form field — it's derived from the picked role's Discord name in
     # the save view. role_id / forum_channel_id / forum_tag_id are rendered as live
     # dropdowns via HTMX (see lfg_role_form_fields.html); they bind normally by name.
+    # `tournament` is a normal ModelChoiceField, scoped to the guild in __init__.
     class Meta:
         model = GuildLFGRole
-        fields = ['role_id', 'description', 'forum_channel_id', 'forum_tag_id', 'thread_message']
+        fields = ['role_id', 'description', 'tournament', 'forum_channel_id', 'forum_tag_id', 'thread_message']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 2}),
             'thread_message': forms.Textarea(attrs={'rows': 2}),
         }
+
+    def __init__(self, *args, guild=None, **kwargs):
+        # `guild` is not a form field (the view assigns it on save), but the tournament
+        # choices must be limited to series linked to THIS guild — every caller passes it.
+        self.guild = guild
+        super().__init__(*args, **kwargs)
+        # Imported here, not at module level: the_warroom.models imports from
+        # the_gatehouse.models, so a top-level import risks a cycle.
+        from the_warroom.models import Tournament
+        self.fields['tournament'].queryset = (
+            guild.tournaments.all() if guild else Tournament.objects.none()
+        )
+        self.fields['tournament'].empty_label = _('— No series —')
 
     def clean(self):
         cleaned = super().clean()

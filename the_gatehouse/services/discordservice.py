@@ -223,6 +223,54 @@ def post_channel_message(channel_id, content):
         return THREAD_ERROR
 
 
+def post_channel_message_full(channel_id, content=None, embeds=None, components=None,
+                              allowed_mentions=None):
+    """Post a rich message into a channel/thread and return (result, message_id).
+
+    Unlike post_channel_message (content-only, status-only), this exists so the
+    caller can KEEP the new message's id: a /schedule proposal has to be edited
+    later — from a DIFFERENT interaction, or from a Celery task — to strip its
+    buttons once another proposal wins.
+
+    `result` is THREAD_OK / THREAD_BLOCKED / THREAD_ERROR with the same meaning as
+    edit_channel_message; `message_id` is None on any failure. Never raises.
+
+    No DEBUG_VALUE guard — see create_message_thread."""
+    body = {}
+    if content is not None:
+        body["content"] = content
+    if embeds is not None:
+        body["embeds"] = embeds
+    if components is not None:
+        body["components"] = components
+    if allowed_mentions is not None:
+        body["allowed_mentions"] = allowed_mentions
+    try:
+        r = requests.post(
+            f"{DISCORD_API}/channels/{channel_id}/messages",
+            headers=_bot_headers(),
+            json=body,
+            timeout=5,
+        )
+        r.raise_for_status()
+        return THREAD_OK, str(r.json()["id"])
+    except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        if _is_terminal_edit_error(e):
+            logger.warning("Cannot post message in channel %s (permanent): %s",
+                           channel_id, detail)
+            return THREAD_BLOCKED, None
+        logger.error("Failed to post message in channel %s: %s", channel_id, detail)
+        return THREAD_ERROR, None
+    except (KeyError, ValueError) as e:
+        # 2xx with a body we can't read an id out of. The message may well have been
+        # posted, so retrying would double-post: treat as permanent.
+        logger.warning("Posted to channel %s but could not read the message id: %s",
+                       channel_id, e)
+        return THREAD_BLOCKED, None
+
+
 def edit_channel_message(channel_id, message_id, embeds=None, components=None):
     """Edit an existing bot message (PATCH). Never raises. Returns one of:
         THREAD_OK      — edited
@@ -594,7 +642,7 @@ def sync_bot_guilds():
     return len(bot_guild_ids)
 
 
-def get_ww_guild_nickname(user):
+def get_ww_guild_nickname(user, timeout=5):
     """Return the user's server nickname in the Woodland Warriors guild, or None.
 
     Uses the user's own OAuth token (scope ``guilds.members.read``) to read their
@@ -607,7 +655,7 @@ def get_ww_guild_nickname(user):
     if not guild_id:
         return None
 
-    access_token = get_valid_discord_token(user)
+    access_token = get_valid_discord_token(user, timeout=timeout)
     if access_token is None:
         return None
 
@@ -615,7 +663,7 @@ def get_ww_guild_nickname(user):
         response = requests.get(
             f"{DISCORD_API}/users/@me/guilds/{guild_id}/member",
             headers={"Authorization": f"Bearer {access_token}"},
-            timeout=5,
+            timeout=timeout,
         )
     except requests.RequestException as e:
         logger.warning("Failed to fetch WW nickname for user %s: %s", user, e)
@@ -637,7 +685,7 @@ def get_ww_guild_nickname(user):
     return nick.strip() if nick and nick.strip() else None
 
 
-def get_discord_display_name(user):
+def get_discord_display_name(user, timeout=5):
     try:
         social = SocialAccount.objects.get(user=user, provider="discord")
         data = social.extra_data or {}
@@ -645,7 +693,7 @@ def get_discord_display_name(user):
         # Prefer the user's Woodland Warriors server nickname; fall back to the
         # Discord global_name, then username, then the Django username.
         display_name = (
-            get_ww_guild_nickname(user)
+            get_ww_guild_nickname(user, timeout=timeout)
             or data.get("global_name")
             or data.get("username")
             or data.get("user", {}).get("username")
@@ -712,8 +760,13 @@ def update_discord_avatar(user, force=False):
     return None
 
 
-def get_valid_discord_token(user):
-    """Get a valid Discord access token, refreshing if expired."""
+def get_valid_discord_token(user, timeout=5):
+    """Get a valid Discord access token, refreshing if expired.
+
+    `timeout` bounds the token-refresh POST. The login path passes the time left in
+    its overall budget so a slow Discord can't hold a WSGI worker (see
+    refresh_user_guilds); every other caller keeps the historical 5s.
+    """
     try:
         social_account = user.socialaccount_set.get(provider='discord')
     except user.socialaccount_set.model.DoesNotExist:
@@ -742,7 +795,7 @@ def get_valid_discord_token(user):
                 },
                 # Reachable from a request thread (add-guild-from-invite view); keep short
                 # so a slow Discord API can't hold a WSGI worker (defense in depth).
-                timeout=5,
+                timeout=timeout,
             )
             response.raise_for_status()
             data = response.json()
@@ -760,8 +813,8 @@ def get_valid_discord_token(user):
     return token_obj.token
 
 
-def get_user_guilds(user):
-    access_token = get_valid_discord_token(user)
+def get_user_guilds(user, timeout=5):
+    access_token = get_valid_discord_token(user, timeout=timeout)
     if access_token is None:
         return None
 
@@ -770,8 +823,8 @@ def get_user_guilds(user):
         headers = {'Authorization': f'Bearer {access_token}'}
         # Reachable from a request thread (add-guild-from-invite view); keep short so a
         # slow Discord API can't hold a WSGI worker (defense in depth). The login path
-        # no longer calls this synchronously (moved to refresh_user_guilds_task).
-        response = requests.get(url, headers=headers, timeout=5)
+        # calls this inline only for a stale profile, under a shrinking deadline.
+        response = requests.get(url, headers=headers, timeout=timeout)
 
         if response.status_code == 200:
             return response.json()

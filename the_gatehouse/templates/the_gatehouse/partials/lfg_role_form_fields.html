@@ -6,6 +6,10 @@ from the single page-level `#lfg-forum-tags` JSON blob (see edit_guild.html) on 
 each HTMX swap, and when the channel changes. It's seeded here only with the saved tag so an
 edit form is correct with no flash even before JS runs. Always a real <select name=…> so it
 POSTs normally. The .lfg-role-fields wrapper scopes the JS to this one form.
+
+`tournament` is the one FK here that ISN'T Discord-sourced — it's a normal ModelChoiceField
+scoped to the guild's series in GuildLFGRoleForm.__init__, so it renders via crispy like
+description/thread_message. Hidden entirely when the guild has no linked series.
 {% endcomment %}
 <div class="lfg-role-fields">
 
@@ -43,6 +47,11 @@ POSTs normally. The .lfg-role-fields wrapper scopes the JS to this one form.
     </div>
 
     {{ form.description|as_crispy_field }}
+
+    {# ----- Series (optional) — omitted when this guild has no linked series ----- #}
+    {% if form.fields.tournament.queryset.exists %}
+        {{ form.tournament|as_crispy_field }}
+    {% endif %}
 
     {# ----- Forum channel (optional) ----- #}
     <div class="mb-3">

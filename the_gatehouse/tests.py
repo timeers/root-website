@@ -2,8 +2,12 @@ import json
 from unittest import mock
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
+from django.contrib.auth import login as auth_login
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.db.models.signals import post_save
-from django.test import TestCase
+from django.http import HttpResponse
+from django.test import TestCase, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -13,11 +17,16 @@ from the_warroom.models import (
     StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
 )
 from the_gatehouse.tasks import update_post_status
-from the_keep.models import StatusChoices, Faction
-from the_gatehouse.models import DiscordGuild, GuildLFGRole, LFGThread, Profile
+from the_keep.models import StatusChoices, Faction, Map, Deck
+from the_gatehouse.models import (
+    DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
+    LFGRoll, LFGDraft, LFGSeat,
+)
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_gatehouse.services import discord_commands as dc
+from the_gatehouse.services.lfg_game import rolled_components, seated_profiles
+from the_gatehouse.tasks import record_lfg_components_task
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     search_timezones, valid_timezone,
@@ -337,7 +346,7 @@ class ScheduleFixtureMixin:
     and a seated player."""
 
     def build(self, recording_access=Tournament.RecordingAccessTypes.SCHEDULED,
-              thread_id="555000111", group_name="Group A"):
+              thread_id="555000111", group_name="Group A", populate_group=False):
         self.guild = DiscordGuild.objects.create(guild_id="900100", name="Sched Guild")
         self.designer = Profile.objects.create(discord="designer", discord_id="1")
         self.player = Profile.objects.create(discord="player", discord_id="2")
@@ -367,6 +376,15 @@ class ScheduleFixtureMixin:
             stage=self.stage, tournament_player=self.tournament_player)
         MatchSeat.objects.create(
             series=self.series, stage_participant=self.participant, seat_number=1)
+
+        # The consensus flow polls PlayerGroup.tournament_players, which the legacy
+        # tests deliberately leave empty — an empty roster keeps /schedule on its
+        # original single-confirm path. Opt in to get a real roster.
+        if populate_group:
+            self.teammate = Profile.objects.create(discord="teammate", discord_id="5")
+            self.teammate_tp = TournamentPlayer.objects.create(
+                tournament=self.tournament, profile=self.teammate)
+            self.group.tournament_players.add(self.tournament_player, self.teammate_tp)
 
 
 class MatchCanScheduleTests(ScheduleFixtureMixin, TestCase):
@@ -1768,8 +1786,10 @@ class DraftLFGSeatingTests(TestCase):
 
     def test_existing_seating_warns_before_overwriting(self):
         self._roster(3)
-        self.thread.seating = [{"id": "901", "name": "Player 1", "seat": 1}]
-        self.thread.save(update_fields=["seating"])
+        LFGSeat.objects.create(
+            thread=self.thread,
+            profile=Profile.objects.get(discord_id="901"),
+            seat_number=1)
         message = self._offer(self.THREAD_ID).call_args.args[0][1]
         self.assertIn("overwrite", message["content"].lower())
         confirm = message["components"][0]["components"][0]
@@ -1787,31 +1807,32 @@ class DraftLFGSeatingTests(TestCase):
     def test_seating_persists_and_posts(self):
         self._roster(3)
         response, post = self._seat()
-        self.thread.refresh_from_db()
 
-        self.assertEqual([s["seat"] for s in self.thread.seating], [1, 2, 3])
-        self.assertEqual({s["id"] for s in self.thread.seating}, {"901", "902", "903"})
+        seats = list(self.thread.seats.select_related("profile"))
+        self.assertEqual([s.seat_number for s in seats], [1, 2, 3])
+        self.assertEqual({s.profile.discord_id for s in seats}, {"901", "902", "903"})
 
         channel_id, body = post.call_args.args
         self.assertEqual(channel_id, self.THREAD_ID)
-        last = self.thread.seating[-1]["name"]
-        self.assertTrue(body.endswith(f"{last} has first pick of the faction draft"))
-        self.assertIn(f"1. {self.thread.seating[0]['name']}", body)
+        self.assertTrue(
+            body.endswith(f"{seats[-1].profile.name} has first pick of the faction draft"))
+        self.assertIn(f"1. {seats[0].profile.name}", body)
         self.assertNotIn("Re-seated", body)
         self.assertEqual(json.loads(response.content)["data"]["content"], "Seating posted.")
 
     def test_reseating_replaces_the_previous_order_and_says_so(self):
         self._roster(3)
         self._seat()
-        self.thread.refresh_from_db()
-        first = self.thread.seating
+        # Materialize NOW: a queryset would re-evaluate after the delete below and
+        # the "not appended" assertion would compare against the new rows.
+        first_ids = list(self.thread.seats.values_list("pk", flat=True))
 
         _response, post = self._seat()
-        self.thread.refresh_from_db()
+        seats = list(self.thread.seats.all())
         # Fully replaced, not appended.
-        self.assertEqual(len(self.thread.seating), 3)
-        self.assertEqual([s["seat"] for s in self.thread.seating], [1, 2, 3])
-        self.assertNotEqual(self.thread.seating, first + first)
+        self.assertEqual(len(seats), 3)
+        self.assertEqual([s.seat_number for s in seats], [1, 2, 3])
+        self.assertFalse(set(first_ids) & {s.pk for s in seats})
         self.assertTrue(post.call_args.args[1].startswith("**Re-seated**"))
 
     def test_seating_is_randomised(self):
@@ -1821,8 +1842,10 @@ class DraftLFGSeatingTests(TestCase):
         orders = set()
         for _ in range(10):
             self._seat()
-            self.thread.refresh_from_db()
-            orders.add(tuple(s["id"] for s in self.thread.seating))
+            seats = self.thread.seats.select_related("profile")
+            # Re-seating replaces, so the count must stay at 4 -- never accumulate.
+            self.assertEqual(len(seats), 4)
+            orders.add(tuple(s.profile.discord_id for s in seats))
         self.assertGreater(len(orders), 1)
 
     def test_seat_declined_changes_nothing(self):
@@ -1830,8 +1853,9 @@ class DraftLFGSeatingTests(TestCase):
         with mock.patch.object(di.post_channel_message_task, "delay") as post:
             response = di._handle_draft_seat_no({"channel_id": self.THREAD_ID})
         post.assert_not_called()
-        self.thread.refresh_from_db()
-        self.assertEqual(self.thread.seating, [])
+        # assertEqual(manager, []) would silently pass -- a RelatedManager is never
+        # equal to a list. Assert on existence instead.
+        self.assertFalse(self.thread.seats.exists())
         data = json.loads(response.content)["data"]
         self.assertEqual(data["components"], [])
 
@@ -1839,3 +1863,1375 @@ class DraftLFGSeatingTests(TestCase):
         response, post = self._seat("gone")
         post.assert_not_called()
         self.assertIn("game thread", json.loads(response.content)["data"]["content"])
+
+
+class LFGCaptureTests(TestCase):
+    """record_lfg_components_task and the readers over it. This path had no
+    coverage while it stored JSON, so these are written against the relational
+    tables directly."""
+
+    THREAD_ID = "thread-cap-1"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.designer = Profile.objects.create(discord="capdesigner", discord_id="700")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Cap Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(3)
+        ]
+        self.map = Map.objects.create(
+            title="Cap Map", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        self.deck = Deck.objects.create(
+            title="Cap Deck", designer=self.designer, card_total=54,
+            status=StatusChoices.STABLE, official=True)
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+
+    def _item(self, kind, post):
+        return {"kind": kind, "slug": post.slug, "title": post.title}
+
+    # ── capture ─────────────────────────────────────────────────────────────
+    def test_capture_writes_rows_and_resolves_posts(self):
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0]), self._item("Map", self.map)],
+            source="random")
+        rolls = list(self.thread.roll_log.all())
+        self.assertEqual([r.kind for r in rolls], ["Faction", "Map"])
+        self.assertEqual([r.post_id for r in rolls],
+                         [self.factions[0].pk, self.map.pk])
+        self.assertTrue(all(r.source == "random" for r in rolls))
+
+    def test_capture_updates_map_and_deck_fks(self):
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Map", self.map), self._item("Deck", self.deck)])
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.map_id, self.map.pk)
+        self.assertEqual(self.thread.deck_id, self.deck.pk)
+
+    def test_unresolvable_slug_keeps_the_row_with_a_null_post(self):
+        record_lfg_components_task(
+            self.THREAD_ID, [{"kind": "Faction", "slug": "no-such-slug"}])
+        roll = self.thread.roll_log.get()
+        self.assertIsNone(roll.post_id)
+        self.assertEqual(roll.slug, "no-such-slug")
+
+    def test_capture_is_a_no_op_outside_an_lfg_thread(self):
+        record_lfg_components_task("not-a-thread", [self._item("Map", self.map)])
+        self.assertEqual(LFGRoll.objects.count(), 0)
+
+    def test_capture_appends_rather_than_replacing(self):
+        record_lfg_components_task(self.THREAD_ID, [self._item("Map", self.map)])
+        record_lfg_components_task(self.THREAD_ID, [self._item("Deck", self.deck)])
+        self.assertEqual(self.thread.roll_log.count(), 2)
+
+    # ── draft ───────────────────────────────────────────────────────────────
+    def _draft_payload(self, factions, **kw):
+        payload = {"players": 2, "platform": "Tabletop Simulator",
+                   "drafted_by": "700",
+                   "picks": [{"faction": f.slug, "vagabond": None, "captains": [],
+                              "order": i}
+                             for i, f in enumerate(factions, 1)]}
+        payload.update(kw)
+        return payload
+
+    def test_draft_is_recorded_with_its_picks(self):
+        record_lfg_components_task(
+            self.THREAD_ID, [], source="draft",
+            draft=self._draft_payload(self.factions[:2]))
+        draft = self.thread.draft
+        self.assertEqual(draft.players, 2)
+        self.assertEqual(draft.drafted_by, self.designer)
+        self.assertEqual([p.faction_id for p in draft.picks.all()],
+                         [self.factions[0].pk, self.factions[1].pk])
+
+    def test_redrafting_replaces_rather_than_accumulating(self):
+        record_lfg_components_task(
+            self.THREAD_ID, [], source="draft",
+            draft=self._draft_payload(self.factions[:2]))
+        record_lfg_components_task(
+            self.THREAD_ID, [], source="draft",
+            draft=self._draft_payload(self.factions[2:]))
+
+        self.assertEqual(LFGDraft.objects.filter(thread=self.thread).count(), 1)
+        self.assertEqual([p.faction_id for p in self.thread.draft.picks.all()],
+                         [self.factions[2].pk])
+
+    def test_unknown_faction_slug_is_skipped_not_fatal(self):
+        payload = self._draft_payload(self.factions[:1])
+        payload["picks"].append(
+            {"faction": "ghost-faction", "vagabond": None, "captains": [], "order": 2})
+        record_lfg_components_task(self.THREAD_ID, [], source="draft", draft=payload)
+        self.assertEqual(self.thread.draft.picks.count(), 1)
+
+    # ── readers ─────────────────────────────────────────────────────────────
+    def test_rolled_components_dedupes_and_keeps_first_seen_order(self):
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0]),
+             self._item("Faction", self.factions[1]),
+             self._item("Faction", self.factions[0])])
+        self.assertEqual(rolled_components(self.thread),
+                         {"Faction": [self.factions[0].slug, self.factions[1].slug]})
+
+    def test_rolled_components_prefers_the_live_slug_over_the_snapshot(self):
+        """A renamed Post changes its slug; the form filters on live slugs, so a
+        stale snapshot would silently drop the component."""
+        record_lfg_components_task(self.THREAD_ID, [self._item("Map", self.map)])
+        LFGRoll.objects.filter(thread=self.thread).update(slug="stale-snapshot")
+        self.assertEqual(rolled_components(self.thread), {"Map": [self.map.slug]})
+
+    def test_seated_profiles_falls_back_to_players_when_unseated(self):
+        players = [Profile.objects.create(discord=f"cap{i}", discord_id=f"71{i}")
+                   for i in range(2)]
+        self.thread.players.set(players)
+        seats = seated_profiles(self.thread)
+        self.assertEqual([n for n, _p, _f in seats], [1, 2])
+        self.assertEqual({p for _n, p, _f in seats}, set(players))
+
+    def test_seated_profiles_returns_a_faction_SLUG_not_an_object(self):
+        """views.py filters `.filter(slug=faction_slug)`; a Faction instance there
+        would coerce via str() and silently match nothing."""
+        p = Profile.objects.create(discord="capseat", discord_id="720")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
+                               faction=self.factions[0])
+        _seat_no, _profile, faction_slug = seated_profiles(self.thread)[0]
+        self.assertEqual(faction_slug, self.factions[0].slug)
+
+    def test_a_deleted_profile_leaves_a_blank_seat_in_position(self):
+        keep = Profile.objects.create(discord="capkeep", discord_id="721")
+        drop = Profile.objects.create(discord="capdrop", discord_id="722")
+        LFGSeat.objects.create(thread=self.thread, profile=drop, seat_number=1)
+        LFGSeat.objects.create(thread=self.thread, profile=keep, seat_number=2)
+        drop.delete()
+
+        seats = seated_profiles(self.thread)
+        # The row survives with profile=None so the record form keeps its slot.
+        self.assertEqual([n for n, _p, _f in seats], [1, 2])
+        self.assertIsNone(seats[0][1])
+        self.assertEqual(seats[1][1], keep)
+
+
+class RandomOptionsPanelTests(TestCase):
+    """/random's options panel: the selects gather platform, fan content and (for
+    Hirelings) the side, then Roll resolves from the message's own select state."""
+
+    OWNER = "123456789012345678"  # must look like a snowflake for the owner-lock
+    OTHER = "987654321098765432"
+
+    def setUp(self):
+        # Saving a Faction rewrites the stock animal image in place; nothing here
+        # tests image handling. Same guard DraftLFGSeatingTests uses.
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        designer = Profile.objects.create(discord="fandesigner", discord_id="700")
+        for i in range(3):
+            Faction.objects.create(
+                title=f"Official Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT,
+            )
+        for i in range(2):
+            Faction.objects.create(
+                title=f"Fan Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=False,
+                component="Faction", type=Faction.TypeChoices.MILITANT,
+            )
+
+    # ── helpers ─────────────────────────────────────────────────────────────
+    def _panel(self, kind="Faction", **state):
+        return di._random_options_data(kind, self.OWNER, **state)
+
+    def _payload(self, action, kind="Faction", values=None, owner=None,
+                 clicker=None, **state):
+        """A component interaction whose message carries a rendered panel."""
+        panel = self._panel(kind, **state)
+        data = {"custom_id": di.encode_custom_id(action, kind, owner or self.OWNER)}
+        if action == "random_cancel":
+            data["custom_id"] = di.encode_custom_id(action, owner or self.OWNER)
+        if values is not None:
+            data["values"] = values
+        return {
+            "type": di.MESSAGE_COMPONENT,
+            "data": data,
+            "message": {"components": panel["components"]},
+            "channel_id": "chan-1",
+            "member": {"user": {"id": clicker or owner or self.OWNER,
+                                "username": "roller"}},
+        }
+
+    def _selects(self, body):
+        """{action: [defaulted values]} for each select in a response body."""
+        out = {}
+        for row in body["data"]["components"]:
+            for comp in row["components"]:
+                if comp["type"] == 3:
+                    action = comp["custom_id"].split(":")[0]
+                    out[action] = [o["value"] for o in comp["options"]
+                                   if o.get("default")]
+        return out
+
+    def _custom_ids(self, components):
+        return [c["custom_id"] for row in components for c in row["components"]]
+
+    # ── the pool ────────────────────────────────────────────────────────────
+    def test_eligible_excludes_fan_by_default(self):
+        titles = [f.title for f in di._random_eligible(
+            "Faction", di.DRAFT_PLATFORM_TTS)]
+        self.assertEqual(len(titles), 3)
+        self.assertFalse([t for t in titles if t.startswith("Fan")])
+
+    def test_eligible_includes_fan_when_asked(self):
+        titles = [f.title for f in di._random_eligible(
+            "Faction", di.DRAFT_PLATFORM_TTS, include_fan_content=True)]
+        self.assertEqual(len(titles), 5)
+        self.assertTrue([t for t in titles if t.startswith("Fan")])
+
+    def test_roll_defaults_to_official_only(self):
+        """An untouched panel rolls the official pool — the no-regression case."""
+        body = json.loads(di._handle_random_roll_post(
+            self._payload("random_roll_post")).content)
+        description = body["data"]["embeds"][0]["description"]
+        self.assertNotIn("fan content", description)
+        self.assertIn(body["data"]["embeds"][0]["title"].split(": ")[1],
+                      [f"Official Faction {i}" for i in range(3)])
+
+    def test_roll_includes_fan_when_selected(self):
+        body = json.loads(di._handle_random_roll_post(
+            self._payload("random_roll_post", fan="1")).content)
+        self.assertIn("incl. fan content",
+                      body["data"]["embeds"][0]["description"])
+
+    # ── panel state ─────────────────────────────────────────────────────────
+    def test_changing_a_select_applies_the_new_value(self):
+        """The fired select must be overridden with its echoed value; the message
+        state still holds the pre-change value, so reading it alone loses the
+        change and the panel appears frozen."""
+        body = json.loads(di._handle_random_option(
+            self._payload("random_opt_fan", values=["1"], fan="0")).content)
+        self.assertEqual(self._selects(body)["random_opt_fan"], ["1"])
+
+    def test_selecting_an_option_preserves_the_others(self):
+        body = json.loads(di._handle_random_option(self._payload(
+            "random_opt_platform", kind="Hireling", values=["rd"],
+            platform_key="tts", fan="1", side="P")).content)
+        selects = self._selects(body)
+        self.assertEqual(selects["random_opt_platform"], ["rd"])
+        self.assertEqual(selects["random_opt_fan"], ["1"])
+        self.assertEqual(selects["random_opt_side"], ["P"])
+
+    def test_panel_state_round_trips(self):
+        platform, side, fan = di._random_panel_state(self._payload(
+            "random_roll_post", kind="Hireling", platform_key="rd", fan="1",
+            side="D"))
+        self.assertEqual(platform, di.DRAFT_PLATFORM_RD)
+        self.assertEqual(side, "D")
+        self.assertTrue(fan)
+
+    # ── panel shape ─────────────────────────────────────────────────────────
+    def test_hireling_panel_has_side_select_and_others_do_not(self):
+        self.assertIn("random_opt_side", self._selects(
+            {"data": self._panel("Hireling")}))
+        self.assertNotIn("random_opt_side", self._selects(
+            {"data": self._panel("Faction")}))
+
+    def test_select_action_names_do_not_prefix_each_other(self):
+        """selected_values matches by startswith, so a shared stem would make the
+        first select shadow the rest."""
+        names = list(di.RANDOM_OPTION_ACTIONS)
+        for name in names:
+            self.assertEqual([n for n in names if n.startswith(name)], [name])
+
+    def test_panel_custom_ids_end_in_owner_and_fit(self):
+        for kind in ("Faction", "Hireling"):
+            for custom_id in self._custom_ids(self._panel(kind)["components"]):
+                self.assertTrue(custom_id.endswith(f":{self.OWNER}"), custom_id)
+                self.assertLessEqual(len(custom_id), 100, custom_id)
+
+    # ── dispatch ────────────────────────────────────────────────────────────
+    def test_owner_lock_fires_on_every_panel_control(self):
+        """Someone other than the invoker gets refused on every control. Goes
+        through the real view, since the lock lives in its component dispatch."""
+        url = reverse("discord-interactions")
+        for action in list(di.RANDOM_OPTION_ACTIONS) + ["random_roll_post",
+                                                        "random_cancel"]:
+            payload = self._payload(action, values=["1"], clicker=self.OTHER)
+            with mock.patch.object(di, "_verify_signature", return_value=True):
+                response = self.client.post(
+                    url, data=json.dumps(payload), content_type="application/json")
+            self.assertIn("commander",
+                          json.loads(response.content)["data"]["content"], action)
+
+    def test_owner_may_use_the_panel_controls(self):
+        """The lock must not fire on the invoker — the flip side of the test above,
+        so a lock that refuses everyone can't pass."""
+        url = reverse("discord-interactions")
+        payload = self._payload("random_opt_fan", values=["1"])
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                url, data=json.dumps(payload), content_type="application/json")
+        body = json.loads(response.content)
+        self.assertEqual(self._selects(body)["random_opt_fan"], ["1"])
+
+    def test_cancel_clears_the_panel(self):
+        body = json.loads(di._handle_random_cancel(
+            self._payload("random_cancel")).content)
+        self.assertEqual(body["data"]["components"], [])
+        self.assertIn("cancelled", body["data"]["content"])
+
+    # ── command routing ─────────────────────────────────────────────────────
+    def _command(self, kind):
+        return json.loads(di._handle_random_command({
+            "options": [{"name": "kind", "value": kind}],
+            "_author_id": self.OWNER, "_channel_id": "chan-1",
+        }).content)
+
+    def test_post_kinds_open_a_panel(self):
+        for kind in ("Faction", "Hireling", "Captain", "Map"):
+            body = self._command(kind)
+            self.assertIn(f"**Random {kind}**", body["data"]["content"], kind)
+
+    def test_roll_still_uses_the_dice_prompt(self):
+        body = self._command("Roll")
+        self.assertIn("how many dice", body["data"]["content"])
+
+    def test_suit_resolves_without_a_panel(self):
+        body = self._command("Suit")
+        self.assertNotIn("components", body["data"])
+        self.assertTrue(body["data"]["embeds"][0]["title"].startswith("Random Suit"))
+
+
+# ── /schedule participant confirmation ───────────────────────────────────────
+# The consensus flow: a proposed time every roster player must confirm before it
+# reaches Match.scheduled_time. Gated per tournament by
+# require_participant_schedule_confirmation (default True).
+
+class ScheduleConsensusGateTests(ScheduleFixtureMixin, TestCase):
+    """_consensus_required decides which flow runs, and is the ONLY place that
+    decision is made. Both conditions must hold: the tournament opts in AND
+    players are actually allowed to schedule AND there's a roster to poll."""
+
+    def test_flag_defaults_true(self):
+        self.build()
+        self.assertTrue(self.tournament.require_participant_schedule_confirmation)
+
+    def test_requires_confirmation_needs_flag_and_recording_access(self):
+        self.build()
+        self.assertTrue(self.tournament.requires_schedule_confirmation())
+
+        self.tournament.require_participant_schedule_confirmation = False
+        self.assertFalse(self.tournament.requires_schedule_confirmation())
+
+    def test_moderators_only_access_disables_consensus(self):
+        """MODERATORS is the DEFAULT recording_access, and there no player may
+        schedule — so staging a vote would ask people who aren't allowed to act."""
+        self.build(recording_access=Tournament.RecordingAccessTypes.MODERATORS,
+                   populate_group=True)
+        self.assertTrue(self.tournament.require_participant_schedule_confirmation)
+        self.assertFalse(self.tournament.requires_schedule_confirmation())
+        required, _roster = di._consensus_required(self.match)
+        self.assertFalse(required)
+
+    def test_empty_roster_disables_consensus(self):
+        self.build()  # populate_group=False -> no tournament_players
+        required, roster = di._consensus_required(self.match)
+        self.assertFalse(required)
+        self.assertEqual(roster, [])
+
+    def test_required_when_flag_and_roster_present(self):
+        self.build(populate_group=True)
+        required, roster = di._consensus_required(self.match)
+        self.assertTrue(required)
+        self.assertEqual(len(roster), 2)
+
+
+class ScheduleRosterTests(ScheduleFixtureMixin, TestCase):
+
+    def test_roster_reads_tournament_players_not_seats(self):
+        """self.player is SEATED but not in the group's M2M unless populated."""
+        self.build()
+        self.assertEqual(di._match_roster(self.match), [])
+
+    def test_roster_lists_group_members(self):
+        self.build(populate_group=True)
+        ids = {p.pk for p in di._match_roster(self.match)}
+        self.assertEqual(ids, {self.player.pk, self.teammate.pk})
+
+    def test_roster_dedupes(self):
+        self.build(populate_group=True)
+        self.group.tournament_players.add(self.tournament_player)
+        self.assertEqual(len(di._match_roster(self.match)), 2)
+
+    def test_no_player_group(self):
+        self.build()
+        self.series.player_group = None
+        self.series.save(update_fields=["player_group"])
+        self.match.refresh_from_db()
+        self.assertEqual(di._match_roster(self.match), [])
+
+
+class ResolveClickerTests(ScheduleFixtureMixin, TestCase):
+    """Three outcomes. Only MATCHED may act on a proposal."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.roster = di._match_roster(self.match)
+
+    def test_discord_id_match_is_matched(self):
+        profile, status = di._resolve_clicker(self.roster, "2", "anything")
+        self.assertEqual(status, di.CLICKER_MATCHED)
+        self.assertEqual(profile.pk, self.player.pk)
+
+    def test_username_match_on_unlinked_profile_is_unlinked_not_matched(self):
+        self.teammate.discord_id = None
+        self.teammate.save(update_fields=["discord_id"])
+        profile, status = di._resolve_clicker(
+            di._match_roster(self.match), "999888777666555444", "teammate")
+        self.assertEqual(status, di.CLICKER_UNLINKED)
+        self.assertEqual(profile.pk, self.teammate.pk)
+
+    def test_username_match_never_writes_discord_id(self):
+        """The escalation guard: a username is user-controlled, so it must never
+        bind a snowflake to a Profile that the whole bot then trusts."""
+        self.teammate.discord_id = None
+        self.teammate.save(update_fields=["discord_id"])
+        di._resolve_clicker(di._match_roster(self.match), "999888777666555444", "teammate")
+        self.teammate.refresh_from_db()
+        self.assertIsNone(self.teammate.discord_id)
+
+    def test_username_match_is_sanitized(self):
+        self.teammate.discord_id = None
+        self.teammate.discord = "team.mate"
+        self.teammate.save(update_fields=["discord_id", "discord"])
+        _profile, status = di._resolve_clicker(
+            di._match_roster(self.match), "999888777666555444", "Team.Mate")
+        self.assertEqual(status, di.CLICKER_UNLINKED)
+
+    def test_linked_profile_never_matched_by_username(self):
+        """teammate already has discord_id=5; a stranger claiming that username
+        must not resolve to them."""
+        _profile, status = di._resolve_clicker(self.roster, "999888777666555444", "teammate")
+        self.assertEqual(status, di.CLICKER_UNKNOWN)
+
+    def test_non_roster_is_unknown(self):
+        _profile, status = di._resolve_clicker(self.roster, "3", "outsider")
+        self.assertEqual(status, di.CLICKER_UNKNOWN)
+
+    def test_no_username_is_unknown(self):
+        _profile, status = di._resolve_clicker(self.roster, "999888777666555444", None)
+        self.assertEqual(status, di.CLICKER_UNKNOWN)
+
+
+class ScheduleProposalCommandTests(ScheduleFixtureMixin, TestCase):
+    """The Confirm button creates a proposal instead of writing the time."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.ts = int(self.when.timestamp())
+
+    def _payload(self, owner=None):
+        return {
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_confirm", self.match.id, self.ts,
+                owner or self.player.discord_id)},
+            "guild_id": self.guild.guild_id,
+            "channel_id": "555000111",
+            "token": None,
+        }
+
+    def _confirm(self, owner=None):
+        with mock.patch.object(di.post_schedule_proposal_task, "apply_async") as enqueue:
+            response = di._handle_schedule_confirm(self._payload(owner))
+        return response, enqueue
+
+    def test_creates_proposal_and_does_not_write_time(self):
+        response, _ = self._confirm()
+        self.assertEqual(json.loads(response.content)["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.assertEqual(ScheduleProposal.objects.count(), 1)
+
+    def test_proposer_is_seeded_as_confirmed(self):
+        self._confirm()
+        proposal = ScheduleProposal.objects.get()
+        self.assertEqual([p.pk for p in proposal.confirmed_by.all()], [self.player.pk])
+        self.assertEqual([p.pk for p in proposal.pending_profiles()], [self.teammate.pk])
+
+    def test_non_roster_moderator_seeds_nobody(self):
+        """A group moderator scheduling a game they don't play in confirms no one —
+        every player still has to agree."""
+        self._confirm(owner=self.group_mod.discord_id)
+        proposal = ScheduleProposal.objects.get()
+        self.assertEqual(proposal.confirmed_by.count(), 0)
+        self.assertEqual(proposal.pending_profiles().count(), 2)
+
+    def test_enqueues_public_post_with_proposal_id(self):
+        _response, enqueue = self._confirm()
+        proposal = ScheduleProposal.objects.get()
+        self.assertEqual(enqueue.call_args.args[0][0], proposal.pk)
+        self.assertEqual(enqueue.call_args.kwargs["countdown"], 2)
+
+    def test_records_channel_for_later_edits(self):
+        self._confirm()
+        self.assertEqual(ScheduleProposal.objects.get().channel_id, "555000111")
+
+
+class ScheduleLegacyPathTests(ScheduleFixtureMixin, TestCase):
+    """The regression guard: with consensus off, /schedule behaves exactly as it
+    did before this feature."""
+
+    def setUp(self):
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.ts = int(self.when.timestamp())
+
+    def _payload(self):
+        return {
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_confirm", self.match.id, self.ts, self.player.discord_id)},
+            "guild_id": self.guild.guild_id,
+            "channel_id": "555000111",
+            "token": None,
+        }
+
+    def test_flag_off_with_full_roster_writes_directly(self):
+        self.build(populate_group=True)
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(update_fields=["require_participant_schedule_confirmation"])
+        di._handle_schedule_confirm(self._payload())
+        self.match.refresh_from_db()
+        self.assertEqual(int(self.match.scheduled_time.timestamp()), self.ts)
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+    def test_moderators_access_writes_directly(self):
+        self.build(recording_access=Tournament.RecordingAccessTypes.MODERATORS,
+                   populate_group=True)
+        di._handle_schedule_confirm({
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_confirm", self.match.id, self.ts, self.group_mod.discord_id)},
+            "guild_id": self.guild.guild_id, "channel_id": "555000111", "token": None,
+        })
+        self.match.refresh_from_db()
+        self.assertEqual(int(self.match.scheduled_time.timestamp()), self.ts)
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+    def test_gate_is_rechecked_on_the_button_not_encoded(self):
+        """Flipping the setting between prompt and click takes effect immediately."""
+        self.build(populate_group=True)
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(update_fields=["require_participant_schedule_confirmation"])
+        di._handle_schedule_confirm(self._payload())
+        self.match.refresh_from_db()
+        self.assertIsNotNone(self.match.scheduled_time)
+
+
+class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player,
+            channel_id="555000111", guild_id=self.guild.guild_id)
+        self.proposal.roster.set([self.player, self.teammate])
+        self.proposal.confirmed_by.add(self.player)
+
+    def _payload(self, action="sched_prop_ok", user_id="5", username="teammate",
+                 proposal_id=None):
+        return {
+            "data": {"custom_id": di.encode_custom_id(
+                action, proposal_id or self.proposal.pk, "g")},
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": user_id, "username": username}},
+            "token": None,
+        }
+
+    def _body(self, response):
+        return json.loads(response.content)
+
+    def test_non_roster_clicker_refused(self):
+        body = self._body(di._handle_schedule_proposal_confirm(
+            self._payload(user_id="3", username="outsider")))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("not one of this game's players", body["data"]["content"])
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_final_confirm_writes_time_and_clears_buttons(self):
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertEqual(body["data"]["components"], [])
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.scheduled_time, self.when)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
+
+    def test_partial_confirm_keeps_buttons_and_writes_nothing(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertTrue(body["data"]["components"])
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_double_click_is_idempotent(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        di._handle_schedule_proposal_confirm(self._payload())
+        di._handle_schedule_proposal_confirm(self._payload())
+        self.assertEqual(self.proposal.confirmed_by.count(), 2)
+
+    def test_finalize_preserves_derived_name(self):
+        original_name, original_number = self.match.name, self.match.match_number
+        di._handle_schedule_proposal_confirm(self._payload())
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.name, original_name)
+        self.assertEqual(self.match.match_number, original_number)
+
+    def test_reject_retires_proposal_without_writing(self):
+        body = self._body(di._handle_schedule_proposal_reject(self._payload(
+            action="sched_prop_no")))
+        self.assertEqual(body["data"]["components"], [])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+        self.assertEqual(self.proposal.rejected_by_id, self.teammate.pk)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_click_on_terminal_proposal_refused(self):
+        self.proposal.status = ScheduleProposal.Status.REJECTED
+        self.proposal.save(update_fields=["status"])
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+
+    def test_past_proposed_time_refused(self):
+        self.proposal.proposed_time = timezone.now() - timedelta(hours=1)
+        self.proposal.save(update_fields=["proposed_time"])
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertIn("already passed", body["data"]["content"])
+
+    def test_cross_guild_refused(self):
+        payload = self._payload()
+        payload["guild_id"] = "999999"
+        body = self._body(di._handle_schedule_proposal_confirm(payload))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_stale_custom_id_refused(self):
+        payload = {"data": {"custom_id": "sched_prop_ok"},
+                   "guild_id": self.guild.guild_id, "token": None}
+        body = self._body(di._handle_schedule_proposal_confirm(payload))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+
+    def test_match_played_since_proposal_refused(self):
+        self.match.status = CompetitionStatus.COMPLETED
+        self.match.save(update_fields=["status"])
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+
+
+class UnlinkedClickerTests(ScheduleFixtureMixin, TestCase):
+    """A roster player whose Discord isn't linked is told how to fix it, and
+    cannot act until they do."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.teammate.discord_id = None
+        self.teammate.save(update_fields=["discord_id"])
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player,
+            channel_id="555000111", guild_id=self.guild.guild_id)
+        self.proposal.roster.set([self.player, self.teammate])
+        self.proposal.confirmed_by.add(self.player)
+
+    def _payload(self, action="sched_prop_ok"):
+        return {
+            "data": {"custom_id": di.encode_custom_id(action, self.proposal.pk, "g")},
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": "999888777666555444", "username": "teammate"}},
+            "token": None,
+        }
+
+    def test_confirm_tells_them_to_log_in_and_does_not_count(self):
+        body = json.loads(di._handle_schedule_proposal_confirm(self._payload()).content)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("isn't linked", body["data"]["content"])
+        self.assertEqual(self.proposal.confirmed_by.count(), 1)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_impersonator_cannot_finalize(self):
+        di._handle_schedule_proposal_confirm(self._payload())
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+
+    def test_pending_list_marks_unlinked_players(self):
+        value = di._name_list_value([self.teammate])
+        self.assertIn("not linked", value)
+
+
+class ScheduleProposalRejectEligibilityTests(ScheduleFixtureMixin, TestCase):
+    """Reject accepts a wider set than Confirm: any roster player (even one who
+    already confirmed) plus anyone who passes can_schedule."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player,
+            channel_id="555000111", guild_id=self.guild.guild_id)
+        self.proposal.roster.set([self.player, self.teammate])
+        self.proposal.confirmed_by.add(self.player)
+
+    def _reject(self, user_id, username):
+        return json.loads(di._handle_schedule_proposal_reject({
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_prop_no", self.proposal.pk, "g")},
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": user_id, "username": username}},
+            "token": None,
+        }).content)
+
+    def test_already_confirmed_player_may_still_reject(self):
+        """Plans change — earlier consent must not trap the group."""
+        self._reject("2", "player")
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+
+    def test_group_moderator_off_roster_may_reject(self):
+        """The escape hatch for a proposal stuck behind an unresponsive player."""
+        self._reject("4", "groupmod")
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+
+    def test_outsider_cannot_reject(self):
+        body = self._reject("3", "outsider")
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+
+
+class SchedulePermissionTests(ScheduleFixtureMixin, TestCase):
+    """Confirmations express CONSENT; authority to schedule comes from the
+    proposer and is re-asserted at write time."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player,
+            channel_id="555000111", guild_id=self.guild.guild_id)
+        self.proposal.roster.set([self.player, self.teammate])
+        self.proposal.confirmed_by.set([self.player, self.teammate])
+
+    def test_revoked_permission_cancels_instead_of_confirming(self):
+        """The ordering guard: a refused proposal must land CANCELLED, never
+        CONFIRMED-with-no-time."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        ok, error = di._finalize_proposal(self.proposal)
+        self.assertFalse(ok)
+        self.assertIn("permission", error)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+    def test_missing_proposer_cancels(self):
+        self.proposal.proposed_by = None
+        self.proposal.save(update_fields=["proposed_by"])
+        ok, _error = di._finalize_proposal(self.proposal)
+        self.assertFalse(ok)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+    def test_authorised_finalize_writes(self):
+        ok, error = di._finalize_proposal(self.proposal)
+        self.assertTrue(ok, error)
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.scheduled_time, self.when)
+
+
+class ScheduleProposalSupersedeTests(ScheduleFixtureMixin, TestCase):
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when_a = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.when_b = (timezone.now() + timedelta(days=11)).replace(microsecond=0)
+        self.a = self._proposal(self.when_a, "111")
+        self.b = self._proposal(self.when_b, "222")
+
+    def _proposal(self, when, message_id):
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=when, proposed_by=self.player,
+            channel_id="555000111", message_id=message_id,
+            guild_id=self.guild.guild_id)
+        proposal.roster.set([self.player, self.teammate])
+        proposal.confirmed_by.set([self.player, self.teammate])
+        return proposal
+
+    def test_finalizing_one_supersedes_the_other(self):
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay") as strip:
+                ok, _error = di._finalize_proposal(self.a)
+        self.assertTrue(ok)
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.status, ScheduleProposal.Status.SUPERSEDED)
+        self.assertEqual(len(callbacks), 1)
+
+    def test_strip_task_enqueued_for_loser_only(self):
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay") as strip:
+            with self.captureOnCommitCallbacks(execute=True):
+                di._finalize_proposal(self.a)
+        self.assertEqual(strip.call_args.args[0], [self.b.pk])
+        self.assertEqual(strip.call_args.args[1], "superseded")
+
+    def test_confirming_loser_after_finalize_changes_nothing(self):
+        """The real safety property: the DB status refuses the click even if the
+        cosmetic button-strip never happened."""
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            di._finalize_proposal(self.a)
+        self.match.refresh_from_db()
+        original = self.match.scheduled_time
+        body = json.loads(di._handle_schedule_proposal_confirm({
+            "data": {"custom_id": di.encode_custom_id("sched_prop_ok", self.b.pk, "g")},
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": "5", "username": "teammate"}},
+            "token": None,
+        }).content)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.scheduled_time, original)
+
+    def test_compare_and_swap_blocks_a_second_finalize(self):
+        """Runs on SQLite, where select_for_update is a no-op — so this is what
+        actually proves the race is closed."""
+        ScheduleProposal.objects.filter(pk=self.a.pk).update(
+            status=ScheduleProposal.Status.CONFIRMED)
+        ok, error = di._finalize_proposal(self.a)
+        self.assertFalse(ok)
+        self.assertIn("first", error)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+
+class ScheduleProposalInvalidationTests(ScheduleFixtureMixin, TestCase):
+    """Every path that writes or clears scheduled_time must retire open proposals."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.ts = int(self.when.timestamp())
+        self.proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player,
+            channel_id="555000111", message_id="111", guild_id=self.guild.guild_id)
+        self.proposal.roster.set([self.player, self.teammate])
+
+    def test_legacy_direct_write_cancels_open_proposals(self):
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(update_fields=["require_participant_schedule_confirmation"])
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                di._handle_schedule_confirm({
+                    "data": {"custom_id": di.encode_custom_id(
+                        "schedule_confirm", self.match.id, self.ts,
+                        self.player.discord_id)},
+                    "guild_id": self.guild.guild_id, "channel_id": "555000111",
+                    "token": None,
+                })
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+    def test_clearing_cancels_open_proposals(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                di._handle_schedule_clear_confirm({
+                    "data": {"custom_id": di.encode_custom_id(
+                        "schedule_clear_confirm", self.match.id,
+                        self.player.discord_id)},
+                    "guild_id": self.guild.guild_id, "token": None,
+                })
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+    def test_confirm_on_cancelled_proposal_refused(self):
+        self.proposal.status = ScheduleProposal.Status.CANCELLED
+        self.proposal.save(update_fields=["status"])
+        body = json.loads(di._handle_schedule_proposal_confirm({
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_prop_ok", self.proposal.pk, "g")},
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": "5", "username": "teammate"}},
+            "token": None,
+        }).content)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+
+class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+        self.proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player)
+        self.proposal.roster.set([self.player, self.teammate])
+        self.proposal.confirmed_by.add(self.player)
+
+    def test_custom_ids_do_not_end_in_a_snowflake(self):
+        """The owner-lock regression guard: a trailing snowflake would lock every
+        player except the proposer out of their own confirmation."""
+        data = di._schedule_proposal_data(self.proposal, self.match)
+        for component in data["components"][0]["components"]:
+            _action, args = di.decode_custom_id(component["custom_id"])
+            last = args[-1]
+            self.assertFalse(last.isdigit() and len(last) >= 17,
+                             f"{component['custom_id']} would trigger the owner-lock")
+
+    def test_custom_ids_within_length_cap(self):
+        data = di._schedule_proposal_data(self.proposal, self.match)
+        for component in data["components"][0]["components"]:
+            self.assertLessEqual(len(component["custom_id"]), 100)
+
+    def test_pending_view_lists_both_groups(self):
+        data = di._schedule_proposal_data(self.proposal, self.match)
+        fields = {f["name"]: f["value"] for f in data["embeds"][0]["fields"]}
+        self.assertIn(f"<@{self.teammate.discord_id}>", fields["Waiting on"])
+        self.assertIn(f"<@{self.player.discord_id}>", fields["✅ Confirmed"])
+        self.assertNotIn(f"<@{self.player.discord_id}>", fields["Waiting on"])
+
+    def test_first_post_mentions_but_edits_do_not(self):
+        first = di._schedule_proposal_data(self.proposal, self.match, mention=True)
+        self.assertEqual(first["allowed_mentions"]["parse"], ["users"])
+        edit = di._schedule_proposal_data(self.proposal, self.match)
+        self.assertEqual(edit["allowed_mentions"]["parse"], [])
+
+    def test_rejected_view_does_not_name_the_rejecter(self):
+        self.proposal.rejected_by = self.teammate
+        data = di._schedule_rejected_data(self.proposal)
+        description = data["embeds"][0]["description"]
+        self.assertEqual(data["components"], [])
+        # Match the rendered mention/name forms, not a bare id — a short snowflake
+        # like "5" also occurs inside the <t:...> timestamp.
+        self.assertNotIn(f"<@{self.teammate.discord_id}>", description)
+        self.assertNotIn(self.teammate.discord, description)
+        self.assertIn("A player rejected", description)
+
+    def test_finalized_view_clears_components(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        data = di._schedule_finalized_data(self.proposal, self.match)
+        self.assertEqual(data["components"], [])
+        names = [f["name"] for f in data["embeds"][0]["fields"]]
+        self.assertIn("✅ Confirmed by", names)
+
+    def test_field_value_truncates_at_discord_cap(self):
+        """An over-long field makes Discord reject the whole edit — which would
+        silently discard a change already committed to the DB."""
+        many = [Profile(discord=f"p{i}", discord_id=str(10**17 + i)) for i in range(200)]
+        value = di._name_list_value(many)
+        self.assertLessEqual(len(value), 1024)
+        self.assertIn("more", value)
+
+    def test_handlers_are_registered(self):
+        self.assertIn("sched_prop_ok", di.COMPONENT_HANDLERS)
+        self.assertIn("sched_prop_no", di.COMPONENT_HANDLERS)
+
+
+class PostChannelMessageFullTests(TestCase):
+
+    def test_returns_message_id_on_success(self):
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"id": "12345"}
+        with mock.patch.object(ds.requests, "post", return_value=response):
+            result, message_id = ds.post_channel_message_full("chan", content="hi")
+        self.assertEqual(result, ds.THREAD_OK)
+        self.assertEqual(message_id, "12345")
+
+    def test_permanent_failure_is_blocked(self):
+        err = ds.requests.RequestException("nope")
+        err.response = mock.Mock(status_code=403, text="forbidden")
+        with mock.patch.object(ds.requests, "post", side_effect=err):
+            result, message_id = ds.post_channel_message_full("chan", content="hi")
+        self.assertEqual(result, ds.THREAD_BLOCKED)
+        self.assertIsNone(message_id)
+
+    def test_transient_failure_is_error(self):
+        err = ds.requests.RequestException("boom")
+        err.response = mock.Mock(status_code=500, text="server error")
+        with mock.patch.object(ds.requests, "post", side_effect=err):
+            result, _id = ds.post_channel_message_full("chan", content="hi")
+        self.assertEqual(result, ds.THREAD_ERROR)
+
+
+class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.proposal = ScheduleProposal.objects.create(
+            match=self.match,
+            proposed_time=timezone.now() + timedelta(days=10),
+            proposed_by=self.player, channel_id="555000111")
+
+    def test_post_task_records_message_id(self):
+        from the_gatehouse import tasks
+        with mock.patch(
+            "the_gatehouse.services.discordservice.post_channel_message_full",
+            return_value=(ds.THREAD_OK, "98765"),
+        ) as post:
+            tasks.post_schedule_proposal_task(self.proposal.pk, {"content": "x"})
+        post.assert_called_once()
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.message_id, "98765")
+
+    def test_post_task_reraises_transient_failure(self):
+        from the_gatehouse import tasks
+        with mock.patch(
+            "the_gatehouse.services.discordservice.post_channel_message_full",
+            return_value=(ds.THREAD_ERROR, None),
+        ):
+            with self.assertRaises(Exception):
+                tasks.post_schedule_proposal_task(self.proposal.pk, {"content": "x"})
+
+    def test_post_task_skips_non_open_proposal(self):
+        from the_gatehouse import tasks
+        self.proposal.status = ScheduleProposal.Status.SUPERSEDED
+        self.proposal.save(update_fields=["status"])
+        with mock.patch(
+            "the_gatehouse.services.discordservice.post_channel_message_full",
+        ) as post:
+            tasks.post_schedule_proposal_task(self.proposal.pk, {"content": "x"})
+        post.assert_not_called()
+
+    def test_strip_task_skips_blank_message_id(self):
+        from the_gatehouse import tasks
+        with mock.patch(
+            "the_gatehouse.services.discordservice.edit_channel_message",
+        ) as edit:
+            tasks.strip_schedule_proposal_messages_task([self.proposal.pk], "superseded")
+        edit.assert_not_called()
+
+    def test_strip_task_swallows_permanent_failure(self):
+        from the_gatehouse import tasks
+        self.proposal.message_id = "111"
+        self.proposal.save(update_fields=["message_id"])
+        with mock.patch(
+            "the_gatehouse.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_BLOCKED,
+        ):
+            tasks.strip_schedule_proposal_messages_task([self.proposal.pk], "superseded")
+
+    def test_strip_task_reraises_transient_failure(self):
+        from the_gatehouse import tasks
+        self.proposal.message_id = "111"
+        self.proposal.save(update_fields=["message_id"])
+        with mock.patch(
+            "the_gatehouse.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_ERROR,
+        ):
+            with self.assertRaises(Exception):
+                tasks.strip_schedule_proposal_messages_task(
+                    [self.proposal.pk], "superseded")
+
+    def test_cleanup_retires_past_proposals(self):
+        from the_gatehouse import tasks
+        self.proposal.proposed_time = timezone.now() - timedelta(hours=1)
+        self.proposal.message_id = "111"
+        self.proposal.save(update_fields=["proposed_time", "message_id"])
+        with mock.patch.object(tasks.strip_schedule_proposal_messages_task, "delay"):
+            retired = tasks.cleanup_stale_schedule_proposals()
+        self.assertEqual(retired, 1)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+
+class InlineGuildSyncOnLoginTests(TestCase):
+    """Login refreshes Discord guilds INLINE when the cached group can't be trusted.
+
+    A returning player already has group='P' persisted, so @player_required passes and
+    the async refresh is fine. But a first login (never synced) or a still-Outcast user
+    renders against a stale group and gets bounced. Those cases sync on the request
+    thread, under a budget, so the group is right before the user's first click.
+
+    These tests keep user_logged_in_handler CONNECTED (unlike _NoLoginSignalMixin) since
+    the handler is what's under test; the Discord calls and Celery sends are mocked.
+    """
+
+    WW_GUILD = [{'id': 'ww-guild'}]
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='newbie', password='pw')
+        self.profile = self.user.profile
+        # Every test patches the Discord boundary; nothing here touches the network.
+        for target in ('send_discord_message_task', 'update_discord_avatar_task'):
+            p = mock.patch(f'the_gatehouse.signals.{target}')
+            p.start()
+            self.addCleanup(p.stop)
+    def _login(self):
+        """Log in with the signal connected; returns the mocked async task.
+
+        Fires the signal by logging the user in directly against a REAL request from
+        RequestFactory, with session + messages attached. client.login() builds a bare
+        request with no SERVER_NAME and no message storage, which the handler needs for
+        its absolute URLs and welcome message — that's why the rest of the suite
+        disconnects the handler, but here the handler is the thing under test.
+        """
+        request = RequestFactory().get('/')
+        SessionMiddleware(lambda r: None).process_request(request)
+        request._messages = FallbackStorage(request)
+        with mock.patch('the_gatehouse.signals.refresh_user_guilds_task') as task:
+            # The async hand-off is wrapped in transaction.on_commit, which never runs
+            # inside TestCase's rolled-back transaction unless captured.
+            with self.captureOnCommitCallbacks(execute=True):
+                auth_login(request, self.user,
+                           backend='django.contrib.auth.backends.ModelBackend')
+        request.session.save()
+        return task
+
+    def _patch_discord(self, guilds, display_name='Newbie'):
+        """Patch the Discord boundary as imported inside refresh_user_guilds."""
+        guilds_p = mock.patch(
+            'the_gatehouse.services.discordservice.get_user_guilds', return_value=guilds)
+        name_p = mock.patch(
+            'the_gatehouse.services.discordservice.get_discord_display_name',
+            return_value=display_name)
+        derive_p = mock.patch(
+            'the_gatehouse.services.discordservice.derive_guild_membership',
+            return_value=(bool(guilds), False, False))
+        update_p = mock.patch(
+            'the_gatehouse.services.discordservice.update_user_guilds')
+        mocks = [p.start() for p in (guilds_p, name_p, derive_p, update_p)]
+        for p in (guilds_p, name_p, derive_p, update_p):
+            self.addCleanup(p.stop)
+        return mocks[0], mocks[1]
+
+    def test_first_login_in_ww_promotes_inline(self):
+        """The bug: a brand-new WW member must be group P before their first click."""
+        self._patch_discord(self.WW_GUILD)
+        self._login()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.group, 'P')
+        self.assertTrue(self.profile.player)
+        self.assertFalse(self.profile.guilds_refreshing)
+        self.assertIsNotNone(self.profile.guilds_synced_at)
+
+    def test_successful_inline_sync_does_not_also_enqueue_task(self):
+        """Guards the double-refresh bug: no redundant Celery job after an inline sync."""
+        self._patch_discord(self.WW_GUILD)
+        task = self._login()
+        task.delay.assert_not_called()
+
+    def test_returning_player_makes_no_inline_discord_call(self):
+        """Regression guard for the outage: the common path must stay fully async."""
+        self.profile.group = 'P'
+        self.profile.guilds_synced_at = timezone.now()
+        self.profile.save(update_fields=['group', 'guilds_synced_at'])
+
+        get_guilds, _ = self._patch_discord(self.WW_GUILD)
+        task = self._login()
+
+        get_guilds.assert_not_called()
+        task.delay.assert_called_once_with(self.user.id)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.guilds_refreshing)
+
+    def test_discord_failure_falls_back_to_async(self):
+        """None means API failure: never demote, keep the spinner, hand off to Celery."""
+        self._patch_discord(None)
+        task = self._login()
+
+        task.delay.assert_called_once_with(self.user.id)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.group, 'O')
+        self.assertTrue(self.profile.guilds_refreshing)
+
+    def test_login_survives_discord_exception(self):
+        """A Discord outage must never break login itself."""
+        with mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+                        side_effect=RuntimeError('discord down')):
+            task = self._login()
+
+        task.delay.assert_called_once_with(self.user.id)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.guilds_refreshing)
+
+    def test_non_ww_user_stays_outcast(self):
+        self._patch_discord([])
+        self._login()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.group, 'O')
+        self.assertFalse(self.profile.player)
+
+    def test_discord_id_backfill_is_not_clobbered_by_inline_sync(self):
+        """The handler's own save() must not write its stale copy over the fresh group."""
+        self._patch_discord(self.WW_GUILD)
+        with mock.patch('the_gatehouse.signals.get_discord_id', return_value='42'):
+            self._login()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.discord_id, '42')
+        self.assertEqual(self.profile.group, 'P')
+
+
+class RefreshUserGuildsBudgetTests(TestCase):
+    """The inline path is bounded by a monotonic deadline, not per-call timeouts."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='budget', password='pw')
+
+    def _fake_clock(self):
+        """A monotonic clock the test advances explicitly, via clock.advance(n)."""
+        class Clock:
+            now = 0.0
+            def __call__(self):
+                return self.now
+            def advance(self, seconds):
+                self.now += seconds
+        return Clock()
+
+    def test_budget_exhaustion_skips_the_cosmetic_display_name(self):
+        """Group promotion gates access; the nickname can wait for the async task."""
+        from the_gatehouse import tasks
+
+        clock = self._fake_clock()
+
+        def slow_guilds(user, timeout=None):
+            clock.advance(99)   # a slow Discord eats the whole budget
+            return [{'id': 'ww-guild'}]
+
+        with mock.patch.object(tasks.time, 'monotonic', clock), \
+             mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+                        side_effect=slow_guilds), \
+             mock.patch('the_gatehouse.services.discordservice.update_user_guilds'), \
+             mock.patch('the_gatehouse.services.discordservice.derive_guild_membership',
+                        return_value=(True, False, False)), \
+             mock.patch('the_gatehouse.services.discordservice.get_discord_display_name'
+                        ) as name:
+            ok = tasks.refresh_user_guilds(self.user, budget=6)
+
+        # The group promotion still landed and was saved...
+        self.assertTrue(ok)
+        self.user.profile.refresh_from_db()
+        self.assertEqual(self.user.profile.group, 'P')
+        # ...but the optional display-name lookup was skipped.
+        name.assert_not_called()
+
+    def test_exhausted_budget_before_first_call_returns_false(self):
+        from the_gatehouse import tasks
+
+        clock = self._fake_clock()
+        clock.now = 99   # already past the deadline when we start
+
+        with mock.patch.object(tasks.time, 'monotonic', clock), \
+             mock.patch('the_gatehouse.services.discordservice.get_user_guilds'
+                        ) as get_guilds:
+            ok = tasks.refresh_user_guilds(self.user, budget=-1)
+
+        self.assertFalse(ok)
+        get_guilds.assert_not_called()
+
+    def test_no_budget_means_no_timeout_override(self):
+        """The async task path must keep the historical per-call 5s defaults."""
+        from the_gatehouse import tasks
+
+        with mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+                        return_value=[]) as get_guilds, \
+             mock.patch('the_gatehouse.services.discordservice.update_user_guilds'), \
+             mock.patch('the_gatehouse.services.discordservice.derive_guild_membership',
+                        return_value=(False, False, False)), \
+             mock.patch('the_gatehouse.services.discordservice.get_discord_display_name',
+                        return_value='x'):
+            tasks.refresh_user_guilds(self.user)
+
+        self.assertEqual(get_guilds.call_args.kwargs, {})
+
+
+class FinishingSigninViewTests(_NoLoginSignalMixin, TestCase):
+    """The interstitial holds a user whose sync didn't finish, then routes them on."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='holder', password='pw')
+        self.profile = self.user.profile
+        self.client.force_login(self.user)
+        self.url = reverse('finishing-signin')
+
+    def test_holds_while_refreshing(self):
+        self.profile.guilds_refreshing = True
+        self.profile.save(update_fields=['guilds_refreshing'])
+        response = self.client.get(self.url, {'next': '/some/page/'})
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'the_gatehouse/finishing_signin.html')
+
+    def test_forwards_to_next_once_synced_and_player(self):
+        self.profile.group = 'P'
+        self.profile.guilds_refreshing = False
+        self.profile.save(update_fields=['group', 'guilds_refreshing'])
+        response = self.client.get(self.url, {'next': '/some/page/'})
+        self.assertRedirects(response, '/some/page/', fetch_redirect_response=False)
+
+    def test_non_player_is_not_ping_ponged_back_to_next(self):
+        """Sync finished and they're genuinely not in WW: route explicitly, not via next."""
+        self.profile.group = 'O'
+        self.profile.guilds_refreshing = False
+        self.profile.save(update_fields=['group', 'guilds_refreshing'])
+        response = self.client.get(self.url, {'next': '/some/page/'})
+        self.assertRedirects(response, reverse('woodland-warriors-info'),
+                             fetch_redirect_response=False)
+
+    def test_rejects_off_host_next(self):
+        self.profile.group = 'P'
+        self.profile.guilds_refreshing = False
+        self.profile.save(update_fields=['group', 'guilds_refreshing'])
+        response = self.client.get(self.url, {'next': 'https://evil.example.com/'})
+        self.assertRedirects(response, reverse('site-home'),
+                             fetch_redirect_response=False)
+
+
+class PlayerRequiredInterstitialTests(_NoLoginSignalMixin, TestCase):
+    """@player_required sends a mid-sync user to the interstitial, not the WW info page."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='gated', password='pw')
+        self.profile = self.user.profile
+        self.factory = RequestFactory()
+
+    def _run_decorator(self, path='/gated/page/?x=1'):
+        @views.player_required
+        def view(request):
+            return HttpResponse('ok')
+
+        request = self.factory.get(path)
+        request.user = self.user
+        return view(request)
+
+    def test_redirects_to_interstitial_while_refreshing(self):
+        self.profile.guilds_refreshing = True
+        self.profile.save(update_fields=['guilds_refreshing'])
+        response = self._run_decorator()
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('finishing-signin'), response.url)
+        # The query string must survive the round trip.
+        self.assertIn('x%3D1', response.url)
+
+    def test_redirects_to_ww_info_when_not_refreshing(self):
+        self.profile.guilds_refreshing = False
+        self.profile.save(update_fields=['guilds_refreshing'])
+        response = self._run_decorator()
+        self.assertRedirects(response, reverse('woodland-warriors-info'),
+                             fetch_redirect_response=False)
