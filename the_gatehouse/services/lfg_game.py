@@ -1,17 +1,19 @@
 """Turning an LFGThread's captured Discord activity into game-form inputs.
 
-An LFG thread accumulates two kinds of curated state: `seating` (who sits where,
-written by /draft's seat button) and `rolls` (an append-only log of every
-component surfaced by /random, /map, /deck, the other lookups, and /draft).
-This module resolves both into the shapes the record-game form needs, so the
-view stays thin.
+An LFG thread accumulates curated state in three related tables: LFGSeat (who
+sits where, written by /draft's seat button), LFGRoll (an append-only log of
+every component surfaced by /random, /map, /deck, the other lookups, and
+/draft), and LFGDraft/LFGDraftPick (the current draft). This module resolves
+them into the shapes the record-game form needs, so the view stays thin.
+
+Note the form narrows its options from the ROLL LOG, not the draft -- the draft
+is recorded for a future "pick a faction from the draft" command.
 
 Kept in the_gatehouse (the app that owns LFGThread) but imports the_warroom
 models lazily inside functions — the_warroom.models imports from
 the_gatehouse.models at module level, so a top-level import here is circular.
 """
 
-from ..models import Profile
 
 # Every `kind` an LFGThread roll can carry, mapped to the asset bucket it
 # validates against. Source of truth: _LFG_LOOKUP_KIND in discord_interactions
@@ -36,15 +38,20 @@ ROLL_KIND_TO_BUCKET = {
 def rolled_components(thread):
     """`kind` -> [slug, ...] for everything surfaced in this thread.
 
-    Deduped, first-seen order preserved. Entries without a slug are skipped
-    (a roll can carry a null slug when the underlying post was missing)."""
+    Deduped, first-seen order preserved. Rows with no resolvable slug are
+    skipped.
+
+    Emits the LIVE slug (post.slug) and falls back to the stored snapshot only
+    when the Post is gone. Order matters: slugs are derived from the title, so a
+    renamed Post would strand the snapshot and silently drop that component from
+    the form's choices -- the exact dangling-reference bug the FK exists to fix.
+    """
     out = {}
-    for entry in (thread.rolls or []):
-        kind = entry.get("kind")
-        slug = entry.get("slug")
-        if not kind or not slug:
+    for roll in thread.roll_log.select_related("post"):
+        slug = roll.post.slug if roll.post_id else roll.slug
+        if not roll.kind or not slug:
             continue
-        slugs = out.setdefault(kind, [])
+        slugs = out.setdefault(roll.kind, [])
         if slug not in slugs:
             slugs.append(slug)
     return out
@@ -53,35 +60,26 @@ def rolled_components(thread):
 def seated_profiles(thread):
     """Ordered [(seat_number, Profile|None, faction_slug|None), ...], seat 1 first.
 
-    `seating` entries are {"id": <discord snowflake>, "name", "seat"} — `id` is a
-    Discord id, NOT a Profile pk, so resolution goes through Profile.discord_id
-    (unique, but nullable: a seat can carry a null id). A seat that can't be
-    resolved yields None and KEEPS ITS POSITION so the remaining seats don't
-    shift.
+    The middle element is None when the seat's Profile was deleted; that row
+    still KEEPS ITS POSITION, because the record form places effort rows by list
+    position and sizes the formset from this list's length -- dropping a seat
+    would silently shrink the form by a player instead of leaving a blank row.
 
-    `faction` is read forward-compatibly: nothing writes that key today, but a
-    later change recording the drafted faction per seat lights this up for free.
+    The third element is a SLUG STRING, not a Faction: the form does
+    `.filter(slug=faction_slug)`, and a model instance there would coerce via
+    str() and silently match nothing. No production path writes LFGSeat.faction
+    yet; a future "pick a faction from the draft" command will.
 
     With no seating recorded, falls back to the thread's players in default
     order (seat numbers still assigned 1..N)."""
-    seating = thread.seating or []
-    if not seating:
+    seats = list(thread.seats.select_related("profile", "faction"))
+    if not seats:
         return [(i, p, None)
                 for i, p in enumerate(thread.players.all(), 1)]
 
-    rows = sorted(seating, key=lambda s: s.get("seat") or 0)
-    # Strip falsy ids: Profile.discord_id is nullable, and `IN (NULL)` matches
-    # nothing anyway.
-    ids = [str(r.get("id")) for r in rows if r.get("id")]
-    by_discord = {p.discord_id: p
-                  for p in Profile.objects.filter(discord_id__in=ids)}
-
-    resolved = []
-    for i, row in enumerate(rows, 1):
-        seat_no = row.get("seat") or i
-        profile = by_discord.get(str(row.get("id"))) if row.get("id") else None
-        resolved.append((seat_no, profile, row.get("faction") or None))
-    return resolved
+    return [(s.seat_number, s.profile,
+             s.faction.slug if s.faction_id else None)
+            for s in seats]
 
 
 def lfg_option_querysets(thread, tournament):

@@ -11,6 +11,7 @@
 - /random commands now have option to include fan content
 - /schedule prompts for timezone if none was provided and the user does not already have a set timezone
 - /schedule now proposes a time for every player in the game to confirm before it is scheduled
+- new models to store lfg data to help with the /record command
 
 ### Bug Fixes
 - inactive stages don't error out on creation

@@ -6,9 +6,10 @@ from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
-from the_keep.models import StatusChoices, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
+from the_keep.models import StatusChoices, Post, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
-from .models import BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile
+from .models import (BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile,
+                     LFGRoll, LFGDraft, LFGDraftPick)
 
 from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, register_guild_commands, DM_ERROR
 from .services.context_service import get_daily_user_summary
@@ -643,27 +644,112 @@ _LFG_FK_KINDS = {"Map": "map", "Deck": "deck"}
 
 
 @shared_task
-def record_lfg_components_task(channel_id, items):
+def record_lfg_components_task(channel_id, items, source="", draft=None):
     """Record components surfaced inside an LFG thread (from /random, /map, /deck,
-    other lookups, /draft). No-op when the channel isn't a known LFG thread."""
-    if not channel_id or not items:
+    other lookups, /draft). No-op when the channel isn't a known LFG thread.
+
+    `source` tags where the items came from (random / lookup / draft). `draft`,
+    when given, REPLACES the thread's current draft: {"players", "platform",
+    "drafted_by": <discord id>, "picks": [{"faction","vagabond","captains",
+    "order"}]}. Everything on the wire is slugs and ids — Celery serializes as
+    JSON, so model instances would raise EncodeError in the caller.
+
+    `source` and `draft` are keyword-defaulted so the other capture call sites
+    keep working and so tasks enqueued by older code still deserialize.
+    """
+    if not channel_id or not (items or draft):
         return
-    # select_for_update guards against two concurrent captures in the same thread
-    # clobbering each other's rolls-list append (last-write-wins otherwise).
+    # select_for_update still earns its place: the map/deck update below is a
+    # read-modify-write, and the draft replacement must not interleave with a
+    # concurrent one. (The roll rows themselves are plain inserts and don't race.)
     with transaction.atomic():
         thread = LFGThread.objects.select_for_update().filter(thread_id=channel_id).first()
         if not thread:
             return  # not an LFG thread (the common case) — no-op
-        now = timezone.now().isoformat()
+
+        items = items or []
+        # One query for every rolled component. NOTE this dict holds base Post
+        # instances and must NOT be reused for the typed FKs below (map/deck/
+        # faction): MTI forbids assigning a parent instance to a child FK.
+        slugs = [it.get("slug") for it in items if it.get("slug")]
+        posts_by_slug = {}
+        if slugs:
+            posts_by_slug = {p.slug: p for p in Post.objects.filter(slug__in=slugs)}
+
+        rolls = []
         for it in items:
-            kind, slug, title = it.get("kind"), it.get("slug"), it.get("title")
-            thread.rolls.append({"kind": kind, "slug": slug, "title": title, "at": now})
-            field = _LFG_FK_KINDS.get(kind)
+            kind, slug = it.get("kind"), it.get("slug")
+            # created_at is deliberately not passed: letting the field default
+            # fire per row keeps draw order unambiguous.
+            rolls.append(LFGRoll(thread=thread, kind=kind or "", slug=slug or "",
+                                 post=posts_by_slug.get(slug), source=source or ""))
+        if rolls:
+            LFGRoll.objects.bulk_create(rolls)
+
+        # map/deck keep their own typed lookup -- posts_by_slug holds Post rows,
+        # and `thread.map = <Post>` raises ValueError under multi-table inheritance.
+        touched = []
+        for it in items:
+            field = _LFG_FK_KINDS.get(it.get("kind"))
+            slug = it.get("slug")
             if field and slug:
                 model = {"map": Map, "deck": Deck}[field]
-                setattr(thread, field,
-                        model.objects.filter(slug=slug).first() or getattr(thread, field))
-        thread.save(update_fields=["rolls", "map", "deck"])
+                obj = model.objects.filter(slug=slug).first()
+                if obj:
+                    setattr(thread, field, obj)
+                    touched.append(field)
+        if touched:
+            thread.save(update_fields=sorted(set(touched)))
+
+        if draft:
+            _replace_lfg_draft(thread, draft)
+
+
+def _replace_lfg_draft(thread, draft):
+    """Replace the thread's current draft with `draft` (a JSON-safe dict).
+
+    A thread holds ONE draft: re-running /draft supersedes the previous one
+    rather than accumulating. Runs inside record_lfg_components_task's locked
+    transaction. Unresolvable slugs are skipped and logged rather than aborting
+    the batch -- a bad slug must never cost the user their delivered draft.
+    """
+    picks = draft.get("picks") or []
+    faction_slugs = [p.get("faction") for p in picks if p.get("faction")]
+    # Typed querysets, NOT the Post dict from the caller (see the MTI note above).
+    factions = {f.slug: f for f in Faction.objects.filter(slug__in=faction_slugs)}
+
+    vb_slugs = set()
+    for p in picks:
+        if p.get("vagabond"):
+            vb_slugs.add(p["vagabond"])
+        vb_slugs.update(p.get("captains") or [])
+    vagabonds = {v.slug: v for v in Vagabond.objects.filter(slug__in=vb_slugs)} if vb_slugs else {}
+
+    drafted_by = None
+    if draft.get("drafted_by"):
+        drafted_by = Profile.objects.filter(discord_id=str(draft["drafted_by"])).first()
+
+    obj, _ = LFGDraft.objects.update_or_create(
+        thread=thread,
+        defaults={"players": draft.get("players"),
+                  "platform": draft.get("platform") or "",
+                  "drafted_by": drafted_by},
+    )
+    obj.picks.all().delete()
+
+    for p in picks:
+        faction = factions.get(p.get("faction"))
+        if not faction:
+            logger.warning("LFG draft: unknown faction slug %r for thread %s",
+                           p.get("faction"), thread.thread_id)
+            continue
+        pick = LFGDraftPick.objects.create(
+            draft=obj, faction=faction, order=p.get("order") or 0,
+            vagabond=vagabonds.get(p.get("vagabond")) if p.get("vagabond") else None,
+        )
+        caps = [vagabonds[s] for s in (p.get("captains") or []) if s in vagabonds]
+        if caps:
+            pick.captains.set(caps)
 
 
 # ── /schedule proposals ──────────────────────────────────────────────────────

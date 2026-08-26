@@ -13,13 +13,16 @@ from the_warroom.models import (
     StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
 )
 from the_gatehouse.tasks import update_post_status
-from the_keep.models import StatusChoices, Faction
+from the_keep.models import StatusChoices, Faction, Map, Deck
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
+    LFGRoll, LFGDraft, LFGSeat,
 )
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_gatehouse.services import discord_commands as dc
+from the_gatehouse.services.lfg_game import rolled_components, seated_profiles
+from the_gatehouse.tasks import record_lfg_components_task
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     search_timezones, valid_timezone,
@@ -1779,8 +1782,10 @@ class DraftLFGSeatingTests(TestCase):
 
     def test_existing_seating_warns_before_overwriting(self):
         self._roster(3)
-        self.thread.seating = [{"id": "901", "name": "Player 1", "seat": 1}]
-        self.thread.save(update_fields=["seating"])
+        LFGSeat.objects.create(
+            thread=self.thread,
+            profile=Profile.objects.get(discord_id="901"),
+            seat_number=1)
         message = self._offer(self.THREAD_ID).call_args.args[0][1]
         self.assertIn("overwrite", message["content"].lower())
         confirm = message["components"][0]["components"][0]
@@ -1798,31 +1803,32 @@ class DraftLFGSeatingTests(TestCase):
     def test_seating_persists_and_posts(self):
         self._roster(3)
         response, post = self._seat()
-        self.thread.refresh_from_db()
 
-        self.assertEqual([s["seat"] for s in self.thread.seating], [1, 2, 3])
-        self.assertEqual({s["id"] for s in self.thread.seating}, {"901", "902", "903"})
+        seats = list(self.thread.seats.select_related("profile"))
+        self.assertEqual([s.seat_number for s in seats], [1, 2, 3])
+        self.assertEqual({s.profile.discord_id for s in seats}, {"901", "902", "903"})
 
         channel_id, body = post.call_args.args
         self.assertEqual(channel_id, self.THREAD_ID)
-        last = self.thread.seating[-1]["name"]
-        self.assertTrue(body.endswith(f"{last} has first pick of the faction draft"))
-        self.assertIn(f"1. {self.thread.seating[0]['name']}", body)
+        self.assertTrue(
+            body.endswith(f"{seats[-1].profile.name} has first pick of the faction draft"))
+        self.assertIn(f"1. {seats[0].profile.name}", body)
         self.assertNotIn("Re-seated", body)
         self.assertEqual(json.loads(response.content)["data"]["content"], "Seating posted.")
 
     def test_reseating_replaces_the_previous_order_and_says_so(self):
         self._roster(3)
         self._seat()
-        self.thread.refresh_from_db()
-        first = self.thread.seating
+        # Materialize NOW: a queryset would re-evaluate after the delete below and
+        # the "not appended" assertion would compare against the new rows.
+        first_ids = list(self.thread.seats.values_list("pk", flat=True))
 
         _response, post = self._seat()
-        self.thread.refresh_from_db()
+        seats = list(self.thread.seats.all())
         # Fully replaced, not appended.
-        self.assertEqual(len(self.thread.seating), 3)
-        self.assertEqual([s["seat"] for s in self.thread.seating], [1, 2, 3])
-        self.assertNotEqual(self.thread.seating, first + first)
+        self.assertEqual(len(seats), 3)
+        self.assertEqual([s.seat_number for s in seats], [1, 2, 3])
+        self.assertFalse(set(first_ids) & {s.pk for s in seats})
         self.assertTrue(post.call_args.args[1].startswith("**Re-seated**"))
 
     def test_seating_is_randomised(self):
@@ -1832,8 +1838,10 @@ class DraftLFGSeatingTests(TestCase):
         orders = set()
         for _ in range(10):
             self._seat()
-            self.thread.refresh_from_db()
-            orders.add(tuple(s["id"] for s in self.thread.seating))
+            seats = self.thread.seats.select_related("profile")
+            # Re-seating replaces, so the count must stay at 4 -- never accumulate.
+            self.assertEqual(len(seats), 4)
+            orders.add(tuple(s.profile.discord_id for s in seats))
         self.assertGreater(len(orders), 1)
 
     def test_seat_declined_changes_nothing(self):
@@ -1841,8 +1849,9 @@ class DraftLFGSeatingTests(TestCase):
         with mock.patch.object(di.post_channel_message_task, "delay") as post:
             response = di._handle_draft_seat_no({"channel_id": self.THREAD_ID})
         post.assert_not_called()
-        self.thread.refresh_from_db()
-        self.assertEqual(self.thread.seating, [])
+        # assertEqual(manager, []) would silently pass -- a RelatedManager is never
+        # equal to a list. Assert on existence instead.
+        self.assertFalse(self.thread.seats.exists())
         data = json.loads(response.content)["data"]
         self.assertEqual(data["components"], [])
 
@@ -1850,6 +1859,159 @@ class DraftLFGSeatingTests(TestCase):
         response, post = self._seat("gone")
         post.assert_not_called()
         self.assertIn("game thread", json.loads(response.content)["data"]["content"])
+
+
+class LFGCaptureTests(TestCase):
+    """record_lfg_components_task and the readers over it. This path had no
+    coverage while it stored JSON, so these are written against the relational
+    tables directly."""
+
+    THREAD_ID = "thread-cap-1"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.designer = Profile.objects.create(discord="capdesigner", discord_id="700")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Cap Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(3)
+        ]
+        self.map = Map.objects.create(
+            title="Cap Map", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        self.deck = Deck.objects.create(
+            title="Cap Deck", designer=self.designer, card_total=54,
+            status=StatusChoices.STABLE, official=True)
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+
+    def _item(self, kind, post):
+        return {"kind": kind, "slug": post.slug, "title": post.title}
+
+    # ── capture ─────────────────────────────────────────────────────────────
+    def test_capture_writes_rows_and_resolves_posts(self):
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0]), self._item("Map", self.map)],
+            source="random")
+        rolls = list(self.thread.roll_log.all())
+        self.assertEqual([r.kind for r in rolls], ["Faction", "Map"])
+        self.assertEqual([r.post_id for r in rolls],
+                         [self.factions[0].pk, self.map.pk])
+        self.assertTrue(all(r.source == "random" for r in rolls))
+
+    def test_capture_updates_map_and_deck_fks(self):
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Map", self.map), self._item("Deck", self.deck)])
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.map_id, self.map.pk)
+        self.assertEqual(self.thread.deck_id, self.deck.pk)
+
+    def test_unresolvable_slug_keeps_the_row_with_a_null_post(self):
+        record_lfg_components_task(
+            self.THREAD_ID, [{"kind": "Faction", "slug": "no-such-slug"}])
+        roll = self.thread.roll_log.get()
+        self.assertIsNone(roll.post_id)
+        self.assertEqual(roll.slug, "no-such-slug")
+
+    def test_capture_is_a_no_op_outside_an_lfg_thread(self):
+        record_lfg_components_task("not-a-thread", [self._item("Map", self.map)])
+        self.assertEqual(LFGRoll.objects.count(), 0)
+
+    def test_capture_appends_rather_than_replacing(self):
+        record_lfg_components_task(self.THREAD_ID, [self._item("Map", self.map)])
+        record_lfg_components_task(self.THREAD_ID, [self._item("Deck", self.deck)])
+        self.assertEqual(self.thread.roll_log.count(), 2)
+
+    # ── draft ───────────────────────────────────────────────────────────────
+    def _draft_payload(self, factions, **kw):
+        payload = {"players": 2, "platform": "Tabletop Simulator",
+                   "drafted_by": "700",
+                   "picks": [{"faction": f.slug, "vagabond": None, "captains": [],
+                              "order": i}
+                             for i, f in enumerate(factions, 1)]}
+        payload.update(kw)
+        return payload
+
+    def test_draft_is_recorded_with_its_picks(self):
+        record_lfg_components_task(
+            self.THREAD_ID, [], source="draft",
+            draft=self._draft_payload(self.factions[:2]))
+        draft = self.thread.draft
+        self.assertEqual(draft.players, 2)
+        self.assertEqual(draft.drafted_by, self.designer)
+        self.assertEqual([p.faction_id for p in draft.picks.all()],
+                         [self.factions[0].pk, self.factions[1].pk])
+
+    def test_redrafting_replaces_rather_than_accumulating(self):
+        record_lfg_components_task(
+            self.THREAD_ID, [], source="draft",
+            draft=self._draft_payload(self.factions[:2]))
+        record_lfg_components_task(
+            self.THREAD_ID, [], source="draft",
+            draft=self._draft_payload(self.factions[2:]))
+
+        self.assertEqual(LFGDraft.objects.filter(thread=self.thread).count(), 1)
+        self.assertEqual([p.faction_id for p in self.thread.draft.picks.all()],
+                         [self.factions[2].pk])
+
+    def test_unknown_faction_slug_is_skipped_not_fatal(self):
+        payload = self._draft_payload(self.factions[:1])
+        payload["picks"].append(
+            {"faction": "ghost-faction", "vagabond": None, "captains": [], "order": 2})
+        record_lfg_components_task(self.THREAD_ID, [], source="draft", draft=payload)
+        self.assertEqual(self.thread.draft.picks.count(), 1)
+
+    # ── readers ─────────────────────────────────────────────────────────────
+    def test_rolled_components_dedupes_and_keeps_first_seen_order(self):
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0]),
+             self._item("Faction", self.factions[1]),
+             self._item("Faction", self.factions[0])])
+        self.assertEqual(rolled_components(self.thread),
+                         {"Faction": [self.factions[0].slug, self.factions[1].slug]})
+
+    def test_rolled_components_prefers_the_live_slug_over_the_snapshot(self):
+        """A renamed Post changes its slug; the form filters on live slugs, so a
+        stale snapshot would silently drop the component."""
+        record_lfg_components_task(self.THREAD_ID, [self._item("Map", self.map)])
+        LFGRoll.objects.filter(thread=self.thread).update(slug="stale-snapshot")
+        self.assertEqual(rolled_components(self.thread), {"Map": [self.map.slug]})
+
+    def test_seated_profiles_falls_back_to_players_when_unseated(self):
+        players = [Profile.objects.create(discord=f"cap{i}", discord_id=f"71{i}")
+                   for i in range(2)]
+        self.thread.players.set(players)
+        seats = seated_profiles(self.thread)
+        self.assertEqual([n for n, _p, _f in seats], [1, 2])
+        self.assertEqual({p for _n, p, _f in seats}, set(players))
+
+    def test_seated_profiles_returns_a_faction_SLUG_not_an_object(self):
+        """views.py filters `.filter(slug=faction_slug)`; a Faction instance there
+        would coerce via str() and silently match nothing."""
+        p = Profile.objects.create(discord="capseat", discord_id="720")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
+                               faction=self.factions[0])
+        _seat_no, _profile, faction_slug = seated_profiles(self.thread)[0]
+        self.assertEqual(faction_slug, self.factions[0].slug)
+
+    def test_a_deleted_profile_leaves_a_blank_seat_in_position(self):
+        keep = Profile.objects.create(discord="capkeep", discord_id="721")
+        drop = Profile.objects.create(discord="capdrop", discord_id="722")
+        LFGSeat.objects.create(thread=self.thread, profile=drop, seat_number=1)
+        LFGSeat.objects.create(thread=self.thread, profile=keep, seat_number=2)
+        drop.delete()
+
+        seats = seated_profiles(self.thread)
+        # The row survives with profile=None so the record form keeps its slot.
+        self.assertEqual([n for n, _p, _f in seats], [1, 2])
+        self.assertIsNone(seats[0][1])
+        self.assertEqual(seats[1][1], keep)
 
 
 class RandomOptionsPanelTests(TestCase):

@@ -39,6 +39,7 @@ from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tw
 from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant
 from the_gatehouse.models import (
     Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
+    LFGSeat,
 )
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
@@ -227,7 +228,8 @@ def _make_lookup_handler(label, queryset_factory):
         # map/deck updates the LFGThread FK like a random roll).
         kind = _LFG_LOOKUP_KIND.get(data.get("name"))
         if kind:
-            _capture_lfg_components(data.get("_channel_id"), [_lfg_item(kind, post)])
+            _capture_lfg_components(data.get("_channel_id"), [_lfg_item(kind, post)],
+                                    source="lookup")
 
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
@@ -275,12 +277,20 @@ _LFG_LOOKUP_KIND = {
 }
 
 
-def _capture_lfg_components(channel_id, items):
+def _capture_lfg_components(channel_id, items, source="", draft=None):
     """Fire-and-forget: record components surfaced by a command into an LFG thread
     (no-op in the worker when the channel isn't a known LFG thread). `items` is a
-    list of {"kind","slug","title"}. Safe to call with a falsy channel_id."""
-    if channel_id and items:
-        record_lfg_components_task.delay(channel_id, items)
+    list of {"kind","slug","title"}. Safe to call with a falsy channel_id.
+
+    `source` tags the originating command (random / lookup / draft). `draft`
+    carries a full draft to replace the thread's current one. Both must be
+    JSON-serializable -- slugs and ids only, never model instances.
+
+    Deliberately fire-and-forget: a capture failure must never damage a draft or
+    lookup that already succeeded.
+    """
+    if channel_id and (items or draft):
+        record_lfg_components_task.delay(channel_id, items, source=source, draft=draft)
 
 
 def _lfg_item(kind, post):
@@ -330,9 +340,13 @@ def _handle_record_command(data):
 
         lines = [lead, url, ""]
         players = list(thread.players.all())
-        if thread.seating:
+        # Materialize once (select_related: this runs in the 3-second budget).
+        seats = list(thread.seats.select_related("profile"))
+        if seats:
             order = ", ".join(
-                f"{s.get('seat')}. {s.get('name')}" for s in thread.seating)
+                f"{s.seat_number}. "
+                f"{s.profile.name if s.profile_id else '(removed player)'}"
+                for s in seats)
             lines.append(f"**Seating:** {order}")
         elif players:
             lines.append(f"**Players:** {', '.join(p.name for p in players)}")
@@ -388,7 +402,8 @@ def _handle_captain_command(data):
         embed["image"] = {"url": image_url}
 
     # /captain is its own handler (not in the lookup loop); capture as "Captain".
-    _capture_lfg_components(data.get("_channel_id"), [_lfg_item("Captain", vagabond)])
+    _capture_lfg_components(data.get("_channel_id"), [_lfg_item("Captain", vagabond)],
+                            source="lookup")
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
@@ -1995,14 +2010,39 @@ def _handle_draft_build(payload):
     captains = _random_draft_captains(platform) if "knaves-of-the-deepwood" in drawn else None
 
     # If used inside an LFG thread, record the drafted factions plus the rolled
-    # vagabond / captains onto the LFGThread.
+    # vagabond / captains onto the LFGThread. Everything here is slugs and ids:
+    # the payload is JSON-serialized by Celery, so a model instance would raise
+    # EncodeError -- and this call is NOT wrapped in try/except, so that would
+    # replace an already-delivered draft with an error message.
     titles = {slug: title for slug, title, _ftype in factions}
     items = [{"kind": "Faction", "slug": slug, "title": titles.get(slug, slug)} for slug in drawn]
     if vagabond:
         items.append(_lfg_item("Vagabond", vagabond))
     if captains:
         items.extend(_lfg_item("Captain", c) for c in captains)
-    _capture_lfg_components(payload.get("channel_id"), items)
+
+    # The drafter's Discord id (last custom_id arg), resolved to a Profile in the
+    # worker so no extra query lands in this 3-second interaction budget.
+    _action_id, id_args = decode_custom_id(payload["data"]["custom_id"])
+    owner = id_args[-1] if id_args else ""
+    # The vagabond attaches to the pick that drew "vagabond", and the captains to
+    # the one that drew "knaves-of-the-deepwood" -- never to picks[0]. The two are
+    # mutually exclusive (DRAFT_EXCLUSIONS), so at most one pick carries either.
+    draft_payload = {
+        "players": players,
+        "platform": platform,
+        "drafted_by": owner,
+        "picks": [
+            {"faction": slug,
+             "vagabond": vagabond.slug if (slug == "vagabond" and vagabond) else None,
+             "captains": ([c.slug for c in captains]
+                          if (slug == "knaves-of-the-deepwood" and captains) else []),
+             "order": i}
+            for i, slug in enumerate(drawn, 1)
+        ],
+    }
+    _capture_lfg_components(payload.get("channel_id"), items,
+                            source="draft", draft=draft_payload)
 
     embed = _draft_result_embed(
         drawn, players, platform, banned_slugs, factions,
@@ -2038,7 +2078,7 @@ def _offer_lfg_seating(payload):
 
     _action, args = decode_custom_id(payload["data"]["custom_id"])
     owner = args[-1] if args else ""
-    if thread.seating:
+    if thread.seats.exists():
         prompt = ("This game already has a seating order — seating again will "
                   "**overwrite it**. Seat the players again?")
         confirm, style = "Overwrite", STYLE_DANGER
@@ -2088,8 +2128,8 @@ def _draft_seating_message(seats, reseated=False):
     lines = []
     if reseated:
         lines += ["**Re-seated** — this replaces the previous seating order.", ""]
-    lines += [f"{s['seat']}. {s['name']}" for s in seats]
-    lines += ["", f"{seats[-1]['name']} has first pick of the faction draft"]
+    lines += [f"{s.seat_number}. {s.profile.name}" for s in seats]
+    lines += ["", f"{seats[-1].profile.name} has first pick of the faction draft"]
     return "\n".join(lines)
 
 
@@ -2113,15 +2153,20 @@ def _handle_draft_seat(payload):
         return _ephemeral("Not enough players in this thread to seat.")
 
     random.shuffle(profiles)
-    seats = [{"id": p.discord_id, "name": p.name, "seat": i}
-             for i, p in enumerate(profiles, 1)]
 
-    # A thread holds ONE current seating, so this replaces rather than appends
-    # (unlike `rolls`). No select_for_update: it's a whole-field write by a single
-    # owner-locked clicker, not a read-append-write.
-    reseated = bool(thread.seating)
-    thread.seating = seats
-    thread.save(update_fields=["seating"])
+    # A thread holds ONE current seating, so this REPLACES rather than appends
+    # (unlike the roll log). select_for_update serializes two concurrent reseats,
+    # which would otherwise collide on uniq_lfg_seat_per_thread.
+    with transaction.atomic():
+        locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
+        reseated = locked.seats.exists()
+        locked.seats.all().delete()
+        # Build the instances ourselves rather than reusing bulk_create's return:
+        # these already hold their Profile, so the message renderer below reads
+        # seat.profile.name with no extra query.
+        seats = [LFGSeat(thread=locked, profile=p, seat_number=i)
+                 for i, p in enumerate(profiles, 1)]
+        LFGSeat.objects.bulk_create(seats)
 
     post_channel_message_task.delay(
         thread.thread_id, _draft_seating_message(seats, reseated))
@@ -2431,7 +2476,7 @@ def _random_post_result(kind, platform, hireling_type=None, author=None, channel
         where = " for that platform" if kind in RANDOM_POST_MODELS else ""
         return None, f"No eligible {kind} found{where}."
     chosen = random.choice(posts)
-    _capture_lfg_components(channel_id, [_lfg_item(kind, chosen)])
+    _capture_lfg_components(channel_id, [_lfg_item(kind, chosen)], source="random")
     embed = _random_result_embed(
         kind, chosen.title, _random_chosen_from(kind, posts, include_fan_content),
         author=author, url=_post_url(chosen), image_url=_random_post_image_url(kind, chosen),

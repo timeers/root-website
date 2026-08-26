@@ -8,6 +8,7 @@ from .models import (Profile, PlayerBookmark,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
                      Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification,
                      GuildLFGRole, BotUsage, BotBlacklist, LFGThread, ScheduleProposal,
+                     LFGRoll, LFGDraft, LFGDraftPick, LFGSeat,
                      )
 from django import forms
 from django.http import HttpResponseRedirect 
@@ -65,11 +66,48 @@ class BotUsageAdmin(admin.ModelAdmin):
     search_fields = ['user_id', 'guild_id', 'command']
     ordering = ['-count']
 
+class LFGSeatInline(admin.TabularInline):
+    """The thread's current seating. Read-only: written by /draft's seat button."""
+    model = LFGSeat
+    extra = 0
+    can_delete = False
+    readonly_fields = ['seat_number', 'profile', 'faction']
+
+class LFGRollInline(admin.TabularInline):
+    """Append-only capture log. Read-only: written by record_lfg_components_task."""
+    model = LFGRoll
+    extra = 0
+    can_delete = False
+    readonly_fields = ['kind', 'post', 'slug', 'source', 'created_at']
+
+class LFGDraftInline(admin.StackedInline):
+    """StackedInline + max_num=1 because LFGDraft is a OneToOne. Its picks are one
+    FK further out, so they live on LFGDraftAdmin below rather than here."""
+    model = LFGDraft
+    extra = 0
+    max_num = 1
+    can_delete = False
+    readonly_fields = ['players', 'platform', 'drafted_by', 'created_at']
+
+class LFGDraftPickInline(admin.TabularInline):
+    model = LFGDraftPick
+    extra = 0
+    can_delete = False
+    readonly_fields = ['order', 'faction', 'vagabond']
+    filter_horizontal = ['captains']
+
+class LFGDraftAdmin(admin.ModelAdmin):
+    list_display = ['thread', 'players', 'platform', 'drafted_by', 'created_at']
+    search_fields = ['thread__thread_id']
+    readonly_fields = ['thread', 'created_at']
+    inlines = [LFGDraftPickInline]
+
 class LFGThreadAdmin(admin.ModelAdmin):
     list_display = ['thread_id', 'guild', 'lfg_role', 'map', 'deck', 'created_at']
     search_fields = ['thread_id', 'description', 'guild__name']
-    readonly_fields = ['thread_id', 'rolls', 'seating', 'created_at']
+    readonly_fields = ['thread_id', 'created_at']
     filter_horizontal = ['players']
+    inlines = [LFGSeatInline, LFGDraftInline, LFGRollInline]
 
 class ScheduleProposalAdmin(admin.ModelAdmin):
     list_display = ['id', 'match', 'proposed_time', 'status', 'proposed_by', 'created_at']
@@ -584,6 +622,7 @@ admin.site.register(GuildLFGRole, GuildLFGRoleAdmin)
 admin.site.register(BotBlacklist, BotBlacklistAdmin)
 admin.site.register(BotUsage, BotUsageAdmin)
 admin.site.register(LFGThread, LFGThreadAdmin)
+admin.site.register(LFGDraft, LFGDraftAdmin)
 admin.site.register(ScheduleProposal, ScheduleProposalAdmin)
 
 
