@@ -314,6 +314,17 @@ class LFGThread(models.Model):
     host = models.ForeignKey(
         "Profile", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="hosted_lfg_threads")
+    # Whether this thread's seats are a real seating ORDER, or just placeholders.
+    #
+    # `seats.exists()` cannot answer that on its own: /pick can assign factions
+    # without seating, and LFGSeat.seat_number is non-nullable with a uniqueness
+    # constraint, so those rows still carry 1..N filler numbers. Without this flag
+    # /seating would warn about "overwriting" a seating that was never set, and
+    # /pick would never offer to seat such a table again.
+    seating_set = models.BooleanField(
+        default=False,
+        help_text="True when the seats are a real seating order. False when /pick "
+                  "assigned factions without seating and seat numbers are filler.")
 
     # `map`/`deck` hold the MOST RECENT of each (whether rolled or selected) — the
     # fields a Game needs directly. The full history lives in the related LFGRoll

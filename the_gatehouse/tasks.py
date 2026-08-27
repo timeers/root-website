@@ -493,26 +493,53 @@ def record_bot_usage_task(guild_id, user_id, command):
 
 def ensure_profile_from_discord(discord_id, username, display_name):
     """Lookup-or-create a Profile for a Discord user. Plain function (callable both
-    from a task and inline). Match order: unique username (`discord`, case-insensitive)
-    when we have one, then `discord_id`. Returns the Profile. `username` may be None
-    (e.g. when only a display name + id are known, as at Start) — then match by id and,
-    on create, derive the handle from the id."""
+    from a task and inline). Returns the Profile.
+
+    Match order, mirroring what the site login does in signals.py:
+
+      1. `discord_id` — an identity Discord actually verified. It beats any name.
+      2. An UNLINKED profile whose `discord` handle matches (case-insensitive), which
+         is then CLAIMED by writing the id. Most profiles here were created manually
+         and carry no discord_id; this is how their owner takes ownership.
+      3. Otherwise create one.
+
+    The `discord_id__isnull=True` filter on step 2 is load-bearing, not a
+    micro-optimisation. Without it a username match can return a profile that is
+    ALREADY linked to a different Discord account — the caller then silently acts as
+    that person, and on a permission-bearing path (e.g. /schedule) inherits their
+    rights. Only an unclaimed profile is claimable.
+
+    Order matters for the same reason: checking the username first would hand a user
+    who already HAS a profile somebody else's row.
+
+    `username` may be None (e.g. when only a display name + id are known, as at
+    Start) — then match by id only and, on create, derive the handle from the id."""
     from the_warroom.services.root_league_api import sanitize_discord
     if not discord_id:
         return None
     discord_id = str(discord_id)
     cleaned = sanitize_discord(username) if username else None
-    # 1) by username (only if we have one)
-    profile = Profile.objects.filter(discord__iexact=cleaned).first() if cleaned else None
-    # 2) by discord id
-    if not profile:
-        profile = Profile.objects.filter(discord_id=discord_id).first()
+
+    # 1) by discord id — the verified identity wins.
+    profile = Profile.objects.filter(discord_id=discord_id).first()
     if profile:
-        # Backfill discord_id if we matched by username and it was missing.
-        if not profile.discord_id and not Profile.objects.filter(discord_id=discord_id).exists():
-            profile.discord_id = discord_id
-            profile.save()
         return profile
+
+    # 2) by username, but ONLY an unclaimed profile (see the docstring).
+    if cleaned:
+        profile = Profile.objects.filter(
+            discord__iexact=cleaned, discord_id__isnull=True).first()
+        if profile:
+            # The exists() guard mirrors signals.py: discord_id is unique=True, so
+            # if step 1 and this raced, writing it again would raise IntegrityError.
+            if not Profile.objects.filter(discord_id=discord_id).exists():
+                profile.discord_id = discord_id
+                # update_fields is required: a bare save() re-derives display_name
+                # and can delete the profile's existing avatar.
+                profile.save(update_fields=["discord_id"])
+                logger.info("Discord %s claimed profile %s (%s) by username",
+                            discord_id, profile.pk, profile.discord)
+            return profile
     # 3) create — `discord` must be unique; fall back to id-suffixed handle on clash.
     discord_val = cleaned
     if not discord_val or Profile.objects.filter(discord__iexact=discord_val).exists():
@@ -525,8 +552,11 @@ def ensure_profile_from_discord(discord_id, username, display_name):
         # Lost a create race (unique discord/discord_id): fall back to the now-existing row.
         # Only IntegrityError means "raced" — anything else is a real fault and is
         # re-raised below rather than being mislabelled and swallowed.
+        # Same unlinked-only rule as step 2: without it this fallback could hand
+        # back a profile already linked to somebody else.
         profile = (Profile.objects.filter(discord_id=discord_id).first()
-                   or Profile.objects.filter(discord__iexact=discord_val).first())
+                   or Profile.objects.filter(discord__iexact=discord_val,
+                                             discord_id__isnull=True).first())
         if profile is None:
             # Neither the id nor the handle resolves: we return None and the caller
             # silently drops this player. Log it — this is the one path that can

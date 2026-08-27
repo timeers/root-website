@@ -45,7 +45,8 @@ from the_gatehouse.models import (
     LFGSeat,
 )
 from .tasks import (
-    record_bot_usage_task, ensure_profile_from_discord_task, notify_lfg_task,
+    record_bot_usage_task, ensure_profile_from_discord_task,
+    ensure_profile_from_discord, notify_lfg_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
     strip_schedule_proposal_messages_task,
@@ -310,6 +311,27 @@ def _lfg_thread_for_channel(channel_id):
     return LFGThread.objects.filter(thread_id=channel_id).first()
 
 
+def _guild_allows(guild_id, command_name):
+    """Whether `command_name` is enabled in this guild.
+
+    Absent guild row -> False, matching /help: a guild the bot has no row for has
+    nothing enabled but /help. No guild_id (a DM) -> True: there is no whitelist to
+    consult, so there's no reason to withhold behaviour.
+
+    NOTE this reads the guild's stated intent, which is what register_guild_commands
+    PUTs per guild. A deployment that has also registered commands GLOBALLY (the
+    register_discord_commands management command) can make a command usable in a
+    guild whose enabled_commands omits it -- so a guild where the command works may
+    still answer False here."""
+    if not guild_id:
+        return True
+    enabled = (DiscordGuild.objects
+               .filter(guild_id=str(guild_id))
+               .values_list("enabled_commands", flat=True)
+               .first())
+    return command_name in (enabled or [])
+
+
 def _record_url(path):
     """Absolute record-game URL, or None when SITE_URL isn't configured."""
     site = (config.get("SITE_URL") or "").rstrip("/")
@@ -570,6 +592,43 @@ def _handle_upcoming_command(data):
 # Discord thread types (channel.type) — used to tell "in a thread" from "in a channel".
 _THREAD_CHANNEL_TYPES = {10, 11, 12}
 
+# Stands in for a match id in a /schedule custom_id when the time isn't linked to
+# any Match (a plain channel, or a thread with no tournament match). Every schedule
+# prompt encodes the match id as its first arg and re-fetches by it, so a sentinel
+# keeps all four custom_id shapes intact instead of forking them.
+#
+# "0" specifically: `Match.objects.filter(pk="0")` is an empty queryset, whereas a
+# non-numeric sentinel raises ValueError ("Field 'id' expected a number") inside the
+# handler, which the dispatcher would surface as "Something went wrong".
+SCHEDULE_NO_MATCH = "0"
+
+
+def _is_no_match(match_id):
+    return str(match_id) == SCHEDULE_NO_MATCH
+
+
+# Shown on EVERY unlinked message, ephemeral and public. The whole risk this flow
+# has to avoid is someone believing they scheduled a game on the site when they only
+# suggested a time in a Discord thread, so this is deliberately not softened.
+SCHEDULE_UNLINKED_NOTE = (
+    "-# This isn't linked to a game on the site — it's just a time for this thread.")
+
+
+def _schedule_profile(discord_id, username=None, author=None):
+    """The Profile for a /schedule user, created on first use so their timezone can
+    always be remembered.
+
+    Passes the username through like every other caller: ensure_profile_from_discord
+    matches the verified discord_id first and only claims an UNLINKED profile by
+    username, so a handle can't be used to take over someone else's account.
+
+    `username` is absent on the component paths (a custom_id carries only the
+    snowflake); that's fine — the id match is the one that matters there."""
+    if not discord_id:
+        return None
+    return ensure_profile_from_discord(
+        discord_id, username, (author or {}).get("name"))
+
 # Collapse whitespace and strip leading decoration when comparing a thread title to
 # a group name; thread names routinely pick up an emoji or separator prefix.
 _TITLE_NOISE_RE = re.compile(r"^[^\w(]+|[^\w)]+$")
@@ -796,11 +855,15 @@ def _schedule_input_text(payload):
     return match.group(1) if match else ""
 
 
-def _tz_region_data(match, time_text, owner, current_tz=None):
+def _tz_region_data(match_id, time_text, owner, current_tz=None):
     """Step 1 of the timezone prompt: pick a broad region.
 
     `current_tz` pre-selects the matching region (and switches the copy to the
-    "changing it" wording), so the Change-timezone button lands somewhere useful."""
+    "changing it" wording), so the Change-timezone button lands somewhere useful.
+
+    Takes a match ID rather than a Match: this prompt only ever needed it for the
+    custom_id, so passing SCHEDULE_NO_MATCH makes the whole picker work for a time
+    that isn't linked to a match."""
     if current_tz:
         intro = f"Your timezone is set to **{describe_timezone(current_tz)}**."
     else:
@@ -825,7 +888,7 @@ def _tz_region_data(match, time_text, owner, current_tz=None):
         "allowed_mentions": {"parse": []},
         "components": [
             action_row(string_select(
-                encode_custom_id("schedule_tz_region", match.id, owner), options,
+                encode_custom_id("schedule_tz_region", match_id, owner), options,
                 placeholder="Pick your region", min_values=1, max_values=1,
             )),
             action_row(button("Cancel", encode_custom_id("schedule_cancel", owner),
@@ -834,7 +897,7 @@ def _tz_region_data(match, time_text, owner, current_tz=None):
     }
 
 
-def _tz_zone_data(match, region_key, time_text, owner, current_tz=None):
+def _tz_zone_data(match_id, region_key, time_text, owner, current_tz=None):
     """Step 2 of the timezone prompt: pick a city within the chosen region.
 
     Offsets are appended to each label, which is what makes the list readable. They
@@ -861,11 +924,11 @@ def _tz_zone_data(match, region_key, time_text, owner, current_tz=None):
         "allowed_mentions": {"parse": []},
         "components": [
             action_row(string_select(
-                encode_custom_id("schedule_tz_zone", match.id, region_key, owner), options,
+                encode_custom_id("schedule_tz_zone", match_id, region_key, owner), options,
                 placeholder="Pick your timezone", min_values=1, max_values=1,
             )),
             action_row(
-                button("◀ Regions", encode_custom_id("schedule_tz_back", match.id, owner),
+                button("◀ Regions", encode_custom_id("schedule_tz_back", match_id, owner),
                        style=STYLE_SECONDARY),
                 button("Cancel", encode_custom_id("schedule_cancel", owner),
                        style=STYLE_SECONDARY),
@@ -875,7 +938,8 @@ def _tz_zone_data(match, region_key, time_text, owner, current_tz=None):
 
 
 def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=None,
-                           pending_confirmers=0, already_proposed=False):
+                           pending_confirmers=0, already_proposed=False,
+                           unlinked_kind="bare"):
     """The ephemeral confirm prompt: the time as Discord renders it in the clicker's
     own timezone, plus Confirm / Change timezone / Cancel. The owner snowflake rides
     LAST in each custom_id so the dispatcher's owner-lock applies without extra
@@ -891,22 +955,38 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     line and the button are both dropped. `note` acknowledges a just-changed
     timezone — Discord renders `<t:…>` in the VIEWER's zone, so without it the
     re-shown prompt can look unchanged even though it now means a different
-    instant."""
-    label = _match_label(match)
+    instant.
+
+    `match` is None for a time that isn't linked to any Match. Then the copy says
+    so plainly and Confirm becomes `sched_free`, because nothing will be written to
+    the site — the whole point is that this can't be mistaken for a real schedule.
+    `unlinked_kind` is "lfg" (the thread's players get asked to confirm) or "bare"."""
+    unlinked = match is None
+    match_id = SCHEDULE_NO_MATCH if unlinked else match.id
     ts = int(when.timestamp())
     lines = []
     if note:
         lines.append(note)
-    lines += [
-        f"{'Propose' if pending_confirmers else 'Schedule'} **{label}** for:",
-        format_discord_timestamp(when),
-    ]
+    if unlinked:
+        # "this thread" only when there actually is one -- the bare case covers a
+        # plain channel too.
+        lines.append("Suggest this time for the game in this thread:" if unlinked_kind == "lfg"
+                     else "Suggest this time:")
+    else:
+        lines.append(
+            f"{'Propose' if pending_confirmers else 'Schedule'} "
+            f"**{_match_label(match)}** for:")
+    lines.append(format_discord_timestamp(when))
     if tz_name:
         lines.append(f"Interpreted in **{describe_timezone(tz_name, at=when)}**.")
-    if match.scheduled_time:
+    if not unlinked and match.scheduled_time:
         lines.append(
             f"\nThis replaces the current time of {format_discord_timestamp(match.scheduled_time)}."
         )
+    if unlinked:
+        lines.append(f"\n{SCHEDULE_UNLINKED_NOTE}")
+        if unlinked_kind == "lfg":
+            lines.append("I'll ask the other players in this thread to confirm.")
     if pending_confirmers:
         others = "the other player" if pending_confirmers == 1 else f"the other {pending_confirmers} players"
         lines.append(f"\nI'll ask {others} in this game to confirm before it's set.")
@@ -916,12 +996,20 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     lines.append("\nDoes that look right?")
     if time_text:
         lines.append(_schedule_input_line(time_text))
-    buttons = [button("Propose Time" if pending_confirmers else "Confirm",
-                      encode_custom_id("schedule_confirm", match.id, ts, owner),
-                      style=STYLE_SUCCESS)]
+    if unlinked:
+        # NOT schedule_confirm: that handler looks the match up by id and would
+        # answer "That match can no longer be scheduled". This is the path a user
+        # lands on after setting their timezone through the picker, so it has to be
+        # decided here, in the builder both flows share.
+        confirm_id = encode_custom_id("sched_free", unlinked_kind, ts, owner)
+    else:
+        confirm_id = encode_custom_id("schedule_confirm", match_id, ts, owner)
+    buttons = [button("Suggest Time" if unlinked else
+                      ("Propose Time" if pending_confirmers else "Confirm"),
+                      confirm_id, style=STYLE_SUCCESS)]
     if tz_name:
         buttons.append(button(
-            "Change timezone", encode_custom_id("schedule_tz_change", match.id, owner),
+            "Change timezone", encode_custom_id("schedule_tz_change", match_id, owner),
             style=STYLE_SECONDARY))
     buttons.append(button("Cancel", encode_custom_id("schedule_cancel", owner),
                           style=STYLE_SECONDARY))
@@ -1206,16 +1294,14 @@ def _handle_schedule_command(data):
     if not author_id:
         return _ephemeral("User not found, try again.")
 
-    # Strict lookup: creating a profile here would only let the user fail the
-    # permission check below in a more confusing way.
-    profile = Profile.objects.filter(discord_id=str(author_id)).first()
+    # Get-or-create rather than a strict lookup: every path here wants to remember
+    # the user's timezone, including someone suggesting a time in a thread that
+    # isn't linked to anything. A brand-new Profile simply fails can_schedule below,
+    # which is the honest answer anyway.
+    profile = _schedule_profile(author_id, data.get("_author_username"),
+                                data.get("_author"))
     if not profile:
-        site = config.get("SITE_URL") or ""
-        suffix = f" at {site}" if site else ""
-        return _ephemeral(
-            f"I don't have a site account linked to your Discord yet. Log in{suffix} "
-            "with Discord once, then try again."
-        )
+        return _ephemeral("User not found, try again.")
 
     # No time given = clear the existing one. That flips which match of a
     # multi-game series we want: the last one that HAS a time, not the first
@@ -1228,23 +1314,17 @@ def _handle_schedule_command(data):
         prefer="scheduled" if clearing else "unscheduled",
     )
     if error:
-        # Discord tells us the channel type, so a command run in a normal channel
-        # gets the actionable message rather than "no match linked to this thread".
-        channel_type = data.get("_channel_type")
-        if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
-            return _ephemeral(
-                "Run this inside your game's thread to know which "
-                "game to schedule."
-            )
-        return _ephemeral(error)
+        # No match: instead of the old dead end, suggest a time that is explicitly
+        # NOT linked to anything on the site.
+        return _handle_schedule_unlinked(data, profile, time_text, clearing)
 
     # Checked before the clear branch so an unauthorized user gets the permission
     # error rather than a prompt they can't act on.
     permission = match.can_schedule(profile)
     if not permission:
         return _ephemeral(
-            "You can't set the time for this game: you need to be one of its "
-            "players, the group's moderator, or a tournament moderator."
+            "You're not able to schedule this game. If you think you should be, "
+            "contact the series admin."
         )
 
     if clearing:
@@ -1277,7 +1357,7 @@ def _handle_schedule_command(data):
         # epoch/`<t:…>` paste never lands here — it parses with no zone at all.
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _tz_region_data(match, time_text, author_id, current_tz=tz_name),
+            "data": _tz_region_data(match.id, time_text, author_id, current_tz=tz_name),
         })
     if error:
         return _ephemeral(error)
@@ -1306,6 +1386,59 @@ def _handle_schedule_command(data):
         "data": _schedule_confirm_data(match, when, author_id, tz_name, time_text,
                                        pending_confirmers=pending,
                                        already_proposed=already_proposed),
+    })
+
+
+def _handle_schedule_unlinked(data, profile, time_text, clearing):
+    """/schedule where no tournament match could be resolved — a plain channel, or a
+    thread that isn't linked to one.
+
+    Suggests a time that is NOT written anywhere: the reply says so, and confirming
+    posts a public message that says so too. In an LFG thread the thread's players
+    are also asked to confirm, but that confirmation lives in the message alone --
+    LFGThread has no time field and ScheduleProposal requires a Match."""
+    channel_id = data.get("_channel_id")
+    author_id = data.get("_author_id")
+
+    if clearing:
+        # There is no stored time to remove, so "clear" has nothing to act on. Say
+        # what to do instead rather than reporting a missing match.
+        return _ephemeral(
+            "This thread isn't linked to a match, so there's no scheduled time to "
+            "clear. Give me a `time` and I'll suggest one for this thread instead."
+        )
+
+    thread = _lfg_thread_for_channel(channel_id)
+    kind = "lfg" if thread else "bare"
+
+    tz_option = (_get_option(data, "timezone") or "").strip()
+    if tz_option and not valid_timezone(tz_option):
+        return _ephemeral(
+            f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
+            "suggestions, e.g. `America/New_York` — or leave it blank and I'll ask."
+        )
+    tz_name = tz_option or profile.timezone or None
+
+    when, error = parse_user_datetime(time_text, tz_name)
+    if error == NEED_TIMEZONE:
+        # The picker carries the sentinel, so the whole region/city flow works here
+        # and the timezone it saves is reused everywhere afterwards.
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _tz_region_data(SCHEDULE_NO_MATCH, time_text, author_id,
+                                    current_tz=tz_name),
+        })
+    if error:
+        return _ephemeral(error)
+
+    if tz_option and profile.timezone != tz_option:
+        profile.timezone = tz_option
+        profile.save(update_fields=["timezone"])
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": _schedule_confirm_data(None, when, author_id, tz_name, time_text,
+                                       unlinked_kind=kind),
     })
 
 
@@ -1592,6 +1725,122 @@ def _handle_schedule_clear_confirm(payload):
     })
 
 
+SCHEDULE_FREE_CONFIRMED_FIELD = "✅ Confirmed"
+
+
+def _schedule_free_public_data(when, proposer_id, kind, confirmed=None):
+    """The PUBLIC suggested-time message.
+
+    Deliberately unlike a real schedule: a different title and the unlinked note,
+    so nobody reads this as a game scheduled on the site. In an LFG thread it
+    carries Confirm/Can't make it buttons whose state lives in the embed — nothing
+    is stored, so deleting the message loses the confirmations."""
+    embed = {
+        "title": "🕐 Proposed time (not scheduled)" if kind == "lfg" else "🕐 Suggested time",
+        "description": "\n".join([
+            format_discord_timestamp(when),
+            "",
+            f"Suggested by <@{proposer_id}>.",
+            SCHEDULE_UNLINKED_NOTE,
+        ]),
+    }
+    if confirmed:
+        embed["fields"] = [{
+            "name": SCHEDULE_FREE_CONFIRMED_FIELD,
+            "value": "\n".join(confirmed), "inline": False,
+        }]
+    data = {"embeds": [embed], "allowed_mentions": {"parse": []}}
+    if kind == "lfg":
+        ts = int(when.timestamp())
+        data["components"] = [action_row(
+            # "g" (not a snowflake) keeps the dispatcher's owner-lock OFF so any
+            # thread player can click; this handler authorizes them itself.
+            button("Confirm", encode_custom_id("sched_lfg_ok", ts, "g"),
+                   style=STYLE_SUCCESS),
+            button("Can't make it", encode_custom_id("sched_lfg_no", ts, "g"),
+                   style=STYLE_SECONDARY),
+        )]
+    return data
+
+
+def _handle_schedule_free(payload):
+    """Suggest Time: post the unlinked suggestion publicly. Nothing is written."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [kind, ts, owner]
+    if len(args) < 3:
+        return _ephemeral("That button is out of date — run /schedule again.")
+    kind, ts, owner = args[0], args[1], args[2]
+    try:
+        when = datetime.fromtimestamp(int(ts), tz=dt_timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        return _ephemeral("That time is no longer valid: run /schedule again.")
+
+    token = payload.get("token")
+    if not token:
+        return _ephemeral("Couldn't post that — run /schedule again.")
+
+    # A followup WITHOUT the ephemeral flag is public. countdown=2 lets this
+    # response's ACK land first (a followup that races ahead 404s). Swallowed on a
+    # broker outage: losing the post shouldn't replace the user's confirmation with
+    # an error.
+    try:
+        post_interaction_followup_task.apply_async(
+            (token, _schedule_free_public_data(when, owner, kind)), countdown=2)
+    except Exception:
+        logger.exception("Could not enqueue the suggested-time post")
+        return _ephemeral("Couldn't post that just now — try again in a moment.")
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Posted your suggested time.", "components": [],
+                 "embeds": []},
+    })
+
+
+def _handle_schedule_free_respond(payload):
+    """Confirm / Can't make it on an unlinked LFG suggestion.
+
+    The confirmed list lives in the message's own embed field — there is no row to
+    update. Only players in the thread may respond."""
+    action, args = decode_custom_id(payload["data"]["custom_id"])  # [ts, "g"]
+    thread = _lfg_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return _ephemeral("This isn't a game thread anymore.")
+
+    roster = list(thread.players.all())
+    me, status = _resolve_clicker(
+        roster, _interaction_user_id(payload), _clicker_username(payload))
+    if status == CLICKER_UNLINKED:
+        return _ephemeral(
+            "You're one of this game's players, but your Discord isn't linked to "
+            f"your site account yet. Log in{_login_hint()} with Discord once, then "
+            "click Confirm again.")
+    if status != CLICKER_MATCHED:
+        return _ephemeral("Only the players in this thread can respond to that.")
+
+    embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
+    field = _lfg_field(embed, SCHEDULE_FREE_CONFIRMED_FIELD)
+    lines = [ln for ln in (field or {}).get("value", "").splitlines() if ln.strip()]
+
+    # Identity is the id, not the display name, so a rename can't double-count.
+    clicker_id = str(_interaction_user_id(payload))
+    lines = [ln for ln in lines if f"<@{clicker_id}>" not in ln]
+    if action == "sched_lfg_ok":
+        lines.append(_lfg_player_line(me.name, clicker_id))
+
+    fields = [f for f in embed.get("fields", [])
+              if f.get("name") != SCHEDULE_FREE_CONFIRMED_FIELD]
+    if lines:
+        fields.append({"name": SCHEDULE_FREE_CONFIRMED_FIELD,
+                       "value": "\n".join(lines), "inline": False})
+    embed["fields"] = fields
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"embeds": [embed], "components": payload["message"].get("components", []),
+                 "allowed_mentions": {"parse": []}},
+    })
+
+
 def _handle_schedule_cancel(payload):
     """Cancel button: drop the prompt without writing anything. Shared by the set
     and clear flows, so the copy stays neutral."""
@@ -1606,10 +1855,21 @@ def _schedule_tz_context(payload, args):
 
     The dispatcher's owner-lock already proved WHO clicked; this re-checks that the
     match is still schedulable and they may still schedule it, exactly as the
-    confirm handlers do — the prompt may have been sitting there a while."""
+    confirm handlers do — the prompt may have been sitting there a while.
+
+    Returns `match=None` with NO error for the no-match sentinel: there is nothing
+    to look up and nothing to authorize, and the callers only wanted the id for the
+    next custom_id anyway. Checked FIRST — falling through would look the sentinel
+    up, find nothing, and answer "That match can no longer be scheduled", which is
+    a lie on a path that never had a match."""
     if len(args) < 2:
         return None, None, _ephemeral("That prompt is out of date — run /schedule again.")
     match_id, owner = args[0], args[-1]
+    if _is_no_match(match_id):
+        profile = _schedule_profile(owner)
+        if not profile:
+            return None, None, _ephemeral("User not found, try again.")
+        return None, profile, None
     match = _schedulable_matches(payload.get("guild_id")).filter(pk=match_id).first()
     if not match:
         return None, None, _ephemeral(
@@ -1632,7 +1892,7 @@ def _handle_schedule_tz_region(payload):
         return _ephemeral("I don't know that region — run /schedule again.")
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _tz_zone_data(match, region_key, _schedule_input_text(payload),
+        "data": _tz_zone_data(args[0], region_key, _schedule_input_text(payload),
                               args[-1], current_tz=profile.timezone),
     })
 
@@ -1681,8 +1941,13 @@ def _handle_schedule_tz_zone(payload):
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _schedule_confirm_data(match, when, owner, tz_name, time_text,
-                                       note=f"{saved}\n"),
+        # match is None on the no-match sentinel; re-derive the unlinked kind from
+        # the channel the same way the command did, since the tz custom_ids don't
+        # carry it.
+        "data": _schedule_confirm_data(
+            match, when, owner, tz_name, time_text, note=f"{saved}\n",
+            unlinked_kind=("lfg" if _lfg_thread_for_channel(payload.get("channel_id"))
+                           else "bare")),
     })
 
 
@@ -1696,7 +1961,7 @@ def _handle_schedule_tz_back(payload):
         return error
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _tz_region_data(match, _schedule_input_text(payload), args[-1],
+        "data": _tz_region_data(args[0], _schedule_input_text(payload), args[-1],
                                 current_tz=profile.timezone),
     })
 
@@ -2076,8 +2341,12 @@ def _lfg_seating_prompt_data(thread, owner):
     "Overwrite".
 
     Split from _offer_lfg_seating so /seating can return this prompt as its own
-    response while /draft still ships it as a followup."""
-    if thread.seats.exists():
+    response while /draft still ships it as a followup.
+
+    Keys on seating_set, NOT seats.exists(): /pick can assign factions without a
+    seating, leaving seat rows with filler numbers -- warning about overwriting a
+    seating that was never set would be a lie."""
+    if thread.seating_set:
         content = ("This game already has a seating order — seating again will "
                    "**overwrite it**. Seat the players again?")
         confirm, style = "Overwrite", STYLE_DANGER
@@ -2097,8 +2366,11 @@ def _lfg_seating_prompt_data(thread, owner):
 
 def _offer_lfg_seating(payload):
     """After a draft inside an LFG thread, send the drafter an ephemeral Yes/No
-    prompt offering to seat the thread's players. No-op outside an LFG thread, or
-    when the roster is too small to seat."""
+    prompt offering to seat the thread's players. No-op outside an LFG thread, when
+    the roster is too small to seat, or when the guild hasn't enabled /seating --
+    confirming would otherwise run seating the guild deliberately turned off."""
+    if not _guild_allows(payload.get("guild_id"), "seating"):
+        return
     thread = _lfg_thread_for_channel(payload.get("channel_id"))
     if not thread or thread.players.count() < 2:
         return
@@ -2245,7 +2517,10 @@ def _handle_draft_seat(payload):
     # which would otherwise collide on uniq_lfg_seat_per_thread.
     with transaction.atomic():
         locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
-        reseated = locked.seats.exists()
+        # seating_set, not seats.exists(): /pick can leave seat rows behind with
+        # filler numbers and no seating order, and those must not be reported as a
+        # previous seating this replaces.
+        reseated = locked.seating_set
         locked.seats.all().delete()
         # Build the instances ourselves rather than reusing bulk_create's return:
         # these already hold their Profile, so the message renderer below reads
@@ -2253,6 +2528,11 @@ def _handle_draft_seat(payload):
         seats = [LFGSeat(thread=locked, profile=p, seat_number=i)
                  for i, p in enumerate(profiles, 1)]
         LFGSeat.objects.bulk_create(seats)
+        # Same transaction as the rows it describes: the flag and the seats must
+        # never be separately visible.
+        if not locked.seating_set:
+            locked.seating_set = True
+            locked.save(update_fields=["seating_set"])
 
     post_channel_message_task.delay(
         thread.thread_id, _draft_seating_message(seats, reseated))
@@ -2296,23 +2576,45 @@ def _pick_thread_for_channel(channel_id):
     return thread
 
 
-def _pick_seat_group_roster(thread, channel_id):
-    """Seat a tournament group's roster so /pick has a seating to work from.
+def _pick_roster(thread, channel_id):
+    """The players /pick should seat: a tournament group's roster in a group
+    thread, else the LFG thread's own players. [] when too small to seat."""
+    if thread.series_id:
+        group = player_group_for_channel(channel_id)
+        if not group:
+            return []
+        profiles = [tp.profile for tp in
+                    group.tournament_players.select_related("profile")
+                    if tp.profile_id]
+    else:
+        profiles = list(thread.players.all())
+    return profiles if len(profiles) >= 2 else []
 
-    /seating in a group thread is display-only (the thread spans a whole series,
-    so a stored order would be stale by the next game), which leaves nothing for
-    /pick to attach factions to. Seat it here, once, only when the thread has no
-    seating yet. Returns the created seats, or [] when the roster is too small."""
-    group = player_group_for_channel(channel_id)
-    if not group:
-        return []
-    profiles = [tp.profile for tp in
-                group.tournament_players.select_related("profile")
-                if tp.profile_id]
-    if len(profiles) < 2:
+
+def _pick_seat_roster(thread, channel_id, ordered=True):
+    """Give `thread` seats so /pick has something to attach factions to.
+
+    Two very different callers:
+
+    * `ordered=True` — a real seating. The roster is SHUFFLED, seating_set is set,
+      and the order is posted publicly. This is the only path for a tournament
+      group thread, whose /seating is display-only (it spans a whole series, so a
+      stored order would be stale by the next game).
+    * `ordered=False` — /pick assigning factions with no seating. The roster keeps
+      its own order and NOTHING is posted: seat_number is non-nullable, so the rows
+      still need 1..N, but those numbers are filler and must not be presented as an
+      order. Shuffling here would be worse than useless -- with no explicit
+      seat_order on the record form, Effort.seat falls back to row order, so a
+      shuffle would silently invent a turn order nobody agreed to.
+
+    Returns the seats, or [] when the roster is too small.
+    """
+    profiles = _pick_roster(thread, channel_id)
+    if not profiles:
         return []
 
-    random.shuffle(profiles)
+    if ordered:
+        random.shuffle(profiles)
     created = False
     with transaction.atomic():
         locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
@@ -2323,11 +2625,18 @@ def _pick_seat_group_roster(thread, channel_id):
                      for i, p in enumerate(profiles, 1)]
             LFGSeat.objects.bulk_create(seats)
             created = True
+        # Same transaction as the rows it describes, so the flag and the seats are
+        # never separately visible.
+        if ordered and not locked.seating_set:
+            locked.seating_set = True
+            locked.save(update_fields=["seating_set"])
+            thread.seating_set = True  # keep the caller's instance in step
 
     # Announce only the seating WE created -- the race loser must not post a
     # second, contradictory order. Outside the lock: a broker hiccup shouldn't
-    # hold the row, and the seats are already committed either way.
-    if created:
+    # hold the row, and the seats are already committed either way. Nothing is
+    # posted for an unordered assignment: there is no order to announce.
+    if created and ordered:
         post_channel_message_task.delay(
             thread.thread_id, _draft_seating_message(seats))
     return seats
@@ -2382,25 +2691,33 @@ def _pick_panel_data(thread, seats, mode, owner, pool=None):
     pool = pool if pool is not None else _pick_pool(thread)
     taken = {s.faction.slug for s in seats if s.faction_id}
 
-    lines = ["**Faction Picks**", ""]
+    # Read from the thread, not a custom_id arg: the panel is rebuilt from the DB
+    # every time, so there is one source of truth and a stale message can never
+    # claim an ordering the DB disagrees with. When the seats are filler, the
+    # numbers must not be shown as an order the players never agreed to.
+    ordered = thread.seating_set
+
+    lines = ["**Faction Picks**" if ordered else "**Faction Assignments**", ""]
     for seat in sorted(seats, key=lambda s: s.seat_number):
         who = seat.profile.name if seat.profile_id else "(removed player)"
+        prefix = f"{seat.seat_number}. " if ordered else "• "
         if seat.faction_id:
             mark = faction_emoji_for(seat.faction.slug) or seat.faction.title
-            lines.append(f"{seat.seat_number}. {who} — {mark}")
+            lines.append(f"{prefix}{who} — {mark}")
         else:
-            lines.append(f"{seat.seat_number}. {who}")
+            lines.append(f"{prefix}{who}")
 
     nxt = _pick_next_seat(seats)
     if nxt is None:
-        lines += ["", "All factions picked."]
+        lines += ["", "All factions picked." if ordered else "All factions assigned."]
         return {"content": "\n".join(lines), "components": [],
                 "allowed_mentions": {"parse": []}}
 
+    seat_label = f" (seat {nxt.seat_number})" if ordered else ""
     if mode == PICK_MODE_ASSIGN:
-        lines += ["", f"Assigning for **{nxt.profile.name}** (seat {nxt.seat_number})."]
+        lines += ["", f"Assigning for **{nxt.profile.name}**{seat_label}."]
     else:
-        lines += ["", f"<@{nxt.profile.discord_id}> picks (seat {nxt.seat_number})."]
+        lines += ["", f"<@{nxt.profile.discord_id}> picks{seat_label}."]
 
     options = [
         select_option(title, slug, emoji=faction_emoji_object(slug))
@@ -2409,7 +2726,8 @@ def _pick_panel_data(thread, seats, mode, owner, pool=None):
     select = string_select(
         encode_custom_id("pick_faction", mode, owner, PICK_OPEN),
         options,
-        placeholder=f"Faction for seat {nxt.seat_number}",
+        placeholder=(f"Faction for seat {nxt.seat_number}" if ordered
+                     else f"Faction for {nxt.profile.name}"[:100]),
         min_values=1, max_values=1,
     )
     return {
@@ -2425,8 +2743,59 @@ def _pick_panel_data(thread, seats, mode, owner, pool=None):
     }
 
 
+def _pick_mode_prompt_data(owner):
+    """The Players-pick / Assign-all prompt, for a thread that already has a
+    seating. Owner-locked: it decides how the whole table proceeds."""
+    return {
+        "content": ("**Faction Picks** — assign every faction yourself, or let "
+                    "each player pick in seat order?"),
+        "components": [action_row(
+            button("Players pick",
+                   encode_custom_id("pick_mode", PICK_MODE_PLAYERS, owner),
+                   style=STYLE_SUCCESS),
+            button("Assign all",
+                   encode_custom_id("pick_mode", PICK_MODE_ASSIGN, owner),
+                   style=STYLE_PRIMARY),
+            button("Cancel", encode_custom_id("pick_cancel", owner, PICK_OPEN),
+                   style=STYLE_SECONDARY),
+        )],
+    }
+
+
+def _pick_unseated_prompt_data(owner):
+    """Offered when the table has no seating but the guild has /seating: seat them
+    now (and pick in turn order), or skip seating and just assign factions."""
+    return {
+        "content": ("**Faction Picks** — these players haven't been seated yet. "
+                    "Seat them now, or assign factions without a seating order?"),
+        "components": [action_row(
+            button("Seat players", encode_custom_id("pick_seat", owner),
+                   style=STYLE_SUCCESS),
+            button("Assign without seating",
+                   encode_custom_id("pick_noseat", owner), style=STYLE_PRIMARY),
+            button("Cancel", encode_custom_id("pick_cancel", owner, PICK_OPEN),
+                   style=STYLE_SECONDARY),
+        )],
+    }
+
+
+def _pick_pool_error(thread, count):
+    """The "not enough factions" refusal, or None when the pool is big enough."""
+    pool = _pick_pool(thread)
+    if len(pool) < count:
+        return _ephemeral(
+            f"Only {len(pool)} factions available for {count} players — "
+            "run `/draft` first, or add more factions.")
+    return None
+
+
 def _handle_pick_command(data):
-    """/pick: choose factions seat by seat, last seat first.
+    """/pick: choose factions for this game.
+
+    With a seating, picks run in seat order (last seat first). Without one, the
+    guild's /seating setting decides: offer to seat first where it's enabled, or
+    go straight to assigning factions where it isn't -- never send the user to a
+    command their guild doesn't have.
 
     Works in an LFG game thread and in a tournament group thread (seating the
     group's roster on first use). The pool is the thread's draft when it has one,
@@ -2437,37 +2806,53 @@ def _handle_pick_command(data):
         return _ephemeral(
             "Use this in a game thread or a player group's thread to pick factions.")
 
-    seats = list(thread.seats.select_related("profile", "faction"))
-    if not seats and thread.series_id:
-        seats = _pick_seat_group_roster(thread, channel_id)
-    if len(seats) < 2:
-        return _ephemeral(
-            "Seat the players first with `/seating`, then pick factions.")
-
-    pool = _pick_pool(thread)
-    seatable = [s for s in seats if s.profile_id]
-    if len(pool) < len(seatable):
-        return _ephemeral(
-            f"Only {len(pool)} factions available for {len(seatable)} players — "
-            "run `/draft` first, or add more factions.")
-
     owner = data.get("_author_id")
+    seats = list(thread.seats.select_related("profile", "faction"))
+
+    # Roster size is checked against the ROSTER, not the seat rows: an unseated
+    # thread has no seats yet and must still reach the prompt below rather than
+    # being told it has too few players.
+    roster = _pick_roster(thread, channel_id)
+    if not roster and not seats:
+        return _ephemeral("This game doesn't have enough players yet.")
+
+    if thread.seating_set:
+        error = _pick_pool_error(thread, len([s for s in seats if s.profile_id]))
+        return error or JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _pick_mode_prompt_data(owner),
+        })
+
+    error = _pick_pool_error(thread, len(roster) or len(seats))
+    if error:
+        return error
+
+    # A tournament group thread seats itself, as it always has: its /seating is
+    # display-only and never persists, so there is no seating for the prompt below
+    # to send anyone to.
+    if thread.series_id:
+        seats = _pick_seat_roster(thread, channel_id, ordered=True)
+        if len(seats) < 2:
+            return _ephemeral("This game doesn't have enough players yet.")
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _pick_mode_prompt_data(owner),
+        })
+
+    # No seating. Only offer to seat where the guild actually has /seating --
+    # otherwise go straight to assigning, which is all it can do.
+    if _guild_allows(data.get("_guild_id"), "seating"):
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _pick_unseated_prompt_data(owner),
+        })
+
+    seats = _pick_seat_roster(thread, channel_id, ordered=False)
+    if len(seats) < 2:
+        return _ephemeral("This game doesn't have enough players yet.")
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {
-            "content": ("**Faction Picks** — assign every faction yourself, or let "
-                        "each player pick in seat order?"),
-            "components": [action_row(
-                button("Players pick",
-                       encode_custom_id("pick_mode", PICK_MODE_PLAYERS, owner),
-                       style=STYLE_SUCCESS),
-                button("Assign all",
-                       encode_custom_id("pick_mode", PICK_MODE_ASSIGN, owner),
-                       style=STYLE_PRIMARY),
-                button("Cancel", encode_custom_id("pick_cancel", owner, PICK_OPEN),
-                       style=STYLE_SECONDARY),
-            )],
-        },
+        "data": _pick_panel_data(thread, seats, PICK_MODE_ASSIGN, owner),
     })
 
 
@@ -2488,6 +2873,42 @@ def _handle_pick_mode(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _pick_panel_data(thread, seats, mode, owner),
+    })
+
+
+def _handle_pick_seat(payload):
+    """"Seat players": create a real seating (shuffled, posted publicly), then ask
+    how the table wants to pick. Owner-locked by the dispatcher."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    thread = _pick_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return _ephemeral("This isn't a game thread anymore.")
+
+    seats = _pick_seat_roster(thread, payload.get("channel_id"), ordered=True)
+    if len(seats) < 2:
+        return _ephemeral("This game doesn't have enough players yet.")
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _pick_mode_prompt_data(owner),
+    })
+
+
+def _handle_pick_noseat(payload):
+    """"Assign without seating": give the thread filler seats (unshuffled, nothing
+    posted, seating_set left False) and go straight to assign mode."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    thread = _pick_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return _ephemeral("This isn't a game thread anymore.")
+
+    seats = _pick_seat_roster(thread, payload.get("channel_id"), ordered=False)
+    if len(seats) < 2:
+        return _ephemeral("This game doesn't have enough players yet.")
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _pick_panel_data(thread, seats, PICK_MODE_ASSIGN, owner),
     })
 
 
@@ -3404,6 +3825,10 @@ COMPONENT_HANDLERS = {
     # them. `pick_faction`/`pick_cancel` end in PICK_OPEN so any seated player can
     # click; those handlers authorize per turn themselves.
     "pick_mode": _handle_pick_mode,
+    # Both end in the invoker's snowflake, so the dispatcher owner-locks them:
+    # they decide how the whole table proceeds, so they're the invoker's call.
+    "pick_seat": _handle_pick_seat,
+    "pick_noseat": _handle_pick_noseat,
     "pick_faction": _handle_pick_faction,
     "pick_cancel": _handle_pick_cancel,
     # The three options-panel selects share one handler; `random_roll` is the
@@ -3422,6 +3847,11 @@ COMPONENT_HANDLERS = {
     # handlers do their own authorization.
     "sched_prop_ok": _handle_schedule_proposal_confirm,
     "sched_prop_no": _handle_schedule_proposal_reject,
+    # Unlinked (no Match) suggestions. sched_free is owner-locked; the two response
+    # buttons end in "g" so any player in the thread can click them.
+    "sched_free": _handle_schedule_free,
+    "sched_lfg_ok": _handle_schedule_free_respond,
+    "sched_lfg_no": _handle_schedule_free_respond,
     "schedule_tz_region": _handle_schedule_tz_region,
     "schedule_tz_zone": _handle_schedule_tz_zone,
     "schedule_tz_back": _handle_schedule_tz_back,

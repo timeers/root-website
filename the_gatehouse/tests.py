@@ -9,6 +9,7 @@ from django.db.models.signals import post_save
 from django.http import HttpResponse
 from django.test import TestCase, RequestFactory
 from django.urls import reverse
+from django.db import IntegrityError
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
 from kombu.exceptions import OperationalError as KombuOperationalError
@@ -29,7 +30,9 @@ from the_gatehouse.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
     picked_factions_by_profile,
 )
-from the_gatehouse.tasks import record_lfg_components_task, create_lfg_thread_task
+from the_gatehouse.tasks import (
+    record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
+)
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     search_timezones, valid_timezone,
@@ -567,6 +570,103 @@ class MatchForThreadTests(ScheduleFixtureMixin, TestCase):
         self.assertTrue(err)
 
 
+class EnsureProfileFromDiscordTests(TestCase):
+    """Resolving a Discord user to a Profile.
+
+    Most profiles here were created manually and carry no discord_id; the point of
+    this helper is that their owner CLAIMS them on first use, exactly as the site
+    login does. The order matters: an unlinked handle is claimable, a linked one is
+    somebody's account."""
+
+    LINKED_ID = "111111111111111111"
+    OTHER_ID = "222222222222222222"
+
+    # ── order: the verified id wins ──
+    def test_an_existing_discord_id_matches_first(self):
+        mine = Profile.objects.create(discord="mine", discord_id=self.LINKED_ID)
+        Profile.objects.create(discord="someoneelse")  # unlinked, different handle
+        got = ensure_profile_from_discord(self.LINKED_ID, "someoneelse", None)
+        self.assertEqual(got.pk, mine.pk)
+
+    def test_someone_elses_handle_does_not_beat_your_own_id(self):
+        """Otherwise a user with a profile is handed a different one every call, and
+        it isn't even claimed — so it recurs forever."""
+        mine = Profile.objects.create(discord="mine", discord_id=self.LINKED_ID)
+        other = Profile.objects.create(discord="otherhandle")
+        got = ensure_profile_from_discord(self.LINKED_ID, "otherhandle", None)
+        self.assertEqual(got.pk, mine.pk)
+        other.refresh_from_db()
+        self.assertIsNone(other.discord_id)
+
+    # ── the impersonation case ──
+    def test_a_linked_profile_is_never_returned_for_another_snowflake(self):
+        victim = Profile.objects.create(discord="victim", discord_id=self.LINKED_ID)
+        got = ensure_profile_from_discord(self.OTHER_ID, "victim", None)
+        self.assertNotEqual(got.pk, victim.pk)
+        self.assertEqual(got.discord_id, self.OTHER_ID)
+        victim.refresh_from_db()
+        self.assertEqual(victim.discord_id, self.LINKED_ID)
+
+    def test_that_case_creates_a_profile_with_a_suffixed_handle(self):
+        """`discord` is unique, so the new row can't reuse the taken handle."""
+        Profile.objects.create(discord="victim", discord_id=self.LINKED_ID)
+        got = ensure_profile_from_discord(self.OTHER_ID, "victim", None)
+        self.assertNotEqual(got.discord, "victim")
+        self.assertIn(self.OTHER_ID, got.discord)
+
+    # ── the claim, which must keep working ──
+    def test_an_unlinked_handle_is_claimed(self):
+        unclaimed = Profile.objects.create(discord="claimme")
+        got = ensure_profile_from_discord(self.LINKED_ID, "claimme", None)
+        self.assertEqual(got.pk, unclaimed.pk)
+        unclaimed.refresh_from_db()
+        self.assertEqual(unclaimed.discord_id, self.LINKED_ID)
+
+    def test_the_claim_is_case_insensitive(self):
+        unclaimed = Profile.objects.create(discord="MixedCase")
+        got = ensure_profile_from_discord(self.LINKED_ID, "mixedcase", None)
+        self.assertEqual(got.pk, unclaimed.pk)
+
+    def test_the_claim_does_not_disturb_display_name_or_image(self):
+        """The claim writes with update_fields; a bare save() would re-derive
+        display_name and can delete the profile's avatar."""
+        unclaimed = Profile.objects.create(discord="claimme2", display_name="Real Name")
+        ensure_profile_from_discord(self.LINKED_ID, "claimme2", "Discord Name")
+        unclaimed.refresh_from_db()
+        self.assertEqual(unclaimed.display_name, "Real Name")
+
+    # ── no username ──
+    def test_no_username_matches_by_id(self):
+        mine = Profile.objects.create(discord="mine", discord_id=self.LINKED_ID)
+        self.assertEqual(
+            ensure_profile_from_discord(self.LINKED_ID, None, None).pk, mine.pk)
+
+    def test_no_username_creates_with_an_id_derived_handle(self):
+        got = ensure_profile_from_discord(self.LINKED_ID, None, "Someone")
+        self.assertEqual(got.discord_id, self.LINKED_ID)
+        self.assertIn(self.LINKED_ID, got.discord)
+
+    def test_a_missing_discord_id_returns_none(self):
+        self.assertIsNone(ensure_profile_from_discord(None, "anything", None))
+
+    # ── the race fallback ──
+    def test_the_integrity_error_fallback_recovers_by_id(self):
+        existing = Profile.objects.create(discord="raced", discord_id=self.LINKED_ID)
+        with mock.patch.object(Profile.objects, "create",
+                               side_effect=IntegrityError("raced")):
+            got = ensure_profile_from_discord(self.LINKED_ID, "brandnew", None)
+        self.assertEqual(got.pk, existing.pk)
+
+    def test_the_integrity_error_fallback_will_not_return_a_linked_profile(self):
+        """Same unlinked-only rule as the main path — this fallback is the second
+        door into the impersonation bug."""
+        Profile.objects.create(discord="taken", discord_id=self.LINKED_ID)
+        with mock.patch.object(Profile.objects, "create",
+                               side_effect=IntegrityError("raced")):
+            got = ensure_profile_from_discord(self.OTHER_ID, "taken", None)
+        self.assertIsNone(got)
+
+
 class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
     """The handler is called directly (rather than through the signed endpoint),
     matching how the interaction code is structured: handlers take `data` with the
@@ -662,29 +762,63 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         self.outsider.save(update_fields=["timezone"])
         body = self.assertEphemeral(
             di._handle_schedule_command(self._data(author=self.outsider.discord_id)))
-        self.assertIn("can't set the time", body["data"]["content"])
+        self.assertIn("not able to schedule", body["data"]["content"])
+        self.assertIn("series admin", body["data"]["content"])
 
-    def test_unknown_discord_user_rejected(self):
+    def test_unknown_discord_user_gets_a_profile_and_a_permission_error(self):
+        """/schedule get-or-creates so the timezone can always be saved. A brand-new
+        Profile is on no roster, so the match path still refuses -- but with the
+        message that says what to do about it."""
+        self.assertFalse(Profile.objects.filter(discord_id="99999999").exists())
+        self.outsider.timezone = TZ  # so we reach can_schedule, not the tz picker
         body = self.assertEphemeral(
             di._handle_schedule_command(self._data(author="99999999")))
-        self.assertIn("account", body["data"]["content"].lower())
+        self.assertIn("not able to schedule", body["data"]["content"])
+        self.assertTrue(Profile.objects.filter(discord_id="99999999").exists())
 
-    def test_no_match_for_thread_rejected(self):
+    def test_an_existing_profile_is_reused_not_duplicated(self):
+        before = Profile.objects.count()
+        di._handle_schedule_command(self._data())
+        self.assertEqual(Profile.objects.count(), before)
+
+    def test_a_username_cannot_take_over_a_linked_profile(self):
+        """A handle matching an ALREADY-LINKED profile must never hand over that
+        account — on this path it would carry their scheduling permission with it.
+        (An unlinked profile IS claimable; that's the intended login-style flow.)"""
+        data = self._data(author="99999999")
+        data["_author_username"] = "player"  # self.player's handle, already linked
+        di._handle_schedule_command(data)
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.discord_id, "2")
+        self.assertTrue(Profile.objects.filter(discord_id="99999999").exists())
+
+    def test_an_unlinked_profile_is_claimed_by_a_matching_handle(self):
+        """The flow the claim exists for: manually-created profiles are taken over
+        by their owner on first use."""
+        unclaimed = Profile.objects.create(discord="unclaimedhandle")
+        data = self._data(author="99999999")
+        data["_author_username"] = "unclaimedhandle"
+        di._handle_schedule_command(data)
+        unclaimed.refresh_from_db()
+        self.assertEqual(unclaimed.discord_id, "99999999")
+
+    def test_no_match_for_thread_offers_an_unlinked_suggestion(self):
+        """The old dead end. Now it suggests a time that isn't linked to a game."""
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
         body = self.assertEphemeral(
             di._handle_schedule_command(self._data(channel="123123123")))
-        self.assertIn("couldn't find", body["data"]["content"].lower())
+        content = body["data"]["content"]
+        self.assertIn("isn't linked to a game on the site", content)
+        self.assertNotIn("couldn't find", content.lower())
 
-    def test_used_in_plain_channel_says_to_use_a_thread(self):
+    def test_used_in_plain_channel_also_offers_a_suggestion(self):
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
         data = self._data(channel="123123123")
         data["_channel_type"] = 0  # GUILD_TEXT, not a thread
         body = self.assertEphemeral(di._handle_schedule_command(data))
-        self.assertIn("thread", body["data"]["content"])
-
-    def test_thread_type_still_reports_missing_link(self):
-        data = self._data(channel="123123123")
-        data["_channel_type"] = 11  # PUBLIC_THREAD
-        body = self.assertEphemeral(di._handle_schedule_command(data))
-        self.assertIn("couldn't find", body["data"]["content"].lower())
+        self.assertIn("isn't linked to a game on the site", body["data"]["content"])
 
     def test_outside_guild_rejected(self):
         body = self.assertEphemeral(di._handle_schedule_command(self._data(guild=None)))
@@ -1142,7 +1276,7 @@ class ScheduleClearHandlerTests(ScheduleFixtureMixin, TestCase):
         self._schedule()
         body = self._body(
             di._handle_schedule_command(self._data(author=self.outsider.discord_id)))
-        self.assertIn("can't set the time", body["data"]["content"])
+        self.assertIn("not able to schedule", body["data"]["content"])
         self.assertNotIn("Remove the scheduled time", body["data"]["content"])
 
     def test_clear_works_without_a_profile_timezone(self):
@@ -1152,9 +1286,274 @@ class ScheduleClearHandlerTests(ScheduleFixtureMixin, TestCase):
         body = self._body(di._handle_schedule_command(self._data()))
         self.assertIn("Remove the scheduled time", body["data"]["content"])
 
-    def test_no_match_for_thread_still_errors(self):
+    def test_clearing_without_a_match_says_there_is_nothing_to_clear(self):
+        """Nothing is stored for an unlinked thread, so "clear" has nothing to act
+        on. Say what to do instead rather than reporting a missing match."""
         body = self._body(di._handle_schedule_command(self._data(channel="123123123")))
-        self.assertIn("couldn't find", body["data"]["content"].lower())
+        content = body["data"]["content"]
+        self.assertIn("isn't linked to a match", content)
+        self.assertIn("`time`", content)
+        self.assertNotIn("couldn't find", content.lower())
+        self.assertEqual(body["data"].get("flags"), di.EPHEMERAL)
+
+
+class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
+    """/schedule where no tournament match resolves. Suggests a time that is
+    explicitly NOT scheduled on the site, and writes nothing."""
+
+    UNLINKED_CHANNEL = "123123123"
+
+    def setUp(self):
+        self.build()
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+
+    def _data(self, time="Sep 15 2026 8pm", channel=None, author=None):
+        options = [] if time is None else [{"name": "time", "value": time}]
+        return {
+            "name": "schedule", "options": options,
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": channel or self.UNLINKED_CHANNEL,
+            "_channel_name": None,
+            "_author_id": author or self.player.discord_id,
+            "_author_username": "player",
+        }
+
+    def _body(self, response):
+        return json.loads(response.content)
+
+    def _lfg_thread(self):
+        thread = LFGThread.objects.create(thread_id=self.UNLINKED_CHANNEL)
+        thread.players.set([self.player, self.outsider])
+        return thread
+
+    # ── the ephemeral preview ──
+    def test_a_bare_channel_offers_an_unlinked_suggestion(self):
+        data = self._body(di._handle_schedule_command(self._data()))["data"]
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertIn("isn't linked to a game on the site", data["content"])
+        self.assertNotIn("confirm", data["content"].lower())
+
+    def test_an_lfg_thread_says_players_will_confirm(self):
+        self._lfg_thread()
+        data = self._body(di._handle_schedule_command(self._data()))["data"]
+        self.assertIn("isn't linked to a game on the site", data["content"])
+        self.assertIn("confirm", data["content"].lower())
+
+    def test_the_confirm_button_is_sched_free_not_schedule_confirm(self):
+        """schedule_confirm looks the match up by id and would answer 'that match
+        can no longer be scheduled'."""
+        data = self._body(di._handle_schedule_command(self._data()))["data"]
+        ids = [c["custom_id"] for r in data["components"] for c in r["components"]]
+        self.assertTrue(any(i.startswith("sched_free:") for i in ids))
+        self.assertFalse(any(i.startswith("schedule_confirm:") for i in ids))
+
+    def test_nothing_is_written_by_the_preview(self):
+        di._handle_schedule_command(self._data())
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    # ── clearing ──
+    def test_clearing_is_refused_with_guidance(self):
+        data = self._body(di._handle_schedule_command(self._data(time=None)))["data"]
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertIn("isn't linked to a match", data["content"])
+        self.assertNotIn("couldn't find", data["content"].lower())
+
+    # ── the public post ──
+    def _confirm(self, kind="bare", when=None):
+        when = when or (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL, "token": "tok",
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_free", kind, int(when.timestamp()), self.player.discord_id)},
+            "message": {"id": "m", "components": []},
+        }
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            response = di._handle_schedule_free(payload)
+        return self._body(response)["data"], enqueue
+
+    def test_confirming_posts_publicly_with_the_disclaimer(self):
+        _data, enqueue = self._confirm()
+        message = enqueue.call_args.args[0][1]
+        # No EPHEMERAL flag: an ephemeral "public" post would be visible only to the
+        # proposer, which looks like the feature silently doing nothing.
+        self.assertNotIn("flags", message)
+        embed = message["embeds"][0]
+        self.assertIn("isn't linked to a game on the site", embed["description"])
+        self.assertIn("🕐", embed["title"])
+
+    def test_the_bare_post_has_no_confirm_buttons(self):
+        _data, enqueue = self._confirm(kind="bare")
+        self.assertNotIn("components", enqueue.call_args.args[0][1])
+
+    def test_the_lfg_post_carries_open_confirm_buttons(self):
+        _data, enqueue = self._confirm(kind="lfg")
+        rows = enqueue.call_args.args[0][1]["components"]
+        ids = [c["custom_id"] for r in rows for c in r["components"]]
+        self.assertTrue(ids)
+        for custom_id in ids:
+            # "g", not a snowflake, so the dispatcher's owner-lock stays off.
+            self.assertEqual(di.decode_custom_id(custom_id)[1][-1], "g")
+
+    def test_a_broker_outage_does_not_replace_the_confirmation_with_an_error(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL, "token": "tok",
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_free", "bare", int(when.timestamp()), self.player.discord_id)},
+            "message": {"id": "m", "components": []},
+        }
+        with mock.patch.object(di.post_interaction_followup_task, "apply_async",
+                               side_effect=KombuOperationalError("redis down")):
+            data = self._body(di._handle_schedule_free(payload))["data"]
+        self.assertIn("try again", data["content"].lower())
+
+    def test_nothing_is_written_by_confirming(self):
+        self._confirm()
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    # ── responding to an LFG suggestion ──
+    def _respond(self, action, clicker, confirmed=None):
+        embed = {"title": "🕐 Proposed time (not scheduled)", "description": "x"}
+        if confirmed:
+            embed["fields"] = [{"name": di.SCHEDULE_FREE_CONFIRMED_FIELD,
+                                "value": "\n".join(confirmed), "inline": False}]
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL,
+            "member": {"user": {"id": clicker, "username": "someone"}},
+            "data": {"custom_id": di.encode_custom_id(action, "123", "g")},
+            "message": {"id": "m", "embeds": [embed], "components": []},
+        }
+        handler = di.COMPONENT_HANDLERS[action]
+        return self._body(handler(payload))["data"]
+
+    def test_a_thread_player_can_confirm(self):
+        self._lfg_thread()
+        data = self._respond("sched_lfg_ok", self.player.discord_id)
+        field = data["embeds"][0]["fields"][0]
+        self.assertEqual(field["name"], di.SCHEDULE_FREE_CONFIRMED_FIELD)
+        self.assertIn(f"<@{self.player.discord_id}>", field["value"])
+
+    def test_a_non_player_is_refused(self):
+        self._lfg_thread()
+        data = self._respond("sched_lfg_ok", "88888888")
+        self.assertIn("players in this thread", data["content"])
+
+    def test_confirming_twice_does_not_double_count(self):
+        """Identity is the id, so a rename can't add a second line either."""
+        self._lfg_thread()
+        first = self._respond("sched_lfg_ok", self.player.discord_id)
+        lines = first["embeds"][0]["fields"][0]["value"].splitlines()
+        again = self._respond("sched_lfg_ok", self.player.discord_id,
+                              confirmed=lines)
+        self.assertEqual(len(again["embeds"][0]["fields"][0]["value"].splitlines()), 1)
+
+    def test_declining_removes_an_earlier_confirmation(self):
+        self._lfg_thread()
+        first = self._respond("sched_lfg_ok", self.player.discord_id)
+        lines = first["embeds"][0]["fields"][0]["value"].splitlines()
+        after = self._respond("sched_lfg_no", self.player.discord_id, confirmed=lines)
+        self.assertEqual(after["embeds"][0].get("fields", []), [])
+
+    def test_responding_writes_nothing(self):
+        self._lfg_thread()
+        self._respond("sched_lfg_ok", self.player.discord_id)
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+
+class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
+    """The sentinel path through the timezone picker — the likeliest way this
+    feature breaks, since only users with no saved timezone ever see it."""
+
+    UNLINKED_CHANNEL = "123123123"
+
+    def setUp(self):
+        self.build()   # self.player has NO timezone
+
+    def _body(self, response):
+        return json.loads(response.content)
+
+    def test_no_timezone_opens_the_region_picker_with_the_sentinel(self):
+        data = self._body(di._handle_schedule_command({
+            "name": "schedule",
+            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": self.UNLINKED_CHANNEL,
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }))["data"]
+        select = data["components"][0]["components"][0]
+        args = di.decode_custom_id(select["custom_id"])[1]
+        self.assertEqual(args[0], di.SCHEDULE_NO_MATCH)
+
+    def test_the_sentinel_does_not_report_a_missing_match(self):
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": self.UNLINKED_CHANNEL,
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_region", di.SCHEDULE_NO_MATCH, self.player.discord_id),
+                "values": ["america"]},
+            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+                        "components": []},
+        }
+        data = self._body(di._handle_schedule_tz_region(payload))["data"]
+        self.assertNotIn("can no longer be scheduled", data.get("content", ""))
+
+    def test_a_real_match_id_still_enforces_permission(self):
+        """The sentinel branch must not become a way to skip authorization."""
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": "555000111",
+            "member": {"user": {"id": self.outsider.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_region", self.match.id, self.outsider.discord_id),
+                "values": ["america"]},
+            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+                        "components": []},
+        }
+        data = self._body(di._handle_schedule_tz_region(payload))["data"]
+        self.assertIn("can't set the time", data["content"])
+
+    def test_the_picker_returns_a_sched_free_button_not_schedule_confirm(self):
+        """The break this test exists for: finishing the picker on an unlinked path
+        must not hand back a match-path button carrying the sentinel."""
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": self.UNLINKED_CHANNEL,
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_zone", di.SCHEDULE_NO_MATCH, "america",
+                self.player.discord_id),
+                "values": [TZ]},
+            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+                        "components": []},
+        }
+        data = self._body(di._handle_schedule_tz_zone(payload))["data"]
+        ids = [c["custom_id"] for r in data["components"] for c in r["components"]]
+        self.assertTrue(any(i.startswith("sched_free:") for i in ids))
+        self.assertFalse(any(i.startswith("schedule_confirm:") for i in ids))
+
+    def test_the_timezone_is_saved_from_an_unlinked_thread(self):
+        """The payoff of get-or-create: a zone set here is reused everywhere."""
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": self.UNLINKED_CHANNEL,
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_zone", di.SCHEDULE_NO_MATCH, "america",
+                self.player.discord_id),
+                "values": [TZ]},
+            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+                        "components": []},
+        }
+        di._handle_schedule_tz_zone(payload)
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.timezone, TZ)
 
 
 class ScheduleClearConfirmTests(ScheduleFixtureMixin, TestCase):
@@ -2076,13 +2475,16 @@ class DraftLFGSeatingTests(TestCase):
         self.assertIn("**4 Player Draft**", self._command(self.THREAD_ID))
 
     # ── the ephemeral seating offer ─────────────────────────────────────────
-    def _build_payload(self, channel_id):
-        return {
+    def _build_payload(self, channel_id, guild_id=None):
+        payload = {
             "channel_id": channel_id,
             "token": "tok",
             "data": {"custom_id": di.encode_custom_id("draft_build", 3, "tts", "111")},
             "message": {"id": "msg", "components": []},
         }
+        if guild_id is not None:
+            payload["guild_id"] = guild_id
+        return payload
 
     def _offer(self, channel_id):
         with mock.patch.object(di.post_interaction_followup_task, "apply_async") as enqueue:
@@ -2126,12 +2528,39 @@ class DraftLFGSeatingTests(TestCase):
         self._roster(1)
         self._offer(self.THREAD_ID).assert_not_called()
 
+    def test_the_offer_is_skipped_when_the_guild_lacks_seating(self):
+        """Confirming would run seating the guild deliberately turned off."""
+        self._roster(3)
+        guild = DiscordGuild.objects.create(guild_id="950000000000000001", name="G",
+                                            enabled_commands=["draft"])
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            response = di._handle_draft_build(
+                self._build_payload(self.THREAD_ID, guild_id=guild.guild_id))
+        enqueue.assert_not_called()
+        # The draft itself is unaffected.
+        self.assertTrue(json.loads(response.content)["data"]["embeds"])
+
+    def test_the_offer_is_sent_when_the_guild_has_seating(self):
+        self._roster(3)
+        guild = DiscordGuild.objects.create(guild_id="950000000000000002", name="G",
+                                            enabled_commands=["draft", "seating"])
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_draft_build(
+                self._build_payload(self.THREAD_ID, guild_id=guild.guild_id))
+        enqueue.assert_called_once()
+
     def test_existing_seating_warns_before_overwriting(self):
         self._roster(3)
         LFGSeat.objects.create(
             thread=self.thread,
             profile=Profile.objects.get(discord_id="901"),
             seat_number=1)
+        # seating_set is what marks these seats as a real seating; /pick can leave
+        # seat rows behind with no seating order, and those must not warn.
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
         message = self._offer(self.THREAD_ID).call_args.args[0][1]
         self.assertIn("overwrite", message["content"].lower())
         confirm = message["components"][0]["components"][0]
@@ -2274,6 +2703,8 @@ class SeatingCommandTests(TestCase):
     def test_existing_seating_warns_before_overwriting(self):
         profiles = self._roster(3)
         LFGSeat.objects.create(thread=self.thread, profile=profiles[0], seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
         data = self._command()
         self.assertIn("overwrite", data["content"].lower())
         confirm = data["components"][0]["components"][0]
@@ -2695,22 +3126,28 @@ class PickCommandTests(TestCase):
         ]
         self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
 
-    def _roster(self, count):
-        """Seats 1..count, each with a Profile whose discord_id is '76<i>'."""
+    def _roster(self, count, seated=True):
+        """Players with discord_id '76<i>'. `seated` writes a real seating (the
+        default); seated=False leaves the thread unseated, as /pick finds it
+        before anyone runs /seating."""
         profiles = [
             Profile.objects.create(discord=f"pkp{i}", discord_id=f"76{i}",
                                    display_name=f"Pick Player {i}")
             for i in range(1, count + 1)
         ]
         self.thread.players.set(profiles)
-        for i, p in enumerate(profiles, 1):
-            LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+        if seated:
+            for i, p in enumerate(profiles, 1):
+                LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+            self.thread.seating_set = True
+            self.thread.save(update_fields=["seating_set"])
         return profiles
 
-    def _command(self, channel_id=None):
+    def _command(self, channel_id=None, guild_id=None):
         response = di._handle_pick_command({
             "_channel_id": channel_id or self.THREAD_ID,
             "_author_id": self.OWNER,
+            "_guild_id": guild_id,
         })
         return json.loads(response.content)["data"]
 
@@ -2729,10 +3166,70 @@ class PickCommandTests(TestCase):
         return json.loads(response.content)["data"]
 
     # ── guards ──
-    def test_unseated_thread_is_refused(self):
+    def test_a_one_player_thread_is_refused(self):
         self.thread.players.set([
             Profile.objects.create(discord="pku", discord_id="769")])
-        self.assertIn("/seating", self._command()["content"])
+        content = self._command()["content"]
+        self.assertIn("enough players", content)
+        # Must not send the user to a command their guild may not even have.
+        self.assertNotIn("/seating", content)
+
+    # ── unseated: the guild HAS /seating ──
+    def _guild(self, commands):
+        guild = DiscordGuild.objects.create(guild_id="9300000000000001",
+                                            name="Pick Guild",
+                                            enabled_commands=commands)
+        return guild.guild_id
+
+    def test_unseated_offers_to_seat_when_seating_is_enabled(self):
+        self._roster(3, seated=False)
+        data = self._command(guild_id=self._guild(["pick", "seating"]))
+        self.assertIn("haven't been seated", data["content"])
+        labels = [c["label"] for c in data["components"][0]["components"]]
+        self.assertEqual(labels, ["Seat players", "Assign without seating", "Cancel"])
+
+    def test_the_unseated_prompt_writes_no_seats(self):
+        """Nothing is committed until the invoker chooses."""
+        self._roster(3, seated=False)
+        self._command(guild_id=self._guild(["pick", "seating"]))
+        self.assertEqual(self.thread.seats.count(), 0)
+        self.assertFalse(LFGThread.objects.get(pk=self.thread.pk).seating_set)
+
+    def test_the_seat_or_assign_buttons_are_owner_locked(self):
+        self._roster(3, seated=False)
+        data = self._command(guild_id=self._guild(["pick", "seating"]))
+        for comp in data["components"][0]["components"]:
+            action, args = di.decode_custom_id(comp["custom_id"])
+            if action in ("pick_seat", "pick_noseat"):
+                self.assertEqual(args[-1], self.OWNER)
+
+    # ── unseated: the guild does NOT have /seating ──
+    def test_unseated_goes_straight_to_assigning_without_seating(self):
+        self._roster(3, seated=False)
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            data = self._command(guild_id=self._guild(["pick"]))
+        self.assertIn("Faction Assignments", data["content"])
+        self.assertNotIn("haven't been seated", data["content"])
+        post.assert_not_called()          # no seating is announced
+        thread = LFGThread.objects.get(pk=self.thread.pk)
+        self.assertFalse(thread.seating_set)
+        self.assertEqual(thread.seats.count(), 3)
+
+    def test_the_unordered_panel_shows_no_seat_numbers(self):
+        self._roster(3, seated=False)
+        data = self._command(guild_id=self._guild(["pick"]))
+        self.assertNotIn("1. ", data["content"])
+        self.assertNotIn("seat 3", data["content"])
+
+    def test_the_unordered_roster_is_not_shuffled(self):
+        """Filler seat numbers reach Effort.seat when the recorder doesn't drag
+        the rows, so inventing a random order would be worse than none."""
+        players = self._roster(4, seated=False)
+        self._command(guild_id=self._guild(["pick"]))
+        seats = self.thread.seats.order_by("seat_number")
+        self.assertEqual([s.profile_id for s in seats],
+                         [p.pk for p in self.thread.players.all()])
+        self.assertEqual(len(players), 4)
 
     def test_unrelated_channel_is_refused(self):
         data = self._command("777777777777777777")
@@ -2928,6 +3425,135 @@ class PickCommandTests(TestCase):
         items = capture.call_args.args[1]
         self.assertEqual([i["slug"] for i in items], [self.factions[0].slug])
         self.assertEqual(capture.call_args.kwargs["source"], "pick")
+
+
+class PickSeatChoiceTests(TestCase):
+    """The Seat-players / Assign-without-seating buttons, and what seating_set
+    protects once one of them has run."""
+
+    THREAD_ID = "1303834523347456088"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        designer = Profile.objects.create(discord="pkchoice", discord_id="780")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Choice Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(5)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"pkc{i}", discord_id=f"78{i}",
+                                   display_name=f"Choice Player {i}")
+            for i in range(1, 4)
+        ]
+        self.thread.players.set(self.players)
+
+    def _click(self, action):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.OWNER}},
+            "data": {"custom_id": di.encode_custom_id(action, self.OWNER)},
+            "message": {"id": "msg", "components": []},
+        }
+        handler = di.COMPONENT_HANDLERS[action]
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            response = handler(payload)
+        return json.loads(response.content)["data"], post
+
+    def _reload(self):
+        return LFGThread.objects.get(pk=self.thread.pk)
+
+    def test_seat_players_creates_a_real_seating(self):
+        data, post = self._click("pick_seat")
+        thread = self._reload()
+        self.assertTrue(thread.seating_set)
+        self.assertEqual(thread.seats.count(), 3)
+        post.assert_called_once()
+        self.assertIn("first pick", post.call_args.args[1])
+        # Then asks how the table wants to pick.
+        self.assertIn("assign every faction yourself", data["content"])
+
+    def test_assign_without_seating_leaves_seating_unset(self):
+        data, post = self._click("pick_noseat")
+        thread = self._reload()
+        self.assertFalse(thread.seating_set)
+        self.assertEqual(thread.seats.count(), 3)
+        post.assert_not_called()          # nothing announced
+        self.assertIn("Faction Assignments", data["content"])
+
+    def test_after_assigning_seating_offers_a_normal_prompt_not_an_overwrite(self):
+        """The regression seating_set exists to prevent: these seats are filler,
+        so /seating must not claim it is replacing a seating order."""
+        self._click("pick_noseat")
+        data = json.loads(di._handle_seating_command({
+            "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+        }).content)["data"]
+        self.assertNotIn("overwrite", data["content"].lower())
+        self.assertEqual(data["components"][0]["components"][0]["label"], "Yes")
+
+    def test_after_a_real_seating_seating_still_warns(self):
+        self._click("pick_seat")
+        data = json.loads(di._handle_seating_command({
+            "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+        }).content)["data"]
+        self.assertIn("overwrite", data["content"].lower())
+
+    def test_seating_after_assigning_does_not_say_reseated(self):
+        self._click("pick_noseat")
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.OWNER}},
+            "data": {"custom_id": di.encode_custom_id("draft_seat", self.OWNER)},
+            "message": {"id": "msg", "components": []},
+        }
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            di._handle_draft_seat(payload)
+        self.assertNotIn("Re-seated", post.call_args.args[1])
+        self.assertTrue(self._reload().seating_set)
+
+    def test_pick_still_offers_to_seat_after_an_unordered_assign(self):
+        """Otherwise assigning factions would be a one-way trap: the table could
+        never reach a real seating."""
+        self._click("pick_noseat")
+        guild = DiscordGuild.objects.create(guild_id="9300000000000002", name="G",
+                                            enabled_commands=["pick", "seating"])
+        data = json.loads(di._handle_pick_command({
+            "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+            "_guild_id": guild.guild_id,
+        }).content)["data"]
+        self.assertIn("haven't been seated", data["content"])
+
+
+class GuildAllowsTests(TestCase):
+    """_guild_allows: the first handler-side read of enabled_commands."""
+
+    def test_an_enabled_command_is_allowed(self):
+        DiscordGuild.objects.create(guild_id="940000000000000001", name="G",
+                                    enabled_commands=["pick", "seating"])
+        self.assertTrue(di._guild_allows("940000000000000001", "seating"))
+
+    def test_a_disabled_command_is_not(self):
+        DiscordGuild.objects.create(guild_id="940000000000000002", name="G",
+                                    enabled_commands=["pick"])
+        self.assertFalse(di._guild_allows("940000000000000002", "seating"))
+
+    def test_an_absent_guild_row_allows_nothing(self):
+        """Matches /help: a guild with no row has nothing enabled but /help."""
+        self.assertFalse(di._guild_allows("940000000000000003", "seating"))
+
+    def test_an_empty_whitelist_allows_nothing(self):
+        DiscordGuild.objects.create(guild_id="940000000000000004", name="G",
+                                    enabled_commands=[])
+        self.assertFalse(di._guild_allows("940000000000000004", "seating"))
+
+    def test_no_guild_id_is_permissive(self):
+        """A DM has no whitelist to consult, so nothing is withheld."""
+        self.assertTrue(di._guild_allows(None, "seating"))
 
 
 class PickCommandGroupThreadTests(TestCase):
