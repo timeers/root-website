@@ -20,7 +20,7 @@ from the_gatehouse.tasks import update_post_status
 from the_keep.models import StatusChoices, Faction, Map, Deck, Vagabond
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
-    LFGRoll, LFGDraft, LFGSeat,
+    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat,
 )
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
@@ -2334,6 +2334,372 @@ class LFGCaptureTests(TestCase):
         self.assertEqual([n for n, _p, _f, _v in seats], [1, 2])
         self.assertIsNone(seats[0][1])
         self.assertEqual(seats[1][1], keep)
+
+
+class PickCommandTests(TestCase):
+    """/pick: choosing factions seat by seat, last seat first."""
+
+    THREAD_ID = "1303834523347456099"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.designer = Profile.objects.create(discord="pickcmd", discord_id="750")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Pick Cmd Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(6)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+
+    def _roster(self, count):
+        """Seats 1..count, each with a Profile whose discord_id is '76<i>'."""
+        profiles = [
+            Profile.objects.create(discord=f"pkp{i}", discord_id=f"76{i}",
+                                   display_name=f"Pick Player {i}")
+            for i in range(1, count + 1)
+        ]
+        self.thread.players.set(profiles)
+        for i, p in enumerate(profiles, 1):
+            LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+        return profiles
+
+    def _command(self, channel_id=None):
+        response = di._handle_pick_command({
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_author_id": self.OWNER,
+        })
+        return json.loads(response.content)["data"]
+
+    def _select(self, slug, clicker, mode=di.PICK_MODE_PLAYERS, channel_id=None):
+        payload = {
+            "channel_id": channel_id or self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", mode, self.OWNER, di.PICK_OPEN),
+                "values": [slug],
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        response = di._handle_pick_faction(payload)
+        return json.loads(response.content)["data"]
+
+    # ── guards ──
+    def test_unseated_thread_is_refused(self):
+        self.thread.players.set([
+            Profile.objects.create(discord="pku", discord_id="769")])
+        self.assertIn("/seating", self._command()["content"])
+
+    def test_unrelated_channel_is_refused(self):
+        data = self._command("777777777777777777")
+        self.assertIn("game thread", data["content"])
+
+    def test_a_pool_smaller_than_the_table_is_refused(self):
+        Faction.objects.all().delete()
+        Faction.objects.create(
+            title="Lonely", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self._roster(4)
+        self.assertIn("Only 1 factions", self._command()["content"])
+
+    # ── turn order ──
+    def test_the_last_seat_picks_first(self):
+        players = self._roster(4)
+        seats = list(self.thread.seats.all())
+        self.assertEqual(di._pick_next_seat(seats).profile, players[-1])
+
+    def test_turn_descends_after_each_pick(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        self.assertEqual(di._pick_next_seat(seats).profile, players[1])
+
+    def test_a_seat_with_no_profile_is_skipped(self):
+        """No clicker could ever match a removed player, so waiting on that seat
+        would stall the table forever."""
+        players = self._roster(3)
+        players[2].delete()
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        self.assertEqual(di._pick_next_seat(seats).profile, players[1])
+
+    # ── authorization ──
+    def test_a_player_out_of_turn_is_refused_and_nothing_is_written(self):
+        players = self._roster(3)
+        data = self._select(self.factions[0].slug, players[0].discord_id)
+        self.assertIn("pick right now", data["content"])
+        self.assertFalse(self.thread.seats.exclude(faction=None).exists())
+
+    def test_the_turn_player_persists_their_faction(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        seat = self.thread.seats.get(seat_number=3)
+        self.assertEqual(seat.faction, self.factions[0])
+
+    def test_assign_mode_lets_the_invoker_pick_for_everyone(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, self.OWNER, mode=di.PICK_MODE_ASSIGN)
+        self.assertEqual(self.thread.seats.get(seat_number=3).faction,
+                         self.factions[0])
+
+    def test_assign_mode_refuses_everyone_else(self):
+        players = self._roster(3)
+        data = self._select(self.factions[1].slug, players[2].discord_id,
+                            mode=di.PICK_MODE_ASSIGN)
+        self.assertIn("can assign", data["content"])
+        self.assertFalse(self.thread.seats.exclude(faction=None).exists())
+
+    # ── writes ──
+    def test_a_taken_faction_cannot_be_taken_twice(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        data = self._select(self.factions[0].slug, players[1].discord_id)
+        self.assertIn("already taken", data["content"])
+        self.assertIsNone(self.thread.seats.get(seat_number=2).faction)
+
+    def test_a_second_click_does_not_consume_another_seat(self):
+        """The target seat is derived from the DB, not the custom_id, so a
+        double-click lands on the same seat and is rejected."""
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        self.assertEqual(self.thread.seats.exclude(faction=None).count(), 1)
+
+    def test_a_seat_filled_between_check_and_write_is_rejected(self):
+        """The seat is re-resolved under select_for_update with
+        faction__isnull=True, so the loser of a race is rejected rather than
+        overwriting the winner."""
+        players = self._roster(3)
+        seat3 = self.thread.seats.get(seat_number=3)
+
+        real = di.LFGSeat.objects.select_for_update
+
+        def fill_then_lock(*a, **kw):
+            # Simulate the winning click landing after this one authorized.
+            LFGSeat.objects.filter(pk=seat3.pk).update(faction=self.factions[1])
+            di.LFGSeat.objects.select_for_update = real
+            return real(*a, **kw)
+
+        with mock.patch.object(di.LFGSeat.objects, "select_for_update",
+                               side_effect=fill_then_lock):
+            data = self._select(self.factions[0].slug, players[2].discord_id)
+
+        self.assertIn("just picked", data["content"])
+        self.assertEqual(self.thread.seats.get(pk=seat3.pk).faction,
+                         self.factions[1])
+
+    def test_picking_the_vagabond_faction_attaches_its_drafted_vagabond(self):
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        players = self._roster(2)
+        vb = Vagabond.objects.create(
+            title="Pick Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        draft = LFGDraft.objects.create(thread=self.thread, players=2)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0],
+                                    vagabond=vb, order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[1], order=2)
+
+        self._select(self.factions[0].slug, players[1].discord_id)
+        seat = self.thread.seats.get(seat_number=2)
+        self.assertEqual(seat.faction, self.factions[0])
+        self.assertEqual(seat.vagabond, vb)
+
+    # ── pool ──
+    def test_the_draft_is_the_pool_when_there_is_one(self):
+        self._roster(2)
+        draft = LFGDraft.objects.create(thread=self.thread, players=2)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[1], order=2)
+        self.assertEqual([slug for slug, _t, _v in di._pick_pool(self.thread)],
+                         [self.factions[0].slug, self.factions[1].slug])
+
+    def test_without_a_draft_the_pool_is_every_official_stable_faction(self):
+        self._roster(2)
+        self.assertEqual(len(di._pick_pool(self.thread)), len(self.factions))
+
+    def test_a_faction_outside_the_pool_is_refused(self):
+        players = self._roster(2)
+        draft = LFGDraft.objects.create(thread=self.thread, players=2)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[1], order=2)
+        data = self._select(self.factions[5].slug, players[1].discord_id)
+        self.assertIn("isn't in this game's pool", data["content"])
+
+    # ── the owner-lock escape hatch ──
+    def test_pick_custom_ids_end_in_a_non_snowflake(self):
+        """The dispatcher owner-locks any custom_id whose LAST arg looks like a
+        snowflake. If these regress, every player except the invoker is silently
+        blocked and the command looks broken for the whole table."""
+        self._roster(3)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        data = di._pick_panel_data(self.thread, seats, di.PICK_MODE_PLAYERS, self.OWNER)
+        ids = [c["custom_id"] for row in data["components"] for c in row["components"]]
+        self.assertTrue(ids)
+        for custom_id in ids:
+            last = di.decode_custom_id(custom_id)[1][-1]
+            self.assertEqual(last, di.PICK_OPEN)
+            self.assertFalse(last.isdigit())
+
+    def test_the_mode_prompt_stays_owner_locked(self):
+        """The opposite case: mode buttons SHOULD end in the invoker's snowflake
+        so only they choose how the table picks."""
+        self._roster(3)
+        data = self._command()
+        modes = [c["custom_id"] for row in data["components"]
+                 for c in row["components"] if c["custom_id"].startswith("pick_mode")]
+        self.assertTrue(modes)
+        for custom_id in modes:
+            self.assertEqual(di.decode_custom_id(custom_id)[1][-1], self.OWNER)
+
+    # ── the panel ──
+    def test_the_panel_drops_factions_already_taken(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        data = di._pick_panel_data(self.thread, seats, di.PICK_MODE_PLAYERS, self.OWNER)
+        offered = [o["value"] for o in data["components"][0]["components"][0]["options"]]
+        self.assertNotIn(self.factions[0].slug, offered)
+
+    def test_the_panel_never_pings(self):
+        self._roster(3)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        data = di._pick_panel_data(self.thread, seats, di.PICK_MODE_PLAYERS, self.OWNER)
+        self.assertEqual(data["allowed_mentions"], {"parse": []})
+
+    def test_the_final_panel_clears_its_components(self):
+        players = self._roster(2)
+        self._select(self.factions[0].slug, players[1].discord_id)
+        data = self._select(self.factions[1].slug, players[0].discord_id)
+        self.assertEqual(data["components"], [])
+        self.assertIn("All factions picked", data["content"])
+
+    # ── the roll capture, which must branch on thread type ──
+    def test_an_lfg_thread_records_the_pick_in_the_roll_log(self):
+        """lfg_option_querysets narrows factions to the roll log, so a pick that
+        isn't logged would be silently dropped at prefill."""
+        players = self._roster(2)
+        with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
+            self._select(self.factions[0].slug, players[1].discord_id)
+        items = capture.call_args.args[1]
+        self.assertEqual([i["slug"] for i in items], [self.factions[0].slug])
+        self.assertEqual(capture.call_args.kwargs["source"], "pick")
+
+
+class PickCommandGroupThreadTests(TestCase):
+    """/pick in a tournament group thread: it creates the LFGThread and seats the
+    group itself, and must NOT write rolls."""
+
+    GUILD_ID = "1093259831470735512"
+    THREAD_ID = "1303834523347456040"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.guild = DiscordGuild.objects.create(
+            guild_id=self.GUILD_ID, name="Pick Guild")
+        self.designer = Profile.objects.create(discord="pkgrp", discord_id="770")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Pick Grp Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(4)
+        ]
+        self.tournament = Tournament.objects.create(
+            name="Pick Tournament", guild=self.guild, designer=self.designer)
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A",
+            discord_thread=(
+                f"https://discord.com/channels/{self.GUILD_ID}/{self.THREAD_ID}"),
+        )
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+
+    def _members(self, count):
+        profiles = [
+            Profile.objects.create(discord=f"pkg{i}", discord_id=f"77{i}",
+                                   display_name=f"Grp Pick {i}")
+            for i in range(1, count + 1)
+        ]
+        self.group.tournament_players.set([
+            TournamentPlayer.objects.create(tournament=self.tournament, profile=p)
+            for p in profiles
+        ])
+        return profiles
+
+    def _command(self):
+        with mock.patch.object(di.post_channel_message_task, "delay"):
+            response = di._handle_pick_command({
+                "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+            })
+        return json.loads(response.content)["data"]
+
+    def test_it_creates_the_series_thread_and_seats_the_group(self):
+        self._members(3)
+        self.assertFalse(LFGThread.objects.filter(thread_id=self.THREAD_ID).exists())
+        self._command()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        self.assertEqual(thread.series, self.series)
+        self.assertEqual(thread.seats.count(), 3)
+
+    def test_it_works_without_a_draft(self):
+        self._members(3)
+        data = self._command()
+        self.assertIn("Faction Picks", data["content"])
+        self.assertIn("components", data)
+
+    def test_it_posts_the_seating_it_created(self):
+        self._members(3)
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            di._handle_pick_command({
+                "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+            })
+        self.assertIn("first pick", post.call_args.args[1])
+
+    def test_a_second_run_does_not_reseat(self):
+        self._members(3)
+        self._command()
+        before = list(self.thread_seat_ids())
+        self._command()
+        self.assertEqual(before, list(self.thread_seat_ids()))
+
+    def thread_seat_ids(self):
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        return thread.seats.order_by("seat_number").values_list("profile_id", flat=True)
+
+    def test_a_group_thread_never_writes_rolls(self):
+        """Match mode narrows its faction field from this same log, so a roll
+        here would shrink that tournament match's allowed factions."""
+        players = self._members(3)
+        self._command()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        last = thread.seats.order_by("-seat_number").first()
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": last.profile.discord_id}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", di.PICK_MODE_PLAYERS, self.OWNER, di.PICK_OPEN),
+                "values": [self.factions[0].slug],
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
+            di._handle_pick_faction(payload)
+        capture.assert_not_called()
+        # The seat itself is still written -- only the roll is skipped.
+        self.assertEqual(thread.seats.get(pk=last.pk).faction, self.factions[0])
 
 
 class PickedFactionsByProfileTests(TestCase):

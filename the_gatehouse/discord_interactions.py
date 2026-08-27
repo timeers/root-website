@@ -2261,6 +2261,332 @@ def _handle_draft_seat(payload):
     })
 
 
+# ── /pick ──────────────────────────────────────────────────────────────────
+# Who may operate the faction select. Assign mode locks it to the invoker;
+# players mode hands each turn to the seated player whose turn it is.
+PICK_MODE_ASSIGN = "a"
+PICK_MODE_PLAYERS = "p"
+
+# Every /pick component custom_id ends with this marker instead of a snowflake,
+# so the dispatcher's owner-lock (which reads args[-1]) stays OFF and players
+# other than the invoker can click. Authorization happens in the handlers --
+# same escape hatch /lfg's Join and the public /schedule proposal buttons use.
+PICK_OPEN = "g"
+
+
+def _pick_thread_for_channel(channel_id):
+    """The LFGThread for this channel, creating one for a tournament group thread
+    on first use. None when the channel is neither.
+
+    Mirrors record_lfg_components_task's get-or-create so /pick works in a group
+    thread that has never captured a roll. `getattr`, NOT `group.series`:
+    MatchSeries.player_group is a OneToOne, so the reverse accessor RAISES
+    RelatedObjectDoesNotExist when the group has no series (a third of them
+    don't)."""
+    thread = _lfg_thread_for_channel(channel_id)
+    if thread:
+        return thread
+    group = player_group_for_channel(channel_id)
+    series = getattr(group, "series", None) if group else None
+    if not series:
+        return None
+    thread, _ = LFGThread.objects.get_or_create(
+        thread_id=channel_id, defaults={"series": series})
+    return thread
+
+
+def _pick_seat_group_roster(thread, channel_id):
+    """Seat a tournament group's roster so /pick has a seating to work from.
+
+    /seating in a group thread is display-only (the thread spans a whole series,
+    so a stored order would be stale by the next game), which leaves nothing for
+    /pick to attach factions to. Seat it here, once, only when the thread has no
+    seating yet. Returns the created seats, or [] when the roster is too small."""
+    group = player_group_for_channel(channel_id)
+    if not group:
+        return []
+    profiles = [tp.profile for tp in
+                group.tournament_players.select_related("profile")
+                if tp.profile_id]
+    if len(profiles) < 2:
+        return []
+
+    random.shuffle(profiles)
+    created = False
+    with transaction.atomic():
+        locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
+        if locked.seats.exists():  # another click won the race
+            seats = list(locked.seats.select_related("profile"))
+        else:
+            seats = [LFGSeat(thread=locked, profile=p, seat_number=i)
+                     for i, p in enumerate(profiles, 1)]
+            LFGSeat.objects.bulk_create(seats)
+            created = True
+
+    # Announce only the seating WE created -- the race loser must not post a
+    # second, contradictory order. Outside the lock: a broker hiccup shouldn't
+    # hold the row, and the seats are already committed either way.
+    if created:
+        post_channel_message_task.delay(
+            thread.thread_id, _draft_seating_message(seats))
+    return seats
+
+
+def _pick_pool(thread):
+    """The factions this thread may pick from, as [(slug, title, vagabond_slug)].
+
+    With a draft, the draft IS the pool -- and each pick carries the vagabond
+    rolled for it, so choosing Vagabond attaches the right one automatically.
+    Without a draft, every official Stable faction is fair game.
+
+    `getattr(thread, "draft", None)`: LFGDraft.thread is a OneToOne, so the
+    reverse accessor RAISES when the thread has no draft."""
+    draft = getattr(thread, "draft", None)
+    if draft:
+        return [
+            (p.faction.slug, p.faction.title,
+             p.vagabond.slug if p.vagabond_id else None)
+            for p in draft.picks.select_related("faction", "vagabond")
+        ]
+    # Same filter as _draft_eligible_factions. `status=1` is an int against a
+    # CharField of string choices -- Django coerces on the lookup, and this
+    # matches every other call site.
+    return [
+        (slug, title, None)
+        for slug, title in Faction.objects.filter(
+            official=True, status=1, component="Faction",
+        ).order_by("title").values_list("slug", "title")
+    ]
+
+
+def _pick_next_seat(seats):
+    """The seat whose turn it is: the highest-numbered seat with no faction yet.
+
+    The LAST seat picks first, then descending -- Root drafts factions in reverse
+    seat order. Seats whose Profile was deleted are SKIPPED: no clicker could
+    ever match them, so waiting on one would stall the table forever."""
+    for seat in sorted(seats, key=lambda s: s.seat_number, reverse=True):
+        if not seat.faction_id and seat.profile_id:
+            return seat
+    return None
+
+
+def _pick_panel_data(thread, seats, mode, owner, pool=None):
+    """The public pick panel, rebuilt from the DB on every interaction so the
+    bot stays stateless and a stale message can never drive a write.
+
+    The seat whose turn it is is derived here, not carried in a custom_id -- that
+    is what makes a double-click land on the same seat and be rejected as already
+    taken, rather than consuming two picks."""
+    pool = pool if pool is not None else _pick_pool(thread)
+    taken = {s.faction.slug for s in seats if s.faction_id}
+
+    lines = ["**Faction Picks**", ""]
+    for seat in sorted(seats, key=lambda s: s.seat_number):
+        who = seat.profile.name if seat.profile_id else "(removed player)"
+        if seat.faction_id:
+            mark = faction_emoji_for(seat.faction.slug) or seat.faction.title
+            lines.append(f"{seat.seat_number}. {who} — {mark}")
+        else:
+            lines.append(f"{seat.seat_number}. {who}")
+
+    nxt = _pick_next_seat(seats)
+    if nxt is None:
+        lines += ["", "All factions picked."]
+        return {"content": "\n".join(lines), "components": [],
+                "allowed_mentions": {"parse": []}}
+
+    if mode == PICK_MODE_ASSIGN:
+        lines += ["", f"Assigning for **{nxt.profile.name}** (seat {nxt.seat_number})."]
+    else:
+        lines += ["", f"<@{nxt.profile.discord_id}> picks (seat {nxt.seat_number})."]
+
+    options = [
+        select_option(title, slug, emoji=faction_emoji_object(slug))
+        for slug, title, _vb in pool if slug not in taken
+    ]
+    select = string_select(
+        encode_custom_id("pick_faction", mode, owner, PICK_OPEN),
+        options,
+        placeholder=f"Faction for seat {nxt.seat_number}",
+        min_values=1, max_values=1,
+    )
+    return {
+        "content": "\n".join(lines),
+        "components": [
+            action_row(select),
+            action_row(button("Stop", encode_custom_id("pick_cancel", owner, PICK_OPEN),
+                              style=STYLE_SECONDARY)),
+        ],
+        # The panel is edited on every pick; re-pinging each time would spam the
+        # table, so the mention above renders as plain text.
+        "allowed_mentions": {"parse": []},
+    }
+
+
+def _handle_pick_command(data):
+    """/pick: choose factions seat by seat, last seat first.
+
+    Works in an LFG game thread and in a tournament group thread (seating the
+    group's roster on first use). The pool is the thread's draft when it has one,
+    otherwise every official Stable faction."""
+    channel_id = data.get("_channel_id")
+    thread = _pick_thread_for_channel(channel_id)
+    if not thread:
+        return _ephemeral(
+            "Use this in a game thread or a player group's thread to pick factions.")
+
+    seats = list(thread.seats.select_related("profile", "faction"))
+    if not seats and thread.series_id:
+        seats = _pick_seat_group_roster(thread, channel_id)
+    if len(seats) < 2:
+        return _ephemeral(
+            "Seat the players first with `/seating`, then pick factions.")
+
+    pool = _pick_pool(thread)
+    seatable = [s for s in seats if s.profile_id]
+    if len(pool) < len(seatable):
+        return _ephemeral(
+            f"Only {len(pool)} factions available for {len(seatable)} players — "
+            "run `/draft` first, or add more factions.")
+
+    owner = data.get("_author_id")
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {
+            "content": ("**Faction Picks** — assign every faction yourself, or let "
+                        "each player pick in seat order?"),
+            "components": [action_row(
+                button("Players pick",
+                       encode_custom_id("pick_mode", PICK_MODE_PLAYERS, owner),
+                       style=STYLE_SUCCESS),
+                button("Assign all",
+                       encode_custom_id("pick_mode", PICK_MODE_ASSIGN, owner),
+                       style=STYLE_PRIMARY),
+                button("Cancel", encode_custom_id("pick_cancel", owner, PICK_OPEN),
+                       style=STYLE_SECONDARY),
+            )],
+        },
+    })
+
+
+def _handle_pick_mode(payload):
+    """Mode chosen: open the first turn panel. The mode buttons end in the
+    invoker's snowflake, so the dispatcher has already locked them to them."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    mode = args[0] if args else PICK_MODE_PLAYERS
+    owner = args[-1] if args else ""
+
+    thread = _pick_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return _ephemeral("This isn't a game thread anymore.")
+    seats = list(thread.seats.select_related("profile", "faction"))
+    if len(seats) < 2:
+        return _ephemeral("Not enough players in this thread to pick factions.")
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _pick_panel_data(thread, seats, mode, owner),
+    })
+
+
+def _handle_pick_faction(payload):
+    """A faction was chosen: authorize the clicker, write it to the seat, and
+    advance the panel in place.
+
+    The select echoes its own values, so the chosen slug is read straight off the
+    payload -- selected_values is only for recovering state on a BUTTON press."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    mode = args[0] if args else PICK_MODE_PLAYERS
+    owner = args[1] if len(args) > 1 else ""
+    clicker = _interaction_user_id(payload)
+
+    thread = _pick_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return _ephemeral("This isn't a game thread anymore.")
+
+    values = payload["data"].get("values") or []
+    if not values:
+        return _ephemeral("No faction selected.")
+    slug = values[0]
+
+    pool = _pick_pool(thread)
+    entry = next((e for e in pool if e[0] == slug), None)
+    if entry is None:
+        return _ephemeral("That faction isn't in this game's pool anymore.")
+    _slug, _title, vagabond_slug = entry
+
+    # Authorize against the CURRENT turn before taking the lock, so a rejected
+    # click never holds a row lock while its response is built.
+    seats = list(thread.seats.select_related("profile", "faction"))
+    seat = _pick_next_seat(seats)
+    if seat is None:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _pick_panel_data(thread, seats, mode, owner, pool=pool),
+        })
+
+    # Re-checked on every click rather than trusting the check made when the
+    # panel was built -- each click is its own request.
+    if mode == PICK_MODE_ASSIGN:
+        if clicker != owner:
+            return _ephemeral("Only the player who ran `/pick` can assign factions.")
+    elif clicker != (seat.profile.discord_id if seat.profile_id else None):
+        who = seat.profile.name if seat.profile_id else "someone else"
+        return _ephemeral(f"It's {who}'s pick right now.")
+
+    faction = Faction.objects.filter(slug=slug).first()
+    if not faction:
+        return _ephemeral("That faction couldn't be found anymore.")
+    vagabond = (Vagabond.objects.filter(slug=vagabond_slug).first()
+                if vagabond_slug else None)
+
+    # Everything above is advisory: the seat is re-resolved under the lock, and
+    # only the write below decides. Two clicks racing the same seat both pass the
+    # checks, but the second finds the seat already filled and is rejected here.
+    with transaction.atomic():
+        locked = (LFGSeat.objects.select_for_update()
+                  .select_related("profile", "faction")
+                  .filter(pk=seat.pk, faction__isnull=True).first())
+        if locked is None:
+            return _ephemeral("That seat was just picked — check the updated list.")
+        if LFGSeat.objects.filter(thread=thread, faction=faction).exists():
+            return _ephemeral("That faction is already taken.")
+        locked.faction = faction
+        locked.vagabond = vagabond
+        locked.save(update_fields=["faction", "vagabond"])
+
+    seats = list(thread.seats.select_related("profile", "faction"))
+
+    # Record the pick in the roll log so the record form's narrowing still offers
+    # it -- lfg_option_querysets narrows factions to what the log contains, so a
+    # picked faction missing from it would be silently dropped at prefill.
+    #
+    # Skipped on a series-linked thread: match mode narrows from the same log, so
+    # a roll here would shrink that tournament match's allowed factions. Match
+    # mode's prefill reads LFGSeat directly and needs no roll.
+    if not thread.series_id:
+        items = [{"kind": "Faction", "slug": faction.slug, "title": faction.title}]
+        if vagabond:
+            items.append(_lfg_item("Vagabond", vagabond))
+        _capture_lfg_components(payload.get("channel_id"), items, source="pick")
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _pick_panel_data(thread, seats, mode, owner, pool=pool),
+    })
+
+
+def _handle_pick_cancel(payload):
+    """Stop picking. Anything already chosen stays saved -- each pick is written
+    as it happens, so there is nothing to roll back."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Picking stopped. Factions chosen so far are saved.",
+                 "components": []},
+    })
+
+
 # ── /random ────────────────────────────────────────────────────────────────
 # Base queryset per post-backed kind. Faction is filtered to component="Faction"
 # like /draft; Captain to captain-capable vagabonds (as /captain).
@@ -2989,6 +3315,7 @@ COMMAND_HANDLERS["schedule"] = _handle_schedule_command
 COMMAND_HANDLERS["record"] = _handle_record_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
 COMMAND_HANDLERS["seating"] = _handle_seating_command
+COMMAND_HANDLERS["pick"] = _handle_pick_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command
 
@@ -3000,6 +3327,12 @@ COMPONENT_HANDLERS = {
     "draft_cancel": _handle_draft_cancel,
     "draft_seat": _handle_draft_seat,
     "draft_seat_no": _handle_draft_seat_no,
+    # `pick_mode` ends in the invoker's snowflake, so the dispatcher locks it to
+    # them. `pick_faction`/`pick_cancel` end in PICK_OPEN so any seated player can
+    # click; those handlers authorize per turn themselves.
+    "pick_mode": _handle_pick_mode,
+    "pick_faction": _handle_pick_faction,
+    "pick_cancel": _handle_pick_cancel,
     # The three options-panel selects share one handler; `random_roll` is the
     # (unrelated) dice prompt, hence `random_roll_post` for the panel's Roll button.
     "random_opt_platform": _handle_random_option,

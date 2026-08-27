@@ -172,6 +172,14 @@ SEATING_COMMAND = {
     "options": [],
 }
 
+# The step after /draft and /seating: who takes which faction. No options -- the
+# seating, the roster and the faction pool all come from the thread it's used in.
+PICK_COMMAND = {
+    "name": "pick",
+    "description": "Pick factions in seat order (last seat picks first)",
+    "options": [],
+}
+
 
 # /random kinds. Value strings double as the dispatch key and the label shown in
 # "Random <Kind>:". Keep in sync with the handler in discord_interactions.py.
@@ -263,6 +271,7 @@ COMMANDS = [
     LAW_COMMAND,
     DRAFT_COMMAND,
     SEATING_COMMAND,
+    PICK_COMMAND,
     RANDOM_COMMAND,
     LFG_COMMAND,
 ]
@@ -276,7 +285,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats"]),
-    ("Games", ["lfg", "seating", "upcoming", "schedule", "record"]),
+    ("Games", ["lfg", "seating", "pick", "upcoming", "schedule", "record"]),
     ("Random", ["draft", "random"]),
 ]
 
