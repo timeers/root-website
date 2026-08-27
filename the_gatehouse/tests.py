@@ -29,7 +29,7 @@ from the_gatehouse.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
     picked_factions_by_profile,
 )
-from the_gatehouse.tasks import record_lfg_components_task
+from the_gatehouse.tasks import record_lfg_components_task, create_lfg_thread_task
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     search_timezones, valid_timezone,
@@ -1337,8 +1337,8 @@ class EditChannelMessageBodyTests(TestCase):
 class LFGStartGuardTests(TestCase):
     """✔ Start must not create a thread for a game with no parsed players."""
 
-    def _payload(self, players_value):
-        return {
+    def _payload(self, players_value, custom_id=None):
+        payload = {
             "channel_id": "chan",
             "guild_id": "guild",
             "token": "tok",
@@ -1353,6 +1353,9 @@ class LFGStartGuardTests(TestCase):
                 }],
             },
         }
+        if custom_id is not None:
+            payload["data"] = {"custom_id": custom_id}
+        return payload
 
     def test_empty_players_is_rejected(self):
         with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
@@ -1368,6 +1371,342 @@ class LFGStartGuardTests(TestCase):
         data = json.loads(response.content)["data"]
         self.assertEqual(data["components"], [])
         self.assertEqual(data["embeds"][0]["footer"]["text"], "✔ Game has started.")
+
+    def test_a_missing_custom_id_still_starts_the_game(self):
+        """The host is read off the button's custom_id, but losing it must cost
+        only the host attribution — never the thread the player asked for."""
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            di._handle_lfg_start(self._payload("Bob (<@123>)"))
+        delay.assert_called_once()
+        self.assertIsNone(delay.call_args.kwargs["host_id"])
+
+
+class LFGThreadNameTests(TestCase):
+    """What the game thread is called. The host's description wins; with none,
+    the thread takes the LFG message's own title (the tag's description or name)
+    rather than a bare "Game"."""
+
+    def _create(self, description, embed):
+        """Run create_lfg_thread_task far enough to capture the thread name."""
+        with mock.patch("the_gatehouse.services.discordservice.create_message_thread",
+                        return_value=None) as create, \
+                mock.patch("the_gatehouse.services.discordservice.create_forum_thread"), \
+                mock.patch("the_gatehouse.services.discordservice.post_channel_message"):
+            create_lfg_thread_task(
+                "chan", "msg", None, None, description,
+                [{"id": "1", "name": "Bob"}], embed,
+            )
+        return create.call_args.args[2]
+
+    def test_the_description_is_used_when_given(self):
+        name = self._create("Quick 4p game", {"title": "Casual Game"})
+        self.assertEqual(name, "Quick 4p game")
+
+    def test_a_blank_description_falls_back_to_the_message_title(self):
+        name = self._create("", {"title": "Casual Game"})
+        self.assertEqual(name, "Casual Game")
+
+    def test_the_default_lfg_title_is_used_when_that_is_all_there_is(self):
+        name = self._create("", {"title": di.LFG_DEFAULT_TITLE})
+        self.assertEqual(name, di.LFG_DEFAULT_TITLE)
+
+    def test_it_still_falls_back_to_game_with_no_embed(self):
+        """An older enqueued task (or a malformed embed) carries no title."""
+        self.assertEqual(self._create("", None), "Game")
+        self.assertEqual(self._create("", {}), "Game")
+
+    def test_the_name_is_capped_at_discords_limit(self):
+        self.assertEqual(len(self._create("", {"title": "x" * 200})), 100)
+
+
+class RenameCommandTests(TestCase):
+    """/rename: the /lfg host retitles their game thread. Ephemeral either way."""
+
+    THREAD_ID = "1303834523347456077"
+    HOST_ID = "820000000000000001"
+    OTHER_ID = "820000000000000002"
+
+    def setUp(self):
+        self.host = Profile.objects.create(discord="renamehost",
+                                           discord_id=self.HOST_ID)
+        self.other = Profile.objects.create(discord="renameother",
+                                            discord_id=self.OTHER_ID)
+        self.thread = LFGThread.objects.create(
+            thread_id=self.THREAD_ID, host=self.host, description="original")
+
+    def _command(self, title="New Title", author=None, channel_id=None,
+                 channel_type=11, result=None):
+        """Run /rename with rename_channel patched. Returns (content, mock)."""
+        result = result if result is not None else (ds.THREAD_OK, None)
+        data = {
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_author_id": author or self.HOST_ID,
+            "_channel_type": channel_type,
+            "options": [{"name": "title", "value": title}],
+        }
+        with mock.patch.object(di, "rename_channel", return_value=result) as renamer:
+            response = di._handle_rename_command(data)
+        content = json.loads(response.content)["data"]["content"]
+        return content, renamer
+
+    def _reload(self):
+        return LFGThread.objects.get(pk=self.thread.pk)
+
+    # ── the happy path ──
+    def test_the_host_renames_the_thread(self):
+        content, renamer = self._command("Chaos Game")
+        self.assertIn("Chaos Game", content)
+        renamer.assert_called_once_with(self.THREAD_ID, "Chaos Game")
+
+    def test_the_reply_is_ephemeral(self):
+        data = {
+            "_channel_id": self.THREAD_ID, "_author_id": self.HOST_ID,
+            "_channel_type": 11,
+            "options": [{"name": "title", "value": "Quiet"}],
+        }
+        with mock.patch.object(di, "rename_channel", return_value=(ds.THREAD_OK, None)):
+            response = di._handle_rename_command(data)
+        self.assertEqual(json.loads(response.content)["data"]["flags"], di.EPHEMERAL)
+
+    def test_the_nickname_is_saved(self):
+        self._command("Chaos Game")
+        self.assertEqual(self._reload().nickname, "Chaos Game")
+
+    # ── permission ──
+    def test_a_non_host_is_refused_and_discord_is_never_called(self):
+        content, renamer = self._command(author=self.OTHER_ID)
+        self.assertIn("started this game", content)
+        renamer.assert_not_called()
+        self.assertEqual(self._reload().nickname, "")
+
+    def test_a_thread_with_no_host_is_refused(self):
+        self.thread.host = None
+        self.thread.save(update_fields=["host"])
+        content, renamer = self._command()
+        self.assertIn("who started this game", content)
+        renamer.assert_not_called()
+
+    def test_an_unlinked_user_is_refused(self):
+        """A Discord id with no site Profile can't be the host."""
+        content, renamer = self._command(author="820000000000000009")
+        self.assertIn("started this game", content)
+        renamer.assert_not_called()
+
+    # ── scope ──
+    def test_a_tournament_group_thread_is_refused(self):
+        guild = DiscordGuild.objects.create(guild_id="9001", name="G")
+        designer = Profile.objects.create(discord="rndesign", discord_id="8203")
+        tournament = Tournament.objects.create(name="T", guild=guild, designer=designer)
+        stage = Stage.objects.create(tournament=tournament, name="S", order=1)
+        rnd = Round.objects.create(stage=stage, round_number=1)
+        group = PlayerGroup.objects.create(round=rnd, group_number=1, name="A")
+        series = MatchSeries.objects.create(round=rnd, player_group=group,
+                                            number_of_games=1)
+        self.thread.series = series
+        self.thread.save(update_fields=["series"])
+        content, renamer = self._command()
+        self.assertIn("tournament group thread", content)
+        renamer.assert_not_called()
+
+    def test_a_non_thread_channel_says_to_use_a_thread(self):
+        content, renamer = self._command(channel_id="999999999999999999",
+                                         channel_type=0)
+        self.assertIn("inside your game's thread", content)
+        renamer.assert_not_called()
+
+    def test_an_unknown_thread_is_refused(self):
+        content, renamer = self._command(channel_id="999999999999999999",
+                                         channel_type=11)
+        self.assertIn("game thread I know about", content)
+        renamer.assert_not_called()
+
+    def test_a_blank_title_is_refused(self):
+        content, renamer = self._command("   ")
+        self.assertIn("Give the thread a title", content)
+        renamer.assert_not_called()
+
+    # ── failures ──
+    def test_a_rate_limit_reports_the_wait_in_minutes(self):
+        content, _ = self._command(result=(ds.THREAD_ERROR, 421.5))
+        self.assertIn("about 8 minutes", content)
+
+    def test_a_short_rate_limit_reports_seconds(self):
+        content, _ = self._command(result=(ds.THREAD_ERROR, 12.0))
+        self.assertIn("about 12 seconds", content)
+
+    def test_a_permission_failure_says_so(self):
+        content, _ = self._command(result=(ds.THREAD_BLOCKED, None))
+        self.assertIn("permission", content)
+
+    def test_a_generic_failure_says_try_again(self):
+        content, _ = self._command(result=(ds.THREAD_ERROR, None))
+        self.assertIn("try again", content)
+
+    def test_a_failed_rename_leaves_the_nickname_unchanged(self):
+        """The model must never claim a name the thread doesn't have."""
+        self.thread.nickname = "before"
+        self.thread.save(update_fields=["nickname"])
+        self._command("after", result=(ds.THREAD_ERROR, None))
+        self.assertEqual(self._reload().nickname, "before")
+
+    # ── truncation ──
+    def test_a_long_title_is_truncated_for_the_nickname(self):
+        """nickname is max_length=50; Postgres RAISES on overflow rather than
+        truncating, so this must be explicit."""
+        self._command("x" * 200)
+        self.assertEqual(len(self._reload().nickname), 50)
+
+    def test_the_confirmation_shows_the_capped_title(self):
+        """rename_channel caps the name at 100 itself, so the reply must not
+        promise more than Discord accepted."""
+        content, _renamer = self._command("y" * 200)
+        self.assertIn("y" * 100, content)
+        self.assertNotIn("y" * 101, content)
+
+
+class RenameChannelHelperTests(TestCase):
+    """rename_channel: the only PATCH /channels/{id} in the codebase."""
+
+    def test_success_returns_ok_and_no_wait(self):
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        with mock.patch.object(ds.requests, "patch", return_value=response) as patched:
+            result, retry_after = ds.rename_channel("chan", "New Name")
+        self.assertEqual(result, ds.THREAD_OK)
+        self.assertIsNone(retry_after)
+        self.assertEqual(patched.call_args.kwargs["json"], {"name": "New Name"})
+
+    def test_the_name_is_capped_at_100(self):
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        with mock.patch.object(ds.requests, "patch", return_value=response) as patched:
+            ds.rename_channel("chan", "z" * 200)
+        self.assertEqual(len(patched.call_args.kwargs["json"]["name"]), 100)
+
+    def test_status_classification(self):
+        for status, expected in ((403, ds.THREAD_BLOCKED), (404, ds.THREAD_BLOCKED),
+                                 (500, ds.THREAD_ERROR)):
+            with self.subTest(status=status):
+                resp = mock.Mock(status_code=status, text="boom")
+                resp.json.return_value = {}
+                resp.headers = {}
+                err = ds.requests.RequestException("failed")
+                err.response = resp
+                with mock.patch.object(ds.requests, "patch", side_effect=err):
+                    result, retry_after = ds.rename_channel("chan", "n")
+                self.assertEqual(result, expected)
+                self.assertIsNone(retry_after)
+
+    def test_a_429_body_yields_its_retry_after(self):
+        resp = mock.Mock(status_code=429, text="rate limited")
+        resp.json.return_value = {"retry_after": 421.5, "global": False}
+        resp.headers = {}
+        err = ds.requests.RequestException("429")
+        err.response = resp
+        with mock.patch.object(ds.requests, "patch", side_effect=err):
+            result, retry_after = ds.rename_channel("chan", "n")
+        self.assertEqual(result, ds.THREAD_ERROR)
+        self.assertEqual(retry_after, 421.5)
+
+    def test_a_429_falls_back_to_the_header(self):
+        resp = mock.Mock(status_code=429, text="rate limited")
+        resp.json.return_value = {}
+        resp.headers = {"Retry-After": "30"}
+        err = ds.requests.RequestException("429")
+        err.response = resp
+        with mock.patch.object(ds.requests, "patch", side_effect=err):
+            _result, retry_after = ds.rename_channel("chan", "n")
+        self.assertEqual(retry_after, 30.0)
+
+    def test_a_malformed_body_degrades_to_none(self):
+        """A non-JSON body must not turn a rate limit into an exception."""
+        resp = mock.Mock(status_code=429, text="<html>nope</html>")
+        resp.json.side_effect = ValueError("no json")
+        resp.headers = {}
+        err = ds.requests.RequestException("429")
+        err.response = resp
+        with mock.patch.object(ds.requests, "patch", side_effect=err):
+            result, retry_after = ds.rename_channel("chan", "n")
+        self.assertEqual(result, ds.THREAD_ERROR)
+        self.assertIsNone(retry_after)
+
+    def test_a_network_error_with_no_response_is_handled(self):
+        err = ds.requests.RequestException("timeout")
+        with mock.patch.object(ds.requests, "patch", side_effect=err):
+            result, retry_after = ds.rename_channel("chan", "n")
+        self.assertEqual(result, ds.THREAD_ERROR)
+        self.assertIsNone(retry_after)
+
+
+class LFGHostRecordingTests(TestCase):
+    """The host must be recorded at thread creation — it is unrecoverable after."""
+
+    def _start(self, owner="830000000000000001"):
+        payload = {
+            "channel_id": "chan", "guild_id": "guild", "token": "tok",
+            "member": {"user": {"id": owner}},
+            "data": {"custom_id": di.encode_custom_id("lfg_start", owner)},
+            "message": {
+                "id": "msg", "content": "",
+                "embeds": [{
+                    "title": "Looking for Game", "description": "a game",
+                    "fields": [{"name": di.LFG_PLAYERS_FIELD,
+                                "value": f"Bob (<@{owner}>)", "inline": False}],
+                }],
+            },
+        }
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            di._handle_lfg_start(payload)
+        return delay
+
+    def test_start_forwards_the_host_from_its_custom_id(self):
+        delay = self._start("830000000000000001")
+        self.assertEqual(delay.call_args.kwargs["host_id"], "830000000000000001")
+
+    def _run_task(self, host_id=..., thread_id="770000000000000001"):
+        kwargs = {} if host_id is ... else {"host_id": host_id}
+        with mock.patch("the_gatehouse.services.discordservice.create_message_thread",
+                        return_value=thread_id), \
+                mock.patch("the_gatehouse.services.discordservice.create_forum_thread"), \
+                mock.patch("the_gatehouse.services.discordservice.post_channel_message"), \
+                mock.patch("the_gatehouse.tasks.link_lfg_message_task.apply_async"):
+            create_lfg_thread_task(
+                "chan", "msg", None, None, "a game",
+                [{"id": "840000000000000001", "name": "Bob"}], {}, **kwargs,
+            )
+        return LFGThread.objects.get(thread_id=thread_id)
+
+    def test_the_task_records_the_host(self):
+        thread = self._run_task(host_id="840000000000000001")
+        self.assertIsNotNone(thread.host)
+        self.assertEqual(thread.host.discord_id, "840000000000000001")
+
+    def test_the_host_is_resolved_even_for_a_brand_new_profile(self):
+        """The host Profile is CREATED by the players loop, so the host lookup
+        has to run after it — not before."""
+        self.assertFalse(Profile.objects.filter(discord_id="840000000000000001").exists())
+        thread = self._run_task(host_id="840000000000000001")
+        self.assertEqual(thread.host.discord_id, "840000000000000001")
+
+    def test_the_task_still_works_without_a_host_id(self):
+        """A task enqueued before this argument existed must still deserialize."""
+        thread = self._run_task()
+        self.assertIsNone(thread.host)
+
+    def test_an_existing_thread_still_gets_its_host(self):
+        """defaults= only applies on CREATE, so a pre-existing row (a retry, or a
+        thread that captured a roll first) must still have its host set."""
+        LFGThread.objects.create(thread_id="770000000000000002")
+        thread = self._run_task(host_id="840000000000000001",
+                                thread_id="770000000000000002")
+        self.assertEqual(thread.host.discord_id, "840000000000000001")
+
+    def test_a_retry_does_not_reassign_an_existing_host(self):
+        existing = Profile.objects.create(discord="firsthost", discord_id="850000000000000001")
+        LFGThread.objects.create(thread_id="770000000000000003", host=existing)
+        thread = self._run_task(host_id="840000000000000001",
+                                thread_id="770000000000000003")
+        self.assertEqual(thread.host, existing)
 
 
 class _NoLoginSignalMixin:

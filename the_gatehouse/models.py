@@ -305,6 +305,15 @@ class LFGThread(models.Model):
         related_name="lfg_threads")
     description = models.TextField(blank=True, default="")
     players = models.ManyToManyField("Profile", blank=True, related_name="lfg_threads")
+    # Who ran /lfg. Cannot be derived from `players`: Profile.Meta.ordering is
+    # ['display_name'], so players.all() comes back alphabetically and .first()
+    # is not the host. The host's snowflake otherwise survives only in the
+    # lfg_start/lfg_cancel custom_ids, which are stripped the moment the thread
+    # is created -- so it is recorded here or lost. NULL on threads created
+    # before this field existed, and on tournament group threads (no host).
+    host = models.ForeignKey(
+        "Profile", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="hosted_lfg_threads")
 
     # `map`/`deck` hold the MOST RECENT of each (whether rolled or selected) — the
     # fields a Game needs directly. The full history lives in the related LFGRoll

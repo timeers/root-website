@@ -321,6 +321,64 @@ def edit_channel_message(channel_id, message_id, embeds=None, components=None):
         return THREAD_ERROR
 
 
+def _retry_after_seconds(resp):
+    """Seconds to wait from a 429 response, or None.
+
+    Discord puts `retry_after` (a float) in the JSON body; the Retry-After header
+    is the fallback. Never raises: an empty or non-JSON body must degrade to None
+    rather than turning a rate-limit into an exception in the caller."""
+    if resp is None:
+        return None
+    try:
+        value = (resp.json() or {}).get("retry_after")
+        if value is not None:
+            return float(value)
+    except (ValueError, AttributeError, TypeError):
+        pass
+    try:
+        header = resp.headers.get("Retry-After")
+        return float(header) if header else None
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def rename_channel(channel_id, name):
+    """Rename a channel or thread (PATCH). Never raises. Returns
+    (result, retry_after) where result is THREAD_OK / THREAD_BLOCKED / THREAD_ERROR
+    and retry_after is the seconds to wait on a rate limit, else None.
+
+    The tuple exists because of this endpoint specifically: Discord caps thread
+    renames at 2 per 10 minutes, so a 429 here carries a retry_after of HUNDREDS of
+    seconds -- far too long to swallow behind a generic "try again". The caller
+    tells the user how long to wait. (429 stays THREAD_ERROR per
+    _is_terminal_edit_error; retry_after is what distinguishes it.)
+
+    No DEBUG_VALUE guard — see create_message_thread."""
+    name = (name or "")[:100]  # Discord channel name cap, as create_message_thread
+    try:
+        r = requests.patch(
+            f"{DISCORD_API}/channels/{channel_id}",
+            headers=_bot_headers(),
+            json={"name": name},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return THREAD_OK, None
+    except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        if _is_terminal_edit_error(e):
+            logger.warning("Cannot rename channel %s (permanent): %s", channel_id, detail)
+            return THREAD_BLOCKED, None
+        retry_after = _retry_after_seconds(resp)
+        if retry_after is not None:
+            logger.warning("Rate limited renaming channel %s; retry after %ss",
+                           channel_id, retry_after)
+        else:
+            logger.error("Failed to rename channel %s: %s", channel_id, detail)
+        return THREAD_ERROR, retry_after
+
+
 def get_bot_guilds():
     """
     Return the list of guilds the bot is a member of (from Discord),

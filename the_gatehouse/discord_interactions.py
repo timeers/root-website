@@ -20,6 +20,7 @@ Currently handles:
 """
 import json
 import logging
+import math
 import random
 import re
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -54,7 +55,7 @@ from .services.discordservice import (
     build_captain_embed, build_card_embed, build_law_embed, build_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
     roll_emoji_for, suit_static_image_url, embed_color, permissions_can_manage_guild,
-    get_guild_roles,
+    get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
 )
 from .services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
@@ -2587,6 +2588,64 @@ def _handle_pick_cancel(payload):
     })
 
 
+# ── /rename ────────────────────────────────────────────────────────────────
+def _rename_wait_text(retry_after):
+    """"about 8 minutes" / "about 30 seconds" for a rate-limit retry_after."""
+    seconds = int(math.ceil(retry_after))
+    if seconds < 60:
+        return f"about {seconds} second{'s' if seconds != 1 else ''}"
+    minutes = int(math.ceil(seconds / 60))
+    return f"about {minutes} minute{'s' if minutes != 1 else ''}"
+
+
+def _handle_rename_command(data):
+    """/rename: retitle this game's thread. Host only, ephemeral either way.
+
+    Also writes the thread's `nickname`, so the recorded Game inherits the name
+    the players actually used."""
+    title = (_get_option(data, "title") or "").strip()
+    if not title:
+        return _ephemeral("Give the thread a title.")
+
+    channel_id = data.get("_channel_id")
+    thread = _lfg_thread_for_channel(channel_id)
+    if not thread:
+        channel_type = data.get("_channel_type")
+        if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
+            return _ephemeral("Run this inside your game's thread to rename it.")
+        return _ephemeral("This isn't a game thread I know about.")
+
+    # A tournament group thread spans a whole series and has no host, so it isn't
+    # any one player's to retitle. Same series_id guard /seating uses.
+    if thread.series_id:
+        return _ephemeral("This is a tournament group thread, so I can't rename it.")
+
+    if not thread.host_id:
+        return _ephemeral(
+            "I don't know who started this game, so I can't tell who may rename it.")
+
+    profile = Profile.objects.filter(discord_id=str(data.get("_author_id"))).first()
+    if not profile or profile.pk != thread.host_id:
+        return _ephemeral("Only the player who started this game can rename its thread.")
+
+    result, retry_after = rename_channel(channel_id, title)
+    if result != THREAD_OK:
+        if retry_after is not None:
+            return _ephemeral(
+                "Discord is limiting renames on this thread — try again in "
+                f"{_rename_wait_text(retry_after)}.")
+        if result == THREAD_BLOCKED:
+            return _ephemeral("I don't have permission to rename this thread.")
+        return _ephemeral("Couldn't rename the thread — try again in a moment.")
+
+    # Only after Discord confirms: the model must never claim a name the thread
+    # doesn't have. Truncated to nickname's max_length -- production is Postgres,
+    # which raises on overflow rather than truncating.
+    thread.nickname = title[:50]
+    thread.save(update_fields=["nickname"])
+    return _ephemeral(f"Renamed this thread to **{title[:100]}**.")
+
+
 # ── /random ────────────────────────────────────────────────────────────────
 # Base queryset per post-backed kind. Faction is filtered to component="Faction"
 # like /draft; Captain to captain-capable vagabonds (as /captain).
@@ -3278,6 +3337,18 @@ def _handle_lfg_start(payload):
     role_match = _LFG_ROLE_MENTION_RE.search(message.get("content", "") or "")
     role_id = role_match.group(1) if role_match else None
 
+    # The host, read off this button's own custom_id (`lfg_start:{owner}`). This is
+    # the LAST moment the host is knowable: the response below strips the buttons,
+    # and nothing else records who started the game. Deliberately not
+    # _interaction_user_id -- the clicker only equals the host because the
+    # dispatcher owner-locks this button, so the custom_id is what actually means
+    # "host".
+    # .get chain, not payload["data"]: a missing custom_id must cost only the host
+    # attribution, never the thread the player just asked for.
+    _action, id_args = decode_custom_id(
+        (payload.get("data") or {}).get("custom_id", ""))
+    host_id = id_args[-1] if id_args else None
+
     # Pass the started embed so the task can re-edit it with the title linked to the
     # thread once the thread id is known (the thread is created in the task). The
     # interaction token lets the task send the owner an ephemeral notice if thread
@@ -3285,6 +3356,7 @@ def _handle_lfg_start(payload):
     create_lfg_thread_task.delay(
         payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
         role_id, description, players, embed, token=payload.get("token"),
+        host_id=host_id,
     )
     # Answer synchronously (type 7) rather than deferring (type 6) and letting the
     # task be the sole writer. Deferring would leave the buttons LIVE until the
@@ -3316,6 +3388,7 @@ COMMAND_HANDLERS["record"] = _handle_record_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
 COMMAND_HANDLERS["seating"] = _handle_seating_command
 COMMAND_HANDLERS["pick"] = _handle_pick_command
+COMMAND_HANDLERS["rename"] = _handle_rename_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command
 

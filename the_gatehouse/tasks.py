@@ -563,11 +563,15 @@ def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=Non
 
 @shared_task
 def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description,
-                           players, embed=None, token=None):
+                           players, embed=None, token=None, host_id=None):
     """Create the game thread, ping the players, link the original message's title
     to the thread, and persist the LFGThread row. `players` = [{"id","name"}] parsed
     from the Players field lines, so this task resolves-or-creates every Profile
     itself (no dependency on Join-time onboarding).
+
+    `host_id` is the Discord snowflake of whoever ran /lfg, recorded on the thread
+    so /rename can tell who may retitle it. Keyword-defaulted so a task enqueued
+    before this argument existed still deserializes.
 
     If the game's LFG role has a `forum_channel_id`, the thread is created as a post
     in that forum channel; otherwise it hangs off the LFG message. A role's optional
@@ -584,7 +588,13 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
     if role and role.thread_message:
         kickoff = f"{kickoff} {role.thread_message}".strip()
 
-    thread_name = (description or "Game")[:100]
+    # Prefer the host's description; with none, reuse the LFG message's own title
+    # (the tag's description or name, else "Looking for Game") so the thread is
+    # named after the game rather than a bare "Game". `embed` is the started
+    # message's embed, so this is exactly the title players already saw.
+    thread_name = (description
+                   or (embed or {}).get("title")
+                   or "Game")[:100]
 
     if role and role.forum_channel_id:
         # Forum post: the starter message carries the kickoff ping (+ the game embed
@@ -641,6 +651,22 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
                      thread_id, len(resolved), len(players), unresolved)
     thread.players.set(resolved)
     logger.info("LFG thread %s: attached %d players", thread_id, len(resolved))
+
+    # AFTER the players loop, not before: the host is one of the players, and
+    # ensure_profile_from_discord above is what CREATES a Profile for a first-time
+    # user. Looking up earlier would miss exactly that case and leave host NULL.
+    #
+    # Set outside `defaults`, which only applies on CREATE -- this get_or_create
+    # exists because the row may already be there (a retried task, or a thread that
+    # captured a roll first), and on that path defaults are ignored entirely. The
+    # host_id guard keeps a retry from reassigning a host already recorded.
+    if host_id and not thread.host_id:
+        host = Profile.objects.filter(discord_id=str(host_id)).first()
+        if host:
+            thread.host = host
+            thread.save(update_fields=["host"])
+        else:
+            logger.warning("LFG thread %s: could not resolve host %s", thread_id, host_id)
 
 
 def _lfg_message_jump_url(guild_id, channel_id, message_id):
