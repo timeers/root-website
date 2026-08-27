@@ -324,9 +324,21 @@ class LFGThread(models.Model):
     # OneToOne: a thread produces at most one Game, so revisiting the record form
     # edits that game instead of creating a duplicate. String ref for the same
     # circular-import reason as GuildLFGRole.tournament.
+    #
+    # NOTE this is why a series-linked thread (below) must never set `game`: a
+    # group thread spans every game of a best-of-N, which one FK can't hold.
     game = models.OneToOneField(
         "the_warroom.Game", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="lfg_thread")
+    # Set when this thread is a tournament series' group thread rather than an LFG
+    # game, so the thread captures rolls/drafts the same way without becoming an
+    # LFG game. Makes the LFGThread lookup alone enough to tell the two apart --
+    # /record and /seating check it to stay in match mode. A SERIES, not a Match:
+    # one group thread covers every game of the series. SET_NULL so deleting a
+    # series keeps the captured roll history.
+    series = models.ForeignKey(
+        "the_warroom.MatchSeries", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="lfg_threads")
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.OPEN)
 

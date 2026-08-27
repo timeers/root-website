@@ -162,6 +162,16 @@ DRAFT_COMMAND = {
     ],
 }
 
+# The seating half of /draft on its own, for groups who pick factions some other
+# way. No options: the roster comes from the thread it's used in, the same way
+# /record resolves its mode from the channel — an LFG game thread (saved) or a
+# tournament player group's thread (displayed only).
+SEATING_COMMAND = {
+    "name": "seating",
+    "description": "Randomly seat the players in this game or group thread",
+    "options": [],
+}
+
 
 # /random kinds. Value strings double as the dispatch key and the label shown in
 # "Random <Kind>:". Keep in sync with the handler in discord_interactions.py.
@@ -252,6 +262,7 @@ COMMANDS = [
     RECORD_COMMAND,
     LAW_COMMAND,
     DRAFT_COMMAND,
+    SEATING_COMMAND,
     RANDOM_COMMAND,
     LFG_COMMAND,
 ]
@@ -265,7 +276,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats"]),
-    ("Games", ["lfg", "upcoming", "schedule", "record"]),
+    ("Games", ["lfg", "seating", "upcoming", "schedule", "record"]),
     ("Random", ["draft", "random"]),
 ]
 

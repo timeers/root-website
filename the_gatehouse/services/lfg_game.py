@@ -35,6 +35,26 @@ ROLL_KIND_TO_BUCKET = {
 }
 
 
+def player_group_for_channel(channel_id):
+    """The PlayerGroup whose Discord thread is this channel, or None.
+
+    `discord_thread` is a URL ending in the thread id
+    (https://discord.com/channels/<guild>/<thread>), so anchor on the leading
+    slash -- the same trick _match_for_thread uses -- so a thread id can't match
+    part of the guild id. Deliberately not routed through _schedulable_matches:
+    a group is worth resolving whatever state its matches are in.
+
+    Lives here rather than in discord_interactions so the Celery task can reach
+    it too. PlayerGroup is imported lazily for this module's usual circular
+    import reason."""
+    from the_warroom.models import PlayerGroup
+
+    if not channel_id or not str(channel_id).isdigit():
+        return None
+    return PlayerGroup.objects.filter(
+        discord_thread__contains=f"/{channel_id}").first()
+
+
 def rolled_components(thread):
     """`kind` -> [slug, ...] for everything surfaced in this thread.
 

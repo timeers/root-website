@@ -49,30 +49,37 @@
       });
   }
 
-  function attach(el) {
-    el.addEventListener('click', function () {
-      if (el.getAttribute('aria-busy') === 'true') return;  // guard double-click
-      setSpinner(el);
-      fetch(el.dataset.url, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'X-CSRFToken': getCsrfToken() },
+  // Delegated so the handler works regardless of when the button enters the
+  // DOM — the confirm modal is included *after* this script in the detail
+  // template, so a parse-time querySelectorAll would bind nothing.
+  document.addEventListener('click', function (ev) {
+    const el = ev.target.closest('.forge-duplicate');
+    if (!el) return;
+    if (el.getAttribute('aria-busy') === 'true') return;  // guard double-click
+    setSpinner(el);
+    fetch(el.dataset.url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-CSRFToken': getCsrfToken(),
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    })
+      .then((res) => {
+        if (res.status === 403) throw new Error('not permitted');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
       })
-        .then((res) => {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
-        })
-        .then((data) => {
-          const statusUrl = el.dataset.statusBase.replace('TASK_ID', encodeURIComponent(data.task_id));
-          poll(statusUrl, el);
-        })
-        .catch((err) => {
-          console.error('forge-duplicate:', err);
-          alert('Duplicating failed. Please try again.');
-          restoreButton(el);
-        });
-    });
-  }
-
-  document.querySelectorAll('.forge-duplicate').forEach(attach);
+      .then((data) => {
+        const statusUrl = el.dataset.statusBase.replace('TASK_ID', encodeURIComponent(data.task_id));
+        poll(statusUrl, el);
+      })
+      .catch((err) => {
+        console.error('forge-duplicate:', err);
+        alert(err && err.message === 'not permitted'
+          ? 'You do not have permission to duplicate this faction.'
+          : 'Duplicating failed. Please try again.');
+        restoreButton(el);
+      });
+  });
 })();

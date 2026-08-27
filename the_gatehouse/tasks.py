@@ -708,7 +708,24 @@ def record_lfg_components_task(channel_id, items, source="", draft=None):
     with transaction.atomic():
         thread = LFGThread.objects.select_for_update().filter(thread_id=channel_id).first()
         if not thread:
-            return  # not an LFG thread (the common case) — no-op
+            # A tournament series' group thread captures exactly the same way once
+            # it has a row, so create one on first use. Only for a channel that
+            # resolves to a player group with a series -- every /random in every
+            # channel reaches this task and most are neither.
+            #
+            # getattr, NOT `group.series`: MatchSeries.player_group is a OneToOne,
+            # so the reverse accessor RAISES RelatedObjectDoesNotExist when the
+            # group has no series (a third of them don't). This task has no
+            # autoretry, so a raise here would silently lose the capture.
+            from .services.lfg_game import player_group_for_channel
+            group = player_group_for_channel(channel_id)
+            series = getattr(group, "series", None) if group else None
+            if not series:
+                return  # not a capturing thread (the common case) — no-op
+            thread, _ = LFGThread.objects.get_or_create(
+                thread_id=channel_id, defaults={"series": series})
+            # Re-fetch under the lock the rest of this block assumes.
+            thread = LFGThread.objects.select_for_update().get(pk=thread.pk)
 
         items = items or []
         # One query for every rolled component. NOTE this dict holds base Post

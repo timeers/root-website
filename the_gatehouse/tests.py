@@ -25,7 +25,9 @@ from the_gatehouse.models import (
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_gatehouse.services import discord_commands as dc
-from the_gatehouse.services.lfg_game import rolled_components, seated_profiles
+from the_gatehouse.services.lfg_game import (
+    rolled_components, seated_profiles, player_group_for_channel,
+)
 from the_gatehouse.tasks import record_lfg_components_task
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -1863,6 +1865,296 @@ class DraftLFGSeatingTests(TestCase):
         response, post = self._seat("gone")
         post.assert_not_called()
         self.assertIn("game thread", json.loads(response.content)["data"]["content"])
+
+
+class SeatingCommandTests(TestCase):
+    """/seating: the seating half of /draft on its own. Shares the prompt builder
+    and the draft_seat handler, so these cover the command's own guards and that
+    it returns the prompt directly rather than as a followup."""
+
+    THREAD_ID = "seat-cmd-thread"
+
+    def setUp(self):
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+
+    def _roster(self, count):
+        profiles = [
+            Profile.objects.create(discord=f"seatp{i}", discord_id=f"95{i}",
+                                   display_name=f"Seat Player {i}")
+            for i in range(1, count + 1)
+        ]
+        self.thread.players.set(profiles)
+        return profiles
+
+    def _command(self, channel_id=None, author="111"):
+        response = di._handle_seating_command({
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_author_id": author,
+        })
+        return json.loads(response.content)["data"]
+
+    def test_command_is_registered_with_a_handler(self):
+        self.assertIn("seating", dc.WHITELISTABLE)
+        self.assertIn("seating", di.COMMAND_HANDLERS)
+
+    def test_grouped_under_games_not_other(self):
+        """A command missing from COMMAND_GROUPS silently lands in "Other"."""
+        groups = {g: [n for n, _ in rows] for g, rows in dc.grouped_commands()}
+        self.assertIn("seating", groups.get("Games", []))
+
+    def test_outside_a_game_thread_explains_itself(self):
+        self._roster(3)
+        data = self._command("some-other-channel")
+        self.assertIn("game thread", data["content"])
+        self.assertNotIn("components", data)
+
+    def test_roster_too_small_to_seat_is_refused(self):
+        self._roster(1)
+        data = self._command()
+        self.assertIn("Not enough players", data["content"])
+        self.assertNotIn("components", data)
+
+    def test_prompt_is_returned_directly_not_as_a_followup(self):
+        """Unlike /draft's offer, there is no earlier message to sequence after,
+        so the prompt rides the command's own response — no Celery hop."""
+        self._roster(3)
+        with mock.patch.object(di.post_interaction_followup_task, "apply_async") as enqueue:
+            data = self._command()
+        enqueue.assert_not_called()
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertEqual(data["content"], "Seat the players for this game?")
+
+    def test_buttons_are_owner_locked_to_the_invoker(self):
+        self._roster(3)
+        buttons = self._command(author="4242")["components"][0]["components"]
+        self.assertEqual([b["label"] for b in buttons], ["Yes", "No"])
+        self.assertEqual(buttons[0]["custom_id"], "draft_seat:4242")
+        self.assertEqual(buttons[1]["custom_id"], "draft_seat_no:4242")
+
+    def test_existing_seating_warns_before_overwriting(self):
+        profiles = self._roster(3)
+        LFGSeat.objects.create(thread=self.thread, profile=profiles[0], seat_number=1)
+        data = self._command()
+        self.assertIn("overwrite", data["content"].lower())
+        confirm = data["components"][0]["components"][0]
+        self.assertEqual(confirm["label"], "Overwrite")
+        self.assertEqual(confirm["style"], di.STYLE_DANGER)
+
+    def test_confirming_the_prompt_seats_the_roster(self):
+        """End to end through the shared draft_seat handler."""
+        self._roster(4)
+        custom_id = self._command()["components"][0]["components"][0]["custom_id"]
+        payload = {"channel_id": self.THREAD_ID, "data": {"custom_id": custom_id}}
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            di._handle_draft_seat(payload)
+
+        seats = list(self.thread.seats.select_related("profile"))
+        self.assertEqual([s.seat_number for s in seats], [1, 2, 3, 4])
+        self.assertEqual({s.profile.discord for s in seats},
+                         {"seatp1", "seatp2", "seatp3", "seatp4"})
+        channel_id, _body = post.call_args.args
+        self.assertEqual(channel_id, self.THREAD_ID)
+
+
+class SeatingCommandPlayerGroupTests(TestCase):
+    """/seating in a tournament player group's thread. The group's thread spans a
+    whole series, so the order is posted for display only and never stored."""
+
+    GUILD_ID = "1093259831470735512"
+    THREAD_ID = "1303834523347456040"
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(
+            guild_id=self.GUILD_ID, name="Seating Guild")
+        designer = Profile.objects.create(discord="grpdesigner", discord_id="640")
+        self.tournament = Tournament.objects.create(
+            name="Seating Tournament", guild=self.guild, designer=designer)
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A",
+            discord_thread=(
+                f"https://discord.com/channels/{self.GUILD_ID}/{self.THREAD_ID}"),
+        )
+
+    def _members(self, count):
+        profiles = [
+            Profile.objects.create(discord=f"grpp{i}", discord_id=f"64{i}",
+                                   display_name=f"Group Player {i}")
+            for i in range(1, count + 1)
+        ]
+        self.group.tournament_players.set([
+            TournamentPlayer.objects.create(
+                tournament=self.tournament, profile=p)
+            for p in profiles
+        ])
+        return profiles
+
+    def _command(self, channel_id=None):
+        response = di._handle_seating_command({
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_author_id": "111",
+        })
+        return json.loads(response.content)["data"]
+
+    def test_group_thread_is_resolved_from_its_url(self):
+        self.assertEqual(player_group_for_channel(self.THREAD_ID), self.group)
+
+    def test_thread_id_cannot_match_part_of_the_guild_id(self):
+        """The lookup anchors on a leading slash, so a guild-id fragment misses."""
+        self.assertIsNone(player_group_for_channel(self.GUILD_ID[2:]))
+
+    def test_seats_the_groups_players(self):
+        self._members(4)
+        content = self._command()["content"]
+        for i in range(1, 5):
+            self.assertIn(f"Group Player {i}", content)
+        self.assertRegex(content, r"^1\. ")
+
+    def test_seating_is_never_persisted(self):
+        """The whole point: a series-long thread must not carry a stored order."""
+        self._members(4)
+        self._command()
+        self.assertEqual(LFGSeat.objects.count(), 0)
+
+    def test_order_is_posted_publicly_without_pinging(self):
+        self._members(3)
+        data = self._command()
+        self.assertNotIn("flags", data)          # public, not ephemeral
+        self.assertNotIn("components", data)     # nothing to confirm
+        self.assertEqual(data["allowed_mentions"], {"parse": []})
+
+    def test_order_is_shuffled(self):
+        self._members(4)
+        orders = {self._command()["content"] for _ in range(12)}
+        self.assertGreater(len(orders), 1)
+
+    def test_group_without_enough_players_is_refused(self):
+        self._members(1)
+        self.assertIn("enough players", self._command()["content"])
+
+    def test_an_lfg_thread_takes_precedence(self):
+        """A channel is realistically one or the other, but if both resolve the
+        LFG thread wins — its seating is the one that gets recorded."""
+        self._members(4)
+        lfg = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        lfg.players.set([
+            Profile.objects.create(discord=f"lfgp{i}", discord_id=f"65{i}")
+            for i in range(3)
+        ])
+        data = self._command()
+        self.assertIn("components", data)        # the confirm prompt, not a post
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+
+    def test_unrelated_channel_explains_both_options(self):
+        data = self._command("777777777777777777")
+        self.assertIn("game thread", data["content"])
+        self.assertIn("player group", data["content"])
+
+    def test_a_series_linked_thread_still_seats_the_group(self):
+        """A group thread gets its own LFGThread once it captures a roll, but it
+        has no `players` -- without the series_id guard the LFG branch would
+        swallow this and answer "not enough players"."""
+        self._members(4)
+        series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+        LFGThread.objects.create(thread_id=self.THREAD_ID, series=series)
+        data = self._command()
+        self.assertNotIn("components", data)     # posted, not a confirm prompt
+        for i in range(1, 5):
+            self.assertIn(f"Group Player {i}", data["content"])
+
+
+class MatchThreadCaptureTests(TestCase):
+    """A tournament group thread captures rolls into an LFGThread of its own,
+    created on first use, so match recording can narrow the same way LFG does."""
+
+    GUILD_ID = "1093259831470735512"
+    THREAD_ID = "1303834523347456040"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.guild = DiscordGuild.objects.create(
+            guild_id=self.GUILD_ID, name="Capture Guild")
+        designer = Profile.objects.create(discord="capdes", discord_id="660")
+        self.tournament = Tournament.objects.create(
+            name="Capture Tournament", guild=self.guild, designer=designer)
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Capture Group",
+            discord_thread=(
+                f"https://discord.com/channels/{self.GUILD_ID}/{self.THREAD_ID}"),
+        )
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+        self.match = Match.objects.create(round=self.round, series=self.series)
+        self.map = Map.objects.create(
+            title="Capture Lake", designer=designer, status=StatusChoices.STABLE,
+            official=True)
+
+    def _capture(self, channel_id=None):
+        record_lfg_components_task(
+            channel_id or self.THREAD_ID,
+            [{"kind": "Map", "slug": self.map.slug, "title": self.map.title}],
+            source="random")
+
+    def test_first_capture_creates_a_thread_linked_to_the_series(self):
+        self._capture()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        self.assertEqual(thread.series, self.series)
+        self.assertEqual(thread.map, self.map)
+        self.assertEqual(thread.roll_log.count(), 1)
+        # MatchSeat is the roster for a match; players stays empty on purpose.
+        self.assertEqual(thread.players.count(), 0)
+
+    def test_second_capture_adds_a_roll_not_a_thread(self):
+        self._capture()
+        self._capture()
+        self.assertEqual(LFGThread.objects.filter(thread_id=self.THREAD_ID).count(), 1)
+        self.assertEqual(
+            LFGThread.objects.get(thread_id=self.THREAD_ID).roll_log.count(), 2)
+
+    def test_a_group_with_no_series_captures_nothing_and_does_not_raise(self):
+        """MatchSeries.player_group is a OneToOne, so `group.series` RAISES rather
+        than returning None when unset. This task has no autoretry, so a raise
+        would silently lose the capture."""
+        group = PlayerGroup.objects.create(
+            round=self.round, group_number=2, name="No Series Group",
+            discord_thread=f"https://discord.com/channels/{self.GUILD_ID}/555000111222",
+        )
+        self.assertFalse(MatchSeries.objects.filter(player_group=group).exists())
+        self._capture("555000111222")            # must not raise
+        self.assertFalse(LFGThread.objects.filter(thread_id="555000111222").exists())
+
+    def test_an_unrelated_channel_is_still_a_no_op(self):
+        self._capture("999999999999999999")
+        self.assertFalse(
+            LFGThread.objects.filter(thread_id="999999999999999999").exists())
+
+    def test_record_stays_in_match_mode_for_a_series_thread(self):
+        """The whole point of LFGThread.series: /record checks the LFG thread
+        first, so without the guard a captured match thread would hand back
+        ?lfg= and silently drop match mode."""
+        self._capture()
+        data = json.loads(di._handle_record_command({
+            "_guild_id": self.GUILD_ID, "_channel_id": self.THREAD_ID,
+            "_channel_name": None,
+        }).content)["data"]
+        self.assertIn(f"?match={self.match.id}", data["content"])
+        self.assertNotIn("?lfg=", data["content"])
+
+    def test_record_still_uses_lfg_mode_for_an_unlinked_thread(self):
+        thread = LFGThread.objects.create(thread_id="880000111222333444")
+        data = json.loads(di._handle_record_command({
+            "_guild_id": self.GUILD_ID, "_channel_id": "880000111222333444",
+            "_channel_name": None,
+        }).content)["data"]
+        self.assertIn(f"?lfg={thread.id}", data["content"])
 
 
 class LFGCaptureTests(TestCase):
