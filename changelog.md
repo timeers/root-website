@@ -10,6 +10,7 @@
 - added elo ranking as an optional tab to series
 - games linked to a match thread or lfg thread post results automatically to the thread (if bot is guild member)
 - /seating gives you player order for the players in the thread
+- /pick lets you assign factions for each player or let them choose for themselves
 
 ### Improvements
 - /random commands now have option to include fan content

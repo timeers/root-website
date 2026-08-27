@@ -386,7 +386,7 @@ class LFGRoll(models.Model):
     slug = models.CharField(max_length=100, blank=True, default="")
     source = models.CharField(
         max_length=16, blank=True, default="",
-        help_text="Which command produced this: random / lookup / draft.")
+        help_text="Which command produced this: random / lookup / draft / pick.")
     # default=, not auto_now_add: auto_now_add's pre_save() overrides any value
     # passed in, so an explicit timestamp could never be set.
     created_at = models.DateTimeField(default=timezone.now)
@@ -468,11 +468,19 @@ class LFGSeat(models.Model):
         "Profile", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="lfg_seats")
     seat_number = models.PositiveSmallIntegerField()
-    # Which faction this seat took. No production path writes this yet; a future
-    # "pick a faction from the draft" command will. seated_profiles already
-    # returns it and the game form already consumes it.
+    # Which faction this seat took, written by /pick. seated_profiles returns it
+    # and the game form pre-selects it (in both LFG and match mode).
     faction = models.ForeignKey(
         "the_keep.Faction", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
+    # The vagabond that goes with `faction`, when the seat took Vagabond. Set
+    # from the draft's LFGDraftPick, since all 12 vagabond variants share one
+    # Faction row -- faction alone would collapse Ranger and Thief.
+    #
+    # SET_NULL like every other FK here, NOT LFGDraftPick's PROTECT: a seat must
+    # survive a deleted referent and render blank (see the `profile` note above).
+    vagabond = models.ForeignKey(
+        "the_keep.Vagabond", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="+")
 
     class Meta:

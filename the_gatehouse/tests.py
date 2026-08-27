@@ -17,7 +17,7 @@ from the_warroom.models import (
     StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
 )
 from the_gatehouse.tasks import update_post_status
-from the_keep.models import StatusChoices, Faction, Map, Deck
+from the_keep.models import StatusChoices, Faction, Map, Deck, Vagabond
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
     LFGRoll, LFGDraft, LFGSeat,
@@ -27,6 +27,7 @@ from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_gatehouse.services import discord_commands as dc
 from the_gatehouse.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
+    picked_factions_by_profile,
 )
 from the_gatehouse.tasks import record_lfg_components_task
 from the_gatehouse.services.time_parsing import (
@@ -2284,8 +2285,8 @@ class LFGCaptureTests(TestCase):
                    for i in range(2)]
         self.thread.players.set(players)
         seats = seated_profiles(self.thread)
-        self.assertEqual([n for n, _p, _f in seats], [1, 2])
-        self.assertEqual({p for _n, p, _f in seats}, set(players))
+        self.assertEqual([n for n, _p, _f, _v in seats], [1, 2])
+        self.assertEqual({p for _n, p, _f, _v in seats}, set(players))
 
     def test_seated_profiles_returns_a_faction_SLUG_not_an_object(self):
         """views.py filters `.filter(slug=faction_slug)`; a Faction instance there
@@ -2293,8 +2294,33 @@ class LFGCaptureTests(TestCase):
         p = Profile.objects.create(discord="capseat", discord_id="720")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0])
-        _seat_no, _profile, faction_slug = seated_profiles(self.thread)[0]
+        _seat_no, _profile, faction_slug, _vb = seated_profiles(self.thread)[0]
         self.assertEqual(faction_slug, self.factions[0].slug)
+
+    def _vagabond(self, title):
+        """A saved Vagabond. `animal` is required: Vagabond.save() routes through
+        animal_default_picture, which lowercases it."""
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        return Vagabond.objects.create(
+            title=title, animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+
+    def test_seated_profiles_returns_the_vagabond_slug(self):
+        """The vagabond rides alongside the faction: all 12 vagabond variants
+        share one Faction row, so faction alone can't say which one was taken."""
+        p = Profile.objects.create(discord="capvb", discord_id="723")
+        vb = self._vagabond("Seat Ranger")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
+                               faction=self.factions[0], vagabond=vb)
+        _seat_no, _profile, _faction, vagabond_slug = seated_profiles(self.thread)[0]
+        self.assertEqual(vagabond_slug, vb.slug)
+
+    def test_seated_profiles_vagabond_is_none_when_unset(self):
+        p = Profile.objects.create(discord="capnovb", discord_id="724")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
+                               faction=self.factions[0])
+        self.assertIsNone(seated_profiles(self.thread)[0][3])
 
     def test_a_deleted_profile_leaves_a_blank_seat_in_position(self):
         keep = Profile.objects.create(discord="capkeep", discord_id="721")
@@ -2305,9 +2331,89 @@ class LFGCaptureTests(TestCase):
 
         seats = seated_profiles(self.thread)
         # The row survives with profile=None so the record form keeps its slot.
-        self.assertEqual([n for n, _p, _f in seats], [1, 2])
+        self.assertEqual([n for n, _p, _f, _v in seats], [1, 2])
         self.assertIsNone(seats[0][1])
         self.assertEqual(seats[1][1], keep)
+
+
+class PickedFactionsByProfileTests(TestCase):
+    """The join match mode uses to prefill factions picked with /pick.
+
+    Keyed by profile rather than seat_number: MatchSeat.seat_number is nullable
+    and /pick seats a group thread by shuffling the PlayerGroup roster, so a
+    seat-number join could attach a faction to the wrong player."""
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.designer = Profile.objects.create(discord="pickdesigner", discord_id="730")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Pick Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(3)
+        ]
+        self.thread = LFGThread.objects.create(thread_id="thread-picked-1")
+
+    def test_maps_each_seat_to_its_own_profile(self):
+        a = Profile.objects.create(discord="pickA", discord_id="731")
+        b = Profile.objects.create(discord="pickB", discord_id="732")
+        LFGSeat.objects.create(thread=self.thread, profile=a, seat_number=1,
+                               faction=self.factions[0])
+        LFGSeat.objects.create(thread=self.thread, profile=b, seat_number=2,
+                               faction=self.factions[1])
+
+        picked = picked_factions_by_profile(self.thread)
+        self.assertEqual(picked[a.pk].faction, self.factions[0])
+        self.assertEqual(picked[b.pk].faction, self.factions[1])
+
+    def test_seat_numbers_do_not_decide_the_mapping(self):
+        """The regression this key exists to prevent: /pick's seat numbers are a
+        shuffle of the group roster and need not line up with MatchSeat's, so a
+        positional or seat-number join would swap these two players' factions."""
+        a = Profile.objects.create(discord="pickC", discord_id="733")
+        b = Profile.objects.create(discord="pickD", discord_id="734")
+        # `a` sits LAST here; a seat-number join against a MatchSeat list that
+        # happens to hold `a` first would hand `a` the wrong faction.
+        LFGSeat.objects.create(thread=self.thread, profile=b, seat_number=1,
+                               faction=self.factions[0])
+        LFGSeat.objects.create(thread=self.thread, profile=a, seat_number=2,
+                               faction=self.factions[1])
+
+        picked = picked_factions_by_profile(self.thread)
+        self.assertEqual(picked[a.pk].faction, self.factions[1])
+        self.assertEqual(picked[b.pk].faction, self.factions[0])
+
+    def test_a_player_who_left_the_series_is_simply_absent(self):
+        """Stale seating is self-correcting: no roster comparison needed."""
+        gone = Profile.objects.create(discord="pickGone", discord_id="735")
+        LFGSeat.objects.create(thread=self.thread, profile=gone, seat_number=1,
+                               faction=self.factions[0])
+        replacement = Profile.objects.create(discord="pickNew", discord_id="736")
+
+        picked = picked_factions_by_profile(self.thread)
+        self.assertIn(gone.pk, picked)
+        self.assertNotIn(replacement.pk, picked)
+
+    def test_a_seat_with_no_profile_is_skipped(self):
+        """A deleted Profile leaves the seat behind with profile=None; it must
+        not land under a None key and collide with another such seat."""
+        drop = Profile.objects.create(discord="pickDrop", discord_id="737")
+        LFGSeat.objects.create(thread=self.thread, profile=drop, seat_number=1,
+                               faction=self.factions[0])
+        drop.delete()
+
+        self.assertEqual(picked_factions_by_profile(self.thread), {})
+
+    def test_unpicked_seats_carry_no_faction(self):
+        p = Profile.objects.create(discord="pickNone", discord_id="738")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1)
+
+        picked = picked_factions_by_profile(self.thread)
+        self.assertIsNone(picked[p.pk].faction_id)
+        self.assertIsNone(picked[p.pk].vagabond_id)
 
 
 class RandomOptionsPanelTests(TestCase):
