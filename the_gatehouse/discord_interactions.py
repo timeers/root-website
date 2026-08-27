@@ -2145,7 +2145,9 @@ def _draft_seating_message(seats, reseated=False):
     and mentioning every player would ping the whole table."""
     lines = []
     if reseated:
-        lines += ["**Re-seated** — this replaces the previous seating order.", ""]
+        lines += ["**Re-seated** - this replaces the previous seating order.", ""]
+    else:
+        lines += ["**Seating**", ""]       
     lines += [f"{s.seat_number}. {s.profile.name}" for s in seats]
     lines += ["", f"{seats[-1].profile.name} has first pick of the faction draft"]
     return "\n".join(lines)
