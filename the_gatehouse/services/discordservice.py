@@ -207,8 +207,8 @@ def create_forum_thread(forum_channel_id, name, content=None, embeds=None, tag_i
 
 
 def post_channel_message(channel_id, content):
-    """Post a message into a channel/thread. Returns THREAD_OK / THREAD_ERROR.
-    Never raises. No DEBUG_VALUE guard — see create_message_thread."""
+    """Post a message into a channel/thread. Returns THREAD_OK / THREAD_BLOCKED /
+    THREAD_ERROR. Never raises. No DEBUG_VALUE guard — see create_message_thread."""
     try:
         r = requests.post(
             f"{DISCORD_API}/channels/{channel_id}/messages",
@@ -219,7 +219,15 @@ def post_channel_message(channel_id, content):
         r.raise_for_status()
         return THREAD_OK
     except requests.RequestException as e:
-        logger.error("Failed to post message in channel %s: %s", channel_id, e)
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        if _is_terminal_edit_error(e):
+            # 403 (the bot can't post here) / 404 (the thread is gone) won't fix
+            # itself, so don't let the task retry it three more times.
+            logger.warning("Cannot post message in channel %s (permanent): %s",
+                           channel_id, detail)
+            return THREAD_BLOCKED
+        logger.error("Failed to post message in channel %s: %s", channel_id, detail)
         return THREAD_ERROR
 
 

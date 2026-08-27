@@ -129,58 +129,58 @@
     );
   }
 
-  function attach(el) {
-    el.addEventListener('click', async function (ev) {
-      if (ev.defaultPrevented) return;
-      ev.preventDefault();
-      const spinTarget = findSpinnerTarget(el);
-      if (spinTarget.getAttribute('aria-busy') === 'true') return;
+  // Delegated so targets added to the DOM after this script still work; the
+  // parse-time binding this replaced only survived by accident of ordering.
+  document.addEventListener('click', async function (ev) {
+    const el = ev.target.closest('.forge-async-download');
+    if (!el) return;
+    if (ev.defaultPrevented) return;
+    ev.preventDefault();
+    const spinTarget = findSpinnerTarget(el);
+    if (spinTarget.getAttribute('aria-busy') === 'true') return;
 
-      const looksLikeJson = /\/tts\/?$/.test(el.href) || el.href.indexOf('/tts/') !== -1;
-      const placeholder = looksLikeJson ? null : window.open('', '_blank');
-      if (placeholder) {
-        try {
-          placeholder.document.open();
-          placeholder.document.write(spinnerHtml(statusLabel(el.href)));
-          placeholder.document.close();
-        } catch (e) { /* cross-origin write may fail; ignore */ }
-      }
-
-      setSpinner(spinTarget);
+    const looksLikeJson = /\/tts\/?$/.test(el.href) || el.href.indexOf('/tts/') !== -1;
+    const placeholder = looksLikeJson ? null : window.open('', '_blank');
+    if (placeholder) {
       try {
-        const res = await fetch(el.href, { credentials: 'same-origin' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        refreshPreviewsFromHeader(res.headers.get('X-Forge-Preview-Versions'));
-        const blob = await res.blob();
-        const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
-        const disposition = res.headers.get('Content-Disposition') || '';
-        const isAttachment = /^attachment/i.test(disposition);
-        const isJson = contentType.indexOf('application/json') !== -1;
-        if (isJson || isAttachment) {
-          if (placeholder && !placeholder.closed) {
-            try { placeholder.close(); } catch (e) { /* ignore */ }
-          }
-          triggerDownload(blob, filenameFromDisposition(disposition));
-        } else {
-          const blobUrl = URL.createObjectURL(blob);
-          if (placeholder && !placeholder.closed) {
-            placeholder.location.replace(blobUrl);
-          } else {
-            window.open(blobUrl, '_blank');
-          }
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-        }
-      } catch (err) {
+        placeholder.document.open();
+        placeholder.document.write(spinnerHtml(statusLabel(el.href)));
+        placeholder.document.close();
+      } catch (e) { /* cross-origin write may fail; ignore */ }
+    }
+
+    setSpinner(spinTarget);
+    try {
+      const res = await fetch(el.href, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      refreshPreviewsFromHeader(res.headers.get('X-Forge-Preview-Versions'));
+      const blob = await res.blob();
+      const contentType = (res.headers.get('Content-Type') || '').toLowerCase();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const isAttachment = /^attachment/i.test(disposition);
+      const isJson = contentType.indexOf('application/json') !== -1;
+      if (isJson || isAttachment) {
         if (placeholder && !placeholder.closed) {
           try { placeholder.close(); } catch (e) { /* ignore */ }
         }
-        alert('Download failed. Please try again.');
-        console.error('forge-async-download:', err);
-      } finally {
-        restoreButton(spinTarget);
+        triggerDownload(blob, filenameFromDisposition(disposition));
+      } else {
+        const blobUrl = URL.createObjectURL(blob);
+        if (placeholder && !placeholder.closed) {
+          placeholder.location.replace(blobUrl);
+        } else {
+          window.open(blobUrl, '_blank');
+        }
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
       }
-    });
-  }
-
-  document.querySelectorAll('.forge-async-download').forEach(attach);
+    } catch (err) {
+      if (placeholder && !placeholder.closed) {
+        try { placeholder.close(); } catch (e) { /* ignore */ }
+      }
+      alert('Download failed. Please try again.');
+      console.error('forge-async-download:', err);
+    } finally {
+      restoreButton(spinTarget);
+    }
+  });
 })();

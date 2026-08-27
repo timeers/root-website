@@ -212,9 +212,14 @@ def _annotate_steps(steps):
 
 def _forbid_if_not_editor(request, obj):
     if not user_can_edit_forge(request, obj):
+        # fetch()/XHR callers must get a real 403: they follow a 302 silently and
+        # then choke parsing the redirected HTML as JSON, turning a permission
+        # denial into a misleading generic failure.
         is_partial = (
             request.headers.get('HX-Request')
             or request.path.startswith('/hx/')
+            or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            or 'application/json' in request.headers.get('Accept', '')
         )
         if is_partial:
             return HttpResponseForbidden("You do not have permission to edit this faction.")

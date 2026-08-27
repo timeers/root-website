@@ -125,6 +125,108 @@
         </div>
       </div>
 
+      <!-- How to use LFG -->
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">
+            <i class="bi bi-person-plus-fill text-primary me-2"></i>How to Use LFG
+          </h2>
+          <p class="databot-notify-intro">
+            <code class="databot-inline-cmd">/lfg</code> posts a looking-for-game message in your server,
+            pings the players who want to play, and gives the game its own thread. Everything rolled or
+            looked up in that thread is remembered, so recording the result afterwards is simplified.
+          </p>
+
+          <div class="databot-lfg-steps">
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">1</span>
+              <div>
+                <h5>Set up your LFG roles</h5>
+                <p>
+                  Add one or more LFG roles for your server on the
+                  <a href="{% url 'manage-guilds' %}">Manage your Guilds</a> page (for example
+                  <em>Root TTS LFG</em> and <em>Root Digital LFG</em>). Each role mentions a
+                  Discord role, so starting a game pings only the people who want to play.
+                  A role can also be tied to a series, which lets its games record into that series by default.
+                </p>
+              </div>
+            </div>
+
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">2</span>
+              <div>
+                <h5>Choose where the thread goes</h5>
+                <p>
+                  By default the game thread appears under the LFG message itself. If you'd rather keep
+                  games tidy in one place, give the role a forum channel and each new game is created
+                  as a post there instead (you can give the thread a tag as well).
+                </p>
+              </div>
+            </div>
+
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">3</span>
+              <div>
+                <h5>Start the game and set it up</h5>
+                <p>
+                  Players click join on the message to add themselves to the roster, starting it opens the thread. From there, anything you
+                  roll or look up is captured automatically and reduces the available options when recording the game (if none are used all factions/maps/decks are available):
+                </p>
+                <div class="databot-lfg-cmds">
+                  <div class="databot-chip">
+                    <code>/random</code>
+                    <span>Roll a random map, deck, faction, and more.</span>
+                  </div>
+                  <div class="databot-chip">
+                    <code>/map</code>
+                    <span>Pick the map you're playing on.</span>
+                  </div>
+                  <div class="databot-chip">
+                    <code>/deck</code>
+                    <span>Pick the deck you're playing with.</span>
+                  </div>
+                  <div class="databot-chip">
+                    <code>/faction</code>
+                    <span>Note a faction that's in the game.</span>
+                  </div>
+                  <div class="databot-chip">
+                    <code>/draft</code>
+                    <span>Draft the factions and set the seating order.</span>
+                  </div>
+                  <div class="databot-chip">
+                    <code>/seating</code>
+                    <span>Randomly seat the players without drafting factions.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">4</span>
+              <div>
+                <h5>Record the result</h5>
+                <p>
+                  When the game is over, run <code class="databot-inline-cmd">/record</code> in the
+                  thread. You'll get a link to the game form with the players, seating, map,
+                  deck, and series already filled in from everything the thread captured.
+                </p>
+              </div>
+            </div>
+
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">5</span>
+              <div>
+                <h5>Results come back to the thread</h5>
+                <p>
+                  Once the game is saved, a link to the finished game is posted back in the thread,
+                  so everyone who played can see the result without leaving Discord.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="text-center mb-4 d-flex flex-wrap justify-content-center gap-3">
         {% if invite_url %}
         <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
@@ -378,9 +480,75 @@
   color: #4f5660;
 }
 
+/* ── How to use LFG ───────────────────────────────────────────────── */
+/* Inline command reference inside prose. Matches .databot-cmd-list code so a
+   /command reads the same wherever it appears on this page. */
+.databot-inline-cmd {
+  color: #4752c4;
+  background: #eef0fb;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.databot-lfg-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.databot-lfg-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+/* Numbered badge; same blurple as the flagship chips' code tags. */
+.databot-lfg-num {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #5865F2;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.databot-lfg-step h5 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #2c2f33;
+  margin-bottom: 4px;
+}
+.databot-lfg-step p {
+  font-size: 14px;
+  color: #4f5660;
+  line-height: 1.6;
+  margin: 0;
+}
+/* Command chips nested in step 3 sit tighter than the flagship list. */
+.databot-lfg-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.databot-lfg-cmds .databot-chip {
+  padding: 9px 13px;
+}
+
 @media (max-width: 768px) {
   .databot-hero { padding: 36px 20px; }
   .databot-hero-title { font-size: 30px; }
+  /* Chips stack so a long description doesn't squeeze the code tag. */
+  .databot-lfg-cmds .databot-chip {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
 }
 </style>
 {% endblock content %}

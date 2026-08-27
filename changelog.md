@@ -8,6 +8,8 @@
 - recording from an lfg thread helps pre-build the game form
 - series can now reorganize tabs and any tab can be hidden
 - added elo ranking as an optional tab to series
+- games linked to a match thread or lfg thread post results automatically to the thread (if bot is guild member)
+- /seating gives you player order for the players in the thread
 
 ### Improvements
 - /random commands now have option to include fan content
@@ -18,6 +20,7 @@
 ### Bug Fixes
 - inactive stages don't error out on creation
 - fixed suspected bug where users logging in for the first time would be denied a restricted page even if they should have permission
+- fixed forge faction duplication bug where button did not trigger
 
 ## [1.13.3] - 2026-8-21 Post Spain Updates
 

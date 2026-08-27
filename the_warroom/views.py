@@ -55,7 +55,10 @@ from the_gatehouse.views import (player_required, admin_required,
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
-from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
+from the_gatehouse.tasks import (
+    send_rich_discord_message_task, send_discord_message_task,
+    post_channel_message_task,
+)
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 
@@ -584,11 +587,7 @@ def game_detail_view(request, id=None, league_id=None):
 
     # Open Graph title: game nickname, else "<Tournament> Game" (via get_tournament so
     # flat tournaments with no stage still resolve), else "<Platform> Game".
-    if game.nickname:
-        og_title = game.nickname
-    else:
-        og_tournament = game.get_tournament()
-        og_title = f'{og_tournament.name} Game' if og_tournament else f'{game.platform} Game'
+    og_title = game.display_title()
 
     # Efforts for the board score-track overlay: only those that sit on the track
     # (have a faction icon and a score, and aren't dominance wins unless brazen
@@ -997,6 +996,19 @@ def _lfg_tournament_for(thread):
     return getattr(thread.lfg_role, 'tournament', None)
 
 
+def _match_captured_thread(match):
+    """The LFGThread capturing rolls in this match's group thread, or None.
+
+    A tournament group thread accumulates rolls/drafts into the same tables an
+    LFG game does, created on first use by record_lfg_components_task. `series`
+    is the link, so this is a plain FK lookup -- no URL parsing, and it stays
+    correct if a moderator edits the group's thread URL afterwards.
+
+    Match.series is non-nullable, so series_id is never None here; a None would
+    match every plain LFG thread (they all have series=None)."""
+    return LFGThread.objects.filter(series_id=match.series_id).first()
+
+
 def _lfg_round_for(tournament):
     """The round an LFG game should record into: the newest AVAILABLE round of
     the tournament's latest stage.
@@ -1067,6 +1079,40 @@ def _can_record_match(profile, match):
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
 
 
+# Group thread URLs are https://discord.com/channels/<guild>/<thread>, optionally
+# with a trailing message id. DISCORD_URL_PATTERN (used on the series edit page)
+# only checks the host, so a moderator can paste an invite or a DM link -- anchor
+# the full shape and capture the guild too, so we can prove the thread belongs to
+# this tournament's server before posting into it.
+_DISCORD_THREAD_URL_RE = re.compile(
+    r'^https://(?:discord\.com|discordapp\.com)/channels/(\d+)/(\d+)(?:/\d+)?/?$')
+
+
+def _match_thread_id(match):
+    """The Discord thread id to announce this match's recorded game in, or None to
+    skip.
+
+    Skips unless the player group's thread URL is a real channel link AND its guild
+    is the tournament's guild -- a stale or mistyped URL would otherwise post a
+    tournament's game link into an unrelated server. A tournament with no guild
+    linked is never announced."""
+    group = getattr(match, 'player_group', None)
+    url = (getattr(group, 'discord_thread', '') or '').strip()
+    if not url:
+        return None
+    found = _DISCORD_THREAD_URL_RE.match(url)
+    if not found:
+        return None
+    url_guild, thread_id = found.group(1), found.group(2)
+
+    # round.get_tournament() resolves through the stage or the direct FK, the same
+    # two paths _schedulable_matches matches a guild on.
+    tournament = match.round.get_tournament() if match.round_id else None
+    guild_snowflake = getattr(getattr(tournament, 'guild', None), 'guild_id', None)
+    if not guild_snowflake or str(guild_snowflake) != url_guild:
+        return None
+    return thread_id
+
 
 @player_onboard_required
 def manage_game_v2(request, id=None):
@@ -1075,6 +1121,9 @@ def manage_game_v2(request, id=None):
     user = request.user
     match = None
     match_mode = False
+    # Set from the LOCKED match row inside the atomic block below, so the "game
+    # recorded" post fires only on a real transition to COMPLETED.
+    match_initial_status = None
     lfg_mode = False
     lfgthread = None
     lfg_round = None
@@ -1087,9 +1136,15 @@ def manage_game_v2(request, id=None):
         match = get_object_or_404(Match, id=match_id)
         match_mode = True
     lfg_id = request.GET.get('lfg') or request.POST.get('lfg_id')
+    lfg_initial_status = None
     if lfg_id:
         lfgthread = get_object_or_404(LFGThread, id=lfg_id)
         lfg_mode = True
+        # Status as loaded, so the "game recorded" post to the thread fires only
+        # on a real OPEN -> RECORDED transition. `initial_game_status` alone
+        # can't carry this: when a thread already has a game, a POST rebinds
+        # `obj` to it below while initial_game_status stays False.
+        lfg_initial_status = lfgthread.status
 
     # Load or create game
     if id:
@@ -1202,6 +1257,8 @@ def manage_game_v2(request, id=None):
 
     # Pre-populate effort forms with match seat players (for new games in match mode)
     match_seats = []
+    match_opts = None
+    match_captured = None
     if match_mode:
         match_seats = list(
             MatchSeat.objects.filter(series=match.series)
@@ -1212,11 +1269,33 @@ def manage_game_v2(request, id=None):
         match_profiles = _get_match_profiles(match)
         for form in formset.forms:
             form.fields['player'].queryset = match_profiles
-        # if not id and not request.POST:
-        #     for i, seat in enumerate(match_seats):
-        #         if i < len(formset.forms):
-        #             profile_obj = seat.stage_participant.tournament_player.profile
-        #             formset.forms[i].initial['player'] = profile_obj.pk
+
+        # Seat order drives row order: seat 1 is the top row (match_seats is
+        # ordered by seat_number above). Mirrors the LFG seating block below.
+        # The whole chain seat -> stage_participant -> tournament_player ->
+        # profile is non-nullable, so no guard is needed.
+        if not id and not request.POST:
+            for i, seat in enumerate(match_seats):
+                if i >= len(formset.forms):
+                    break
+                profile_obj = seat.stage_participant.tournament_player.profile
+                formset.forms[i].initial['player'] = profile_obj.pk
+
+        # Components rolled/drafted in the match's Discord thread narrow the same
+        # fields they do in LFG mode. The player queryset is deliberately NOT
+        # touched -- the match roster stays authoritative, and clean() validates
+        # against MatchSeat.
+        match_captured = _match_captured_thread(match)
+        if match_captured:
+            match_opts = lfg_option_querysets(
+                match_captured, match.round.get_tournament())
+            for form in formset.forms:
+                form.fields['faction'].queryset = match_opts['factions']
+                form.fields['vagabond'].queryset = match_opts['vagabonds']
+                form.fields['captains'].queryset = match_opts['captains']
+                form.fields['discarded_captain'].queryset = match_opts['captains']
+            for notice in match_opts.get('notices', []):
+                messages.warning(request, notice)
 
     if lfg_mode:
         # Restrict the player dropdown to the thread's players, and narrow every
@@ -1270,6 +1349,26 @@ def manage_game_v2(request, id=None):
         # if player_group and player_group.video_link:
         #     form.initial['video_link'] = player_group.video_link
 
+        # Map/deck rolled in the match's thread. Same guard as LFG mode: only
+        # prefill when the value survives the narrowing, since a <select> given
+        # an option it doesn't contain renders with NO selection and would
+        # silently leave a required field blank.
+        if match_opts and match_captured:
+            if match_captured.map_id:
+                if match_opts['maps'].filter(pk=match_captured.map_id).exists():
+                    form.initial['map'] = match_captured.map_id
+                else:
+                    messages.warning(
+                        request,
+                        f"{match_captured.map} isn't playable here — pick another map.")
+            if match_captured.deck_id:
+                if match_opts['decks'].filter(pk=match_captured.deck_id).exists():
+                    form.initial['deck'] = match_captured.deck_id
+                else:
+                    messages.warning(
+                        request,
+                        f"{match_captured.deck} isn't playable here — pick another deck.")
+
     if lfg_mode and not obj.pk:
         # Seed from what the thread already knows.
         form.initial['nickname'] = (lfgthread.nickname or lfgthread.description or '')[:50]
@@ -1291,6 +1390,17 @@ def manage_game_v2(request, id=None):
             else:
                 messages.warning(
                     request, f"{lfgthread.deck} isn't playable here — pick another deck.")
+
+    # Same game-level narrowing for a match whose thread captured components.
+    if match_mode and match_opts:
+        form.fields['map'].queryset = match_opts['maps']
+        form.fields['deck'].queryset = match_opts['decks']
+        form.fields['landmarks'].queryset = match_opts['landmarks']
+        form.fields['tweaks'].queryset = match_opts['tweaks']
+        form.fields['hirelings'].queryset = match_opts['hirelings']
+        form.fields['undrafted_faction'].queryset = match_opts['factions']
+        form.fields['undrafted_vagabond'].queryset = match_opts['vagabonds']
+        form.fields['undrafted_captains'].queryset = match_opts['captains']
 
     # Narrow the game-level component fields to the thread's rolls as well.
     if lfg_mode and lfg_opts:
@@ -1437,6 +1547,10 @@ def manage_game_v2(request, id=None):
             with transaction.atomic():
                 if match_mode and match:
                     match = Match.objects.select_for_update().get(id=match.id)
+                    # Read the status from the LOCKED row: capturing it back at
+                    # mode-detection time would let two concurrent submissions both
+                    # see a pre-COMPLETED status and both announce the game.
+                    match_initial_status = match.status
                     if match.game_id and not id:
                         messages.warning(request, "This match already has a game. Please review and edit it below.")
                         return redirect('game-update-v2', id=match.game_id)
@@ -1835,6 +1949,44 @@ def manage_game_v2(request, id=None):
                         # DM opted-in players / component designers / tournament hosts
                         from the_gatehouse.services.notifyservice import notify_game_recorded
                         notify_game_recorded(parent)
+
+                    # Post the game link back into the LFG thread it came from, so
+                    # everyone there sees the result -- the /record reply that
+                    # started this was ephemeral, visible only to its author. Gated
+                    # on the thread's own OPEN -> RECORDED transition so editing the
+                    # game later never reposts.
+                    # The two modes are exclusive in practice (the LFG path only sets
+                    # `round` and never creates a Match), but nothing stops
+                    # ?match=X&lfg=Y setting both flags -- elif makes a double
+                    # announcement structurally impossible rather than assumed.
+                    if (lfg_mode and lfgthread and lfgthread.thread_id
+                            and lfg_initial_status != LFGThread.Status.RECORDED
+                            and lfgthread.status == LFGThread.Status.RECORDED):
+                        site = (settings.SITE_URL or '').rstrip('/')
+                        if site:
+                            # on_commit: this runs inside the atomic block above, so a
+                            # bare delay() could post a link to a game the worker
+                            # can't read yet (or that a later error rolls back).
+                            # Bind the args as defaults -- a bare closure resolves the
+                            # names at commit time, long after this view moves on.
+                            _message = f'[{parent.display_title()}]({site}{parent.get_absolute_url()})'
+                            transaction.on_commit(
+                                lambda tid=lfgthread.thread_id, msg=_message:
+                                    post_channel_message_task.delay(tid, msg))
+
+                    # Same courtesy for a tournament match: announce into the player
+                    # group's thread, but only when it demonstrably belongs to the
+                    # tournament's own guild (see _match_thread_id).
+                    elif (match_mode and match
+                            and match_initial_status != CompetitionStatus.COMPLETED
+                            and match.status == CompetitionStatus.COMPLETED):
+                        _thread_id = _match_thread_id(match)
+                        site = (settings.SITE_URL or '').rstrip('/')
+                        if _thread_id and site:
+                            _message = f'[{parent.display_title()}]({site}{parent.get_absolute_url()})'
+                            transaction.on_commit(
+                                lambda tid=_thread_id, msg=_message:
+                                    post_channel_message_task.delay(tid, msg))
                 _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
 
                 return redirect(parent.get_absolute_url())

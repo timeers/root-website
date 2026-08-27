@@ -2278,6 +2278,16 @@ class Game(models.Model):
             return self.round.get_tournament()
         return None
 
+    def display_title(self):
+        """Human title for this game: nickname, else "<Tournament> Game" (via
+        get_tournament so flat tournaments with no stage still resolve), else
+        "<Platform> Game". Shared by the detail page's Open Graph title and the
+        link posted back to an LFG thread when the game is recorded."""
+        if self.nickname:
+            return self.nickname
+        tournament = self.get_tournament()
+        return f'{tournament.name} Game' if tournament else f'{self.platform} Game'
+
     def can_edit(self, profile):
         """Check if profile can edit this game. Returns EditPermission(allowed, reason).
         Checks from lowest to highest permission level."""

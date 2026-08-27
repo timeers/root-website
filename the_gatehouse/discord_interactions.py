@@ -36,7 +36,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
-from the_warroom.models import Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant
+from the_warroom.models import (
+    Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant,
+)
 from the_gatehouse.models import (
     Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
     LFGSeat,
@@ -68,6 +70,7 @@ from .services.discord_components import (
     encode_custom_id, decode_custom_id, selected_values,
     RESPONSE_UPDATE_MESSAGE, STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
 )
+from .services.lfg_game import player_group_for_channel
 
 logger = logging.getLogger(__name__)
 
@@ -327,14 +330,17 @@ def _handle_record_command(data):
         return _ephemeral("This command only works inside a server.")
 
     # 1) An LFG thread is the most specific signal: its thread_id IS the channel id.
+    #    A SERIES-linked thread is skipped: it's a tournament group thread that
+    #    captures rolls into an LFGThread, but recording it must stay in match
+    #    mode (bracket advancement, seat validation) -- so fall through to (2).
     thread = _lfg_thread_for_channel(channel_id)
-    if thread:
+    if thread and not thread.series_id:
         if thread.game_id:
             url = _record_url(f"/game/{thread.game_id}/edit/v2/")
             lead = "This game is already recorded — edit it here:"
         else:
             url = _record_url(f"/record/game/v2/?lfg={thread.id}")
-            lead = "Record this LFG game:"
+            lead = "Record this game:"
         if not url:
             return _ephemeral("The site URL isn't configured, so I can't build a link.")
 
@@ -368,7 +374,7 @@ def _handle_record_command(data):
             lead = "This match already has a game — edit it here:"
         else:
             url = _record_url(f"/record/game/v2/?match={match.id}")
-            lead = "Record this match:"
+            lead = "Record this game:"
         if not url:
             return _ephemeral("The site URL isn't configured, so I can't build a link.")
         return _ephemeral(f"{lead}\n{url}\n\n**Match:** {match}\n**Round:** {match.round}")
@@ -379,8 +385,7 @@ def _handle_record_command(data):
     if not url:
         return _ephemeral("The site URL isn't configured, so I can't build a link.")
     return _ephemeral(
-        "I couldn't find an LFG game or scheduled match for this channel, "
-        f"so here's a blank game form:\n{url}")
+        "Record a game on the Root Database:\n{url}")
 
 
 def _handle_captain_command(data):
@@ -2061,14 +2066,38 @@ def _handle_draft_build(payload):
     })
 
 
+def _lfg_seating_prompt_data(thread, owner):
+    """The ephemeral Yes/No seating prompt for `thread`, as interaction response
+    data.
+
+    When the thread already has a seating, the copy warns that confirming REPLACES
+    it (a thread holds one current seating) and the confirm button turns into a red
+    "Overwrite".
+
+    Split from _offer_lfg_seating so /seating can return this prompt as its own
+    response while /draft still ships it as a followup."""
+    if thread.seats.exists():
+        content = ("This game already has a seating order — seating again will "
+                   "**overwrite it**. Seat the players again?")
+        confirm, style = "Overwrite", STYLE_DANGER
+    else:
+        content = "Seat the players for this game?"
+        confirm, style = "Yes", STYLE_SUCCESS
+    return {
+        "content": content,
+        "flags": EPHEMERAL,
+        "components": [action_row(
+            button(confirm, encode_custom_id("draft_seat", owner), style=style),
+            button("No", encode_custom_id("draft_seat_no", owner),
+                   style=STYLE_SECONDARY),
+        )],
+    }
+
+
 def _offer_lfg_seating(payload):
     """After a draft inside an LFG thread, send the drafter an ephemeral Yes/No
     prompt offering to seat the thread's players. No-op outside an LFG thread, or
-    when the roster is too small to seat.
-
-    When the thread already has a seating, the prompt warns that confirming
-    REPLACES it (a thread holds one current seating) and the confirm button turns
-    into a red "Overwrite"."""
+    when the roster is too small to seat."""
     thread = _lfg_thread_for_channel(payload.get("channel_id"))
     if not thread or thread.players.count() < 2:
         return
@@ -2078,17 +2107,6 @@ def _offer_lfg_seating(payload):
 
     _action, args = decode_custom_id(payload["data"]["custom_id"])
     owner = args[-1] if args else ""
-    if thread.seats.exists():
-        prompt = ("This game already has a seating order — seating again will "
-                  "**overwrite it**. Seat the players again?")
-        confirm, style = "Overwrite", STYLE_DANGER
-    else:
-        prompt = "Seat the players for this game?"
-        confirm, style = "Yes", STYLE_SUCCESS
-    row = action_row(
-        button(confirm, encode_custom_id("draft_seat", owner), style=style),
-        button("No", encode_custom_id("draft_seat_no", owner), style=STYLE_SECONDARY),
-    )
     # The countdown lets the initial interaction response reach Discord first — a
     # followup that races ahead of the ACK 404s.
     #
@@ -2097,7 +2115,7 @@ def _offer_lfg_seating(payload):
     # dispatcher's catch-all replace the finished draft with an error message.
     try:
         post_interaction_followup_task.apply_async(
-            (token, {"content": prompt, "components": [row], "flags": EPHEMERAL}),
+            (token, _lfg_seating_prompt_data(thread, owner)),
             countdown=2,
         )
     except Exception:
@@ -2131,6 +2149,71 @@ def _draft_seating_message(seats, reseated=False):
     lines += [f"{s.seat_number}. {s.profile.name}" for s in seats]
     lines += ["", f"{seats[-1].profile.name} has first pick of the faction draft"]
     return "\n".join(lines)
+
+
+def _group_seating_message(profiles):
+    """Seating for a player group: shuffled, displayed, and NOT persisted.
+
+    A tournament group's thread is shared by the whole series, so a saved order
+    would be wrong the moment the next game starts. Reuses the LFG message
+    builder with UNSAVED LFGSeat instances — it only reads seat_number and
+    profile.name, so the output is identical without touching the database."""
+    ordered = list(profiles)
+    random.shuffle(ordered)
+    seats = [LFGSeat(profile=p, seat_number=i)
+             for i, p in enumerate(ordered, 1)]
+    return _draft_seating_message(seats)
+
+
+def _handle_seating_command(data):
+    """/seating: seat this thread's players without needing a draft.
+
+    Two kinds of thread, in priority order:
+
+    * An LFG game thread — the seating step /draft offers, reachable on its own.
+      Confirmed through the shared draft_seat handler and SAVED, so the record
+      form can place effort rows by seat.
+    * A tournament player group's thread — seats the group's roster and posts it
+      straight away, WITHOUT saving: the thread spans a whole series, so a stored
+      order would be stale by the next game, and there's nothing to overwrite.
+
+    Unlike _offer_lfg_seating (an optional extra after a draft, silent when it
+    doesn't apply), this was typed deliberately: say why nothing happened."""
+    channel_id = data.get("_channel_id")
+
+    # `not thread.series_id` is load-bearing: a tournament group thread also gets
+    # an LFGThread (it captures rolls the same way), but with an empty `players`
+    # roster -- so without this it would take the LFG branch and answer "not
+    # enough players" instead of seating the group below.
+    thread = _lfg_thread_for_channel(channel_id)
+    if thread and not thread.series_id:
+        if thread.players.count() < 2:
+            return _ephemeral("Not enough players in this thread to seat.")
+        # Returned as this command's own response rather than a followup: there's
+        # no earlier message to sequence after, so no Celery hop or countdown.
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _lfg_seating_prompt_data(thread, data.get("_author_id")),
+        })
+
+    group = player_group_for_channel(channel_id)
+    if group:
+        profiles = [tp.profile for tp in
+                    group.tournament_players.select_related("profile")
+                    if tp.profile_id]
+        if len(profiles) < 2:
+            return _ephemeral(
+                "This group doesn't have enough players to seat yet.")
+        # Public: the whole group should see the order, same as an LFG seating.
+        # No confirmation step — nothing is stored, so there's nothing to replace.
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": {"content": _group_seating_message(profiles),
+                     "allowed_mentions": {"parse": []}},
+        })
+
+    return _ephemeral(
+        "Use this in a game thread or a player group's thread to seat its players.")
 
 
 def _handle_draft_seat_no(payload):
@@ -2903,6 +2986,7 @@ COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["schedule"] = _handle_schedule_command
 COMMAND_HANDLERS["record"] = _handle_record_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
+COMMAND_HANDLERS["seating"] = _handle_seating_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command
 
