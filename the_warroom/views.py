@@ -42,7 +42,7 @@ from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TournamentDynamicCreateForm, TournamentDynamicUpdateForm,
                     TournamentPlayerSettingsForm, TournamentAssetSettingsForm,
                     )
-from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter
+from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter, EloSystemGameFilter
 
 from .utils import get_single_round, get_single_stage, build_scorecard_grid, build_single_scorecard_grid
 
@@ -3310,7 +3310,7 @@ def tournament_details_page(request, slug):
 def tournament_elo_page(request, tournament_slug):
     """ELO Ranking tab: the leaderboard for the series' Elo system.
 
-    Public, matching the standalone elo_system_detail_view. Shows the whole
+    Public, matching the standalone elo_system_leaderboard_view. Shows the whole
     system's participants -- one EloSystem can feed several series and
     EloParticipant has no tournament FK, so there is no per-tournament rating
     to scope to.
@@ -3324,22 +3324,7 @@ def tournament_elo_page(request, tournament_slug):
     context['elo_system'] = elo_system
 
     if elo_system:
-        # Same ordering as elo_system_detail_view: unranked last, then rating
-        # desc, with pk as a required unique tiebreaker so paging is stable.
-        # select_related('elo_system') feeds ep.trends_url, which reads the
-        # system's url template per row.
-        participants = (
-            elo_system.participants
-                      .select_related('player', 'elo_system')
-                      .order_by(F('rank').asc(nulls_last=True), '-rating', 'pk')
-        )
-        paginator = Paginator(participants, settings.PAGE_SIZE)
-        page_obj = paginator.get_page(request.GET.get('page'))
-        context.update({
-            'participants': page_obj,
-            'page_obj': page_obj,
-            'participants_count': paginator.count,
-        })
+        context.update(_paginate_elo_participants(request, elo_system))
 
     return render(request, 'the_warroom/tournament_elo.html', context)
 
@@ -8879,32 +8864,104 @@ def stage_advancement_config(request, tournament_slug, stage_slug):
 
     return JsonResponse({'success': True})
 
-def elo_system_detail_view(request, slug):
-    """Public detail page for one Elo system: the series feeding it and a
-    paginated leaderboard of its participants (prev/next page links)."""
-    elo_system = get_object_or_404(EloSystem, slug=slug)
+def _paginate_elo_participants(request, elo_system):
+    """One page of a system's leaderboard, shared by the standalone Elo pages and
+    the series ELO Ranking tab.
 
-    # Unranked players (rank=NULL) sort last. 'pk' is a required tiebreaker, not a
-    # nicety: many rows share a null rank and/or a rating, and without a unique
-    # final key the row order can vary between queries, so the same player could
-    # appear on two pages (or none) as the user pages through.
+    Unranked players (rank=NULL) sort last. 'pk' is a required tiebreaker, not a
+    nicety: many rows share a null rank and/or a rating, and without a unique
+    final key the row order can vary between queries, so the same player could
+    appear on two pages (or none) as the user pages through.
+    select_related('elo_system') feeds ep.trends_url, which reads the system's
+    url template per row.
+    """
     participants = (
         elo_system.participants
                   .select_related('player', 'elo_system')
                   .order_by(F('rank').asc(nulls_last=True), '-rating', 'pk')
     )
-
     paginator = Paginator(participants, settings.PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get('page'))
-
-    context = {
-        'elo_system': elo_system,
-        # start_date is nullable; DESC would otherwise float undated series to the top.
-        'tournaments': elo_system.tournaments.order_by(
-            F('start_date').desc(nulls_last=True), 'name'
-        ),
+    return {
         'participants': page_obj,
         'page_obj': page_obj,
         'participants_count': paginator.count,
     }
+
+
+def _elo_base_context(request, elo_system):
+    """Shared context for the Elo system tab pages.
+
+    Much thinner than _tournament_base_context: an Elo system has no view-as, no
+    per-user permissions and no configurable tab order, and all three of its tabs
+    always exist. participants_count lives here because the hero renders it on
+    every tab (the leaderboard tab then overwrites it with the identical count
+    from its paginator).
+    """
+    return {
+        'elo_system': elo_system,
+        'object': elo_system,
+        'participants_count': elo_system.participants.count(),
+    }
+
+
+def elo_system_leaderboard_view(request, slug):
+    """Leaderboard tab (default) for one Elo system."""
+    elo_system = get_object_or_404(EloSystem, slug=slug)
+
+    context = _elo_base_context(request, elo_system)
+    context['active_page'] = 'leaderboard'
+    context.update(_paginate_elo_participants(request, elo_system))
     return render(request, 'the_warroom/elo_system_detail_page.html', context)
+
+
+def elo_system_games_page(request, slug):
+    """Games tab: every game this system rates, filterable, htmx infinite scroll."""
+    elo_system = get_object_or_404(EloSystem, slug=slug)
+
+    opts = Game.with_efforts()
+    games_qs = (
+        Game.objects.eligible_for_elo_system(elo_system)
+            .select_related(*opts['select'])
+            .prefetch_related(*opts['prefetch'])
+            .order_by('-date_posted')
+    )
+
+    filterset = EloSystemGameFilter(request.GET, queryset=games_qs, elo_system=elo_system)
+
+    paginator = Paginator(filterset.qs, settings.PAGE_SIZE)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    if hasattr(request, 'htmx') and request.htmx:
+        template_name = 'the_warroom/partials/tournament_game_list.html'
+    else:
+        template_name = 'the_warroom/elo_system_games.html'
+
+    context = _elo_base_context(request, elo_system)
+    context.update({
+        'active_page': 'games',
+        'games': page_obj,
+        'page_obj': page_obj,
+        'games_count': paginator.count,
+        'form': filterset.form,
+        'filterset': filterset,
+        'pagination_url': reverse('elo-system-games-page', args=[elo_system.slug]),
+    })
+    return render(request, template_name, context)
+
+
+def elo_system_details_page(request, slug):
+    """Details tab: the series feeding this system, its configuration and seasons."""
+    elo_system = get_object_or_404(EloSystem.objects.select_related('owner'), slug=slug)
+
+    context = _elo_base_context(request, elo_system)
+    context.update({
+        'active_page': 'details',
+        # start_date is nullable; DESC would otherwise float undated series to the top.
+        'tournaments': elo_system.tournaments.order_by(
+            F('start_date').desc(nulls_last=True), 'name'
+        ),
+        'seasons': elo_system.seasons.order_by('start_date'),
+        'games_count': Game.objects.eligible_for_elo_system(elo_system).count(),
+    })
+    return render(request, 'the_warroom/elo_system_details.html', context)

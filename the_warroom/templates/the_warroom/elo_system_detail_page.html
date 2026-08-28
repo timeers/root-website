@@ -1,47 +1,11 @@
 {% extends 'the_keep/base.html' %}
 {% load static i18n %}
-{% block title %}{{ elo_system.name }} | {% endblock %}
+{% block title %}{{ elo_system.name }} - {% trans 'Leaderboard' %} | {% endblock %}
 
 {% block main_width_class %}col-md-12{% endblock %}
 
 {% block styles %}{{ block.super }}
 {% include 'the_warroom/partials/elo_leaderboard_styles.html' %}
-<style>
-/* ── Series list ──────────────────────────────────────────────────── */
-/* Only this page renders the series list, so its styles stay here rather
-   than in the shared leaderboard partial. */
-.elo-series-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.elo-series-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 12px 16px;
-  background: #f6f7fb;
-  border: 1px solid #e3e5e8;
-  border-radius: 10px;
-  text-decoration: none;
-  transition: all 0.12s ease;
-}
-.elo-series-item:hover {
-  border-color: #5865F2;
-  background: #eef0fb;
-}
-.elo-series-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #2c2f33;
-}
-.elo-series-date {
-  font-size: 13px;
-  color: #6a7178;
-  white-space: nowrap;
-}
-</style>
 {% endblock %}
 
 {% block content %}
@@ -49,42 +13,12 @@
   <div class="row justify-content-center">
     <div class="col-lg-10">
 
-      <!-- Hero -->
-      <div class="discord-hero discord-hero-row mb-4">
-        <div class="discord-hero-icon"><i class="bi bi-graph-up-arrow"></i></div>
-        <div>
-          <h1 class="discord-hero-title root-title mb-1">{{ elo_system.name }}</h1>
-          <p class="discord-hero-tagline mb-0">
-            {{ elo_system.get_calculation_type_display }}
-            &middot; {{ participants_count }} {% trans 'player' %}{{ participants_count|pluralize }}
-          </p>
-        </div>
-      </div>
+      {% include 'the_warroom/partials/elo_hero.html' %}
 
-      <!-- Series feeding this system -->
-      <div class="info-card mb-4">
-        <div class="info-card-body">
-          {% if tournaments %}
-          <div class="elo-series-list">
-            {% for tournament in tournaments %}
-              <a class="elo-series-item" href="{{ tournament.get_absolute_url }}">
-                <span class="elo-series-name">{{ tournament.name }}</span>
-                {% if tournament.start_date %}
-                  <span class="elo-series-date">{{ tournament.start_date|date:"M j, Y" }}</span>
-                {% endif %}
-              </a>
-            {% endfor %}
-          </div>
-          {% else %}
-          <div class="alert alert-info mb-0">
-            <i class="bi bi-info-circle me-2"></i>{% trans 'No series use this system yet.' %}
-          </div>
-          {% endif %}
-        </div>
-      </div>
+      {% include 'the_warroom/partials/elo_nav_header.html' with active_page='leaderboard' %}
 
       <!-- Leaderboard -->
-      <div class="info-card">
+      <div class="info-card mt-3">
         <div class="info-card-body">
           {% include 'the_warroom/partials/elo_leaderboard.html' %}
         </div>

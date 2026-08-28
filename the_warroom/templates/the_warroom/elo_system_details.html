@@ -1,0 +1,195 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n custom_filters %}
+{% block title %}{{ elo_system.name }} - {% trans 'Details' %} | {% endblock %}
+
+{% block main_width_class %}col-md-12{% endblock %}
+
+{% block styles %}{{ block.super }}
+<style>
+/* ── Series list ──────────────────────────────────────────────────── */
+/* Moved here from the leaderboard page: only this page renders the series
+   list, so its styles stay here rather than in a shared partial. */
+.elo-series-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.elo-series-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  background: #f6f7fb;
+  border: 1px solid #e3e5e8;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: all 0.12s ease;
+}
+.elo-series-item:hover {
+  border-color: #5865F2;
+  background: #eef0fb;
+}
+.elo-series-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c2f33;
+}
+.elo-series-date {
+  font-size: 13px;
+  color: #6a7178;
+  white-space: nowrap;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+
+      {% include 'the_warroom/partials/elo_hero.html' %}
+
+      {% include 'the_warroom/partials/elo_nav_header.html' with active_page='details' %}
+
+      <!-- Series feeding this system -->
+      <div class="card mt-3">
+        <div class="card-body">
+          <h4 class="card-title mb-3 root-title">{% trans 'Series using this system' %}</h4>
+          {% if tournaments %}
+          <div class="elo-series-list">
+            {% for tournament in tournaments %}
+              <a class="elo-series-item" href="{{ tournament.get_absolute_url }}">
+                <span class="elo-series-name">{{ tournament.name }}</span>
+                {% if tournament.start_date %}
+                  <span class="elo-series-date">{{ tournament.start_date|date:"M j, Y" }}</span>
+                {% endif %}
+              </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="alert alert-info mb-0">
+            <i class="bi bi-info-circle me-2"></i>{% trans 'No series use this system yet.' %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="card mt-3">
+        <div class="card-body">
+          <h4 class="card-title mb-3 root-title">{% trans 'How it works' %}</h4>
+          {% comment %}
+          Prose rather than a definition list: these facts read as a description of
+          the system, not as a spec sheet. Each sentence is its own blocktrans so
+          translators get a whole sentence rather than reassembling fragments, and
+          the counted ones use blocktrans count for correct plural forms.
+          {% endcomment %}
+          <p class="mb-2">
+            {% if elo_system.calculation_type == 'local' %}
+              {% blocktrans with name=elo_system.name %}The {{ name }} ELO system is calculated on this site.{% endblocktrans %}
+            {% else %}
+              {% blocktrans with name=elo_system.name source=elo_system.get_calculation_type_display %}The {{ name }} ELO system is calculated on the {{ source }} website.{% endblocktrans %}
+            {% endif %}
+
+            {% comment %}
+            Four whole sentences rather than glued-together clauses: the player
+            count leads, so each combination of (fixed vs range bounds) x (with vs
+            without series) is one complete blocktrans a translator can reorder.
+            {% endcomment %}
+            {% if elo_system.min_players != elo_system.max_players %}
+              {% if tournaments %}
+                {% blocktrans with min=elo_system.min_players max=elo_system.max_players %}Games with {{ min }} to {{ max }} players played in the series above count towards the ranking.{% endblocktrans %}
+              {% else %}
+                {% blocktrans with min=elo_system.min_players max=elo_system.max_players %}Games with {{ min }} to {{ max }} players count towards the ranking.{% endblocktrans %}
+              {% endif %}
+            {% else %}
+              {% comment %}
+              No blocktrans count here: "games" is plural regardless of the seat
+              count ("4 player games", "1 player games"), so there is no English
+              plural to select on.
+              {% endcomment %}
+              {% if tournaments %}
+                {% blocktrans with players=elo_system.max_players %}{{ players }} player games played in the series above count towards the ranking.{% endblocktrans %}
+              {% else %}
+                {% blocktrans with players=elo_system.max_players %}{{ players }} player games count towards the ranking.{% endblocktrans %}
+              {% endif %}
+            {% endif %}
+          </p>
+
+          <p class="mb-0">
+            {% url 'elo-system-games-page' elo_system.slug as games_url %}
+            {% blocktrans count total=games_count %}This ELO system currently has <a href="{{ games_url }}">{{ total }} qualified game</a>.{% plural %}This ELO system currently has <a href="{{ games_url }}">{{ total }} qualified games</a>.{% endblocktrans %}
+          </p>
+
+          {% comment %}
+          The model's MATH_FIELDS: they only describe how ratings are calculated
+          when this site does the calculating. A RootELO system's ratings come from
+          its external feed, so showing its (unused) local defaults would misstate
+          how those numbers were produced.
+          {% endcomment %}
+          {% if elo_system.calculation_type == 'local' %}
+          <p class="mb-0 mt-2">
+            {% blocktrans with initial=elo_system.initial_rating|floatformat:"-2" k=elo_system.k_factor|floatformat:"-2" %}Players start at {{ initial }} and each game adjusts their rating by a K-factor of {{ k }}.{% endblocktrans %}
+            {% blocktrans count first=elo_system.provisional_games with kp=elo_system.k_provisional|floatformat:"-2" %}A higher K-factor of {{ kp }} applies for a player's first game, so new ratings settle quickly.{% plural %}A higher K-factor of {{ kp }} applies for a player's first {{ first }} games, so new ratings settle quickly.{% endblocktrans %}
+          </p>
+          {% endif %}
+
+          {% if elo_system.owner %}
+          <hr class="my-3">
+          <div class="d-flex align-items-center">
+            {% comment %} <span class="text-muted me-2">{% trans 'Maintained by' %}</span> {% endcomment %}
+            <a href="{{ elo_system.owner.get_absolute_url }}" class="d-inline-flex align-items-center text-decoration-none">
+              {% if elo_system.owner.image %}
+              <img src="{{ elo_system.owner.image.url }}" alt="" class="rounded-circle me-1" style="width: 24px; height: 24px;">
+              {% endif %}
+              <span>{{ elo_system.owner.display_name }}</span>
+            </a>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Seasons -->
+      {% if seasons %}
+      <div class="card mt-3">
+        <div class="card-body">
+          <h4 class="card-title mb-3 root-title">{% trans 'Seasons' %}</h4>
+          {% comment %}
+          A season's row governs the transition INTO it, so the first row is
+          season 1 and everything before it is the implicit season 0 -- which
+          makes forloop.counter the season number.
+          {% endcomment %}
+          <div class="table-responsive">
+            <table class="table align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>{% trans 'Season' %}</th>
+                  <th>{% trans 'Starts' %}</th>
+                  <th>{% trans 'Reset' %}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for season in seasons %}
+                <tr>
+                  <td>{{ forloop.counter }}{% if season.name %} &middot; {{ season.name }}{% endif %}</td>
+                  <td>{{ season.start_date|date:"M j, Y" }}</td>
+                  <td>
+                    {{ season.get_reset_mode_display }}
+                    {% if season.reset_mode == 'soft' %}
+                    <small class="text-muted">({{ season.soft_reset_factor|floatformat:"-2" }})</small>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock content %}

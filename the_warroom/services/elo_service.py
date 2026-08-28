@@ -172,11 +172,14 @@ def _bounds_q(sys):
 
 
 def _system_games(elo_system):
-    """Final, non-test games structurally attached to this system (NO player-count filter)."""
-    return Game.objects.filter(final=True, test_match=False).filter(
-        Q(round__stage__tournament__elo_system=elo_system) |
-        Q(extra_rounds__stage__tournament__elo_system=elo_system)
-    ).distinct()
+    """Final, non-test games structurally attached to this system (NO player-count filter).
+
+    Kept separate from Game.objects.counting_for_elo_system() because the config-change
+    cutoff math below needs the final/test_match gate WITHOUT the bounds gate, so it can
+    compare old vs new bounds over the same structural set."""
+    return Game.objects.counting_for_elo_system(elo_system).filter(
+        final=True, test_match=False
+    )
 
 
 def _apply_bounds(qs, sys):
@@ -185,7 +188,7 @@ def _apply_bounds(qs, sys):
 
 def _eligible_games_for_system(elo_system, since=None):
     """Games this system rates, chronologically ordered. Optionally only >= `since`."""
-    qs = _apply_bounds(_system_games(elo_system), elo_system)
+    qs = Game.objects.eligible_for_elo_system(elo_system)
     if since is not None:
         qs = qs.filter(date_posted__gte=since)
     return qs.order_by('date_posted', 'id')

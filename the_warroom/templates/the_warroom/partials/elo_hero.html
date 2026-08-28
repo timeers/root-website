@@ -1,0 +1,17 @@
+{% load i18n %}
+{% comment %}
+Hero banner shared by all three Elo system tabs (leaderboard / games / details).
+
+Expects in context:
+  elo_system, participants_count  -- both supplied by _elo_base_context()
+{% endcomment %}
+<div class="discord-hero discord-hero-row mb-4">
+  <div class="discord-hero-icon"><i class="bi bi-graph-up-arrow"></i></div>
+  <div>
+    <h1 class="discord-hero-title root-title mb-1">{{ elo_system.name }}</h1>
+    <p class="discord-hero-tagline mb-0">
+      {{ elo_system.get_calculation_type_display }}
+      &middot; {{ participants_count }} {% trans 'player' %}{{ participants_count|pluralize }}
+    </p>
+  </div>
+</div>
