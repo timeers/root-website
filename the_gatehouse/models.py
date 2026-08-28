@@ -1,6 +1,7 @@
 import os
 import uuid
 import calendar
+import logging
 import secrets
 import hashlib
 
@@ -18,6 +19,12 @@ from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 from the_keep.utils import validate_hex_color, delete_old_image
 from the_keep.services.upload_paths import avatar_upload_path, changelog_image_upload_path
+
+logger = logging.getLogger(__name__)
+
+# The shared fallback avatar every Profile starts on. Lives here (not in
+# discordservice) because discordservice imports this module, not the reverse.
+DEFAULT_PROFILE_IMAGE = "default_images/default_user.png"
 
 # Component types eligible for the per-component Discord notification groups
 # ("A new <X> is published" / "A <X> is marked Stable"). Each value equals the
@@ -305,6 +312,26 @@ class LFGThread(models.Model):
         related_name="lfg_threads")
     description = models.TextField(blank=True, default="")
     players = models.ManyToManyField("Profile", blank=True, related_name="lfg_threads")
+    # Who ran /lfg. Cannot be derived from `players`: Profile.Meta.ordering is
+    # ['display_name'], so players.all() comes back alphabetically and .first()
+    # is not the host. The host's snowflake otherwise survives only in the
+    # lfg_start/lfg_cancel custom_ids, which are stripped the moment the thread
+    # is created -- so it is recorded here or lost. NULL on threads created
+    # before this field existed, and on tournament group threads (no host).
+    host = models.ForeignKey(
+        "Profile", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="hosted_lfg_threads")
+    # Whether this thread's seats are a real seating ORDER, or just placeholders.
+    #
+    # `seats.exists()` cannot answer that on its own: /pick can assign factions
+    # without seating, and LFGSeat.seat_number is non-nullable with a uniqueness
+    # constraint, so those rows still carry 1..N filler numbers. Without this flag
+    # /seating would warn about "overwriting" a seating that was never set, and
+    # /pick would never offer to seat such a table again.
+    seating_set = models.BooleanField(
+        default=False,
+        help_text="True when the seats are a real seating order. False when /pick "
+                  "assigned factions without seating and seat numbers are filler.")
 
     # `map`/`deck` hold the MOST RECENT of each (whether rolled or selected) — the
     # fields a Game needs directly. The full history lives in the related LFGRoll
@@ -386,7 +413,7 @@ class LFGRoll(models.Model):
     slug = models.CharField(max_length=100, blank=True, default="")
     source = models.CharField(
         max_length=16, blank=True, default="",
-        help_text="Which command produced this: random / lookup / draft.")
+        help_text="Which command produced this: random / lookup / draft / pick.")
     # default=, not auto_now_add: auto_now_add's pre_save() overrides any value
     # passed in, so an explicit timestamp could never be set.
     created_at = models.DateTimeField(default=timezone.now)
@@ -468,11 +495,19 @@ class LFGSeat(models.Model):
         "Profile", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="lfg_seats")
     seat_number = models.PositiveSmallIntegerField()
-    # Which faction this seat took. No production path writes this yet; a future
-    # "pick a faction from the draft" command will. seated_profiles already
-    # returns it and the game form already consumes it.
+    # Which faction this seat took, written by /pick. seated_profiles returns it
+    # and the game form pre-selects it (in both LFG and match mode).
     faction = models.ForeignKey(
         "the_keep.Faction", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
+    # The vagabond that goes with `faction`, when the seat took Vagabond. Set
+    # from the draft's LFGDraftPick, since all 12 vagabond variants share one
+    # Faction row -- faction alone would collapse Ranger and Thief.
+    #
+    # SET_NULL like every other FK here, NOT LFGDraftPick's PROTECT: a seat must
+    # survive a deleted referent and render blank (see the `profile` note above).
+    vagabond = models.ForeignKey(
+        "the_keep.Vagabond", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="+")
 
     class Meta:
@@ -949,22 +984,41 @@ class Profile(models.Model):
 
     def save(self, *args, **kwargs):
         # Check for blank display names
-        if not self.display_name: 
+        if not self.display_name:
             self.display_name = self.discord # set to discord if blank
 
-
-        field_name = 'image'
-        
-        # Check if the instance already exists (i.e., is not a new object)
+        # Avatar writes happen in a Celery task (update_discord_avatar_task), so the
+        # DB row can gain a new image while a request still holds an older in-memory
+        # copy of this profile. A naive "db image != mine -> delete the db's file"
+        # is direction-blind: it can't tell "I am replacing the image" from "someone
+        # replaced it while I was stale", and deleting in the second case is what
+        # left profiles pointing at files that no longer existed.
         if self.pk:
             try:
-                old_instance = Profile.objects.get(pk=self.pk)
-                old_image = getattr(old_instance, field_name)
-                new_image = getattr(self, field_name)
-                
-                # If the image has changed, delete the old one(s)
-                if old_image and old_image != new_image:
-                    delete_old_image(old_image)
+                db_image = Profile.objects.only('image').get(pk=self.pk).image
+
+                # A save that doesn't write `image` must never touch the image file.
+                # Note this block runs BEFORE super().save(), so without this guard
+                # even an update_fields save deletes the file while leaving the DB
+                # pointer intact — precisely the dead-link signature.
+                update_fields = kwargs.get('update_fields')
+                writing_image = update_fields is None or 'image' in update_fields
+
+                if writing_image and db_image:
+                    reverting_to_default = (
+                        self.image.name == DEFAULT_PROFILE_IMAGE
+                        and db_image.name != DEFAULT_PROFILE_IMAGE
+                    )
+                    if reverting_to_default:
+                        # Our copy predates a real avatar written by another process.
+                        # Adopt the stored value rather than reverting it, and leave
+                        # its file alone. A deliberate reset to the default goes
+                        # through queryset .update() instead (see
+                        # repair_profile_avatars), which bypasses save() entirely.
+                        self.image = db_image.name
+                    elif db_image.name != self.image.name:
+                        # A genuine replacement: clean up the file we're superseding.
+                        delete_old_image(db_image)
             except Profile.DoesNotExist:
                 # The object does not exist yet, nothing to delete
                 pass
@@ -995,8 +1049,11 @@ class Profile(models.Model):
                     # print(f'Resized image saved at: {self.image.path}')
                 # else:
                     # print(f'Original image saved at: {self.image.path}')
-        except Exception as e:
-            print(f"Error resizing image: {e}")
+        except Exception:
+            # Was a bare print, so avatar corruption failed silently and never
+            # surfaced in the logs — the reason this class of bug went unnoticed.
+            logger.exception("Error resizing image for profile %s (%s)",
+                             self.pk, getattr(self.image, 'name', None))
 
     #     img = Image.open(self.image.path)
 

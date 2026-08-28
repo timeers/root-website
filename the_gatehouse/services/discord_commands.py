@@ -168,8 +168,27 @@ DRAFT_COMMAND = {
 # tournament player group's thread (displayed only).
 SEATING_COMMAND = {
     "name": "seating",
-    "description": "Randomly seat the players in this game or group thread",
+    "description": "Randomly seat the players in this thread's game",
     "options": [],
+}
+
+# The step after /draft and /seating: who takes which faction. No options -- the
+# seating, the roster and the faction pool all come from the thread it's used in.
+PICK_COMMAND = {
+    "name": "pick",
+    "description": "Pick factions in seat order, or assign factions",
+    "options": [],
+}
+
+# Free text, no autocomplete — the title is whatever the host wants to call the
+# game. Only the host of the /lfg that made the thread may use it.
+RENAME_COMMAND = {
+    "name": "rename",
+    "description": "Rename this game's thread",
+    "options": [
+        {"name": "title", "description": "The new thread title",
+         "type": 3, "required": True},
+    ],
 }
 
 
@@ -263,6 +282,8 @@ COMMANDS = [
     LAW_COMMAND,
     DRAFT_COMMAND,
     SEATING_COMMAND,
+    PICK_COMMAND,
+    RENAME_COMMAND,
     RANDOM_COMMAND,
     LFG_COMMAND,
 ]
@@ -276,7 +297,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats"]),
-    ("Games", ["lfg", "seating", "upcoming", "schedule", "record"]),
+    ("Games", ["lfg", "seating", "pick", "rename", "upcoming", "schedule", "record"]),
     ("Random", ["draft", "random"]),
 ]
 

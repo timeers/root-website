@@ -50,7 +50,8 @@ from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landma
 from the_keep.views import paginate_or_404
 
 from the_gatehouse.models import Profile, Language, LFGThread
-from the_gatehouse.services.lfg_game import seated_profiles, lfg_option_querysets
+from the_gatehouse.services.lfg_game import (
+    seated_profiles, lfg_option_querysets, picked_factions_by_profile)
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
@@ -1297,6 +1298,27 @@ def manage_game_v2(request, id=None):
             for notice in match_opts.get('notices', []):
                 messages.warning(request, notice)
 
+            # Factions picked with /pick in the group thread, joined on PROFILE
+            # (see picked_factions_by_profile for why not seat_number).
+            if not id and not request.POST:
+                picked = picked_factions_by_profile(match_captured)
+                if picked:
+                    for i, seat in enumerate(match_seats):
+                        if i >= len(formset.forms):
+                            break
+                        lfg_seat = picked.get(
+                            seat.stage_participant.tournament_player.profile_id)
+                        if not lfg_seat:
+                            continue
+                        # Same "only if the narrowing still offers it" guard as
+                        # LFG mode below.
+                        if lfg_seat.faction_id and match_opts['factions'].filter(
+                                pk=lfg_seat.faction_id).exists():
+                            formset.forms[i].initial['faction'] = lfg_seat.faction_id
+                        if lfg_seat.vagabond_id and match_opts['vagabonds'].filter(
+                                pk=lfg_seat.vagabond_id).exists():
+                            formset.forms[i].initial['vagabond'] = lfg_seat.vagabond_id
+
     if lfg_mode:
         # Restrict the player dropdown to the thread's players, and narrow every
         # component field to what was actually rolled/drafted in the thread
@@ -1313,18 +1335,23 @@ def manage_game_v2(request, id=None):
         # Seat order drives row order: seat 1 is the top row. Unresolved seats
         # (no matching Profile) leave the row blank but KEEP their position.
         if not id and not request.POST:
-            for i, (_seat_no, profile_obj, faction_slug) in enumerate(lfg_seats):
+            for i, (_seat_no, profile_obj, faction_slug, vagabond_slug) in enumerate(lfg_seats):
                 if i >= len(formset.forms):
                     break
                 if profile_obj:
                     formset.forms[i].initial['player'] = profile_obj.pk
-                # Optional per-seat faction: nothing writes this key today, so
-                # treat it as absent by default and only pre-select when the
-                # faction is actually offered on this row.
+                # Optional per-seat faction/vagabond, written by /pick. Only
+                # pre-select when the value is actually offered on this row --
+                # narrowing may exclude it, and an initial the queryset doesn't
+                # contain renders as no selection at all.
                 if faction_slug:
                     seat_faction = lfg_opts['factions'].filter(slug=faction_slug).first()
                     if seat_faction:
                         formset.forms[i].initial['faction'] = seat_faction.pk
+                if vagabond_slug:
+                    seat_vagabond = lfg_opts['vagabonds'].filter(slug=vagabond_slug).first()
+                    if seat_vagabond:
+                        formset.forms[i].initial['vagabond'] = seat_vagabond.pk
 
         for notice in lfg_opts.get('notices', []):
             messages.warning(request, notice)

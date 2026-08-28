@@ -2262,8 +2262,10 @@ def sync_discord_avatar(request):
 
     result = update_discord_avatar(request.user, force=True)
 
-    profile.last_avatar_sync = timezone.now()
-    profile.save()
+    # Queryset update, not profile.save(): the download above already saved the
+    # profile, so a full save() here would re-run the image-deletion check and a
+    # second lossy resize against the file it just wrote.
+    Profile.objects.filter(pk=profile.pk).update(last_avatar_sync=timezone.now())
 
     if result:
         messages.success(request, "Your Discord avatar has been synced successfully!")

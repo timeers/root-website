@@ -3,6 +3,9 @@ import json
 import re
 import emoji
 
+from io import BytesIO
+from PIL import Image
+
 from datetime import timedelta
 
 from allauth.socialaccount.models import SocialAccount
@@ -13,7 +16,8 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from the_gatehouse.models import DiscordGuild, DiscordGuildJoinRequest
+from the_gatehouse.models import (DiscordGuild, DiscordGuildJoinRequest,
+                                  DEFAULT_PROFILE_IMAGE as _DEFAULT_PROFILE_IMAGE)
 # Safe at module level: time_parsing imports only stdlib + dateutil, nothing from
 # this module or the ORM.
 from .time_parsing import format_discord_timestamp
@@ -27,7 +31,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_PROFILE_IMAGE = "default_images/default_user.png"
+# Re-exported from models (the canonical definition) so existing callers that
+# import it from here keep working.
+DEFAULT_PROFILE_IMAGE = _DEFAULT_PROFILE_IMAGE
 
 DISCORD_API = "https://discord.com/api/v10"
 
@@ -319,6 +325,64 @@ def edit_channel_message(channel_id, message_id, embeds=None, components=None):
         logger.error("Failed to edit message %s in channel %s: %s",
                      message_id, channel_id, detail)
         return THREAD_ERROR
+
+
+def _retry_after_seconds(resp):
+    """Seconds to wait from a 429 response, or None.
+
+    Discord puts `retry_after` (a float) in the JSON body; the Retry-After header
+    is the fallback. Never raises: an empty or non-JSON body must degrade to None
+    rather than turning a rate-limit into an exception in the caller."""
+    if resp is None:
+        return None
+    try:
+        value = (resp.json() or {}).get("retry_after")
+        if value is not None:
+            return float(value)
+    except (ValueError, AttributeError, TypeError):
+        pass
+    try:
+        header = resp.headers.get("Retry-After")
+        return float(header) if header else None
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def rename_channel(channel_id, name):
+    """Rename a channel or thread (PATCH). Never raises. Returns
+    (result, retry_after) where result is THREAD_OK / THREAD_BLOCKED / THREAD_ERROR
+    and retry_after is the seconds to wait on a rate limit, else None.
+
+    The tuple exists because of this endpoint specifically: Discord caps thread
+    renames at 2 per 10 minutes, so a 429 here carries a retry_after of HUNDREDS of
+    seconds -- far too long to swallow behind a generic "try again". The caller
+    tells the user how long to wait. (429 stays THREAD_ERROR per
+    _is_terminal_edit_error; retry_after is what distinguishes it.)
+
+    No DEBUG_VALUE guard — see create_message_thread."""
+    name = (name or "")[:100]  # Discord channel name cap, as create_message_thread
+    try:
+        r = requests.patch(
+            f"{DISCORD_API}/channels/{channel_id}",
+            headers=_bot_headers(),
+            json={"name": name},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return THREAD_OK, None
+    except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        if _is_terminal_edit_error(e):
+            logger.warning("Cannot rename channel %s (permanent): %s", channel_id, detail)
+            return THREAD_BLOCKED, None
+        retry_after = _retry_after_seconds(resp)
+        if retry_after is not None:
+            logger.warning("Rate limited renaming channel %s; retry after %ss",
+                           channel_id, retry_after)
+        else:
+            logger.error("Failed to rename channel %s: %s", channel_id, detail)
+        return THREAD_ERROR, retry_after
 
 
 def get_bot_guilds():
@@ -727,11 +791,24 @@ def get_discord_id(user):
 
 
 
+def discord_default_avatar_url(discord_id):
+    """Discord's own fallback avatar for a user with no custom one.
+
+    New-style usernames key off (id >> 22) % 6. Mirrors the same derivation in
+    discord_interactions._interaction_author.
+    """
+    try:
+        index = (int(discord_id) >> 22) % 6
+    except (TypeError, ValueError):
+        index = 0
+    return f"https://cdn.discordapp.com/embed/avatars/{index}.png"
+
+
 def update_discord_avatar(user, force=False):
     social_account = SocialAccount.objects.filter(user=user, provider='discord').first()
     if not social_account:
         return None
-    
+
     profile = getattr(user, "profile", None)
     if not profile:
         return None
@@ -743,29 +820,45 @@ def update_discord_avatar(user, force=False):
     data = social_account.extra_data
     discord_id = data.get("id")
     avatar_hash = data.get("avatar")
-    discriminator = data.get("discriminator")
 
     if not discord_id:
         return None
 
-    # If they have a custom avatar
     if avatar_hash:
         ext = "gif" if avatar_hash.startswith("a_") else "png"
         avatar_url = f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar_hash}.{ext}?size=1024"
     else:
+        # No custom avatar: take Discord's default rather than returning early,
+        # so the profile ends up with a real file instead of an unset image.
+        avatar_url = discord_default_avatar_url(discord_id)
+
+    # Network errors deliberately propagate: this runs inside
+    # update_discord_avatar_task, whose autoretry_for=(Exception,) is what makes a
+    # transient Discord/CDN blip recoverable. Swallowing them here disabled retries.
+    response = requests.get(avatar_url, timeout=10)
+    if response.status_code != 200:
+        logger.warning("Discord avatar fetch for %s returned %s",
+                       user, response.status_code)
         return None
 
-    # Download and save to Profile.image
+    # The upload path always yields a .webp name (see avatar_upload_path), so encode
+    # the bytes to WebP here rather than storing PNG/GIF bytes under a .webp file.
     try:
-        response = requests.get(avatar_url, timeout=10)
-    except requests.RequestException as e:
-        logger.warning("Failed to download Discord avatar for %s: %s", user, e)
+        img = Image.open(BytesIO(response.content))
+        if img.mode not in ("RGB", "RGBA"):
+            if img.mode in ("LA", "P") and "transparency" in img.info:
+                img = img.convert("RGBA")
+            else:
+                img = img.convert("RGB")
+        buffer = BytesIO()
+        img.save(buffer, format="WEBP", quality=85, method=6)
+        content = buffer.getvalue()
+    except Exception:
+        logger.exception("Could not decode Discord avatar for %s", user)
         return None
-    if response.status_code == 200:
-        filename = f"discord_{user.id}.png"
-        profile.image.save(filename, ContentFile(response.content), save=True)
-        return profile.image.url
-    return None
+
+    profile.image.save(f"discord_{user.id}.webp", ContentFile(content), save=True)
+    return profile.image.url
 
 
 def get_valid_discord_token(user, timeout=5):

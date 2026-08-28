@@ -3,24 +3,28 @@
 ## [1.13.4] - 2026-8-26 Bot Evolution
 
 ### New Features
-- can now link LFG Roles to tournaments within the same guild
-- /record command to generate link for recording game
-- recording from an lfg thread helps pre-build the game form
 - series can now reorganize tabs and any tab can be hidden
 - added elo ranking as an optional tab to series
-- games linked to a match thread or lfg thread post results automatically to the thread (if bot is guild member)
+- can now link LFG Roles to tournaments within the same guild
+- /rename lets the host rename an LFG Thread
 - /seating gives you player order for the players in the thread
+- /pick lets you assign factions for each player or let them choose for themselves
+- /record command to generate link for recording game
+- recording from an lfg thread helps pre-build the game form
+- games linked to a match thread or lfg thread post results automatically to the thread (if bot is guild member)
 
 ### Improvements
 - /random commands now have option to include fan content
 - /schedule prompts for timezone if none was provided and the user does not already have a set timezone
 - /schedule now proposes a time for every player in the game to confirm before it is scheduled
 - new models to store lfg data to help with the /record command
+- lfg thread is now named with the LFGRole description if no description was given
 
 ### Bug Fixes
 - inactive stages don't error out on creation
 - fixed suspected bug where users logging in for the first time would be denied a restricted page even if they should have permission
 - fixed forge faction duplication bug where button did not trigger
+- new user profiles failed to save avatar correctly
 
 ## [1.13.3] - 2026-8-21 Post Spain Updates
 

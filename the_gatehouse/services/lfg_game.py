@@ -1,13 +1,15 @@
 """Turning an LFGThread's captured Discord activity into game-form inputs.
 
 An LFG thread accumulates curated state in three related tables: LFGSeat (who
-sits where, written by /draft's seat button), LFGRoll (an append-only log of
-every component surfaced by /random, /map, /deck, the other lookups, and
-/draft), and LFGDraft/LFGDraftPick (the current draft). This module resolves
-them into the shapes the record-game form needs, so the view stays thin.
+sits where, written by /draft's seat button and /seating; its faction/vagabond
+written by /pick), LFGRoll (an append-only log of every component surfaced by
+/random, /map, /deck, the other lookups, /draft and /pick), and
+LFGDraft/LFGDraftPick (the current draft). This module resolves them into the
+shapes the record-game form needs, so the view stays thin.
 
-Note the form narrows its options from the ROLL LOG, not the draft -- the draft
-is recorded for a future "pick a faction from the draft" command.
+Note the form narrows its options from the ROLL LOG, not the draft. /pick is why
+it also writes rolls: a picked faction that isn't in the log would be dropped by
+the narrowing below and never reach the form.
 
 Kept in the_gatehouse (the app that owns LFGThread) but imports the_warroom
 models lazily inside functions — the_warroom.models imports from
@@ -78,28 +80,50 @@ def rolled_components(thread):
 
 
 def seated_profiles(thread):
-    """Ordered [(seat_number, Profile|None, faction_slug|None), ...], seat 1 first.
+    """Ordered [(seat_number, Profile|None, faction_slug|None, vagabond_slug|None), ...],
+    seat 1 first.
 
-    The middle element is None when the seat's Profile was deleted; that row
-    still KEEPS ITS POSITION, because the record form places effort rows by list
-    position and sizes the formset from this list's length -- dropping a seat
-    would silently shrink the form by a player instead of leaving a blank row.
+    The Profile is None when the seat's Profile was deleted; that row still KEEPS
+    ITS POSITION, because the record form places effort rows by list position and
+    sizes the formset from this list's length -- dropping a seat would silently
+    shrink the form by a player instead of leaving a blank row.
 
-    The third element is a SLUG STRING, not a Faction: the form does
-    `.filter(slug=faction_slug)`, and a model instance there would coerce via
-    str() and silently match nothing. No production path writes LFGSeat.faction
-    yet; a future "pick a faction from the draft" command will.
+    The last two elements are SLUG STRINGS, not model instances: the form does
+    `.filter(slug=...)`, and an instance there would coerce via str() and
+    silently match nothing. Both are written by /pick; the vagabond is set only
+    when the seat took the Vagabond faction.
 
     With no seating recorded, falls back to the thread's players in default
-    order (seat numbers still assigned 1..N)."""
-    seats = list(thread.seats.select_related("profile", "faction"))
+    order (seat numbers still assigned 1..N). That branch must emit the same
+    4-tuple shape -- callers unpack a fixed width."""
+    seats = list(thread.seats.select_related("profile", "faction", "vagabond"))
     if not seats:
-        return [(i, p, None)
+        return [(i, p, None, None)
                 for i, p in enumerate(thread.players.all(), 1)]
 
     return [(s.seat_number, s.profile,
-             s.faction.slug if s.faction_id else None)
+             s.faction.slug if s.faction_id else None,
+             s.vagabond.slug if s.vagabond_id else None)
             for s in seats]
+
+
+def picked_factions_by_profile(thread):
+    """{profile_id: LFGSeat} for every seat in `thread` that has a profile.
+
+    Keyed by PROFILE, not seat_number, because this is what match mode joins on.
+    MatchSeat.seat_number is nullable with no uniqueness constraint, and /pick
+    seats a tournament group thread by shuffling the PlayerGroup roster -- which
+    bears no relation to MatchSeat ordering. A seat-number join could therefore
+    attach a faction to the WRONG PLAYER; the profile is the only field both
+    sides genuinely share.
+
+    A stale seating needs no separate check as a result: a player who left the
+    series isn't in the map, and one who joined isn't either, so neither gets a
+    faction prefilled. MatchSeat stays authoritative for who plays.
+    """
+    return {s.profile_id: s
+            for s in thread.seats.select_related("faction", "vagabond")
+            if s.profile_id}
 
 
 def lfg_option_querysets(thread, tournament):

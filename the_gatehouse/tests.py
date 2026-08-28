@@ -1,14 +1,20 @@
+import io
 import json
+import shutil
+import tempfile
 from unittest import mock
+from PIL import Image
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth import login as auth_login
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.management import call_command
 from django.db.models.signals import post_save
 from django.http import HttpResponse
-from django.test import TestCase, RequestFactory
+from django.test import TestCase, RequestFactory, override_settings
 from django.urls import reverse
+from django.db import IntegrityError
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
 from kombu.exceptions import OperationalError as KombuOperationalError
@@ -17,18 +23,22 @@ from the_warroom.models import (
     StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
 )
 from the_gatehouse.tasks import update_post_status
-from the_keep.models import StatusChoices, Faction, Map, Deck
+from the_keep.models import StatusChoices, Faction, Map, Deck, Vagabond
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
-    LFGRoll, LFGDraft, LFGSeat,
+    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, DEFAULT_PROFILE_IMAGE,
 )
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_gatehouse.services import discord_commands as dc
+from the_gatehouse.services.discordservice import update_discord_avatar
 from the_gatehouse.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
+    picked_factions_by_profile,
 )
-from the_gatehouse.tasks import record_lfg_components_task
+from the_gatehouse.tasks import (
+    record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
+)
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     search_timezones, valid_timezone,
@@ -566,6 +576,103 @@ class MatchForThreadTests(ScheduleFixtureMixin, TestCase):
         self.assertTrue(err)
 
 
+class EnsureProfileFromDiscordTests(TestCase):
+    """Resolving a Discord user to a Profile.
+
+    Most profiles here were created manually and carry no discord_id; the point of
+    this helper is that their owner CLAIMS them on first use, exactly as the site
+    login does. The order matters: an unlinked handle is claimable, a linked one is
+    somebody's account."""
+
+    LINKED_ID = "111111111111111111"
+    OTHER_ID = "222222222222222222"
+
+    # ── order: the verified id wins ──
+    def test_an_existing_discord_id_matches_first(self):
+        mine = Profile.objects.create(discord="mine", discord_id=self.LINKED_ID)
+        Profile.objects.create(discord="someoneelse")  # unlinked, different handle
+        got = ensure_profile_from_discord(self.LINKED_ID, "someoneelse", None)
+        self.assertEqual(got.pk, mine.pk)
+
+    def test_someone_elses_handle_does_not_beat_your_own_id(self):
+        """Otherwise a user with a profile is handed a different one every call, and
+        it isn't even claimed — so it recurs forever."""
+        mine = Profile.objects.create(discord="mine", discord_id=self.LINKED_ID)
+        other = Profile.objects.create(discord="otherhandle")
+        got = ensure_profile_from_discord(self.LINKED_ID, "otherhandle", None)
+        self.assertEqual(got.pk, mine.pk)
+        other.refresh_from_db()
+        self.assertIsNone(other.discord_id)
+
+    # ── the impersonation case ──
+    def test_a_linked_profile_is_never_returned_for_another_snowflake(self):
+        victim = Profile.objects.create(discord="victim", discord_id=self.LINKED_ID)
+        got = ensure_profile_from_discord(self.OTHER_ID, "victim", None)
+        self.assertNotEqual(got.pk, victim.pk)
+        self.assertEqual(got.discord_id, self.OTHER_ID)
+        victim.refresh_from_db()
+        self.assertEqual(victim.discord_id, self.LINKED_ID)
+
+    def test_that_case_creates_a_profile_with_a_suffixed_handle(self):
+        """`discord` is unique, so the new row can't reuse the taken handle."""
+        Profile.objects.create(discord="victim", discord_id=self.LINKED_ID)
+        got = ensure_profile_from_discord(self.OTHER_ID, "victim", None)
+        self.assertNotEqual(got.discord, "victim")
+        self.assertIn(self.OTHER_ID, got.discord)
+
+    # ── the claim, which must keep working ──
+    def test_an_unlinked_handle_is_claimed(self):
+        unclaimed = Profile.objects.create(discord="claimme")
+        got = ensure_profile_from_discord(self.LINKED_ID, "claimme", None)
+        self.assertEqual(got.pk, unclaimed.pk)
+        unclaimed.refresh_from_db()
+        self.assertEqual(unclaimed.discord_id, self.LINKED_ID)
+
+    def test_the_claim_is_case_insensitive(self):
+        unclaimed = Profile.objects.create(discord="MixedCase")
+        got = ensure_profile_from_discord(self.LINKED_ID, "mixedcase", None)
+        self.assertEqual(got.pk, unclaimed.pk)
+
+    def test_the_claim_does_not_disturb_display_name_or_image(self):
+        """The claim writes with update_fields; a bare save() would re-derive
+        display_name and can delete the profile's avatar."""
+        unclaimed = Profile.objects.create(discord="claimme2", display_name="Real Name")
+        ensure_profile_from_discord(self.LINKED_ID, "claimme2", "Discord Name")
+        unclaimed.refresh_from_db()
+        self.assertEqual(unclaimed.display_name, "Real Name")
+
+    # ── no username ──
+    def test_no_username_matches_by_id(self):
+        mine = Profile.objects.create(discord="mine", discord_id=self.LINKED_ID)
+        self.assertEqual(
+            ensure_profile_from_discord(self.LINKED_ID, None, None).pk, mine.pk)
+
+    def test_no_username_creates_with_an_id_derived_handle(self):
+        got = ensure_profile_from_discord(self.LINKED_ID, None, "Someone")
+        self.assertEqual(got.discord_id, self.LINKED_ID)
+        self.assertIn(self.LINKED_ID, got.discord)
+
+    def test_a_missing_discord_id_returns_none(self):
+        self.assertIsNone(ensure_profile_from_discord(None, "anything", None))
+
+    # ── the race fallback ──
+    def test_the_integrity_error_fallback_recovers_by_id(self):
+        existing = Profile.objects.create(discord="raced", discord_id=self.LINKED_ID)
+        with mock.patch.object(Profile.objects, "create",
+                               side_effect=IntegrityError("raced")):
+            got = ensure_profile_from_discord(self.LINKED_ID, "brandnew", None)
+        self.assertEqual(got.pk, existing.pk)
+
+    def test_the_integrity_error_fallback_will_not_return_a_linked_profile(self):
+        """Same unlinked-only rule as the main path — this fallback is the second
+        door into the impersonation bug."""
+        Profile.objects.create(discord="taken", discord_id=self.LINKED_ID)
+        with mock.patch.object(Profile.objects, "create",
+                               side_effect=IntegrityError("raced")):
+            got = ensure_profile_from_discord(self.OTHER_ID, "taken", None)
+        self.assertIsNone(got)
+
+
 class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
     """The handler is called directly (rather than through the signed endpoint),
     matching how the interaction code is structured: handlers take `data` with the
@@ -661,29 +768,63 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         self.outsider.save(update_fields=["timezone"])
         body = self.assertEphemeral(
             di._handle_schedule_command(self._data(author=self.outsider.discord_id)))
-        self.assertIn("can't set the time", body["data"]["content"])
+        self.assertIn("not able to schedule", body["data"]["content"])
+        self.assertIn("series admin", body["data"]["content"])
 
-    def test_unknown_discord_user_rejected(self):
+    def test_unknown_discord_user_gets_a_profile_and_a_permission_error(self):
+        """/schedule get-or-creates so the timezone can always be saved. A brand-new
+        Profile is on no roster, so the match path still refuses -- but with the
+        message that says what to do about it."""
+        self.assertFalse(Profile.objects.filter(discord_id="99999999").exists())
+        self.outsider.timezone = TZ  # so we reach can_schedule, not the tz picker
         body = self.assertEphemeral(
             di._handle_schedule_command(self._data(author="99999999")))
-        self.assertIn("account", body["data"]["content"].lower())
+        self.assertIn("not able to schedule", body["data"]["content"])
+        self.assertTrue(Profile.objects.filter(discord_id="99999999").exists())
 
-    def test_no_match_for_thread_rejected(self):
+    def test_an_existing_profile_is_reused_not_duplicated(self):
+        before = Profile.objects.count()
+        di._handle_schedule_command(self._data())
+        self.assertEqual(Profile.objects.count(), before)
+
+    def test_a_username_cannot_take_over_a_linked_profile(self):
+        """A handle matching an ALREADY-LINKED profile must never hand over that
+        account — on this path it would carry their scheduling permission with it.
+        (An unlinked profile IS claimable; that's the intended login-style flow.)"""
+        data = self._data(author="99999999")
+        data["_author_username"] = "player"  # self.player's handle, already linked
+        di._handle_schedule_command(data)
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.discord_id, "2")
+        self.assertTrue(Profile.objects.filter(discord_id="99999999").exists())
+
+    def test_an_unlinked_profile_is_claimed_by_a_matching_handle(self):
+        """The flow the claim exists for: manually-created profiles are taken over
+        by their owner on first use."""
+        unclaimed = Profile.objects.create(discord="unclaimedhandle")
+        data = self._data(author="99999999")
+        data["_author_username"] = "unclaimedhandle"
+        di._handle_schedule_command(data)
+        unclaimed.refresh_from_db()
+        self.assertEqual(unclaimed.discord_id, "99999999")
+
+    def test_no_match_for_thread_offers_an_unlinked_suggestion(self):
+        """The old dead end. Now it suggests a time that isn't linked to a game."""
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
         body = self.assertEphemeral(
             di._handle_schedule_command(self._data(channel="123123123")))
-        self.assertIn("couldn't find", body["data"]["content"].lower())
+        content = body["data"]["content"]
+        self.assertIn("isn't linked to a game on the site", content)
+        self.assertNotIn("couldn't find", content.lower())
 
-    def test_used_in_plain_channel_says_to_use_a_thread(self):
+    def test_used_in_plain_channel_also_offers_a_suggestion(self):
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
         data = self._data(channel="123123123")
         data["_channel_type"] = 0  # GUILD_TEXT, not a thread
         body = self.assertEphemeral(di._handle_schedule_command(data))
-        self.assertIn("thread", body["data"]["content"])
-
-    def test_thread_type_still_reports_missing_link(self):
-        data = self._data(channel="123123123")
-        data["_channel_type"] = 11  # PUBLIC_THREAD
-        body = self.assertEphemeral(di._handle_schedule_command(data))
-        self.assertIn("couldn't find", body["data"]["content"].lower())
+        self.assertIn("isn't linked to a game on the site", body["data"]["content"])
 
     def test_outside_guild_rejected(self):
         body = self.assertEphemeral(di._handle_schedule_command(self._data(guild=None)))
@@ -1141,7 +1282,7 @@ class ScheduleClearHandlerTests(ScheduleFixtureMixin, TestCase):
         self._schedule()
         body = self._body(
             di._handle_schedule_command(self._data(author=self.outsider.discord_id)))
-        self.assertIn("can't set the time", body["data"]["content"])
+        self.assertIn("not able to schedule", body["data"]["content"])
         self.assertNotIn("Remove the scheduled time", body["data"]["content"])
 
     def test_clear_works_without_a_profile_timezone(self):
@@ -1151,9 +1292,274 @@ class ScheduleClearHandlerTests(ScheduleFixtureMixin, TestCase):
         body = self._body(di._handle_schedule_command(self._data()))
         self.assertIn("Remove the scheduled time", body["data"]["content"])
 
-    def test_no_match_for_thread_still_errors(self):
+    def test_clearing_without_a_match_says_there_is_nothing_to_clear(self):
+        """Nothing is stored for an unlinked thread, so "clear" has nothing to act
+        on. Say what to do instead rather than reporting a missing match."""
         body = self._body(di._handle_schedule_command(self._data(channel="123123123")))
-        self.assertIn("couldn't find", body["data"]["content"].lower())
+        content = body["data"]["content"]
+        self.assertIn("isn't linked to a match", content)
+        self.assertIn("`time`", content)
+        self.assertNotIn("couldn't find", content.lower())
+        self.assertEqual(body["data"].get("flags"), di.EPHEMERAL)
+
+
+class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
+    """/schedule where no tournament match resolves. Suggests a time that is
+    explicitly NOT scheduled on the site, and writes nothing."""
+
+    UNLINKED_CHANNEL = "123123123"
+
+    def setUp(self):
+        self.build()
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+
+    def _data(self, time="Sep 15 2026 8pm", channel=None, author=None):
+        options = [] if time is None else [{"name": "time", "value": time}]
+        return {
+            "name": "schedule", "options": options,
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": channel or self.UNLINKED_CHANNEL,
+            "_channel_name": None,
+            "_author_id": author or self.player.discord_id,
+            "_author_username": "player",
+        }
+
+    def _body(self, response):
+        return json.loads(response.content)
+
+    def _lfg_thread(self):
+        thread = LFGThread.objects.create(thread_id=self.UNLINKED_CHANNEL)
+        thread.players.set([self.player, self.outsider])
+        return thread
+
+    # ── the ephemeral preview ──
+    def test_a_bare_channel_offers_an_unlinked_suggestion(self):
+        data = self._body(di._handle_schedule_command(self._data()))["data"]
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertIn("isn't linked to a game on the site", data["content"])
+        self.assertNotIn("confirm", data["content"].lower())
+
+    def test_an_lfg_thread_says_players_will_confirm(self):
+        self._lfg_thread()
+        data = self._body(di._handle_schedule_command(self._data()))["data"]
+        self.assertIn("isn't linked to a game on the site", data["content"])
+        self.assertIn("confirm", data["content"].lower())
+
+    def test_the_confirm_button_is_sched_free_not_schedule_confirm(self):
+        """schedule_confirm looks the match up by id and would answer 'that match
+        can no longer be scheduled'."""
+        data = self._body(di._handle_schedule_command(self._data()))["data"]
+        ids = [c["custom_id"] for r in data["components"] for c in r["components"]]
+        self.assertTrue(any(i.startswith("sched_free:") for i in ids))
+        self.assertFalse(any(i.startswith("schedule_confirm:") for i in ids))
+
+    def test_nothing_is_written_by_the_preview(self):
+        di._handle_schedule_command(self._data())
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    # ── clearing ──
+    def test_clearing_is_refused_with_guidance(self):
+        data = self._body(di._handle_schedule_command(self._data(time=None)))["data"]
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertIn("isn't linked to a match", data["content"])
+        self.assertNotIn("couldn't find", data["content"].lower())
+
+    # ── the public post ──
+    def _confirm(self, kind="bare", when=None):
+        when = when or (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL, "token": "tok",
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_free", kind, int(when.timestamp()), self.player.discord_id)},
+            "message": {"id": "m", "components": []},
+        }
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            response = di._handle_schedule_free(payload)
+        return self._body(response)["data"], enqueue
+
+    def test_confirming_posts_publicly_with_the_disclaimer(self):
+        _data, enqueue = self._confirm()
+        message = enqueue.call_args.args[0][1]
+        # No EPHEMERAL flag: an ephemeral "public" post would be visible only to the
+        # proposer, which looks like the feature silently doing nothing.
+        self.assertNotIn("flags", message)
+        embed = message["embeds"][0]
+        self.assertIn("isn't linked to a game on the site", embed["description"])
+        self.assertIn("🕐", embed["title"])
+
+    def test_the_bare_post_has_no_confirm_buttons(self):
+        _data, enqueue = self._confirm(kind="bare")
+        self.assertNotIn("components", enqueue.call_args.args[0][1])
+
+    def test_the_lfg_post_carries_open_confirm_buttons(self):
+        _data, enqueue = self._confirm(kind="lfg")
+        rows = enqueue.call_args.args[0][1]["components"]
+        ids = [c["custom_id"] for r in rows for c in r["components"]]
+        self.assertTrue(ids)
+        for custom_id in ids:
+            # "g", not a snowflake, so the dispatcher's owner-lock stays off.
+            self.assertEqual(di.decode_custom_id(custom_id)[1][-1], "g")
+
+    def test_a_broker_outage_does_not_replace_the_confirmation_with_an_error(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL, "token": "tok",
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_free", "bare", int(when.timestamp()), self.player.discord_id)},
+            "message": {"id": "m", "components": []},
+        }
+        with mock.patch.object(di.post_interaction_followup_task, "apply_async",
+                               side_effect=KombuOperationalError("redis down")):
+            data = self._body(di._handle_schedule_free(payload))["data"]
+        self.assertIn("try again", data["content"].lower())
+
+    def test_nothing_is_written_by_confirming(self):
+        self._confirm()
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    # ── responding to an LFG suggestion ──
+    def _respond(self, action, clicker, confirmed=None):
+        embed = {"title": "🕐 Proposed time (not scheduled)", "description": "x"}
+        if confirmed:
+            embed["fields"] = [{"name": di.SCHEDULE_FREE_CONFIRMED_FIELD,
+                                "value": "\n".join(confirmed), "inline": False}]
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL,
+            "member": {"user": {"id": clicker, "username": "someone"}},
+            "data": {"custom_id": di.encode_custom_id(action, "123", "g")},
+            "message": {"id": "m", "embeds": [embed], "components": []},
+        }
+        handler = di.COMPONENT_HANDLERS[action]
+        return self._body(handler(payload))["data"]
+
+    def test_a_thread_player_can_confirm(self):
+        self._lfg_thread()
+        data = self._respond("sched_lfg_ok", self.player.discord_id)
+        field = data["embeds"][0]["fields"][0]
+        self.assertEqual(field["name"], di.SCHEDULE_FREE_CONFIRMED_FIELD)
+        self.assertIn(f"<@{self.player.discord_id}>", field["value"])
+
+    def test_a_non_player_is_refused(self):
+        self._lfg_thread()
+        data = self._respond("sched_lfg_ok", "88888888")
+        self.assertIn("players in this thread", data["content"])
+
+    def test_confirming_twice_does_not_double_count(self):
+        """Identity is the id, so a rename can't add a second line either."""
+        self._lfg_thread()
+        first = self._respond("sched_lfg_ok", self.player.discord_id)
+        lines = first["embeds"][0]["fields"][0]["value"].splitlines()
+        again = self._respond("sched_lfg_ok", self.player.discord_id,
+                              confirmed=lines)
+        self.assertEqual(len(again["embeds"][0]["fields"][0]["value"].splitlines()), 1)
+
+    def test_declining_removes_an_earlier_confirmation(self):
+        self._lfg_thread()
+        first = self._respond("sched_lfg_ok", self.player.discord_id)
+        lines = first["embeds"][0]["fields"][0]["value"].splitlines()
+        after = self._respond("sched_lfg_no", self.player.discord_id, confirmed=lines)
+        self.assertEqual(after["embeds"][0].get("fields", []), [])
+
+    def test_responding_writes_nothing(self):
+        self._lfg_thread()
+        self._respond("sched_lfg_ok", self.player.discord_id)
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+
+class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
+    """The sentinel path through the timezone picker — the likeliest way this
+    feature breaks, since only users with no saved timezone ever see it."""
+
+    UNLINKED_CHANNEL = "123123123"
+
+    def setUp(self):
+        self.build()   # self.player has NO timezone
+
+    def _body(self, response):
+        return json.loads(response.content)
+
+    def test_no_timezone_opens_the_region_picker_with_the_sentinel(self):
+        data = self._body(di._handle_schedule_command({
+            "name": "schedule",
+            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": self.UNLINKED_CHANNEL,
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }))["data"]
+        select = data["components"][0]["components"][0]
+        args = di.decode_custom_id(select["custom_id"])[1]
+        self.assertEqual(args[0], di.SCHEDULE_NO_MATCH)
+
+    def test_the_sentinel_does_not_report_a_missing_match(self):
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": self.UNLINKED_CHANNEL,
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_region", di.SCHEDULE_NO_MATCH, self.player.discord_id),
+                "values": ["america"]},
+            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+                        "components": []},
+        }
+        data = self._body(di._handle_schedule_tz_region(payload))["data"]
+        self.assertNotIn("can no longer be scheduled", data.get("content", ""))
+
+    def test_a_real_match_id_still_enforces_permission(self):
+        """The sentinel branch must not become a way to skip authorization."""
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": "555000111",
+            "member": {"user": {"id": self.outsider.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_region", self.match.id, self.outsider.discord_id),
+                "values": ["america"]},
+            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+                        "components": []},
+        }
+        data = self._body(di._handle_schedule_tz_region(payload))["data"]
+        self.assertIn("can't set the time", data["content"])
+
+    def test_the_picker_returns_a_sched_free_button_not_schedule_confirm(self):
+        """The break this test exists for: finishing the picker on an unlinked path
+        must not hand back a match-path button carrying the sentinel."""
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": self.UNLINKED_CHANNEL,
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_zone", di.SCHEDULE_NO_MATCH, "america",
+                self.player.discord_id),
+                "values": [TZ]},
+            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+                        "components": []},
+        }
+        data = self._body(di._handle_schedule_tz_zone(payload))["data"]
+        ids = [c["custom_id"] for r in data["components"] for c in r["components"]]
+        self.assertTrue(any(i.startswith("sched_free:") for i in ids))
+        self.assertFalse(any(i.startswith("schedule_confirm:") for i in ids))
+
+    def test_the_timezone_is_saved_from_an_unlinked_thread(self):
+        """The payoff of get-or-create: a zone set here is reused everywhere."""
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": self.UNLINKED_CHANNEL,
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_zone", di.SCHEDULE_NO_MATCH, "america",
+                self.player.discord_id),
+                "values": [TZ]},
+            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+                        "components": []},
+        }
+        di._handle_schedule_tz_zone(payload)
+        self.player.refresh_from_db()
+        self.assertEqual(self.player.timezone, TZ)
 
 
 class ScheduleClearConfirmTests(ScheduleFixtureMixin, TestCase):
@@ -1336,8 +1742,8 @@ class EditChannelMessageBodyTests(TestCase):
 class LFGStartGuardTests(TestCase):
     """✔ Start must not create a thread for a game with no parsed players."""
 
-    def _payload(self, players_value):
-        return {
+    def _payload(self, players_value, custom_id=None):
+        payload = {
             "channel_id": "chan",
             "guild_id": "guild",
             "token": "tok",
@@ -1352,6 +1758,9 @@ class LFGStartGuardTests(TestCase):
                 }],
             },
         }
+        if custom_id is not None:
+            payload["data"] = {"custom_id": custom_id}
+        return payload
 
     def test_empty_players_is_rejected(self):
         with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
@@ -1367,6 +1776,342 @@ class LFGStartGuardTests(TestCase):
         data = json.loads(response.content)["data"]
         self.assertEqual(data["components"], [])
         self.assertEqual(data["embeds"][0]["footer"]["text"], "✔ Game has started.")
+
+    def test_a_missing_custom_id_still_starts_the_game(self):
+        """The host is read off the button's custom_id, but losing it must cost
+        only the host attribution — never the thread the player asked for."""
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            di._handle_lfg_start(self._payload("Bob (<@123>)"))
+        delay.assert_called_once()
+        self.assertIsNone(delay.call_args.kwargs["host_id"])
+
+
+class LFGThreadNameTests(TestCase):
+    """What the game thread is called. The host's description wins; with none,
+    the thread takes the LFG message's own title (the tag's description or name)
+    rather than a bare "Game"."""
+
+    def _create(self, description, embed):
+        """Run create_lfg_thread_task far enough to capture the thread name."""
+        with mock.patch("the_gatehouse.services.discordservice.create_message_thread",
+                        return_value=None) as create, \
+                mock.patch("the_gatehouse.services.discordservice.create_forum_thread"), \
+                mock.patch("the_gatehouse.services.discordservice.post_channel_message"):
+            create_lfg_thread_task(
+                "chan", "msg", None, None, description,
+                [{"id": "1", "name": "Bob"}], embed,
+            )
+        return create.call_args.args[2]
+
+    def test_the_description_is_used_when_given(self):
+        name = self._create("Quick 4p game", {"title": "Casual Game"})
+        self.assertEqual(name, "Quick 4p game")
+
+    def test_a_blank_description_falls_back_to_the_message_title(self):
+        name = self._create("", {"title": "Casual Game"})
+        self.assertEqual(name, "Casual Game")
+
+    def test_the_default_lfg_title_is_used_when_that_is_all_there_is(self):
+        name = self._create("", {"title": di.LFG_DEFAULT_TITLE})
+        self.assertEqual(name, di.LFG_DEFAULT_TITLE)
+
+    def test_it_still_falls_back_to_game_with_no_embed(self):
+        """An older enqueued task (or a malformed embed) carries no title."""
+        self.assertEqual(self._create("", None), "Game")
+        self.assertEqual(self._create("", {}), "Game")
+
+    def test_the_name_is_capped_at_discords_limit(self):
+        self.assertEqual(len(self._create("", {"title": "x" * 200})), 100)
+
+
+class RenameCommandTests(TestCase):
+    """/rename: the /lfg host retitles their game thread. Ephemeral either way."""
+
+    THREAD_ID = "1303834523347456077"
+    HOST_ID = "820000000000000001"
+    OTHER_ID = "820000000000000002"
+
+    def setUp(self):
+        self.host = Profile.objects.create(discord="renamehost",
+                                           discord_id=self.HOST_ID)
+        self.other = Profile.objects.create(discord="renameother",
+                                            discord_id=self.OTHER_ID)
+        self.thread = LFGThread.objects.create(
+            thread_id=self.THREAD_ID, host=self.host, description="original")
+
+    def _command(self, title="New Title", author=None, channel_id=None,
+                 channel_type=11, result=None):
+        """Run /rename with rename_channel patched. Returns (content, mock)."""
+        result = result if result is not None else (ds.THREAD_OK, None)
+        data = {
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_author_id": author or self.HOST_ID,
+            "_channel_type": channel_type,
+            "options": [{"name": "title", "value": title}],
+        }
+        with mock.patch.object(di, "rename_channel", return_value=result) as renamer:
+            response = di._handle_rename_command(data)
+        content = json.loads(response.content)["data"]["content"]
+        return content, renamer
+
+    def _reload(self):
+        return LFGThread.objects.get(pk=self.thread.pk)
+
+    # ── the happy path ──
+    def test_the_host_renames_the_thread(self):
+        content, renamer = self._command("Chaos Game")
+        self.assertIn("Chaos Game", content)
+        renamer.assert_called_once_with(self.THREAD_ID, "Chaos Game")
+
+    def test_the_reply_is_ephemeral(self):
+        data = {
+            "_channel_id": self.THREAD_ID, "_author_id": self.HOST_ID,
+            "_channel_type": 11,
+            "options": [{"name": "title", "value": "Quiet"}],
+        }
+        with mock.patch.object(di, "rename_channel", return_value=(ds.THREAD_OK, None)):
+            response = di._handle_rename_command(data)
+        self.assertEqual(json.loads(response.content)["data"]["flags"], di.EPHEMERAL)
+
+    def test_the_nickname_is_saved(self):
+        self._command("Chaos Game")
+        self.assertEqual(self._reload().nickname, "Chaos Game")
+
+    # ── permission ──
+    def test_a_non_host_is_refused_and_discord_is_never_called(self):
+        content, renamer = self._command(author=self.OTHER_ID)
+        self.assertIn("started this game", content)
+        renamer.assert_not_called()
+        self.assertEqual(self._reload().nickname, "")
+
+    def test_a_thread_with_no_host_is_refused(self):
+        self.thread.host = None
+        self.thread.save(update_fields=["host"])
+        content, renamer = self._command()
+        self.assertIn("who started this game", content)
+        renamer.assert_not_called()
+
+    def test_an_unlinked_user_is_refused(self):
+        """A Discord id with no site Profile can't be the host."""
+        content, renamer = self._command(author="820000000000000009")
+        self.assertIn("started this game", content)
+        renamer.assert_not_called()
+
+    # ── scope ──
+    def test_a_tournament_group_thread_is_refused(self):
+        guild = DiscordGuild.objects.create(guild_id="9001", name="G")
+        designer = Profile.objects.create(discord="rndesign", discord_id="8203")
+        tournament = Tournament.objects.create(name="T", guild=guild, designer=designer)
+        stage = Stage.objects.create(tournament=tournament, name="S", order=1)
+        rnd = Round.objects.create(stage=stage, round_number=1)
+        group = PlayerGroup.objects.create(round=rnd, group_number=1, name="A")
+        series = MatchSeries.objects.create(round=rnd, player_group=group,
+                                            number_of_games=1)
+        self.thread.series = series
+        self.thread.save(update_fields=["series"])
+        content, renamer = self._command()
+        self.assertIn("tournament group thread", content)
+        renamer.assert_not_called()
+
+    def test_a_non_thread_channel_says_to_use_a_thread(self):
+        content, renamer = self._command(channel_id="999999999999999999",
+                                         channel_type=0)
+        self.assertIn("inside your game's thread", content)
+        renamer.assert_not_called()
+
+    def test_an_unknown_thread_is_refused(self):
+        content, renamer = self._command(channel_id="999999999999999999",
+                                         channel_type=11)
+        self.assertIn("game thread I know about", content)
+        renamer.assert_not_called()
+
+    def test_a_blank_title_is_refused(self):
+        content, renamer = self._command("   ")
+        self.assertIn("Give the thread a title", content)
+        renamer.assert_not_called()
+
+    # ── failures ──
+    def test_a_rate_limit_reports_the_wait_in_minutes(self):
+        content, _ = self._command(result=(ds.THREAD_ERROR, 421.5))
+        self.assertIn("about 8 minutes", content)
+
+    def test_a_short_rate_limit_reports_seconds(self):
+        content, _ = self._command(result=(ds.THREAD_ERROR, 12.0))
+        self.assertIn("about 12 seconds", content)
+
+    def test_a_permission_failure_says_so(self):
+        content, _ = self._command(result=(ds.THREAD_BLOCKED, None))
+        self.assertIn("permission", content)
+
+    def test_a_generic_failure_says_try_again(self):
+        content, _ = self._command(result=(ds.THREAD_ERROR, None))
+        self.assertIn("try again", content)
+
+    def test_a_failed_rename_leaves_the_nickname_unchanged(self):
+        """The model must never claim a name the thread doesn't have."""
+        self.thread.nickname = "before"
+        self.thread.save(update_fields=["nickname"])
+        self._command("after", result=(ds.THREAD_ERROR, None))
+        self.assertEqual(self._reload().nickname, "before")
+
+    # ── truncation ──
+    def test_a_long_title_is_truncated_for_the_nickname(self):
+        """nickname is max_length=50; Postgres RAISES on overflow rather than
+        truncating, so this must be explicit."""
+        self._command("x" * 200)
+        self.assertEqual(len(self._reload().nickname), 50)
+
+    def test_the_confirmation_shows_the_capped_title(self):
+        """rename_channel caps the name at 100 itself, so the reply must not
+        promise more than Discord accepted."""
+        content, _renamer = self._command("y" * 200)
+        self.assertIn("y" * 100, content)
+        self.assertNotIn("y" * 101, content)
+
+
+class RenameChannelHelperTests(TestCase):
+    """rename_channel: the only PATCH /channels/{id} in the codebase."""
+
+    def test_success_returns_ok_and_no_wait(self):
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        with mock.patch.object(ds.requests, "patch", return_value=response) as patched:
+            result, retry_after = ds.rename_channel("chan", "New Name")
+        self.assertEqual(result, ds.THREAD_OK)
+        self.assertIsNone(retry_after)
+        self.assertEqual(patched.call_args.kwargs["json"], {"name": "New Name"})
+
+    def test_the_name_is_capped_at_100(self):
+        response = mock.Mock()
+        response.raise_for_status.return_value = None
+        with mock.patch.object(ds.requests, "patch", return_value=response) as patched:
+            ds.rename_channel("chan", "z" * 200)
+        self.assertEqual(len(patched.call_args.kwargs["json"]["name"]), 100)
+
+    def test_status_classification(self):
+        for status, expected in ((403, ds.THREAD_BLOCKED), (404, ds.THREAD_BLOCKED),
+                                 (500, ds.THREAD_ERROR)):
+            with self.subTest(status=status):
+                resp = mock.Mock(status_code=status, text="boom")
+                resp.json.return_value = {}
+                resp.headers = {}
+                err = ds.requests.RequestException("failed")
+                err.response = resp
+                with mock.patch.object(ds.requests, "patch", side_effect=err):
+                    result, retry_after = ds.rename_channel("chan", "n")
+                self.assertEqual(result, expected)
+                self.assertIsNone(retry_after)
+
+    def test_a_429_body_yields_its_retry_after(self):
+        resp = mock.Mock(status_code=429, text="rate limited")
+        resp.json.return_value = {"retry_after": 421.5, "global": False}
+        resp.headers = {}
+        err = ds.requests.RequestException("429")
+        err.response = resp
+        with mock.patch.object(ds.requests, "patch", side_effect=err):
+            result, retry_after = ds.rename_channel("chan", "n")
+        self.assertEqual(result, ds.THREAD_ERROR)
+        self.assertEqual(retry_after, 421.5)
+
+    def test_a_429_falls_back_to_the_header(self):
+        resp = mock.Mock(status_code=429, text="rate limited")
+        resp.json.return_value = {}
+        resp.headers = {"Retry-After": "30"}
+        err = ds.requests.RequestException("429")
+        err.response = resp
+        with mock.patch.object(ds.requests, "patch", side_effect=err):
+            _result, retry_after = ds.rename_channel("chan", "n")
+        self.assertEqual(retry_after, 30.0)
+
+    def test_a_malformed_body_degrades_to_none(self):
+        """A non-JSON body must not turn a rate limit into an exception."""
+        resp = mock.Mock(status_code=429, text="<html>nope</html>")
+        resp.json.side_effect = ValueError("no json")
+        resp.headers = {}
+        err = ds.requests.RequestException("429")
+        err.response = resp
+        with mock.patch.object(ds.requests, "patch", side_effect=err):
+            result, retry_after = ds.rename_channel("chan", "n")
+        self.assertEqual(result, ds.THREAD_ERROR)
+        self.assertIsNone(retry_after)
+
+    def test_a_network_error_with_no_response_is_handled(self):
+        err = ds.requests.RequestException("timeout")
+        with mock.patch.object(ds.requests, "patch", side_effect=err):
+            result, retry_after = ds.rename_channel("chan", "n")
+        self.assertEqual(result, ds.THREAD_ERROR)
+        self.assertIsNone(retry_after)
+
+
+class LFGHostRecordingTests(TestCase):
+    """The host must be recorded at thread creation — it is unrecoverable after."""
+
+    def _start(self, owner="830000000000000001"):
+        payload = {
+            "channel_id": "chan", "guild_id": "guild", "token": "tok",
+            "member": {"user": {"id": owner}},
+            "data": {"custom_id": di.encode_custom_id("lfg_start", owner)},
+            "message": {
+                "id": "msg", "content": "",
+                "embeds": [{
+                    "title": "Looking for Game", "description": "a game",
+                    "fields": [{"name": di.LFG_PLAYERS_FIELD,
+                                "value": f"Bob (<@{owner}>)", "inline": False}],
+                }],
+            },
+        }
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            di._handle_lfg_start(payload)
+        return delay
+
+    def test_start_forwards_the_host_from_its_custom_id(self):
+        delay = self._start("830000000000000001")
+        self.assertEqual(delay.call_args.kwargs["host_id"], "830000000000000001")
+
+    def _run_task(self, host_id=..., thread_id="770000000000000001"):
+        kwargs = {} if host_id is ... else {"host_id": host_id}
+        with mock.patch("the_gatehouse.services.discordservice.create_message_thread",
+                        return_value=thread_id), \
+                mock.patch("the_gatehouse.services.discordservice.create_forum_thread"), \
+                mock.patch("the_gatehouse.services.discordservice.post_channel_message"), \
+                mock.patch("the_gatehouse.tasks.link_lfg_message_task.apply_async"):
+            create_lfg_thread_task(
+                "chan", "msg", None, None, "a game",
+                [{"id": "840000000000000001", "name": "Bob"}], {}, **kwargs,
+            )
+        return LFGThread.objects.get(thread_id=thread_id)
+
+    def test_the_task_records_the_host(self):
+        thread = self._run_task(host_id="840000000000000001")
+        self.assertIsNotNone(thread.host)
+        self.assertEqual(thread.host.discord_id, "840000000000000001")
+
+    def test_the_host_is_resolved_even_for_a_brand_new_profile(self):
+        """The host Profile is CREATED by the players loop, so the host lookup
+        has to run after it — not before."""
+        self.assertFalse(Profile.objects.filter(discord_id="840000000000000001").exists())
+        thread = self._run_task(host_id="840000000000000001")
+        self.assertEqual(thread.host.discord_id, "840000000000000001")
+
+    def test_the_task_still_works_without_a_host_id(self):
+        """A task enqueued before this argument existed must still deserialize."""
+        thread = self._run_task()
+        self.assertIsNone(thread.host)
+
+    def test_an_existing_thread_still_gets_its_host(self):
+        """defaults= only applies on CREATE, so a pre-existing row (a retry, or a
+        thread that captured a roll first) must still have its host set."""
+        LFGThread.objects.create(thread_id="770000000000000002")
+        thread = self._run_task(host_id="840000000000000001",
+                                thread_id="770000000000000002")
+        self.assertEqual(thread.host.discord_id, "840000000000000001")
+
+    def test_a_retry_does_not_reassign_an_existing_host(self):
+        existing = Profile.objects.create(discord="firsthost", discord_id="850000000000000001")
+        LFGThread.objects.create(thread_id="770000000000000003", host=existing)
+        thread = self._run_task(host_id="840000000000000001",
+                                thread_id="770000000000000003")
+        self.assertEqual(thread.host, existing)
 
 
 class _NoLoginSignalMixin:
@@ -1736,13 +2481,16 @@ class DraftLFGSeatingTests(TestCase):
         self.assertIn("**4 Player Draft**", self._command(self.THREAD_ID))
 
     # ── the ephemeral seating offer ─────────────────────────────────────────
-    def _build_payload(self, channel_id):
-        return {
+    def _build_payload(self, channel_id, guild_id=None):
+        payload = {
             "channel_id": channel_id,
             "token": "tok",
             "data": {"custom_id": di.encode_custom_id("draft_build", 3, "tts", "111")},
             "message": {"id": "msg", "components": []},
         }
+        if guild_id is not None:
+            payload["guild_id"] = guild_id
+        return payload
 
     def _offer(self, channel_id):
         with mock.patch.object(di.post_interaction_followup_task, "apply_async") as enqueue:
@@ -1786,12 +2534,39 @@ class DraftLFGSeatingTests(TestCase):
         self._roster(1)
         self._offer(self.THREAD_ID).assert_not_called()
 
+    def test_the_offer_is_skipped_when_the_guild_lacks_seating(self):
+        """Confirming would run seating the guild deliberately turned off."""
+        self._roster(3)
+        guild = DiscordGuild.objects.create(guild_id="950000000000000001", name="G",
+                                            enabled_commands=["draft"])
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            response = di._handle_draft_build(
+                self._build_payload(self.THREAD_ID, guild_id=guild.guild_id))
+        enqueue.assert_not_called()
+        # The draft itself is unaffected.
+        self.assertTrue(json.loads(response.content)["data"]["embeds"])
+
+    def test_the_offer_is_sent_when_the_guild_has_seating(self):
+        self._roster(3)
+        guild = DiscordGuild.objects.create(guild_id="950000000000000002", name="G",
+                                            enabled_commands=["draft", "seating"])
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_draft_build(
+                self._build_payload(self.THREAD_ID, guild_id=guild.guild_id))
+        enqueue.assert_called_once()
+
     def test_existing_seating_warns_before_overwriting(self):
         self._roster(3)
         LFGSeat.objects.create(
             thread=self.thread,
             profile=Profile.objects.get(discord_id="901"),
             seat_number=1)
+        # seating_set is what marks these seats as a real seating; /pick can leave
+        # seat rows behind with no seating order, and those must not warn.
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
         message = self._offer(self.THREAD_ID).call_args.args[0][1]
         self.assertIn("overwrite", message["content"].lower())
         confirm = message["components"][0]["components"][0]
@@ -1934,6 +2709,8 @@ class SeatingCommandTests(TestCase):
     def test_existing_seating_warns_before_overwriting(self):
         profiles = self._roster(3)
         LFGSeat.objects.create(thread=self.thread, profile=profiles[0], seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
         data = self._command()
         self.assertIn("overwrite", data["content"].lower())
         confirm = data["components"][0]["components"][0]
@@ -2010,7 +2787,10 @@ class SeatingCommandPlayerGroupTests(TestCase):
         content = self._command()["content"]
         for i in range(1, 5):
             self.assertIn(f"Group Player {i}", content)
-        self.assertRegex(content, r"^1\. ")
+        # The list no longer starts the string: the message opens with a
+        # "**Seating**" title. Still require it to begin on its own line.
+        self.assertIn("**Seating**", content)
+        self.assertIn("\n1. ", content)
 
     def test_seating_is_never_persisted(self):
         """The whole point: a series-long thread must not carry a stored order."""
@@ -2284,8 +3064,8 @@ class LFGCaptureTests(TestCase):
                    for i in range(2)]
         self.thread.players.set(players)
         seats = seated_profiles(self.thread)
-        self.assertEqual([n for n, _p, _f in seats], [1, 2])
-        self.assertEqual({p for _n, p, _f in seats}, set(players))
+        self.assertEqual([n for n, _p, _f, _v in seats], [1, 2])
+        self.assertEqual({p for _n, p, _f, _v in seats}, set(players))
 
     def test_seated_profiles_returns_a_faction_SLUG_not_an_object(self):
         """views.py filters `.filter(slug=faction_slug)`; a Faction instance there
@@ -2293,8 +3073,33 @@ class LFGCaptureTests(TestCase):
         p = Profile.objects.create(discord="capseat", discord_id="720")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0])
-        _seat_no, _profile, faction_slug = seated_profiles(self.thread)[0]
+        _seat_no, _profile, faction_slug, _vb = seated_profiles(self.thread)[0]
         self.assertEqual(faction_slug, self.factions[0].slug)
+
+    def _vagabond(self, title):
+        """A saved Vagabond. `animal` is required: Vagabond.save() routes through
+        animal_default_picture, which lowercases it."""
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        return Vagabond.objects.create(
+            title=title, animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+
+    def test_seated_profiles_returns_the_vagabond_slug(self):
+        """The vagabond rides alongside the faction: all 12 vagabond variants
+        share one Faction row, so faction alone can't say which one was taken."""
+        p = Profile.objects.create(discord="capvb", discord_id="723")
+        vb = self._vagabond("Seat Ranger")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
+                               faction=self.factions[0], vagabond=vb)
+        _seat_no, _profile, _faction, vagabond_slug = seated_profiles(self.thread)[0]
+        self.assertEqual(vagabond_slug, vb.slug)
+
+    def test_seated_profiles_vagabond_is_none_when_unset(self):
+        p = Profile.objects.create(discord="capnovb", discord_id="724")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
+                               faction=self.factions[0])
+        self.assertIsNone(seated_profiles(self.thread)[0][3])
 
     def test_a_deleted_profile_leaves_a_blank_seat_in_position(self):
         keep = Profile.objects.create(discord="capkeep", discord_id="721")
@@ -2305,9 +3110,650 @@ class LFGCaptureTests(TestCase):
 
         seats = seated_profiles(self.thread)
         # The row survives with profile=None so the record form keeps its slot.
-        self.assertEqual([n for n, _p, _f in seats], [1, 2])
+        self.assertEqual([n for n, _p, _f, _v in seats], [1, 2])
         self.assertIsNone(seats[0][1])
         self.assertEqual(seats[1][1], keep)
+
+
+class PickCommandTests(TestCase):
+    """/pick: choosing factions seat by seat, last seat first."""
+
+    THREAD_ID = "1303834523347456099"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.designer = Profile.objects.create(discord="pickcmd", discord_id="750")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Pick Cmd Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(6)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+
+    def _roster(self, count, seated=True):
+        """Players with discord_id '76<i>'. `seated` writes a real seating (the
+        default); seated=False leaves the thread unseated, as /pick finds it
+        before anyone runs /seating."""
+        profiles = [
+            Profile.objects.create(discord=f"pkp{i}", discord_id=f"76{i}",
+                                   display_name=f"Pick Player {i}")
+            for i in range(1, count + 1)
+        ]
+        self.thread.players.set(profiles)
+        if seated:
+            for i, p in enumerate(profiles, 1):
+                LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+            self.thread.seating_set = True
+            self.thread.save(update_fields=["seating_set"])
+        return profiles
+
+    def _command(self, channel_id=None, guild_id=None):
+        response = di._handle_pick_command({
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_author_id": self.OWNER,
+            "_guild_id": guild_id,
+        })
+        return json.loads(response.content)["data"]
+
+    def _select(self, slug, clicker, mode=di.PICK_MODE_PLAYERS, channel_id=None):
+        payload = {
+            "channel_id": channel_id or self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", mode, self.OWNER, di.PICK_OPEN),
+                "values": [slug],
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        response = di._handle_pick_faction(payload)
+        return json.loads(response.content)["data"]
+
+    # ── guards ──
+    def test_a_one_player_thread_is_refused(self):
+        self.thread.players.set([
+            Profile.objects.create(discord="pku", discord_id="769")])
+        content = self._command()["content"]
+        self.assertIn("enough players", content)
+        # Must not send the user to a command their guild may not even have.
+        self.assertNotIn("/seating", content)
+
+    # ── unseated: the guild HAS /seating ──
+    def _guild(self, commands):
+        guild = DiscordGuild.objects.create(guild_id="9300000000000001",
+                                            name="Pick Guild",
+                                            enabled_commands=commands)
+        return guild.guild_id
+
+    def test_unseated_offers_to_seat_when_seating_is_enabled(self):
+        self._roster(3, seated=False)
+        data = self._command(guild_id=self._guild(["pick", "seating"]))
+        self.assertIn("haven't been seated", data["content"])
+        labels = [c["label"] for c in data["components"][0]["components"]]
+        self.assertEqual(labels, ["Seat players", "Assign without seating", "Cancel"])
+
+    def test_the_unseated_prompt_writes_no_seats(self):
+        """Nothing is committed until the invoker chooses."""
+        self._roster(3, seated=False)
+        self._command(guild_id=self._guild(["pick", "seating"]))
+        self.assertEqual(self.thread.seats.count(), 0)
+        self.assertFalse(LFGThread.objects.get(pk=self.thread.pk).seating_set)
+
+    def test_the_seat_or_assign_buttons_are_owner_locked(self):
+        self._roster(3, seated=False)
+        data = self._command(guild_id=self._guild(["pick", "seating"]))
+        for comp in data["components"][0]["components"]:
+            action, args = di.decode_custom_id(comp["custom_id"])
+            if action in ("pick_seat", "pick_noseat"):
+                self.assertEqual(args[-1], self.OWNER)
+
+    # ── unseated: the guild does NOT have /seating ──
+    def test_unseated_goes_straight_to_assigning_without_seating(self):
+        self._roster(3, seated=False)
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            data = self._command(guild_id=self._guild(["pick"]))
+        self.assertIn("Faction Assignments", data["content"])
+        self.assertNotIn("haven't been seated", data["content"])
+        post.assert_not_called()          # no seating is announced
+        thread = LFGThread.objects.get(pk=self.thread.pk)
+        self.assertFalse(thread.seating_set)
+        self.assertEqual(thread.seats.count(), 3)
+
+    def test_the_unordered_panel_shows_no_seat_numbers(self):
+        self._roster(3, seated=False)
+        data = self._command(guild_id=self._guild(["pick"]))
+        self.assertNotIn("1. ", data["content"])
+        self.assertNotIn("seat 3", data["content"])
+
+    def test_the_unordered_roster_is_not_shuffled(self):
+        """Filler seat numbers reach Effort.seat when the recorder doesn't drag
+        the rows, so inventing a random order would be worse than none."""
+        players = self._roster(4, seated=False)
+        self._command(guild_id=self._guild(["pick"]))
+        seats = self.thread.seats.order_by("seat_number")
+        self.assertEqual([s.profile_id for s in seats],
+                         [p.pk for p in self.thread.players.all()])
+        self.assertEqual(len(players), 4)
+
+    def test_unrelated_channel_is_refused(self):
+        data = self._command("777777777777777777")
+        self.assertIn("game thread", data["content"])
+
+    def test_a_pool_smaller_than_the_table_is_refused(self):
+        Faction.objects.all().delete()
+        Faction.objects.create(
+            title="Lonely", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self._roster(4)
+        self.assertIn("Only 1 factions", self._command()["content"])
+
+    # ── turn order ──
+    def test_the_last_seat_picks_first(self):
+        players = self._roster(4)
+        seats = list(self.thread.seats.all())
+        self.assertEqual(di._pick_next_seat(seats).profile, players[-1])
+
+    def test_turn_descends_after_each_pick(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        self.assertEqual(di._pick_next_seat(seats).profile, players[1])
+
+    def test_a_seat_with_no_profile_is_skipped(self):
+        """No clicker could ever match a removed player, so waiting on that seat
+        would stall the table forever."""
+        players = self._roster(3)
+        players[2].delete()
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        self.assertEqual(di._pick_next_seat(seats).profile, players[1])
+
+    # ── authorization ──
+    def test_a_player_out_of_turn_is_refused_and_nothing_is_written(self):
+        players = self._roster(3)
+        data = self._select(self.factions[0].slug, players[0].discord_id)
+        self.assertIn("pick right now", data["content"])
+        self.assertFalse(self.thread.seats.exclude(faction=None).exists())
+
+    def test_the_turn_player_persists_their_faction(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        seat = self.thread.seats.get(seat_number=3)
+        self.assertEqual(seat.faction, self.factions[0])
+
+    def test_assign_mode_lets_the_invoker_pick_for_everyone(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, self.OWNER, mode=di.PICK_MODE_ASSIGN)
+        self.assertEqual(self.thread.seats.get(seat_number=3).faction,
+                         self.factions[0])
+
+    def test_assign_mode_refuses_everyone_else(self):
+        players = self._roster(3)
+        data = self._select(self.factions[1].slug, players[2].discord_id,
+                            mode=di.PICK_MODE_ASSIGN)
+        self.assertIn("can assign", data["content"])
+        self.assertFalse(self.thread.seats.exclude(faction=None).exists())
+
+    # ── writes ──
+    def test_a_taken_faction_cannot_be_taken_twice(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        data = self._select(self.factions[0].slug, players[1].discord_id)
+        self.assertIn("already taken", data["content"])
+        self.assertIsNone(self.thread.seats.get(seat_number=2).faction)
+
+    def test_a_second_click_does_not_consume_another_seat(self):
+        """The target seat is derived from the DB, not the custom_id, so a
+        double-click lands on the same seat and is rejected."""
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        self.assertEqual(self.thread.seats.exclude(faction=None).count(), 1)
+
+    def test_a_seat_filled_between_check_and_write_is_rejected(self):
+        """The seat is re-resolved under select_for_update with
+        faction__isnull=True, so the loser of a race is rejected rather than
+        overwriting the winner."""
+        players = self._roster(3)
+        seat3 = self.thread.seats.get(seat_number=3)
+
+        real = di.LFGSeat.objects.select_for_update
+
+        def fill_then_lock(*a, **kw):
+            # Simulate the winning click landing after this one authorized.
+            LFGSeat.objects.filter(pk=seat3.pk).update(faction=self.factions[1])
+            di.LFGSeat.objects.select_for_update = real
+            return real(*a, **kw)
+
+        with mock.patch.object(di.LFGSeat.objects, "select_for_update",
+                               side_effect=fill_then_lock):
+            data = self._select(self.factions[0].slug, players[2].discord_id)
+
+        self.assertIn("just picked", data["content"])
+        self.assertEqual(self.thread.seats.get(pk=seat3.pk).faction,
+                         self.factions[1])
+
+    def test_picking_the_vagabond_faction_attaches_its_drafted_vagabond(self):
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        players = self._roster(2)
+        vb = Vagabond.objects.create(
+            title="Pick Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        draft = LFGDraft.objects.create(thread=self.thread, players=2)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0],
+                                    vagabond=vb, order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[1], order=2)
+
+        self._select(self.factions[0].slug, players[1].discord_id)
+        seat = self.thread.seats.get(seat_number=2)
+        self.assertEqual(seat.faction, self.factions[0])
+        self.assertEqual(seat.vagabond, vb)
+
+    # ── pool ──
+    def test_the_draft_is_the_pool_when_there_is_one(self):
+        self._roster(2)
+        draft = LFGDraft.objects.create(thread=self.thread, players=2)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[1], order=2)
+        self.assertEqual([slug for slug, _t, _v in di._pick_pool(self.thread)],
+                         [self.factions[0].slug, self.factions[1].slug])
+
+    def test_without_a_draft_the_pool_is_every_official_stable_faction(self):
+        self._roster(2)
+        self.assertEqual(len(di._pick_pool(self.thread)), len(self.factions))
+
+    def test_a_faction_outside_the_pool_is_refused(self):
+        players = self._roster(2)
+        draft = LFGDraft.objects.create(thread=self.thread, players=2)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[1], order=2)
+        data = self._select(self.factions[5].slug, players[1].discord_id)
+        self.assertIn("isn't in this game's pool", data["content"])
+
+    # ── the owner-lock escape hatch ──
+    def test_pick_custom_ids_end_in_a_non_snowflake(self):
+        """The dispatcher owner-locks any custom_id whose LAST arg looks like a
+        snowflake. If these regress, every player except the invoker is silently
+        blocked and the command looks broken for the whole table."""
+        self._roster(3)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        data = di._pick_panel_data(self.thread, seats, di.PICK_MODE_PLAYERS, self.OWNER)
+        ids = [c["custom_id"] for row in data["components"] for c in row["components"]]
+        self.assertTrue(ids)
+        for custom_id in ids:
+            last = di.decode_custom_id(custom_id)[1][-1]
+            self.assertEqual(last, di.PICK_OPEN)
+            self.assertFalse(last.isdigit())
+
+    def test_the_mode_prompt_stays_owner_locked(self):
+        """The opposite case: mode buttons SHOULD end in the invoker's snowflake
+        so only they choose how the table picks."""
+        self._roster(3)
+        data = self._command()
+        modes = [c["custom_id"] for row in data["components"]
+                 for c in row["components"] if c["custom_id"].startswith("pick_mode")]
+        self.assertTrue(modes)
+        for custom_id in modes:
+            self.assertEqual(di.decode_custom_id(custom_id)[1][-1], self.OWNER)
+
+    # ── the panel ──
+    def test_the_panel_drops_factions_already_taken(self):
+        players = self._roster(3)
+        self._select(self.factions[0].slug, players[2].discord_id)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        data = di._pick_panel_data(self.thread, seats, di.PICK_MODE_PLAYERS, self.OWNER)
+        offered = [o["value"] for o in data["components"][0]["components"][0]["options"]]
+        self.assertNotIn(self.factions[0].slug, offered)
+
+    def test_the_panel_never_pings(self):
+        self._roster(3)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        data = di._pick_panel_data(self.thread, seats, di.PICK_MODE_PLAYERS, self.OWNER)
+        self.assertEqual(data["allowed_mentions"], {"parse": []})
+
+    def test_the_final_panel_clears_its_components(self):
+        players = self._roster(2)
+        self._select(self.factions[0].slug, players[1].discord_id)
+        data = self._select(self.factions[1].slug, players[0].discord_id)
+        self.assertEqual(data["components"], [])
+        self.assertIn("All factions picked", data["content"])
+
+    # ── the roll capture, which must branch on thread type ──
+    def test_an_lfg_thread_records_the_pick_in_the_roll_log(self):
+        """lfg_option_querysets narrows factions to the roll log, so a pick that
+        isn't logged would be silently dropped at prefill."""
+        players = self._roster(2)
+        with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
+            self._select(self.factions[0].slug, players[1].discord_id)
+        items = capture.call_args.args[1]
+        self.assertEqual([i["slug"] for i in items], [self.factions[0].slug])
+        self.assertEqual(capture.call_args.kwargs["source"], "pick")
+
+
+class PickSeatChoiceTests(TestCase):
+    """The Seat-players / Assign-without-seating buttons, and what seating_set
+    protects once one of them has run."""
+
+    THREAD_ID = "1303834523347456088"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        designer = Profile.objects.create(discord="pkchoice", discord_id="780")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Choice Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(5)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"pkc{i}", discord_id=f"78{i}",
+                                   display_name=f"Choice Player {i}")
+            for i in range(1, 4)
+        ]
+        self.thread.players.set(self.players)
+
+    def _click(self, action):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.OWNER}},
+            "data": {"custom_id": di.encode_custom_id(action, self.OWNER)},
+            "message": {"id": "msg", "components": []},
+        }
+        handler = di.COMPONENT_HANDLERS[action]
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            response = handler(payload)
+        return json.loads(response.content)["data"], post
+
+    def _reload(self):
+        return LFGThread.objects.get(pk=self.thread.pk)
+
+    def test_seat_players_creates_a_real_seating(self):
+        data, post = self._click("pick_seat")
+        thread = self._reload()
+        self.assertTrue(thread.seating_set)
+        self.assertEqual(thread.seats.count(), 3)
+        post.assert_called_once()
+        self.assertIn("first pick", post.call_args.args[1])
+        # Then asks how the table wants to pick.
+        self.assertIn("assign every faction yourself", data["content"])
+
+    def test_assign_without_seating_leaves_seating_unset(self):
+        data, post = self._click("pick_noseat")
+        thread = self._reload()
+        self.assertFalse(thread.seating_set)
+        self.assertEqual(thread.seats.count(), 3)
+        post.assert_not_called()          # nothing announced
+        self.assertIn("Faction Assignments", data["content"])
+
+    def test_after_assigning_seating_offers_a_normal_prompt_not_an_overwrite(self):
+        """The regression seating_set exists to prevent: these seats are filler,
+        so /seating must not claim it is replacing a seating order."""
+        self._click("pick_noseat")
+        data = json.loads(di._handle_seating_command({
+            "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+        }).content)["data"]
+        self.assertNotIn("overwrite", data["content"].lower())
+        self.assertEqual(data["components"][0]["components"][0]["label"], "Yes")
+
+    def test_after_a_real_seating_seating_still_warns(self):
+        self._click("pick_seat")
+        data = json.loads(di._handle_seating_command({
+            "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+        }).content)["data"]
+        self.assertIn("overwrite", data["content"].lower())
+
+    def test_seating_after_assigning_does_not_say_reseated(self):
+        self._click("pick_noseat")
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.OWNER}},
+            "data": {"custom_id": di.encode_custom_id("draft_seat", self.OWNER)},
+            "message": {"id": "msg", "components": []},
+        }
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            di._handle_draft_seat(payload)
+        self.assertNotIn("Re-seated", post.call_args.args[1])
+        self.assertTrue(self._reload().seating_set)
+
+    def test_pick_still_offers_to_seat_after_an_unordered_assign(self):
+        """Otherwise assigning factions would be a one-way trap: the table could
+        never reach a real seating."""
+        self._click("pick_noseat")
+        guild = DiscordGuild.objects.create(guild_id="9300000000000002", name="G",
+                                            enabled_commands=["pick", "seating"])
+        data = json.loads(di._handle_pick_command({
+            "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+            "_guild_id": guild.guild_id,
+        }).content)["data"]
+        self.assertIn("haven't been seated", data["content"])
+
+
+class GuildAllowsTests(TestCase):
+    """_guild_allows: the first handler-side read of enabled_commands."""
+
+    def test_an_enabled_command_is_allowed(self):
+        DiscordGuild.objects.create(guild_id="940000000000000001", name="G",
+                                    enabled_commands=["pick", "seating"])
+        self.assertTrue(di._guild_allows("940000000000000001", "seating"))
+
+    def test_a_disabled_command_is_not(self):
+        DiscordGuild.objects.create(guild_id="940000000000000002", name="G",
+                                    enabled_commands=["pick"])
+        self.assertFalse(di._guild_allows("940000000000000002", "seating"))
+
+    def test_an_absent_guild_row_allows_nothing(self):
+        """Matches /help: a guild with no row has nothing enabled but /help."""
+        self.assertFalse(di._guild_allows("940000000000000003", "seating"))
+
+    def test_an_empty_whitelist_allows_nothing(self):
+        DiscordGuild.objects.create(guild_id="940000000000000004", name="G",
+                                    enabled_commands=[])
+        self.assertFalse(di._guild_allows("940000000000000004", "seating"))
+
+    def test_no_guild_id_is_permissive(self):
+        """A DM has no whitelist to consult, so nothing is withheld."""
+        self.assertTrue(di._guild_allows(None, "seating"))
+
+
+class PickCommandGroupThreadTests(TestCase):
+    """/pick in a tournament group thread: it creates the LFGThread and seats the
+    group itself, and must NOT write rolls."""
+
+    GUILD_ID = "1093259831470735512"
+    THREAD_ID = "1303834523347456040"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.guild = DiscordGuild.objects.create(
+            guild_id=self.GUILD_ID, name="Pick Guild")
+        self.designer = Profile.objects.create(discord="pkgrp", discord_id="770")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Pick Grp Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(4)
+        ]
+        self.tournament = Tournament.objects.create(
+            name="Pick Tournament", guild=self.guild, designer=self.designer)
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A",
+            discord_thread=(
+                f"https://discord.com/channels/{self.GUILD_ID}/{self.THREAD_ID}"),
+        )
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+
+    def _members(self, count):
+        profiles = [
+            Profile.objects.create(discord=f"pkg{i}", discord_id=f"77{i}",
+                                   display_name=f"Grp Pick {i}")
+            for i in range(1, count + 1)
+        ]
+        self.group.tournament_players.set([
+            TournamentPlayer.objects.create(tournament=self.tournament, profile=p)
+            for p in profiles
+        ])
+        return profiles
+
+    def _command(self):
+        with mock.patch.object(di.post_channel_message_task, "delay"):
+            response = di._handle_pick_command({
+                "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+            })
+        return json.loads(response.content)["data"]
+
+    def test_it_creates_the_series_thread_and_seats_the_group(self):
+        self._members(3)
+        self.assertFalse(LFGThread.objects.filter(thread_id=self.THREAD_ID).exists())
+        self._command()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        self.assertEqual(thread.series, self.series)
+        self.assertEqual(thread.seats.count(), 3)
+
+    def test_it_works_without_a_draft(self):
+        self._members(3)
+        data = self._command()
+        self.assertIn("Faction Picks", data["content"])
+        self.assertIn("components", data)
+
+    def test_it_posts_the_seating_it_created(self):
+        self._members(3)
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            di._handle_pick_command({
+                "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+            })
+        self.assertIn("first pick", post.call_args.args[1])
+
+    def test_a_second_run_does_not_reseat(self):
+        self._members(3)
+        self._command()
+        before = list(self.thread_seat_ids())
+        self._command()
+        self.assertEqual(before, list(self.thread_seat_ids()))
+
+    def thread_seat_ids(self):
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        return thread.seats.order_by("seat_number").values_list("profile_id", flat=True)
+
+    def test_a_group_thread_never_writes_rolls(self):
+        """Match mode narrows its faction field from this same log, so a roll
+        here would shrink that tournament match's allowed factions."""
+        players = self._members(3)
+        self._command()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        last = thread.seats.order_by("-seat_number").first()
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": last.profile.discord_id}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", di.PICK_MODE_PLAYERS, self.OWNER, di.PICK_OPEN),
+                "values": [self.factions[0].slug],
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
+            di._handle_pick_faction(payload)
+        capture.assert_not_called()
+        # The seat itself is still written -- only the roll is skipped.
+        self.assertEqual(thread.seats.get(pk=last.pk).faction, self.factions[0])
+
+
+class PickedFactionsByProfileTests(TestCase):
+    """The join match mode uses to prefill factions picked with /pick.
+
+    Keyed by profile rather than seat_number: MatchSeat.seat_number is nullable
+    and /pick seats a group thread by shuffling the PlayerGroup roster, so a
+    seat-number join could attach a faction to the wrong player."""
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        self.designer = Profile.objects.create(discord="pickdesigner", discord_id="730")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Pick Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(3)
+        ]
+        self.thread = LFGThread.objects.create(thread_id="thread-picked-1")
+
+    def test_maps_each_seat_to_its_own_profile(self):
+        a = Profile.objects.create(discord="pickA", discord_id="731")
+        b = Profile.objects.create(discord="pickB", discord_id="732")
+        LFGSeat.objects.create(thread=self.thread, profile=a, seat_number=1,
+                               faction=self.factions[0])
+        LFGSeat.objects.create(thread=self.thread, profile=b, seat_number=2,
+                               faction=self.factions[1])
+
+        picked = picked_factions_by_profile(self.thread)
+        self.assertEqual(picked[a.pk].faction, self.factions[0])
+        self.assertEqual(picked[b.pk].faction, self.factions[1])
+
+    def test_seat_numbers_do_not_decide_the_mapping(self):
+        """The regression this key exists to prevent: /pick's seat numbers are a
+        shuffle of the group roster and need not line up with MatchSeat's, so a
+        positional or seat-number join would swap these two players' factions."""
+        a = Profile.objects.create(discord="pickC", discord_id="733")
+        b = Profile.objects.create(discord="pickD", discord_id="734")
+        # `a` sits LAST here; a seat-number join against a MatchSeat list that
+        # happens to hold `a` first would hand `a` the wrong faction.
+        LFGSeat.objects.create(thread=self.thread, profile=b, seat_number=1,
+                               faction=self.factions[0])
+        LFGSeat.objects.create(thread=self.thread, profile=a, seat_number=2,
+                               faction=self.factions[1])
+
+        picked = picked_factions_by_profile(self.thread)
+        self.assertEqual(picked[a.pk].faction, self.factions[1])
+        self.assertEqual(picked[b.pk].faction, self.factions[0])
+
+    def test_a_player_who_left_the_series_is_simply_absent(self):
+        """Stale seating is self-correcting: no roster comparison needed."""
+        gone = Profile.objects.create(discord="pickGone", discord_id="735")
+        LFGSeat.objects.create(thread=self.thread, profile=gone, seat_number=1,
+                               faction=self.factions[0])
+        replacement = Profile.objects.create(discord="pickNew", discord_id="736")
+
+        picked = picked_factions_by_profile(self.thread)
+        self.assertIn(gone.pk, picked)
+        self.assertNotIn(replacement.pk, picked)
+
+    def test_a_seat_with_no_profile_is_skipped(self):
+        """A deleted Profile leaves the seat behind with profile=None; it must
+        not land under a None key and collide with another such seat."""
+        drop = Profile.objects.create(discord="pickDrop", discord_id="737")
+        LFGSeat.objects.create(thread=self.thread, profile=drop, seat_number=1,
+                               faction=self.factions[0])
+        drop.delete()
+
+        self.assertEqual(picked_factions_by_profile(self.thread), {})
+
+    def test_unpicked_seats_carry_no_faction(self):
+        p = Profile.objects.create(discord="pickNone", discord_id="738")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1)
+
+        picked = picked_factions_by_profile(self.thread)
+        self.assertIsNone(picked[p.pk].faction_id)
+        self.assertIsNone(picked[p.pk].vagabond_id)
 
 
 class RandomOptionsPanelTests(TestCase):
@@ -3527,3 +4973,175 @@ class PlayerRequiredInterstitialTests(_NoLoginSignalMixin, TestCase):
         response = self._run_decorator()
         self.assertRedirects(response, reverse('woodland-warriors-info'),
                              fetch_redirect_response=False)
+
+
+class _AvatarTestMixin:
+    """Helpers for driving update_discord_avatar without touching the network."""
+
+    @staticmethod
+    def _png_bytes(size=(1024, 1024)):
+        buffer = io.BytesIO()
+        Image.new('RGBA', size, (10, 200, 90, 255)).save(buffer, format='PNG')
+        return buffer.getvalue()
+
+    def _write_avatar(self, user, avatar='abc', status=200):
+        """Run the avatar download the way the Celery task does."""
+        social = type('SA', (), {
+            'extra_data': {'id': '80351110224678912', 'avatar': avatar}
+        })()
+        response = type('Resp', (), {
+            'content': self._png_bytes(), 'status_code': status
+        })()
+        with mock.patch(
+            'the_gatehouse.services.discordservice.SocialAccount'
+        ) as social_mock, mock.patch(
+            'the_gatehouse.services.discordservice.requests.get',
+            return_value=response,
+        ):
+            social_mock.objects.filter.return_value.first.return_value = social
+            return update_discord_avatar(user, force=True)
+
+
+class ProfileAvatarConcurrencyTests(_AvatarTestMixin, TestCase):
+    """Profile.image is written by a Celery task while requests hold their own
+    in-memory copy of the profile. Profile.save() used to delete whichever file
+    it considered 'old', which meant a stale copy deleted the avatar the worker
+    had just downloaded and reverted the pointer to the default.
+    """
+
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp(prefix='avatar-tests-')
+        self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
+        patcher = override_settings(MEDIA_ROOT=self.media_root)
+        patcher.enable()
+        self.addCleanup(patcher.disable)
+
+        self.user = User.objects.create_user(username='avataruser', password='x')
+        self.user.refresh_from_db()
+
+    def test_stale_bare_save_keeps_avatar(self):
+        """A request that loaded the profile BEFORE the avatar landed must not
+        delete the file or revert the pointer when it saves its own change."""
+        stale = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertEqual(stale.image.name, DEFAULT_PROFILE_IMAGE)
+
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        written = Profile.objects.get(pk=self.user.profile.pk).image.name
+        self.assertNotEqual(written, DEFAULT_PROFILE_IMAGE)
+
+        stale.player_onboard = True
+        stale.save()
+
+        final = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertEqual(final.image.name, written)
+        self.assertTrue(final.image.storage.exists(final.image.name))
+        # The edit the request actually intended must still persist.
+        self.assertTrue(final.player_onboard)
+
+    def test_update_fields_save_leaves_image_file_alone(self):
+        """The deletion check runs before super().save(), so a save that doesn't
+        write `image` used to delete the file while leaving the DB pointer intact
+        — a valid-looking path aimed at nothing."""
+        stale = Profile.objects.get(pk=self.user.profile.pk)
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        written = Profile.objects.get(pk=self.user.profile.pk).image.name
+
+        stale.player_onboard = True
+        stale.save(update_fields=['player_onboard'])
+
+        final = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertEqual(final.image.name, written)
+        self.assertTrue(final.image.storage.exists(final.image.name))
+
+    def test_genuine_replacement_still_cleans_up_old_file(self):
+        """The original cleanup behaviour must survive the fix."""
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        first = Profile.objects.get(pk=self.user.profile.pk).image.name
+
+        self._write_avatar(User.objects.get(pk=self.user.pk), avatar='zzz')
+
+        final = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertNotEqual(final.image.name, first)
+        self.assertTrue(final.image.storage.exists(final.image.name))
+        self.assertFalse(final.image.storage.exists(first))
+
+    def test_deliberate_reset_to_default_still_works(self):
+        """repair_profile_avatars resets via queryset update, which bypasses the
+        stale-revert guard in save()."""
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        profile = Profile.objects.get(pk=self.user.profile.pk)
+
+        Profile.objects.filter(pk=profile.pk).update(image=DEFAULT_PROFILE_IMAGE)
+
+        self.assertEqual(
+            Profile.objects.get(pk=profile.pk).image.name, DEFAULT_PROFILE_IMAGE
+        )
+
+    def test_saved_avatar_is_really_webp(self):
+        """The upload path always produces a .webp name, so the bytes must be
+        WebP too rather than PNG under a .webp extension."""
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        profile = Profile.objects.get(pk=self.user.profile.pk)
+
+        self.assertTrue(profile.image.name.endswith('.webp'))
+        self.assertEqual(Image.open(profile.image.path).format, 'WEBP')
+
+    def test_user_without_custom_avatar_gets_discord_default(self):
+        """A falsy avatar hash used to return early, leaving the profile unset."""
+        result = self._write_avatar(User.objects.get(pk=self.user.pk), avatar=None)
+
+        profile = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertIsNotNone(result)
+        self.assertNotEqual(profile.image.name, DEFAULT_PROFILE_IMAGE)
+        self.assertTrue(profile.image.storage.exists(profile.image.name))
+
+
+class RepairProfileAvatarsCommandTests(_AvatarTestMixin, TestCase):
+
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp(prefix='avatar-repair-')
+        self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
+        patcher = override_settings(MEDIA_ROOT=self.media_root)
+        patcher.enable()
+        self.addCleanup(patcher.disable)
+
+        self.user = User.objects.create_user(username='repairuser', password='x')
+        self.user.refresh_from_db()
+
+    def _break_avatar(self):
+        """Point the profile at a file that isn't there, the dead-link state."""
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        profile = Profile.objects.get(pk=self.user.profile.pk)
+        profile.image.storage.delete(profile.image.name)
+        return profile.image.name
+
+    def test_dry_run_reports_without_writing(self):
+        broken = self._break_avatar()
+        out = io.StringIO()
+        call_command('repair_profile_avatars', '--dry-run', stdout=out)
+
+        self.assertIn('missing 1', out.getvalue())
+        self.assertEqual(
+            Profile.objects.get(pk=self.user.profile.pk).image.name, broken
+        )
+
+    def test_resets_to_default_when_no_discord_account(self):
+        self._break_avatar()
+        out = io.StringIO()
+        call_command('repair_profile_avatars', stdout=out)
+
+        self.assertEqual(
+            Profile.objects.get(pk=self.user.profile.pk).image.name,
+            DEFAULT_PROFILE_IMAGE,
+        )
+
+    def test_healthy_profiles_are_left_alone(self):
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        good = Profile.objects.get(pk=self.user.profile.pk).image.name
+        out = io.StringIO()
+        call_command('repair_profile_avatars', stdout=out)
+
+        self.assertIn('missing 0', out.getvalue())
+        self.assertEqual(
+            Profile.objects.get(pk=self.user.profile.pk).image.name, good
+        )
