@@ -518,6 +518,13 @@ class LFGSeat(models.Model):
     # nothing reads it in that window, and Stop clears it.
     captains = models.ManyToManyField(
         "the_keep.Vagabond", blank=True, related_name="+")
+    # The 4th captain -- the one offered but NOT taken. Stored rather than
+    # derived: `captains` holds the offered 4 only while the prompt is open, and
+    # the commit overwrites it with the chosen 3, so the difference is knowable
+    # only at that moment. The record form pre-selects it as Effort.discarded_captain.
+    discarded_captain = models.ForeignKey(
+        "the_keep.Vagabond", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
 
     class Meta:
         ordering = ["seat_number"]

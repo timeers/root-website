@@ -52,7 +52,7 @@ from the_keep.views import paginate_or_404
 from the_gatehouse.models import Profile, Language, LFGThread
 from the_gatehouse.services.lfg_game import (
     seated_profiles, lfg_option_querysets, picked_factions_by_profile,
-    captains_by_seat)
+    captains_by_seat, undrafted_pick, FULL_CAPTAIN_COMPLEMENT)
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
@@ -1011,6 +1011,34 @@ def _match_captured_thread(match):
     return LFGThread.objects.filter(series_id=match.series_id).first()
 
 
+def _prefill_undrafted(form, thread, opts):
+    """Seed the game-level undrafted_* fields from the one drafted faction no
+    seat took. No-op without a draft, or while a pick is still in progress.
+
+    Only pre-selects a value the narrowing still offers: an initial the queryset
+    doesn't contain renders as no selection at all.
+
+    undrafted_captains is deliberately all-or-nothing. GameCreateForm.clean()
+    CLEARS it unless undrafted_faction is Knaves of the Deepwood -- which is why
+    the faction is prefilled first -- and then requires exactly 4 or none. The
+    count is taken AFTER narrowing, since the tournament's asset list can drop
+    some; seeding 3 would fail validation on submit.
+    """
+    pick = undrafted_pick(thread)
+    if not pick:
+        return
+
+    if opts['factions'].filter(pk=pick.faction_id).exists():
+        form.initial['undrafted_faction'] = pick.faction_id
+    if pick.vagabond_id and opts['vagabonds'].filter(pk=pick.vagabond_id).exists():
+        form.initial['undrafted_vagabond'] = pick.vagabond_id
+
+    caps = list(opts['captains'].filter(
+        pk__in=[c.pk for c in pick.captains.all()]))
+    if len(caps) == FULL_CAPTAIN_COMPLEMENT:
+        form.initial['undrafted_captains'] = [v.pk for v in caps]
+
+
 def _lfg_round_for(tournament):
     """The round an LFG game should record into: the newest AVAILABLE round of
     the tournament's latest stage.
@@ -1319,6 +1347,18 @@ def manage_game_v2(request, id=None):
                         if lfg_seat.vagabond_id and match_opts['vagabonds'].filter(
                                 pk=lfg_seat.vagabond_id).exists():
                             formset.forms[i].initial['vagabond'] = lfg_seat.vagabond_id
+                        # Match mode works in PKs throughout (it holds LFGSeat
+                        # instances); the LFG block below works in slugs. Don't
+                        # cross the two.
+                        seat_captains = match_opts['captains'].filter(
+                            pk__in=[c.pk for c in lfg_seat.captains.all()])
+                        if seat_captains:
+                            formset.forms[i].initial['captains'] = [
+                                v.pk for v in seat_captains]
+                        if lfg_seat.discarded_captain_id and match_opts['captains'].filter(
+                                pk=lfg_seat.discarded_captain_id).exists():
+                            formset.forms[i].initial['discarded_captain'] = (
+                                lfg_seat.discarded_captain_id)
 
     if lfg_mode:
         # Restrict the player dropdown to the thread's players, and narrow every
@@ -1358,14 +1398,20 @@ def manage_game_v2(request, id=None):
                         formset.forms[i].initial['vagabond'] = seat_vagabond.pk
                 # Keyed by seat_no, NOT the enumerate index: seated_profiles falls
                 # back to synthetic seat numbers when the thread has no seat rows,
-                # and the two diverge there. discarded_captain is left unset --
-                # /pick records the 3 taken, and which was discarded is derivable.
-                captain_slugs = seat_captains_map.get(seat_no) or []
-                if captain_slugs:
-                    seat_captains = lfg_opts['captains'].filter(slug__in=captain_slugs)
+                # and the two diverge there.
+                seat_caps = seat_captains_map.get(seat_no)
+                if seat_caps:
+                    seat_captains = lfg_opts['captains'].filter(
+                        slug__in=seat_caps['captains'])
                     if seat_captains:
                         formset.forms[i].initial['captains'] = [
                             v.pk for v in seat_captains]
+                    # The 4th captain, offered but not taken. None on a short roll.
+                    if seat_caps['discarded']:
+                        discarded = lfg_opts['captains'].filter(
+                            slug=seat_caps['discarded']).first()
+                        if discarded:
+                            formset.forms[i].initial['discarded_captain'] = discarded.pk
 
         for notice in lfg_opts.get('notices', []):
             messages.warning(request, notice)
@@ -1409,6 +1455,7 @@ def manage_game_v2(request, id=None):
                     messages.warning(
                         request,
                         f"{match_captured.deck} isn't playable here — pick another deck.")
+            _prefill_undrafted(form, match_captured, match_opts)
 
     if lfg_mode and not obj.pk:
         # Seed from what the thread already knows.
@@ -1431,6 +1478,7 @@ def manage_game_v2(request, id=None):
             else:
                 messages.warning(
                     request, f"{lfgthread.deck} isn't playable here — pick another deck.")
+        _prefill_undrafted(form, lfgthread, lfg_opts)
 
     # Same game-level narrowing for a match whose thread captured components.
     if match_mode and match_opts:

@@ -34,7 +34,8 @@ from the_gatehouse.services import discord_commands as dc
 from the_gatehouse.services.discordservice import update_discord_avatar
 from the_gatehouse.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
-    picked_factions_by_profile, captains_by_seat,
+    picked_factions_by_profile, captains_by_seat, undrafted_pick,
+    FULL_CAPTAIN_COMPLEMENT,
 )
 from the_gatehouse.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
@@ -3126,13 +3127,95 @@ class LFGCaptureTests(TestCase):
         # slug__in, so compare as a set.
         mapping = captains_by_seat(self.thread)
         self.assertEqual(list(mapping), [1])
-        self.assertEqual(set(mapping[1]), {c.slug for c in caps})
+        self.assertEqual(set(mapping[1]['captains']), {c.slug for c in caps})
+
+    def test_captains_by_seat_carries_the_discarded_captain(self):
+        p = Profile.objects.create(discord="capdisc", discord_id="728")
+        seat = LFGSeat.objects.create(thread=self.thread, profile=p,
+                                      seat_number=1, faction=self.factions[0])
+        taken = [self._vagabond(f"Disc Captain {i}") for i in range(3)]
+        dropped = self._vagabond("Disc Dropped")
+        seat.captains.set(taken)
+        seat.discarded_captain = dropped
+        seat.save(update_fields=["discarded_captain"])
+
+        self.assertEqual(captains_by_seat(self.thread)[1]['discarded'],
+                         dropped.slug)
+
+    def test_captains_by_seat_discarded_is_none_on_a_short_roll(self):
+        """Fewer than 4 qualified means nothing was discarded -- not an error."""
+        p = Profile.objects.create(discord="capshort", discord_id="729")
+        seat = LFGSeat.objects.create(thread=self.thread, profile=p,
+                                      seat_number=1, faction=self.factions[0])
+        seat.captains.set([self._vagabond("Short Captain")])
+        self.assertIsNone(captains_by_seat(self.thread)[1]['discarded'])
 
     def test_captains_by_seat_omits_seats_with_none(self):
         p = Profile.objects.create(discord="capnone", discord_id="726")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0])
         self.assertEqual(captains_by_seat(self.thread), {})
+
+    # ── undrafted_pick: the one drafted faction nobody took ──
+    def _draft_with(self, *factions):
+        draft = LFGDraft.objects.create(thread=self.thread)
+        for i, f in enumerate(factions, 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        return draft
+
+    def _seat(self, n, faction=None, discord_id=None):
+        p = Profile.objects.create(discord=f"und{n}{discord_id or ''}",
+                                   discord_id=f"73{n}{discord_id or ''}")
+        return LFGSeat.objects.create(thread=self.thread, profile=p,
+                                      seat_number=n, faction=faction)
+
+    def test_undrafted_pick_returns_the_single_unseated_faction(self):
+        self._draft_with(self.factions[0], self.factions[1], self.factions[2])
+        self._seat(1, self.factions[0])
+        self._seat(2, self.factions[1])
+
+        pick = undrafted_pick(self.thread)
+        self.assertIsNotNone(pick)
+        self.assertEqual(pick.faction_id, self.factions[2].pk)
+
+    def test_undrafted_pick_is_none_mid_pick(self):
+        """Two still unseated: someone is about to take one, so prefilling it
+        would claim a faction that is still in play."""
+        self._draft_with(self.factions[0], self.factions[1], self.factions[2])
+        self._seat(1, self.factions[0])
+        self.assertIsNone(undrafted_pick(self.thread))
+
+    def test_undrafted_pick_is_none_when_all_are_seated(self):
+        self._draft_with(self.factions[0], self.factions[1])
+        self._seat(1, self.factions[0])
+        self._seat(2, self.factions[1])
+        self.assertIsNone(undrafted_pick(self.thread))
+
+    def test_undrafted_pick_is_none_without_a_draft(self):
+        """No draft means no 'undrafted' faction -- everything unpicked is just
+        unpicked. LFGDraft.thread is a OneToOne, so this must not raise."""
+        self._seat(1, self.factions[0])
+        self.assertIsNone(undrafted_pick(self.thread))
+
+    def test_undrafted_pick_carries_its_vagabond_and_captains(self):
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        vb = self._vagabond("Undrafted Ranger")
+        caps = [self._vagabond(f"Undrafted Captain {i}") for i in range(4)]
+        leftover = LFGDraftPick.objects.create(
+            draft=draft, faction=self.factions[1], vagabond=vb, order=2)
+        leftover.captains.set(caps)
+        self._seat(1, self.factions[0])
+
+        pick = undrafted_pick(self.thread)
+        self.assertEqual(pick.vagabond_id, vb.pk)
+        self.assertEqual({c.slug for c in pick.captains.all()},
+                         {c.slug for c in caps})
+
+    def test_full_captain_complement_matches_the_roller(self):
+        """FULL_CAPTAIN_COMPLEMENT is duplicated from DRAFT_CAPTAIN_COUNT to keep
+        the record view off the Discord stack; they must not drift."""
+        self.assertEqual(FULL_CAPTAIN_COMPLEMENT, di.DRAFT_CAPTAIN_COUNT)
 
     def test_seated_profiles_stays_a_4_tuple_with_captains_set(self):
         """The backward-compatibility check: adding captains must not widen the
@@ -3753,6 +3836,35 @@ class PickCaptainsFollowUpTests(TestCase):
         self.assertIn("weren't the ones offered", result["content"])
         self.assertIsNone(self._last_seat().faction_id)
 
+    def test_the_discarded_captain_is_stored(self):
+        """The 4th offered captain. Only knowable at commit -- the chosen 3
+        overwrite the parked 4."""
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, offered = self._offered(data)
+        chosen, expected = offered[:3], offered[3]
+        self._choose_captains(chosen, self.players[1].discord_id)
+
+        seat = self._last_seat()
+        self.assertEqual(seat.discarded_captain.slug, expected)
+        self.assertNotIn(expected, {c.slug for c in seat.captains.all()})
+
+    def test_abandoning_knaves_clears_a_stale_discarded_captain(self):
+        """A field left out of update_fields is silently not written, which would
+        strand the discarded captain on whatever faction won instead."""
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, offered = self._offered(data)
+        self._choose_captains(offered[:3], self.players[1].discord_id)
+        self.assertIsNotNone(self._last_seat().discarded_captain_id)
+
+        # Same seat picks again after a reset.
+        di._pick_clear(self.thread)
+        self.assertIsNone(self._last_seat().discarded_captain_id)
+
+        self._select(self.other.slug, self.players[1].discord_id)
+        seat = self._last_seat()
+        self.assertEqual(seat.faction_id, self.other.pk)
+        self.assertIsNone(seat.discarded_captain_id)
+
     def test_the_follow_up_records_captain_rolls(self):
         """ROLL_KIND_TO_BUCKET maps Captain -> captains; without these the record
         form's narrowing won't offer them."""
@@ -3886,11 +3998,17 @@ class PickSessionLifecycleTests(TestCase):
         seat.save()
         seat.captains.set([vb])
 
+        seat.discarded_captain = vb
+        seat.save(update_fields=["discarded_captain"])
+
         self._stop()
         seat.refresh_from_db()
         self.assertIsNone(seat.faction_id)
         self.assertIsNone(seat.vagabond_id)
         self.assertEqual(seat.captains.count(), 0)
+        # .update() writes only the columns it names, so this is the guard that
+        # the new field was actually added to that list.
+        self.assertIsNone(seat.discarded_captain_id)
 
     def test_stop_deletes_pick_rolls_but_spares_other_sources(self):
         """/draft and /random share the roll log; their history isn't ours."""

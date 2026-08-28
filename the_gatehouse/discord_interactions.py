@@ -2894,7 +2894,10 @@ def _pick_clear(thread):
     join across them is the Postgres FOR UPDATE trap documented in _pick_commit.
     """
     cleared = LFGSeat.objects.filter(thread=thread, faction__isnull=False).count()
-    LFGSeat.objects.filter(thread=thread).update(faction=None, vagabond=None)
+    # .update() writes ONLY the columns named here, so every nullable pick field
+    # must be listed -- one left out survives Stop and prefills onto the next game.
+    LFGSeat.objects.filter(thread=thread).update(
+        faction=None, vagabond=None, discarded_captain=None)
     for seat in LFGSeat.objects.filter(thread=thread):
         seat.captains.clear()
 
@@ -3154,7 +3157,7 @@ def _handle_pick_faction(payload):
 
 
 def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
-                 vagabond=None, captains=None):
+                 vagabond=None, captains=None, discarded_captain=None):
     """Write the seat and advance the panel. Shared by the plain faction path and
     by every follow-up, so the lock, the race checks and the roll capture have one
     implementation.
@@ -3177,7 +3180,11 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
             return _ephemeral("That faction is already taken.")
         locked.faction = faction
         locked.vagabond = vagabond
-        locked.save(update_fields=["faction", "vagabond"])
+        # Assigned even when None, and NAMED in update_fields: a field left out
+        # of that list is silently not written, which would strand a discarded
+        # captain from an abandoned Knaves prompt on whatever faction won.
+        locked.discarded_captain = discarded_captain
+        locked.save(update_fields=["faction", "vagabond", "discarded_captain"])
 
     # M2M outside the lock: .set() writes a separate join table, so it neither
     # needs the row lock nor can run before the row exists.
@@ -3279,8 +3286,16 @@ def _handle_pick_captains(payload):
     if not set(values) <= set(offered):
         return _ephemeral("Those captains weren't the ones offered.")
 
+    # The one offered but not taken. This is the only moment both sets are known:
+    # the commit below replaces the parked 4 with the chosen 3. Guarded with next()
+    # rather than indexed -- a short offer (fewer than 4 rolled) leaves nothing
+    # discarded, and that is not an error.
+    leftover = [c for s, c in offered.items() if s not in set(values)]
+    discarded = leftover[0] if len(leftover) == 1 else None
+
     return _pick_commit(payload, thread, seat, mode, owner, pool, faction,
-                        captains=[offered[v] for v in values])
+                        captains=[offered[v] for v in values],
+                        discarded_captain=discarded)
 
 
 def _handle_pick_cancel(payload):

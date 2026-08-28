@@ -1,13 +1,21 @@
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
 from django.test import TestCase
 from django.urls import reverse
 
-from the_gatehouse.models import DiscordGuild, Profile
+from the_gatehouse.models import (
+    DiscordGuild, Profile, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
+)
+from the_gatehouse.services.lfg_game import lfg_option_querysets
+from the_keep.models import Faction, StatusChoices, Vagabond
+from the_gatehouse.signals import handle_image_resize
 from the_warroom.forms import GameCreateForm
 from the_warroom.models import (
     Effort, Game, Match, MatchSeries, Round, Stage, Tournament,
 )
-from the_warroom.views import _can_record_match, user_can_record_in_round
+from the_warroom.views import (
+    _can_record_match, user_can_record_in_round, _prefill_undrafted,
+)
 
 
 class GuildRecordingAccessTests(TestCase):
@@ -496,3 +504,115 @@ class GameApiTournamentTests(TestCase):
     def test_filter_excludes_unrelated_tournament(self):
         game = Game.objects.create(round=self.alpha_round, final=True)
         self.assertNotIn(game.pk, self._filter_pks(self.beta))
+
+
+class UndraftedPrefillTests(TestCase):
+    """_prefill_undrafted seeds the game-level undrafted_* fields from the one
+    drafted faction no seat took."""
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+
+        self.designer = Profile.objects.create(discord="undp", discord_id="900")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Undrafted Faction {i}", animal="Fox",
+                designer=self.designer, status=StatusChoices.STABLE,
+                official=True, component="Faction",
+                type=Faction.TypeChoices.MILITANT)
+            for i in range(3)
+        ]
+        # The real title is what GameCreateForm.clean() keys off.
+        self.knaves = Faction.objects.create(
+            title="Knaves of the Deepwood", animal="Mole", designer=self.designer,
+            status=StatusChoices.STABLE, official=True, component="Faction",
+            type=Faction.TypeChoices.INSURGENT)
+        self.thread = LFGThread.objects.create(thread_id="1303834523347400001")
+
+    def _vagabond(self, title, captain=False):
+        return Vagabond.objects.create(
+            title=title, animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True, captain=captain)
+
+    def _opts(self):
+        return lfg_option_querysets(self.thread, None)
+
+    def _seat(self, n, faction):
+        p = Profile.objects.create(discord=f"unds{n}", discord_id=f"91{n}")
+        return LFGSeat.objects.create(thread=self.thread, profile=p,
+                                      seat_number=n, faction=faction)
+
+    class _Form:
+        def __init__(self):
+            self.initial = {}
+
+    def test_prefills_the_leftover_faction(self):
+        draft = LFGDraft.objects.create(thread=self.thread)
+        for i, f in enumerate(self.factions[:2], 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial['undrafted_faction'], self.factions[1].pk)
+
+    def test_prefills_the_leftover_vagabond(self):
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        vb = self._vagabond("Undrafted Prefill Ranger")
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[1],
+                                    vagabond=vb, order=2)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial['undrafted_vagabond'], vb.pk)
+
+    def test_prefills_four_captains_with_knaves_as_the_faction(self):
+        """The faction prefill is load-bearing: clean() CLEARS undrafted_captains
+        unless undrafted_faction is Knaves."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        caps = [self._vagabond(f"Undrafted Cap {i}", captain=True) for i in range(4)]
+        pick = LFGDraftPick.objects.create(draft=draft, faction=self.knaves, order=2)
+        pick.captains.set(caps)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial['undrafted_faction'], self.knaves.pk)
+        self.assertEqual(set(form.initial['undrafted_captains']),
+                         {c.pk for c in caps})
+
+    def test_a_short_captain_roll_is_not_prefilled(self):
+        """clean() requires exactly 4 or none, so seeding 3 would fail on submit."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        caps = [self._vagabond(f"Short Cap {i}", captain=True) for i in range(3)]
+        pick = LFGDraftPick.objects.create(draft=draft, faction=self.knaves, order=2)
+        pick.captains.set(caps)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertNotIn('undrafted_captains', form.initial)
+        self.assertEqual(form.initial['undrafted_faction'], self.knaves.pk)
+
+    def test_no_prefill_mid_pick(self):
+        draft = LFGDraft.objects.create(thread=self.thread)
+        for i, f in enumerate(self.factions, 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial, {})
+
+    def test_no_prefill_without_a_draft(self):
+        self._seat(1, self.factions[0])
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial, {})
