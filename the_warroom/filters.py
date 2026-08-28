@@ -1,10 +1,33 @@
 import django_filters
 from django.db.models import Q, Count
 from .models import (Game, effort_counts_for_round_q, effort_counts_for_stage_q,
-                     effort_counts_for_tournament_q)
+                     effort_counts_for_tournament_q, effort_counts_for_elo_system_q,
+                     elo_eligibility_q)
 from the_keep.models import Faction, Deck, Map, Vagabond
 from the_gatehouse.models import Profile
 from django import forms
+
+
+def _prefixed(q, prefix):
+    """Re-root a Q written against Game so it applies from a related model.
+
+    Filtering Faction/Deck/Profile by properties of their games needs the same
+    predicate under a relation prefix ('games__final=True' rather than
+    'final=True'). Rewriting the keys keeps one definition of the predicate
+    instead of a hand-maintained copy per prefix.
+    """
+    children = []
+    for child in q.children:
+        if isinstance(child, Q):
+            children.append(_prefixed(child, prefix))
+        else:
+            key, value = child
+            children.append((f'{prefix}__{key}', value))
+    clone = Q()
+    clone.connector = q.connector
+    clone.negated = q.negated
+    clone.children = children
+    return clone
 
 
 class BaseGameFilter(django_filters.FilterSet):
@@ -190,6 +213,40 @@ class TournamentGameFilter(BaseGameFilter):
             effort_filter = effort_counts_for_tournament_q(tournament, prefix='efforts__game') & Q(efforts__game__final=True)
         else:
             return
+
+        self.filters['factions'].queryset = Faction.objects.filter(effort_filter).distinct().order_by('title')
+        self.filters['vagabonds'].queryset = Vagabond.objects.filter(effort_filter).distinct().order_by('title')
+        self.filters['deck'].queryset = Deck.objects.filter(game_filter).distinct().order_by('title')
+        self.filters['map'].queryset = Map.objects.filter(game_filter).distinct().order_by('title')
+        self.filters['players'].queryset = Profile.objects.filter(effort_filter).distinct().order_by('display_name')
+
+
+class EloSystemGameFilter(BaseGameFilter):
+    """Dropdowns scoped to the games one EloSystem rates.
+
+    Mirrors TournamentGameFilter: the elo_system kwarg only narrows the choice
+    querysets, it does NOT filter the games themselves -- the view already passes
+    an elo-scoped queryset in.
+
+    Unlike a tournament, a system has player-count bounds, so the scoping mirrors
+    the full eligibility predicate (final, non-test, in bounds). Without the bounds
+    an option could appear in a dropdown and then match zero games.
+    """
+
+    def __init__(self, *args, elo_system=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._elo_system = elo_system
+
+        if not elo_system:
+            return
+
+        # 'games' is Deck/Map's reverse relation to Game; Faction/Vagabond/Profile
+        # reach it through their efforts. Same split as TournamentGameFilter.
+        eligible = elo_eligibility_q(elo_system)
+        game_filter = (effort_counts_for_elo_system_q(elo_system, prefix='games')
+                       & _prefixed(eligible, 'games'))
+        effort_filter = (effort_counts_for_elo_system_q(elo_system, prefix='efforts__game')
+                         & _prefixed(eligible, 'efforts__game'))
 
         self.filters['factions'].queryset = Faction.objects.filter(effort_filter).distinct().order_by('title')
         self.filters['vagabonds'].queryset = Vagabond.objects.filter(effort_filter).distinct().order_by('title')

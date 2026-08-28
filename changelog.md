@@ -3,6 +3,8 @@
 ## [1.13.4] - 2026-8-26 Bot Evolution
 
 ### New Features
+- elo systems now have Games and Details tabs alongside the leaderboard
+- elo system name on a series' ELO Ranking tab now links to the full system
 - series can now reorganize tabs and any tab can be hidden
 - added elo ranking as an optional tab to series
 - can now link LFG Roles to tournaments within the same guild
@@ -12,6 +14,7 @@
 - /record command to generate link for recording game
 - recording from an lfg thread helps pre-build the game form
 - games linked to a match thread or lfg thread post results automatically to the thread (if bot is guild member)
+- new tabs on elo system home pages for games and details
 
 ### Improvements
 - /random commands now have option to include fan content
@@ -21,10 +24,13 @@
 - lfg thread is now named with the LFGRole description if no description was given
 
 ### Bug Fixes
+- test matches are no longer counted as elo-eligible: the api/games `elo_system` filter and the `elo_systems` field on game payloads used to include them even though the rating engine has always skipped them, so the API could advertise a system for a game it would never rate (the filter now returns fewer, correct rows)
 - inactive stages don't error out on creation
 - fixed suspected bug where users logging in for the first time would be denied a restricted page even if they should have permission
 - fixed forge faction duplication bug where button did not trigger
 - new user profiles failed to save avatar correctly
+- fixed possible error where following the manage guild commands link from /help could 404 if the guild was not registered previously
+- moved forge feedback to the feedback category and out of the forge activity category
 
 ## [1.13.3] - 2026-8-21 Post Spain Updates
 

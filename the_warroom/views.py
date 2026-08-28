@@ -42,7 +42,7 @@ from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TournamentDynamicCreateForm, TournamentDynamicUpdateForm,
                     TournamentPlayerSettingsForm, TournamentAssetSettingsForm,
                     )
-from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter
+from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter, EloSystemGameFilter
 
 from .utils import get_single_round, get_single_stage, build_scorecard_grid, build_single_scorecard_grid
 
@@ -51,7 +51,8 @@ from the_keep.views import paginate_or_404
 
 from the_gatehouse.models import Profile, Language, LFGThread
 from the_gatehouse.services.lfg_game import (
-    seated_profiles, lfg_option_querysets, picked_factions_by_profile)
+    seated_profiles, lfg_option_querysets, picked_factions_by_profile,
+    captains_by_seat, undrafted_pick, FULL_CAPTAIN_COMPLEMENT)
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
@@ -1010,6 +1011,34 @@ def _match_captured_thread(match):
     return LFGThread.objects.filter(series_id=match.series_id).first()
 
 
+def _prefill_undrafted(form, thread, opts):
+    """Seed the game-level undrafted_* fields from the one drafted faction no
+    seat took. No-op without a draft, or while a pick is still in progress.
+
+    Only pre-selects a value the narrowing still offers: an initial the queryset
+    doesn't contain renders as no selection at all.
+
+    undrafted_captains is deliberately all-or-nothing. GameCreateForm.clean()
+    CLEARS it unless undrafted_faction is Knaves of the Deepwood -- which is why
+    the faction is prefilled first -- and then requires exactly 4 or none. The
+    count is taken AFTER narrowing, since the tournament's asset list can drop
+    some; seeding 3 would fail validation on submit.
+    """
+    pick = undrafted_pick(thread)
+    if not pick:
+        return
+
+    if opts['factions'].filter(pk=pick.faction_id).exists():
+        form.initial['undrafted_faction'] = pick.faction_id
+    if pick.vagabond_id and opts['vagabonds'].filter(pk=pick.vagabond_id).exists():
+        form.initial['undrafted_vagabond'] = pick.vagabond_id
+
+    caps = list(opts['captains'].filter(
+        pk__in=[c.pk for c in pick.captains.all()]))
+    if len(caps) == FULL_CAPTAIN_COMPLEMENT:
+        form.initial['undrafted_captains'] = [v.pk for v in caps]
+
+
 def _lfg_round_for(tournament):
     """The round an LFG game should record into: the newest AVAILABLE round of
     the tournament's latest stage.
@@ -1318,6 +1347,18 @@ def manage_game_v2(request, id=None):
                         if lfg_seat.vagabond_id and match_opts['vagabonds'].filter(
                                 pk=lfg_seat.vagabond_id).exists():
                             formset.forms[i].initial['vagabond'] = lfg_seat.vagabond_id
+                        # Match mode works in PKs throughout (it holds LFGSeat
+                        # instances); the LFG block below works in slugs. Don't
+                        # cross the two.
+                        seat_captains = match_opts['captains'].filter(
+                            pk__in=[c.pk for c in lfg_seat.captains.all()])
+                        if seat_captains:
+                            formset.forms[i].initial['captains'] = [
+                                v.pk for v in seat_captains]
+                        if lfg_seat.discarded_captain_id and match_opts['captains'].filter(
+                                pk=lfg_seat.discarded_captain_id).exists():
+                            formset.forms[i].initial['discarded_captain'] = (
+                                lfg_seat.discarded_captain_id)
 
     if lfg_mode:
         # Restrict the player dropdown to the thread's players, and narrow every
@@ -1335,7 +1376,10 @@ def manage_game_v2(request, id=None):
         # Seat order drives row order: seat 1 is the top row. Unresolved seats
         # (no matching Profile) leave the row blank but KEEP their position.
         if not id and not request.POST:
-            for i, (_seat_no, profile_obj, faction_slug, vagabond_slug) in enumerate(lfg_seats):
+            # A sibling of seated_profiles, not a fifth tuple element: that tuple
+            # is unpacked at a fixed width here and in its tests.
+            seat_captains_map = captains_by_seat(lfgthread)
+            for i, (seat_no, profile_obj, faction_slug, vagabond_slug) in enumerate(lfg_seats):
                 if i >= len(formset.forms):
                     break
                 if profile_obj:
@@ -1352,6 +1396,22 @@ def manage_game_v2(request, id=None):
                     seat_vagabond = lfg_opts['vagabonds'].filter(slug=vagabond_slug).first()
                     if seat_vagabond:
                         formset.forms[i].initial['vagabond'] = seat_vagabond.pk
+                # Keyed by seat_no, NOT the enumerate index: seated_profiles falls
+                # back to synthetic seat numbers when the thread has no seat rows,
+                # and the two diverge there.
+                seat_caps = seat_captains_map.get(seat_no)
+                if seat_caps:
+                    seat_captains = lfg_opts['captains'].filter(
+                        slug__in=seat_caps['captains'])
+                    if seat_captains:
+                        formset.forms[i].initial['captains'] = [
+                            v.pk for v in seat_captains]
+                    # The 4th captain, offered but not taken. None on a short roll.
+                    if seat_caps['discarded']:
+                        discarded = lfg_opts['captains'].filter(
+                            slug=seat_caps['discarded']).first()
+                        if discarded:
+                            formset.forms[i].initial['discarded_captain'] = discarded.pk
 
         for notice in lfg_opts.get('notices', []):
             messages.warning(request, notice)
@@ -1395,6 +1455,7 @@ def manage_game_v2(request, id=None):
                     messages.warning(
                         request,
                         f"{match_captured.deck} isn't playable here — pick another deck.")
+            _prefill_undrafted(form, match_captured, match_opts)
 
     if lfg_mode and not obj.pk:
         # Seed from what the thread already knows.
@@ -1417,6 +1478,7 @@ def manage_game_v2(request, id=None):
             else:
                 messages.warning(
                     request, f"{lfgthread.deck} isn't playable here — pick another deck.")
+        _prefill_undrafted(form, lfgthread, lfg_opts)
 
     # Same game-level narrowing for a match whose thread captured components.
     if match_mode and match_opts:
@@ -3248,7 +3310,7 @@ def tournament_details_page(request, slug):
 def tournament_elo_page(request, tournament_slug):
     """ELO Ranking tab: the leaderboard for the series' Elo system.
 
-    Public, matching the standalone elo_system_detail_view. Shows the whole
+    Public, matching the standalone elo_system_leaderboard_view. Shows the whole
     system's participants -- one EloSystem can feed several series and
     EloParticipant has no tournament FK, so there is no per-tournament rating
     to scope to.
@@ -3262,22 +3324,7 @@ def tournament_elo_page(request, tournament_slug):
     context['elo_system'] = elo_system
 
     if elo_system:
-        # Same ordering as elo_system_detail_view: unranked last, then rating
-        # desc, with pk as a required unique tiebreaker so paging is stable.
-        # select_related('elo_system') feeds ep.trends_url, which reads the
-        # system's url template per row.
-        participants = (
-            elo_system.participants
-                      .select_related('player', 'elo_system')
-                      .order_by(F('rank').asc(nulls_last=True), '-rating', 'pk')
-        )
-        paginator = Paginator(participants, settings.PAGE_SIZE)
-        page_obj = paginator.get_page(request.GET.get('page'))
-        context.update({
-            'participants': page_obj,
-            'page_obj': page_obj,
-            'participants_count': paginator.count,
-        })
+        context.update(_paginate_elo_participants(request, elo_system))
 
     return render(request, 'the_warroom/tournament_elo.html', context)
 
@@ -8817,32 +8864,104 @@ def stage_advancement_config(request, tournament_slug, stage_slug):
 
     return JsonResponse({'success': True})
 
-def elo_system_detail_view(request, slug):
-    """Public detail page for one Elo system: the series feeding it and a
-    paginated leaderboard of its participants (prev/next page links)."""
-    elo_system = get_object_or_404(EloSystem, slug=slug)
+def _paginate_elo_participants(request, elo_system):
+    """One page of a system's leaderboard, shared by the standalone Elo pages and
+    the series ELO Ranking tab.
 
-    # Unranked players (rank=NULL) sort last. 'pk' is a required tiebreaker, not a
-    # nicety: many rows share a null rank and/or a rating, and without a unique
-    # final key the row order can vary between queries, so the same player could
-    # appear on two pages (or none) as the user pages through.
+    Unranked players (rank=NULL) sort last. 'pk' is a required tiebreaker, not a
+    nicety: many rows share a null rank and/or a rating, and without a unique
+    final key the row order can vary between queries, so the same player could
+    appear on two pages (or none) as the user pages through.
+    select_related('elo_system') feeds ep.trends_url, which reads the system's
+    url template per row.
+    """
     participants = (
         elo_system.participants
                   .select_related('player', 'elo_system')
                   .order_by(F('rank').asc(nulls_last=True), '-rating', 'pk')
     )
-
     paginator = Paginator(participants, settings.PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get('page'))
-
-    context = {
-        'elo_system': elo_system,
-        # start_date is nullable; DESC would otherwise float undated series to the top.
-        'tournaments': elo_system.tournaments.order_by(
-            F('start_date').desc(nulls_last=True), 'name'
-        ),
+    return {
         'participants': page_obj,
         'page_obj': page_obj,
         'participants_count': paginator.count,
     }
+
+
+def _elo_base_context(request, elo_system):
+    """Shared context for the Elo system tab pages.
+
+    Much thinner than _tournament_base_context: an Elo system has no view-as, no
+    per-user permissions and no configurable tab order, and all three of its tabs
+    always exist. participants_count lives here because the hero renders it on
+    every tab (the leaderboard tab then overwrites it with the identical count
+    from its paginator).
+    """
+    return {
+        'elo_system': elo_system,
+        'object': elo_system,
+        'participants_count': elo_system.participants.count(),
+    }
+
+
+def elo_system_leaderboard_view(request, slug):
+    """Leaderboard tab (default) for one Elo system."""
+    elo_system = get_object_or_404(EloSystem, slug=slug)
+
+    context = _elo_base_context(request, elo_system)
+    context['active_page'] = 'leaderboard'
+    context.update(_paginate_elo_participants(request, elo_system))
     return render(request, 'the_warroom/elo_system_detail_page.html', context)
+
+
+def elo_system_games_page(request, slug):
+    """Games tab: every game this system rates, filterable, htmx infinite scroll."""
+    elo_system = get_object_or_404(EloSystem, slug=slug)
+
+    opts = Game.with_efforts()
+    games_qs = (
+        Game.objects.eligible_for_elo_system(elo_system)
+            .select_related(*opts['select'])
+            .prefetch_related(*opts['prefetch'])
+            .order_by('-date_posted')
+    )
+
+    filterset = EloSystemGameFilter(request.GET, queryset=games_qs, elo_system=elo_system)
+
+    paginator = Paginator(filterset.qs, settings.PAGE_SIZE)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    if hasattr(request, 'htmx') and request.htmx:
+        template_name = 'the_warroom/partials/tournament_game_list.html'
+    else:
+        template_name = 'the_warroom/elo_system_games.html'
+
+    context = _elo_base_context(request, elo_system)
+    context.update({
+        'active_page': 'games',
+        'games': page_obj,
+        'page_obj': page_obj,
+        'games_count': paginator.count,
+        'form': filterset.form,
+        'filterset': filterset,
+        'pagination_url': reverse('elo-system-games-page', args=[elo_system.slug]),
+    })
+    return render(request, template_name, context)
+
+
+def elo_system_details_page(request, slug):
+    """Details tab: the series feeding this system, its configuration and seasons."""
+    elo_system = get_object_or_404(EloSystem.objects.select_related('owner'), slug=slug)
+
+    context = _elo_base_context(request, elo_system)
+    context.update({
+        'active_page': 'details',
+        # start_date is nullable; DESC would otherwise float undated series to the top.
+        'tournaments': elo_system.tournaments.order_by(
+            F('start_date').desc(nulls_last=True), 'name'
+        ),
+        'seasons': elo_system.seasons.order_by('start_date'),
+        'games_count': Game.objects.eligible_for_elo_system(elo_system).count(),
+    })
+    return render(request, 'the_warroom/elo_system_details.html', context)

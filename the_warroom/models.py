@@ -91,6 +91,17 @@ class GameQuerySet(models.QuerySet):
             | Q(extra_rounds__stage__tournament=tournament)
         ).distinct()
 
+    def counting_for_elo_system(self, elo_system):
+        """Games structurally attached to an elo system, via the primary FK or an
+        extra round. Structural only -- says nothing about rating eligibility."""
+        return self.filter(game_counts_for_elo_system_q(elo_system)).distinct()
+
+    def eligible_for_elo_system(self, elo_system):
+        """Games this system actually rates: structurally attached AND eligible."""
+        return self.filter(
+            game_counts_for_elo_system_q(elo_system), elo_eligibility_q(elo_system)
+        ).distinct()
+
 
 def game_counts_for_round_q(round):
     """Q on Game matching its primary or extra round."""
@@ -105,6 +116,24 @@ def game_counts_for_stage_q(stage):
 def game_counts_for_tournament_q(tournament):
     """Q on Game matching a tournament via its primary or extra round."""
     return Q(round__stage__tournament=tournament) | Q(extra_rounds__stage__tournament=tournament)
+
+
+def game_counts_for_elo_system_q(elo_system):
+    """Q on Game matching an elo system via its primary or extra round's tournament."""
+    return (Q(round__stage__tournament__elo_system=elo_system)
+            | Q(extra_rounds__stage__tournament__elo_system=elo_system))
+
+
+def elo_eligibility_q(elo_system):
+    """Q for the rating-eligibility predicate: final, not a test match, in bounds.
+
+    The single source of truth for "this system rates this game", shared by the
+    rating engine, the download API's elo_system filter and the Elo games page.
+    Mirrors EloSystem.game_is_eligible() row for row -- change both together.
+    """
+    return Q(final=True, test_match=False,
+             cached_player_count__gte=elo_system.min_players,
+             cached_player_count__lte=elo_system.max_players)
 
 
 def effort_counts_for_round_q(round, prefix='game'):
@@ -122,6 +151,12 @@ def effort_counts_for_tournament_q(tournament, prefix='game'):
     """Q matching efforts whose game counts toward a tournament (primary or extra)."""
     return (Q(**{f'{prefix}__round__stage__tournament': tournament})
             | Q(**{f'{prefix}__extra_rounds__stage__tournament': tournament}))
+
+
+def effort_counts_for_elo_system_q(elo_system, prefix='game'):
+    """Q matching efforts whose game counts toward an elo system (primary or extra)."""
+    return (Q(**{f'{prefix}__round__stage__tournament__elo_system': elo_system})
+            | Q(**{f'{prefix}__extra_rounds__stage__tournament__elo_system': elo_system}))
 
 
 class TournamentQuerySet(models.QuerySet):
@@ -286,13 +321,27 @@ class EloSystem(models.Model):
     def __str__(self):
         return self.name
 
-    def game_is_eligible(self, game):
-        """True if the game is finalized AND its cached player count is within bounds.
+    def get_absolute_url(self):
+        """Canonical URL: the leaderboard tab.
 
-        `final` is required so only completed games can be rated. The player-count
-        check uses the denormalized count (no per-call effort counting)."""
+        Returns None when the system has no slug (the field is nullable), so callers
+        must guard: {% if elo_system.get_absolute_url %}. Raising NoReverseMatch here
+        would break any list page that happens to include an unslugged system."""
+        if not self.slug:
+            return None
+        return reverse('elo-system-home-page', kwargs={'slug': self.slug})
+
+    def game_is_eligible(self, game):
+        """True if the game is rateable: finalized, not a test match, and its cached
+        player count is within bounds.
+
+        `final` is required so only completed games can be rated, and test matches are
+        never rated (the recompute signals skip them). The player-count check uses the
+        denormalized count (no per-call effort counting). The queryset-level twin of
+        this predicate is elo_eligibility_q() -- change both together."""
         return (
             game.final
+            and not game.test_match
             and self.min_players <= game.cached_player_count <= self.max_players
         )
 

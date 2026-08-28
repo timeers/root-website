@@ -1,0 +1,31 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{{ elo_system.name }} - {% trans 'Games' %} | {% endblock %}
+
+{% block main_width_class %}col-md-12{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+
+      {% include 'the_warroom/partials/elo_hero.html' %}
+
+      {% include 'the_warroom/partials/elo_nav_header.html' with active_page='games' %}
+
+      <div class="mt-3">
+        {% url 'elo-system-games-page' elo_system.slug as filter_url %}
+        {% trans 'Ranked Games' as count_label %}
+        {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url show_total_count=True count_label=count_label %}
+
+        {% include 'the_warroom/partials/tournament_game_list.html' %}
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+{% include 'the_warroom/partials/select2_init.html' %}
+{% endblock %}

@@ -107,6 +107,75 @@ def seated_profiles(thread):
             for s in seats]
 
 
+def captains_by_seat(thread):
+    """{seat_number: {"captains": [slug, ...], "discarded": slug|None}} for seats
+    that took captains.
+
+    A SIBLING of seated_profiles rather than more elements in its tuple: that
+    tuple is unpacked at a fixed width by both the record view and its tests, so
+    widening it would break every caller. Seats with no captains are omitted --
+    callers .get() with a default.
+
+    Slug STRINGS, not instances, for the same reason seated_profiles returns
+    them: the view filters `.filter(slug__in=...)`, and instances there coerce
+    via str() and silently match nothing.
+
+    `discarded` is the 4th captain offered but not taken. It can be None on a
+    seat that HAS captains: a short roll (fewer than 4 qualified) leaves nothing
+    to discard.
+    """
+    seats = thread.seats.select_related("discarded_captain").prefetch_related("captains")
+    out = {}
+    for s in seats:
+        slugs = [c.slug for c in s.captains.all()]
+        if not slugs:
+            continue
+        out[s.seat_number] = {
+            "captains": slugs,
+            "discarded": s.discarded_captain.slug if s.discarded_captain_id else None,
+        }
+    return out
+
+
+# A full Knaves complement. Mirrors DRAFT_CAPTAIN_COUNT in discord_interactions
+# (the roller) and the "exactly 4 or none" rule in GameCreateForm.clean() (the
+# validator). Duplicated rather than imported: discord_interactions is the bot
+# entrypoint and pulls in the whole Discord stack, which the record view must not
+# depend on.
+FULL_CAPTAIN_COMPLEMENT = 4
+
+
+def undrafted_pick(thread):
+    """The one drafted faction no seat took, as an LFGDraftPick, or None.
+
+    The ONLY draft-aware reader here. Everything else narrows from the roll log,
+    but the undrafted faction is by definition the pick nobody took -- it has no
+    roll, so the log cannot supply it.
+
+    /draft deals players+1 factions and, with a draft, /pick may only choose from
+    them, so a completed pick leaves exactly one over. That is a rule, not an
+    invariant: the draft is stored independently of the seating, so a re-seat, a
+    departed player, or a /draft re-run (which deletes and rebuilds its picks) can
+    desync the two. Anything other than exactly one leftover returns None, which
+    degrades to "no prefill" rather than guessing -- and correctly says nothing
+    mid-pick, when several are still unseated.
+
+    `getattr(thread, "draft", None)`: LFGDraft.thread is a OneToOne, so the
+    reverse accessor RAISES when the thread has no draft.
+    """
+    draft = getattr(thread, "draft", None)
+    if not draft:
+        return None
+
+    # faction_id on both sides: seats store the FK and so does the pick.
+    taken = {s.faction_id for s in thread.seats.all() if s.faction_id}
+    leftover = [p for p in draft.picks
+                .select_related("faction", "vagabond")
+                .prefetch_related("captains")
+                if p.faction_id not in taken]
+    return leftover[0] if len(leftover) == 1 else None
+
+
 def picked_factions_by_profile(thread):
     """{profile_id: LFGSeat} for every seat in `thread` that has a profile.
 
@@ -122,7 +191,9 @@ def picked_factions_by_profile(thread):
     faction prefilled. MatchSeat stays authoritative for who plays.
     """
     return {s.profile_id: s
-            for s in thread.seats.select_related("faction", "vagabond")
+            for s in thread.seats
+            .select_related("faction", "vagabond", "discarded_captain")
+            .prefetch_related("captains")
             if s.profile_id}
 
 

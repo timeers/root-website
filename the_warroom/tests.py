@@ -1,13 +1,21 @@
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
 from django.test import TestCase
 from django.urls import reverse
 
-from the_gatehouse.models import DiscordGuild, Profile
+from the_gatehouse.models import (
+    DiscordGuild, Profile, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
+)
+from the_gatehouse.services.lfg_game import lfg_option_querysets
+from the_keep.models import Faction, StatusChoices, Vagabond
+from the_gatehouse.signals import handle_image_resize
 from the_warroom.forms import GameCreateForm
 from the_warroom.models import (
     Effort, Game, Match, MatchSeries, Round, Stage, Tournament,
 )
-from the_warroom.views import _can_record_match, user_can_record_in_round
+from the_warroom.views import (
+    _can_record_match, user_can_record_in_round, _prefill_undrafted,
+)
 
 
 class GuildRecordingAccessTests(TestCase):
@@ -435,6 +443,124 @@ class EloSeasonTests(TestCase):
         self.assertEqual(feb[self.system], 1)
 
 
+class EloEligibleGamesTests(TestCase):
+    """`Game.objects.eligible_for_elo_system` is the one definition of "this system
+    rates this game", shared by the rating engine, the download API's elo_system
+    filter and the Elo games page. These lock the three together."""
+
+    def setUp(self):
+        from datetime import datetime, timezone as dt_tz
+        from the_warroom.models import EloSystem
+
+        self.dt = lambda m, d: datetime(2026, m, d, 12, 0, tzinfo=dt_tz.utc)
+        self.system = EloSystem.objects.create(
+            name="Bounded S", slug="bounded-s",
+            calculation_type=EloSystem.CalculationType.LOCAL,
+            min_players=2, max_players=4,
+        )
+        self.tournament = Tournament.objects.create(name="T", elo_system=self.system)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+
+        # A second series feeding nothing, for the extra_rounds case.
+        self.other = Tournament.objects.create(name="Other")
+        self.other_stage = Stage.objects.create(tournament=self.other, name="OS", order=1)
+        self.other_round = Round.objects.create(stage=self.other_stage, round_number=1)
+
+    def _game(self, round=None, players=2, **kwargs):
+        opts = {'final': True, 'test_match': False, 'date_posted': self.dt(1, 5)}
+        opts.update(kwargs)
+        return Game.objects.create(round=round, cached_player_count=players, **opts)
+
+    def _eligible(self):
+        return set(Game.objects.eligible_for_elo_system(self.system))
+
+    def test_excludes_test_matches(self):
+        """The engine has always skipped test matches; the API filter and
+        game_is_eligible used not to. Regression guard for that fix -- note the
+        rest of the suite cannot catch it, as its fixtures never set test_match."""
+        from the_warroom.services.elo_service import _eligible_games_for_system
+
+        real = self._game(round=self.round)
+        test = self._game(round=self.round, test_match=True)
+
+        self.assertEqual(self._eligible(), {real})
+        self.assertNotIn(test, self._eligible())
+        # The page queryset and the rating engine must agree exactly.
+        self.assertEqual(self._eligible(), set(_eligible_games_for_system(self.system)))
+        # ...and so must the per-game predicate behind the API's elo_systems field.
+        self.assertTrue(self.system.game_is_eligible(real))
+        self.assertFalse(self.system.game_is_eligible(test))
+
+    def test_excludes_unfinished_games(self):
+        self._game(round=self.round, final=False)
+        self.assertEqual(self._eligible(), set())
+
+    def test_respects_player_bounds(self):
+        too_few = self._game(round=self.round, players=1)
+        ok = self._game(round=self.round, players=4)
+        too_many = self._game(round=self.round, players=5)
+        self.assertEqual(self._eligible(), {ok})
+        self.assertFalse(self.system.game_is_eligible(too_few))
+        self.assertFalse(self.system.game_is_eligible(too_many))
+
+    def test_includes_extra_round_games(self):
+        """A game whose primary round belongs elsewhere still counts if an extra
+        round points into a series using this system."""
+        game = self._game(round=self.other_round)
+        self.assertEqual(self._eligible(), set())
+        game.extra_rounds.add(self.round)
+        self.assertEqual(self._eligible(), {game})
+
+    def test_no_duplicate_when_primary_and_extra_both_match(self):
+        game = self._game(round=self.round)
+        game.extra_rounds.add(self.round)
+        self.assertEqual(len(Game.objects.eligible_for_elo_system(self.system)), 1)
+
+    def test_api_filter_excludes_test_matches(self):
+        from the_warroom.api.game_filters import GameFilter
+
+        real = self._game(round=self.round)
+        self._game(round=self.round, test_match=True)
+
+        filtered = GameFilter.filter_elo_system(Game.objects.all(), 'elo_system', self.system)
+        self.assertEqual(set(filtered), {real})
+
+    def test_counting_is_structural_only(self):
+        """counting_for_elo_system keeps the counting_for_* convention: attachment
+        only, no eligibility gate."""
+        test = self._game(round=self.round, test_match=True)
+        unfinished = self._game(round=self.round, final=False)
+        self.assertEqual(set(Game.objects.counting_for_elo_system(self.system)),
+                         {test, unfinished})
+
+
+class EloSystemPageTests(TestCase):
+    """The three Elo system tabs render publicly."""
+
+    def setUp(self):
+        from the_warroom.models import EloSystem
+        self.system = EloSystem.objects.create(name="Public S", slug="public-s")
+
+    def test_tabs_render_anonymously(self):
+        for name in ('elo-system-leaderboard-page', 'elo-system-games-page',
+                     'elo-system-details-page'):
+            with self.subTest(url=name):
+                response = self.client.get(reverse(name, args=[self.system.slug]))
+                self.assertEqual(response.status_code, 200)
+
+    def test_get_absolute_url_is_the_leaderboard(self):
+        self.assertEqual(
+            self.system.get_absolute_url(),
+            reverse('elo-system-leaderboard-page', args=[self.system.slug]),
+        )
+
+    def test_get_absolute_url_is_none_without_a_slug(self):
+        """The field is nullable, so templates guard on this rather than 500."""
+        from the_warroom.models import EloSystem
+        self.assertIsNone(EloSystem(name="Unslugged").get_absolute_url())
+
+
 class GameApiTournamentTests(TestCase):
     """The api/games `tournament` field lists every round a game counts toward
     (primary + extra_rounds), and the tournament filter matches games linked to a
@@ -496,3 +622,115 @@ class GameApiTournamentTests(TestCase):
     def test_filter_excludes_unrelated_tournament(self):
         game = Game.objects.create(round=self.alpha_round, final=True)
         self.assertNotIn(game.pk, self._filter_pks(self.beta))
+
+
+class UndraftedPrefillTests(TestCase):
+    """_prefill_undrafted seeds the game-level undrafted_* fields from the one
+    drafted faction no seat took."""
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+
+        self.designer = Profile.objects.create(discord="undp", discord_id="900")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Undrafted Faction {i}", animal="Fox",
+                designer=self.designer, status=StatusChoices.STABLE,
+                official=True, component="Faction",
+                type=Faction.TypeChoices.MILITANT)
+            for i in range(3)
+        ]
+        # The real title is what GameCreateForm.clean() keys off.
+        self.knaves = Faction.objects.create(
+            title="Knaves of the Deepwood", animal="Mole", designer=self.designer,
+            status=StatusChoices.STABLE, official=True, component="Faction",
+            type=Faction.TypeChoices.INSURGENT)
+        self.thread = LFGThread.objects.create(thread_id="1303834523347400001")
+
+    def _vagabond(self, title, captain=False):
+        return Vagabond.objects.create(
+            title=title, animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True, captain=captain)
+
+    def _opts(self):
+        return lfg_option_querysets(self.thread, None)
+
+    def _seat(self, n, faction):
+        p = Profile.objects.create(discord=f"unds{n}", discord_id=f"91{n}")
+        return LFGSeat.objects.create(thread=self.thread, profile=p,
+                                      seat_number=n, faction=faction)
+
+    class _Form:
+        def __init__(self):
+            self.initial = {}
+
+    def test_prefills_the_leftover_faction(self):
+        draft = LFGDraft.objects.create(thread=self.thread)
+        for i, f in enumerate(self.factions[:2], 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial['undrafted_faction'], self.factions[1].pk)
+
+    def test_prefills_the_leftover_vagabond(self):
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        vb = self._vagabond("Undrafted Prefill Ranger")
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[1],
+                                    vagabond=vb, order=2)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial['undrafted_vagabond'], vb.pk)
+
+    def test_prefills_four_captains_with_knaves_as_the_faction(self):
+        """The faction prefill is load-bearing: clean() CLEARS undrafted_captains
+        unless undrafted_faction is Knaves."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        caps = [self._vagabond(f"Undrafted Cap {i}", captain=True) for i in range(4)]
+        pick = LFGDraftPick.objects.create(draft=draft, faction=self.knaves, order=2)
+        pick.captains.set(caps)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial['undrafted_faction'], self.knaves.pk)
+        self.assertEqual(set(form.initial['undrafted_captains']),
+                         {c.pk for c in caps})
+
+    def test_a_short_captain_roll_is_not_prefilled(self):
+        """clean() requires exactly 4 or none, so seeding 3 would fail on submit."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
+        caps = [self._vagabond(f"Short Cap {i}", captain=True) for i in range(3)]
+        pick = LFGDraftPick.objects.create(draft=draft, faction=self.knaves, order=2)
+        pick.captains.set(caps)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertNotIn('undrafted_captains', form.initial)
+        self.assertEqual(form.initial['undrafted_faction'], self.knaves.pk)
+
+    def test_no_prefill_mid_pick(self):
+        draft = LFGDraft.objects.create(thread=self.thread)
+        for i, f in enumerate(self.factions, 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        self._seat(1, self.factions[0])
+
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial, {})
+
+    def test_no_prefill_without_a_draft(self):
+        self._seat(1, self.factions[0])
+        form = self._Form()
+        _prefill_undrafted(form, self.thread, self._opts())
+        self.assertEqual(form.initial, {})

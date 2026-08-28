@@ -46,7 +46,8 @@ from .views import (game_list_view, leaderboard_view,
                     round_leaderboard_page, round_games_page,
                     round_roster_page, round_details_page, round_matches_page,
                     tournament_schedule_page, stage_schedule_page, round_schedule_page,
-                    my_scheduled_matches_page, elo_system_detail_view,
+                    my_scheduled_matches_page, elo_system_leaderboard_view,
+                    elo_system_games_page, elo_system_details_page,
                     tournament_elo_page)
 
 urlpatterns = [
@@ -205,7 +206,11 @@ urlpatterns = [
     path('about/games/', about_games_view, name='about-games'),
     path('series/', tournaments_home, name='tournaments-home'),
 
-    path('elo/<slug:slug>/', elo_system_detail_view, name='elo-system-detail'),
+    # Specific suffixes before the bare slug route, matching the series block above.
+    path('elo/<slug:slug>/games/', elo_system_games_page, name='elo-system-games-page'),
+    path('elo/<slug:slug>/details/', elo_system_details_page, name='elo-system-details-page'),
+    path('elo/<slug:slug>/leaderboard', elo_system_leaderboard_view, name='elo-system-leaderboard-page'),
+    path('elo/<slug:slug>/', elo_system_leaderboard_view, name='elo-system-home-page'),
 
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),
     path("hx/games/effort/delete/<int:id>/", effort_hx_delete, name='effort-hx-delete'),

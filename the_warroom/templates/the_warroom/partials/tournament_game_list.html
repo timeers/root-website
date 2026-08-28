@@ -2,6 +2,10 @@
 {% comment %}
     Pages 2+ are appended into #search-contents (hx-swap="beforeend"), so only page 1
     renders the wrapper chrome / grid container. See game_list_home.html for details.
+
+    Parent-agnostic despite the name: it needs only games / page_obj / games_count /
+    pagination_url, so the Elo system games tab reuses it alongside the series,
+    stage and round games pages.
 {% endcomment %}
 {% if page_obj.number == 1 %}
  {% comment %} OOB carrier: updates the count text inside the persistent filter card header on htmx filter

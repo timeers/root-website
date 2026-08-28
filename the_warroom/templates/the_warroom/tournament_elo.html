@@ -35,7 +35,12 @@
             {% endcomment %}
             {% if elo_system %}
             <h4 class="card-title mb-3 root-title">
+                {% comment %} Slug is nullable, so get_absolute_url can be None. {% endcomment %}
+                {% if elo_system.get_absolute_url %}
+                <a href="{{ elo_system.get_absolute_url }}">{{ elo_system.name }}</a>
+                {% else %}
                 {{ elo_system.name }}
+                {% endif %}
                 <small class="text-muted fs-6">
                     {{ elo_system.get_calculation_type_display }}
                     &middot; {{ participants_count }} {% trans 'player' %}{{ participants_count|pluralize }}

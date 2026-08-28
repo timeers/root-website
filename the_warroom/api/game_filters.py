@@ -4,7 +4,9 @@ from django.db.models import Count, Q
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, HTML
 
-from the_warroom.models import Game, Tournament, EloSystem, PlatformChoices, game_counts_for_tournament_q
+from the_warroom.models import (Game, Tournament, EloSystem, PlatformChoices,
+                                game_counts_for_tournament_q,
+                                game_counts_for_elo_system_q, elo_eligibility_q)
 from the_keep.models import Faction, Vagabond, Landmark, Hireling, Deck, Map
 from the_gatehouse.models import Profile
 
@@ -86,17 +88,14 @@ class GameFilter(django_filters.FilterSet):
     @staticmethod
     def filter_elo_system(queryset, name, value):
         # Games whose primary round OR an extra round belongs to a tournament using this
-        # EloSystem, that are finalized, and whose player count fits the system's bounds.
-        # Keeps the DB filter consistent with GameSerializer.get_elo_systems() eligibility.
-        # .distinct() guards against duplicate rows from the extra_rounds M2M join.
+        # EloSystem, and that the system actually rates. Both halves are the shared
+        # helpers, so this filter, GameSerializer.get_elo_systems() and the rating engine
+        # cannot drift apart. .distinct() guards against duplicate rows from the
+        # extra_rounds M2M join.
         if value is None:
             return queryset
         return queryset.filter(
-            Q(round__stage__tournament__elo_system=value)
-            | Q(extra_rounds__stage__tournament__elo_system=value),
-            final=True,
-            cached_player_count__gte=value.min_players,
-            cached_player_count__lte=value.max_players,
+            game_counts_for_elo_system_q(value), elo_eligibility_q(value)
         ).distinct()
 
     # Presence dropdowns. Blank = any game; 'none' = games without; 'has' = games with at
