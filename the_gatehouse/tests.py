@@ -2,7 +2,7 @@ import io
 import json
 import shutil
 import tempfile
-from unittest import mock
+from unittest import mock, skipUnless
 from PIL import Image
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
@@ -14,7 +14,7 @@ from django.db.models.signals import post_save
 from django.http import HttpResponse
 from django.test import TestCase, RequestFactory, override_settings
 from django.urls import reverse
-from django.db import IntegrityError
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
 from kombu.exceptions import OperationalError as KombuOperationalError
@@ -3674,6 +3674,24 @@ class PickCommandGroupThreadTests(TestCase):
         capture.assert_not_called()
         # The seat itself is still written -- only the roll is skipped.
         self.assertEqual(thread.seats.get(pk=last.pk).faction, self.factions[0])
+
+    @skipUnless(connection.vendor == "postgresql",
+                "select_for_update is a no-op on SQLite, so this cannot fail there")
+    def test_the_seat_lock_does_not_join_across_nullable_fks(self):
+        """LFGSeat.profile and .faction are both nullable, so select_related on
+        them LEFT OUTER JOINs -- and Postgres rejects FOR UPDATE against the
+        nullable side of an outer join with NotSupportedError.
+
+        This shipped because the dev suite runs on SQLite, where the lock is a
+        no-op and the bad query is silently accepted. Guarded here so the
+        select_related can't come back."""
+        self._members(3)
+        self._command()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        seat = thread.seats.first()
+        with transaction.atomic():
+            self.assertIsNotNone(
+                LFGSeat.objects.select_for_update().filter(pk=seat.pk).first())
 
 
 class PickedFactionsByProfileTests(TestCase):
