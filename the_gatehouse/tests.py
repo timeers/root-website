@@ -2787,7 +2787,10 @@ class SeatingCommandPlayerGroupTests(TestCase):
         content = self._command()["content"]
         for i in range(1, 5):
             self.assertIn(f"Group Player {i}", content)
-        self.assertRegex(content, r"^1\. ")
+        # The list no longer starts the string: the message opens with a
+        # "**Seating**" title. Still require it to begin on its own line.
+        self.assertIn("**Seating**", content)
+        self.assertIn("\n1. ", content)
 
     def test_seating_is_never_persisted(self):
         """The whole point: a series-long thread must not carry a stored order."""
