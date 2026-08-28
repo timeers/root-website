@@ -15,7 +15,7 @@
 
       <div class="mt-3">
         {% url 'elo-system-games-page' elo_system.slug as filter_url %}
-        {% trans 'Rated Games' as count_label %}
+        {% trans 'Ranked Games' as count_label %}
         {% include 'the_warroom/partials/universal_game_filter.html' with form=form filter_url=filter_url show_total_count=True count_label=count_label %}
 
         {% include 'the_warroom/partials/tournament_game_list.html' %}
