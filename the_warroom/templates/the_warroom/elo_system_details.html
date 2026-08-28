@@ -119,7 +119,7 @@
 
           <p class="mb-0">
             {% url 'elo-system-games-page' elo_system.slug as games_url %}
-            {% blocktrans count total=games_count %}This ELO system currently has <a href="{{ games_url }}">{{ total }} qualified game</a>.{% plural %}This ELO system currently has <a href="{{ games_url }}">{{ total }} qualified games</a>.{% endblocktrans %}
+            {% blocktrans count total=games_count %}This ELO system currently has <a href="{{ games_url }}">{{ total }} qualified game</a>.{% plural %}This ELO system currently has <a href="{{ games_url }}">{{ total }} ranked games</a>.{% endblocktrans %}
           </p>
 
           {% comment %}
