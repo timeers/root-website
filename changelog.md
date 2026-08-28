@@ -25,6 +25,7 @@
 - fixed suspected bug where users logging in for the first time would be denied a restricted page even if they should have permission
 - fixed forge faction duplication bug where button did not trigger
 - new user profiles failed to save avatar correctly
+- fixed possible error where following the manage guild commands link from /help could 404 if the guild was not registered previously
 
 ## [1.13.3] - 2026-8-21 Post Spain Updates
 

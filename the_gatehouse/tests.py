@@ -5774,3 +5774,116 @@ class RepairProfileAvatarsCommandTests(_AvatarTestMixin, TestCase):
         self.assertEqual(
             Profile.objects.get(pk=self.user.profile.pk).image.name, good
         )
+
+
+class EditGuildClaimTests(_NoLoginSignalMixin, TestCase):
+    """/help links to the manage page for any guild where the invoker has Manage Guild,
+    including guilds we never recorded (the bot can be added without the /databot/added/
+    redirect completing) and guilds sync_bot_guilds created with no moderators. Opening
+    that link re-runs Discord's verification instead of dead-ending on 404/403."""
+
+    GUILD_ID = "100000000000000777"
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username="claimer", password="pw")
+        self.profile = self.user.profile
+        self.profile.group = "P"          # plain player, not a site admin
+        self.profile.player_onboard = True
+        self.profile.save()
+        self.client.force_login(self.user)
+        self.url = reverse("edit-guild", args=[self.GUILD_ID])
+
+    def _visit(self, in_guild=True, can_manage=True, method="get", data=None):
+        """GET/POST the manage page with Discord's answers stubbed. Patches on the views
+        module, which imports these by name."""
+        with mock.patch("the_gatehouse.views.bot_in_guild", return_value=in_guild) as bot, \
+             mock.patch("the_gatehouse.views.user_can_manage_guild",
+                        return_value=can_manage) as manage, \
+             mock.patch("the_gatehouse.views._get_guild",
+                        return_value={"name": "Claimed Guild", "icon": "abc",
+                                      "description": "desc"}), \
+             mock.patch("the_gatehouse.views.register_guild_commands",
+                        return_value=True) as register, \
+             mock.patch("the_gatehouse.views.get_guild_roles", return_value=[]), \
+             mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=[]), \
+             mock.patch("the_gatehouse.views.get_forum_channel_info", return_value=None):
+            response = getattr(self.client, method)(self.url, data or {})
+        return response, bot, manage, register
+
+    # ── missing row: the 404 this fixes ──
+    def test_missing_guild_is_created_and_claimed_when_discord_agrees(self):
+        response, _, _, register = self._visit()
+        self.assertEqual(response.status_code, 200)
+        guild = DiscordGuild.objects.get(guild_id=self.GUILD_ID)
+        self.assertEqual(guild.actual_name, "Claimed Guild")
+        self.assertTrue(guild.bot_member)
+        self.assertTrue(guild.guild_moderators.filter(pk=self.profile.pk).exists())
+        self.assertTrue(self.profile.guilds.filter(pk=guild.pk).exists())
+        # A newly tracked guild needs its (empty) command set pushed.
+        register.assert_called_once()
+
+    def test_missing_guild_without_manage_permission_creates_nothing(self):
+        response, _, _, register = self._visit(can_manage=False)
+        self.assertRedirects(response, reverse("manage-guilds"))
+        self.assertFalse(DiscordGuild.objects.filter(guild_id=self.GUILD_ID).exists())
+        register.assert_not_called()
+
+    def test_missing_guild_the_bot_is_not_in_creates_nothing(self):
+        """A guild id in the URL is whatever the user typed; being able to manage a
+        server we have no bot in must not conjure a row."""
+        response, _, manage, _ = self._visit(in_guild=False)
+        self.assertRedirects(response, reverse("manage-guilds"))
+        self.assertFalse(DiscordGuild.objects.filter(guild_id=self.GUILD_ID).exists())
+        # bot_in_guild short-circuits before the expensive member fetch.
+        manage.assert_not_called()
+
+    def test_uncertainty_is_not_treated_as_permission(self):
+        """bot_in_guild returns None when it can't tell — never record on a maybe."""
+        response, _, _, _ = self._visit(in_guild=None)
+        self.assertRedirects(response, reverse("manage-guilds"))
+        self.assertFalse(DiscordGuild.objects.filter(guild_id=self.GUILD_ID).exists())
+
+    def test_a_non_snowflake_id_never_reaches_discord(self):
+        with mock.patch("the_gatehouse.views.bot_in_guild") as bot:
+            response = self.client.get(reverse("edit-guild", args=["not-an-id"]))
+        self.assertRedirects(response, reverse("manage-guilds"))
+        bot.assert_not_called()
+
+    # ── existing row with no moderators: the 403 this fixes ──
+    def test_sync_created_guild_is_claimable_by_its_manager(self):
+        """sync_bot_guilds creates rows with no moderators, which used to lock the
+        server's own owner out of the page /help sent them to."""
+        DiscordGuild.objects.create(guild_id=self.GUILD_ID, name="Synced", bot_member=True)
+        response, _, _, register = self._visit()
+        self.assertEqual(response.status_code, 200)
+        guild = DiscordGuild.objects.get(guild_id=self.GUILD_ID)
+        self.assertTrue(guild.guild_moderators.filter(pk=self.profile.pk).exists())
+        # The row already existed, so its commands are already registered.
+        register.assert_not_called()
+
+    def test_existing_guild_still_403s_a_user_discord_rejects(self):
+        DiscordGuild.objects.create(guild_id=self.GUILD_ID, name="Someone Else's",
+                                    bot_member=True)
+        response, _, _, _ = self._visit(can_manage=False)
+        self.assertEqual(response.status_code, 403)
+
+    # ── the POST guard ──
+    def test_post_never_claims(self):
+        DiscordGuild.objects.create(guild_id=self.GUILD_ID, name="Someone Else's",
+                                    bot_member=True)
+        response, bot, manage, _ = self._visit(method="post",
+                                               data={"enabled_commands": []})
+        self.assertEqual(response.status_code, 403)
+        bot.assert_not_called()
+        manage.assert_not_called()
+
+    # ── the happy path must stay free of Discord calls ──
+    def test_an_existing_moderator_triggers_no_discord_permission_calls(self):
+        guild = DiscordGuild.objects.create(guild_id=self.GUILD_ID, name="Mine",
+                                            bot_member=True)
+        guild.guild_moderators.add(self.profile)
+        response, bot, manage, _ = self._visit()
+        self.assertEqual(response.status_code, 200)
+        bot.assert_not_called()
+        manage.assert_not_called()

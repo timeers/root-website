@@ -374,6 +374,72 @@ def can_moderate_guild(profile, guild):
     return guild.guild_moderators.filter(pk=profile.pk).exists()
 
 
+def _looks_like_snowflake(guild_id):
+    """Whether `guild_id` has the shape of a Discord id (17-20 digits).
+
+    Cheap junk filter: the guild id in a manage-page URL is whatever the user typed,
+    and rejecting obvious non-ids here avoids a Discord round trip per bad guess."""
+    return bool(guild_id) and guild_id.isdigit() and 17 <= len(guild_id) <= 20
+
+
+def claim_guild_for_user(user, guild_id):
+    """Create/refresh the DiscordGuild for `guild_id` and make `user` a moderator, when
+    Discord confirms the bot is in the guild AND the user can manage it. Returns the
+    guild, or None when either check fails or we can't tell.
+
+    /help's "Manage this server" link is built from the interaction payload alone, so it
+    points at the manage page for guilds we may never have recorded — the bot can be added
+    without the /databot/added/ redirect completing, and sync_bot_guilds creates rows with
+    no moderators. This re-runs that redirect's verification on demand so those users land
+    on the page instead of a 404/403.
+
+    Unlike databot_added, which records the guild before checking permission (the bot did
+    just join, so the row should exist either way), this verifies BEFORE writing: its
+    guild_id comes from a URL anyone can type."""
+    if not _looks_like_snowflake(guild_id):
+        return None
+    # bot_in_guild returns None when it can't tell; treat uncertainty as "no" rather than
+    # recording a guild we haven't confirmed. It also short-circuits the expensive member
+    # fetch below for any guild the bot isn't in.
+    if not bot_in_guild(guild_id):
+        return None
+    if not user_can_manage_guild(user, guild_id):
+        return None
+
+    guild_data = _get_guild(guild_id) or {}
+    name = guild_data.get('name') or f"Guild {guild_id}"
+    icon_hash = guild_data.get('icon') or ''
+    description = guild_data.get('description') or ''
+
+    guild, created = DiscordGuild.objects.get_or_create(
+        guild_id=guild_id,
+        defaults={
+            'name': name,
+            'actual_name': name,
+            'icon_hash': icon_hash,
+            'description': description,
+            'bot_member': True,
+        }
+    )
+    if not created:
+        guild.actual_name = name
+        guild.icon_hash = icon_hash
+        guild.description = description
+        guild.bot_member = True
+        guild.save(update_fields=['actual_name', 'icon_hash', 'description', 'bot_member'])
+
+    profile = user.profile
+    profile.guilds.add(guild)
+    guild.guild_moderators.add(profile)
+
+    # Only for a guild we've just started tracking: an existing row already has its
+    # command set registered, and re-pushing it on a permission check is a wasted write.
+    if created:
+        register_guild_commands(guild)
+
+    return guild
+
+
 def refresh_guild_commands(guild):
     """Re-register a guild's slash commands after an LFG-role change.
 
@@ -1660,10 +1726,24 @@ def manage_guilds(request):
 @player_onboard_required
 def edit_guild(request, guild_id):
     from .services.discord_commands import WHITELISTABLE, whitelistable_commands
-    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     profile = request.user.profile
-    if not can_moderate_guild(profile, guild):
-        raise PermissionDenied()
+    guild = DiscordGuild.objects.filter(guild_id=guild_id).first()
+    if guild is None or not can_moderate_guild(profile, guild):
+        # Reached from /help's manage link for a guild we never recorded, or one recorded
+        # by sync_bot_guilds with no moderators. Ask Discord whether this user can manage
+        # it before 404ing/403ing them. GET only: a real POST is always preceded by a GET
+        # of this page, so by then the claim has happened and the check above passes —
+        # which keeps the write path's permission check local and free of API calls.
+        if request.method == 'POST':
+            raise PermissionDenied()
+        claimed = claim_guild_for_user(request.user, guild_id)
+        if claimed is None:
+            if guild is not None:
+                raise PermissionDenied()
+            messages.info(request, "We don't have that server on record. Add the bot to "
+                                   "it to manage its commands.")
+            return redirect('manage-guilds')
+        guild = claimed
 
     if request.method == 'POST':
         # Guild Details (invite / rules / approval settings) is admin-only and isn't
