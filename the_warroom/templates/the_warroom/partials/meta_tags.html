@@ -1,7 +1,16 @@
 {% load static %}
+{% comment %}
+Shared link-unfurl tags. Callers pass meta_title/meta_description in the view
+context and an optional meta_page_suffix for the tab name.
+
+The image is opt-out: pages with no artwork of their own (the ELO system tabs)
+include this with meta_no_image=True and emit no og:image at all, rather than an
+empty one -- crawlers treat a blank content="" as a broken thumbnail, where an
+absent tag just falls back to the site default.
+{% endcomment %}
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{ request.build_absolute_uri }}">
-<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">
+{% if not meta_no_image %}<meta property="og:image" content="{% if tournament.picture %}{{ tournament.picture.url }}{% else %}{% static 'images/battlefield-icon.png' %}{% endif %}">{% endif %}
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="{{ meta_title }}{% if meta_page_suffix %} - {{ meta_page_suffix }}{% endif %}">
 <meta property="og:description" content="{{ meta_description }}">

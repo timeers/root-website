@@ -2,6 +2,11 @@
 {% load static i18n %}
 {% block title %}{{ elo_system.name }} - {% trans 'Games' %} | {% endblock %}
 
+{% block meta %}
+{% trans "Games" as meta_page_suffix %}
+{% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix meta_no_image=True %}
+{% endblock meta %}
+
 {% block main_width_class %}col-md-12{% endblock %}
 
 {% block content %}

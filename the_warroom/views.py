@@ -8898,10 +8898,27 @@ def _elo_base_context(request, elo_system):
     every tab (the leaderboard tab then overwrites it with the identical count
     from its paginator).
     """
+    # Link-unfurl metadata. An EloSystem has no description field, so the
+    # description is built from the name plus where the system is calculated --
+    # the same distinction elo_system_details.html draws in prose. Each template
+    # appends its own tab name via meta_page_suffix.
+    if elo_system.calculation_type == EloSystem.CalculationType.LOCAL:
+        meta_description = _(
+            'ELO ratings and rankings for the %(name)s system, calculated on the '
+            'Root Database.'
+        ) % {'name': elo_system.name}
+    else:
+        meta_description = _(
+            'ELO ratings and rankings for the %(name)s system, calculated on the '
+            '%(source)s website.'
+        ) % {'name': elo_system.name,
+             'source': elo_system.get_calculation_type_display()}
     return {
         'elo_system': elo_system,
         'object': elo_system,
         'participants_count': elo_system.participants.count(),
+        'meta_title': elo_system.name,
+        'meta_description': meta_description,
     }
 
 

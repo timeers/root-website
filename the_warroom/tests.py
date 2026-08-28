@@ -550,10 +550,20 @@ class EloSystemPageTests(TestCase):
                 self.assertEqual(response.status_code, 200)
 
     def test_get_absolute_url_is_the_leaderboard(self):
+        """The bare-slug route is canonical. `elo-system-leaderboard-page` is a
+        second name for the same view (the nav header links to it), so this pins
+        the URL get_absolute_url actually builds and then checks both names land
+        on the leaderboard -- asserting the two reverse() calls are equal would
+        be false by design, since only one of them is canonical."""
         self.assertEqual(
             self.system.get_absolute_url(),
-            reverse('elo-system-leaderboard-page', args=[self.system.slug]),
+            reverse('elo-system-home-page', args=[self.system.slug]),
         )
+        for name in ('elo-system-home-page', 'elo-system-leaderboard-page'):
+            with self.subTest(url=name):
+                response = self.client.get(reverse(name, args=[self.system.slug]))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.context['active_page'], 'leaderboard')
 
     def test_get_absolute_url_is_none_without_a_slug(self):
         """The field is nullable, so templates guard on this rather than 500."""
