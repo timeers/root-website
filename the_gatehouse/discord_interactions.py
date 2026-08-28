@@ -2966,9 +2966,14 @@ def _handle_pick_faction(payload):
     # Everything above is advisory: the seat is re-resolved under the lock, and
     # only the write below decides. Two clicks racing the same seat both pass the
     # checks, but the second finds the seat already filled and is rejected here.
+    #
+    # No select_related here: profile and faction are both nullable, so it would
+    # LEFT OUTER JOIN, and Postgres rejects FOR UPDATE against the nullable side
+    # of an outer join (same trap as the Match lock in _finalize_proposal). Nothing
+    # below reads those relations -- `locked` only takes the write, and the panel
+    # is rebuilt from its own query afterwards.
     with transaction.atomic():
         locked = (LFGSeat.objects.select_for_update()
-                  .select_related("profile", "faction")
                   .filter(pk=seat.pk, faction__isnull=True).first())
         if locked is None:
             return _ephemeral("That seat was just picked — check the updated list.")
