@@ -51,7 +51,8 @@ from the_keep.views import paginate_or_404
 
 from the_gatehouse.models import Profile, Language, LFGThread
 from the_gatehouse.services.lfg_game import (
-    seated_profiles, lfg_option_querysets, picked_factions_by_profile)
+    seated_profiles, lfg_option_querysets, picked_factions_by_profile,
+    captains_by_seat)
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
@@ -1335,7 +1336,10 @@ def manage_game_v2(request, id=None):
         # Seat order drives row order: seat 1 is the top row. Unresolved seats
         # (no matching Profile) leave the row blank but KEEP their position.
         if not id and not request.POST:
-            for i, (_seat_no, profile_obj, faction_slug, vagabond_slug) in enumerate(lfg_seats):
+            # A sibling of seated_profiles, not a fifth tuple element: that tuple
+            # is unpacked at a fixed width here and in its tests.
+            seat_captains_map = captains_by_seat(lfgthread)
+            for i, (seat_no, profile_obj, faction_slug, vagabond_slug) in enumerate(lfg_seats):
                 if i >= len(formset.forms):
                     break
                 if profile_obj:
@@ -1352,6 +1356,16 @@ def manage_game_v2(request, id=None):
                     seat_vagabond = lfg_opts['vagabonds'].filter(slug=vagabond_slug).first()
                     if seat_vagabond:
                         formset.forms[i].initial['vagabond'] = seat_vagabond.pk
+                # Keyed by seat_no, NOT the enumerate index: seated_profiles falls
+                # back to synthetic seat numbers when the thread has no seat rows,
+                # and the two diverge there. discarded_captain is left unset --
+                # /pick records the 3 taken, and which was discarded is derivable.
+                captain_slugs = seat_captains_map.get(seat_no) or []
+                if captain_slugs:
+                    seat_captains = lfg_opts['captains'].filter(slug__in=captain_slugs)
+                    if seat_captains:
+                        formset.forms[i].initial['captains'] = [
+                            v.pk for v in seat_captains]
 
         for notice in lfg_opts.get('notices', []):
             messages.warning(request, notice)

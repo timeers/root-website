@@ -509,6 +509,15 @@ class LFGSeat(models.Model):
     vagabond = models.ForeignKey(
         "the_keep.Vagabond", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="+")
+    # The captains this seat took, when it took Knaves of the Deepwood. On the
+    # SEAT for the same reason as `vagabond`: the faction row alone cannot say
+    # which captains a seat holds. Mirrors LFGDraftPick.captains.
+    #
+    # /pick writes this TWICE: the rolled 4 when the follow-up select is shown,
+    # then the 3 chosen from them. It therefore holds 4 while a prompt is open --
+    # nothing reads it in that window, and Stop clears it.
+    captains = models.ManyToManyField(
+        "the_keep.Vagabond", blank=True, related_name="+")
 
     class Meta:
         ordering = ["seat_number"]

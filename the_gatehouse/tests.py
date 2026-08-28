@@ -34,7 +34,7 @@ from the_gatehouse.services import discord_commands as dc
 from the_gatehouse.services.discordservice import update_discord_avatar
 from the_gatehouse.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
-    picked_factions_by_profile,
+    picked_factions_by_profile, captains_by_seat,
 )
 from the_gatehouse.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
@@ -3114,6 +3114,36 @@ class LFGCaptureTests(TestCase):
         self.assertIsNone(seats[0][1])
         self.assertEqual(seats[1][1], keep)
 
+    # ── captains_by_seat: a SIBLING of seated_profiles, not a 5th element ──
+    def test_captains_by_seat_maps_seat_number_to_slugs(self):
+        p = Profile.objects.create(discord="capm", discord_id="725")
+        seat = LFGSeat.objects.create(thread=self.thread, profile=p,
+                                      seat_number=1, faction=self.factions[0])
+        caps = [self._vagabond(f"Map Captain {i}") for i in range(3)]
+        seat.captains.set(caps)
+
+        # Order is not guaranteed on an unordered M2M, and callers filter with
+        # slug__in, so compare as a set.
+        mapping = captains_by_seat(self.thread)
+        self.assertEqual(list(mapping), [1])
+        self.assertEqual(set(mapping[1]), {c.slug for c in caps})
+
+    def test_captains_by_seat_omits_seats_with_none(self):
+        p = Profile.objects.create(discord="capnone", discord_id="726")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
+                               faction=self.factions[0])
+        self.assertEqual(captains_by_seat(self.thread), {})
+
+    def test_seated_profiles_stays_a_4_tuple_with_captains_set(self):
+        """The backward-compatibility check: adding captains must not widen the
+        tuple, which callers unpack at a fixed width."""
+        p = Profile.objects.create(discord="capwidth", discord_id="727")
+        seat = LFGSeat.objects.create(thread=self.thread, profile=p,
+                                      seat_number=1, faction=self.factions[0])
+        seat.captains.set([self._vagabond("Width Captain")])
+        for row in seated_profiles(self.thread):
+            self.assertEqual(len(row), 4)
+
 
 class PickCommandTests(TestCase):
     """/pick: choosing factions seat by seat, last seat first."""
@@ -3422,7 +3452,7 @@ class PickCommandTests(TestCase):
         self._select(self.factions[0].slug, players[1].discord_id)
         data = self._select(self.factions[1].slug, players[0].discord_id)
         self.assertEqual(data["components"], [])
-        self.assertIn("All factions picked", data["content"])
+        self.assertIn("Draft Complete", data["content"])
 
     # ── the roll capture, which must branch on thread type ──
     def test_an_lfg_thread_records_the_pick_in_the_roll_log(self):
@@ -3434,6 +3464,469 @@ class PickCommandTests(TestCase):
         items = capture.call_args.args[1]
         self.assertEqual([i["slug"] for i in items], [self.factions[0].slug])
         self.assertEqual(capture.call_args.kwargs["source"], "pick")
+
+
+class PickVagabondFollowUpTests(TestCase):
+    """Picking the Vagabond faction with no draft must ask WHICH vagabond.
+
+    All 12 vagabond variants share one Faction row, so a seat recorded as
+    Vagabond with no vagabond collapses Ranger and Thief into one record.
+    """
+
+    THREAD_ID = "1303834523347456077"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+
+        self.designer = Profile.objects.create(discord="pkvb", discord_id="790")
+        # The real slug is load-bearing: the follow-up is keyed off it.
+        self.vagabond_faction = Faction.objects.create(
+            title="Vagabond", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.other = Faction.objects.create(
+            title="Vb Other Faction", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.ranger = Vagabond.objects.create(
+            title="Vb Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        self.thief = Vagabond.objects.create(
+            title="Vb Thief", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"pkv{i}", discord_id=f"79{i}",
+                                   display_name=f"Vb Player {i}")
+            for i in range(1, 3)
+        ]
+        self.thread.players.set(self.players)
+        for i, p in enumerate(self.players, 1):
+            LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+    def _select(self, slug, clicker):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", di.PICK_MODE_PLAYERS, self.OWNER, di.PICK_OPEN),
+                "values": [slug],
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        return json.loads(di._handle_pick_faction(payload).content)["data"]
+
+    def _choose_vagabond(self, slug, clicker, faction_slug=None):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_vagabond", di.PICK_MODE_PLAYERS, self.OWNER,
+                    faction_slug or self.vagabond_faction.slug, di.PICK_OPEN),
+                "values": [slug],
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        return json.loads(di._handle_pick_vagabond(payload).content)["data"]
+
+    def _last_seat(self):
+        # The LAST seat picks first.
+        return self.thread.seats.get(seat_number=2)
+
+    def test_picking_vagabond_prompts_instead_of_writing_the_seat(self):
+        """The deferred write is the whole fix: an abandoned prompt must leave
+        the seat untouched rather than stranded with a faction and no vagabond."""
+        data = self._select(self.vagabond_faction.slug,
+                            self.players[1].discord_id)
+        values = [o["value"]
+                  for o in data["components"][0]["components"][0]["options"]]
+        self.assertEqual(sorted(values), sorted([self.ranger.slug, self.thief.slug]))
+
+        seat = self._last_seat()
+        self.assertIsNone(seat.faction_id)
+        self.assertIsNone(seat.vagabond_id)
+
+    def test_choosing_the_vagabond_writes_both_and_advances(self):
+        self._select(self.vagabond_faction.slug, self.players[1].discord_id)
+        data = self._choose_vagabond(self.ranger.slug, self.players[1].discord_id)
+
+        seat = self._last_seat()
+        self.assertEqual(seat.faction_id, self.vagabond_faction.pk)
+        self.assertEqual(seat.vagabond_id, self.ranger.pk)
+        # Turn advanced to seat 1.
+        self.assertIn(self.players[0].name, data["content"])
+
+    def test_two_seats_take_different_vagabonds(self):
+        """The point of the fix: Ranger and Thief must not collapse."""
+        self._select(self.vagabond_faction.slug, self.players[1].discord_id)
+        self._choose_vagabond(self.ranger.slug, self.players[1].discord_id)
+        # Seat 1 can't take Vagabond again (faction taken), so just check seat 2
+        # kept its identity.
+        self.assertEqual(self._last_seat().vagabond_id, self.ranger.pk)
+
+    def test_a_non_vagabond_faction_still_writes_immediately(self):
+        self._select(self.other.slug, self.players[1].discord_id)
+        seat = self._last_seat()
+        self.assertEqual(seat.faction_id, self.other.pk)
+        self.assertIsNone(seat.vagabond_id)
+
+    def test_the_follow_up_records_a_vagabond_roll(self):
+        """lfg_option_querysets narrows to the roll log, so a vagabond missing
+        from it would be dropped at prefill."""
+        self._select(self.vagabond_faction.slug, self.players[1].discord_id)
+        with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
+            self._choose_vagabond(self.ranger.slug, self.players[1].discord_id)
+        items = capture.call_args.args[1]
+        self.assertEqual(
+            [(i["kind"], i["slug"]) for i in items],
+            [("Faction", self.vagabond_faction.slug),
+             ("Vagabond", self.ranger.slug)])
+        self.assertEqual(capture.call_args.kwargs["source"], "pick")
+
+    def test_a_drafted_vagabond_skips_the_prompt(self):
+        """With a draft the vagabond is already decided, so the seat is written
+        in one click -- the prompt exists only for the no-draft path."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(
+            draft=draft, faction=self.vagabond_faction, vagabond=self.thief,
+            order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.other, order=2)
+
+        data = self._select(self.vagabond_faction.slug,
+                            self.players[1].discord_id)
+        seat = self._last_seat()
+        self.assertEqual(seat.faction_id, self.vagabond_faction.pk)
+        self.assertEqual(seat.vagabond_id, self.thief.pk)
+        self.assertIn(self.players[0].name, data["content"])
+
+    def test_the_follow_up_authorizes_the_turn(self):
+        """PICK_OPEN keeps the dispatcher lock off, so the handler must reject a
+        player clicking out of turn itself."""
+        self._select(self.vagabond_faction.slug, self.players[1].discord_id)
+        data = self._choose_vagabond(self.ranger.slug, self.players[0].discord_id)
+        self.assertIn("pick right now", data["content"])
+        self.assertIsNone(self._last_seat().vagabond_id)
+
+
+class PickCaptainsFollowUpTests(TestCase):
+    """Knaves of the Deepwood takes 3 of 4 ROLLED captains.
+
+    The captain-capable pool is larger than 4 (6 official today), so the offer
+    must be a roll of 4, not the whole pool -- otherwise a seat could take
+    captains that were never offered.
+    """
+
+    THREAD_ID = "1303834523347456066"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+
+        self.designer = Profile.objects.create(discord="pkcap", discord_id="800")
+        self.knaves = Faction.objects.create(
+            title="Knaves of the Deepwood", animal="Mole", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.other = Faction.objects.create(
+            title="Cap Other Faction", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        # Six captain-capable, mirroring production: the roll must narrow to 4.
+        self.captains = [
+            Vagabond.objects.create(
+                title=f"Cap Vagabond {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True, captain=True)
+            for i in range(6)
+        ]
+        # A non-captain vagabond, which must never be offered.
+        self.non_captain = Vagabond.objects.create(
+            title="Cap Not A Captain", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True, captain=False)
+
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"pkq{i}", discord_id=f"80{i}",
+                                   display_name=f"Cap Player {i}")
+            for i in range(1, 3)
+        ]
+        self.thread.players.set(self.players)
+        for i, p in enumerate(self.players, 1):
+            LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+    def _select(self, slug, clicker):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", di.PICK_MODE_PLAYERS, self.OWNER, di.PICK_OPEN),
+                "values": [slug],
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        return json.loads(di._handle_pick_faction(payload).content)["data"]
+
+    def _choose_captains(self, slugs, clicker):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_captains", di.PICK_MODE_PLAYERS, self.OWNER,
+                    self.knaves.slug, di.PICK_OPEN),
+                "values": list(slugs),
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        return json.loads(di._handle_pick_captains(payload).content)["data"]
+
+    def _last_seat(self):
+        return self.thread.seats.get(seat_number=2)
+
+    def _offered(self, data):
+        select = data["components"][0]["components"][0]
+        return select, [o["value"] for o in select["options"]]
+
+    def test_picking_knaves_offers_four_of_the_six_and_requires_three(self):
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        select, values = self._offered(data)
+        self.assertEqual(len(values), di.DRAFT_CAPTAIN_COUNT)
+        self.assertEqual(select["min_values"], 3)
+        self.assertEqual(select["max_values"], 3)
+        # Never the non-captain vagabond.
+        self.assertNotIn(self.non_captain.slug, values)
+        # The faction is deferred, exactly as the vagabond path defers it.
+        self.assertIsNone(self._last_seat().faction_id)
+
+    def test_the_offer_is_parked_on_the_seat(self):
+        """The bot is stateless and a custom_id can't carry a list, so the rolled
+        4 ride on the seat until the follow-up narrows them."""
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, values = self._offered(data)
+        parked = {c.slug for c in self._last_seat().captains.all()}
+        self.assertEqual(parked, set(values))
+
+    def test_choosing_three_stores_exactly_those_three(self):
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, values = self._offered(data)
+        chosen = values[:3]
+        self._choose_captains(chosen, self.players[1].discord_id)
+
+        seat = self._last_seat()
+        self.assertEqual(seat.faction_id, self.knaves.pk)
+        self.assertEqual({c.slug for c in seat.captains.all()}, set(chosen))
+
+    def test_the_stored_three_are_a_subset_of_the_four_offered(self):
+        """The regression for the premise that only 4 captain-capable vagabonds
+        exist. With 6 in the pool, a seat must not end up with captains that
+        were never rolled."""
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, offered = self._offered(data)
+        self._choose_captains(offered[:3], self.players[1].discord_id)
+        stored = {c.slug for c in self._last_seat().captains.all()}
+        self.assertTrue(stored <= set(offered))
+
+    def test_captains_outside_the_offer_are_rejected(self):
+        """A select echoes whatever values it is sent, so the handler must
+        validate against the parked roll rather than trusting the payload."""
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, offered = self._offered(data)
+        not_offered = [c.slug for c in self.captains if c.slug not in offered]
+        self.assertTrue(not_offered, "need a captain outside the offer")
+
+        forged = [offered[0], offered[1], not_offered[0]]
+        result = self._choose_captains(forged, self.players[1].discord_id)
+        self.assertIn("weren't the ones offered", result["content"])
+        self.assertIsNone(self._last_seat().faction_id)
+
+    def test_the_follow_up_records_captain_rolls(self):
+        """ROLL_KIND_TO_BUCKET maps Captain -> captains; without these the record
+        form's narrowing won't offer them."""
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, offered = self._offered(data)
+        with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
+            self._choose_captains(offered[:3], self.players[1].discord_id)
+        items = capture.call_args.args[1]
+        self.assertEqual(items[0]["kind"], "Faction")
+        captains = [i["slug"] for i in items if i["kind"] == "Captain"]
+        self.assertEqual(set(captains), set(offered[:3]))
+
+    def test_abandoning_the_prompt_leaves_no_captains_on_another_faction(self):
+        """The parked roll must not survive onto a different faction."""
+        self._select(self.knaves.slug, self.players[1].discord_id)
+        self.assertEqual(self._last_seat().captains.count(),
+                         di.DRAFT_CAPTAIN_COUNT)
+
+        self._select(self.other.slug, self.players[1].discord_id)
+        seat = self._last_seat()
+        self.assertEqual(seat.faction_id, self.other.pk)
+        self.assertEqual(seat.captains.count(), 0)
+
+    def test_too_few_captains_skips_the_prompt_and_still_writes(self):
+        Vagabond.objects.filter(captain=True).update(captain=False)
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        seat = self._last_seat()
+        self.assertEqual(seat.faction_id, self.knaves.pk)
+        self.assertEqual(seat.captains.count(), 0)
+        # Advanced to the next seat rather than prompting.
+        self.assertIn(self.players[0].name, data["content"])
+
+
+class PickSessionLifecycleTests(TestCase):
+    """One /pick session at a time, and Stop as the way back to a clean slate."""
+
+    THREAD_ID = "1303834523347456055"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+
+        self.designer = Profile.objects.create(discord="pklife", discord_id="810")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Life Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(4)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"pkl{i}", discord_id=f"81{i}",
+                                   display_name=f"Life Player {i}")
+            for i in range(1, 3)
+        ]
+        self.thread.players.set(self.players)
+        for i, p in enumerate(self.players, 1):
+            LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+    def _command(self):
+        response = di._handle_pick_command({
+            "_channel_id": self.THREAD_ID,
+            "_author_id": self.OWNER,
+            "_guild_id": None,
+        })
+        return json.loads(response.content)["data"]
+
+    def _select(self, slug, clicker):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", di.PICK_MODE_PLAYERS, self.OWNER, di.PICK_OPEN),
+                "values": [slug],
+            },
+            "message": {"id": "msg", "components": []},
+        }
+        return json.loads(di._handle_pick_faction(payload).content)["data"]
+
+    def _stop(self):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.OWNER}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }
+        return json.loads(di._handle_pick_cancel(payload).content)["data"]
+
+    def test_a_second_pick_is_refused_once_a_faction_is_taken(self):
+        self._select(self.factions[0].slug, self.players[1].discord_id)
+        data = self._command()
+        self.assertIn("already underway", data["content"])
+
+    def test_a_fresh_thread_still_opens_a_panel(self):
+        data = self._command()
+        self.assertNotIn("already underway", data["content"])
+
+    def test_stop_clears_the_picks_but_keeps_the_seating(self):
+        self._select(self.factions[0].slug, self.players[1].discord_id)
+        data = self._stop()
+        self.assertIn("cleared", data["content"])
+        self.assertEqual(data["components"], [])
+
+        self.assertEqual(self.thread.seats.count(), 2)
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.seating_set)
+        self.assertFalse(
+            self.thread.seats.filter(faction__isnull=False).exists())
+
+    def test_pick_runs_again_after_stop(self):
+        self._select(self.factions[0].slug, self.players[1].discord_id)
+        self._stop()
+        data = self._command()
+        self.assertNotIn("already underway", data["content"])
+
+    def test_stop_clears_vagabond_and_captains(self):
+        vb = Vagabond.objects.create(
+            title="Life Vagabond", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        seat = self.thread.seats.get(seat_number=2)
+        seat.faction = self.factions[0]
+        seat.vagabond = vb
+        seat.save()
+        seat.captains.set([vb])
+
+        self._stop()
+        seat.refresh_from_db()
+        self.assertIsNone(seat.faction_id)
+        self.assertIsNone(seat.vagabond_id)
+        self.assertEqual(seat.captains.count(), 0)
+
+    def test_stop_deletes_pick_rolls_but_spares_other_sources(self):
+        """/draft and /random share the roll log; their history isn't ours."""
+        LFGRoll.objects.create(thread=self.thread, kind="Faction",
+                               slug=self.factions[0].slug, source="pick")
+        LFGRoll.objects.create(thread=self.thread, kind="Map",
+                               slug="some-map", source="random")
+        LFGRoll.objects.create(thread=self.thread, kind="Faction",
+                               slug=self.factions[1].slug, source="draft")
+
+        self._stop()
+        remaining = sorted(
+            LFGRoll.objects.filter(thread=self.thread).values_list("source", flat=True))
+        self.assertEqual(remaining, ["draft", "random"])
+
+    def test_stop_on_a_prompt_with_no_picks_says_so(self):
+        """Cancel on the mode prompt must not claim to have cleared picks."""
+        data = self._stop()
+        self.assertEqual(data["content"], "Picking stopped.")
+
+    def test_an_open_follow_up_does_not_lock_the_thread(self):
+        """A seat mid-prompt has no faction, so an abandoned prompt must leave
+        /pick runnable rather than trapping the table behind it."""
+        vagabond_faction = Faction.objects.create(
+            title="Vagabond", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        Vagabond.objects.create(
+            title="Life Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+
+        self._select(vagabond_faction.slug, self.players[1].discord_id)
+        self.assertFalse(
+            self.thread.seats.filter(faction__isnull=False).exists())
+        data = self._command()
+        self.assertNotIn("already underway", data["content"])
 
 
 class PickSeatChoiceTests(TestCase):

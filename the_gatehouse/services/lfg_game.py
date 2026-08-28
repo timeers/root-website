@@ -107,6 +107,23 @@ def seated_profiles(thread):
             for s in seats]
 
 
+def captains_by_seat(thread):
+    """{seat_number: [captain_slug, ...]} for seats that took captains.
+
+    A SIBLING of seated_profiles rather than a fifth element in its tuple: that
+    tuple is unpacked at a fixed width by both the record view and its tests, so
+    widening it would break every caller. Seats with no captains are omitted --
+    callers .get() with a default.
+
+    Slug STRINGS, not instances, for the same reason seated_profiles returns
+    them: the view filters `.filter(slug__in=...)`, and instances there coerce
+    via str() and silently match nothing.
+    """
+    by_seat = {s.seat_number: [c.slug for c in s.captains.all()]
+               for s in thread.seats.prefetch_related("captains")}
+    return {n: slugs for n, slugs in by_seat.items() if slugs}
+
+
 def picked_factions_by_profile(thread):
     """{profile_id: LFGSeat} for every seat in `thread` that has a profile.
 

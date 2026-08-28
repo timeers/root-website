@@ -67,11 +67,19 @@ class BotUsageAdmin(admin.ModelAdmin):
     ordering = ['-count']
 
 class LFGSeatInline(admin.TabularInline):
-    """The thread's current seating. Read-only: written by /draft's seat button."""
+    """The thread's current seating. Read-only: written by /draft's seat button
+    and by /pick, which also fills vagabond and captains."""
     model = LFGSeat
     extra = 0
     can_delete = False
-    readonly_fields = ['seat_number', 'profile', 'faction']
+    # captains via a display method, not the field: filter_horizontal doesn't
+    # apply to a readonly M2M, and these rows are bot-written.
+    readonly_fields = ['seat_number', 'profile', 'faction', 'vagabond',
+                       'captain_list']
+
+    @admin.display(description="Captains")
+    def captain_list(self, obj):
+        return ", ".join(c.title for c in obj.captains.all()) or "—"
 
 class LFGRollInline(admin.TabularInline):
     """Append-only capture log. Read-only: written by record_lfg_components_task."""
