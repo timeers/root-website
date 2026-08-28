@@ -3,6 +3,18 @@ import uuid
 
 from django.conf import settings
 
+def language_code(obj):
+    """The language code of `obj`, or None when it has no language set.
+
+    Post.language is nullable (SET_DEFAULT with a default that returns None when
+    no Language rows exist), so `obj.language.code` raises AttributeError on a
+    Post saved before any Language exists -- which the image signals then swallow
+    into an unreadable "Error processing ..." line. upload_path() already drops
+    falsy slug parts, so returning None just omits the language folder."""
+    language = getattr(obj, "language", None)
+    return language.code if language else None
+
+
 def upload_path(slug_parts, filename=None, force_ext=None):
     """
     Construct a relative MEDIA_ROOT path and optionally delete old file.
@@ -58,28 +70,28 @@ def post_icon_upload_path(instance, filename):
 
 def board_front_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.slug, instance.language.code, "board"],
+        slug_parts=["posts", instance.slug, language_code(instance), "board"],
         filename="front.webp",
         force_ext='webp'
     )
 
 def board_back_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.slug, instance.language.code, "board"],
+        slug_parts=["posts", instance.slug, language_code(instance), "board"],
         filename="back.webp",
         force_ext='webp'
     )
 
 def card_front_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.slug, instance.language.code, "card"],
+        slug_parts=["posts", instance.slug, language_code(instance), "card"],
         filename="front.webp",
         force_ext='webp'
     )
 
 def card_back_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.slug, instance.language.code, "card"],
+        slug_parts=["posts", instance.slug, language_code(instance), "card"],
         filename="back.webp",
         force_ext='webp'
     )
@@ -87,7 +99,7 @@ def card_back_upload_path(instance, filename):
 def post_small_upload_path(instance, filename):
     ext = os.path.splitext(filename)[1].lower() if filename else None
     return upload_path(
-        slug_parts=["posts", instance.slug, instance.language.code, "small_images"],
+        slug_parts=["posts", instance.slug, language_code(instance), "small_images"],
         filename=None,
         force_ext=ext.lstrip('.') if ext else None
     )
@@ -95,28 +107,28 @@ def post_small_upload_path(instance, filename):
 
 def translation_board_front_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.post.slug, instance.language.code, "board"],
+        slug_parts=["posts", instance.post.slug, language_code(instance), "board"],
         filename="front.webp",
         force_ext='webp'
     )
 
 def translation_board_back_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.post.slug, instance.language.code, "board"],
+        slug_parts=["posts", instance.post.slug, language_code(instance), "board"],
         filename="back.webp",
         force_ext='webp'
     )
 
 def translation_card_front_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.post.slug, instance.language.code, "card"],
+        slug_parts=["posts", instance.post.slug, language_code(instance), "card"],
         filename="front.webp",
         force_ext='webp'
     )
 
 def translation_card_back_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.post.slug, instance.language.code, "card"],
+        slug_parts=["posts", instance.post.slug, language_code(instance), "card"],
         filename="back.webp",
         force_ext='webp'
     )
@@ -124,7 +136,7 @@ def translation_card_back_upload_path(instance, filename):
 def translation_small_upload_path(instance, filename):
     ext = os.path.splitext(filename)[1].lower() if filename else None
     return upload_path(
-        slug_parts=["posts", instance.post.slug, instance.language.code, "small_images"],
+        slug_parts=["posts", instance.post.slug, language_code(instance), "small_images"],
         filename=None,
         force_ext=ext.lstrip('.') if ext else None
     )
@@ -132,7 +144,7 @@ def translation_small_upload_path(instance, filename):
 
 def deck_back_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.post.slug, instance.language.code, "decks", instance.slug],
+        slug_parts=["posts", instance.post.slug, language_code(instance), "decks", instance.slug],
         filename="back.webp",
         force_ext='webp'
     )
@@ -140,7 +152,7 @@ def deck_back_upload_path(instance, filename):
 
 def deck_sheet_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.group.post.slug, instance.group.language.code, "decks", instance.group.slug],
+        slug_parts=["posts", instance.group.post.slug, language_code(instance.group), "decks", instance.group.slug],
         filename="sheet.webp",
         force_ext='webp'
     )
@@ -148,7 +160,7 @@ def deck_sheet_upload_path(instance, filename):
 
 def card_upload_path(instance, filename):
     return upload_path(
-        slug_parts=["posts", instance.group.post.slug, instance.group.language.code, "decks", instance.group.slug, "cards"],
+        slug_parts=["posts", instance.group.post.slug, language_code(instance.group), "decks", instance.group.slug, "cards"],
         filename=None,
         force_ext='webp'
     )
