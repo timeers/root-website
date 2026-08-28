@@ -14,6 +14,7 @@
 - /record command to generate link for recording game
 - recording from an lfg thread helps pre-build the game form
 - games linked to a match thread or lfg thread post results automatically to the thread (if bot is guild member)
+- new tabs on elo system home pages for games and details
 
 ### Improvements
 - /random commands now have option to include fan content
