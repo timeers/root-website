@@ -1,13 +1,18 @@
+import io
 import json
+import shutil
+import tempfile
 from unittest import mock
+from PIL import Image
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth import login as auth_login
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.management import call_command
 from django.db.models.signals import post_save
 from django.http import HttpResponse
-from django.test import TestCase, RequestFactory
+from django.test import TestCase, RequestFactory, override_settings
 from django.urls import reverse
 from django.db import IntegrityError
 from django.utils import timezone
@@ -21,11 +26,12 @@ from the_gatehouse.tasks import update_post_status
 from the_keep.models import StatusChoices, Faction, Map, Deck, Vagabond
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
-    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat,
+    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, DEFAULT_PROFILE_IMAGE,
 )
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_gatehouse.services import discord_commands as dc
+from the_gatehouse.services.discordservice import update_discord_avatar
 from the_gatehouse.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
     picked_factions_by_profile,
@@ -4964,3 +4970,175 @@ class PlayerRequiredInterstitialTests(_NoLoginSignalMixin, TestCase):
         response = self._run_decorator()
         self.assertRedirects(response, reverse('woodland-warriors-info'),
                              fetch_redirect_response=False)
+
+
+class _AvatarTestMixin:
+    """Helpers for driving update_discord_avatar without touching the network."""
+
+    @staticmethod
+    def _png_bytes(size=(1024, 1024)):
+        buffer = io.BytesIO()
+        Image.new('RGBA', size, (10, 200, 90, 255)).save(buffer, format='PNG')
+        return buffer.getvalue()
+
+    def _write_avatar(self, user, avatar='abc', status=200):
+        """Run the avatar download the way the Celery task does."""
+        social = type('SA', (), {
+            'extra_data': {'id': '80351110224678912', 'avatar': avatar}
+        })()
+        response = type('Resp', (), {
+            'content': self._png_bytes(), 'status_code': status
+        })()
+        with mock.patch(
+            'the_gatehouse.services.discordservice.SocialAccount'
+        ) as social_mock, mock.patch(
+            'the_gatehouse.services.discordservice.requests.get',
+            return_value=response,
+        ):
+            social_mock.objects.filter.return_value.first.return_value = social
+            return update_discord_avatar(user, force=True)
+
+
+class ProfileAvatarConcurrencyTests(_AvatarTestMixin, TestCase):
+    """Profile.image is written by a Celery task while requests hold their own
+    in-memory copy of the profile. Profile.save() used to delete whichever file
+    it considered 'old', which meant a stale copy deleted the avatar the worker
+    had just downloaded and reverted the pointer to the default.
+    """
+
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp(prefix='avatar-tests-')
+        self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
+        patcher = override_settings(MEDIA_ROOT=self.media_root)
+        patcher.enable()
+        self.addCleanup(patcher.disable)
+
+        self.user = User.objects.create_user(username='avataruser', password='x')
+        self.user.refresh_from_db()
+
+    def test_stale_bare_save_keeps_avatar(self):
+        """A request that loaded the profile BEFORE the avatar landed must not
+        delete the file or revert the pointer when it saves its own change."""
+        stale = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertEqual(stale.image.name, DEFAULT_PROFILE_IMAGE)
+
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        written = Profile.objects.get(pk=self.user.profile.pk).image.name
+        self.assertNotEqual(written, DEFAULT_PROFILE_IMAGE)
+
+        stale.player_onboard = True
+        stale.save()
+
+        final = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertEqual(final.image.name, written)
+        self.assertTrue(final.image.storage.exists(final.image.name))
+        # The edit the request actually intended must still persist.
+        self.assertTrue(final.player_onboard)
+
+    def test_update_fields_save_leaves_image_file_alone(self):
+        """The deletion check runs before super().save(), so a save that doesn't
+        write `image` used to delete the file while leaving the DB pointer intact
+        — a valid-looking path aimed at nothing."""
+        stale = Profile.objects.get(pk=self.user.profile.pk)
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        written = Profile.objects.get(pk=self.user.profile.pk).image.name
+
+        stale.player_onboard = True
+        stale.save(update_fields=['player_onboard'])
+
+        final = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertEqual(final.image.name, written)
+        self.assertTrue(final.image.storage.exists(final.image.name))
+
+    def test_genuine_replacement_still_cleans_up_old_file(self):
+        """The original cleanup behaviour must survive the fix."""
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        first = Profile.objects.get(pk=self.user.profile.pk).image.name
+
+        self._write_avatar(User.objects.get(pk=self.user.pk), avatar='zzz')
+
+        final = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertNotEqual(final.image.name, first)
+        self.assertTrue(final.image.storage.exists(final.image.name))
+        self.assertFalse(final.image.storage.exists(first))
+
+    def test_deliberate_reset_to_default_still_works(self):
+        """repair_profile_avatars resets via queryset update, which bypasses the
+        stale-revert guard in save()."""
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        profile = Profile.objects.get(pk=self.user.profile.pk)
+
+        Profile.objects.filter(pk=profile.pk).update(image=DEFAULT_PROFILE_IMAGE)
+
+        self.assertEqual(
+            Profile.objects.get(pk=profile.pk).image.name, DEFAULT_PROFILE_IMAGE
+        )
+
+    def test_saved_avatar_is_really_webp(self):
+        """The upload path always produces a .webp name, so the bytes must be
+        WebP too rather than PNG under a .webp extension."""
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        profile = Profile.objects.get(pk=self.user.profile.pk)
+
+        self.assertTrue(profile.image.name.endswith('.webp'))
+        self.assertEqual(Image.open(profile.image.path).format, 'WEBP')
+
+    def test_user_without_custom_avatar_gets_discord_default(self):
+        """A falsy avatar hash used to return early, leaving the profile unset."""
+        result = self._write_avatar(User.objects.get(pk=self.user.pk), avatar=None)
+
+        profile = Profile.objects.get(pk=self.user.profile.pk)
+        self.assertIsNotNone(result)
+        self.assertNotEqual(profile.image.name, DEFAULT_PROFILE_IMAGE)
+        self.assertTrue(profile.image.storage.exists(profile.image.name))
+
+
+class RepairProfileAvatarsCommandTests(_AvatarTestMixin, TestCase):
+
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp(prefix='avatar-repair-')
+        self.addCleanup(shutil.rmtree, self.media_root, ignore_errors=True)
+        patcher = override_settings(MEDIA_ROOT=self.media_root)
+        patcher.enable()
+        self.addCleanup(patcher.disable)
+
+        self.user = User.objects.create_user(username='repairuser', password='x')
+        self.user.refresh_from_db()
+
+    def _break_avatar(self):
+        """Point the profile at a file that isn't there, the dead-link state."""
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        profile = Profile.objects.get(pk=self.user.profile.pk)
+        profile.image.storage.delete(profile.image.name)
+        return profile.image.name
+
+    def test_dry_run_reports_without_writing(self):
+        broken = self._break_avatar()
+        out = io.StringIO()
+        call_command('repair_profile_avatars', '--dry-run', stdout=out)
+
+        self.assertIn('missing 1', out.getvalue())
+        self.assertEqual(
+            Profile.objects.get(pk=self.user.profile.pk).image.name, broken
+        )
+
+    def test_resets_to_default_when_no_discord_account(self):
+        self._break_avatar()
+        out = io.StringIO()
+        call_command('repair_profile_avatars', stdout=out)
+
+        self.assertEqual(
+            Profile.objects.get(pk=self.user.profile.pk).image.name,
+            DEFAULT_PROFILE_IMAGE,
+        )
+
+    def test_healthy_profiles_are_left_alone(self):
+        self._write_avatar(User.objects.get(pk=self.user.pk))
+        good = Profile.objects.get(pk=self.user.profile.pk).image.name
+        out = io.StringIO()
+        call_command('repair_profile_avatars', stdout=out)
+
+        self.assertIn('missing 0', out.getvalue())
+        self.assertEqual(
+            Profile.objects.get(pk=self.user.profile.pk).image.name, good
+        )

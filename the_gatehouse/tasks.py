@@ -293,7 +293,11 @@ def update_discord_avatar_task(user_id, force=False):
     from django.contrib.auth import get_user_model
     user = get_user_model().objects.filter(pk=user_id).first()
     if user is None:
-        return
+        # Raise rather than return: a silent no-op here meant a lost avatar left no
+        # trace at all, and autoretry_for never fired.
+        raise RuntimeError(f"No user {user_id} for avatar sync")
+    if not hasattr(user, 'profile'):
+        raise RuntimeError(f"User {user_id} has no profile for avatar sync")
     update_discord_avatar(user, force=force)
 
 
