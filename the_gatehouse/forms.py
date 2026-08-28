@@ -473,7 +473,7 @@ class MessageForm(forms.Form):
             'placeholder': _('Please provide any relevant information. If information is incorrect or out of date please provide a link to the updated information.')
                 })
 
-        elif message_category == 'forge':
+        elif message_category == 'forge-feedback':
             self.fields['title'].choices = [
                 ('forge-feature', _('Forge Feature Request')),
                 ('forge-bug', _('Layout Bug')),

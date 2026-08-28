@@ -217,7 +217,7 @@ class ForgedFaction(models.Model):
             fields = [{'name': 'By:', 'value': str(self.designer)}]
             send_rich_discord_message_task.delay(
                 f'[{self.faction_name}]({settings.SITE_URL}{url})',
-                category='Forge', title='New Faction', fields=fields,
+                category='forge-activity', title='New Faction', fields=fields,
             )
 
 
@@ -301,7 +301,7 @@ class FactionSheet(models.Model):
             fields = [{'name': 'By:', 'value': str(self.faction.designer)}]
             send_rich_discord_message_task.delay(
                 f'[{self.faction.faction_name}]({settings.SITE_URL}{url})',
-                category='Forge', title='New Faction Board', fields=fields,
+                category='forge-activity', title='New Faction Board', fields=fields,
             )
 
 
@@ -888,7 +888,7 @@ class FactionBack(models.Model):
             fields = [{'name': 'By:', 'value': str(self.faction.designer)}]
             send_rich_discord_message_task.delay(
                 f'[{self.faction.faction_name}]({settings.SITE_URL}{url})',
-                category='Forge', title='New Faction Back', fields=fields,
+                category='forge-activity', title='New Faction Back', fields=fields,
             )
 
 
@@ -974,7 +974,7 @@ class SetupCard(models.Model):
             ]
             send_rich_discord_message_task.delay(
                 f'[{self.faction.faction_name}]({settings.SITE_URL}{url})',
-                category='Forge', title='New Adset Card', fields=fields,
+                category='forge-activity', title='New Adset Card', fields=fields,
             )
 
 

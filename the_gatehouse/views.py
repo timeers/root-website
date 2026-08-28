@@ -1080,7 +1080,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         "weird-root": _('Your request has been received, you should receive a Discord DM once an admin sees your request.'),
         "french-root": _('Your request has been received'),
         "bug": _('Thank you for your report'),
-        "forge": _('Thank you for your feedback!'),
+        "forge-feedback": _('Thank you for your feedback!'),
     }
 
     # Page Title Logic
@@ -1094,7 +1094,7 @@ def get_feedback_context(request, message_category, feedback_subject=None):
         page_title = _('Bug Report')
     elif message_category == 'request':
         page_title = _('Request a New Post')
-    elif message_category == 'forge':
+    elif message_category == 'forge-feedback':
         page_title = _('Forge Feedback')
     elif message_category:
         page_title = _('Send {category}').format(category=message_category.title())
@@ -1393,7 +1393,7 @@ def bug_report(request):
 
 
 def forge_feedback(request):
-    context = get_feedback_context(request, message_category='forge')
+    context = get_feedback_context(request, message_category='forge-feedback')
 
     if request.method == 'POST' and context.get('form').is_valid():
         return redirect('forge-home')
@@ -1406,7 +1406,7 @@ def forge_faction_feedback(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     feedback_subject = f'Forged Faction: {faction.faction_name} (#{faction.pk})'
 
-    context = get_feedback_context(request, message_category='forge', feedback_subject=feedback_subject)
+    context = get_feedback_context(request, message_category='forge-feedback', feedback_subject=feedback_subject)
 
     if request.method == 'POST' and context.get('form').is_valid():
         return redirect('forge-faction-detail', pk=faction.pk)

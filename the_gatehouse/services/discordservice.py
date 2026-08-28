@@ -1096,12 +1096,14 @@ def apply_discord_category(category):
         webhook_url = config['DISCORD_NEW_EDIT_WEBHOOK_URL']
         embed_title = "Post Edited"
         embed_color = 0x00FF00  # Green color for new
-    elif category == "Forge":
+    # 'Forge'/'forge' are the pre-rename names, still accepted so messages queued
+    # to Celery before the rename deployed don't fall through to the default webhook.
+    elif category == 'forge-activity' or category == "Forge":
         webhook_url = config['DISCORD_FORGE_URL']
         embed_title = "Forged Faction"
         embed_color = 0xffa500  # Orange color for Forge
-    elif category == 'forge':
-        webhook_url = config['DISCORD_FORGE_URL']
+    elif category == 'forge-feedback' or category == 'forge':
+        webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
         embed_title = "Forge Feedback"
         embed_color = 0xffa500  # Orange, matches existing Forge category
     # Automations
