@@ -25,7 +25,7 @@
              alt="Root Database logo">
         <h1 class="discord-hero-title databot-hero-title root-title">Root Databot</h1>
         <p class="discord-hero-tagline">
-          Faction details, rules lookups, drafts, and random rolls in your Discord server.
+          Faction details, rules lookups, drafts, and random rolls in Discord.
         </p>
         {% if invite_url %}
         <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
@@ -189,13 +189,18 @@
                     <code>/faction</code>
                     <span>Note a faction that's in the game.</span>
                   </div>
+
+                  <div class="databot-chip">
+                    <code>/seating</code>
+                    <span>Randomly seat the players without drafting factions.</span>
+                  </div>
                   <div class="databot-chip">
                     <code>/draft</code>
                     <span>Draft the factions and set the seating order.</span>
                   </div>
                   <div class="databot-chip">
-                    <code>/seating</code>
-                    <span>Randomly seat the players without drafting factions.</span>
+                    <code>/pick</code>
+                    <span>Have each player pick factions from the draft or assign factions to each player.</span>
                   </div>
                 </div>
               </div>

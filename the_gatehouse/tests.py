@@ -2558,21 +2558,27 @@ class DraftLFGSeatingTests(TestCase):
                 self._build_payload(self.THREAD_ID, guild_id=guild.guild_id))
         enqueue.assert_called_once()
 
-    def test_existing_seating_warns_before_overwriting(self):
+    def test_no_offer_when_the_thread_is_already_seated(self):
+        """A reroll must not assume the drafter wants to reseat the table: the
+        prompt's confirm button REPLACES the current order. Reseating stays
+        available through /seating, which keeps its Overwrite warning."""
         self._roster(3)
         LFGSeat.objects.create(
             thread=self.thread,
             profile=Profile.objects.get(discord_id="901"),
             seat_number=1)
-        # seating_set is what marks these seats as a real seating; /pick can leave
-        # seat rows behind with no seating order, and those must not warn.
         self.thread.seating_set = True
         self.thread.save(update_fields=["seating_set"])
-        message = self._offer(self.THREAD_ID).call_args.args[0][1]
-        self.assertIn("overwrite", message["content"].lower())
-        confirm = message["components"][0]["components"][0]
-        self.assertEqual(confirm["label"], "Overwrite")
-        self.assertEqual(confirm["style"], di.STYLE_DANGER)
+        self._offer(self.THREAD_ID).assert_not_called()
+
+    def test_filler_seats_from_pick_still_get_the_offer(self):
+        """/pick can assign factions without seating, leaving seat rows with filler
+        numbers and seating_set False -- that table has never been seated, so the
+        offer must still go out. Keying the skip on seats.exists() would break it."""
+        profiles = self._roster(3)
+        for i, profile in enumerate(profiles, 1):
+            LFGSeat.objects.create(thread=self.thread, profile=profile, seat_number=i)
+        self._offer(self.THREAD_ID).assert_called_once()
 
     # ── seating ─────────────────────────────────────────────────────────────
     def _seat(self, channel_id=None):

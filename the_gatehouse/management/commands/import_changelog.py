@@ -91,7 +91,7 @@ class Command(BaseCommand):
 
             if existing:
                 if existing.source_hash == section_hash:
-                    self.stdout.write(f"Skipping unchanged version {version}")
+                    # self.stdout.write(f"Skipping unchanged version {version}")
                     continue
                 else:
                     if dry_run:

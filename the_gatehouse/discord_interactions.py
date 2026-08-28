@@ -2342,7 +2342,9 @@ def _lfg_seating_prompt_data(thread, owner):
     "Overwrite".
 
     Split from _offer_lfg_seating so /seating can return this prompt as its own
-    response while /draft still ships it as a followup.
+    response while /draft still ships it as a followup. The seating_set branch is
+    reachable only from /seating: _offer_lfg_seating skips the offer entirely on an
+    already-seated thread, so /draft never proposes an overwrite unprompted.
 
     Keys on seating_set, NOT seats.exists(): /pick can assign factions without a
     seating, leaving seat rows with filler numbers -- warning about overwriting a
@@ -2368,12 +2370,21 @@ def _lfg_seating_prompt_data(thread, owner):
 def _offer_lfg_seating(payload):
     """After a draft inside an LFG thread, send the drafter an ephemeral Yes/No
     prompt offering to seat the thread's players. No-op outside an LFG thread, when
-    the roster is too small to seat, or when the guild hasn't enabled /seating --
-    confirming would otherwise run seating the guild deliberately turned off."""
+    the roster is too small to seat, when the thread is already seated, or when the
+    guild hasn't enabled /seating -- confirming would otherwise run seating the
+    guild deliberately turned off."""
     if not _guild_allows(payload.get("guild_id"), "seating"):
         return
     thread = _lfg_thread_for_channel(payload.get("channel_id"))
     if not thread or thread.players.count() < 2:
+        return
+    # Already seated: /draft must not assume a reroll means "reseat too". The
+    # prompt's confirm button REPLACES the current order, and nobody asked for
+    # that -- rerolling a draft mid-setup is routine. Reseating stays available
+    # through /seating, which was typed deliberately and keeps its Overwrite
+    # warning. Keys on seating_set, not seats.exists(): /pick can leave filler
+    # seat rows behind on a table that was never actually seated.
+    if thread.seating_set:
         return
     token = payload.get("token")
     if not token:  # can't send a followup without the interaction token
@@ -3077,7 +3088,7 @@ def _pick_turn(payload, mode, owner):
             return _ephemeral("Only the player who ran `/pick` can assign factions.")
     elif clicker != (seat.profile.discord_id if seat.profile_id else None):
         who = seat.profile.name if seat.profile_id else "someone else"
-        return _ephemeral(f"It's {who}'s pick right now.")
+        return _ephemeral(f"It's {who}'s turn to pick a faction.")
 
     return thread, seats, seat, pool
 
