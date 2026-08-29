@@ -2304,15 +2304,25 @@ def _random_draft_vagabond(platform):
 DRAFT_CAPTAIN_COUNT = 4
 
 
-def _random_draft_captains(platform):
-    """Up to `DRAFT_CAPTAIN_COUNT` random captain-capable Vagabonds for a draft
-    that landed Knaves of the Deepwood — the same pool the game form and /captain
-    use (captain=True). Root Digital narrows to those available there. Returns as
-    many as exist when fewer than 4 qualify (possibly an empty list)."""
+def _captain_pool(platform=None):
+    """Every captain-capable Vagabond — the same pool the game form and /captain
+    use (captain=True). Root Digital narrows to those available there.
+
+    Ordered by title, not "?": callers that want a random subset shuffle
+    themselves, and a stable order is what a full picker should show."""
     qs = Vagabond.objects.filter(official=True, status=1, captain=True)
     if platform == DRAFT_PLATFORM_RD:
         qs = qs.filter(in_root_digital=True)
-    return list(qs.order_by("?")[:DRAFT_CAPTAIN_COUNT])
+    return list(qs.order_by("title"))
+
+
+def _random_draft_captains(platform):
+    """Up to `DRAFT_CAPTAIN_COUNT` random captain-capable Vagabonds for a draft
+    that landed Knaves of the Deepwood. Returns as many as exist when fewer than
+    4 qualify (possibly an empty list)."""
+    pool = _captain_pool(platform)
+    random.shuffle(pool)
+    return pool[:DRAFT_CAPTAIN_COUNT]
 
 
 def _handle_draft_build(payload):
@@ -2798,7 +2808,20 @@ def _pick_seat_lines(thread, seats):
 
     The emoji is a prefix, not a replacement -- faction_emoji_for returns "" for
     fan factions and for official ones whose emoji was never uploaded, and a name
-    alone still reads correctly."""
+    alone still reads correctly.
+
+    A seat's second choice trails the faction name: the Vagabond character it
+    took, or Knaves of the Deepwood's captains. Both are what distinguishes two
+    seats that otherwise read identically -- all 12 vagabond variants share one
+    Faction row -- so the board is ambiguous without them.
+
+    Captains are shown only once the seat has COMMITTED. `captains` holds the
+    OFFERED set while the follow-up prompt is open (the commit overwrites it with
+    the chosen 3), so rendering it then would show the table an offer as though it
+    were a decision. The FACTION is the marker: it too is written only by the
+    commit, which is why the prompt parks captains on a seat whose faction is
+    still None. (Not discarded_captain -- that is set only when exactly one
+    captain was left over, which a full-pool offer never produces.)"""
     ordered = thread.seating_set
     lines = ["**Faction Picks**" if ordered else "**Faction Assignments**", ""]
     for seat in sorted(seats, key=lambda s: s.seat_number):
@@ -2807,10 +2830,31 @@ def _pick_seat_lines(thread, seats):
         if seat.faction_id:
             emoji = faction_emoji_for(seat.faction.slug)
             mark = f"{emoji} {seat.faction.title}" if emoji else seat.faction.title
+            mark += _pick_seat_detail(seat)
             lines.append(f"{prefix}{who} - {mark}")
         else:
             lines.append(f"{prefix}{who}")
     return lines
+
+
+def _pick_seat_detail(seat):
+    """The trailing " <emoji> <name>" for a seat's vagabond, or " <emoji>…" for its
+    captains. "" when the seat has neither.
+
+    Emoji-with-name for the single vagabond (it names one character, so the name
+    carries), emoji-only for the three captains -- three names would crowd the
+    line, and the emoji are the quick read. Each falls back to the title when its
+    emoji isn't uploaded, so nothing silently disappears."""
+    if seat.vagabond_id:
+        emoji = vagabond_emoji_for(seat.vagabond)
+        return f" ({emoji} {seat.vagabond.title})" if emoji else f" ({seat.vagabond.title})"
+    # Callers only reach here for a seat that HAS a faction, and the faction is
+    # written by the same commit that narrows the parked offer to the chosen
+    # captains -- so these are a decision, never an open offer.
+    marks = [vagabond_emoji_for(c) or c.title for c in seat.captains.all()]
+    if marks:
+        return f" ({' '.join(marks)})"
+    return ""
 
 
 def _pick_panel_data(thread, seats, mode, owner, pool=None):
@@ -3082,7 +3126,9 @@ def _handle_pick_command(data):
             "or press **Stop** on it to start over.")
 
     owner = data.get("_author_id")
-    seats = list(thread.seats.select_related("profile", "faction"))
+    seats = list(thread.seats.select_related(
+        "profile", "faction", "vagabond",
+    ).prefetch_related("captains"))
 
     # Roster size is checked against the ROSTER, not the seat rows: an unseated
     # thread has no seats yet and must still reach the prompt below rather than
@@ -3143,7 +3189,9 @@ def _handle_pick_mode(payload):
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
         return _ephemeral("This isn't a game thread anymore.")
-    seats = list(thread.seats.select_related("profile", "faction"))
+    seats = list(thread.seats.select_related(
+        "profile", "faction", "vagabond",
+    ).prefetch_related("captains"))
     if len(seats) < 2:
         return _ephemeral("Not enough players in this thread to pick factions.")
 
@@ -3204,7 +3252,9 @@ def _pick_turn(payload, mode, owner):
         return _ephemeral("This isn't a game thread anymore.")
 
     pool = _pick_pool(thread)
-    seats = list(thread.seats.select_related("profile", "faction"))
+    seats = list(thread.seats.select_related(
+        "profile", "faction", "vagabond",
+    ).prefetch_related("captains"))
     seat = _pick_next_seat(seats)
     if seat is None:
         return JsonResponse({
@@ -3279,7 +3329,12 @@ def _handle_pick_faction(payload):
     # turn on a data gap they can't fix.
     if faction.slug == "knaves-of-the-deepwood":
         draft = getattr(thread, "draft", None)
-        rolled = _random_draft_captains(draft.platform if draft else None)
+        # With a draft, the rule is pick 3 of 4 ROLLED, so the offer is a random 4
+        # and taking anything else would break the draft. WITHOUT a draft there is
+        # nothing to be faithful to -- the table is choosing freely, so offer every
+        # captain rather than an arbitrary 4 of them.
+        rolled = (_random_draft_captains(draft.platform) if draft
+                  else _captain_pool())
         if len(rolled) < PICK_CAPTAIN_CHOICES:
             logger.warning(
                 "Knaves picked in thread %s but only %d captain-capable "
@@ -3339,7 +3394,9 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
     # leaving it would record captains for a faction that has none.
     locked.captains.set(captains or [])
 
-    seats = list(thread.seats.select_related("profile", "faction"))
+    seats = list(thread.seats.select_related(
+        "profile", "faction", "vagabond",
+    ).prefetch_related("captains"))
 
     # Record the pick in the roll log so the record form's narrowing still offers
     # it -- lfg_option_querysets narrows factions to what the log contains, so a

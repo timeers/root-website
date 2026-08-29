@@ -4406,6 +4406,17 @@ class PickVagabondFollowUpTests(TestCase):
              ("Vagabond", self.ranger.slug)])
         self.assertEqual(capture.call_args.kwargs["source"], "pick")
 
+    def test_the_chosen_vagabond_shows_on_the_board(self):
+        """All 12 vagabond variants share one Faction row, so a seat reading only
+        "Vagabond" can't be told apart from another one."""
+        self._select(self.vagabond_faction.slug, self.players[1].discord_id)
+        with mock.patch.object(di, "vagabond_emoji_for",
+                               lambda v: f"<:M{v.title.replace(' ', '')}:9>"):
+            data = self._choose_vagabond(self.ranger.slug,
+                                         self.players[1].discord_id)
+        self.assertIn(f"<:M{self.ranger.title.replace(' ', '')}:9> "
+                      f"{self.ranger.title}", data["content"])
+
     def test_a_drafted_vagabond_skips_the_prompt(self):
         """With a draft the vagabond is already decided, so the seat is written
         in one click -- the prompt exists only for the no-draft path."""
@@ -4434,11 +4445,13 @@ class PickVagabondFollowUpTests(TestCase):
 
 
 class PickCaptainsFollowUpTests(TestCase):
-    """Knaves of the Deepwood takes 3 of 4 ROLLED captains.
+    """Knaves of the Deepwood takes 3 captains.
 
-    The captain-capable pool is larger than 4 (6 official today), so the offer
-    must be a roll of 4, not the whole pool -- otherwise a seat could take
-    captains that were never offered.
+    WITH a draft the offer is a roll of 4 and the choice is 3 of those, so a seat
+    can't take captains the draft never offered. WITHOUT a draft there is nothing
+    to be faithful to, so the whole captain-capable pool is offered.
+
+    This fixture has NO draft, so its offer is the full pool (6 here).
     """
 
     THREAD_ID = "1303834523347456066"
@@ -4496,6 +4509,16 @@ class PickCaptainsFollowUpTests(TestCase):
         }
         return json.loads(di._handle_pick_faction(payload).content)["data"]
 
+    def _with_draft(self):
+        """Give the thread a draft, so the captain offer is a ROLL OF 4 rather
+        than the whole pool. Required by anything about the discarded 4th captain
+        or about rejecting captains outside the offer -- both only exist because a
+        draft constrains the offer."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.knaves, order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.other, order=2)
+        return draft
+
     def _choose_captains(self, slugs, clicker):
         payload = {
             "channel_id": self.THREAD_ID,
@@ -4517,16 +4540,50 @@ class PickCaptainsFollowUpTests(TestCase):
         select = data["components"][0]["components"][0]
         return select, [o["value"] for o in select["options"]]
 
-    def test_picking_knaves_offers_four_of_the_six_and_requires_three(self):
+    def test_with_no_draft_every_captain_is_offered(self):
+        """No draft means no rolled 4 to be faithful to, so the table chooses
+        from the whole captain-capable pool rather than an arbitrary subset."""
         data = self._select(self.knaves.slug, self.players[1].discord_id)
         select, values = self._offered(data)
-        self.assertEqual(len(values), di.DRAFT_CAPTAIN_COUNT)
+        self.assertEqual(len(values), len(self.captains))
+        self.assertEqual(set(values), {c.slug for c in self.captains})
         self.assertEqual(select["min_values"], 3)
         self.assertEqual(select["max_values"], 3)
         # Never the non-captain vagabond.
         self.assertNotIn(self.non_captain.slug, values)
         # The faction is deferred, exactly as the vagabond path defers it.
         self.assertIsNone(self._last_seat().faction_id)
+
+    def test_with_a_draft_the_offer_is_still_a_roll_of_four(self):
+        """The 3-of-4 rule is what makes a drafted Knaves seat honest; widening
+        the no-draft offer must not have widened this one too."""
+        self._with_draft()
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, values = self._offered(data)
+        self.assertEqual(len(values), di.DRAFT_CAPTAIN_COUNT)
+
+    def test_chosen_captains_show_on_the_board(self):
+        """The seat line must say WHICH captains, not just Knaves -- that's the
+        whole difference between two Knaves seats."""
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, offered = self._offered(data)
+        with mock.patch.object(di, "vagabond_emoji_for",
+                               lambda v: f"<:M{v.title.replace(' ', '')}:9>"):
+            result = self._choose_captains(offered[:3], self.players[1].discord_id)
+        chosen = Vagabond.objects.filter(slug__in=offered[:3])
+        for captain in chosen:
+            self.assertIn(f"<:M{captain.title.replace(' ', '')}:9>",
+                          result["content"])
+
+    def test_the_offer_is_not_shown_as_a_decision(self):
+        """`captains` holds the OFFERED set while the prompt is open, so the board
+        must not render it until the seat commits."""
+        with mock.patch.object(di, "vagabond_emoji_for",
+                               lambda v: f"<:M{v.title.replace(' ', '')}:9>"):
+            data = self._select(self.knaves.slug, self.players[1].discord_id)
+        # The parked offer is on the seat, but no captain emoji is on the board.
+        self.assertEqual(self._last_seat().captains.count(), len(self.captains))
+        self.assertNotIn("<:M", data["content"])
 
     def test_the_offer_is_parked_on_the_seat(self):
         """The bot is stateless and a custom_id can't carry a list, so the rolled
@@ -4558,7 +4615,11 @@ class PickCaptainsFollowUpTests(TestCase):
 
     def test_captains_outside_the_offer_are_rejected(self):
         """A select echoes whatever values it is sent, so the handler must
-        validate against the parked roll rather than trusting the payload."""
+        validate against the parked roll rather than trusting the payload.
+
+        Needs a draft: without one every captain is offered, so there is no
+        "outside the offer" to forge."""
+        self._with_draft()
         data = self._select(self.knaves.slug, self.players[1].discord_id)
         _select_c, offered = self._offered(data)
         not_offered = [c.slug for c in self.captains if c.slug not in offered]
@@ -4571,7 +4632,8 @@ class PickCaptainsFollowUpTests(TestCase):
 
     def test_the_discarded_captain_is_stored(self):
         """The 4th offered captain. Only knowable at commit -- the chosen 3
-        overwrite the parked 4."""
+        overwrite the parked 4. Needs a draft: only a rolled offer has a 4th."""
+        self._with_draft()
         data = self._select(self.knaves.slug, self.players[1].discord_id)
         _select_c, offered = self._offered(data)
         chosen, expected = offered[:3], offered[3]
@@ -4583,7 +4645,9 @@ class PickCaptainsFollowUpTests(TestCase):
 
     def test_abandoning_knaves_clears_a_stale_discarded_captain(self):
         """A field left out of update_fields is silently not written, which would
-        strand the discarded captain on whatever faction won instead."""
+        strand the discarded captain on whatever faction won instead. Needs a
+        draft: with no draft nothing is discarded, so there is no stale value."""
+        self._with_draft()
         data = self._select(self.knaves.slug, self.players[1].discord_id)
         _select_c, offered = self._offered(data)
         self._choose_captains(offered[:3], self.players[1].discord_id)
@@ -4613,8 +4677,9 @@ class PickCaptainsFollowUpTests(TestCase):
     def test_abandoning_the_prompt_leaves_no_captains_on_another_faction(self):
         """The parked roll must not survive onto a different faction."""
         self._select(self.knaves.slug, self.players[1].discord_id)
-        self.assertEqual(self._last_seat().captains.count(),
-                         di.DRAFT_CAPTAIN_COUNT)
+        # Whatever was offered is parked; the size depends on whether a draft
+        # constrained it, and what matters here is that it's cleared below.
+        self.assertEqual(self._last_seat().captains.count(), len(self.captains))
 
         self._select(self.other.slug, self.players[1].discord_id)
         seat = self._last_seat()
