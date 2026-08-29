@@ -3769,17 +3769,37 @@ def _handle_pick_cancel(payload):
     cancelling a prompt doesn't claim to have discarded picks that never
     happened.
 
-    Names whoever pressed it: any player can stop a session, so the table needs
-    to see who did."""
-    thread = _pick_thread_for_channel(payload.get("channel_id"))
+    Restricted to the table. These buttons carry PICK_OPEN so the dispatcher's
+    owner-lock stays off -- any of the PLAYERS may stop a session, not just
+    whoever ran /pick -- but that also let anyone in the channel discard the
+    table's picks, so the roster check below is the lock's replacement.
+
+    Names whoever pressed it, since it replaces the panel for everyone."""
+    channel_id = payload.get("channel_id")
+    thread = _pick_thread_for_channel(channel_id)
     if not thread:
         return _ephemeral("This isn't a game thread anymore.")
 
+    # The roster resolves by thread id alone: a button payload carries no channel
+    # name, and /pick already linked a group thread to its player group before any
+    # of these buttons existed.
+    roster = _pick_roster(thread, channel_id)
+    _me, status = _resolve_clicker(
+        roster, _interaction_user_id(payload), _clicker_username(payload))
+    if status == CLICKER_UNLINKED:
+        return _ephemeral(
+            "You're one of this game's players, but your Discord isn't linked to "
+            f"your site account yet. Log in{_login_hint()} with Discord once, then "
+            "try again.")
+    if status != CLICKER_MATCHED:
+        return _ephemeral(
+            "Only the players in this game can stop the faction picks.")
+
     cleared = _pick_clear(thread)
 
-    # Who stopped it: this replaces the panel for the WHOLE table, and any player
-    # can press Stop (the buttons carry PICK_OPEN, not an owner snowflake), so
-    # without a name the table can't tell who discarded their picks.
+    # Who stopped it: this replaces the panel for the WHOLE table, and any of the
+    # players can press Stop -- not just whoever ran /pick -- so without a name
+    # the table can't tell who discarded their picks.
     #
     # A plain display name, NOT a <@id> mention: this response sets no
     # allowed_mentions, so a mention would ping the person who just clicked --

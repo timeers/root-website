@@ -4838,10 +4838,12 @@ class PickSessionLifecycleTests(TestCase):
         }
         return json.loads(di._handle_pick_faction(payload).content)["data"]
 
-    def _stop(self):
+    def _stop(self, clicker=None):
+        """Stop is restricted to the table, so this clicks as a PLAYER by default
+        (self.OWNER is not on the roster in this fixture)."""
         payload = {
             "channel_id": self.THREAD_ID,
-            "member": {"user": {"id": self.OWNER}},
+            "member": {"user": {"id": clicker or self.players[0].discord_id}},
             "data": {"custom_id": di.encode_custom_id(
                 "pick_cancel", self.OWNER, di.PICK_OPEN)},
             "message": {"id": "msg", "components": []},
@@ -4912,15 +4914,14 @@ class PickSessionLifecycleTests(TestCase):
         self.assertEqual(remaining, ["draft", "random"])
 
     def test_stop_on_a_prompt_with_no_picks_says_so(self):
-        """Cancel on the mode prompt must not claim to have cleared picks. This
-        clicker has no Profile and no username in the payload, so there is nobody
-        to name -- the message must still read correctly without a name."""
+        """Cancel on the mode prompt must not claim to have cleared picks."""
         data = self._stop()
-        self.assertEqual(data["content"], "Picking stopped.")
+        self.assertNotIn("factions cleared", data["content"])
+        self.assertTrue(data["content"].endswith("."))
 
     def test_stop_names_the_player_who_pressed_it(self):
-        """Any player can Stop (the buttons carry PICK_OPEN, not an owner
-        snowflake), so the table needs to see who discarded their picks."""
+        """Any of the PLAYERS can Stop -- not only whoever ran /pick -- so the
+        table needs to see who discarded their picks."""
         self._select(self.factions[0].slug, self.players[1].discord_id)
         payload = {
             "channel_id": self.THREAD_ID,
@@ -4933,7 +4934,10 @@ class PickSessionLifecycleTests(TestCase):
         self.assertIn(f"Picking stopped by {self.players[1].name}", data["content"])
         self.assertIn("factions cleared", data["content"])
 
-    def test_stop_names_an_unlinked_clicker_by_username(self):
+    def test_a_non_player_cannot_stop_the_picks(self):
+        """The buttons carry PICK_OPEN so the dispatcher's owner-lock is off --
+        without this check anyone in the channel could discard the table's picks."""
+        self._select(self.factions[0].slug, self.players[1].discord_id)
         payload = {
             "channel_id": self.THREAD_ID,
             "member": {"user": {"id": "999888777666555444",
@@ -4943,7 +4947,18 @@ class PickSessionLifecycleTests(TestCase):
             "message": {"id": "msg", "components": []},
         }
         data = json.loads(di._handle_pick_cancel(payload).content)["data"]
-        self.assertIn("Picking stopped by stranger", data["content"])
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertIn("Only the players", data["content"])
+        # The picks survive.
+        self.assertTrue(LFGSeat.objects.filter(
+            thread=self.thread, faction__isnull=False).exists())
+
+    def test_the_invoker_can_stop_when_they_are_a_player(self):
+        """Whoever ran /pick is normally at the table; they stop it like anyone
+        else on the roster, via the same membership check."""
+        data = self._stop(clicker=self.players[1].discord_id)
+        self.assertIn(f"Picking stopped by {self.players[1].name}",
+                      data["content"])
 
     def test_stop_does_not_ping_whoever_pressed_it(self):
         """A plain name, not a <@id> mention -- this is public content."""
@@ -5224,6 +5239,29 @@ class PickCommandGroupThreadTests(TestCase):
         self.assertFalse(thread.seating_set)
         self.assertEqual([s.profile_id for s in thread.seats.order_by("seat_number")],
                          [p.pk for p in players])
+
+    def _stop(self, clicker):
+        return json.loads(di._handle_pick_cancel({
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker, "username": "someone"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }).content)["data"]
+
+    def test_only_group_members_can_stop_the_picks(self):
+        """In a group thread the roster is the PLAYER GROUP's, not the LFGThread's
+        (which is empty here), so the membership check has to resolve it that way."""
+        players = self._members(3)
+        self._command()
+        self._choose("pick_noseat")
+
+        refused = self._stop("999888777666555444")
+        self.assertEqual(refused["flags"], di.EPHEMERAL)
+        self.assertIn("Only the players", refused["content"])
+
+        allowed = self._stop(players[0].discord_id)
+        self.assertIn("Picking stopped", allowed["content"])
 
     def test_it_does_not_invent_a_seating(self):
         """/pick must not assert an order nobody asked for: the prompt itself
