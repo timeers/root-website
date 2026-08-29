@@ -3959,6 +3959,48 @@ class PickCommandTests(TestCase):
         response = di._handle_pick_faction(payload)
         return json.loads(response.content)["data"]
 
+    # ── the map/deck setup reminder ──
+    def _map_and_deck(self):
+        return (Map.objects.create(title="Pick Map", designer=self.designer,
+                                   status=StatusChoices.STABLE, official=True),
+                Deck.objects.create(title="Pick Deck", designer=self.designer,
+                                    card_total=54,
+                                    status=StatusChoices.STABLE, official=True))
+
+    def test_reminder_names_both_when_neither_is_set(self):
+        self._roster(3)
+        content = self._command()["content"]
+        self.assertIn("-# Remember to choose a map and deck", content)
+
+    def test_reminder_names_only_what_is_missing(self):
+        """A table that already chose a map shouldn't be told to choose one."""
+        self._roster(3)
+        game_map, _deck = self._map_and_deck()
+        self.thread.map = game_map
+        self.thread.save(update_fields=["map"])
+        content = self._command()["content"]
+        self.assertIn("-# Remember to choose a deck for this game.", content)
+        self.assertNotIn("a map", content)
+
+    def test_reminder_names_no_command(self):
+        """/map and /deck are per-guild (enabled_commands), so naming them can
+        point at commands this guild doesn't have -- and choosing a map isn't
+        required to pick factions anyway."""
+        self._roster(3)
+        content = self._command()["content"]
+        self.assertNotIn("/map", content)
+        self.assertNotIn("/deck", content)
+
+    def test_no_reminder_once_both_are_set(self):
+        self._roster(3)
+        game_map, deck = self._map_and_deck()
+        self.thread.map, self.thread.deck = game_map, deck
+        self.thread.save(update_fields=["map", "deck"])
+        content = self._command()["content"]
+        self.assertNotIn("-#", content)
+        # The question itself is untouched by the reminder either way.
+        self.assertIn("assign every faction yourself", content)
+
     # ── guards ──
     def test_a_one_player_thread_is_refused(self):
         self.thread.players.set([

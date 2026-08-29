@@ -2788,6 +2788,31 @@ def _pick_next_seat(seats):
     return None
 
 
+def _pick_seat_lines(thread, seats):
+    """The seat board both /pick messages show: one line per seat, with each taken
+    seat's faction as `<emoji> <name>`.
+
+    Shared so the panel and its follow-up can't drift: the follow-up REPLACES the
+    panel message, so any difference here would show up as the board silently
+    changing shape mid-pick.
+
+    The emoji is a prefix, not a replacement -- faction_emoji_for returns "" for
+    fan factions and for official ones whose emoji was never uploaded, and a name
+    alone still reads correctly."""
+    ordered = thread.seating_set
+    lines = ["**Faction Picks**" if ordered else "**Faction Assignments**", ""]
+    for seat in sorted(seats, key=lambda s: s.seat_number):
+        who = seat.profile.name if seat.profile_id else "(removed player)"
+        prefix = f"{seat.seat_number}. " if ordered else "• "
+        if seat.faction_id:
+            emoji = faction_emoji_for(seat.faction.slug)
+            mark = f"{emoji} {seat.faction.title}" if emoji else seat.faction.title
+            lines.append(f"{prefix}{who} - {mark}")
+        else:
+            lines.append(f"{prefix}{who}")
+    return lines
+
+
 def _pick_panel_data(thread, seats, mode, owner, pool=None):
     """The public pick panel, rebuilt from the DB on every interaction so the
     bot stays stateless and a stale message can never drive a write.
@@ -2804,15 +2829,7 @@ def _pick_panel_data(thread, seats, mode, owner, pool=None):
     # numbers must not be shown as an order the players never agreed to.
     ordered = thread.seating_set
 
-    lines = ["**Faction Picks**" if ordered else "**Faction Assignments**", ""]
-    for seat in sorted(seats, key=lambda s: s.seat_number):
-        who = seat.profile.name if seat.profile_id else "(removed player)"
-        prefix = f"{seat.seat_number}. " if ordered else "• "
-        if seat.faction_id:
-            mark = faction_emoji_for(seat.faction.slug) or seat.faction.title
-            lines.append(f"{prefix}{who} — {mark}")
-        else:
-            lines.append(f"{prefix}{who}")
+    lines = _pick_seat_lines(thread, seats)
 
     nxt = _pick_next_seat(seats)
     if nxt is None:
@@ -2865,25 +2882,16 @@ def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
     """A follow-up select shown IN PLACE of the pick panel, for a faction that
     needs a second choice before the seat can be written (Vagabond, Knaves).
 
-    Deliberately re-renders the same seat lines as _pick_panel_data: this replaces
-    the panel message, so dropping them would blank the board mid-pick. The seat
-    whose turn it is is NOT carried here -- like the panel, the follow-up handler
-    re-derives it from the DB, which is what keeps a stale message from driving a
-    write.
+    Re-renders the same seat lines as _pick_panel_data (via _pick_seat_lines):
+    this replaces the panel message, so dropping them would blank the board
+    mid-pick. The seat whose turn it is is NOT carried here -- like the panel, the
+    follow-up handler re-derives it from the DB, which is what keeps a stale
+    message from driving a write.
 
     `faction_slug` rides in the custom_id because the seat has no faction yet:
     the write is deferred until this select resolves, so an abandoned prompt
     leaves the seat untouched rather than stranding it half-recorded."""
-    ordered = thread.seating_set
-    lines = ["**Faction Picks**" if ordered else "**Faction Assignments**", ""]
-    for seat in sorted(seats, key=lambda s: s.seat_number):
-        who = seat.profile.name if seat.profile_id else "(removed player)"
-        prefix = f"{seat.seat_number}. " if ordered else "• "
-        if seat.faction_id:
-            mark = faction_emoji_for(seat.faction.slug) or seat.faction.title
-            lines.append(f"{prefix}{who} — {mark}")
-        else:
-            lines.append(f"{prefix}{who}")
+    lines = _pick_seat_lines(thread, seats)
     lines += ["", placeholder]
 
     select = string_select(
@@ -2936,12 +2944,35 @@ def _pick_captains_panel_data(thread, seats, mode, owner, faction_slug, captains
         min_values=PICK_CAPTAIN_CHOICES, max_values=PICK_CAPTAIN_CHOICES)
 
 
-def _pick_mode_prompt_data(owner):
+def _pick_setup_reminder(thread):
+    """A subtext nudge listing the setup this thread is still missing, or "".
+
+    Names only what's ACTUALLY absent -- a table that already chose a map doesn't
+    need to be told to choose one -- and stays silent when both are set, so the
+    prompt isn't carrying a permanent notice nobody reads.
+
+    Deliberately names NO command. /map and /deck are per-guild (enabled_commands,
+    see _guild_allows), so naming them can point at commands this guild doesn't
+    have -- the same reason the too-few-players message avoids mentioning
+    /seating. It also isn't a requirement: a table can settle its map and deck
+    anywhere, and this only records what the bot happens to know.
+
+    `-#` is Discord's subtext: it renders small and grey, which is what keeps this
+    a reminder rather than an error competing with the question above it."""
+    missing = [name for name, value in (("map", thread.map_id),
+                                        ("deck", thread.deck_id)) if not value]
+    if not missing:
+        return ""
+    return f"\n-# Remember to choose a {' and '.join(missing)} for this game."
+
+
+def _pick_mode_prompt_data(thread, owner):
     """The Players-pick / Assign-all prompt, for a thread that already has a
     seating. Owner-locked: it decides how the whole table proceeds."""
     return {
         "content": ("**Faction Picks** — assign every faction yourself, or let "
-                    "each player pick in seat order?"),
+                    "each player pick in seat order?"
+                    + _pick_setup_reminder(thread)),
         "components": [action_row(
             button("Players pick",
                    encode_custom_id("pick_mode", PICK_MODE_PLAYERS, owner),
@@ -3064,7 +3095,7 @@ def _handle_pick_command(data):
         error = _pick_pool_error(thread, len([s for s in seats if s.profile_id]))
         return error or JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _pick_mode_prompt_data(owner),
+            "data": _pick_mode_prompt_data(thread, owner),
         })
 
     error = _pick_pool_error(thread, len(roster) or len(seats))
@@ -3082,7 +3113,7 @@ def _handle_pick_command(data):
             return _ephemeral("This game doesn't have enough players yet.")
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _pick_mode_prompt_data(owner),
+            "data": _pick_mode_prompt_data(thread, owner),
         })
 
     # No seating. Only offer to seat where the guild actually has /seating --
@@ -3136,7 +3167,7 @@ def _handle_pick_seat(payload):
         return _ephemeral("This game doesn't have enough players yet.")
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _pick_mode_prompt_data(owner),
+        "data": _pick_mode_prompt_data(thread, owner),
     })
 
 
