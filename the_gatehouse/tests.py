@@ -17,13 +17,16 @@ from django.urls import reverse
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 from kombu.exceptions import OperationalError as KombuOperationalError
 from the_warroom.models import (
     Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup, Round, Stage,
     StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
 )
 from the_gatehouse.tasks import update_post_status
-from the_keep.models import StatusChoices, Faction, Map, Deck, Vagabond
+from the_keep.models import (
+    StatusChoices, Faction, Map, Deck, Vagabond, Language, Law, LawGroup,
+)
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
     LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, DEFAULT_PROFILE_IMAGE,
@@ -46,9 +49,11 @@ from the_gatehouse.services.time_parsing import (
     TIMEZONE_REGIONS, timezone_regions, zones_for_region, timezone_label,
     region_for_timezone, describe_timezone, format_utc_offset,
 )
-from the_gatehouse.services.discordservice import build_upcoming_embed
+from the_gatehouse.services.discordservice import (build_upcoming_embed,
+                                                   build_lfg_help_embed, _LFG_LINK_RE)
 from the_gatehouse.services import discordservice as ds
 from the_gatehouse import discord_interactions as di
+from the_gatehouse.templatetags.databot_filters import lfg_body
 
 class UpdatePostStatusTaskTest(TestCase):
     def setUp(self):
@@ -110,8 +115,11 @@ NOW = datetime(2026, 8, 17, 15, 0, tzinfo=dt_timezone.utc)
 
 
 class ParseUserDatetimeTests(TestCase):
-    """The parser accepts absolute date+time and epoch forms, and refuses
-    anything it would have to guess at."""
+    """The parser accepts absolute date+time and epoch forms, resolves dateless
+    inputs to their next occurrence, and refuses what it can't pin down.
+
+    NOW is a Monday, 11:00 EDT — so 9am has passed and 4pm hasn't, which is what
+    the roll-forward cases below turn on."""
 
     def test_discord_timestamp_paste(self):
         when, err = parse_user_datetime("<t:1789000000:F>", None, now=NOW)
@@ -156,10 +164,97 @@ class ParseUserDatetimeTests(TestCase):
         self.assertIsNone(when)
         self.assertIn("time of day", err)
 
-    def test_time_without_date_rejected(self):
-        when, err = parse_user_datetime("8pm", TZ, now=NOW)
+    def _local(self, when):
+        """The parsed instant as wall-clock time in the user's own zone, which is
+        what the roll-forward rules are actually expressed in."""
+        return when.astimezone(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M")
+
+    # ── dateless inputs ──────────────────────────────────────────────────────
+    # A bare time, a day word and a weekday all resolve to the next occurrence of
+    # what was typed. The /schedule confirm step shows the resolved date back
+    # before anything is written, which is what makes the guess safe.
+
+    def test_bare_time_still_ahead_today_stays_today(self):
+        when, err = parse_user_datetime("4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:00")
+
+    def test_bare_time_already_past_rolls_to_tomorrow(self):
+        """The gating case. A bare time also satisfies the year-rollforward's
+        condition ("year" not supplied, instant is past), so if the two rolls
+        aren't mutually exclusive this comes back a year out instead of a day."""
+        when, err = parse_user_datetime("9am", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-18 09:00")
+
+    def test_bare_time_keeps_minutes(self):
+        when, err = parse_user_datetime("4:30pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:30")
+
+    def test_bare_24_hour_time(self):
+        when, err = parse_user_datetime("16:00", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:00")
+
+    def test_bare_time_rolls_across_month_end(self):
+        """timedelta, not .replace(day=...) — 31 Aug + 1 day has to reach September."""
+        end_of_month = datetime(2026, 9, 1, 3, 0, tzinfo=dt_timezone.utc)  # 31 Aug 11pm EDT
+        when, err = parse_user_datetime("9am", TZ, now=end_of_month)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-09-01 09:00")
+
+    def test_bare_time_keeps_wall_clock_across_dst(self):
+        """Rolling over the spring-forward boundary must preserve the hour the user
+        typed, not shift it — ZoneInfo recomputes the offset from the wall clock."""
+        before_dst = datetime(2026, 3, 7, 15, 0, tzinfo=dt_timezone.utc)  # 10am EST
+        when, err = parse_user_datetime("9am", TZ, now=before_dst)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-03-08 09:00")
+
+    def test_weekday_resolves_forward(self):
+        """NOW is a Monday, so "friday" is four days out — NOT tomorrow. Weekdays
+        and bare times are indistinguishable to _supplied_fields (both report just
+        {"hour"}), so this pins the lexical weekday check."""
+        when, err = parse_user_datetime("friday 4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-21 16:00")
+
+    def test_weekday_naming_today_still_ahead_stays_today(self):
+        when, err = parse_user_datetime("monday 4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:00")
+
+    def test_weekday_naming_today_already_past_rolls_a_week(self):
+        """A past weekday means the one next week, not next year — the same gating
+        trap as the bare-time case, one level deeper."""
+        when, err = parse_user_datetime("monday 9am", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-24 09:00")
+
+    def test_tomorrow_keyword(self):
+        when, err = parse_user_datetime("tomorrow 4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-18 16:00")
+
+    def test_today_keyword(self):
+        when, err = parse_user_datetime("today 4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:00")
+
+    def test_today_with_past_time_rejected(self):
+        """"today" pins the date, so there's nothing to roll to. _MAX_PAST is a 24h
+        grace, so without an explicit check this would be accepted as valid."""
+        when, err = parse_user_datetime("today 9am", TZ, now=NOW)
         self.assertIsNone(when)
-        self.assertIn("date", err)
+        self.assertIn("already passed today", err)
+
+    def test_day_word_with_explicit_date_rejected(self):
+        for text in ("tomorrow Mar 15 8pm", "tomorrow friday 4pm"):
+            with self.subTest(text=text):
+                when, err = parse_user_datetime(text, TZ, now=NOW)
+                self.assertIsNone(when)
+                self.assertIn("not both", err)
 
     def test_missing_timezone_returns_sentinel(self):
         when, err = parse_user_datetime("Sep 15 2026 8pm", None, now=NOW)
@@ -562,6 +657,37 @@ class MatchForThreadTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(match)
         self.assertIn("several", err.lower())
 
+    def test_title_fallback_skips_groups_that_are_already_linked(self):
+        """A group linked to a DIFFERENT thread must not be reachable by name.
+
+        Otherwise a second thread sharing the group's title — a duplicate, a
+        rename, a scratch thread — schedules that group's match, and the
+        several-groups guard doesn't fire because only one group matches."""
+        self.group.discord_thread = (
+            f"https://discord.com/channels/{self.guild.guild_id}/111222333")
+        self.group.save(update_fields=["discord_thread"])
+        match, err = di._match_for_thread(
+            "999888777", self.guild.guild_id, channel_name="Group A")
+        self.assertIsNone(match)
+        self.assertIn("couldn't find", err.lower())
+
+    def test_title_fallback_ignores_a_linked_namesake(self):
+        """With one linked and one unlinked group of the same name, the unlinked
+        one is matched instead of tripping the ambiguity guard."""
+        self.group.discord_thread = (
+            f"https://discord.com/channels/{self.guild.guild_id}/111222333")
+        self.group.save(update_fields=["discord_thread"])
+        round2 = Round.objects.create(stage=self.stage, round_number=2)
+        unlinked = PlayerGroup.objects.create(
+            round=round2, group_number=1, name="Group A", discord_thread="")
+        series2 = MatchSeries.objects.create(round=round2, player_group=unlinked)
+        expected = Match.objects.create(round=round2, series=series2)
+
+        match, err = di._match_for_thread(
+            "999888777", self.guild.guild_id, channel_name="Group A")
+        self.assertIsNone(err)
+        self.assertEqual(match, expected)
+
     def test_blank_group_name_not_matched_by_blank_title(self):
         self.group.discord_thread = ""
         self.group.name = ""
@@ -719,6 +845,19 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("Group A", body["data"]["content"])
         self.assertIn("<t:", body["data"]["content"])
         # Nothing is written until Confirm.
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_bare_time_reaches_the_confirm_prompt(self):
+        """A bare time used to be refused outright. It now resolves to the next
+        occurrence and gets the normal confirm prompt — the resolved date is shown
+        back as a <t:...> stamp, which is what makes the guess safe."""
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+        body = self.assertEphemeral(
+            di._handle_schedule_command(self._data(time="4pm")))
+        self.assertIn("<t:", body["data"]["content"])
+        self.assertNotIn("Please include a date", body["data"]["content"])
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
 
@@ -1045,6 +1184,27 @@ class ScheduleTimezoneSelectTests(ScheduleFixtureMixin, TestCase):
         self.assertTrue(confirm["custom_id"].startswith("schedule_confirm:"))
         expected, _err = parse_user_datetime(self.TIME, TZ)
         self.assertEqual(self._confirm_ts(body), int(expected.timestamp()))
+
+    def test_bare_time_is_resolved_in_the_chosen_timezone(self):
+        """A bare time survives the picker and lands on 4pm local in whichever zone
+        was chosen.
+
+        Deliberately does NOT assert a fixed offset between the two coasts, the way
+        the dated case below can. A bare time is resolved relative to "now" in each
+        zone, so for the three UTC hours where 4pm has passed in New York but not in
+        Los Angeles the two roll to different days — asserting 3h here would fail
+        every evening."""
+        for zone in ("America/New_York", "America/Los_Angeles"):
+            with self.subTest(zone=zone):
+                body = self._body(di._handle_schedule_tz_zone(self._payload(
+                    "schedule_tz_zone", self.match.id, "AM", values=[zone],
+                    time_text="4pm")))
+                confirm = body["data"]["components"][0]["components"][0]
+                self.assertTrue(confirm["custom_id"].startswith("schedule_confirm:"))
+                local = datetime.fromtimestamp(
+                    self._confirm_ts(body), tz=ZoneInfo(zone))
+                self.assertEqual((local.hour, local.minute), (16, 0))
+                self.assertGreater(self._confirm_ts(body), 0)
 
     def test_changing_timezone_reparses_the_same_wall_clock_time(self):
         """The headline behavior: 8pm means 8pm wherever you actually are, so
@@ -1678,6 +1838,94 @@ class UpcomingEmbedTimestampTests(ScheduleFixtureMixin, TestCase):
     def test_no_scheduled_field_when_cleared(self):
         self.assertIsNone(self.match.scheduled_time)
         self.assertIsNone(self._scheduled_field(build_upcoming_embed(self.match)))
+
+
+class UpcomingEmbedSummaryTests(ScheduleFixtureMixin, TestCase):
+    """build_upcoming_embed's description. /upcoming keeps its "The next scheduled
+    game" wording; /schedule overrides it, since the match it just wrote isn't
+    necessarily the tournament's next one."""
+
+    def setUp(self):
+        self.build()
+
+    def test_upcoming_wording_is_the_default(self):
+        embed = build_upcoming_embed(self.match)
+        self.assertEqual(embed["description"], "The next scheduled game")
+
+    def test_filters_still_name_themselves(self):
+        embed = build_upcoming_embed(
+            self.match, series=self.tournament, player=self.player)
+        self.assertEqual(
+            embed["description"],
+            f"The next scheduled {self.tournament.name} game for {self.player.discord}")
+
+    def test_summary_override_replaces_description(self):
+        embed = build_upcoming_embed(self.match, summary="Scheduled by player")
+        self.assertEqual(embed["description"], "Scheduled by player")
+
+    def test_summary_none_drops_description(self):
+        # None is distinct from "not passed" — the key is omitted entirely rather
+        # than falling back to the /upcoming wording.
+        self.assertNotIn("description", build_upcoming_embed(self.match, summary=None))
+
+
+class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
+    """Neither /schedule announcement path may reuse /upcoming's "next scheduled
+    game" line — the title already says the match was just scheduled."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=2)).replace(microsecond=0)
+
+    def test_direct_write_names_the_scheduler_without_pinging(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        payload = {
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_confirm", self.match.pk, int(self.when.timestamp()),
+                self.player.discord_id)},
+            "guild_id": self.guild.guild_id,
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_consensus_required", return_value=(False, [])), \
+             mock.patch.object(di.post_interaction_followup_task, "apply_async") as followup:
+            di._handle_schedule_confirm(payload)
+
+        (_token, data), _kwargs = followup.call_args[0][0], followup.call_args[1]
+        description = data["embeds"][0]["description"]
+        self.assertEqual(description, f"Scheduled by {self.player.discord}")
+        self.assertNotIn("next scheduled", description)
+        # A raw mention would ping the clicker: this followup sets no
+        # allowed_mentions, so the name must stay plain text.
+        self.assertNotIn("<@", description)
+
+    def test_consensus_finalized_view_has_no_description(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player)
+        proposal.confirmed_by.add(self.player)
+
+        embed = di._schedule_finalized_data(proposal, self.match)["embeds"][0]
+        self.assertNotIn("description", embed)
+        self.assertIn("scheduled", embed["title"])
+        # The roster field is what reports who agreed; it survives the override.
+        self.assertTrue(
+            any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
+
+    def test_builder_failure_falls_back_without_doubling_the_title(self):
+        """The fallback title is prefixed and suffixed by the caller below it, so it
+        must not carry its own '🗓️'/'scheduled' — that read '🗓️ 🗓️ Scheduled
+        scheduled'."""
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player)
+        with mock.patch.object(di, "build_upcoming_embed", side_effect=ValueError):
+            embed = di._schedule_finalized_data(proposal, self.match)["embeds"][0]
+
+        self.assertEqual(embed["title"].count("🗓️"), 1)
+        self.assertEqual(embed["title"].lower().count("scheduled"), 1)
+        self.assertTrue(
+            any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
 
 
 class ScheduleAutocompleteTests(TestCase):
@@ -2378,6 +2626,170 @@ class LFGCommandShapeTests(TestCase):
                             for c in self._type_option(cmd)["choices"]))
 
 
+class HelpCommandShapeTests(TestCase):
+    """/help gains a `category` dropdown only where /lfg is enabled, mirroring the
+    SINGLE/MULTI flip /lfg itself uses."""
+
+    def _category_option(self, cmd):
+        return next((o for o in cmd["options"] if o["name"] == "category"), None)
+
+    def test_without_lfg_the_option_less_variant_is_registered(self):
+        for enabled in ([], ["stats"], ["stats", "record"]):
+            with self.subTest(enabled=enabled):
+                cmd = dc.help_command_for_guild(enabled)
+                self.assertIsNone(self._category_option(cmd))
+
+    def test_with_lfg_an_optional_category_dropdown_is_registered(self):
+        cmd = dc.help_command_for_guild(["lfg", "stats"])
+        opt = self._category_option(cmd)
+        self.assertIsNotNone(opt)
+        # Optional so a bare /help keeps returning the command list, as in every other
+        # server.
+        self.assertFalse(opt["required"])
+
+    def test_commands_is_listed_first(self):
+        """Discord can't preselect a choice, so first-in-list is how Commands stays the
+        obvious default."""
+        opt = self._category_option(dc.help_command_for_guild(["lfg"]))
+        self.assertEqual([c["value"] for c in opt["choices"]],
+                         [dc.HELP_CATEGORY_COMMANDS, dc.HELP_CATEGORY_LFG])
+
+    def test_mutating_a_returned_definition_leaves_the_singleton_pristine(self):
+        cmd = dc.help_command_for_guild(["lfg"])
+        self._category_option(cmd)["choices"].append({"name": "X", "value": "x"})
+        self.assertEqual(len(self._category_option(dc.HELP_COMMAND_LFG)["choices"]), 2)
+
+    def test_help_is_never_whitelistable(self):
+        self.assertNotIn("help", dc.WHITELISTABLE)
+
+
+class LFGHelpContentTests(TestCase):
+    """The LFG walkthrough is shared by the Databot page and /help category:LFG, so the
+    copy has to stay renderable by both."""
+
+    def _bodies(self):
+        return [dc.LFG_HELP_INTRO] + [s["body"] for s in dc.LFG_HELP_STEPS]
+
+    def test_every_link_target_resolves(self):
+        """A renamed URL would raise NoReverseMatch inside a slash-command response —
+        a dead bot, not just a dead link."""
+        for body in self._bodies():
+            for _, url_name in _LFG_LINK_RE.findall(body):
+                with self.subTest(url_name=url_name):
+                    reverse(url_name)
+
+    def test_every_referenced_command_exists(self):
+        for step in dc.LFG_HELP_STEPS:
+            for name, _ in step.get("commands", []):
+                with self.subTest(command=name):
+                    self.assertIn(name, dc.WHITELISTABLE)
+
+    def test_embed_stays_within_discord_limits_without_truncating(self):
+        embed = build_lfg_help_embed()
+        total = len(embed["title"]) + len(embed["description"])
+        for field in embed["fields"]:
+            self.assertLess(len(field["name"]), 256)
+            self.assertLess(len(field["value"]), 1024)
+            # _enforce_embed_limits would clip with an ellipsis; nothing should hit it.
+            self.assertFalse(field["value"].endswith("…"))
+            total += len(field["name"]) + len(field["value"])
+        self.assertLess(total, 6000)
+
+    def test_embed_expands_every_link_to_a_real_url(self):
+        embed = build_lfg_help_embed()
+        rendered = embed["description"] + "".join(f["value"] for f in embed["fields"])
+        self.assertFalse(_LFG_LINK_RE.search(rendered),
+                         "an unexpanded [label](url-name) reached Discord")
+
+    def test_filter_expands_every_markup_rule(self):
+        for body in self._bodies():
+            with self.subTest(body=body[:40]):
+                html = lfg_body(body)
+                self.assertNotIn("`", html)
+                self.assertNotIn("](", html)
+                self.assertNotIn("*", html)
+
+    def test_filter_escapes_before_expanding_markup(self):
+        html = lfg_body("<script>alert(1)</script> and `/record`")
+        self.assertIn("&lt;script&gt;", html)
+        self.assertNotIn("<script>", html)
+        self.assertIn('<code class="databot-inline-cmd">/record</code>', html)
+
+    def test_step_commands_render_as_chips_after_the_body(self):
+        """Step 3's body ends in a colon introducing its chips."""
+        step = next(s for s in dc.LFG_HELP_STEPS if s.get("commands"))
+        value = build_lfg_help_embed()["fields"][dc.LFG_HELP_STEPS.index(step)]["value"]
+        self.assertIn(step["body"].rstrip()[-20:], value)
+        for name, _ in step["commands"]:
+            self.assertIn(f"`/{name}`", value)
+
+
+class HelpCommandHandlerTests(TestCase):
+    """/help dispatches on `category`, defaulting to the command list."""
+
+    def _help(self, **data):
+        return json.loads(di._handle_help_command(data).content)["data"]
+
+    def test_lfg_category_returns_the_walkthrough(self):
+        data = self._help(options=[{"name": "category", "value": dc.HELP_CATEGORY_LFG}])
+        self.assertEqual(data["embeds"][0]["title"], "How to Use LFG")
+
+    def test_bare_help_still_returns_the_command_list(self):
+        self.assertEqual(self._help()["embeds"][0]["title"], "Bot Commands")
+
+    def test_commands_category_returns_the_command_list(self):
+        data = self._help(options=[{"name": "category",
+                                    "value": dc.HELP_CATEGORY_COMMANDS}])
+        self.assertEqual(data["embeds"][0]["title"], "Bot Commands")
+
+    def test_both_categories_stay_ephemeral(self):
+        for options in ([], [{"name": "category", "value": dc.HELP_CATEGORY_LFG}]):
+            with self.subTest(options=options):
+                self.assertEqual(self._help(options=options)["flags"], di.EPHEMERAL)
+
+
+class RegisterGuildCommandsBodyTests(TestCase):
+    """The PUT body carries the per-guild variants of BOTH /help and /lfg — the two
+    substitutions must not clobber each other."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="700500", name="Body Guild")
+
+    def _body(self):
+        captured = {}
+
+        def fake_put(url, headers=None, json=None, timeout=None):
+            captured["body"] = json
+            return mock.Mock(raise_for_status=mock.Mock())
+
+        with mock.patch.object(ds.requests, "put", side_effect=fake_put), \
+             mock.patch.object(ds, "_bot_headers", return_value={}):
+            self.assertTrue(ds.register_guild_commands(self.guild))
+        return {c["name"]: c for c in captured["body"]}
+
+    def _opts(self, cmd):
+        return [o["name"] for o in cmd["options"]]
+
+    def test_without_lfg_help_has_no_category(self):
+        self.guild.enabled_commands = ["stats"]
+        self.guild.save()
+        body = self._body()
+        self.assertEqual(self._opts(body["help"]), [])
+        self.assertNotIn("lfg", body)
+
+    def test_with_lfg_both_help_and_lfg_get_their_variants(self):
+        """Regression: substituting /lfg off the pre-substitution list silently dropped
+        the /help swap, so LFG guilds never got the category dropdown."""
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.save()
+        for _ in range(2):
+            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % _,
+                                        role_id=str(100000000000000700 + _))
+        body = self._body()
+        self.assertIn("category", self._opts(body["help"]))
+        self.assertIn("type", self._opts(body["lfg"]))
+
+
 class EditGuildCommandSyncTests(_NoLoginSignalMixin, TestCase):
     """The guild form re-registers commands only when the enabled set actually changed."""
 
@@ -2558,21 +2970,27 @@ class DraftLFGSeatingTests(TestCase):
                 self._build_payload(self.THREAD_ID, guild_id=guild.guild_id))
         enqueue.assert_called_once()
 
-    def test_existing_seating_warns_before_overwriting(self):
+    def test_no_offer_when_the_thread_is_already_seated(self):
+        """A reroll must not assume the drafter wants to reseat the table: the
+        prompt's confirm button REPLACES the current order. Reseating stays
+        available through /seating, which keeps its Overwrite warning."""
         self._roster(3)
         LFGSeat.objects.create(
             thread=self.thread,
             profile=Profile.objects.get(discord_id="901"),
             seat_number=1)
-        # seating_set is what marks these seats as a real seating; /pick can leave
-        # seat rows behind with no seating order, and those must not warn.
         self.thread.seating_set = True
         self.thread.save(update_fields=["seating_set"])
-        message = self._offer(self.THREAD_ID).call_args.args[0][1]
-        self.assertIn("overwrite", message["content"].lower())
-        confirm = message["components"][0]["components"][0]
-        self.assertEqual(confirm["label"], "Overwrite")
-        self.assertEqual(confirm["style"], di.STYLE_DANGER)
+        self._offer(self.THREAD_ID).assert_not_called()
+
+    def test_filler_seats_from_pick_still_get_the_offer(self):
+        """/pick can assign factions without seating, leaving seat rows with filler
+        numbers and seating_set False -- that table has never been seated, so the
+        offer must still go out. Keying the skip on seats.exists() would break it."""
+        profiles = self._roster(3)
+        for i, profile in enumerate(profiles, 1):
+            LFGSeat.objects.create(thread=self.thread, profile=profile, seat_number=i)
+        self._offer(self.THREAD_ID).assert_called_once()
 
     # ── seating ─────────────────────────────────────────────────────────────
     def _seat(self, channel_id=None):
@@ -2581,6 +2999,21 @@ class DraftLFGSeatingTests(TestCase):
         with mock.patch.object(di.post_channel_message_task, "delay") as post:
             response = di._handle_draft_seat(payload)
         return response, post
+
+    def test_reseating_an_already_seated_thread_bumps_last_activity(self):
+        """The seating_set flag is already True on a re-seat, so the save that
+        keeps last_activity fresh must not be conditional on it -- otherwise an
+        actively-reseated table ages toward the cleanup task."""
+        self._roster(3)
+        self._seat()
+        stale = timezone.now() - timedelta(days=200)
+        LFGThread.objects.filter(pk=self.thread.pk).update(last_activity=stale)
+
+        self._seat()
+
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.seating_set)
+        self.assertGreater(self.thread.last_activity, stale)
 
     def test_seating_persists_and_posts(self):
         self._roster(3)
@@ -3390,7 +3823,9 @@ class PickCommandTests(TestCase):
     def test_a_player_out_of_turn_is_refused_and_nothing_is_written(self):
         players = self._roster(3)
         data = self._select(self.factions[0].slug, players[0].discord_id)
-        self.assertIn("pick right now", data["content"])
+        # Names whose turn it actually is, so the refused player knows who to wait on.
+        self.assertEqual(data["content"],
+                         f"It's {players[2].name}'s turn to pick a faction.")
         self.assertFalse(self.thread.seats.exclude(faction=None).exists())
 
     def test_the_turn_player_persists_their_faction(self):
@@ -3607,6 +4042,21 @@ class PickVagabondFollowUpTests(TestCase):
         }
         return json.loads(di._handle_pick_faction(payload).content)["data"]
 
+    def test_committing_a_faction_bumps_the_threads_last_activity(self):
+        """The commit saves the SEAT, so the parent needs its own bump -- without
+        it, a thread being actively picked in ages toward the cleanup task."""
+        stale = timezone.now() - timedelta(days=200)
+        LFGThread.objects.filter(pk=self.thread.pk).update(last_activity=stale)
+
+        # The LAST seat picks first, so players[1] is the valid clicker.
+        self._select(self.other.slug, self.players[1].discord_id)
+
+        self.thread.refresh_from_db()
+        self.assertEqual(
+            self.thread.seats.get(profile=self.players[1]).faction_id,
+            self.other.pk)
+        self.assertGreater(self.thread.last_activity, stale)
+
     def _choose_vagabond(self, slug, clicker, faction_slug=None):
         payload = {
             "channel_id": self.THREAD_ID,
@@ -3696,7 +4146,9 @@ class PickVagabondFollowUpTests(TestCase):
         player clicking out of turn itself."""
         self._select(self.vagabond_faction.slug, self.players[1].discord_id)
         data = self._choose_vagabond(self.ranger.slug, self.players[0].discord_id)
-        self.assertIn("pick right now", data["content"])
+        # Still players[1]'s turn: their faction is in, but the vagabond isn't chosen.
+        self.assertEqual(data["content"],
+                         f"It's {self.players[1].name}'s turn to pick a faction.")
         self.assertIsNone(self._last_seat().vagabond_id)
 
 
@@ -5887,3 +6339,299 @@ class EditGuildClaimTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         bot.assert_not_called()
         manage.assert_not_called()
+
+
+# ── /law embed author breadcrumb ─────────────────────────────────────────────
+
+class LawAuthorBreadcrumbTests(TestCase):
+    """The /law embed's author line: the group's prime-law title, plus the law's
+    IMMEDIATE parent when that parent isn't the prime law itself.
+
+    Only the direct parent is ever named, at any depth — the line used to carry
+    the two nearest ancestors with a " ... " marking elided levels, which made it
+    long and gave it a different shape at different depths."""
+
+    def setUp(self):
+        self.language = Language.objects.create(name="English", code="en")
+        self.group = LawGroup.objects.create(
+            title="Vagabond", abbreviation="V", public=True, slug="vagabond")
+        # prime -> Relationships -> Improving Relationships -> Aid -> Deep
+        self.prime = self._law("Vagabond", parent=None, prime_law=True)
+        self.l1 = self._law("Relationships", parent=self.prime)
+        self.l2 = self._law("Improving Relationships", parent=self.l1)
+        self.l3 = self._law("Aid", parent=self.l2)
+        self.l4 = self._law("Deep", parent=self.l3)
+
+    def _law(self, title, parent, prime_law=False, group=None):
+        return Law.objects.create(
+            group=group or self.group, language=self.language, title=title,
+            parent=parent, prime_law=prime_law)
+
+    # Distinct from None, so a test can pass prime=None (a group with no prime
+    # law) without it being read as "use the default".
+    UNSET = object()
+
+    def crumb(self, law, prime=UNSET, group=None):
+        prime = self.prime if prime is self.UNSET else prime
+        return ds._law_author_breadcrumb(law, prime, group or self.group)
+
+    def test_prime_law_itself_shows_only_the_prime(self):
+        self.assertEqual(self.crumb(self.prime), "Vagabond")
+
+    def test_direct_child_of_prime_shows_only_the_prime(self):
+        """The law's own title is already the embed title, so naming the prime as
+        its parent too would just repeat it."""
+        self.assertEqual(self.crumb(self.l1), "Vagabond")
+
+    def test_grandchild_names_its_parent(self):
+        self.assertEqual(self.crumb(self.l2), "Vagabond - Relationships")
+
+    def test_deeper_law_names_only_its_direct_parent(self):
+        """Previously "Vagabond - Relationships - Improving Relationships" — the
+        grandparent is no longer carried."""
+        self.assertEqual(self.crumb(self.l3), "Vagabond - Improving Relationships")
+
+    def test_deepest_law_drops_the_ellipsis(self):
+        """Previously "Vagabond ... Improving Relationships - Aid"."""
+        self.assertEqual(self.crumb(self.l4), "Vagabond - Aid")
+
+    def test_no_depth_produces_an_ellipsis(self):
+        for law in (self.prime, self.l1, self.l2, self.l3, self.l4):
+            with self.subTest(law=law.title):
+                self.assertNotIn("...", self.crumb(law))
+
+    # ── edges ────────────────────────────────────────────────────────────────
+    def test_orphaned_chain_still_names_the_direct_parent(self):
+        """A law whose ancestors never reach the prime. The old code flagged this
+        with the " ... "; now the parent is simply named."""
+        orphan_parent = self._law("Orphan A", parent=None)
+        orphan = self._law("Orphan B", parent=orphan_parent)
+        self.assertEqual(self.crumb(orphan), "Vagabond - Orphan A")
+
+    def test_group_title_is_the_base_when_there_is_no_prime_law(self):
+        other = LawGroup.objects.create(
+            title="Marquise", abbreviation="M", public=True, slug="marquise")
+        parent = self._law("Cats", parent=None, group=other)
+        child = self._law("Wood", parent=parent, group=other)
+        self.assertEqual(self.crumb(child, prime=None, group=other),
+                         "Marquise - Cats")
+
+    def test_blank_parent_title_degrades_to_the_base(self):
+        """Rather than emitting a dangling " - "."""
+        blank = self._law("", parent=self.prime)
+        child = self._law("Child", parent=blank)
+        self.assertEqual(self.crumb(child), "Vagabond")
+
+    def test_embed_author_uses_the_breadcrumb(self):
+        """The whole point of the function — confirm it reaches the embed."""
+        embed = ds.build_law_embed(self.l3)
+        self.assertEqual(embed["author"]["name"],
+                         "Vagabond - Improving Relationships")
+
+
+class LFGThreadCleanupTaskTests(TestCase):
+    """cleanup_stale_lfg_threads: two windows, one for recorded threads and one
+    for abandoned ones, both keyed on last_activity."""
+
+    def _thread(self, thread_id, days_idle, **kw):
+        """Create a thread idle for `days_idle`. Pass every field via **kw:
+        backdating has to be the FINAL write, because LFGThread.save() bumps
+        last_activity on any save that doesn't name it."""
+        t = LFGThread.objects.create(thread_id=thread_id, **kw)
+        t.last_activity = timezone.now() - timedelta(days=days_idle)
+        t.save(update_fields=["last_activity"])
+        return t
+
+    # ── policy ──
+    def test_recorded_thread_past_the_grace_period_is_deleted(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000001", 45,
+                     status=LFGThread.Status.RECORDED)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_freshly_recorded_thread_survives(self):
+        """/record's duplicate guard is `if thread.game_id` — deleting the row
+        early makes the next /record offer a blank form."""
+        from the_gatehouse import tasks
+        self._thread("900000000000000002", 5,
+                     status=LFGThread.Status.RECORDED)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+    def test_open_thread_inside_the_long_window_survives(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000003", 90)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+    def test_abandoned_open_thread_is_deleted(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000004", 200)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_save_progress_draft_game_is_not_treated_as_recorded(self):
+        """game set but status OPEN is a game still being written. Keying the
+        short window on game_id instead of status would delete it."""
+        from the_gatehouse import tasks
+        game = Game.objects.create()
+        self._thread("900000000000000005", 45, game=game,
+                     status=LFGThread.Status.OPEN)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+    def test_series_threads_follow_the_same_idle_rule(self):
+        """Tournament group threads get no exemption."""
+        from the_gatehouse import tasks
+        designer = Profile.objects.create(discord="seriesdesigner",
+                                          discord_id="960000000000000001")
+        tournament = Tournament.objects.create(name="Cleanup Cup",
+                                               designer=designer)
+        stage = Stage.objects.create(tournament=tournament, name="Stage 1",
+                                     order=1)
+        round_ = Round.objects.create(stage=stage, round_number=1)
+        series = MatchSeries.objects.create(round=round_, number_of_games=1)
+        self._thread("900000000000000006", 200, series=series)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_cancelled_thread_uses_the_short_window(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000007", 45,
+                     status=LFGThread.Status.CANCELLED)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
+
+    def test_nothing_to_delete_returns_zero(self):
+        from the_gatehouse import tasks
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
+
+    # ── cascade / survival ──
+    def test_children_go_with_the_thread(self):
+        from the_gatehouse import tasks
+        thread = self._thread("900000000000000008", 200)
+        designer = Profile.objects.create(discord="cascadedesigner",
+                                          discord_id="960000000000000002")
+        faction = Faction.objects.create(title="Cascade Cats", animal="Cat",
+                                         designer=designer, slug="cascade-cats")
+        LFGRoll.objects.create(thread=thread, kind="Faction", slug="cascade-cats")
+        draft = LFGDraft.objects.create(thread=thread, players=4)
+        LFGDraftPick.objects.create(draft=draft, faction=faction, order=1)
+        LFGSeat.objects.create(thread=thread, seat_number=1)
+
+        tasks.cleanup_stale_lfg_threads()
+
+        self.assertFalse(LFGRoll.objects.exists())
+        self.assertFalse(LFGDraft.objects.exists())
+        self.assertFalse(LFGDraftPick.objects.exists())
+        self.assertFalse(LFGSeat.objects.exists())
+
+    def test_the_recorded_game_survives_its_thread(self):
+        """LFGThread.game is SET_NULL, so only the scaffolding is discarded."""
+        from the_gatehouse import tasks
+        game = Game.objects.create()
+        self._thread("900000000000000009", 45, game=game,
+                     status=LFGThread.Status.RECORDED)
+        tasks.cleanup_stale_lfg_threads()
+        self.assertTrue(Game.objects.filter(pk=game.pk).exists())
+
+    # ── safety ──
+    def test_dry_run_reports_without_deleting(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000010", 200)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(dry_run=True), 1)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+    def test_limit_caps_a_run(self):
+        from the_gatehouse import tasks
+        for i in range(5):
+            self._thread(f"90000000000000002{i}", 200)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(limit=2), 2)
+        self.assertEqual(LFGThread.objects.count(), 3)
+
+    def test_limit_takes_the_oldest_first(self):
+        from the_gatehouse import tasks
+        oldest = self._thread("900000000000000031", 400)
+        self._thread("900000000000000032", 300)
+        self._thread("900000000000000033", 200)
+        tasks.cleanup_stale_lfg_threads(limit=1)
+        self.assertFalse(LFGThread.objects.filter(pk=oldest.pk).exists())
+        self.assertEqual(LFGThread.objects.count(), 2)
+
+    def test_deletion_spans_multiple_chunks(self):
+        from the_gatehouse import tasks
+        for i in range(5):
+            self._thread(f"90000000000000004{i}", 200)
+        with mock.patch.object(tasks, "_LFG_DELETE_CHUNK", 2):
+            self.assertEqual(tasks.cleanup_stale_lfg_threads(), 5)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_the_two_windows_are_independent(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000051", 45,
+                     status=LFGThread.Status.RECORDED)
+        self._thread("900000000000000052", 45)
+        self.assertEqual(
+            tasks.cleanup_stale_lfg_threads(recorded_after_days=0,
+                                            stale_after_days=9999), 1)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+
+class LFGThreadLastActivityTests(TestCase):
+    """LFGThread.save() keeps last_activity current even on the narrow
+    update_fields writes that dominate this model's call sites."""
+
+    THREAD_ID = "910000000000000001"
+
+    def setUp(self):
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.stale = timezone.now() - timedelta(days=200)
+        self.thread.last_activity = self.stale
+        self.thread.save(update_fields=["last_activity"])
+
+    def _bumped(self):
+        self.thread.refresh_from_db()
+        return self.thread.last_activity > self.stale
+
+    def test_create_sets_a_fresh_timestamp(self):
+        """Covers the _state.adding guard: an insert must not be widened."""
+        fresh = LFGThread.objects.create(thread_id="910000000000000099")
+        self.assertGreater(fresh.last_activity,
+                           timezone.now() - timedelta(minutes=1))
+
+    def test_narrow_nickname_save_bumps_last_activity(self):
+        self.thread.nickname = "Renamed"
+        self.thread.save(update_fields=["nickname"])
+        self.assertTrue(self._bumped())
+
+    def test_narrow_seating_save_bumps_last_activity(self):
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        self.assertTrue(self._bumped())
+
+    def test_narrow_game_status_save_bumps_last_activity(self):
+        """The write the_warroom's record view makes."""
+        self.thread.status = LFGThread.Status.RECORDED
+        self.thread.save(update_fields=["game", "status"])
+        self.assertTrue(self._bumped())
+
+    def test_an_explicit_last_activity_write_is_respected(self):
+        """Every fixture in these tests depends on this escape hatch."""
+        pinned = timezone.now() - timedelta(days=300)
+        self.thread.last_activity = pinned
+        self.thread.save(update_fields=["last_activity"])
+        self.thread.refresh_from_db()
+        self.assertAlmostEqual(self.thread.last_activity, pinned,
+                               delta=timedelta(seconds=1))
+
+    def test_capturing_a_roll_bumps_the_thread(self):
+        """Rolls are children, so nothing else would touch the parent."""
+        from the_gatehouse import tasks
+        designer = Profile.objects.create(discord="bumpdesigner",
+                                          discord_id="960000000000000003")
+        Faction.objects.create(title="Bump Birds", animal="Bird",
+                               designer=designer, slug="bump-birds")
+        tasks.record_lfg_components_task(
+            self.THREAD_ID, [{"kind": "Faction", "slug": "bump-birds"}],
+            source="random")
+        self.assertTrue(self._bumped())

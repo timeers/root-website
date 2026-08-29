@@ -431,15 +431,15 @@ def process_small_images(sender, instance, **kwargs):
                 if small_file and hasattr(small_file, 'path') and os.path.exists(small_file.path):
                     try:
                         delete_old_image(small_file)
-                    except Exception as e:
-                        print(f"Error deleting old image: {e}")
+                    except Exception:
+                        logger.exception("Could not delete the old image for %s", small_field_name)
 
                 unique_name = f"{uuid.uuid4().hex}.webp"
                 getattr(instance, small_field_name).save(unique_name, ContentFile(img_io.read()), save=False)
                 updated_fields.append(small_field_name)
 
-            except Exception as e:
-                print(f"Error processing {small_field_name}: {e}")
+            except Exception:
+                logger.exception("Could not generate %s for %r", small_field_name, instance)
 
     if updated_fields:
         setattr(instance, flag, True)
@@ -493,9 +493,9 @@ def generate_small_images(sender, instance, **kwargs):
                 try:
                     # os.remove(small_field.path)
                     delete_old_image(small_field)
-                    print(f"Deleted old small image: {small_field.path}")
-                except Exception as e:
-                    print(f"Could not delete old small image: {e}")
+                    logger.debug("Deleted old small image: %s", small_field.path)
+                except Exception:
+                    logger.exception("Could not delete old small image %s", small_field.path)
 
 
             # Generate unique name and save to small field
@@ -504,8 +504,8 @@ def generate_small_images(sender, instance, **kwargs):
             updated_fields.append(small_field_name)
 
 
-        except Exception as e:
-            print(f"Error processing {small_field_name}: {e}")
+        except Exception:
+            logger.exception("Could not generate %s for %r", small_field_name, instance)
 
     # # Save all updated fields at once
     if updated_fields:

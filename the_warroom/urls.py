@@ -209,7 +209,7 @@ urlpatterns = [
     # Specific suffixes before the bare slug route, matching the series block above.
     path('elo/<slug:slug>/games/', elo_system_games_page, name='elo-system-games-page'),
     path('elo/<slug:slug>/details/', elo_system_details_page, name='elo-system-details-page'),
-    path('elo/<slug:slug>/leaderboard', elo_system_leaderboard_view, name='elo-system-leaderboard-page'),
+    path('elo/<slug:slug>/leaderboard/', elo_system_leaderboard_view, name='elo-system-leaderboard-page'),
     path('elo/<slug:slug>/', elo_system_leaderboard_view, name='elo-system-home-page'),
 
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),

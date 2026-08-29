@@ -2058,7 +2058,7 @@ def manage_game_v2(request, id=None):
                             # can't read yet (or that a later error rolls back).
                             # Bind the args as defaults -- a bare closure resolves the
                             # names at commit time, long after this view moves on.
-                            _message = f'[{parent.display_title()}]({site}{parent.get_absolute_url()})'
+                            _message = f'Game submitted! See the results [here]({site}{parent.get_absolute_url()}).'
                             transaction.on_commit(
                                 lambda tid=lfgthread.thread_id, msg=_message:
                                     post_channel_message_task.delay(tid, msg))
@@ -2072,7 +2072,7 @@ def manage_game_v2(request, id=None):
                         _thread_id = _match_thread_id(match)
                         site = (settings.SITE_URL or '').rstrip('/')
                         if _thread_id and site:
-                            _message = f'[{parent.display_title()}]({site}{parent.get_absolute_url()})'
+                            _message = f'Game submitted! See the results [here]({site}{parent.get_absolute_url()})'
                             transaction.on_commit(
                                 lambda tid=_thread_id, msg=_message:
                                     post_channel_message_task.delay(tid, msg))
@@ -8898,10 +8898,27 @@ def _elo_base_context(request, elo_system):
     every tab (the leaderboard tab then overwrites it with the identical count
     from its paginator).
     """
+    # Link-unfurl metadata. An EloSystem has no description field, so the
+    # description is built from the name plus where the system is calculated --
+    # the same distinction elo_system_details.html draws in prose. Each template
+    # appends its own tab name via meta_page_suffix.
+    if elo_system.calculation_type == EloSystem.CalculationType.LOCAL:
+        meta_description = _(
+            'ELO ratings and rankings for the %(name)s system, calculated on the '
+            'Root Database.'
+        ) % {'name': elo_system.name}
+    else:
+        meta_description = _(
+            'ELO ratings and rankings for the %(name)s system, calculated on the '
+            '%(source)s website.'
+        ) % {'name': elo_system.name,
+             'source': elo_system.get_calculation_type_display()}
     return {
         'elo_system': elo_system,
         'object': elo_system,
         'participants_count': elo_system.participants.count(),
+        'meta_title': elo_system.name,
+        'meta_description': meta_description,
     }
 
 

@@ -1597,7 +1597,8 @@ def woodland_warriors_info(request):
 def databot_info(request):
     """Public landing page for the Root Database Discord bot: what it does, its
     commands, and an 'Add to Server' invite. No login required."""
-    from .services.discord_commands import grouped_commands
+    from .services.discord_commands import (grouped_commands, LFG_HELP_INTRO,
+                                            LFG_HELP_STEPS)
     from urllib.parse import quote
 
     with open('/etc/config.json') as config_file:
@@ -1635,6 +1636,10 @@ def databot_info(request):
     return render(request, 'the_gatehouse/databot_info.html', {
         'invite_url': invite_url,
         'command_groups': list(grouped_commands()),  # [(group, [(name, desc), ...]), ...]
+        # Same copy /help category:LFG renders; bodies carry inline markup expanded by
+        # the `lfg_body` filter.
+        'lfg_intro': LFG_HELP_INTRO,
+        'lfg_steps': LFG_HELP_STEPS,
         'can_receive_dms': can_receive_dms,
         'user_is_authenticated': request.user.is_authenticated,
     })

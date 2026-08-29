@@ -818,8 +818,10 @@ def record_lfg_components_task(channel_id, items, source="", draft=None):
                 if obj:
                     setattr(thread, field, obj)
                     touched.append(field)
-        if touched:
-            thread.save(update_fields=sorted(set(touched)))
+        # Saved even when nothing was touched: the rolls above are children, so
+        # without this a /random faction roll would leave last_activity stale and
+        # age an actively-used thread toward cleanup. save() supplies the field.
+        thread.save(update_fields=sorted(set(touched)))
 
         if draft:
             _replace_lfg_draft(thread, draft)
@@ -978,3 +980,84 @@ def cleanup_stale_schedule_proposals(max_age_days=14):
     strip_schedule_proposal_messages_task.delay(ids, "expired")
     logger.info("Retired %d stale schedule proposals", len(ids))
     return len(ids)
+
+
+# Deletion chunk size. Each LFGThread drags four cascade tables (roll_log,
+# draft -> picks, seats), so the rows deleted are a multiple of this.
+_LFG_DELETE_CHUNK = 200
+
+
+@shared_task
+def cleanup_stale_lfg_threads(recorded_after_days=30, stale_after_days=180,
+                              limit=None, dry_run=False):
+    """Delete LFGThread rows that no longer have a job to do, and their captured
+    roll/draft/seat history with them (all CASCADE).
+
+    Two independently-tunable windows, because "done" and "abandoned" are
+    different risks:
+
+      recorded_after_days -- the thread's game is recorded and final. NOT deleted
+        immediately: /record's only duplicate guard is `if thread.game_id`
+        (_handle_record_command), so removing the row the day a game is recorded
+        means the next /record in that Discord thread offers a blank form and
+        invites a duplicate Game.
+
+      stale_after_days -- an abandoned thread. Keyed on `last_activity`, not
+        `created_at`: a long-running game is not a dead one.
+
+    Keyed on STATUS, not game_id, and that distinction is load-bearing: a
+    save-progress draft game sets `game` but leaves status OPEN
+    (the_warroom/views.py, the lfg_mode block), so keying on game_id would delete
+    a thread whose game is still being written. CANCELLED rides along with
+    RECORDED -- nothing writes it today, but if something starts to, the short
+    window is the behaviour it should inherit.
+
+    Tournament group threads (`series` set) get no exemption: they follow the
+    same idle rule as everything else.
+
+    The recorded Game itself SURVIVES: LFGThread.game is a OneToOne with
+    SET_NULL, so only the scaffolding that fed the game form is discarded.
+
+    dry_run returns the count without deleting; limit caps a single run,
+    oldest-first, for a cautious first pass.
+
+    Runs on a schedule created in Django admin (django_celery_beat) -- this
+    project uses DatabaseScheduler, so there is no beat_schedule in code.
+    Returns the number of threads deleted (or that would be)."""
+    now = timezone.now()
+
+    done = Q(
+        status__in=[LFGThread.Status.RECORDED, LFGThread.Status.CANCELLED],
+        last_activity__lt=now - timedelta(days=recorded_after_days),
+    )
+    abandoned = Q(last_activity__lt=now - timedelta(days=stale_after_days))
+
+    ids = list(LFGThread.objects.filter(done | abandoned)
+               .order_by("last_activity").values_list("pk", flat=True))
+    if limit:
+        ids = ids[:int(limit)]
+    if not ids:
+        return 0
+
+    if dry_run:
+        logger.info("cleanup_stale_lfg_threads DRY RUN: would delete %d threads "
+                    "(recorded_after_days=%s stale_after_days=%s)",
+                    len(ids), recorded_after_days, stale_after_days)
+        return len(ids)
+
+    deleted = 0
+    # Chunked, one transaction each: a large run cascades into four tables, and a
+    # partial success is fine for an idempotent cleanup that reruns weekly --
+    # holding those locks across the whole set is not.
+    for start in range(0, len(ids), _LFG_DELETE_CHUNK):
+        chunk = ids[start:start + _LFG_DELETE_CHUNK]
+        with transaction.atomic():
+            count, _by_model = LFGThread.objects.filter(pk__in=chunk).delete()
+        deleted += len(chunk)
+        logger.debug("Deleted LFG thread chunk of %d (%d rows incl. children)",
+                     len(chunk), count)
+
+    logger.info("Deleted %d stale LFG threads (recorded_after_days=%s "
+                "stale_after_days=%s limit=%s)",
+                deleted, recorded_after_days, stale_after_days, limit)
+    return deleted

@@ -111,9 +111,11 @@ class LFGDraftAdmin(admin.ModelAdmin):
     inlines = [LFGDraftPickInline]
 
 class LFGThreadAdmin(admin.ModelAdmin):
-    list_display = ['thread_id', 'guild', 'lfg_role', 'map', 'deck', 'created_at']
+    list_display = ['thread_id', 'guild', 'lfg_role', 'map', 'deck', 'status',
+                    'created_at', 'last_activity']
+    list_filter = ['status']
     search_fields = ['thread_id', 'description', 'guild__name']
-    readonly_fields = ['thread_id', 'created_at']
+    readonly_fields = ['thread_id', 'created_at', 'last_activity']
     filter_horizontal = ['players']
     inlines = [LFGSeatInline, LFGDraftInline, LFGRollInline]
 

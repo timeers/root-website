@@ -100,7 +100,7 @@ SCHEDULE_COMMAND = {
         # Optional so that omitting it means "clear the current time" (the handler
         # asks for confirmation first, and errors when there's nothing to clear).
         {"name": "time",
-         "description": 'e.g. "Mar 15 8pm" or a pasted <t:...> timestamp — leave empty to clear',
+         "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste — leave empty to clear',
          "type": 3, "required": False},
         # Rarely needed: the handler asks for a timezone with a region/city picker
         # when it doesn't have one. This option stays because that picker is a
@@ -122,11 +122,50 @@ RECORD_COMMAND = {
 }
 
 
-HELP_COMMAND = {
+# /help categories. Values double as the dispatch key in the /help handler.
+HELP_CATEGORY_COMMANDS = "commands"
+HELP_CATEGORY_LFG = "lfg"
+
+# Two /help variants, both registered as `/help`, but only one PUT per guild depending
+# on whether /lfg is in its whitelist (see help_command_for_guild):
+#   * BASE — no options, the long-standing behaviour.
+#   * LFG  — an OPTIONAL `category` dropdown. Discord has no way to preselect a choice,
+#            so "Commands" is listed FIRST to put it at the top of the dropdown, and the
+#            option stays optional so a bare /help still returns the command list.
+HELP_COMMAND_BASE = {
     "name": "help",
     "description": "List the bot's available commands",
     "options": [],
 }
+
+HELP_COMMAND_LFG = {
+    "name": "help",
+    "description": "List the bot's available commands",
+    "options": [
+        {"name": "category", "description": "What to show (defaults to the command list)",
+         "type": 3, "required": False,
+         "choices": [
+             {"name": "Commands", "value": HELP_CATEGORY_COMMANDS},
+             {"name": "LFG", "value": HELP_CATEGORY_LFG},
+         ]},
+    ],
+}
+
+# The base COMMANDS entry (registration template + /help listing) is the BASE variant;
+# the per-guild LFG swap happens at registration time in register_guild_commands.
+HELP_COMMAND = HELP_COMMAND_BASE
+
+
+def help_command_for_guild(enabled_names):
+    """The /help definition to register for a guild: the LFG variant (with the `category`
+    dropdown) when /lfg is enabled there, otherwise the option-less base. Deep-copies the
+    shared module dicts so the caller never mutates a singleton."""
+    # "lfg" here is the COMMAND NAME, not HELP_CATEGORY_LFG. The two constants happen to
+    # share a value but mean different things, and keying off the category constant would
+    # be a latent bug the day either one changes.
+    if "lfg" in set(enabled_names or ()):
+        return copy.deepcopy(HELP_COMMAND_LFG)
+    return copy.deepcopy(HELP_COMMAND_BASE)
 
 
 LAW_COMMAND = {
@@ -262,6 +301,75 @@ def lfg_command_for_roles(roles):
     return cmd
 
 
+# The LFG walkthrough, rendered in two places: the Databot page's "How to Use LFG" card
+# and /help category:LFG. Edit the copy here and both update.
+#
+# Bodies carry three bits of inline markup, all of them valid Discord markdown so the
+# embed sends them as-is; the `lfg_body` template filter (the_gatehouse/templatetags/
+# databot_filters.py) converts the same three to HTML:
+#   `/cmd`              -> inline code chip
+#   *text*              -> italics
+#   [label](url-name)   -> link, addressed by Django URL NAME so neither renderer ever
+#                          hardcodes a path (the embed reverses it against SITE_URL).
+LFG_HELP_INTRO = (
+    "`/lfg` posts a looking-for-game message in your server, pings the players who want "
+    "to play, and gives the game its own thread. Everything rolled or looked up in that "
+    "thread is remembered, so recording the result afterwards is simplified."
+)
+
+LFG_HELP_STEPS = [
+    {
+        "title": "Set up your LFG roles",
+        "body": "Add one or more LFG roles for your server on the "
+                "[Manage your Guilds](manage-guilds) page (for example *Root TTS LFG* "
+                "and *Root Digital LFG*). Each role mentions a Discord role, so starting "
+                "a game pings only the people who want to play. A role can also be tied "
+                "to a series, which lets its games record into that series by default.",
+    },
+    {
+        "title": "Choose where the thread goes",
+        "body": "By default the game thread appears under the LFG message itself. If "
+                "you'd rather keep games tidy in one place, give the role a forum "
+                "channel and each new game is created as a post there instead (you can "
+                "give the thread a tag as well).",
+    },
+    {
+        "title": "Start the game and set it up",
+        # The trailing colon introduces the `commands` chips below, so both renderers
+        # emit them immediately after the body. Drop the colon if the chips ever go.
+        "body": "Players click join on the message to add themselves to the roster; "
+                "starting it opens the thread. From there, anything you roll or look up "
+                "is captured automatically and reduces the available options when "
+                "recording the game (if none are used all factions/maps/decks are "
+                "available):",
+        # LFG-specific blurbs: deliberately worded for what the command does *inside a
+        # game thread*, which differs from its general registration description.
+        "commands": [
+            ("random",  "Roll a random map, deck, faction, and more."),
+            ("map",     "Pick the map you're playing on."),
+            ("deck",    "Pick the deck you're playing with."),
+            ("faction", "Note a faction that's in the game."),
+            ("seating", "Randomly seat the players without drafting factions."),
+            ("draft",   "Draft the factions that can be selected in this game."),
+            ("pick",    "Have each player pick factions from the draft or assign "
+                        "factions to each player."),
+        ],
+    },
+    {
+        "title": "Record the result",
+        "body": "When the game is over, run `/record` in the thread. You'll get a link "
+                "to the game form with the players, seating, map, deck, and series "
+                "already filled in from everything the thread captured.",
+    },
+    {
+        "title": "Results come back to the thread",
+        "body": "Once the game is saved, a link to the finished game is posted back in "
+                "the thread, so everyone who played can see the result without leaving "
+                "Discord.",
+    },
+]
+
+
 # All command definitions registered with Discord.
 COMMANDS = [
     HELP_COMMAND,
@@ -296,8 +404,8 @@ COMMAND_GROUPS = [
     ("General", ["help"]),
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
-    ("Stats", ["stats"]),
-    ("Games", ["lfg", "seating", "pick", "rename", "upcoming", "schedule", "record"]),
+    ("Stats", ["stats", "upcoming"]),
+    ("Games", ["lfg", "seating", "pick", "rename", "schedule", "record"]),
     ("Random", ["draft", "random"]),
 ]
 

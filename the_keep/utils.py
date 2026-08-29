@@ -1,5 +1,6 @@
 import re
 import unicodedata
+import logging
 import os
 import math
 import uuid
@@ -13,6 +14,8 @@ from django.utils.text import Truncator
 from django.utils.html import strip_tags
 from django.core.exceptions import ValidationError
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TITLES_TRANSLATIONS = {
     'Overview': {
@@ -182,8 +185,10 @@ def center_square_crop_in_place(image_field):
         if fmt in ('JPEG', 'WEBP'):
             save_kwargs['quality'] = 90
         cropped.save(path, **save_kwargs)
-    except Exception as e:
-        print(f'Error center-square-cropping image: {e}')
+    except Exception:
+        # image_field, not `path`: path is bound inside the try, so referencing it
+        # here would raise NameError and mask the real error if .name/.path threw.
+        logger.exception('Could not center-square-crop image %s', image_field)
 
 
 def resize_image(image_field, max_size):
@@ -205,12 +210,12 @@ def resize_image(image_field, max_size):
                 # Resize image and save
                 img = img.resize(new_size, Image.LANCZOS)
                 img.save(image_field.path)
-                print(f'Resized image saved at: {image_field.path}')
+                logger.debug('Resized image saved at: %s', image_field.path)
             else:
-                print(f'Original image saved at: {image_field.path}')
+                logger.debug('Original image saved at: %s', image_field.path)
         
-    except Exception as e:
-        print(f"Error resizing image: {e}")
+    except Exception:
+        logger.exception("Could not resize image")
 
 # Saves space but not supported by TTS
 def resize_image_to_webp(image_field, max_size=None):
@@ -220,7 +225,7 @@ def resize_image_to_webp(image_field, max_size=None):
     """
     try:
         if not image_field or not os.path.exists(image_field.path):
-            print("Image field is empty or file does not exist.")
+            logger.debug("Image field is empty or file does not exist.")
             return None
 
         original_path = image_field.path
@@ -230,7 +235,7 @@ def resize_image_to_webp(image_field, max_size=None):
 
         # Skip if already WebP and small enough
         if file_ext == '.webp' and img.width <= max_size and img.height <= max_size:
-            print("Image is already WebP and within max size — skipping.")
+            logger.debug("Image is already WebP and within max size - skipping.")
             return None
 
         # Resize if too large
@@ -244,11 +249,11 @@ def resize_image_to_webp(image_field, max_size=None):
                     new_size = (int(img.width * ratio), max_size)
 
                 img = img.resize(new_size, Image.LANCZOS)
-                print(f"Image resized to: {new_size}")
+                logger.debug("Image resized to: %s", new_size)
             else:
-                print("Image is within size limits — no resize needed.")
+                logger.debug("Image is within size limits - no resize needed.")
         else:
-            print('No max size')
+            logger.debug('No max size')
 
         # Convert image mode
         img = img.convert("RGBA" if img.mode in ("RGBA", "LA", "P") else "RGB")
@@ -269,7 +274,7 @@ def resize_image_to_webp(image_field, max_size=None):
 
         # Save image
         img.save(new_path, format='WEBP', quality=80)
-        print(f"Saved WebP image: {new_path}")
+        logger.debug("Saved WebP image: %s", new_path)
 
         # Delete original if it wasn’t already WebP
         if file_ext != '.webp' and os.path.exists(original_path):
@@ -279,8 +284,8 @@ def resize_image_to_webp(image_field, max_size=None):
         # Return path relative to MEDIA_ROOT
         return os.path.relpath(new_path, settings.MEDIA_ROOT)
 
-    except Exception as e:
-        print(f"Error resizing image: {e}")
+    except Exception:
+        logger.exception("Could not convert image to WebP")
         return None
 
 # # PNG Version
@@ -375,8 +380,8 @@ def resize_image_in_place(image_field, max_size=None, quality=85):
             # Already WebP, just save optimized version
             img.save(path, format="WEBP", quality=quality, method=6)
             
-    except Exception as e:
-        print(f"Failed to resize/convert image {path}: {e}")
+    except Exception:
+        logger.exception("Failed to resize/convert image %s", path)
 
 
 def delete_old_image(old_image):
@@ -385,9 +390,9 @@ def delete_old_image(old_image):
         if not old_image.name.startswith('default_images/'):
             if old_image and os.path.exists(old_image.path):
                 os.remove(old_image.path)
-                print(f"Old image deleted: {old_image}")
+                logger.debug("Old image deleted: %s", old_image)
         else:
-            print(f"Default image saved: {old_image}")
+            logger.debug("Default image kept: %s", old_image)
 
 def validate_hex_color(value):
     # Regular expression to check for valid hex color codes (e.g., #RRGGBB)

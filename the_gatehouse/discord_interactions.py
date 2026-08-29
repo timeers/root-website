@@ -53,14 +53,15 @@ from .tasks import (
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
-    build_captain_embed, build_card_embed, build_law_embed, build_help_embed, build_upcoming_embed,
+    build_captain_embed, build_card_embed, build_law_embed, build_help_embed,
+    build_lfg_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
     parse_emoji_object,
     roll_emoji_for, suit_static_image_url, embed_color, permissions_can_manage_guild,
     get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
 )
 from .services.discord_commands import (
-    DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
+    DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD, HELP_CATEGORY_LFG,
 )
 from .services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -612,7 +613,7 @@ def _is_no_match(match_id):
 # has to avoid is someone believing they scheduled a game on the site when they only
 # suggested a time in a Discord thread, so this is deliberately not softened.
 SCHEDULE_UNLINKED_NOTE = (
-    "-# This isn't linked to a game on the site — it's just a time for this thread.")
+    "-# This isn't linked to a game on the site.")
 
 
 def _schedule_profile(discord_id, username=None, author=None):
@@ -662,8 +663,9 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
 
     Primary key is the thread id inside PlayerGroup.discord_thread. Falls back to
     the thread's title matched against the player group's name (the name shown
-    everywhere in the UI; MatchSeries.name is usually blank), for groups whose
-    thread URL was never filled in.
+    everywhere in the UI; MatchSeries.name is usually blank), but ONLY for groups
+    with no thread URL saved — a linked group is reachable by its id alone, so a
+    same-named thread can't hijack it.
 
     `prefer` picks which match of a multi-game series to act on: "unscheduled"
     (setting a time) takes the first game still missing one; "scheduled"
@@ -688,10 +690,17 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
                 "moderator can link it on the series edit page (set the group's "
                 "Discord thread), then try again."
             )
-        # Title fallback. Compare in Python so normalization matches on both sides
-        # (emoji prefixes, collapsed whitespace) rather than relying on __iexact.
+        # Title fallback, for groups whose thread URL was never filled in. A group
+        # that IS linked is excluded even when its URL points somewhere else: the id
+        # lookup above is the authority for those, and matching them on title alone
+        # would let a second thread with the same name schedule the wrong group's
+        # match. discord_thread is blank=True without null=True, so "unlinked" means
+        # empty string — an isnull check would match nothing.
+        # Compare titles in Python so normalization applies to both sides (emoji
+        # prefixes, collapsed whitespace) rather than relying on __iexact.
         candidates = [
-            m for m in base.filter(series__player_group__isnull=False)
+            m for m in base.filter(series__player_group__isnull=False,
+                                   series__player_group__discord_thread="")
             if _normalize_title(m.series.player_group.name) == title
         ]
         groups = {m.series.player_group_id for m in candidates}
@@ -1169,17 +1178,25 @@ def _schedule_rejected_data(proposal):
 def _schedule_finalized_data(proposal, match):
     """The 'game has been scheduled' view: the standard announcement embed plus the
     roster who agreed to it. build_upcoming_embed is treated as fallible here for
-    the same reason the legacy confirm path does."""
+    the same reason the legacy confirm path does.
+
+    summary=None drops that builder's "The next scheduled game" line: it's
+    /upcoming's wording, and the match just scheduled here isn't necessarily the
+    next one in the tournament. The title and the Confirmed-by field already say
+    what happened."""
     try:
-        embed = build_upcoming_embed(match)
+        embed = build_upcoming_embed(match, summary=None)
     except Exception:
         logger.exception("Failed to build /schedule announcement embed")
         embed = None
-    if not embed:
+    # `is None` rather than a falsy check: the builder strips None values, and with
+    # summary=None an embed can legitimately come back without a description. A
+    # bare `not embed` would treat such a sparse embed as a failure and fall
+    # through to the fallback, whose title would then get double-prefixed below.
+    if embed is None:
         embed = {
-            "title": "🗓️ Scheduled",
-            "description": (f"**{_match_label(match)}**\n"
-                            f"{format_discord_timestamp(proposal.proposed_time)}"),
+            "title": _match_label(match),
+            "description": format_discord_timestamp(proposal.proposed_time),
         }
     embed = dict(embed)
     embed["title"] = f"🗓️ {embed.get('title') or _match_label(match)} scheduled"
@@ -1491,7 +1508,15 @@ def _handle_schedule_confirm(payload):
     token = payload.get("token")
     if token:
         try:
-            embed = build_upcoming_embed(match)
+            # Not /upcoming's "The next scheduled game" line — this announces the
+            # match just written, which needn't be the tournament's next one. No
+            # roster confirmed it on this path, so name who set the time. A plain
+            # display name, not _roster_name: that renders a mention, and this
+            # followup sets no allowed_mentions, so it would ping the very person
+            # who just clicked Confirm.
+            who = profile.display_name or profile.discord or profile.slug
+            embed = build_upcoming_embed(
+                match, summary=f"Scheduled by {who}" if who else None)
         except Exception:
             logger.exception("Failed to build /schedule announcement embed")
             embed = None
@@ -2044,7 +2069,20 @@ def _handle_help_command(data):
 
     In a guild, only the guild's enabled commands (plus /help) are listed; if the invoker
     can manage the server and some commands are still disabled, a link to enable more is
-    appended. In a DM (no guild) the full command set is shown."""
+    appended. In a DM (no guild) the full command set is shown.
+
+    Guilds with /lfg enabled get a `category` option (see help_command_for_guild);
+    category:LFG returns the LFG walkthrough instead of the command list."""
+    # Checked before the guild lookup: the LFG walkthrough needs no guild, whitelist or
+    # manage check, so this avoids a wasted query. _get_option returns None when the
+    # option is absent, which is the bare-/help case. A stale category:LFG from an old
+    # registration still renders the walkthrough rather than erroring.
+    if _get_option(data, "category") == HELP_CATEGORY_LFG:
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": {"embeds": [build_lfg_help_embed()], "flags": EPHEMERAL},
+        })
+
     guild_id = data.get("_guild_id")
     enabled_names = None
     can_manage = False
@@ -2342,7 +2380,9 @@ def _lfg_seating_prompt_data(thread, owner):
     "Overwrite".
 
     Split from _offer_lfg_seating so /seating can return this prompt as its own
-    response while /draft still ships it as a followup.
+    response while /draft still ships it as a followup. The seating_set branch is
+    reachable only from /seating: _offer_lfg_seating skips the offer entirely on an
+    already-seated thread, so /draft never proposes an overwrite unprompted.
 
     Keys on seating_set, NOT seats.exists(): /pick can assign factions without a
     seating, leaving seat rows with filler numbers -- warning about overwriting a
@@ -2368,12 +2408,21 @@ def _lfg_seating_prompt_data(thread, owner):
 def _offer_lfg_seating(payload):
     """After a draft inside an LFG thread, send the drafter an ephemeral Yes/No
     prompt offering to seat the thread's players. No-op outside an LFG thread, when
-    the roster is too small to seat, or when the guild hasn't enabled /seating --
-    confirming would otherwise run seating the guild deliberately turned off."""
+    the roster is too small to seat, when the thread is already seated, or when the
+    guild hasn't enabled /seating -- confirming would otherwise run seating the
+    guild deliberately turned off."""
     if not _guild_allows(payload.get("guild_id"), "seating"):
         return
     thread = _lfg_thread_for_channel(payload.get("channel_id"))
     if not thread or thread.players.count() < 2:
+        return
+    # Already seated: /draft must not assume a reroll means "reseat too". The
+    # prompt's confirm button REPLACES the current order, and nobody asked for
+    # that -- rerolling a draft mid-setup is routine. Reseating stays available
+    # through /seating, which was typed deliberately and keeps its Overwrite
+    # warning. Keys on seating_set, not seats.exists(): /pick can leave filler
+    # seat rows behind on a table that was never actually seated.
+    if thread.seating_set:
         return
     token = payload.get("token")
     if not token:  # can't send a followup without the interaction token
@@ -2530,10 +2579,13 @@ def _handle_draft_seat(payload):
                  for i, p in enumerate(profiles, 1)]
         LFGSeat.objects.bulk_create(seats)
         # Same transaction as the rows it describes: the flag and the seats must
-        # never be separately visible.
+        # never be separately visible. Saved unconditionally -- the seats above
+        # were just rewritten, so a re-seat of an already-seated thread must
+        # still bump last_activity (save() supplies it) even though the flag is
+        # already True.
         if not locked.seating_set:
             locked.seating_set = True
-            locked.save(update_fields=["seating_set"])
+        locked.save(update_fields=["seating_set"])
 
     post_channel_message_task.delay(
         thread.thread_id, _draft_seating_message(seats, reseated))
@@ -2632,6 +2684,11 @@ def _pick_seat_roster(thread, channel_id, ordered=True):
             locked.seating_set = True
             locked.save(update_fields=["seating_set"])
             thread.seating_set = True  # keep the caller's instance in step
+        elif created:
+            # Seats were written but the flag didn't change, so nothing above
+            # saved the thread. Bump it so /pick-created seating counts as
+            # activity. The race loser (created False) changed nothing.
+            locked.save(update_fields=[])
 
     # Announce only the seating WE created -- the race loser must not post a
     # second, contradictory order. Outside the lock: a broker hiccup shouldn't
@@ -3077,7 +3134,7 @@ def _pick_turn(payload, mode, owner):
             return _ephemeral("Only the player who ran `/pick` can assign factions.")
     elif clicker != (seat.profile.discord_id if seat.profile_id else None):
         who = seat.profile.name if seat.profile_id else "someone else"
-        return _ephemeral(f"It's {who}'s pick right now.")
+        return _ephemeral(f"It's {who}'s turn to pick a faction.")
 
     return thread, seats, seat, pool
 
@@ -3185,6 +3242,10 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
         # captain from an abandoned Knaves prompt on whatever faction won.
         locked.discarded_captain = discarded_captain
         locked.save(update_fields=["faction", "vagabond", "discarded_captain"])
+        # `locked` is the SEAT, so that save doesn't touch the thread. Bump the
+        # parent explicitly (save() supplies last_activity) so picking factions
+        # keeps a thread out of the cleanup task's reach.
+        thread.save(update_fields=[])
 
     # M2M outside the lock: .set() writes a separate join table, so it neither
     # needs the row lock nor can run before the row exists.
