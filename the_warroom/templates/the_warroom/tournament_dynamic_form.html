@@ -62,7 +62,10 @@
                             </div>
                         </div>
                         {% endif %}
-                        <div id="guild-field-row" data-initial-hidden="{% if action == 'Update' and tournament.classification != 'League' %}true{% else %}false{% endif %}">
+                        {% comment %} Every classification may link a guild, so this row is
+                        never hidden. data-initial-hidden is kept (always false) because the
+                        JS below still reads it. {% endcomment %}
+                        <div id="guild-field-row" data-initial-hidden="false">
                             <div class='row'>
                                 <div class="col-md-12">
                                     {{ form.guild|as_crispy_field }}
@@ -463,24 +466,17 @@
             }
         }
 
-        function updateGuildField(value, clearValue = false) {
+        // The guild row is shown for EVERY classification (it used to be League-only,
+        // and switching away wiped the selection). Kept as a function so the toggle's
+        // onChange still has something to call and Select2 gets its change event.
+        function updateGuildField(value) {
             const guildRow = document.getElementById('guild-field-row');
             if (!guildRow) return;
-            if (value === 'League') {
-                guildRow.classList.remove('d-none');
-                guildRow.style.display = 'block';
-                const guildSelect = document.getElementById('id_guild');
-                if (guildSelect && typeof $ !== 'undefined') {
-                    $(guildSelect).trigger('change');
-                }
-            } else {
-                guildRow.style.display = 'none';
-                if (clearValue) {
-                    const guildSelect = document.getElementById('id_guild');
-                    if (guildSelect && typeof $ !== 'undefined') {
-                        $(guildSelect).val(null).trigger('change');
-                    }
-                }
+            guildRow.classList.remove('d-none');
+            guildRow.style.display = 'block';
+            const guildSelect = document.getElementById('id_guild');
+            if (guildSelect && typeof $ !== 'undefined') {
+                $(guildSelect).trigger('change');
             }
         }
 
@@ -498,7 +494,7 @@
             },
             onChange: function(value) {
                 updateFormatField(value);
-                updateGuildField(value, true);
+                updateGuildField(value);
             }
         });
     }

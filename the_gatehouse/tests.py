@@ -30,6 +30,7 @@ from the_keep.models import (
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
     LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, DEFAULT_PROFILE_IMAGE,
+    UserNotification, MessageChoices,
 )
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
@@ -1614,11 +1615,17 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(self.match.scheduled_time)
 
     # ── responding to an LFG suggestion ──
-    def _respond(self, action, clicker, confirmed=None):
+    def _respond(self, action, clicker, confirmed=None, unavailable=None):
         embed = {"title": "🕐 Proposed time (not scheduled)", "description": "x"}
+        fields = []
         if confirmed:
-            embed["fields"] = [{"name": di.SCHEDULE_FREE_CONFIRMED_FIELD,
-                                "value": "\n".join(confirmed), "inline": False}]
+            fields.append({"name": di.SCHEDULE_FREE_CONFIRMED_FIELD,
+                           "value": "\n".join(confirmed), "inline": False})
+        if unavailable:
+            fields.append({"name": di.SCHEDULE_FREE_UNAVAILABLE_FIELD,
+                           "value": "\n".join(unavailable), "inline": False})
+        if fields:
+            embed["fields"] = fields
         payload = {
             "channel_id": self.UNLINKED_CHANNEL,
             "member": {"user": {"id": clicker, "username": "someone"}},
@@ -1649,12 +1656,48 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
                               confirmed=lines)
         self.assertEqual(len(again["embeds"][0]["fields"][0]["value"].splitlines()), 1)
 
-    def test_declining_removes_an_earlier_confirmation(self):
+    def test_declining_moves_a_confirmation_to_unavailable(self):
+        """Declining no longer just erases the confirmation -- it records that the
+        player answered, under ❌ Unavailable."""
         self._lfg_thread()
         first = self._respond("sched_lfg_ok", self.player.discord_id)
         lines = first["embeds"][0]["fields"][0]["value"].splitlines()
         after = self._respond("sched_lfg_no", self.player.discord_id, confirmed=lines)
-        self.assertEqual(after["embeds"][0].get("fields", []), [])
+        fields = after["embeds"][0].get("fields", [])
+        self.assertEqual([f["name"] for f in fields],
+                         [di.SCHEDULE_FREE_UNAVAILABLE_FIELD])
+        self.assertIn(f"<@{self.player.discord_id}>", fields[0]["value"])
+
+    def test_confirming_after_declining_moves_them_back(self):
+        self._lfg_thread()
+        declined = self._respond("sched_lfg_no", self.player.discord_id)
+        unavailable = declined["embeds"][0]["fields"][0]["value"].splitlines()
+        after = self._respond("sched_lfg_ok", self.player.discord_id,
+                              unavailable=unavailable)
+        fields = after["embeds"][0].get("fields", [])
+        self.assertEqual([f["name"] for f in fields],
+                         [di.SCHEDULE_FREE_CONFIRMED_FIELD])
+        self.assertIn(f"<@{self.player.discord_id}>", fields[0]["value"])
+
+    def test_a_player_is_never_in_both_lists(self):
+        self._lfg_thread()
+        data = self._respond("sched_lfg_ok", self.player.discord_id)
+        for _ in range(3):
+            lines = {f["name"]: f["value"].splitlines()
+                     for f in data["embeds"][0].get("fields", [])}
+            data = self._respond(
+                "sched_lfg_no", self.player.discord_id,
+                confirmed=lines.get(di.SCHEDULE_FREE_CONFIRMED_FIELD),
+                unavailable=lines.get(di.SCHEDULE_FREE_UNAVAILABLE_FIELD))
+            data = self._respond(
+                "sched_lfg_ok", self.player.discord_id,
+                confirmed=None,
+                unavailable=[f["value"] for f in data["embeds"][0].get("fields", [])
+                             if f["name"] == di.SCHEDULE_FREE_UNAVAILABLE_FIELD])
+        mention = f"<@{self.player.discord_id}>"
+        appearances = sum(
+            f["value"].count(mention) for f in data["embeds"][0].get("fields", []))
+        self.assertEqual(appearances, 1)
 
     def test_responding_writes_nothing(self):
         self._lfg_thread()
@@ -2555,6 +2598,417 @@ class LFGRoleModalViewTests(_NoLoginSignalMixin, TestCase):
                     lambda _: getattr(self.client, method)(url))
                 self.assertEqual(response.status_code, 403)
         self.assertTrue(GuildLFGRole.objects.filter(pk=role.pk).exists())
+
+
+class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
+    """A series' Discord channels are edited from the Edit Guild page, in a modal that
+    commits on its own. results/schedule are TEXT channels and game_threads is a FORUM
+    channel, validated against separate lists."""
+
+    TEXT = [{"id": "200000000000000011", "name": "results"},
+            {"id": "200000000000000022", "name": "schedule"}]
+    FORUM = [{"id": "300000000000000033", "name": "matches"}]
+
+    def setUp(self):
+        super().setUp()
+        self.guild = DiscordGuild.objects.create(guild_id="700200", name="Channel Guild",
+                                                 bot_member=True)
+        self.user = User.objects.create_user(username="chanmod", password="pw")
+        self.profile = self.user.profile
+        self.profile.group = "P"          # plain player; moderates via guild_moderators
+        self.profile.player_onboard = True
+        self.profile.save()
+        self.guild.guild_moderators.add(self.profile)
+        self.client.force_login(self.user)
+        self.tournament = Tournament.objects.create(name="Channel Cup", guild=self.guild)
+
+    def _mock_discord(self, text=None, forum=None):
+        """Patch the Discord reads on the views AND forms modules: views.py imports them
+        by name, and the form does a function-local import from the service module."""
+        text = self.TEXT if text is None else text
+        forum = self.FORUM if forum is None else forum
+        return [
+            mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=text),
+            mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=forum),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                       return_value=text),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                       return_value=forum),
+        ]
+
+    def _with_discord(self, fn, text=None, forum=None):
+        patches = self._mock_discord(text=text, forum=forum)
+        for p in patches:
+            p.start()
+        try:
+            return fn()
+        finally:
+            for p in patches:
+                p.stop()
+
+    def _url(self, pk=None):
+        return reverse("guild-tournament-channels",
+                       args=[self.guild.guild_id, pk or self.tournament.pk])
+
+    def test_get_returns_form_with_both_lists_kept_separate(self):
+        response = self._with_discord(lambda: self.client.get(self._url()))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="tournament-channels-form"')
+        # The forum channel is offered for game_threads, the text ones for the others.
+        self.assertContains(response, "#results")
+        self.assertContains(response, "matches")
+
+    def test_valid_post_saves_all_three_and_signals_success(self):
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "results_channel": self.TEXT[0]["id"],
+            "schedule_channel": self.TEXT[1]["id"],
+            "game_threads_channel": self.FORUM[0]["id"],
+        }))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Trigger"], "tournamentChannelsSaved")
+
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.results_channel, self.TEXT[0]["id"])
+        self.assertEqual(self.tournament.schedule_channel, self.TEXT[1]["id"])
+        self.assertEqual(self.tournament.game_threads_channel, self.FORUM[0]["id"])
+        # The row refreshes out-of-band, showing names rather than raw snowflakes.
+        self.assertContains(response, 'id="tournament-channel-row-%d"' % self.tournament.pk)
+        self.assertContains(response, "#results")
+
+    def test_channel_outside_the_guild_is_rejected(self):
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "results_channel": "999000000000000099",
+        }))
+        self.assertEqual(response.status_code, 422)
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.results_channel)
+
+    def test_text_channel_cannot_be_saved_as_the_game_threads_forum(self):
+        """The two lists really are kept separate — a text channel in the forum field
+        would break thread creation at runtime, so it must fail at save time."""
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "game_threads_channel": self.TEXT[0]["id"],
+        }))
+        self.assertEqual(response.status_code, 422)
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_unreachable_discord_does_not_block_a_save(self):
+        """A failed fetch (None) skips that field's check rather than hard-blocking a
+        legitimate save — the same degrade-don't-block guard the LFG form uses."""
+        patches = [
+            mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=None),
+            mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=None),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                       return_value=None),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                       return_value=None),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            response = self.client.post(self._url(), {
+                "results_channel": "999000000000000099",
+            })
+            self.assertEqual(response.status_code, 200)
+            self.tournament.refresh_from_db()
+            self.assertEqual(self.tournament.results_channel, "999000000000000099")
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_an_empty_channel_list_still_rejects(self):
+        """An empty list is a SUCCESSFUL fetch of a guild with no such channels — it
+        must reject, unlike None. Guards against a falsy-vs-None mixup in clean()."""
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "results_channel": "999000000000000099",
+        }), text=[], forum=[])
+        self.assertEqual(response.status_code, 422)
+
+    def test_mixed_fetch_failure_checks_only_the_list_that_loaded(self):
+        """One list failing must not degrade the other's validation."""
+        patches = [
+            mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=None),
+            mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=self.FORUM),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                       return_value=None),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                       return_value=self.FORUM),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            # Text fetch failed -> an unknown text channel is accepted.
+            # Forum fetch worked -> a bad forum channel is still rejected.
+            response = self.client.post(self._url(), {
+                "results_channel": "999000000000000099",
+                "game_threads_channel": self.TEXT[0]["id"],
+            })
+            self.assertEqual(response.status_code, 422)
+
+            response = self.client.post(self._url(), {
+                "results_channel": "999000000000000099",
+                "game_threads_channel": self.FORUM[0]["id"],
+            })
+            self.assertEqual(response.status_code, 200)
+            self.tournament.refresh_from_db()
+            self.assertEqual(self.tournament.results_channel, "999000000000000099")
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_blank_values_clear_the_fields(self):
+        self.tournament.results_channel = self.TEXT[0]["id"]
+        self.tournament.game_threads_channel = self.FORUM[0]["id"]
+        self.tournament.save()
+
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "results_channel": "", "schedule_channel": "", "game_threads_channel": "",
+        }))
+        self.assertEqual(response.status_code, 200)
+        self.tournament.refresh_from_db()
+        # Normalized to NULL, not an empty string.
+        self.assertIsNone(self.tournament.results_channel)
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_a_series_in_another_guild_is_not_reachable(self):
+        other_guild = DiscordGuild.objects.create(guild_id="700999", name="Other",
+                                                  bot_member=True)
+        other = Tournament.objects.create(name="Not Yours", guild=other_guild)
+        for method in ("get", "post"):
+            with self.subTest(method=method):
+                response = self._with_discord(
+                    lambda: getattr(self.client, method)(self._url(other.pk)))
+                self.assertEqual(response.status_code, 404)
+
+    def test_non_moderator_is_denied(self):
+        other = User.objects.create_user(username="outsider", password="pw")
+        other.profile.player_onboard = True
+        other.profile.save()
+        self.client.force_login(other)
+        for method in ("get", "post"):
+            with self.subTest(method=method):
+                response = self._with_discord(
+                    lambda: getattr(self.client, method)(self._url()))
+                self.assertEqual(response.status_code, 403)
+
+    def test_edit_guild_page_lists_linked_series(self):
+        response = self._with_discord(
+            lambda: self.client.get(reverse("edit-guild", args=[self.guild.guild_id])))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Channel Cup")
+        self.assertContains(response, 'id="tournament-channels-modal"')
+
+
+class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
+    """A confirmed time is announced in the tournament's schedule_channel. Both
+    /schedule write paths post: the consensus commit point and the direct write."""
+
+    CHANNEL = "200000000000000011"
+    TEXT = [{"id": CHANNEL, "name": "schedule"}]
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.guild.bot_member = True
+        self.guild.save(update_fields=["bot_member"])
+        Tournament.objects.filter(pk=self.tournament.pk).update(
+            schedule_channel=self.CHANNEL)
+        self.tournament.refresh_from_db()
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+
+    def _capture(self, fn):
+        """Run fn with Discord reads stubbed, returning the posted content or None."""
+        from the_gatehouse import tasks
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=self.TEXT), \
+             mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                fn()
+        # The thread post uses the same task, so pick out the schedule-channel call.
+        for call in delay.call_args_list:
+            if call.args[0] == self.CHANNEL:
+                return call.args[1]
+        return None
+
+    def _proposal(self, when):
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=when, proposed_by=self.player,
+            channel_id="555000111", message_id="111",
+            guild_id=self.guild.guild_id)
+        proposal.roster.set([self.player, self.teammate])
+        proposal.confirmed_by.set([self.player, self.teammate])
+        return proposal
+
+    def test_consensus_path_announces_scheduled(self):
+        proposal = self._proposal(self.when)
+        content = self._capture(lambda: di._finalize_proposal(proposal))
+        self.assertIsNotNone(content)
+        self.assertIn("is scheduled for", content)
+        self.assertIn(self.group.name, content)
+        self.assertIn(f"<t:{int(self.when.timestamp())}:F>", content)
+
+    def test_a_changed_time_says_rescheduled(self):
+        self.match.scheduled_time = self.when - timedelta(days=1)
+        self.match.save(update_fields=["scheduled_time"])
+        proposal = self._proposal(self.when)
+        content = self._capture(lambda: di._finalize_proposal(proposal))
+        self.assertIn("is rescheduled for", content)
+
+    def test_confirming_the_same_time_announces_nothing(self):
+        """Re-confirming a slot that didn't move isn't news."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        proposal = self._proposal(self.when)
+        content = self._capture(lambda: di._finalize_proposal(proposal))
+        self.assertIsNone(content)
+
+    def test_no_schedule_channel_means_no_post(self):
+        Tournament.objects.filter(pk=self.tournament.pk).update(schedule_channel=None)
+        proposal = self._proposal(self.when)
+        content = self._capture(lambda: di._finalize_proposal(proposal))
+        self.assertIsNone(content)
+
+    def test_stale_channel_from_another_guild_is_refused(self):
+        other = DiscordGuild.objects.create(guild_id="900999", name="Other",
+                                            bot_member=True)
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=other)
+        proposal = self._proposal(self.when)
+        # The stubbed list belongs to the tournament's *current* guild and doesn't
+        # contain the stored id, so the post is refused.
+        from the_gatehouse import tasks
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=[]), \
+             mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                di._finalize_proposal(proposal)
+        for call in delay.call_args_list:
+            self.assertNotEqual(call.args[0], self.CHANNEL)
+
+
+class TournamentChannelSecurityTests(_NoLoginSignalMixin, TestCase):
+    """The channel ids are bare snowflakes with no guild in them, so a tournament that
+    moves to another guild must not keep announcing into the old one."""
+
+    TEXT = [{"id": "200000000000000011", "name": "results"}]
+    FORUM = [{"id": "300000000000000033", "name": "matches"}]
+
+    def setUp(self):
+        super().setUp()
+        self.guild_a = DiscordGuild.objects.create(guild_id="800100", name="Guild A",
+                                                   bot_member=True)
+        self.guild_b = DiscordGuild.objects.create(guild_id="800200", name="Guild B",
+                                                   bot_member=True)
+        self.tournament = Tournament.objects.create(
+            name="Sec Cup", guild=self.guild_a,
+            results_channel=self.TEXT[0]["id"],
+            schedule_channel=self.TEXT[0]["id"],
+            game_threads_channel=self.FORUM[0]["id"])
+
+    # ---- Tournament.save() clears the ids on a guild change --------------------
+
+    def test_repointing_the_guild_clears_every_channel(self):
+        self.tournament.guild = self.guild_b
+        self.tournament.save()
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.results_channel)
+        self.assertIsNone(self.tournament.schedule_channel)
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_clearing_the_guild_clears_every_channel(self):
+        self.tournament.guild = None
+        self.tournament.save()
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.results_channel)
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_unrelated_save_keeps_the_channels(self):
+        self.tournament.name = "Renamed"
+        self.tournament.save()
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.results_channel, self.TEXT[0]["id"])
+
+    def test_update_fields_including_guild_still_persists_the_clear(self):
+        """update_fields would otherwise drop the nulled columns from the UPDATE and
+        silently keep the stale ids -- the exact failure the clearing exists to stop."""
+        self.tournament.guild = self.guild_b
+        self.tournament.save(update_fields=['guild'])
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.results_channel)
+        self.assertIsNone(self.tournament.schedule_channel)
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_unrelated_partial_save_is_unaffected(self):
+        self.tournament.use_stages = True
+        self.tournament.save(update_fields=['use_stages'])
+        self.tournament.refresh_from_db()
+        self.assertTrue(self.tournament.use_stages)
+        self.assertEqual(self.tournament.results_channel, self.TEXT[0]["id"])
+
+    # ---- Send-time verification -----------------------------------------------
+
+    def _post(self, field='results_channel', text=None, forum=None):
+        from the_gatehouse import tasks
+        from the_warroom.services.channel_posts import post_to_tournament_channel
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=self.TEXT if text is None else text), \
+             mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                        return_value=self.FORUM if forum is None else forum), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            sent = post_to_tournament_channel(self.tournament, field, "hi")
+        return sent, delay
+
+    def test_posts_when_the_channel_belongs_to_the_current_guild(self):
+        sent, delay = self._post()
+        self.assertTrue(sent)
+        delay.assert_called_once_with(self.TEXT[0]["id"], "hi")
+
+    def test_refuses_a_channel_that_is_not_in_the_current_guild(self):
+        """The leak: the tournament moved to guild B but still holds A's channel id.
+        (save() clears it now; this covers rows that drifted before that existed.)"""
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=self.guild_b)
+        self.tournament.refresh_from_db()
+        sent, delay = self._post(text=[])   # guild B has no such channel
+        self.assertFalse(sent)
+        delay.assert_not_called()
+
+    def test_fails_closed_when_discord_is_unreachable(self):
+        """A None list means the fetch failed -> unverified -> refuse. This is the
+        deliberate inverse of the settings form, which lets an outage through."""
+        from the_gatehouse import tasks
+        from the_warroom.services.channel_posts import post_to_tournament_channel
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=None), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            sent = post_to_tournament_channel(self.tournament, 'results_channel', "hi")
+        self.assertFalse(sent)
+        delay.assert_not_called()
+
+    def test_empty_list_also_refuses(self):
+        """An empty list is a SUCCESSFUL fetch of a guild with no text channels."""
+        sent, delay = self._post(text=[])
+        self.assertFalse(sent)
+        delay.assert_not_called()
+
+    def test_no_guild_means_no_post(self):
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=None)
+        self.tournament.refresh_from_db()
+        sent, delay = self._post()
+        self.assertFalse(sent)
+        delay.assert_not_called()
+
+    def test_game_threads_is_checked_against_the_forum_list(self):
+        """A text channel must never satisfy the forum-only field."""
+        sent, delay = self._post(field='game_threads_channel')
+        self.assertTrue(sent)
+
+        Tournament.objects.filter(pk=self.tournament.pk).update(
+            game_threads_channel=self.TEXT[0]["id"])
+        self.tournament.refresh_from_db()
+        sent, delay = self._post(field='game_threads_channel')
+        self.assertFalse(sent)
+        delay.assert_not_called()
 
 
 class LFGCommandRefreshTests(_NoLoginSignalMixin, TestCase):
@@ -4796,10 +5250,12 @@ class PickSessionLifecycleTests(TestCase):
         }
         return json.loads(di._handle_pick_faction(payload).content)["data"]
 
-    def _stop(self):
+    def _stop(self, clicker=None):
+        """Stop is restricted to the table, so this clicks as a PLAYER by default
+        (self.OWNER is not on the roster in this fixture)."""
         payload = {
             "channel_id": self.THREAD_ID,
-            "member": {"user": {"id": self.OWNER}},
+            "member": {"user": {"id": clicker or self.players[0].discord_id}},
             "data": {"custom_id": di.encode_custom_id(
                 "pick_cancel", self.OWNER, di.PICK_OPEN)},
             "message": {"id": "msg", "components": []},
@@ -4870,15 +5326,14 @@ class PickSessionLifecycleTests(TestCase):
         self.assertEqual(remaining, ["draft", "random"])
 
     def test_stop_on_a_prompt_with_no_picks_says_so(self):
-        """Cancel on the mode prompt must not claim to have cleared picks. This
-        clicker has no Profile and no username in the payload, so there is nobody
-        to name -- the message must still read correctly without a name."""
+        """Cancel on the mode prompt must not claim to have cleared picks."""
         data = self._stop()
-        self.assertEqual(data["content"], "Picking stopped.")
+        self.assertNotIn("factions cleared", data["content"])
+        self.assertTrue(data["content"].endswith("."))
 
     def test_stop_names_the_player_who_pressed_it(self):
-        """Any player can Stop (the buttons carry PICK_OPEN, not an owner
-        snowflake), so the table needs to see who discarded their picks."""
+        """Any of the PLAYERS can Stop -- not only whoever ran /pick -- so the
+        table needs to see who discarded their picks."""
         self._select(self.factions[0].slug, self.players[1].discord_id)
         payload = {
             "channel_id": self.THREAD_ID,
@@ -4891,7 +5346,10 @@ class PickSessionLifecycleTests(TestCase):
         self.assertIn(f"Picking stopped by {self.players[1].name}", data["content"])
         self.assertIn("factions cleared", data["content"])
 
-    def test_stop_names_an_unlinked_clicker_by_username(self):
+    def test_a_non_player_cannot_stop_the_picks(self):
+        """The buttons carry PICK_OPEN so the dispatcher's owner-lock is off --
+        without this check anyone in the channel could discard the table's picks."""
+        self._select(self.factions[0].slug, self.players[1].discord_id)
         payload = {
             "channel_id": self.THREAD_ID,
             "member": {"user": {"id": "999888777666555444",
@@ -4901,7 +5359,18 @@ class PickSessionLifecycleTests(TestCase):
             "message": {"id": "msg", "components": []},
         }
         data = json.loads(di._handle_pick_cancel(payload).content)["data"]
-        self.assertIn("Picking stopped by stranger", data["content"])
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertIn("Only the players", data["content"])
+        # The picks survive.
+        self.assertTrue(LFGSeat.objects.filter(
+            thread=self.thread, faction__isnull=False).exists())
+
+    def test_the_invoker_can_stop_when_they_are_a_player(self):
+        """Whoever ran /pick is normally at the table; they stop it like anyone
+        else on the roster, via the same membership check."""
+        data = self._stop(clicker=self.players[1].discord_id)
+        self.assertIn(f"Picking stopped by {self.players[1].name}",
+                      data["content"])
 
     def test_stop_does_not_ping_whoever_pressed_it(self):
         """A plain name, not a <@id> mention -- this is public content."""
@@ -5072,6 +5541,172 @@ class GuildAllowsTests(TestCase):
         self.assertTrue(di._guild_allows(None, "seating"))
 
 
+class RosterGuardedCommandTests(TestCase):
+    """A thread with a roster belongs to its players: commands that WRITE to it are
+    refused for anyone else.
+
+    These go through the real view, not the handlers directly, because the guard
+    lives in the command dispatcher -- calling a handler bypasses it entirely.
+    """
+
+    GUILD_ID = "1093259831470735512"
+    THREAD_ID = "1303834523347456040"
+    OUTSIDER = "999888777666555444"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        self.guild = DiscordGuild.objects.create(
+            guild_id=self.GUILD_ID, name="Guard Guild")
+        designer = Profile.objects.create(discord="guarddz", discord_id="700")
+        for i in range(6):
+            Faction.objects.create(
+                title=f"Guard Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"guardp{i}", discord_id=f"71{i}",
+                                   display_name=f"Guard Player {i}")
+            for i in range(3)
+        ]
+        self.thread.players.set(self.players)
+
+    def _command(self, name, user_id, channel_id=None, options=None):
+        payload = {
+            "type": 2,
+            "data": {"name": name, "options": options or []},
+            "guild_id": self.GUILD_ID,
+            "channel_id": channel_id or self.THREAD_ID,
+            "channel": {"name": "a thread", "type": 11},
+            "member": {"user": {"id": user_id, "username": f"user{user_id}"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content)["data"]
+
+    def _refused(self, data):
+        return "Only the players in this game" in data.get("content", "")
+
+    def test_every_guarded_command_refuses_an_outsider(self):
+        for name in sorted(di.ROSTER_GUARDED_COMMANDS):
+            with self.subTest(command=name):
+                self.assertTrue(self._refused(self._command(name, self.OUTSIDER)),
+                                f"/{name} let a non-player through")
+
+    def test_nothing_is_written_by_a_refused_command(self):
+        self._command("pick", self.OUTSIDER)
+        self._command("seating", self.OUTSIDER)
+        thread = LFGThread.objects.get(pk=self.thread.pk)
+        self.assertEqual(thread.seats.count(), 0)
+        self.assertFalse(thread.seating_set)
+        self.assertEqual(LFGRoll.objects.filter(thread=thread).count(), 0)
+
+    def test_a_player_is_allowed(self):
+        data = self._command("pick", self.players[0].discord_id)
+        self.assertFalse(self._refused(data))
+
+    def test_the_host_is_allowed_even_if_not_a_player(self):
+        host = Profile.objects.create(discord="guardhost", discord_id="7900")
+        self.thread.host = host
+        self.thread.save(update_fields=["host"])
+        self.assertNotIn(host, self.thread.players.all())
+        self.assertFalse(self._refused(
+            self._command("pick", host.discord_id)))
+
+    def test_a_guild_moderator_is_allowed(self):
+        mod = Profile.objects.create(discord="guardmod", discord_id="7901")
+        self.guild.guild_moderators.add(mod)
+        self.assertFalse(self._refused(self._command("pick", mod.discord_id)))
+
+    def test_a_site_admin_is_allowed(self):
+        # `admin` is derived from group == "A", not a settable field.
+        admin = Profile.objects.create(discord="guardadmin", discord_id="7902",
+                                       group="A")
+        self.assertTrue(admin.admin)
+        self.assertFalse(self._refused(self._command("pick", admin.discord_id)))
+
+    # ── no roster, no restriction ────────────────────────────────────────────
+    def test_a_plain_channel_is_open_to_anyone(self):
+        data = self._command("faction", self.OUTSIDER, channel_id="555000999")
+        self.assertFalse(self._refused(data))
+
+    def test_a_thread_with_no_players_is_open(self):
+        """A game still being set up has nothing to protect yet."""
+        self.thread.players.clear()
+        self.assertFalse(self._refused(self._command("pick", self.OUTSIDER)))
+
+    def test_a_refused_channel_creates_no_profile(self):
+        """ensure_profile_from_discord WRITES, so it must not run before a roster
+        is established -- otherwise every lookup in any channel makes a row."""
+        before = Profile.objects.count()
+        self._command("faction", self.OUTSIDER, channel_id="555000999")
+        self.assertEqual(Profile.objects.count(), before)
+
+    # ── commands that stay open ──────────────────────────────────────────────
+    def test_ungated_commands_still_work_for_anyone(self):
+        for name in ("help", "record", "upcoming"):
+            with self.subTest(command=name):
+                self.assertFalse(self._refused(self._command(name, self.OUTSIDER)))
+
+    def test_record_is_not_guarded(self):
+        """It hands back a link the SITE re-checks permissions on, so gating it
+        would block a moderator fixing a mis-recorded game without protecting
+        anything."""
+        self.assertNotIn("record", di.ROSTER_GUARDED_COMMANDS)
+
+    # ── tournament group threads use a different roster source ───────────────
+    def _group_thread(self, thread_id="1303834523347456041"):
+        """A group thread whose roster comes from the PLAYER GROUP, not the
+        LFGThread (which has no players of its own)."""
+        designer = Profile.objects.create(discord="ggdz", discord_id="800")
+        tournament = Tournament.objects.create(
+            name="Guard Tournament", guild=self.guild, designer=designer)
+        stage = Stage.objects.create(tournament=tournament, name="S", order=1)
+        rnd = Round.objects.create(stage=stage, round_number=1)
+        self.group_mod = Profile.objects.create(discord="ggmod", discord_id="8100")
+        self.group = PlayerGroup.objects.create(
+            round=rnd, group_number=1, name="Guard Group",
+            discord_thread=(
+                f"https://discord.com/channels/{self.GUILD_ID}/{thread_id}"),
+            group_moderator=self.group_mod)
+        series = MatchSeries.objects.create(
+            round=rnd, player_group=self.group, number_of_games=1)
+        Match.objects.create(round=rnd, series=series)
+        self.group_players = [
+            Profile.objects.create(discord=f"ggp{i}", discord_id=f"81{i}")
+            for i in range(3)
+        ]
+        self.group.tournament_players.set([
+            TournamentPlayer.objects.create(tournament=tournament, profile=p)
+            for p in self.group_players
+        ])
+        return thread_id
+
+    def test_a_group_thread_guards_by_the_groups_roster(self):
+        thread_id = self._group_thread()
+        self.assertTrue(self._refused(
+            self._command("pick", self.OUTSIDER, channel_id=thread_id)))
+        self.assertFalse(self._refused(self._command(
+            "pick", self.group_players[0].discord_id, channel_id=thread_id)))
+
+    def test_a_group_moderator_may_act_in_a_group_thread(self):
+        thread_id = self._group_thread()
+        self.assertFalse(self._refused(self._command(
+            "pick", self.group_mod.discord_id, channel_id=thread_id)))
+
+    def test_a_group_with_no_players_is_open(self):
+        """Neither tournament_players nor MatchSeats: nothing to protect yet, and
+        it closes the moment anyone is added."""
+        thread_id = self._group_thread()
+        self.group.tournament_players.clear()
+        self.assertFalse(self._refused(
+            self._command("pick", self.OUTSIDER, channel_id=thread_id)))
+
+
 class PickCommandGroupThreadTests(TestCase):
     """/pick in a tournament group thread: it creates the LFGThread and seats the
     group in ROSTER order without establishing a seating, and must NOT write
@@ -5182,6 +5817,29 @@ class PickCommandGroupThreadTests(TestCase):
         self.assertFalse(thread.seating_set)
         self.assertEqual([s.profile_id for s in thread.seats.order_by("seat_number")],
                          [p.pk for p in players])
+
+    def _stop(self, clicker):
+        return json.loads(di._handle_pick_cancel({
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker, "username": "someone"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }).content)["data"]
+
+    def test_only_group_members_can_stop_the_picks(self):
+        """In a group thread the roster is the PLAYER GROUP's, not the LFGThread's
+        (which is empty here), so the membership check has to resolve it that way."""
+        players = self._members(3)
+        self._command()
+        self._choose("pick_noseat")
+
+        refused = self._stop("999888777666555444")
+        self.assertEqual(refused["flags"], di.EPHEMERAL)
+        self.assertIn("Only the players", refused["content"])
+
+        allowed = self._stop(players[0].discord_id)
+        self.assertIn("Picking stopped", allowed["content"])
 
     def test_it_does_not_invent_a_seating(self):
         """/pick must not assert an order nobody asked for: the prompt itself
@@ -5541,29 +6199,32 @@ class RandomOptionsPanelTests(TestCase):
 
 class ScheduleConsensusGateTests(ScheduleFixtureMixin, TestCase):
     """_consensus_required decides which flow runs, and is the ONLY place that
-    decision is made. Both conditions must hold: the tournament opts in AND
-    players are actually allowed to schedule AND there's a roster to poll."""
+    decision is made. Two conditions: the tournament opts in AND there's a roster
+    to poll. recording_access is deliberately NOT one of them -- it governs who
+    may WRITE the time, not who may say when they're free."""
 
     def test_flag_defaults_true(self):
         self.build()
         self.assertTrue(self.tournament.require_participant_schedule_confirmation)
 
-    def test_requires_confirmation_needs_flag_and_recording_access(self):
+    def test_requires_confirmation_follows_the_flag_alone(self):
         self.build()
         self.assertTrue(self.tournament.requires_schedule_confirmation())
 
         self.tournament.require_participant_schedule_confirmation = False
         self.assertFalse(self.tournament.requires_schedule_confirmation())
 
-    def test_moderators_only_access_disables_consensus(self):
-        """MODERATORS is the DEFAULT recording_access, and there no player may
-        schedule — so staging a vote would ask people who aren't allowed to act."""
+    def test_moderators_only_access_still_polls_the_players(self):
+        """Being unable to SET a time is no reason to be unable to say when you
+        can play. Under MODERATORS access the roster still confirms; the write
+        then waits on a moderator pressing Set Time."""
         self.build(recording_access=Tournament.RecordingAccessTypes.MODERATORS,
                    populate_group=True)
         self.assertTrue(self.tournament.require_participant_schedule_confirmation)
-        self.assertFalse(self.tournament.requires_schedule_confirmation())
-        required, _roster = di._consensus_required(self.match)
-        self.assertFalse(required)
+        self.assertTrue(self.tournament.requires_schedule_confirmation())
+        required, roster = di._consensus_required(self.match)
+        self.assertTrue(required)
+        self.assertEqual(len(roster), 2)
 
     def test_seated_roster_enables_consensus_without_group_m2m(self):
         """A group populated by SEATS alone still gets consensus.
@@ -5765,17 +6426,22 @@ class ScheduleLegacyPathTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(int(self.match.scheduled_time.timestamp()), self.ts)
         self.assertEqual(ScheduleProposal.objects.count(), 0)
 
-    def test_moderators_access_writes_directly(self):
+    def test_moderators_access_now_opens_a_proposal(self):
+        """MODERATORS access used to skip consensus entirely. It now polls the
+        roster like any other tournament -- only the final write is reserved."""
         self.build(recording_access=Tournament.RecordingAccessTypes.MODERATORS,
                    populate_group=True)
-        di._handle_schedule_confirm({
-            "data": {"custom_id": di.encode_custom_id(
-                "schedule_confirm", self.match.id, self.ts, self.group_mod.discord_id)},
-            "guild_id": self.guild.guild_id, "channel_id": "555000111", "token": None,
-        })
+        with mock.patch.object(di.post_schedule_proposal_task, "delay"):
+            di._handle_schedule_confirm({
+                "data": {"custom_id": di.encode_custom_id(
+                    "schedule_confirm", self.match.id, self.ts,
+                    self.group_mod.discord_id)},
+                "guild_id": self.guild.guild_id, "channel_id": "555000111",
+                "token": None,
+            })
         self.match.refresh_from_db()
-        self.assertEqual(int(self.match.scheduled_time.timestamp()), self.ts)
-        self.assertEqual(ScheduleProposal.objects.count(), 0)
+        self.assertIsNone(self.match.scheduled_time)
+        self.assertEqual(ScheduleProposal.objects.count(), 1)
 
     def test_gate_is_rechecked_on_the_button_not_encoded(self):
         """Flipping the setting between prompt and click takes effect immediately."""
@@ -5810,6 +6476,109 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
 
     def _body(self, response):
         return json.loads(response.content)
+
+    def test_agreed_when_the_proposer_may_not_schedule(self):
+        """Consent and authority are separate. Under MODERATORS access the roster
+        can agree, but the time waits for someone allowed to write it."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.AGREED)
+        labels = [c["label"] for c in body["data"]["components"][0]["components"]]
+        self.assertEqual(labels, ["Set Time", "Reject"])
+
+    def test_set_time_refuses_a_player(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        body = self._body(di._handle_schedule_proposal_set(
+            self._payload(action="sched_prop_set")))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_set_time_writes_for_a_moderator(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        self._body(di._handle_schedule_proposal_set(self._payload(
+            action="sched_prop_set", user_id=self.group_mod.discord_id,
+            username="groupmod")))
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.scheduled_time, self.when)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
+
+    def test_confirm_is_refused_once_agreed(self):
+        """Consent is already complete there -- only Set Time and Reject apply."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("already agreed", body["data"]["content"])
+
+    def test_a_moderator_can_reject_an_agreed_time(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            self._body(di._handle_schedule_proposal_reject(self._payload(
+                action="sched_prop_no", user_id=self.group_mod.discord_id,
+                username="groupmod")))
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_a_player_cannot_reject_an_agreed_time(self):
+        """Rejecting a time still being negotiated is ordinary; destroying a
+        completed agreement on one late click undoes everyone else's work."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        body = self._body(di._handle_schedule_proposal_reject(
+            self._payload(action="sched_prop_no")))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("Ask a moderator", body["data"]["content"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.AGREED)
+
+    def test_a_player_can_still_reject_an_open_time(self):
+        """The narrowing applies only to AGREED -- an open proposal is unchanged."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            self._body(di._handle_schedule_proposal_reject(
+                self._payload(action="sched_prop_no")))
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+
+    def test_an_agreed_proposal_is_still_swept(self):
+        """AGREED is live, so it must not survive a time set another way."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                di._cancel_open_proposals(self.match, "cancelled")
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+    def test_an_agreed_proposal_is_still_expired(self):
+        from the_gatehouse.tasks import cleanup_stale_schedule_proposals
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        ScheduleProposal.objects.filter(pk=self.proposal.pk).update(
+            proposed_time=timezone.now() - timedelta(days=1))
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            cleanup_stale_schedule_proposals()
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
 
     def test_non_roster_clicker_refused(self):
         body = self._body(di._handle_schedule_proposal_confirm(
@@ -6043,7 +6812,13 @@ class ScheduleProposalSupersedeTests(ScheduleFixtureMixin, TestCase):
         self.assertTrue(ok)
         self.b.refresh_from_db()
         self.assertEqual(self.b.status, ScheduleProposal.Status.SUPERSEDED)
-        self.assertEqual(len(callbacks), 1)
+        # One sweep of the losing proposals. _finalize_proposal also defers a
+        # schedule-channel announcement, so assert the strip task specifically rather
+        # than counting every on_commit callback.
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay") as strip:
+            for cb in callbacks:
+                cb()
+        self.assertEqual(strip.call_count, 1)
 
     def test_strip_task_enqueued_for_loser_only(self):
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay") as strip:
@@ -6216,11 +6991,40 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         self.assertIn(f"<@{self.player.discord_id}>", fields["✅ Confirmed"])
         self.assertNotIn(f"<@{self.player.discord_id}>", fields["Waiting on"])
 
-    def test_first_post_mentions_but_edits_do_not(self):
+    def test_pings_are_off_so_nothing_notifies(self):
+        """SCHEDULE_PROPOSAL_PINGS is off: no content line and no open mentions,
+        even on the first post. The embed still names who is waiting."""
         first = di._schedule_proposal_data(self.proposal, self.match, mention=True)
-        self.assertEqual(first["allowed_mentions"]["parse"], ["users"])
+        self.assertNotIn("content", first)
+        self.assertEqual(first["allowed_mentions"]["parse"], [])
         edit = di._schedule_proposal_data(self.proposal, self.match)
+        self.assertNotIn("content", edit)
         self.assertEqual(edit["allowed_mentions"]["parse"], [])
+
+    def test_enabling_pings_mentions_the_pending_players(self):
+        """The disabled path must keep working, so exercise it explicitly."""
+        with mock.patch.object(di, "SCHEDULE_PROPOSAL_PINGS", True):
+            first = di._schedule_proposal_data(
+                self.proposal, self.match, mention=True)
+            edit = di._schedule_proposal_data(self.proposal, self.match)
+        pending = list(self.proposal.pending_profiles())
+        self.assertTrue(pending, "fixture needs someone still to confirm")
+        for profile in pending:
+            if profile.discord_id:
+                self.assertIn(f"<@{profile.discord_id}>", first["content"])
+        self.assertEqual(first["allowed_mentions"]["parse"], ["users"])
+        # Still only the FIRST post -- an edit carries no mention line.
+        self.assertNotIn("content", edit)
+
+    def test_an_unlinked_player_is_not_pinged_but_is_still_named(self):
+        unlinked = Profile.objects.create(discord="nolink", display_name="No Link")
+        self.proposal.roster.add(unlinked)
+        with mock.patch.object(di, "SCHEDULE_PROPOSAL_PINGS", True):
+            data = di._schedule_proposal_data(
+                self.proposal, self.match, mention=True)
+        self.assertNotIn("No Link", data.get("content", ""))
+        waiting = data["embeds"][0]["fields"][0]["value"]
+        self.assertIn("No Link", waiting)
 
     def test_rejected_view_does_not_name_the_rejecter(self):
         self.proposal.rejected_by = self.teammate
@@ -7218,3 +8022,159 @@ class LFGThreadLastActivityTests(TestCase):
             self.THREAD_ID, [{"kind": "Faction", "slug": "bump-birds"}],
             source="random")
         self.assertTrue(self._bumped())
+
+
+class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
+    """The bulk thread task: one forum thread per un-threaded series, players pinged,
+    thread linked back to the group, outcome reported as a UserNotification."""
+
+    FORUM = [{"id": "300000000000000033", "name": "matches"}]
+
+    def setUp(self):
+        super().setUp()
+        self.guild = DiscordGuild.objects.create(guild_id="920100", name="Task Guild",
+                                                 bot_member=True)
+        self.actor = Profile.objects.create(discord="actor", discord_id="90")
+        self.player = Profile.objects.create(discord="p1", discord_id="91")
+        self.unlinked = Profile.objects.create(discord="p2", discord_id=None)
+
+        self.tournament = Tournament.objects.create(
+            name="Task Cup", guild=self.guild,
+            game_threads_channel=self.FORUM[0]["id"])
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S1", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A")
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.player)
+        self.group.tournament_players.add(tp)
+
+    def _run(self, thread_id="777001", forum=None, side_effect=None):
+        """Runs the task with Discord stubbed. The task calls the _detailed variant,
+        which returns (thread_id, retry_after). Sleeps are patched out so pacing
+        doesn't slow the suite."""
+        from the_gatehouse import tasks
+        return_value = (thread_id, None)
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                        return_value=self.FORUM if forum is None else forum), \
+             mock.patch("the_gatehouse.tasks.time.sleep") as self.sleep, \
+             mock.patch("the_gatehouse.services.discordservice.create_forum_thread_detailed",
+                        **({"side_effect": side_effect} if side_effect
+                           else {"return_value": return_value})) as create:
+            tasks.create_match_threads_task(
+                self.round.id, self.actor.id, self.tournament.id)
+        return create
+
+    def test_creates_a_thread_and_links_it(self):
+        create = self._run()
+        create.assert_called_once()
+        args, kwargs = create.call_args
+        self.assertEqual(args[0], self.FORUM[0]["id"])
+        self.assertEqual(args[1], "Group A")            # titled with the group name
+        self.assertIn("<@91>", kwargs["content"])        # player pinged
+
+        self.group.refresh_from_db()
+        self.assertEqual(
+            self.group.discord_thread,
+            f"https://discord.com/channels/{self.guild.guild_id}/777001")
+
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 game thread created", note.message)
+        self.assertEqual(note.related_url, self.round.get_matches_url())
+
+    def test_a_group_that_already_has_a_thread_is_skipped(self):
+        self.group.discord_thread = f"https://discord.com/channels/{self.guild.guild_id}/1"
+        self.group.save()
+        create = self._run()
+        create.assert_not_called()
+
+    def test_running_twice_does_not_duplicate(self):
+        self._run()
+        create = self._run(thread_id="777002")
+        create.assert_not_called()
+        self.group.refresh_from_db()
+        # Still the FIRST thread -- link_group_thread's compare-and-swap held.
+        self.assertTrue(self.group.discord_thread.endswith("/777001"))
+
+    def test_players_without_discord_do_not_block_the_thread(self):
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.unlinked)
+        self.group.tournament_players.add(tp)
+        create = self._run()
+        create.assert_called_once()
+        content = create.call_args.kwargs["content"]
+        self.assertIn("<@91>", content)
+        self.assertNotIn("None", content)
+
+    def test_a_failed_creation_writes_no_url_and_reports_it(self):
+        create = self._run(thread_id=None)
+        create.assert_called_once()
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertEqual(note.message_type, MessageChoices.WARNING)
+
+    def test_requests_are_spaced_out(self):
+        """Back-to-back creation is what trips the limit; pause between calls."""
+        for n in (2, 3):
+            group = PlayerGroup.objects.create(
+                round=self.round, group_number=n, name=f"Group {n}")
+            MatchSeries.objects.create(
+                round=self.round, player_group=group, number_of_games=1)
+        create = self._run()
+        self.assertEqual(create.call_count, 3)
+        # One pause per call after the first -- never before the first.
+        from the_gatehouse import tasks
+        self.assertEqual(
+            self.sleep.call_args_list,
+            [mock.call(tasks._THREAD_CREATE_INTERVAL)] * 2)
+
+    def test_a_rate_limit_is_retried_not_counted_as_failed(self):
+        """A 429 means "too fast", not "impossible" -- wait and retry the SAME group,
+        instead of burning it and racing on to the next."""
+        create = self._run(side_effect=[(None, 2.5), ("777009", None)])
+        self.assertEqual(create.call_count, 2)
+        self.sleep.assert_any_call(2.5)          # honoured Discord's retry_after
+        self.group.refresh_from_db()
+        self.assertTrue(self.group.discord_thread.endswith("/777009"))
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 game thread created", note.message)
+        self.assertNotIn("failed", note.message)
+
+    def test_a_long_retry_after_is_capped(self):
+        """Discord can ask for hundreds of seconds; don't park the worker that long."""
+        from the_gatehouse import tasks
+        create = self._run(side_effect=[(None, 900.0), ("777010", None)])
+        self.sleep.assert_any_call(tasks._THREAD_CREATE_MAX_BACKOFF)
+        for call in self.sleep.call_args_list:
+            self.assertLessEqual(call.args[0], tasks._THREAD_CREATE_MAX_BACKOFF)
+
+    def test_a_persistent_rate_limit_explains_itself(self):
+        """Still limited after the retry: report it as retryable, not a mystery."""
+        create = self._run(side_effect=[(None, 1.0), (None, 1.0)])
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertIn("rate limited", note.message)
+        self.assertEqual(note.message_type, MessageChoices.WARNING)
+
+    def test_a_plain_failure_does_not_mention_rate_limiting(self):
+        create = self._run(thread_id=None)
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertNotIn("rate limited", note.message)
+
+    def test_a_stale_channel_aborts_with_a_warning(self):
+        """The tournament moved guilds between the click and the task running."""
+        other = DiscordGuild.objects.create(guild_id="920999", name="Other",
+                                            bot_member=True)
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=other)
+        create = self._run(forum=[])     # the new guild has no such forum
+        create.assert_not_called()
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertEqual(note.message_type, MessageChoices.WARNING)
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")

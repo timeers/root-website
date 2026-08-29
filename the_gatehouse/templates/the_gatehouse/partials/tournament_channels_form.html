@@ -1,0 +1,34 @@
+{% load i18n %}
+{% comment %} The series-channels form, rendered into #tournament-channels-modal-body.
+Edit-only — there is no add/delete, a series row always exists for every linked series.
+
+hx-target is the modal body — the same element this form lives in — so an invalid POST
+(422) re-renders the form here with its errors and the modal stays open with the user's
+input intact. htmx doesn't swap non-2xx by default; tournament_channels_modal.js opts this
+one target in. On success the view returns tournament_channels_saved.html plus an
+HX-Trigger that closes the modal.
+
+The footer sits inside the <form> (not in the modal shell) so the submit button needs no
+form= attribute. Spinner visibility is toggled explicitly rather than via .htmx-indicator,
+because includeIndicatorStyles is false in this project's htmx config.
+{% endcomment %}
+<form id="tournament-channels-form"
+      hx-post="{% url 'guild-tournament-channels' guild.guild_id tournament.pk %}"
+      hx-target="#tournament-channels-modal-body"
+      hx-swap="innerHTML"
+      hx-disabled-elt="find button[type=submit]"
+      hx-on:htmx:before-request="
+        this.querySelector('.tc-save-spinner').classList.remove('d-none');
+        this.querySelector('.tc-save-icon').classList.add('d-none');
+      ">
+    {% csrf_token %}
+    {% include 'the_gatehouse/partials/tournament_channels_form_fields.html' with form=form tournament=tournament guild=guild field_ctx=field_ctx %}
+
+    <div class="d-flex justify-content-end gap-2 border-top pt-3 mt-3">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+        <button type="submit" class="btn btn-primary">
+            <span class="tc-save-spinner spinner-border spinner-border-sm d-none me-1" role="status"></span>
+            <i class="tc-save-icon bi bi-check-lg me-1"></i>{% trans 'Save Channels' %}
+        </button>
+    </div>
+</form>

@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
-from the_gatehouse.models import Profile, DiscordGuild
+from the_gatehouse.models import Profile, DiscordGuild, validate_discord_snowflake
 from the_gatehouse.utils import NameConvention
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak, StatusChoices
 from the_keep.utils import delete_old_image
@@ -595,6 +595,22 @@ class Tournament(models.Model):
 
     # Access & Roster
     guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this League with a Guild to allow members to record games')
+
+    # Discord channels in `guild` that this series posts into. Deliberately NOT on any
+    # Tournament form — they're guild plumbing, edited by a guild moderator from the Edit
+    # Guild page (see TournamentGuildChannelsForm / hx_save_tournament_channels).
+    # Snowflake-only, matching every other channel id in the project: a stored name would
+    # go stale the moment the channel is renamed, and the cached channel lists already
+    # supply names for display.
+    results_channel = models.CharField(max_length=32, blank=True, null=True,
+                                       validators=[validate_discord_snowflake],
+                                       help_text='Discord text channel where submitted game results are announced.')
+    schedule_channel = models.CharField(max_length=32, blank=True, null=True,
+                                        validators=[validate_discord_snowflake],
+                                        help_text='Discord text channel where confirmed match times are announced.')
+    game_threads_channel = models.CharField(max_length=32, blank=True, null=True,
+                                            validators=[validate_discord_snowflake],
+                                            help_text='Discord FORUM channel where a thread is created for each match.')
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to a game. If disabled, only registered players will be available.')
     recording_access = models.CharField(
         max_length=20,
@@ -773,12 +789,14 @@ class Tournament(models.Model):
         )
 
     def requires_schedule_confirmation(self):
-        """True when /schedule must collect every player's confirmation before it
-        writes a time. Requires BOTH the opt-in flag and players actually being
-        allowed to schedule — under MODERATORS-only access no player may set a
-        time, so there is nobody to poll and the moderator's word is already final."""
-        return (self.require_participant_schedule_confirmation
-                and self.players_can_record_matches())
+        """True when /schedule must collect every player's confirmation before a
+        time is written.
+
+        Deliberately does NOT consider recording_access. Being unable to SET a
+        time is no reason to be unable to say when you can play: under
+        MODERATORS-only access the roster still confirms, and the proposal then
+        waits on a moderator to press Set Time rather than writing itself."""
+        return self.require_participant_schedule_confirmation
 
     def players_can_record_standalone(self):
         """Registered players may record standalone games for rounds (REGISTERED, GUILD)."""
@@ -1050,6 +1068,22 @@ class Tournament(models.Model):
             new_image = getattr(self, field_name)
             if old_image != new_image:
                 delete_old_image(old_image)
+
+            # SECURITY: the three channel ids are snowflakes belonging to the OLD guild.
+            # Leaving them set after a re-point (or an unlink) would announce this
+            # series' matches into a server it's no longer tied to. Nothing else clears
+            # them -- they're only writable from the Edit Guild page, which a moderator
+            # of the new guild can't use to clean up the old one's ids.
+            if old_instance.guild_id != self.guild_id:
+                self.results_channel = None
+                self.schedule_channel = None
+                self.game_threads_channel = None
+                # update_fields would otherwise drop these columns from the UPDATE and
+                # silently discard the clear. Only needed when the caller named `guild`
+                # -- any other partial save can't have changed it.
+                if update_fields and 'guild' in update_fields:
+                    kwargs['update_fields'] = list(update_fields) + [
+                        'results_channel', 'schedule_channel', 'game_threads_channel']
 
         super().save(*args, **kwargs)
 

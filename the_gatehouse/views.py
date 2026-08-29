@@ -30,10 +30,11 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
                                  effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, GuildLFGRole
 from .services.discordservice import (update_discord_avatar, get_discord_invite_info, get_user_guilds,
                                       get_guild_roles, get_guild_forum_channels, get_forum_channel_info,
+                                      get_guild_text_channels, guild_channel_names,
                                       bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
@@ -1798,8 +1799,18 @@ def edit_guild(request, guild_id):
 
     lfg_add_form = GuildLFGRoleForm(guild=guild)
     lfg_add_ctx = _lfg_field_context(guild, lfg_add_form)
+
+    # Series linked to this guild, each pre-rendered into row context so the template
+    # needs no per-field dict lookups. The channel-name lookup is skipped entirely when
+    # no series are linked, so guilds without any pay nothing for this card.
+    guild_tournaments = list(guild.tournaments.all().order_by('name'))
+    channel_names = guild_channel_names(guild) if guild_tournaments else {}
+    tournament_rows = [_tournament_row_ctx(t, guild, channel_names)
+                       for t in guild_tournaments]
+
     context = {'form': form, 'guild': guild,
                'moderators': guild.guild_moderators.all(),
+               'tournament_rows': tournament_rows,
                'lfg_roles': guild.lfg_roles.select_related('tournament').all(),
                'lfg_add_form': lfg_add_form,
                'lfg_add_ctx': lfg_add_ctx,
@@ -1970,6 +1981,94 @@ def _lfg_field_context(guild, form):
         'role_selected': role_sel, 'channel_selected': channel_sel,
         'tag_selected': tag_sel, 'tag_selected_name': tag_selected_name,
     }
+
+
+def _tournament_channel_context(guild, form):
+    """Data for a series' channel dropdowns, fetched from Discord (cached ~5 min) at
+    render time. Two independent lists: results/schedule are TEXT channels, game threads
+    is a FORUM channel. Either fetch returning None makes only ITS control fall back to a
+    manual text input (see tournament_channels_form_fields.html) — one list failing must
+    not degrade the other. Reading selections off the bound form keeps them on a
+    POST-invalid re-render.
+
+    Callers must run after edit_guild's bot_member refresh (views.py ~1795): a stale flag
+    would drop every control to manual entry for a guild the bot is really in."""
+    if guild.bot_member:
+        text_channels = get_guild_text_channels(guild.guild_id)
+        forum_channels = get_guild_forum_channels(guild.guild_id)
+    else:
+        text_channels = None
+        forum_channels = None
+
+    return {
+        'text_channels': text_channels,
+        'text_channel_ids': [c['id'] for c in text_channels] if text_channels else [],
+        'forum_channels': forum_channels,
+        'forum_channel_ids': [c['id'] for c in forum_channels] if forum_channels else [],
+        'results_selected': str(form['results_channel'].value() or ''),
+        'schedule_selected': str(form['schedule_channel'].value() or ''),
+        'game_threads_selected': str(form['game_threads_channel'].value() or ''),
+    }
+
+
+def _tournament_row_ctx(tournament, guild, channel_names):
+    """Context for one series row. Channel names are resolved HERE rather than in the
+    template: the row shows three channels, and a template-side dict lookup per field
+    would need a filter and still couldn't express the id fallback cleanly.
+
+    `channel_names` is built once per render and passed in, so listing N series costs no
+    extra Discord lookups. An id absent from the map (Discord unreachable, or the channel
+    deleted since) displays as the raw id.
+    """
+    def label(channel_id, prefix='#'):
+        if not channel_id:
+            return None
+        name = channel_names.get(channel_id)
+        return f'{prefix}{name}' if name else channel_id
+
+    channels = [
+        (_('Results'), label(tournament.results_channel)),
+        (_('Schedule'), label(tournament.schedule_channel)),
+        # Forum channels aren't addressed with a # in Discord's UI.
+        (_('Game threads'), label(tournament.game_threads_channel, prefix='')),
+    ]
+    return {'tournament': tournament, 'guild': guild,
+            'channels': [(lbl, val) for lbl, val in channels if val]}
+
+
+@login_required
+def hx_save_tournament_channels(request, guild_id, pk):
+    """Edit one series' Discord channels from the Edit Guild page. Commits on its own
+    (like the LFG-role modal), so the main guild form's unsaved input is never touched."""
+    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
+    if not can_moderate_guild(request.user.profile, guild):
+        raise PermissionDenied()
+    # `guild=guild` is the cross-guild guard: a moderator of one guild can't reach a
+    # series linked to another (404, not 403 — they shouldn't learn it exists).
+    tournament = get_object_or_404(Tournament, pk=pk, guild=guild)
+
+    if request.method == 'GET':
+        edit_form = TournamentGuildChannelsForm(instance=tournament, guild=guild)
+        return render(request, 'the_gatehouse/partials/tournament_channels_form.html',
+                      {'form': edit_form, 'tournament': tournament, 'guild': guild,
+                       'field_ctx': _tournament_channel_context(guild, edit_form)})
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+
+    form = TournamentGuildChannelsForm(request.POST, instance=tournament, guild=guild)
+    if form.is_valid():
+        obj = form.save()
+        # The modal body gets a short "saved" stub; the row is refreshed out-of-band so
+        # the displayed channel names update. HX-Trigger closes the modal client-side
+        # (see static/js/tournament_channels_modal.js). No refresh_guild_commands here —
+        # these fields don't affect slash-command registration.
+        response = render(request, 'the_gatehouse/partials/tournament_channels_saved.html',
+                          _tournament_row_ctx(obj, guild, guild_channel_names(guild)))
+        response['HX-Trigger'] = 'tournamentChannelsSaved'
+        return response
+    return render(request, 'the_gatehouse/partials/tournament_channels_form.html',
+                  {'form': form, 'tournament': tournament, 'guild': guild,
+                   'field_ctx': _tournament_channel_context(guild, form)}, status=422)
 
 
 @login_required

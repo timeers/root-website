@@ -10,7 +10,8 @@ from django.utils import timezone
 from the_keep.models import StatusChoices, Post, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
 from .models import (BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile,
-                     LFGRoll, LFGDraft, LFGDraftPick)
+                     LFGRoll, LFGDraft, LFGDraftPick, UserNotification,
+                     MessageChoices)
 
 from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, register_guild_commands, DM_ERROR
 from .services.context_service import get_daily_user_summary
@@ -24,6 +25,15 @@ logger = logging.getLogger(__name__)
 # discord_interactions.py — defined locally to avoid a circular import (that module
 # imports from this one).
 EPHEMERAL = 64
+
+# Pacing for bulk forum-thread creation (create_match_threads_task). Discord's thread
+# limits aren't published as a fixed number and vary by channel and guild, so this is a
+# deliberate go-slow rather than a computed rate: a round of 40 matches takes ~40s of
+# wall clock in a worker, which costs nothing and keeps a normal batch under the limit
+# entirely. _THREAD_CREATE_MAX_BACKOFF caps how long a single 429 can park the worker --
+# beyond that the item is reported as failed and the user retries.
+_THREAD_CREATE_INTERVAL = 1.0      # seconds between creations
+_THREAD_CREATE_MAX_BACKOFF = 30.0  # seconds; longest we honour a retry_after inline
 
 
 @shared_task
@@ -596,6 +606,118 @@ def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=Non
 
 
 @shared_task
+def create_match_threads_task(round_id, profile_id, tournament_id):
+    """Create one forum thread per un-threaded MatchSeries in a round, ping its players,
+    and link the thread back to the PlayerGroup. Reports the outcome as a
+    UserNotification pointing at the matches page.
+
+    Async because a round can hold many series and each thread is a blocking Discord
+    call. Permission was checked by the enqueueing view; this re-reads the tournament's
+    channel through post-time verification rather than trusting an id passed in.
+    """
+    from the_warroom.models import Round, MatchSeries, Tournament
+    from the_warroom.services.channel_posts import resolve_tournament_channel
+    from .services.discordservice import create_forum_thread_detailed
+    from .services.lfg_game import group_roster, link_group_thread
+
+    round = Round.objects.filter(pk=round_id).select_related('stage').first()
+    tournament = Tournament.objects.filter(pk=tournament_id).select_related('guild').first()
+    profile = Profile.objects.filter(pk=profile_id).first()
+    if not (round and tournament and profile):
+        logger.warning("create_match_threads_task: round/tournament/profile missing "
+                       "(%s/%s/%s)", round_id, tournament_id, profile_id)
+        return
+
+    # Re-verify at send time: the tournament may have been re-pointed at another guild
+    # between the click and this task running, and a stale channel id would create
+    # threads in the wrong server.
+    forum_id = resolve_tournament_channel(tournament, 'game_threads_channel')
+    if not forum_id:
+        UserNotification.create_notification(
+            profile,
+            "Couldn't create game threads: this series has no valid game-threads "
+            "forum channel for its Discord server.",
+            message_type=MessageChoices.WARNING,
+            related_url=round.get_matches_url())
+        return
+
+    guild_snowflake = tournament.guild.guild_id
+    created = skipped = failed = 0
+    # discord_thread is blank=True WITHOUT null=True -- unlinked is "", never NULL.
+    # An __isnull=True filter here would match nothing at all.
+    series_qs = (MatchSeries.objects
+                 .filter(round=round, player_group__isnull=False,
+                         player_group__discord_thread='')
+                 .select_related('player_group')
+                 .order_by('id'))
+
+    rate_limited = False
+    for index, series in enumerate(series_qs):
+        group = series.player_group
+        # Re-check under the current row: the page's count may be minutes stale, and
+        # another run of this task may have linked it since the queryset was built.
+        group.refresh_from_db(fields=['discord_thread'])
+        if group.discord_thread:
+            skipped += 1
+            continue
+
+        roster = group_roster(group, series_id=series.id)
+        # discord_id is the snowflake; Profile.discord is a legacy username and must
+        # never be mentioned with. Players who never linked Discord are simply not
+        # pinged -- that shouldn't block the thread for everyone else.
+        pings = " ".join(f"<@{p.discord_id}>" for p in roster if p.discord_id)
+        title = group.name or f"Group {group.group_number}"
+        content = (f"{pings} your match is ready!".strip() if pings
+                   else "Your match is ready!")
+
+        # Space the requests out. A big round is dozens of thread creations, and
+        # firing them back to back is what trips Discord's limit in the first place.
+        # Skipped groups cost nothing, so only pause before an actual API call, and
+        # never before the first one.
+        if index:
+            time.sleep(_THREAD_CREATE_INTERVAL)
+
+        thread_id, retry_after = create_forum_thread_detailed(
+            forum_id, title, content=content)
+
+        # A 429 is not a failure -- the request was refused for pacing, and the same
+        # call will succeed after the wait. Without this the remaining groups would
+        # each burn one request against the same limit and be reported as "failed".
+        if thread_id is None and retry_after is not None:
+            rate_limited = True
+            wait = min(retry_after, _THREAD_CREATE_MAX_BACKOFF)
+            logger.warning("create_match_threads_task: rate limited, waiting %ss", wait)
+            time.sleep(wait)
+            thread_id, retry_after = create_forum_thread_detailed(
+                forum_id, title, content=content)
+
+        if not thread_id:
+            failed += 1
+            continue
+        # Compare-and-swap on discord_thread="" -- never clobbers a link written
+        # concurrently, and builds the exact URL shape _match_thread_id parses back.
+        if link_group_thread(group, guild_snowflake, thread_id):
+            created += 1
+        else:
+            skipped += 1
+
+    parts = [f"{created} game thread{'' if created == 1 else 's'} created"]
+    if skipped:
+        parts.append(f"{skipped} skipped (already had a thread)")
+    if failed:
+        parts.append(f"{failed} failed")
+    message = f"{round.name}: " + ", ".join(parts) + "."
+    if failed and rate_limited:
+        # Tell the user WHY, so a retry looks worthwhile rather than pointless.
+        message += (" Discord rate limited the batch — press Create Game Threads "
+                    "again to finish the rest.")
+    UserNotification.create_notification(
+        profile, message,
+        message_type=(MessageChoices.WARNING if failed else MessageChoices.SUCCESS),
+        related_url=round.get_matches_url())
+
+
+@shared_task
 def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description,
                            players, embed=None, token=None, host_id=None):
     """Create the game thread, ping the players, link the original message's title
@@ -912,16 +1034,21 @@ def post_schedule_proposal_task(proposal_id, message_data):
     The id is the whole point: without it the proposal can't be edited later
     (superseded/cancelled) from outside its own interaction.
 
-    Bails out when the proposal stopped being OPEN while the task sat queued — e.g.
+    Bails out when the proposal stopped being LIVE while the task sat queued — e.g.
     another proposal finalized first. Posting live buttons for a dead proposal would
-    hand someone a control that could overwrite a confirmed time."""
+    hand someone a control that could overwrite a confirmed time.
+
+    is_live, NOT is_open: a fast roster can confirm everything before this task
+    runs, leaving the row AGREED and awaiting a moderator. Bailing on that would
+    never post the message at all, stranding the proposal with no message_id --
+    so nothing could later edit its buttons or sweep it."""
     from .models import ScheduleProposal
     from .services.discordservice import (
         post_channel_message_full, THREAD_OK, THREAD_ERROR,
     )
 
     proposal = ScheduleProposal.objects.filter(pk=proposal_id).first()
-    if not proposal or not proposal.is_open or not proposal.channel_id:
+    if not proposal or not proposal.is_live or not proposal.channel_id:
         return
 
     result, message_id = post_channel_message_full(
@@ -979,7 +1106,7 @@ def cleanup_stale_schedule_proposals(max_age_days=14):
 
     now = timezone.now()
     stale = ScheduleProposal.objects.filter(
-        status=ScheduleProposal.Status.OPEN,
+        status__in=ScheduleProposal.LIVE_STATUSES,
     ).filter(
         Q(proposed_time__lt=now)
         | Q(created_at__lt=now - timedelta(days=max_age_days))

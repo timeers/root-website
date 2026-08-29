@@ -457,4 +457,48 @@ page's ambient round/stage/tournament globals.
 </div>
 {% endif %}
 
+{% comment %} Discord Channels — read-only. These are set by a moderator of the linked
+guild from the Edit Guild page, NOT here: they're guild property, and a series host who
+doesn't moderate the guild can't change them. Deliberately not gated on can_manage —
+the host who most needs to know where announcements go may be exactly the one who
+can't edit them. Keys come from _tournament_channels_card_context, added to the section
+dict only at series level and only when a guild is linked. {% endcomment %}
+{% if section.channels_guild %}
+<div class="col-md-6">
+    <div class="card h-100">
+        <div class="card-body">
+            <h5 class="card-title root-title">
+                <i class="bi bi-discord me-2"></i>Discord Channels
+            </h5>
+            {% if section.tournament_channels %}
+            <p class="card-text text-muted mb-2">
+                Announcements for this series go to:
+            </p>
+            <ul class="list-unstyled small mb-0">
+                {% for label, value in section.tournament_channels %}
+                <li><span class="text-muted">{{ label }}:</span> <code>{{ value }}</code></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="card-text text-muted mb-0">
+                No announcement channels are set for this series yet.
+            </p>
+            {% endif %}
+        </div>
+        <div class="card-footer bg-transparent">
+            {% if section.can_edit_channels %}
+            <a href="{% url 'edit-guild' section.channels_guild.guild_id %}" class="btn btn-outline-primary w-100">
+                <i class="bi bi-pencil me-1"></i>Manage in {{ section.channels_guild.name }}
+            </a>
+            {% else %}
+            <span class="text-muted small">
+                <i class="bi bi-info-circle me-1"></i>A moderator of
+                <strong>{{ section.channels_guild.name }}</strong> can change these.
+            </span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% endwith %}

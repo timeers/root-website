@@ -1,0 +1,110 @@
+{% load i18n %}
+{% comment %} Field body for the series-channels form. All three <select>s are rendered
+SERVER-SIDE from `field_ctx`.
+
+TWO SEPARATE SOURCES — do not merge them:
+  * results_channel / schedule_channel -> field_ctx.text_channels  (TEXT channels)
+  * game_threads_channel               -> field_ctx.forum_channels (FORUM channels)
+Each field's "(not listed)" branch compares against ITS OWN id list. Pointing them all at
+one list would make a validly-saved channel silently vanish from its dropdown on edit,
+and the form's clean() would then reject it.
+
+A None list means Discord couldn't be reached for that kind of channel; only that control
+degrades to a manual id input, never the others.
+{% endcomment %}
+<div class="tournament-channel-fields">
+
+    {# ----- Results channel ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Results channel' %}</label>
+        {% if form.results_channel.errors %}
+            <div class="alert alert-danger py-2">{{ form.results_channel.errors|striptags }}</div>
+        {% endif %}
+        {% if field_ctx.text_channels is None %}
+            <input type="text" name="results_channel" class="form-control"
+                   value="{{ field_ctx.results_selected }}" autocomplete="off"
+                   placeholder="{% trans 'Channel ID' %}">
+            <div class="form-text text-warning">
+                {% trans "Couldn't load channels from Discord — enter a channel ID manually." %}
+            </div>
+        {% else %}
+            <select name="results_channel" class="form-select">
+                <option value="" {% if not field_ctx.results_selected %}selected{% endif %}>{% trans '— No channel —' %}</option>
+                {% for channel in field_ctx.text_channels %}
+                    <option value="{{ channel.id }}" {% if channel.id == field_ctx.results_selected %}selected{% endif %}>
+                        #{{ channel.name }}
+                    </option>
+                {% endfor %}
+                {% if field_ctx.results_selected and field_ctx.results_selected not in field_ctx.text_channel_ids %}
+                    <option value="{{ field_ctx.results_selected }}" selected>{% trans '(not listed)' %} {{ field_ctx.results_selected }}</option>
+                {% endif %}
+            </select>
+            <div class="form-text text-muted">
+                {% trans 'When set, submitted game results for this series are announced here.' %}
+            </div>
+        {% endif %}
+    </div>
+
+    {# ----- Schedule channel ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Schedule channel' %}</label>
+        {% if form.schedule_channel.errors %}
+            <div class="alert alert-danger py-2">{{ form.schedule_channel.errors|striptags }}</div>
+        {% endif %}
+        {% if field_ctx.text_channels is None %}
+            <input type="text" name="schedule_channel" class="form-control"
+                   value="{{ field_ctx.schedule_selected }}" autocomplete="off"
+                   placeholder="{% trans 'Channel ID' %}">
+            <div class="form-text text-warning">
+                {% trans "Couldn't load channels from Discord — enter a channel ID manually." %}
+            </div>
+        {% else %}
+            <select name="schedule_channel" class="form-select">
+                <option value="" {% if not field_ctx.schedule_selected %}selected{% endif %}>{% trans '— No channel —' %}</option>
+                {% for channel in field_ctx.text_channels %}
+                    <option value="{{ channel.id }}" {% if channel.id == field_ctx.schedule_selected %}selected{% endif %}>
+                        #{{ channel.name }}
+                    </option>
+                {% endfor %}
+                {% if field_ctx.schedule_selected and field_ctx.schedule_selected not in field_ctx.text_channel_ids %}
+                    <option value="{{ field_ctx.schedule_selected }}" selected>{% trans '(not listed)' %} {{ field_ctx.schedule_selected }}</option>
+                {% endif %}
+            </select>
+            <div class="form-text text-muted">
+                {% trans 'When set, confirmed match times are announced here.' %}
+            </div>
+        {% endif %}
+    </div>
+
+    {# ----- Game threads channel (FORUM — different source list) ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Game threads forum' %}</label>
+        {% if form.game_threads_channel.errors %}
+            <div class="alert alert-danger py-2">{{ form.game_threads_channel.errors|striptags }}</div>
+        {% endif %}
+        {% if field_ctx.forum_channels is None %}
+            <input type="text" name="game_threads_channel" class="form-control"
+                   value="{{ field_ctx.game_threads_selected }}" autocomplete="off"
+                   placeholder="{% trans 'Forum channel ID' %}">
+            <div class="form-text text-warning">
+                {% trans "Couldn't load forums from Discord — enter a forum channel ID manually." %}
+            </div>
+        {% else %}
+            <select name="game_threads_channel" class="form-select">
+                <option value="" {% if not field_ctx.game_threads_selected %}selected{% endif %}>{% trans '— No forum —' %}</option>
+                {% for forum in field_ctx.forum_channels %}
+                    <option value="{{ forum.id }}" {% if forum.id == field_ctx.game_threads_selected %}selected{% endif %}>
+                        {{ forum.name }}
+                    </option>
+                {% endfor %}
+                {% if field_ctx.game_threads_selected and field_ctx.game_threads_selected not in field_ctx.forum_channel_ids %}
+                    <option value="{{ field_ctx.game_threads_selected }}" selected>{% trans '(not listed)' %} {{ field_ctx.game_threads_selected }}</option>
+                {% endif %}
+            </select>
+            <div class="form-text text-muted">
+                {% trans 'Must be a forum channel. Adds the option to create game threads from Matches page.' %}
+            </div>
+        {% endif %}
+    </div>
+
+</div>

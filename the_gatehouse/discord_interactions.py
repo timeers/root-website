@@ -1110,6 +1110,53 @@ def _name_list_value(profiles, empty="—"):
     return "\n".join(out)[:_FIELD_VALUE_MAX]
 
 
+# Whether a new proposal pings the players it is waiting on.
+#
+# OFF deliberately. A series thread carries a proposal per game, so pinging the
+# whole roster each time is more noise than it's worth; the embed names everyone
+# who is waiting, and anyone who needs chasing can be @-mentioned by hand.
+#
+# Turning this True is enough to enable it -- but read the two hazards in
+# _proposal_ping_content first.
+SCHEDULE_PROPOSAL_PINGS = False
+
+# Discord's cap on message content. Well above any real roster, but an over-long
+# content makes Discord reject the POST outright, losing the whole message.
+_CONTENT_MAX = 2000
+
+
+def _proposal_ping_content(pending):
+    """The mention line for a proposal's pending players, or None.
+
+    Built from discord_id directly rather than _roster_name: that helper appends
+    "(not linked — log in with Discord once)", which explains a stuck proposal in
+    the embed but is noise in a ping. An unlinked player cannot be pinged at all,
+    so they are simply omitted here -- the embed still names them.
+
+    ⚠️ Two things to know before enabling SCHEDULE_PROPOSAL_PINGS:
+      * Omitting `content` on a later EDIT does not remove it. edit_channel_message
+        has no content parameter, and a type-7 interaction response only replaces
+        the keys it sends -- so this line persists above the embed for the life of
+        the message. (Harmless: Discord pings on the initial post, never on edits.)
+      * _name_list_value can't be reused: it hard-codes the 1024-char embed FIELD
+        cap, not the 2000-char content cap."""
+    mentions = [f"<@{p.discord_id}>" for p in pending if p.discord_id]
+    if not mentions:
+        return None
+    line = " ".join(mentions)
+    if len(line) > _CONTENT_MAX:
+        # Trim whole mentions rather than slicing mid-snowflake, which would
+        # render as literal text.
+        out, used = [], 0
+        for m in mentions:
+            if used + len(m) + 1 > _CONTENT_MAX:
+                break
+            out.append(m)
+            used += len(m) + 1
+        line = " ".join(out)
+    return line or None
+
+
 def _schedule_proposal_data(proposal, match=None, mention=False):
     """The public proposal message: the proposed time, who still owes a
     confirmation, who has already given one, and Confirm / Reject.
@@ -1119,8 +1166,10 @@ def _schedule_proposal_data(proposal, match=None, mention=False):
     the opposite of what that lock does. Authorization therefore lives in the
     handlers themselves.
 
-    `mention` pings the pending players; it's set only on the FIRST post so later
-    edits don't re-ping everyone on every click."""
+    `mention` marks the FIRST post, where a ping would belong. It is currently
+    INERT: pinging is off (see SCHEDULE_PROPOSAL_PINGS), and mentions inside an
+    embed never notify anyone regardless -- Discord only pings from message
+    `content`. The names in the fields below are therefore display only."""
     match = match or proposal.match
     pending = list(proposal.pending_profiles())
     confirmed = list(proposal.confirmed_by.all())
@@ -1129,11 +1178,14 @@ def _schedule_proposal_data(proposal, match=None, mention=False):
         format_discord_timestamp(proposal.proposed_time),
     ]
     if ScheduleProposal.objects.filter(
-        match_id=proposal.match_id, status=ScheduleProposal.Status.OPEN,
+        match_id=proposal.match_id,
+        status__in=ScheduleProposal.LIVE_STATUSES,
     ).exclude(pk=proposal.pk).exists():
         lines.append("\n-# Another time is also proposed for this match — "
                      "whichever is confirmed first wins.")
-    return {
+    ping = (_proposal_ping_content(pending)
+            if mention and SCHEDULE_PROPOSAL_PINGS else None)
+    data = {
         "embeds": [{
             "title": "Proposed time",
             "description": "\n".join(lines),
@@ -1150,8 +1202,13 @@ def _schedule_proposal_data(proposal, match=None, mention=False):
             button("Reject", encode_custom_id("sched_prop_no", proposal.pk, "g"),
                    style=STYLE_DANGER),
         )],
-        "allowed_mentions": {"parse": ["users"] if mention else []},
+        # Only a real ping line opens mentions up; with none there is nothing to
+        # notify from, and the embed's names never notify anyway.
+        "allowed_mentions": {"parse": ["users"] if ping else []},
     }
+    if ping:
+        data["content"] = ping
+    return data
 
 
 def _schedule_rejected_data(proposal):
@@ -1208,6 +1265,45 @@ def _schedule_finalized_data(proposal, match):
             "allowed_mentions": {"parse": []}}
 
 
+def _schedule_agreed_data(proposal, match=None):
+    """Everyone confirmed, but nobody who did could write the time. Shows the
+    agreed time and hands a moderator a Set Time button.
+
+    The time is deliberately NOT written yet: under MODERATORS-only
+    recording_access the tournament has said players don't set times, and a
+    unanimous roster shouldn't quietly override that. What it DOES establish is
+    that everyone is free then, which is the part players are entitled to decide.
+
+    Like the other proposal buttons, the custom_id ends in "g" so the dispatcher's
+    owner-lock stays off -- the moderator who presses this is usually not whoever
+    ran /schedule. _handle_schedule_proposal_set authorizes instead."""
+    match = match or proposal.match
+    return {
+        "embeds": [{
+            "title": "✅ Everyone agreed",
+            "description": "\n".join([
+                f"**{_match_label(match)}**",
+                format_discord_timestamp(proposal.proposed_time),
+                "",
+                "-# Every player is free then. A moderator can set it on the site "
+                "with the button below.",
+            ]),
+            "fields": [{
+                "name": "✅ Confirmed",
+                "value": _name_list_value(list(proposal.confirmed_by.all())),
+                "inline": False,
+            }],
+        }],
+        "components": [action_row(
+            button("Set Time", encode_custom_id("sched_prop_set", proposal.pk, "g"),
+                   style=STYLE_SUCCESS),
+            button("Reject", encode_custom_id("sched_prop_no", proposal.pk, "g"),
+                   style=STYLE_DANGER),
+        )],
+        "allowed_mentions": {"parse": []},
+    }
+
+
 def _schedule_closed_data(title, description):
     """A retired proposal (cancelled / superseded): explain, drop the buttons."""
     return {
@@ -1224,7 +1320,7 @@ def _cancel_open_proposals(match, reason, exclude_pk=None):
     finalize: a stale proposal is a live button that can overwrite a time someone
     else just set. Returns the ids retired."""
     qs = ScheduleProposal.objects.filter(
-        match_id=match.pk, status=ScheduleProposal.Status.OPEN)
+        match_id=match.pk, status__in=ScheduleProposal.LIVE_STATUSES)
     if exclude_pk is not None:
         qs = qs.exclude(pk=exclude_pk)
     ids = list(qs.values_list("pk", flat=True))
@@ -1241,17 +1337,48 @@ def _cancel_open_proposals(match, reason, exclude_pk=None):
     return ids
 
 
-def _finalize_proposal(proposal):
+def _announce_schedule_to_channel(match, old_time, new_time):
+    """Announce a newly written match time in the tournament's schedule_channel.
+
+    Call with the time read BEFORE the write: the verb depends on it, and an unchanged
+    time is not announced at all (re-confirming the same slot isn't news).
+
+    Safe to call from inside an atomic block -- it defers the post itself, and
+    post_to_tournament_channel refuses any channel it can't confirm belongs to the
+    tournament's current guild.
+    """
+    if new_time is None or old_time == new_time:
+        return
+    tournament = match.round.get_tournament() if match.round_id else None
+    if tournament is None:
+        return
+    verb = "rescheduled" if old_time is not None else "scheduled"
+    content = (f"{_match_label(match)} is {verb} for "
+               f"{format_discord_timestamp(new_time)}")
+    from the_warroom.services.channel_posts import post_to_tournament_channel
+    # on_commit: callers run inside transaction.atomic(), and the worker must never
+    # announce a time this transaction goes on to roll back.
+    transaction.on_commit(
+        lambda: post_to_tournament_channel(tournament, 'schedule_channel', content))
+
+
+def _finalize_proposal(proposal, actor=None):
     """Write the agreed time and retire every other proposal for this match.
     Returns (ok, error).
 
+    `actor` is whoever is exercising the authority to schedule. Default (None)
+    means the PROPOSER, which is the confirm path: the roster consented, and the
+    right to write comes from whoever proposed it. The Set Time button passes the
+    clicking MODERATOR instead -- there the proposer is a player who deliberately
+    cannot schedule, so checking them would refuse every time.
+
     The ordering is load-bearing, and `status` is written EXACTLY ONCE:
 
-      1. Authority first, while the row is still OPEN. Confirmations express
-         CONSENT; the authority to schedule comes from the PROPOSER, and their
-         permission can be revoked while a proposal sits open. A refusal has to be
-         able to land CANCELLED, which is impossible once the row reads CONFIRMED.
-      2. A compare-and-swap OPEN -> CONFIRMED claims the exclusive right to write.
+      1. Authority first, while the row is still live. Confirmations express
+         CONSENT; the authority to schedule comes from `actor`, whose permission
+         can be revoked while a proposal sits open. A refusal has to be able to
+         land CANCELLED, which is impossible once the row reads CONFIRMED.
+      2. A compare-and-swap live -> CONFIRMED claims the exclusive right to write.
          This is the ONLY writer of CONFIRMED. It's a single conditional UPDATE
          rather than a read-then-write because select_for_update is a no-op on
          SQLite, so a lock-only guard would be untested in the suite.
@@ -1265,27 +1392,34 @@ def _finalize_proposal(proposal):
         if not match:
             return False, "that match no longer exists"
 
-        if proposal.proposed_by is None:
+        authority = actor if actor is not None else proposal.proposed_by
+        if authority is None:
             ScheduleProposal.objects.filter(
-                pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+                pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
             ).update(status=ScheduleProposal.Status.CANCELLED, resolved_at=timezone.now())
             return False, "the player who proposed this time no longer has an account"
-        if not match.can_schedule(proposal.proposed_by):
+        if not match.can_schedule(authority):
             ScheduleProposal.objects.filter(
-                pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+                pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
             ).update(status=ScheduleProposal.Status.CANCELLED, resolved_at=timezone.now())
-            return False, "whoever proposed it no longer has permission to schedule it"
+            return False, ("you no longer have permission to schedule it" if actor
+                           else "whoever proposed it no longer has permission to "
+                                "schedule it")
 
         won = ScheduleProposal.objects.filter(
-            pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+            pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
         ).update(status=ScheduleProposal.Status.CONFIRMED, resolved_at=timezone.now())
         if not won:
             return False, "another time was confirmed for this match first"
 
+        # Read before the write: the announcement's verb (scheduled vs rescheduled)
+        # depends on whether this match already had a time.
+        previous_time = match.scheduled_time
         match.scheduled_time = proposal.proposed_time
         # update_fields is required: a bare save() re-runs Match.save()'s name and
         # match_number derivation.
         match.save(update_fields=["scheduled_time"])
+        _announce_schedule_to_channel(match, previous_time, proposal.proposed_time)
 
         # exclude_pk is REQUIRED, not incidental: don't rely on the CAS above having
         # already moved this row out of OPEN. If these are ever reordered, an
@@ -1394,7 +1528,8 @@ def _handle_schedule_command(data):
         # the "others must agree" tally.
         pending = sum(1 for p in roster if str(p.discord_id or "") != str(author_id))
         already_proposed = ScheduleProposal.objects.filter(
-            match=match, status=ScheduleProposal.Status.OPEN).exists()
+            match=match,
+            status__in=ScheduleProposal.LIVE_STATUSES).exists()
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
@@ -1491,10 +1626,15 @@ def _handle_schedule_confirm(payload):
     if consensus:
         return _open_schedule_proposal(payload, match, when, profile, roster)
 
+    # Read before the write, for the announcement's scheduled/rescheduled verb.
+    previous_time = match.scheduled_time
     match.scheduled_time = when
     # update_fields is required: a bare save() re-runs Match.save()'s name and
     # match_number derivation.
     match.save(update_fields=["scheduled_time"])
+    # Additional to the thread embed below: that tells the players in the thread, this
+    # tells the tournament's schedule channel.
+    _announce_schedule_to_channel(match, previous_time, when)
 
     # A direct write supersedes anything still awaiting confirmation — otherwise a
     # stale Confirm could overwrite the time just set here.
@@ -1550,7 +1690,7 @@ def _open_schedule_proposal(payload, match, when, profile, roster):
         proposal.confirmed_by.add(profile)
 
     others = ScheduleProposal.objects.filter(
-        match=match, status=ScheduleProposal.Status.OPEN,
+        match=match, status__in=ScheduleProposal.LIVE_STATUSES,
     ).exclude(pk=proposal.pk).exists()
 
     # countdown=2 sequences the post after this response's ACK, matching the
@@ -1571,12 +1711,17 @@ def _open_schedule_proposal(payload, match, when, profile, roster):
     })
 
 
-def _proposal_for_click(payload):
+def _proposal_for_click(payload, allow_agreed=False):
     """Shared guards for the proposal buttons: (proposal, match, error).
 
     These custom_ids end in the non-snowflake "g" marker precisely so the
     dispatcher's owner-lock does NOT fire — any roster player must be able to click
-    — so every check the lock would have made has to happen here instead."""
+    — so every check the lock would have made has to happen here instead.
+
+    `allow_agreed` admits a proposal whose roster has already fully confirmed but
+    whose time nobody present could write. Only Set Time passes it: Confirm and
+    Reject act on consent that is already complete there, so for them an AGREED
+    row is correctly "no longer active"."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # [proposal_id, "g"]
     if not args:
         return None, None, _ephemeral("That button is out of date — run /schedule again.")
@@ -1585,8 +1730,12 @@ def _proposal_for_click(payload):
     if not proposal:
         return None, None, _ephemeral(
             "That proposal is no longer available — run /schedule again.")
-    if not proposal.is_open:
+    acceptable = proposal.is_live if allow_agreed else proposal.is_open
+    if not acceptable:
         return None, None, _ephemeral({
+            ScheduleProposal.Status.AGREED:
+                "Everyone has already agreed to this time — a moderator just needs "
+                "to press Set Time.",
             ScheduleProposal.Status.CONFIRMED: "That time has already been confirmed.",
             ScheduleProposal.Status.REJECTED: "That proposed time was rejected.",
             ScheduleProposal.Status.SUPERSEDED:
@@ -1637,6 +1786,28 @@ def _handle_schedule_proposal_confirm(payload):
             "data": _schedule_proposal_data(proposal, match),
         })
 
+    # Everyone agreed -- but agreement is CONSENT, not authority. When the
+    # proposer may not write the time (the normal case under MODERATORS-only
+    # recording_access, where players can still say when they're free), park the
+    # proposal as AGREED and hand a moderator the Set Time button instead of
+    # cancelling it for a permission the roster was never expected to have.
+    if not match.can_schedule(proposal.proposed_by):
+        claimed = ScheduleProposal.objects.filter(
+            pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+        ).update(status=ScheduleProposal.Status.AGREED)
+        proposal.refresh_from_db()
+        if not claimed and proposal.status != ScheduleProposal.Status.AGREED:
+            # Something else resolved it between the confirm and here.
+            return JsonResponse({
+                "type": RESPONSE_UPDATE_MESSAGE,
+                "data": _schedule_closed_data(
+                    "Proposal closed", "That proposed time is no longer active."),
+            })
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _schedule_agreed_data(proposal, match),
+        })
+
     ok, failure = _finalize_proposal(proposal)
     if not ok:
         return JsonResponse({
@@ -1659,8 +1830,18 @@ def _handle_schedule_proposal_reject(payload):
     already confirmed, since plans change and their earlier consent shouldn't trap
     the group. So may anyone who passes can_schedule (a group moderator, organizer
     or admin), who is often not on the roster at all: that's what lets a moderator
-    clear a proposal stuck behind an unresponsive player."""
-    proposal, match, error = _proposal_for_click(payload)
+    clear a proposal stuck behind an unresponsive player.
+
+    allow_agreed: this button also rides the "Everyone agreed" message, so a
+    moderator can throw out a time the roster settled on rather than being forced
+    to set it.
+
+    But an AGREED proposal NARROWS to can_schedule only. Rejecting a time still
+    being negotiated is ordinary; destroying a completed agreement on one late
+    click is not, and it would undo work every other player already did. A player
+    who can no longer make it says so in the thread and a moderator clears it --
+    the same person the Set Time button is waiting on either way."""
+    proposal, match, error = _proposal_for_click(payload, allow_agreed=True)
     if error:
         return error
 
@@ -1668,7 +1849,15 @@ def _handle_schedule_proposal_reject(payload):
     me, status = _resolve_clicker(
         roster, _interaction_user_id(payload), _clicker_username(payload))
 
-    if status != CLICKER_MATCHED:
+    if proposal.status == ScheduleProposal.Status.AGREED:
+        clicker = Profile.objects.filter(
+            discord_id=str(_interaction_user_id(payload) or "")).first()
+        if not clicker or not match.can_schedule(clicker):
+            return _ephemeral(
+                "Everyone already agreed to this time. Ask a moderator to reject "
+                "it if it no longer works.")
+        me = clicker
+    elif status != CLICKER_MATCHED:
         # Not a linked roster player — but a moderator/organizer may still reject.
         clicker = Profile.objects.filter(
             discord_id=str(_interaction_user_id(payload) or "")).first()
@@ -1687,7 +1876,7 @@ def _handle_schedule_proposal_reject(payload):
             )
 
     updated = ScheduleProposal.objects.filter(
-        pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
+        pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
     ).update(status=ScheduleProposal.Status.REJECTED,
              rejected_by=me, resolved_at=timezone.now())
     if not updated:
@@ -1696,6 +1885,43 @@ def _handle_schedule_proposal_reject(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _schedule_rejected_data(proposal),
+    })
+
+
+def _handle_schedule_proposal_set(payload):
+    """Set Time on an AGREED proposal: write the time the roster settled on.
+
+    Only for someone who may actually schedule this match — the same can_schedule
+    check /schedule itself makes, so group moderators, organizers and admins
+    qualify and a player does not. This is the authority half of the split: the
+    roster supplied consent, this supplies the right to write it.
+
+    The clicker, not the proposer, is passed to _finalize_proposal as the actor:
+    the proposer is typically a player who deliberately cannot schedule, so
+    checking them would refuse every time."""
+    proposal, match, error = _proposal_for_click(payload, allow_agreed=True)
+    if error:
+        return error
+
+    clicker = Profile.objects.filter(
+        discord_id=str(_interaction_user_id(payload) or "")).first()
+    if not clicker or not match.can_schedule(clicker):
+        return _ephemeral(
+            "Only a moderator or organizer can set this time. Everyone has agreed "
+            "to it — ask one of them to press Set Time.")
+
+    ok, failure = _finalize_proposal(proposal, actor=clicker)
+    if not ok:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _schedule_closed_data(
+                "Proposal closed",
+                f"The time can no longer be set for this match — {failure}."),
+        })
+    match.refresh_from_db()
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_finalized_data(proposal, match),
     })
 
 
@@ -1749,15 +1975,22 @@ def _handle_schedule_clear_confirm(payload):
 
 
 SCHEDULE_FREE_CONFIRMED_FIELD = "✅ Confirmed"
+SCHEDULE_FREE_UNAVAILABLE_FIELD = "❌ Unavailable"
 
 
-def _schedule_free_public_data(when, proposer_id, kind, confirmed=None):
+def _schedule_free_public_data(when, proposer_id, kind, confirmed=None,
+                               unavailable=None):
     """The PUBLIC suggested-time message.
 
     Deliberately unlike a real schedule: a different title and the unlinked note,
     so nobody reads this as a game scheduled on the site. In an LFG thread it
     carries Confirm/Can't make it buttons whose state lives in the embed — nothing
-    is stored, so deleting the message loses the confirmations."""
+    is stored, so deleting the message loses the responses.
+
+    Both lists are built in a FIXED order (confirmed, then unavailable) and each is
+    omitted when empty. The order matters: the respond handler rebuilds these
+    fields on every click, and appending them in whatever order they happened to be
+    rewritten would make the two swap places under the reader."""
     embed = {
         "title": "🕐 Proposed time (not scheduled)" if kind == "lfg" else "🕐 Suggested time",
         "description": "\n".join([
@@ -1767,11 +2000,15 @@ def _schedule_free_public_data(when, proposer_id, kind, confirmed=None):
             SCHEDULE_UNLINKED_NOTE,
         ]),
     }
+    fields = []
     if confirmed:
-        embed["fields"] = [{
-            "name": SCHEDULE_FREE_CONFIRMED_FIELD,
-            "value": "\n".join(confirmed), "inline": False,
-        }]
+        fields.append({"name": SCHEDULE_FREE_CONFIRMED_FIELD,
+                       "value": "\n".join(confirmed), "inline": False})
+    if unavailable:
+        fields.append({"name": SCHEDULE_FREE_UNAVAILABLE_FIELD,
+                       "value": "\n".join(unavailable), "inline": False})
+    if fields:
+        embed["fields"] = fields
     data = {"embeds": [embed], "allowed_mentions": {"parse": []}}
     if kind == "lfg":
         ts = int(when.timestamp())
@@ -1822,8 +2059,13 @@ def _handle_schedule_free(payload):
 def _handle_schedule_free_respond(payload):
     """Confirm / Can't make it on an unlinked LFG suggestion.
 
-    The confirmed list lives in the message's own embed field — there is no row to
-    update. Only players in the thread may respond."""
+    Both lists live in the message's own embed fields — there is no row to update.
+    Only players in the thread may respond.
+
+    A response MOVES the clicker between the two lists rather than only adding:
+    they are removed from both first, then appended to whichever one they chose.
+    So Confirm after Can't-make-it clears the ❌ entry and vice versa, and neither
+    list can ever hold the same person twice."""
     action, args = decode_custom_id(payload["data"]["custom_id"])  # [ts, "g"]
     thread = _lfg_thread_for_channel(payload.get("channel_id"))
     if not thread:
@@ -1841,20 +2083,37 @@ def _handle_schedule_free_respond(payload):
         return _ephemeral("Only the players in this thread can respond to that.")
 
     embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
-    field = _lfg_field(embed, SCHEDULE_FREE_CONFIRMED_FIELD)
-    lines = [ln for ln in (field or {}).get("value", "").splitlines() if ln.strip()]
+
+    def _lines(name):
+        field = _lfg_field(embed, name)
+        return [ln for ln in (field or {}).get("value", "").splitlines()
+                if ln.strip()]
+
+    confirmed = _lines(SCHEDULE_FREE_CONFIRMED_FIELD)
+    unavailable = _lines(SCHEDULE_FREE_UNAVAILABLE_FIELD)
 
     # Identity is the id, not the display name, so a rename can't double-count.
     clicker_id = str(_interaction_user_id(payload))
-    lines = [ln for ln in lines if f"<@{clicker_id}>" not in ln]
+    mine = f"<@{clicker_id}>"
+    confirmed = [ln for ln in confirmed if mine not in ln]
+    unavailable = [ln for ln in unavailable if mine not in ln]
+    line = _lfg_player_line(me.name, clicker_id)
     if action == "sched_lfg_ok":
-        lines.append(_lfg_player_line(me.name, clicker_id))
+        confirmed.append(line)
+    else:
+        unavailable.append(line)
 
-    fields = [f for f in embed.get("fields", [])
-              if f.get("name") != SCHEDULE_FREE_CONFIRMED_FIELD]
-    if lines:
+    # Rebuild BOTH managed fields in a fixed order, keeping any other field the
+    # embed carries. Appending them as they were rewritten would let the two swap
+    # places from one click to the next.
+    managed = {SCHEDULE_FREE_CONFIRMED_FIELD, SCHEDULE_FREE_UNAVAILABLE_FIELD}
+    fields = [f for f in embed.get("fields", []) if f.get("name") not in managed]
+    if confirmed:
         fields.append({"name": SCHEDULE_FREE_CONFIRMED_FIELD,
-                       "value": "\n".join(lines), "inline": False})
+                       "value": "\n".join(confirmed), "inline": False})
+    if unavailable:
+        fields.append({"name": SCHEDULE_FREE_UNAVAILABLE_FIELD,
+                       "value": "\n".join(unavailable), "inline": False})
     embed["fields"] = fields
 
     return JsonResponse({
@@ -2703,6 +2962,110 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
     return profiles if len(profiles) >= 2 else []
 
 
+# Commands that write to the thread they're used in, so a non-player must not run
+# them where a roster exists. Everything else stays open: /help, /stats,
+# /upcoming, /law, /card and /captain only read; /lfg CREATES a game (there is no
+# roster to belong to yet); and /record only hands back a link the site re-checks
+# permissions on, so gating it would block a moderator fixing a mis-recorded game
+# without actually protecting anything. /rename keeps its own host-only rule.
+ROSTER_GUARDED_COMMANDS = {
+    "pick", "seating", "draft", "schedule", "random",
+    *LOOKUP_QUERYSETS,   # faction, clockwork, map, deck, vagabond, landmark,
+                         # hireling, houserule -- all capture into the roll log
+}
+
+
+def _thread_roster(thread, channel_id, channel_name=None, guild_id=None):
+    """(roster, group) for this channel's game. Roster is [] when there is none.
+
+    Unlike _pick_roster this does NOT impose a minimum: a one-player thread still
+    HAS a roster, and treating it as empty would leave it unguarded.
+
+    The group is handed back so the caller can reuse it for the staff check
+    without resolving it a second time."""
+    if thread is not None and not thread.series_id:
+        return list(thread.players.all()), None
+    group = player_group_for_channel(channel_id, channel_name, guild_id)
+    if not group:
+        return [], None
+    return group_roster(group, group_series_id(group)), group
+
+
+def _thread_actor_error(data):
+    """Ephemeral refusal when this channel's game has a roster and the invoker is
+    not on it, its host, or staff. None when the command may proceed.
+
+    NO ROSTER, NO RESTRICTION. A plain channel, or a thread whose game has no
+    players yet, is unguarded -- there is nothing to protect and these commands
+    are how a table gets set up in the first place. That also means a tournament
+    group thread whose group has neither tournament_players NOR MatchSeats is
+    open; correct for a group that hasn't been populated, and it closes the moment
+    anyone is added.
+
+    Ordering is deliberate (Discord allows 3 seconds for the whole interaction):
+    the cheap indexed thread lookup runs first, and the profile resolution LAST --
+    ensure_profile_from_discord can WRITE (it claims or creates a Profile), so it
+    must never run for a command in a channel with no roster at all."""
+    channel_id = data.get("_channel_id")
+    if not channel_id:
+        return None
+
+    thread = _lfg_thread_for_channel(channel_id)
+    guild_id = data.get("_guild_id")
+    # NOTE this can LINK the thread to a matching group as a side effect of the
+    # title fallback (see player_group_for_channel). Deliberate: the link is
+    # correct whoever typed the command, and the alternative is re-guessing it on
+    # every later lookup.
+    roster, group = _thread_roster(
+        thread, channel_id, data.get("_channel_name"), guild_id)
+    if not roster:
+        return None
+
+    profile = ensure_profile_from_discord(
+        data.get("_author_id"), data.get("_author_username"),
+        (data.get("_author") or {}).get("name"))
+    if not profile:
+        return _ephemeral("I couldn't identify you, so I can't tell if you're in "
+                          "this game. Try again.")
+
+    if any(p.pk == profile.pk for p in roster):
+        return None
+    if thread is not None and thread.host_id == profile.pk:
+        return None
+    if _thread_staff_override(profile, group, guild_id):
+        return None
+
+    return _ephemeral(
+        "Only the players in this game can use that here. Ask one of them, or a "
+        "moderator, to run it for you.")
+
+
+def _thread_staff_override(profile, group, guild_id):
+    """Whether a non-player may act anyway: a guild moderator or site admin, or —
+    in a tournament group thread — anyone who could schedule that match (group
+    moderator, organizer, admin). Lets staff unstick a table they aren't in.
+
+    Takes the GROUP, not the LFGThread. A group thread has no LFGThread until the
+    first command creates one, so keying the can_schedule branch off the thread
+    would refuse a group moderator's very first command -- the same trap the
+    roster lookup avoids by resolving the group directly."""
+    from .views import can_moderate_guild
+
+    if guild_id:
+        guild = DiscordGuild.objects.filter(guild_id=str(guild_id)).first()
+        if guild and can_moderate_guild(profile, guild):
+            return True
+
+    # can_schedule lives on Match, so this only applies to a tournament group.
+    series_id = group_series_id(group) if group else None
+    if series_id:
+        match = Match.objects.filter(series_id=series_id).order_by(
+            "match_number").first()
+        if match and match.can_schedule(profile):
+            return True
+    return False
+
+
 def _pick_seat_roster(thread, channel_id, ordered=True, announce=True):
     """Give `thread` seats so /pick has something to attach factions to.
 
@@ -3544,17 +3907,41 @@ def _handle_pick_cancel(payload):
     cancelling a prompt doesn't claim to have discarded picks that never
     happened.
 
-    Names whoever pressed it: any player can stop a session, so the table needs
-    to see who did."""
-    thread = _pick_thread_for_channel(payload.get("channel_id"))
+    Restricted to the table. These buttons carry PICK_OPEN so the dispatcher's
+    owner-lock stays off -- any of the PLAYERS may stop a session, not just
+    whoever ran /pick -- but that also let anyone in the channel discard the
+    table's picks, so the roster check below is the lock's replacement.
+
+    Same rule as ROSTER_GUARDED_COMMANDS, applied at the other entry point: that
+    guard runs in the command dispatcher and never sees a button click, so this
+    check has to exist separately.
+
+    Names whoever pressed it, since it replaces the panel for everyone."""
+    channel_id = payload.get("channel_id")
+    thread = _pick_thread_for_channel(channel_id)
     if not thread:
         return _ephemeral("This isn't a game thread anymore.")
 
+    # The roster resolves by thread id alone: a button payload carries no channel
+    # name, and /pick already linked a group thread to its player group before any
+    # of these buttons existed.
+    roster = _pick_roster(thread, channel_id)
+    _me, status = _resolve_clicker(
+        roster, _interaction_user_id(payload), _clicker_username(payload))
+    if status == CLICKER_UNLINKED:
+        return _ephemeral(
+            "You're one of this game's players, but your Discord isn't linked to "
+            f"your site account yet. Log in{_login_hint()} with Discord once, then "
+            "try again.")
+    if status != CLICKER_MATCHED:
+        return _ephemeral(
+            "Only the players in this game can stop the faction picks.")
+
     cleared = _pick_clear(thread)
 
-    # Who stopped it: this replaces the panel for the WHOLE table, and any player
-    # can press Stop (the buttons carry PICK_OPEN, not an owner snowflake), so
-    # without a name the table can't tell who discarded their picks.
+    # Who stopped it: this replaces the panel for the WHOLE table, and any of the
+    # players can press Stop -- not just whoever ran /pick -- so without a name
+    # the table can't tell who discarded their picks.
     #
     # A plain display name, NOT a <@id> mention: this response sets no
     # allowed_mentions, so a mention would ping the person who just clicked --
@@ -4413,6 +4800,8 @@ COMPONENT_HANDLERS = {
     # handlers do their own authorization.
     "sched_prop_ok": _handle_schedule_proposal_confirm,
     "sched_prop_no": _handle_schedule_proposal_reject,
+    # Rides the "Everyone agreed" message: the roster consented, this writes it.
+    "sched_prop_set": _handle_schedule_proposal_set,
     # Unlinked (no Match) suggestions. sched_free is owner-locked; the two response
     # buttons end in "g" so any player in the thread can click them.
     "sched_free": _handle_schedule_free,
@@ -4667,6 +5056,15 @@ def discord_interactions(request):
                 # Interaction token, so a handler can send a followup after its ACK
                 # (e.g. /lfg's ephemeral "add tags" nudge).
                 data["_token"] = payload.get("token")
+                # A thread with a roster belongs to its players: commands that
+                # write to it (seating, drafts, the roll log, proposals) are
+                # refused for anyone else. Enforced here rather than per handler
+                # so a new command can't quietly miss it -- and AFTER the stash
+                # above, which is where the helper's inputs come from.
+                if command_name in ROSTER_GUARDED_COMMANDS:
+                    refusal = _thread_actor_error(data)
+                    if refusal is not None:
+                        return refusal
                 return handler(data)
             except Exception:
                 logger.exception("Error handling /%s interaction", command_name)

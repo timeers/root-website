@@ -23,7 +23,10 @@
     <!-- Nav Header -->
     {% include nav_partial %}
 
-    <!-- Schedule button -->
+    {% comment %} Schedule button, plus Create Game Threads to its left. The threads
+    button renders only when create_game_threads_url is in context, which only the two
+    matches views set — the bracket pages share this partial and must not offer it.
+    {% endcomment %}
     {% include 'the_warroom/partials/schedule_button.html' %}
 
     <!-- Match Series -->
@@ -130,6 +133,94 @@
     }
     </script>
     {% endif %}
+
+{% comment %} Create Game Threads confirm. Lives here (not in schedule_button.html)
+because that partial is shared with the bracket pages. threads_to_create_count is
+computed server-side from series whose player group has discord_thread="" — the field is
+blank-not-null, so "no thread" is the empty string. {% endcomment %}
+{% if create_game_threads_url %}
+<div class="modal fade" id="createThreadsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title root-title">
+                    <i class="bi bi-chat-left-text me-2"></i>{% trans 'Create Game Threads' %}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                {% if threads_to_create_count %}
+                <p>
+                    {% blocktrans count counter=threads_to_create_count %}A Discord thread will be created for {{ counter }} match, and its players pinged.{% plural %}Discord threads will be created for {{ counter }} matches, and their players pinged.{% endblocktrans %}
+                </p>
+                {% else %}
+                <p class="mb-0">
+                    <i class="bi bi-check2-all me-1"></i>{% trans 'Every match already has a thread. There is nothing to create.' %}
+                </p>
+                {% endif %}
+                <div id="createThreadsError" class="text-danger small d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Close' %}</button>
+                {% if threads_to_create_count %}
+                <button type="button" class="btn btn-primary" id="createThreadsConfirm">
+                    <span id="createThreadsSpinner" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
+                    {% trans 'Create Threads' %}
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    var btn = document.getElementById('createThreadsConfirm');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+        var spinner = document.getElementById('createThreadsSpinner');
+        var err = document.getElementById('createThreadsError');
+        // Disabled for the rest of the page's life on success: the work runs in a
+        // worker, so a second click would create duplicate threads for any series the
+        // first pass hasn't linked yet.
+        btn.disabled = true;
+        spinner.classList.remove('d-none');
+        err.classList.add('d-none');
+
+        fetch('{{ create_game_threads_url }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}',
+            },
+        })
+        .then(function (response) {
+            return response.json().then(function (data) {
+                return {ok: response.ok, data: data};
+            });
+        })
+        .then(function (result) {
+            spinner.classList.add('d-none');
+            if (!result.ok || !result.data.success) {
+                btn.disabled = false;
+                err.textContent = result.data.error || '{% trans "Something went wrong." %}';
+                err.classList.remove('d-none');
+                return;
+            }
+            btn.textContent = '{% trans "Creating…" %}';
+            // The task notifies the user when it finishes; reload so the new threads
+            // show on the cards once they land.
+            setTimeout(function () { window.location.reload(); }, 1500);
+        })
+        .catch(function () {
+            spinner.classList.add('d-none');
+            btn.disabled = false;
+            err.textContent = '{% trans "Something went wrong." %}';
+            err.classList.remove('d-none');
+        });
+    });
+})();
+</script>
+{% endif %}
 
 </div>
 <script>

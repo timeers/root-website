@@ -1493,14 +1493,11 @@ class TournamentDynamicUpdateForm(TabOrderFormMixin, forms.ModelForm):
             self.fields.pop('classification', None)
             self.fields.pop('designer', None)
 
-        # For non-League, non-admin: restrict guild queryset to existing value only (allow preserve or clear, not change)
-        if self.instance and self.instance.classification != Tournament.ClassificationTypes.LEAGUE:
-            if not (user and user.profile.admin):
-                from the_gatehouse.models import DiscordGuild
-                if self.instance.guild:
-                    self.fields['guild'].queryset = DiscordGuild.objects.filter(pk=self.instance.guild.pk)
-                else:
-                    self.fields['guild'].queryset = DiscordGuild.objects.none()
+        # Every classification may link a guild -- the guild drives Discord recording,
+        # /schedule and the per-series announcement channels, none of which are
+        # League-specific. The queryset above already limits non-admins to guilds they
+        # belong to. (Changing the guild clears the series' channel ids; see
+        # Tournament.save().)
 
         # Scope the elo_system dropdown by ownership (or remove it entirely)
         _scope_elo_system_field(self, user)
@@ -1937,9 +1934,9 @@ class TournamentPlayerSettingsForm(forms.ModelForm):
             else:
                 self.fields['guild'].queryset = user.profile.guilds.all().exclude(guild_id=config['WW_GUILD_ID']).distinct()
 
-        instance = kwargs.get('instance')
-        if instance and instance.classification != Tournament.ClassificationTypes.LEAGUE:
-            del self.fields['guild']
+        # `guild` stays available for every classification -- it gates Discord
+        # recording, /schedule and the series' announcement channels, none of which are
+        # League-specific.
 
 
 class TournamentAssetSettingsForm(forms.ModelForm):
