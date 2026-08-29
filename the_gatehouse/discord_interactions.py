@@ -2224,16 +2224,38 @@ def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author
     return embed
 
 
+def _thread_roster_size(data):
+    """How many players this thread holds, for defaulting /draft's count. 0 when
+    the channel is neither kind of thread.
+
+    Mirrors _pick_roster's branch: a tournament group thread's roster lives on the
+    GROUP (its LFGThread has an empty `players`), an LFG thread's on the thread."""
+    channel_id = data.get("_channel_id")
+    thread = _lfg_thread_for_channel(channel_id)
+    if thread and not thread.series_id:
+        return thread.players.count()
+
+    group = player_group_for_channel(
+        channel_id, data.get("_channel_name"), data.get("_guild_id"))
+    if group:
+        return len(group_roster(group, group_series_id(group)))
+    return thread.players.count() if thread else 0
+
+
 def _handle_draft_command(data):
     """/draft: open the public, owner-locked ban UI for the chosen players/platform.
 
-    With no `players` option, an LFG game thread defaults the count to its own
-    roster size (clamped to 2..6 like any other value); anywhere else falls back
-    to 4."""
+    With no `players` option the count defaults to the thread's own roster size
+    (clamped to 2..6 like any other value); anywhere else falls back to 4.
+
+    Both kinds of thread count: an LFG game thread uses its `players`, and a
+    tournament group thread uses the GROUP's roster. A group thread's LFGThread is
+    created with only `series` set -- players.set() only ever runs on the /lfg
+    path -- so reading thread.players there always found 0 and silently opened a
+    4-player draft for a table of 3."""
     players = _get_option(data, "players")
     if players is None:
-        thread = _lfg_thread_for_channel(data.get("_channel_id"))
-        players = (thread.players.count() if thread else 0) or 4
+        players = _thread_roster_size(data) or 4
     players = max(2, min(6, int(players)))
     platform = _get_option(data, "platform") or DRAFT_PLATFORM_TTS
 
@@ -2410,6 +2432,11 @@ def _offer_lfg_seating(payload):
     guild deliberately turned off."""
     if not _guild_allows(payload.get("guild_id"), "seating"):
         return
+    # thread.players deliberately, NOT the group roster: this offer leads to
+    # _handle_draft_seat, which PERSISTS an order. A tournament group thread's
+    # seating is display-only (it spans the whole series, so a stored order is
+    # stale by the next game), so a group thread has an empty `players` and
+    # correctly no-ops here. /seating is the deliberate route for those.
     thread = _lfg_thread_for_channel(payload.get("channel_id"))
     if not thread or thread.players.count() < 2:
         return
@@ -2473,18 +2500,40 @@ def _draft_seating_message(seats, reseated=False):
     return "\n".join(lines)
 
 
-def _group_seating_message(profiles):
-    """Seating for a player group: shuffled, displayed, and NOT persisted.
+def _persist_seating(thread, profiles):
+    """Shuffle `profiles` into seats 1..N on `thread`, REPLACING any current order.
+    Returns (seats, reseated).
 
-    A tournament group's thread is shared by the whole series, so a saved order
-    would be wrong the moment the next game starts. Reuses the LFG message
-    builder with UNSAVED LFGSeat instances — it only reads seat_number and
-    profile.name, so the output is identical without touching the database."""
+    The shared write behind /seating and the draft's Seat button. A thread holds
+    ONE current seating, so this replaces rather than appends (unlike the roll
+    log); select_for_update serializes two concurrent reseats, which would
+    otherwise collide on uniq_lfg_seat_per_thread.
+
+    `reseated` keys on seating_set, NOT seats.exists(): /pick can leave seat rows
+    behind with filler numbers and no real order, and those must not be reported
+    as a previous seating this replaces."""
     ordered = list(profiles)
     random.shuffle(ordered)
-    seats = [LFGSeat(profile=p, seat_number=i)
-             for i, p in enumerate(ordered, 1)]
-    return _draft_seating_message(seats)
+    with transaction.atomic():
+        locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
+        reseated = locked.seating_set
+        locked.seats.all().delete()
+        # Build the instances ourselves rather than reusing bulk_create's return:
+        # these already hold their Profile, so the message renderer reads
+        # seat.profile.name with no extra query.
+        seats = [LFGSeat(thread=locked, profile=p, seat_number=i)
+                 for i, p in enumerate(ordered, 1)]
+        LFGSeat.objects.bulk_create(seats)
+        # Same transaction as the rows it describes: the flag and the seats must
+        # never be separately visible. Saved unconditionally -- the seats above
+        # were just rewritten, so a re-seat of an already-seated thread must still
+        # bump last_activity (save() supplies it) even though the flag is already
+        # True.
+        if not locked.seating_set:
+            locked.seating_set = True
+        locked.save(update_fields=["seating_set"])
+        thread.seating_set = True  # keep the caller's instance in step
+    return seats, reseated
 
 
 def _handle_seating_command(data):
@@ -2495,20 +2544,28 @@ def _handle_seating_command(data):
     * An LFG game thread — the seating step /draft offers, reachable on its own.
       Confirmed through the shared draft_seat handler and SAVED, so the record
       form can place effort rows by seat.
-    * A tournament player group's thread — seats the group's roster and posts it
-      straight away, WITHOUT saving: the thread spans a whole series, so a stored
-      order would be stale by the next game, and there's nothing to overwrite.
+    * A tournament player group's thread — seats the group's roster, posts it
+      straight away, and SAVES it, so /pick reuses this exact order instead of
+      shuffling a second, contradictory one and announcing that.
+
+      This used to be display-only, on the reasoning that a group thread spans a
+      whole series so a stored order goes stale by the next game. But /pick has to
+      persist seats to attach factions to, so "never store" was never actually
+      achievable -- it just meant the stored order was the one nobody was shown.
+      Re-running /seating reshuffles and says it replaced the previous order.
 
     Unlike _offer_lfg_seating (an optional extra after a draft, silent when it
     doesn't apply), this was typed deliberately: say why nothing happened."""
     channel_id = data.get("_channel_id")
 
-    # `not thread.series_id` is load-bearing: a tournament group thread also gets
-    # an LFGThread (it captures rolls the same way), but with an empty `players`
-    # roster -- so without this it would take the LFG branch and answer "not
-    # enough players" instead of seating the group below.
+    # A tournament group thread also gets an LFGThread (it captures rolls the same
+    # way), so this must tell the two apart. `series_id` alone isn't enough: a
+    # group with no MatchSeries yet leaves it NULL, and once /seating has created
+    # the row that thread would look exactly like an LFG one and get answered
+    # "not enough players". An LFG thread is the one with its OWN players -- that
+    # roster is what this branch goes on to seat, and only /lfg ever fills it.
     thread = _lfg_thread_for_channel(channel_id)
-    if thread and not thread.series_id:
+    if thread and not thread.series_id and thread.players.exists():
         if thread.players.count() < 2:
             return _ephemeral("Not enough players in this thread to seat.")
         # Returned as this command's own response rather than a followup: there's
@@ -2528,11 +2585,26 @@ def _handle_seating_command(data):
         if len(profiles) < 2:
             return _ephemeral(
                 "This group doesn't have enough players to seat yet.")
+
+        # Needs a row to hang the seats on. A group thread's LFGThread is created
+        # on first use by whichever command gets there first -- same get-or-create
+        # _pick_thread_for_channel and the capture task both do.
+        # series may be None (a group not yet tied to one) -- the FK is nullable,
+        # and seating doesn't depend on it. It's set when known so this row is
+        # recognisable as a group thread, the way the LFG branch above tells them
+        # apart.
+        if not thread:
+            thread, _created = LFGThread.objects.get_or_create(
+                thread_id=channel_id,
+                defaults={"series_id": group_series_id(group)})
+
+        seats, reseated = _persist_seating(thread, profiles)
         # Public: the whole group should see the order, same as an LFG seating.
-        # No confirmation step — nothing is stored, so there's nothing to replace.
+        # No confirmation step -- /seating in a group thread was typed
+        # deliberately, and the message says when it replaced an earlier order.
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": {"content": _group_seating_message(profiles),
+            "data": {"content": _draft_seating_message(seats, reseated),
                      "allowed_mentions": {"parse": []}},
         })
 
@@ -2559,32 +2631,7 @@ def _handle_draft_seat(payload):
     if len(profiles) < 2:
         return _ephemeral("Not enough players in this thread to seat.")
 
-    random.shuffle(profiles)
-
-    # A thread holds ONE current seating, so this REPLACES rather than appends
-    # (unlike the roll log). select_for_update serializes two concurrent reseats,
-    # which would otherwise collide on uniq_lfg_seat_per_thread.
-    with transaction.atomic():
-        locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
-        # seating_set, not seats.exists(): /pick can leave seat rows behind with
-        # filler numbers and no seating order, and those must not be reported as a
-        # previous seating this replaces.
-        reseated = locked.seating_set
-        locked.seats.all().delete()
-        # Build the instances ourselves rather than reusing bulk_create's return:
-        # these already hold their Profile, so the message renderer below reads
-        # seat.profile.name with no extra query.
-        seats = [LFGSeat(thread=locked, profile=p, seat_number=i)
-                 for i, p in enumerate(profiles, 1)]
-        LFGSeat.objects.bulk_create(seats)
-        # Same transaction as the rows it describes: the flag and the seats must
-        # never be separately visible. Saved unconditionally -- the seats above
-        # were just rewritten, so a re-seat of an already-seated thread must
-        # still bump last_activity (save() supplies it) even though the flag is
-        # already True.
-        if not locked.seating_set:
-            locked.seating_set = True
-        locked.save(update_fields=["seating_set"])
+    seats, reseated = _persist_seating(thread, profiles)
 
     post_channel_message_task.delay(
         thread.thread_id, _draft_seating_message(seats, reseated))
@@ -3024,9 +3071,11 @@ def _handle_pick_command(data):
     if error:
         return error
 
-    # A tournament group thread seats itself, as it always has: its /seating is
-    # display-only and never persists, so there is no seating for the prompt below
-    # to send anyone to.
+    # A tournament group thread with no seating yet seats itself rather than
+    # offering the prompt below: that prompt sends people to /seating, and in a
+    # group thread /pick can do the same job in one step. When /seating HAS run,
+    # seating_set is set and the branch above reuses its order -- /pick must never
+    # shuffle a second, contradictory order over one players were just shown.
     if thread.series_id:
         seats = _pick_seat_roster(thread, channel_id, ordered=True)
         if len(seats) < 2:
