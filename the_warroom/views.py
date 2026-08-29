@@ -59,9 +59,10 @@ from the_gatehouse.views import (player_required, admin_required,
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.tasks import (
     send_rich_discord_message_task, send_discord_message_task,
-    post_channel_message_task,
+    post_channel_message_task, create_match_threads_task,
 )
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
+from the_warroom.services.channel_posts import post_to_tournament_channel
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 
 from the_tavern.forms import GameCommentCreateForm
@@ -2076,6 +2077,23 @@ def manage_game_v2(request, id=None):
                             transaction.on_commit(
                                 lambda tid=_thread_id, msg=_message:
                                     post_channel_message_task.delay(tid, msg))
+
+                        # Also announce in the series' results channel, if it has one.
+                        # Separate from the thread post above (different audience,
+                        # different wording) and independent of it: a series can have a
+                        # results channel with no group thread, or vice versa.
+                        _tournament = match.round.get_tournament() if match.round_id else None
+                        if _tournament is not None and site:
+                            # recorder is nullable (league-imported games have none) and
+                            # is only assigned on CREATE, so fall back to whoever is
+                            # submitting -- this branch only runs on a live submission.
+                            _who = (parent.recorder.name if parent.recorder
+                                    else user.profile.name)
+                            _res_msg = (f'Game recorded by {_who}. '
+                                        f'See results [here]({site}{parent.get_absolute_url()}).')
+                            transaction.on_commit(
+                                lambda t=_tournament, msg=_res_msg:
+                                    post_to_tournament_channel(t, 'results_channel', msg))
                 _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
 
                 return redirect(parent.get_absolute_url())
@@ -3517,9 +3535,7 @@ def tournament_dynamic_create(request):
             if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
                 tournament.default_format = ''
 
-            # Clear guild if classification is not League
-            if tournament.classification != Tournament.ClassificationTypes.LEAGUE:
-                tournament.guild = None
+            # Any classification may link a guild (was League-only).
 
             # Stages/rounds are enabled later via the settings hub; a new
             # tournament starts flat with a single implicit Stage and Round.
@@ -3607,10 +3623,10 @@ def tournament_dynamic_update(request, slug):
             if tournament.classification != Tournament.ClassificationTypes.TOURNAMENT:
                 tournament.default_format = ''
 
-            # Guard: for non-League, only allow clearing the guild, not changing to a different one
-            if tournament.classification != Tournament.ClassificationTypes.LEAGUE:
-                if tournament.guild is not None and tournament.guild != original.guild:
-                    tournament.guild = original.guild
+            # Any classification may now change its guild (was League-only). The form's
+            # queryset still limits non-admins to guilds they belong to, and
+            # Tournament.save() clears this series' channel ids when the guild changes
+            # so stale ids can't announce into the previous server.
 
             # use_stages / use_rounds are managed via the settings hub, not this
             # form, so there is nothing to lock here.
@@ -5521,12 +5537,17 @@ def _grouping_step(round):
     return 'no_groups'
 
 
-def _settings_level_context(level, tournament, stage=None, round=None, *, is_owner):
+def _settings_level_context(level, tournament, stage=None, round=None, *, is_owner,
+                            profile=None):
     """Build the card-relevant flags for ONE settings level (a hub section).
 
     `level` is 'round' | 'stage' | 'series'. Returns a dict consumed by
     partials/settings_cards.html, namespaced so a section can render without
     depending on the page's "current object".
+
+    `profile` is the viewer, used only to decide whether the Discord-channels card
+    links to the Edit Guild page. Optional so a caller that omits it degrades to the
+    no-link variant rather than erroring.
     """
     from the_tavern.models import Survey
     from the_warroom.utils import get_single_stage
@@ -5611,7 +5632,42 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
         })
         ctx.update(_schedule_matches_context(tournament, [round]))
 
+    if level == 'series' and tournament.guild_id:
+        ctx.update(_tournament_channels_card_context(tournament, profile))
+
     return ctx
+
+
+def _tournament_channels_card_context(tournament, profile):
+    """Read-only summary of the series' Discord announcement channels.
+
+    The channels are guild property — only a moderator of the linked guild can change
+    them, from the Edit Guild page — so this card explains where announcements go and
+    who to ask, without becoming a second edit surface.
+    """
+    from the_gatehouse.services.discordservice import guild_channel_names
+    from the_gatehouse.views import can_moderate_guild
+
+    guild = tournament.guild
+    names = guild_channel_names(guild)
+
+    def label(channel_id, prefix='#'):
+        if not channel_id:
+            return None
+        name = names.get(channel_id)
+        return f'{prefix}{name}' if name else channel_id
+
+    configured = [
+        (_('Results'), label(tournament.results_channel)),
+        (_('Schedule'), label(tournament.schedule_channel)),
+        # Forum channels aren't addressed with a # in Discord's UI.
+        (_('Game threads'), label(tournament.game_threads_channel, prefix='')),
+    ]
+    return {
+        'channels_guild': guild,
+        'tournament_channels': [(lbl, val) for lbl, val in configured if val],
+        'can_edit_channels': bool(profile and can_moderate_guild(profile, guild)),
+    }
 
 
 def _mark_deepest_schedule_section(sections):
@@ -5637,7 +5693,7 @@ def tournament_settings_hub(request, slug):
 
     view_as_ctx, no_access, is_owner = settings_view_as_context(request, tournament, is_owner)
 
-    sections = [] if no_access else [_settings_level_context('series', tournament, is_owner=is_owner)]
+    sections = [] if no_access else [_settings_level_context('series', tournament, is_owner=is_owner, profile=profile)]
     _mark_deepest_schedule_section(sections)
 
     context = {
@@ -5681,10 +5737,10 @@ def round_settings_hub(request, tournament_slug, round_slug, stage_slug=None):
     # stages are enabled (otherwise the stage is the hidden default stage).
     sections = []
     if not no_access:
-        sections = [_settings_level_context('round', tournament, stage=stage, round=round, is_owner=is_owner)]
+        sections = [_settings_level_context('round', tournament, stage=stage, round=round, is_owner=is_owner, profile=profile)]
         if tournament.use_stages:
-            sections.append(_settings_level_context('stage', tournament, stage=stage, is_owner=is_owner))
-        sections.append(_settings_level_context('series', tournament, is_owner=is_owner))
+            sections.append(_settings_level_context('stage', tournament, stage=stage, is_owner=is_owner, profile=profile))
+        sections.append(_settings_level_context('series', tournament, is_owner=is_owner, profile=profile))
     _mark_deepest_schedule_section(sections)
 
     context = {
@@ -6239,6 +6295,15 @@ def _stage_matches_context(request, tournament, stage):
             'stage_slug': stage.slug,
             'round_slug': round.slug,
         })
+        # Create Game Threads button (matches page only). Only offered when the series
+        # has somewhere to put them; the endpoint re-checks all of this.
+        if tournament.game_threads_channel and tournament.guild_id:
+            context['create_game_threads_url'] = reverse('round-create-game-threads', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': stage.slug,
+                'round_slug': round.slug,
+            })
+            context['threads_to_create_count'] = _threads_to_create_count(round)
 
     return context
 
@@ -6564,6 +6629,15 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
             'stage_slug': stage.slug,
             'round_slug': round.slug,
         })
+        # Create Game Threads button (matches page only). Only offered when the series
+        # has somewhere to put them; the endpoint re-checks all of this.
+        if tournament.game_threads_channel and tournament.guild_id:
+            context['create_game_threads_url'] = reverse('round-create-game-threads', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': stage.slug,
+                'round_slug': round.slug,
+            })
+            context['threads_to_create_count'] = _threads_to_create_count(round)
 
     context.update({
         'page_name': round.name,
@@ -6700,8 +6774,8 @@ def stage_settings_hub(request, tournament_slug, stage_slug):
     view_as_ctx, no_access, is_owner = settings_view_as_context(request, tournament, is_owner)
 
     sections = [] if no_access else [
-        _settings_level_context('stage', tournament, stage=stage, is_owner=is_owner),
-        _settings_level_context('series', tournament, is_owner=is_owner),
+        _settings_level_context('stage', tournament, stage=stage, is_owner=is_owner, profile=profile),
+        _settings_level_context('series', tournament, is_owner=is_owner, profile=profile),
     ]
     _mark_deepest_schedule_section(sections)
 
@@ -8252,6 +8326,51 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
 
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+def _threads_to_create_count(round):
+    """How many series in this round still need a Discord thread.
+
+    discord_thread is blank=True WITHOUT null=True, so unlinked is the empty string --
+    an __isnull=True filter would match nothing.
+    """
+    return MatchSeries.objects.filter(
+        round=round, player_group__isnull=False,
+        player_group__discord_thread='').count()
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_create_game_threads(request, tournament_slug, stage_slug, round_slug):
+    """Queue creation of a Discord forum thread for every un-threaded series in a round.
+
+    The button that reaches this is hidden for non-moderators, but hiding a button is
+    not access control -- this endpoint posts into a Discord server, so it re-checks
+    everything itself. Each object is fetched scoped to its parent, so another
+    tournament's round slug 404s rather than acting.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied
+
+    if not tournament.guild_id:
+        return JsonResponse(
+            {'error': 'This series is not linked to a Discord server.'}, status=400)
+    if not tournament.game_threads_channel:
+        return JsonResponse(
+            {'error': 'No game-threads forum channel is set for this series. A '
+                      'moderator of the linked Discord server can set one.'}, status=400)
+
+    pending = _threads_to_create_count(round)
+    if not pending:
+        return JsonResponse(
+            {'error': 'Every match in this round already has a thread.'}, status=400)
+
+    create_match_threads_task.delay(round.id, request.user.profile.id, tournament.id)
+    return JsonResponse({'success': True, 'queued': pending})
 
 
 @login_required

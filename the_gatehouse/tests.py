@@ -30,6 +30,7 @@ from the_keep.models import (
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
     LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, DEFAULT_PROFILE_IMAGE,
+    UserNotification, MessageChoices,
 )
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
@@ -2797,6 +2798,217 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Channel Cup")
         self.assertContains(response, 'id="tournament-channels-modal"')
+
+
+class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
+    """A confirmed time is announced in the tournament's schedule_channel. Both
+    /schedule write paths post: the consensus commit point and the direct write."""
+
+    CHANNEL = "200000000000000011"
+    TEXT = [{"id": CHANNEL, "name": "schedule"}]
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.guild.bot_member = True
+        self.guild.save(update_fields=["bot_member"])
+        Tournament.objects.filter(pk=self.tournament.pk).update(
+            schedule_channel=self.CHANNEL)
+        self.tournament.refresh_from_db()
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+
+    def _capture(self, fn):
+        """Run fn with Discord reads stubbed, returning the posted content or None."""
+        from the_gatehouse import tasks
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=self.TEXT), \
+             mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                fn()
+        # The thread post uses the same task, so pick out the schedule-channel call.
+        for call in delay.call_args_list:
+            if call.args[0] == self.CHANNEL:
+                return call.args[1]
+        return None
+
+    def _proposal(self, when):
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=when, proposed_by=self.player,
+            channel_id="555000111", message_id="111",
+            guild_id=self.guild.guild_id)
+        proposal.roster.set([self.player, self.teammate])
+        proposal.confirmed_by.set([self.player, self.teammate])
+        return proposal
+
+    def test_consensus_path_announces_scheduled(self):
+        proposal = self._proposal(self.when)
+        content = self._capture(lambda: di._finalize_proposal(proposal))
+        self.assertIsNotNone(content)
+        self.assertIn("is scheduled for", content)
+        self.assertIn(self.group.name, content)
+        self.assertIn(f"<t:{int(self.when.timestamp())}:F>", content)
+
+    def test_a_changed_time_says_rescheduled(self):
+        self.match.scheduled_time = self.when - timedelta(days=1)
+        self.match.save(update_fields=["scheduled_time"])
+        proposal = self._proposal(self.when)
+        content = self._capture(lambda: di._finalize_proposal(proposal))
+        self.assertIn("is rescheduled for", content)
+
+    def test_confirming_the_same_time_announces_nothing(self):
+        """Re-confirming a slot that didn't move isn't news."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        proposal = self._proposal(self.when)
+        content = self._capture(lambda: di._finalize_proposal(proposal))
+        self.assertIsNone(content)
+
+    def test_no_schedule_channel_means_no_post(self):
+        Tournament.objects.filter(pk=self.tournament.pk).update(schedule_channel=None)
+        proposal = self._proposal(self.when)
+        content = self._capture(lambda: di._finalize_proposal(proposal))
+        self.assertIsNone(content)
+
+    def test_stale_channel_from_another_guild_is_refused(self):
+        other = DiscordGuild.objects.create(guild_id="900999", name="Other",
+                                            bot_member=True)
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=other)
+        proposal = self._proposal(self.when)
+        # The stubbed list belongs to the tournament's *current* guild and doesn't
+        # contain the stored id, so the post is refused.
+        from the_gatehouse import tasks
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=[]), \
+             mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                di._finalize_proposal(proposal)
+        for call in delay.call_args_list:
+            self.assertNotEqual(call.args[0], self.CHANNEL)
+
+
+class TournamentChannelSecurityTests(_NoLoginSignalMixin, TestCase):
+    """The channel ids are bare snowflakes with no guild in them, so a tournament that
+    moves to another guild must not keep announcing into the old one."""
+
+    TEXT = [{"id": "200000000000000011", "name": "results"}]
+    FORUM = [{"id": "300000000000000033", "name": "matches"}]
+
+    def setUp(self):
+        super().setUp()
+        self.guild_a = DiscordGuild.objects.create(guild_id="800100", name="Guild A",
+                                                   bot_member=True)
+        self.guild_b = DiscordGuild.objects.create(guild_id="800200", name="Guild B",
+                                                   bot_member=True)
+        self.tournament = Tournament.objects.create(
+            name="Sec Cup", guild=self.guild_a,
+            results_channel=self.TEXT[0]["id"],
+            schedule_channel=self.TEXT[0]["id"],
+            game_threads_channel=self.FORUM[0]["id"])
+
+    # ---- Tournament.save() clears the ids on a guild change --------------------
+
+    def test_repointing_the_guild_clears_every_channel(self):
+        self.tournament.guild = self.guild_b
+        self.tournament.save()
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.results_channel)
+        self.assertIsNone(self.tournament.schedule_channel)
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_clearing_the_guild_clears_every_channel(self):
+        self.tournament.guild = None
+        self.tournament.save()
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.results_channel)
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_unrelated_save_keeps_the_channels(self):
+        self.tournament.name = "Renamed"
+        self.tournament.save()
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.results_channel, self.TEXT[0]["id"])
+
+    def test_update_fields_including_guild_still_persists_the_clear(self):
+        """update_fields would otherwise drop the nulled columns from the UPDATE and
+        silently keep the stale ids -- the exact failure the clearing exists to stop."""
+        self.tournament.guild = self.guild_b
+        self.tournament.save(update_fields=['guild'])
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.results_channel)
+        self.assertIsNone(self.tournament.schedule_channel)
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_unrelated_partial_save_is_unaffected(self):
+        self.tournament.use_stages = True
+        self.tournament.save(update_fields=['use_stages'])
+        self.tournament.refresh_from_db()
+        self.assertTrue(self.tournament.use_stages)
+        self.assertEqual(self.tournament.results_channel, self.TEXT[0]["id"])
+
+    # ---- Send-time verification -----------------------------------------------
+
+    def _post(self, field='results_channel', text=None, forum=None):
+        from the_gatehouse import tasks
+        from the_warroom.services.channel_posts import post_to_tournament_channel
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=self.TEXT if text is None else text), \
+             mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                        return_value=self.FORUM if forum is None else forum), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            sent = post_to_tournament_channel(self.tournament, field, "hi")
+        return sent, delay
+
+    def test_posts_when_the_channel_belongs_to_the_current_guild(self):
+        sent, delay = self._post()
+        self.assertTrue(sent)
+        delay.assert_called_once_with(self.TEXT[0]["id"], "hi")
+
+    def test_refuses_a_channel_that_is_not_in_the_current_guild(self):
+        """The leak: the tournament moved to guild B but still holds A's channel id.
+        (save() clears it now; this covers rows that drifted before that existed.)"""
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=self.guild_b)
+        self.tournament.refresh_from_db()
+        sent, delay = self._post(text=[])   # guild B has no such channel
+        self.assertFalse(sent)
+        delay.assert_not_called()
+
+    def test_fails_closed_when_discord_is_unreachable(self):
+        """A None list means the fetch failed -> unverified -> refuse. This is the
+        deliberate inverse of the settings form, which lets an outage through."""
+        from the_gatehouse import tasks
+        from the_warroom.services.channel_posts import post_to_tournament_channel
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=None), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            sent = post_to_tournament_channel(self.tournament, 'results_channel', "hi")
+        self.assertFalse(sent)
+        delay.assert_not_called()
+
+    def test_empty_list_also_refuses(self):
+        """An empty list is a SUCCESSFUL fetch of a guild with no text channels."""
+        sent, delay = self._post(text=[])
+        self.assertFalse(sent)
+        delay.assert_not_called()
+
+    def test_no_guild_means_no_post(self):
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=None)
+        self.tournament.refresh_from_db()
+        sent, delay = self._post()
+        self.assertFalse(sent)
+        delay.assert_not_called()
+
+    def test_game_threads_is_checked_against_the_forum_list(self):
+        """A text channel must never satisfy the forum-only field."""
+        sent, delay = self._post(field='game_threads_channel')
+        self.assertTrue(sent)
+
+        Tournament.objects.filter(pk=self.tournament.pk).update(
+            game_threads_channel=self.TEXT[0]["id"])
+        self.tournament.refresh_from_db()
+        sent, delay = self._post(field='game_threads_channel')
+        self.assertFalse(sent)
+        delay.assert_not_called()
 
 
 class LFGCommandRefreshTests(_NoLoginSignalMixin, TestCase):
@@ -6600,7 +6812,13 @@ class ScheduleProposalSupersedeTests(ScheduleFixtureMixin, TestCase):
         self.assertTrue(ok)
         self.b.refresh_from_db()
         self.assertEqual(self.b.status, ScheduleProposal.Status.SUPERSEDED)
-        self.assertEqual(len(callbacks), 1)
+        # One sweep of the losing proposals. _finalize_proposal also defers a
+        # schedule-channel announcement, so assert the strip task specifically rather
+        # than counting every on_commit callback.
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay") as strip:
+            for cb in callbacks:
+                cb()
+        self.assertEqual(strip.call_count, 1)
 
     def test_strip_task_enqueued_for_loser_only(self):
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay") as strip:
@@ -7804,3 +8022,159 @@ class LFGThreadLastActivityTests(TestCase):
             self.THREAD_ID, [{"kind": "Faction", "slug": "bump-birds"}],
             source="random")
         self.assertTrue(self._bumped())
+
+
+class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
+    """The bulk thread task: one forum thread per un-threaded series, players pinged,
+    thread linked back to the group, outcome reported as a UserNotification."""
+
+    FORUM = [{"id": "300000000000000033", "name": "matches"}]
+
+    def setUp(self):
+        super().setUp()
+        self.guild = DiscordGuild.objects.create(guild_id="920100", name="Task Guild",
+                                                 bot_member=True)
+        self.actor = Profile.objects.create(discord="actor", discord_id="90")
+        self.player = Profile.objects.create(discord="p1", discord_id="91")
+        self.unlinked = Profile.objects.create(discord="p2", discord_id=None)
+
+        self.tournament = Tournament.objects.create(
+            name="Task Cup", guild=self.guild,
+            game_threads_channel=self.FORUM[0]["id"])
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S1", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A")
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.player)
+        self.group.tournament_players.add(tp)
+
+    def _run(self, thread_id="777001", forum=None, side_effect=None):
+        """Runs the task with Discord stubbed. The task calls the _detailed variant,
+        which returns (thread_id, retry_after). Sleeps are patched out so pacing
+        doesn't slow the suite."""
+        from the_gatehouse import tasks
+        return_value = (thread_id, None)
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                        return_value=self.FORUM if forum is None else forum), \
+             mock.patch("the_gatehouse.tasks.time.sleep") as self.sleep, \
+             mock.patch("the_gatehouse.services.discordservice.create_forum_thread_detailed",
+                        **({"side_effect": side_effect} if side_effect
+                           else {"return_value": return_value})) as create:
+            tasks.create_match_threads_task(
+                self.round.id, self.actor.id, self.tournament.id)
+        return create
+
+    def test_creates_a_thread_and_links_it(self):
+        create = self._run()
+        create.assert_called_once()
+        args, kwargs = create.call_args
+        self.assertEqual(args[0], self.FORUM[0]["id"])
+        self.assertEqual(args[1], "Group A")            # titled with the group name
+        self.assertIn("<@91>", kwargs["content"])        # player pinged
+
+        self.group.refresh_from_db()
+        self.assertEqual(
+            self.group.discord_thread,
+            f"https://discord.com/channels/{self.guild.guild_id}/777001")
+
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 game thread created", note.message)
+        self.assertEqual(note.related_url, self.round.get_matches_url())
+
+    def test_a_group_that_already_has_a_thread_is_skipped(self):
+        self.group.discord_thread = f"https://discord.com/channels/{self.guild.guild_id}/1"
+        self.group.save()
+        create = self._run()
+        create.assert_not_called()
+
+    def test_running_twice_does_not_duplicate(self):
+        self._run()
+        create = self._run(thread_id="777002")
+        create.assert_not_called()
+        self.group.refresh_from_db()
+        # Still the FIRST thread -- link_group_thread's compare-and-swap held.
+        self.assertTrue(self.group.discord_thread.endswith("/777001"))
+
+    def test_players_without_discord_do_not_block_the_thread(self):
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.unlinked)
+        self.group.tournament_players.add(tp)
+        create = self._run()
+        create.assert_called_once()
+        content = create.call_args.kwargs["content"]
+        self.assertIn("<@91>", content)
+        self.assertNotIn("None", content)
+
+    def test_a_failed_creation_writes_no_url_and_reports_it(self):
+        create = self._run(thread_id=None)
+        create.assert_called_once()
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertEqual(note.message_type, MessageChoices.WARNING)
+
+    def test_requests_are_spaced_out(self):
+        """Back-to-back creation is what trips the limit; pause between calls."""
+        for n in (2, 3):
+            group = PlayerGroup.objects.create(
+                round=self.round, group_number=n, name=f"Group {n}")
+            MatchSeries.objects.create(
+                round=self.round, player_group=group, number_of_games=1)
+        create = self._run()
+        self.assertEqual(create.call_count, 3)
+        # One pause per call after the first -- never before the first.
+        from the_gatehouse import tasks
+        self.assertEqual(
+            self.sleep.call_args_list,
+            [mock.call(tasks._THREAD_CREATE_INTERVAL)] * 2)
+
+    def test_a_rate_limit_is_retried_not_counted_as_failed(self):
+        """A 429 means "too fast", not "impossible" -- wait and retry the SAME group,
+        instead of burning it and racing on to the next."""
+        create = self._run(side_effect=[(None, 2.5), ("777009", None)])
+        self.assertEqual(create.call_count, 2)
+        self.sleep.assert_any_call(2.5)          # honoured Discord's retry_after
+        self.group.refresh_from_db()
+        self.assertTrue(self.group.discord_thread.endswith("/777009"))
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 game thread created", note.message)
+        self.assertNotIn("failed", note.message)
+
+    def test_a_long_retry_after_is_capped(self):
+        """Discord can ask for hundreds of seconds; don't park the worker that long."""
+        from the_gatehouse import tasks
+        create = self._run(side_effect=[(None, 900.0), ("777010", None)])
+        self.sleep.assert_any_call(tasks._THREAD_CREATE_MAX_BACKOFF)
+        for call in self.sleep.call_args_list:
+            self.assertLessEqual(call.args[0], tasks._THREAD_CREATE_MAX_BACKOFF)
+
+    def test_a_persistent_rate_limit_explains_itself(self):
+        """Still limited after the retry: report it as retryable, not a mystery."""
+        create = self._run(side_effect=[(None, 1.0), (None, 1.0)])
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertIn("rate limited", note.message)
+        self.assertEqual(note.message_type, MessageChoices.WARNING)
+
+    def test_a_plain_failure_does_not_mention_rate_limiting(self):
+        create = self._run(thread_id=None)
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertNotIn("rate limited", note.message)
+
+    def test_a_stale_channel_aborts_with_a_warning(self):
+        """The tournament moved guilds between the click and the task running."""
+        other = DiscordGuild.objects.create(guild_id="920999", name="Other",
+                                            bot_member=True)
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=other)
+        create = self._run(forum=[])     # the new guild has no such forum
+        create.assert_not_called()
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertEqual(note.message_type, MessageChoices.WARNING)
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")

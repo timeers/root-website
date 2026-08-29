@@ -186,7 +186,30 @@ def create_forum_thread(forum_channel_id, name, content=None, embeds=None, tag_i
     posts a fresh starter message (content/embeds) rather than hanging off an
     existing one. `tag_id` optionally applies one forum tag to the post. Returns the
     thread id on success, or None on failure. Never raises.
-    No DEBUG_VALUE guard — see create_message_thread."""
+    No DEBUG_VALUE guard — see create_message_thread.
+
+    See create_forum_thread_detailed for the variant that distinguishes a rate limit
+    from a real failure; this thin wrapper keeps the original one-value contract for
+    the single-thread callers (/lfg), which have nothing useful to do with the
+    difference."""
+    thread_id, _retry_after = create_forum_thread_detailed(
+        forum_channel_id, name, content=content, embeds=embeds, tag_id=tag_id)
+    return thread_id
+
+
+def create_forum_thread_detailed(forum_channel_id, name, content=None, embeds=None,
+                                 tag_id=None):
+    """create_forum_thread, but returning (thread_id, retry_after).
+
+    `retry_after` is the seconds Discord asked us to wait when the request was rate
+    limited (429), else None. It exists for BULK callers: creating one thread per
+    match in a round can be dozens of requests, and without this a 429 is
+    indistinguishable from a permission error -- so a throttled batch would report
+    every remaining match as "failed" while hammering the endpoint. A bulk caller
+    sleeps for retry_after and retries instead of burning the item.
+
+    Mirrors rename_channel's (result, retry_after) shape, for the same reason.
+    Never raises."""
     name = (name or "Game")[:100]
     message = {}
     if content:
@@ -206,10 +229,16 @@ def create_forum_thread(forum_channel_id, name, content=None, embeds=None, tag_i
             timeout=5,
         )
         r.raise_for_status()
-        return r.json()["id"]
+        return r.json()["id"], None
     except (requests.RequestException, KeyError, ValueError) as e:
-        logger.error("Failed to create forum thread in %s: %s", forum_channel_id, e)
-        return None
+        resp = getattr(e, "response", None)
+        retry_after = _retry_after_seconds(resp)
+        if retry_after is not None:
+            logger.warning("Rate limited creating forum thread in %s; retry after %ss",
+                           forum_channel_id, retry_after)
+        else:
+            logger.error("Failed to create forum thread in %s: %s", forum_channel_id, e)
+        return None, retry_after
 
 
 def post_channel_message(channel_id, content):
@@ -684,6 +713,51 @@ def get_guild_text_channels(guild_id):
     ]
     cache.set(key, channels, _DISCORD_LOOKUP_TTL)
     return channels
+
+
+def guild_channel_names(guild):
+    """{channel_id: name} across a guild's text and forum channels, for rendering a
+    stored snowflake as #general. Both underlying helpers are cached ~5 min, and an
+    unreachable Discord just yields an empty map — callers fall back to the raw id.
+
+    Lives here rather than in a view because both the_gatehouse (Edit Guild) and
+    the_warroom (the series settings card) need it."""
+    if not guild or not guild.bot_member:
+        return {}
+    names = {}
+    for channels in (get_guild_text_channels(guild.guild_id),
+                     get_guild_forum_channels(guild.guild_id)):
+        for c in (channels or []):
+            names[c['id']] = c['name']
+    return names
+
+
+def channel_belongs_to_guild(guild, channel_id, forum=False):
+    """True only when `channel_id` is CONFIRMED to be a channel of `guild`.
+
+    SECURITY BOUNDARY. Returns False when the guild is missing, the id is empty, or
+    Discord can't be reached — it fails CLOSED. A tournament's stored channel ids are
+    bare snowflakes carrying no guild, so after the tournament is re-pointed at another
+    guild a stale id would otherwise still resolve and leak that series' data into the
+    previous server. (Tournament.save() clears them on a re-point; this is the second
+    layer, covering rows that drifted before that existed.)
+
+    Deliberately stricter than GuildLFGRoleForm.clean(), which lets an unreachable
+    Discord through: blocking a settings SAVE on an API outage is user-hostile, but
+    POSTING to an unverified channel is a data leak. The cost of failing closed here is
+    at most a missed announcement.
+
+    `forum=True` checks the forum/media list instead of the text list, so a text channel
+    can never satisfy a forum-only field."""
+    if not guild or not channel_id:
+        return False
+    if not guild.bot_member:
+        return False
+    channels = (get_guild_forum_channels(guild.guild_id) if forum
+                else get_guild_text_channels(guild.guild_id))
+    if channels is None:      # fetch failed -> unverified -> refuse
+        return False
+    return str(channel_id) in {c['id'] for c in channels}
 
 
 def get_forum_channel_info(channel_id):

@@ -1069,6 +1069,22 @@ class Tournament(models.Model):
             if old_image != new_image:
                 delete_old_image(old_image)
 
+            # SECURITY: the three channel ids are snowflakes belonging to the OLD guild.
+            # Leaving them set after a re-point (or an unlink) would announce this
+            # series' matches into a server it's no longer tied to. Nothing else clears
+            # them -- they're only writable from the Edit Guild page, which a moderator
+            # of the new guild can't use to clean up the old one's ids.
+            if old_instance.guild_id != self.guild_id:
+                self.results_channel = None
+                self.schedule_channel = None
+                self.game_threads_channel = None
+                # update_fields would otherwise drop these columns from the UPDATE and
+                # silently discard the clear. Only needed when the caller named `guild`
+                # -- any other partial save can't have changed it.
+                if update_fields and 'guild' in update_fields:
+                    kwargs['update_fields'] = list(update_fields) + [
+                        'results_channel', 'schedule_channel', 'game_threads_channel']
+
         super().save(*args, **kwargs)
 
         # Cascade date changes to child stages

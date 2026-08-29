@@ -1,9 +1,19 @@
 {% load i18n %}
 {# Right-aligned link to the schedule page, shown below the nav header on bracket/matches pages. Context: schedule_count, schedule_url #}
+{% comment %} Optionally preceded by "Create Game Threads", which renders only when
+create_game_threads_url is present. Only the two matches views set it — the bracket
+pages include this same partial and must not offer that action. Its modal lives in
+matches.html for the same reason.
+{% endcomment %}
 
-<div class="d-flex justify-content-end mb-2">
+<div class="d-flex justify-content-end mb-2 gap-2">
+  {% if create_game_threads_url %}
+  <button type="button" class="btn btn-outline-primary btn-sm"
+          data-bs-toggle="modal" data-bs-target="#createThreadsModal">
+    <i class="bi bi-chat-left-text me-1"></i>{% trans 'Create Game Threads' %}
+  </button>
+  {% endif %}
   <a class="btn btn-outline-primary btn-sm" href="{{ schedule_url }}">
     <i class="bi bi-calendar-event me-1"></i>{% blocktrans count counter=schedule_count %}Scheduled ({{ counter }} game){% plural %}Scheduled ({{ counter }} games){% endblocktrans %}
   </a>
 </div>
-

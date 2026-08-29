@@ -1,4 +1,7 @@
+from unittest import mock
+
 from django.contrib.auth.models import User
+from django.contrib.auth.signals import user_logged_in
 from django.db.models.signals import post_save
 from django.test import TestCase
 from django.urls import reverse
@@ -8,10 +11,11 @@ from the_gatehouse.models import (
 )
 from the_gatehouse.services.lfg_game import lfg_option_querysets
 from the_keep.models import Faction, StatusChoices, Vagabond
-from the_gatehouse.signals import handle_image_resize
+from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
 from the_warroom.forms import GameCreateForm
+from the_gatehouse.tasks import create_match_threads_task
 from the_warroom.models import (
-    Effort, Game, Match, MatchSeries, Round, Stage, Tournament,
+    Effort, Game, Match, MatchSeries, PlayerGroup, Round, Stage, Tournament,
 )
 from the_warroom.views import (
     _can_record_match, user_can_record_in_round, _prefill_undrafted,
@@ -744,3 +748,213 @@ class UndraftedPrefillTests(TestCase):
         form = self._Form()
         _prefill_undrafted(form, self.thread, self._opts())
         self.assertEqual(form.initial, {})
+
+
+class CreateGameThreadsEndpointTests(TestCase):
+    """The Create Game Threads endpoint posts into a Discord server, so it re-checks
+    permission itself — the button being hidden is not access control."""
+
+    def setUp(self):
+        # force_login fires user_logged_in, whose handler builds absolute URLs from the
+        # request and enqueues Discord work -- neither of which a bare test request
+        # supports, and none of it is under test here.
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.guild = DiscordGuild.objects.create(guild_id="910100", name="Threads Guild",
+                                                 bot_member=True)
+        # The endpoint gates on Tournament.has_permission (designer/moderator/admin),
+        # not on the stricter `can_manage` the template uses, so being the designer is
+        # enough here.
+        self.host = User.objects.create_user(username="host", password="pw")
+        self.outsider = User.objects.create_user(username="outsider", password="pw")
+
+        self.tournament = Tournament.objects.create(
+            name="Threads Cup", guild=self.guild, designer=self.host.profile,
+            game_threads_channel="300000000000000033")
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S1", order=1)
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A")
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+
+    def tearDown(self):
+        post_save.connect(handle_image_resize, sender=Profile)
+
+    def _url(self, tournament=None, stage=None, round=None):
+        return reverse('round-create-game-threads', kwargs={
+            'tournament_slug': (tournament or self.tournament).slug,
+            'stage_slug': (stage or self.stage).slug,
+            'round_slug': (round or self.round).slug,
+        })
+
+    def _post(self, url=None):
+        with mock.patch.object(create_match_threads_task, 'delay') as delay:
+            response = self.client.post(url or self._url())
+        return response, delay
+
+    def test_moderator_queues_the_task(self):
+        self.client.force_login(self.host)
+        response, delay = self._post()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])
+        self.assertEqual(response.json()['queued'], 1)
+        delay.assert_called_once()
+
+    def test_anonymous_is_rejected_and_queues_nothing(self):
+        response, delay = self._post()
+        self.assertIn(response.status_code, (302, 403))
+        delay.assert_not_called()
+
+    def test_non_moderator_is_forbidden(self):
+        self.client.force_login(self.outsider)
+        response, delay = self._post()
+        self.assertEqual(response.status_code, 403)
+        delay.assert_not_called()
+
+    def test_get_is_not_allowed(self):
+        """No state change via GET, so a crafted link can't trigger it."""
+        self.client.force_login(self.host)
+        with mock.patch.object(create_match_threads_task, 'delay') as delay:
+            response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 405)
+        delay.assert_not_called()
+
+    def test_another_tournaments_round_is_not_reachable(self):
+        """Chained scoping: the round must belong to the stage, the stage to the
+        tournament. A mismatched slug 404s rather than acting."""
+        other_t = Tournament.objects.create(name="Other Cup", designer=self.host.profile)
+        other_s = Stage.objects.create(tournament=other_t, name="S1", order=1)
+        other_r = Round.objects.create(stage=other_s, round_number=1)
+        self.client.force_login(self.host)
+        response, delay = self._post(self._url(round=other_r))
+        self.assertEqual(response.status_code, 404)
+        delay.assert_not_called()
+
+    def test_missing_channel_is_rejected(self):
+        Tournament.objects.filter(pk=self.tournament.pk).update(game_threads_channel=None)
+        self.client.force_login(self.host)
+        response, delay = self._post()
+        self.assertEqual(response.status_code, 400)
+        delay.assert_not_called()
+
+    def test_missing_guild_is_rejected(self):
+        Tournament.objects.filter(pk=self.tournament.pk).update(guild=None)
+        self.client.force_login(self.host)
+        response, delay = self._post()
+        self.assertEqual(response.status_code, 400)
+        delay.assert_not_called()
+
+    def test_nothing_to_do_is_rejected(self):
+        self.group.discord_thread = f"https://discord.com/channels/{self.guild.guild_id}/999"
+        self.group.save()
+        self.client.force_login(self.host)
+        response, delay = self._post()
+        self.assertEqual(response.status_code, 400)
+        delay.assert_not_called()
+
+    def test_count_uses_empty_string_not_isnull(self):
+        """discord_thread is blank-not-null: an __isnull filter would match nothing
+        and the button would always claim every match already has a thread."""
+        from the_warroom.views import _threads_to_create_count
+        self.assertEqual(_threads_to_create_count(self.round), 1)
+        self.group.discord_thread = f"https://discord.com/channels/{self.guild.guild_id}/999"
+        self.group.save()
+        self.assertEqual(_threads_to_create_count(self.round), 0)
+
+
+class GuildOnEveryClassificationTests(TestCase):
+    """A guild used to be League-only; switching to Tournament or Game Group cleared
+    it. Every classification may now link one."""
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.guild_a = DiscordGuild.objects.create(guild_id="930100", name="A")
+        self.guild_b = DiscordGuild.objects.create(guild_id="930200", name="B")
+        self.user = User.objects.create_user(username="cls", password="pw")
+        self.user.profile.guilds.add(self.guild_a, self.guild_b)
+
+    def tearDown(self):
+        post_save.connect(handle_image_resize, sender=Profile)
+
+    def test_player_settings_form_offers_guild_for_every_type(self):
+        from the_warroom.forms import TournamentPlayerSettingsForm
+        for cls in (Tournament.ClassificationTypes.LEAGUE,
+                    Tournament.ClassificationTypes.TOURNAMENT,
+                    Tournament.ClassificationTypes.GROUP):
+            with self.subTest(classification=cls):
+                t = Tournament.objects.create(name=f"T {cls}", classification=cls)
+                form = TournamentPlayerSettingsForm(instance=t)
+                self.assertIn('guild', form.fields)
+
+    def test_non_admin_can_change_the_guild_on_a_tournament(self):
+        """Previously the view silently reverted this for non-League types."""
+        from the_warroom.forms import TournamentDynamicUpdateForm
+        t = Tournament.objects.create(
+            name="Cls Cup", guild=self.guild_a,
+            classification=Tournament.ClassificationTypes.TOURNAMENT)
+        form = TournamentDynamicUpdateForm(instance=t, user=self.user)
+        self.assertIn(self.guild_b, form.fields['guild'].queryset)
+
+    def test_switching_classification_keeps_the_guild(self):
+        t = Tournament.objects.create(
+            name="Keep Cup", guild=self.guild_a,
+            classification=Tournament.ClassificationTypes.LEAGUE)
+        t.classification = Tournament.ClassificationTypes.GROUP
+        t.save()
+        t.refresh_from_db()
+        self.assertEqual(t.guild, self.guild_a)
+
+
+class ResultsChannelAnnounceTests(TestCase):
+    """A submitted game is announced in the series' results_channel, naming whoever
+    recorded it. Unit-level: the announce block's message + guard, without driving the
+    whole record-game form."""
+
+    CHANNEL = "200000000000000011"
+    TEXT = [{"id": CHANNEL, "name": "results"}]
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.guild = DiscordGuild.objects.create(guild_id="940100", name="Res Guild",
+                                                 bot_member=True)
+        self.recorder = Profile.objects.create(discord="rec", display_name="Recorder Rita")
+        self.tournament = Tournament.objects.create(
+            name="Res Cup", guild=self.guild, results_channel=self.CHANNEL)
+
+    def tearDown(self):
+        post_save.connect(handle_image_resize, sender=Profile)
+
+    def _post(self, message):
+        from the_gatehouse import tasks
+        from the_warroom.services.channel_posts import post_to_tournament_channel
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=self.TEXT), \
+             mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            sent = post_to_tournament_channel(self.tournament, 'results_channel', message)
+        return sent, delay
+
+    def test_message_names_the_recorder_and_links_the_game(self):
+        msg = (f'Game recorded by {self.recorder.name}. '
+               f'See results [here](https://example.com/game/1/).')
+        sent, delay = self._post(msg)
+        self.assertTrue(sent)
+        content = delay.call_args.args[1]
+        self.assertIn("Game recorded by Recorder Rita.", content)
+        self.assertIn("See results [here]", content)
+        # A plain name, never a mention: these posts set no allowed_mentions.
+        self.assertNotIn("<@", content)
+
+    def test_profile_name_falls_back_when_no_display_name(self):
+        bare = Profile.objects.create(discord="justdiscord")
+        self.assertEqual(bare.name, "justdiscord")
+
+    def test_no_results_channel_means_no_post(self):
+        Tournament.objects.filter(pk=self.tournament.pk).update(results_channel=None)
+        self.tournament.refresh_from_db()
+        sent, delay = self._post("anything")
+        self.assertFalse(sent)
+        delay.assert_not_called()

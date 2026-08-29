@@ -32,6 +32,7 @@ from .views import (game_list_view, leaderboard_view,
                     round_grouping_edit_group,
                     round_grouping_finalize,
                     round_generate_bracket, round_finalize_bracket, round_enable_matches, round_edit_series, round_create_series, round_delete_series,
+                    round_create_game_threads,
                     tournament_bracket_page,
                     stage_manage_view, stage_overview_page, stage_settings_hub, StageDeleteView,
                     stage_manage_players, stage_search_players, stage_move_player,
@@ -199,6 +200,7 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/enable-matches/', round_enable_matches, name='round-enable-matches'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/edit-series/', round_edit_series, name='round-edit-series'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/create-series/', round_create_series, name='round-create-series'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/create-game-threads/', round_create_game_threads, name='round-create-game-threads'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/delete-series/', round_delete_series, name='round-delete-series'),
 
 

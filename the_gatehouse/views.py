@@ -34,7 +34,7 @@ from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserMa
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, GuildLFGRole
 from .services.discordservice import (update_discord_avatar, get_discord_invite_info, get_user_guilds,
                                       get_guild_roles, get_guild_forum_channels, get_forum_channel_info,
-                                      get_guild_text_channels,
+                                      get_guild_text_channels, guild_channel_names,
                                       bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
@@ -1804,7 +1804,7 @@ def edit_guild(request, guild_id):
     # needs no per-field dict lookups. The channel-name lookup is skipped entirely when
     # no series are linked, so guilds without any pay nothing for this card.
     guild_tournaments = list(guild.tournaments.all().order_by('name'))
-    channel_names = _guild_channel_names(guild) if guild_tournaments else {}
+    channel_names = guild_channel_names(guild) if guild_tournaments else {}
     tournament_rows = [_tournament_row_ctx(t, guild, channel_names)
                        for t in guild_tournaments]
 
@@ -2011,21 +2011,6 @@ def _tournament_channel_context(guild, form):
     }
 
 
-def _guild_channel_names(guild):
-    """{channel_id: name} across both text and forum channels, for rendering a series
-    row as #general rather than a bare snowflake. Both helpers are cached ~5 min (the
-    forum one is usually already warm from the LFG card on the same page), and an
-    unreachable Discord just yields an empty map — the row falls back to the raw id."""
-    if not guild.bot_member:
-        return {}
-    names = {}
-    for channels in (get_guild_text_channels(guild.guild_id),
-                     get_guild_forum_channels(guild.guild_id)):
-        for c in (channels or []):
-            names[c['id']] = c['name']
-    return names
-
-
 def _tournament_row_ctx(tournament, guild, channel_names):
     """Context for one series row. Channel names are resolved HERE rather than in the
     template: the row shows three channels, and a template-side dict lookup per field
@@ -2078,7 +2063,7 @@ def hx_save_tournament_channels(request, guild_id, pk):
         # (see static/js/tournament_channels_modal.js). No refresh_guild_commands here —
         # these fields don't affect slash-command registration.
         response = render(request, 'the_gatehouse/partials/tournament_channels_saved.html',
-                          _tournament_row_ctx(obj, guild, _guild_channel_names(guild)))
+                          _tournament_row_ctx(obj, guild, guild_channel_names(guild)))
         response['HX-Trigger'] = 'tournamentChannelsSaved'
         return response
     return render(request, 'the_gatehouse/partials/tournament_channels_form.html',

@@ -1,6 +1,7 @@
 # Changelog
 
 ## [1.13.4] - 2026-8-26 Bot Evolution
+This update improves the LFG command functionality substantially.
 
 ### New Features
 - elo systems now have Games and Details tabs alongside the leaderboard
@@ -16,6 +17,7 @@
 - games linked to a match thread or lfg thread post results automatically to the thread (if bot is guild member)
 - new tabs on elo system home pages for games and details
 - added results_channel, schedule_channel and game_threads_channel to Tournaments for organization automation. Can only be set and edited by a guild moderator
+- added button to create threads for series matches
 
 ### Improvements
 - /random commands now have option to include fan content

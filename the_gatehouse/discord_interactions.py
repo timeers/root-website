@@ -1337,6 +1337,31 @@ def _cancel_open_proposals(match, reason, exclude_pk=None):
     return ids
 
 
+def _announce_schedule_to_channel(match, old_time, new_time):
+    """Announce a newly written match time in the tournament's schedule_channel.
+
+    Call with the time read BEFORE the write: the verb depends on it, and an unchanged
+    time is not announced at all (re-confirming the same slot isn't news).
+
+    Safe to call from inside an atomic block -- it defers the post itself, and
+    post_to_tournament_channel refuses any channel it can't confirm belongs to the
+    tournament's current guild.
+    """
+    if new_time is None or old_time == new_time:
+        return
+    tournament = match.round.get_tournament() if match.round_id else None
+    if tournament is None:
+        return
+    verb = "rescheduled" if old_time is not None else "scheduled"
+    content = (f"{_match_label(match)} is {verb} for "
+               f"{format_discord_timestamp(new_time)}")
+    from the_warroom.services.channel_posts import post_to_tournament_channel
+    # on_commit: callers run inside transaction.atomic(), and the worker must never
+    # announce a time this transaction goes on to roll back.
+    transaction.on_commit(
+        lambda: post_to_tournament_channel(tournament, 'schedule_channel', content))
+
+
 def _finalize_proposal(proposal, actor=None):
     """Write the agreed time and retire every other proposal for this match.
     Returns (ok, error).
@@ -1387,10 +1412,14 @@ def _finalize_proposal(proposal, actor=None):
         if not won:
             return False, "another time was confirmed for this match first"
 
+        # Read before the write: the announcement's verb (scheduled vs rescheduled)
+        # depends on whether this match already had a time.
+        previous_time = match.scheduled_time
         match.scheduled_time = proposal.proposed_time
         # update_fields is required: a bare save() re-runs Match.save()'s name and
         # match_number derivation.
         match.save(update_fields=["scheduled_time"])
+        _announce_schedule_to_channel(match, previous_time, proposal.proposed_time)
 
         # exclude_pk is REQUIRED, not incidental: don't rely on the CAS above having
         # already moved this row out of OPEN. If these are ever reordered, an
@@ -1597,10 +1626,15 @@ def _handle_schedule_confirm(payload):
     if consensus:
         return _open_schedule_proposal(payload, match, when, profile, roster)
 
+    # Read before the write, for the announcement's scheduled/rescheduled verb.
+    previous_time = match.scheduled_time
     match.scheduled_time = when
     # update_fields is required: a bare save() re-runs Match.save()'s name and
     # match_number derivation.
     match.save(update_fields=["scheduled_time"])
+    # Additional to the thread embed below: that tells the players in the thread, this
+    # tells the tournament's schedule channel.
+    _announce_schedule_to_channel(match, previous_time, when)
 
     # A direct write supersedes anything still awaiting confirmation — otherwise a
     # stale Confirm could overwrite the time just set here.
