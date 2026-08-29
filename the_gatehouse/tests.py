@@ -3285,6 +3285,45 @@ class SeatingCommandPlayerGroupTests(TestCase):
         self._members(1)
         self.assertIn("enough players", self._command()["content"])
 
+    def _seat_only_members(self, count):
+        """Players reachable ONLY through MatchSeat: a series and seats, with the
+        group's tournament_players M2M left empty. This is what a real group looks
+        like when it was built through the bracket editor -- the site shows these
+        players, so the bot must too."""
+        series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+        profiles = []
+        for i in range(1, count + 1):
+            profile = Profile.objects.create(
+                discord=f"seatonly{i}", discord_id=f"66{i}",
+                display_name=f"Seat Only {i}")
+            tp = TournamentPlayer.objects.create(
+                tournament=self.tournament, profile=profile)
+            participant = StageParticipant.objects.create(
+                stage=self.stage, tournament_player=tp)
+            MatchSeat.objects.create(
+                series=series, stage_participant=participant, seat_number=i)
+            profiles.append(profile)
+        return profiles
+
+    def test_seats_a_group_populated_only_by_seats(self):
+        """Regression: /seating read tournament_players directly, so a group with
+        3 seated players on the site was told it had none."""
+        self._seat_only_members(3)
+        self.assertEqual(self.group.tournament_players.count(), 0)
+        content = self._command()["content"]
+        self.assertIn("**Seating**", content)
+        for i in range(1, 4):
+            self.assertIn(f"Seat Only {i}", content)
+
+    def test_group_members_still_win_over_seats(self):
+        """The M2M stays authoritative where it IS populated."""
+        self._seat_only_members(3)
+        self._members(2)
+        content = self._command()["content"]
+        self.assertIn("Group Player 1", content)
+        self.assertNotIn("Seat Only", content)
+
     def test_an_lfg_thread_takes_precedence(self):
         """A channel is realistically one or the other, but if both resolve the
         LFG thread wins — its seating is the one that gets recorded."""
