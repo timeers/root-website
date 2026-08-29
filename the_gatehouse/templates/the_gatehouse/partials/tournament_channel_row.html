@@ -1,0 +1,39 @@
+{% load i18n %}
+{% comment %} Read-only row for one series' channels. Edit opens the shared modal rather
+than mutating the page inline, so nothing here is a form and unsaved guild-form input is
+never disturbed.
+
+`channels` is a list of (label, display value) pairs built by _tournament_row_ctx in
+views.py — already filtered to the ones that are set, and already resolved from stored
+snowflake to channel name (falling back to the raw id when Discord is unreachable or the
+channel is gone). Kept out of the template because the lookup needs a dict access plus a
+fallback per field.
+
+oob=True is set when this row is re-rendered as an out-of-band swap after a save — the id
+already matches, so hx-swap-oob="true" replaces the row in place.
+{% endcomment %}
+<div id="tournament-channel-row-{{ tournament.pk }}" class="d-flex justify-content-between align-items-start border rounded p-2 mb-2"{% if oob %} hx-swap-oob="true"{% endif %}>
+    <div>
+        <strong>{{ tournament.name }}</strong>
+        {% if channels %}
+            <div class="text-muted small">
+                {% for label, value in channels %}
+                    <div>{{ label }}: <code>{{ value }}</code></div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="text-muted small"><em>{% trans 'No channels set' %}</em></div>
+        {% endif %}
+    </div>
+    <div class="text-nowrap ms-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                data-bs-toggle="modal" data-bs-target="#tournament-channels-modal"
+                data-modal-title="{{ tournament.name }}"
+                hx-get="{% url 'guild-tournament-channels' guild.guild_id tournament.pk %}"
+                hx-target="#tournament-channels-modal-body"
+                hx-swap="innerHTML"
+                aria-label="{% trans 'Edit channels for' %} {{ tournament.name }}">
+            <i class="bi bi-pencil"></i>
+        </button>
+    </div>
+</div>

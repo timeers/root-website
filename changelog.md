@@ -15,6 +15,7 @@
 - recording from an lfg thread helps pre-build the game form
 - games linked to a match thread or lfg thread post results automatically to the thread (if bot is guild member)
 - new tabs on elo system home pages for games and details
+- added results_channel, schedule_channel and game_threads_channel to Tournaments for organization automation. Can only be set and edited by a guild moderator
 
 ### Improvements
 - /random commands now have option to include fan content

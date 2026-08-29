@@ -1,0 +1,19 @@
+{% load i18n %}
+{% comment %}
+    Response for a successful series-channels save.
+
+    Main swap: a short confirmation into #tournament-channels-modal-body. The modal is
+    closing (the HX-Trigger: tournamentChannelsSaved header fires the JS that hides it),
+    so this is only visible during the fade — but it also means no stale form is left
+    behind in the hidden modal.
+
+    Out-of-band: the series row replaces itself (its own id matches, so a plain
+    hx-swap-oob="true") with freshly resolved channel names. There is no add/delete here,
+    so unlike the LFG equivalent there are no add-controls to refresh.
+{% endcomment %}
+<div class="text-center text-success py-4">
+    <i class="bi bi-check-circle fs-3 d-block mb-2"></i>
+    {% trans 'Saved.' %}
+</div>
+
+{% include 'the_gatehouse/partials/tournament_channel_row.html' with tournament=tournament guild=guild channels=channels oob=True %}

@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
-from the_gatehouse.models import Profile, DiscordGuild
+from the_gatehouse.models import Profile, DiscordGuild, validate_discord_snowflake
 from the_gatehouse.utils import NameConvention
 from the_keep.models import Deck, Map, Faction, Landmark, Hireling, Vagabond, Tweak, StatusChoices
 from the_keep.utils import delete_old_image
@@ -595,6 +595,22 @@ class Tournament(models.Model):
 
     # Access & Roster
     guild = models.ForeignKey(DiscordGuild, on_delete=models.SET_NULL, null=True, blank=True, related_name='tournaments', help_text='Link this League with a Guild to allow members to record games')
+
+    # Discord channels in `guild` that this series posts into. Deliberately NOT on any
+    # Tournament form — they're guild plumbing, edited by a guild moderator from the Edit
+    # Guild page (see TournamentGuildChannelsForm / hx_save_tournament_channels).
+    # Snowflake-only, matching every other channel id in the project: a stored name would
+    # go stale the moment the channel is renamed, and the cached channel lists already
+    # supply names for display.
+    results_channel = models.CharField(max_length=32, blank=True, null=True,
+                                       validators=[validate_discord_snowflake],
+                                       help_text='Discord text channel where submitted game results are announced.')
+    schedule_channel = models.CharField(max_length=32, blank=True, null=True,
+                                        validators=[validate_discord_snowflake],
+                                        help_text='Discord text channel where confirmed match times are announced.')
+    game_threads_channel = models.CharField(max_length=32, blank=True, null=True,
+                                            validators=[validate_discord_snowflake],
+                                            help_text='Discord FORUM channel where a thread is created for each match.')
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to a game. If disabled, only registered players will be available.')
     recording_access = models.CharField(
         max_length=20,

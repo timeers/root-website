@@ -1,0 +1,34 @@
+{% load i18n %}
+{% comment %} Shell for the series-channels modal. The body is an htmx target: each row's
+Edit button hx-gets its form into #tournament-channels-modal-body, so all the
+server-rendered field machinery (channel dropdowns, validation errors) is reused
+unchanged. The Cancel/Save buttons ship INSIDE the swapped form so type="submit" works
+without a form= attribute — hence no modal-footer here.
+
+data-bs-backdrop="static" so a stray click outside can't discard a half-filled form (Esc
+still closes). The title is set from the trigger's data-modal-title by
+tournament_channels_modal.js.
+{% endcomment %}
+<div class="modal fade" id="tournament-channels-modal" tabindex="-1"
+     aria-labelledby="tournament-channels-modal-label" aria-hidden="true"
+     data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="tournament-channels-modal-label">
+                    <i class="bi bi-hash me-2"></i><span id="tournament-channels-modal-title-text">{% trans 'Series Channels' %}</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            {% comment %} Reset to this placeholder on hidden.bs.modal so reopening never
+            flashes the previous series' data while the new form loads. {% endcomment %}
+            <div class="modal-body" id="tournament-channels-modal-body">
+                <div class="text-center text-muted py-4">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">{% trans 'Loading…' %}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

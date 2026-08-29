@@ -1,5 +1,6 @@
 import re
 from django import forms
+from django.apps import apps
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
@@ -606,4 +607,56 @@ class GuildLFGRoleForm(forms.ModelForm):
                     self.add_error('forum_tag_id', "That tag is not one of the forum channel's tags.")
                 if info['requires_tag'] and not tag_id:
                     self.add_error('forum_tag_id', 'This forum requires a tag — please choose one.')
+        return cleaned
+
+
+class TournamentGuildChannelsForm(forms.ModelForm):
+    """The Discord channels a series posts into, edited from the Edit Guild page rather
+    than any tournament form (they're guild plumbing, not series settings).
+
+    All three fields are rendered as live dropdowns by
+    tournament_channels_form_fields.html and bind normally by name. results/schedule are
+    TEXT channels; game_threads is a FORUM channel — validated against separate lists so
+    a text channel can't be saved where a forum is required."""
+
+    class Meta:
+        # apps.get_model rather than a module import: the_warroom.models imports from
+        # the_gatehouse.models, so importing it at this module's top level risks a cycle
+        # (GuildLFGRoleForm dodges the same problem with a function-local import).
+        model = apps.get_model('the_warroom', 'Tournament')
+        fields = ['results_channel', 'schedule_channel', 'game_threads_channel']
+
+    def __init__(self, *args, guild=None, **kwargs):
+        # `guild` is not a form field — it's the guild whose channels are valid choices,
+        # and the view has already proven this tournament belongs to it.
+        self.guild = guild
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        cleaned = super().clean()
+        from .services.discordservice import (
+            get_guild_text_channels, get_guild_forum_channels,
+        )
+
+        # Only hit Discord when the bot is actually in the guild — otherwise every call
+        # 403/404s. A None list means "couldn't fetch": skip that field's check rather
+        # than hard-blocking a legitimate save (same guard as GuildLFGRoleForm.clean).
+        fetch = bool(self.guild and self.guild.bot_member)
+        text_channels = get_guild_text_channels(self.guild.guild_id) if fetch else None
+        forum_channels = get_guild_forum_channels(self.guild.guild_id) if fetch else None
+
+        checks = [
+            ('results_channel', text_channels, 'a text channel in this server'),
+            ('schedule_channel', text_channels, 'a text channel in this server'),
+            ('game_threads_channel', forum_channels, 'a forum channel in this server'),
+        ]
+        for field, channels, expected in checks:
+            value = (cleaned.get(field) or '').strip()
+            # Blank clears the setting. Normalize '' -> None so an empty <select> stores
+            # NULL rather than an empty string.
+            if not value:
+                cleaned[field] = None
+                continue
+            if channels is not None and value not in {c['id'] for c in channels}:
+                self.add_error(field, f'That channel is not {expected}.')
         return cleaned

@@ -655,6 +655,37 @@ def get_guild_forum_channels(guild_id):
     return forums
 
 
+def get_guild_text_channels(guild_id):
+    """Text/announcement channels for a guild as [{"id","name"}], or None on failure.
+    Same endpoint and contract as get_guild_forum_channels, filtered to the types a
+    plain message can be posted into. Ordered by Discord's own channel position so the
+    dropdown reads like the server's sidebar. Cached ~5 min."""
+    if not guild_id:
+        return None
+    key = f"guild_text_channels:{guild_id}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/guilds/{guild_id}/channels",
+            headers=_bot_headers(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as e:
+        logger.error("Failed to fetch channels for guild %s: %s", guild_id, e)
+        return None
+    channels = [
+        {"id": str(c["id"]), "name": c.get("name", "")}
+        for c in sorted(data, key=lambda c: c.get("position", 0))
+        if c.get("type") in (0, 5)  # 0 GUILD_TEXT, 5 GUILD_ANNOUNCEMENT
+    ]
+    cache.set(key, channels, _DISCORD_LOOKUP_TTL)
+    return channels
+
+
 def get_forum_channel_info(channel_id):
     """Forum channel details for the tag dropdown, or None on failure. Returns
     {"is_forum": bool, "requires_tag": bool, "tags": [{"id","name"}]} — a non-forum

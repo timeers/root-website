@@ -2599,6 +2599,206 @@ class LFGRoleModalViewTests(_NoLoginSignalMixin, TestCase):
         self.assertTrue(GuildLFGRole.objects.filter(pk=role.pk).exists())
 
 
+class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
+    """A series' Discord channels are edited from the Edit Guild page, in a modal that
+    commits on its own. results/schedule are TEXT channels and game_threads is a FORUM
+    channel, validated against separate lists."""
+
+    TEXT = [{"id": "200000000000000011", "name": "results"},
+            {"id": "200000000000000022", "name": "schedule"}]
+    FORUM = [{"id": "300000000000000033", "name": "matches"}]
+
+    def setUp(self):
+        super().setUp()
+        self.guild = DiscordGuild.objects.create(guild_id="700200", name="Channel Guild",
+                                                 bot_member=True)
+        self.user = User.objects.create_user(username="chanmod", password="pw")
+        self.profile = self.user.profile
+        self.profile.group = "P"          # plain player; moderates via guild_moderators
+        self.profile.player_onboard = True
+        self.profile.save()
+        self.guild.guild_moderators.add(self.profile)
+        self.client.force_login(self.user)
+        self.tournament = Tournament.objects.create(name="Channel Cup", guild=self.guild)
+
+    def _mock_discord(self, text=None, forum=None):
+        """Patch the Discord reads on the views AND forms modules: views.py imports them
+        by name, and the form does a function-local import from the service module."""
+        text = self.TEXT if text is None else text
+        forum = self.FORUM if forum is None else forum
+        return [
+            mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=text),
+            mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=forum),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                       return_value=text),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                       return_value=forum),
+        ]
+
+    def _with_discord(self, fn, text=None, forum=None):
+        patches = self._mock_discord(text=text, forum=forum)
+        for p in patches:
+            p.start()
+        try:
+            return fn()
+        finally:
+            for p in patches:
+                p.stop()
+
+    def _url(self, pk=None):
+        return reverse("guild-tournament-channels",
+                       args=[self.guild.guild_id, pk or self.tournament.pk])
+
+    def test_get_returns_form_with_both_lists_kept_separate(self):
+        response = self._with_discord(lambda: self.client.get(self._url()))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="tournament-channels-form"')
+        # The forum channel is offered for game_threads, the text ones for the others.
+        self.assertContains(response, "#results")
+        self.assertContains(response, "matches")
+
+    def test_valid_post_saves_all_three_and_signals_success(self):
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "results_channel": self.TEXT[0]["id"],
+            "schedule_channel": self.TEXT[1]["id"],
+            "game_threads_channel": self.FORUM[0]["id"],
+        }))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["HX-Trigger"], "tournamentChannelsSaved")
+
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.results_channel, self.TEXT[0]["id"])
+        self.assertEqual(self.tournament.schedule_channel, self.TEXT[1]["id"])
+        self.assertEqual(self.tournament.game_threads_channel, self.FORUM[0]["id"])
+        # The row refreshes out-of-band, showing names rather than raw snowflakes.
+        self.assertContains(response, 'id="tournament-channel-row-%d"' % self.tournament.pk)
+        self.assertContains(response, "#results")
+
+    def test_channel_outside_the_guild_is_rejected(self):
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "results_channel": "999000000000000099",
+        }))
+        self.assertEqual(response.status_code, 422)
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.results_channel)
+
+    def test_text_channel_cannot_be_saved_as_the_game_threads_forum(self):
+        """The two lists really are kept separate — a text channel in the forum field
+        would break thread creation at runtime, so it must fail at save time."""
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "game_threads_channel": self.TEXT[0]["id"],
+        }))
+        self.assertEqual(response.status_code, 422)
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_unreachable_discord_does_not_block_a_save(self):
+        """A failed fetch (None) skips that field's check rather than hard-blocking a
+        legitimate save — the same degrade-don't-block guard the LFG form uses."""
+        patches = [
+            mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=None),
+            mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=None),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                       return_value=None),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                       return_value=None),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            response = self.client.post(self._url(), {
+                "results_channel": "999000000000000099",
+            })
+            self.assertEqual(response.status_code, 200)
+            self.tournament.refresh_from_db()
+            self.assertEqual(self.tournament.results_channel, "999000000000000099")
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_an_empty_channel_list_still_rejects(self):
+        """An empty list is a SUCCESSFUL fetch of a guild with no such channels — it
+        must reject, unlike None. Guards against a falsy-vs-None mixup in clean()."""
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "results_channel": "999000000000000099",
+        }), text=[], forum=[])
+        self.assertEqual(response.status_code, 422)
+
+    def test_mixed_fetch_failure_checks_only_the_list_that_loaded(self):
+        """One list failing must not degrade the other's validation."""
+        patches = [
+            mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=None),
+            mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=self.FORUM),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                       return_value=None),
+            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                       return_value=self.FORUM),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            # Text fetch failed -> an unknown text channel is accepted.
+            # Forum fetch worked -> a bad forum channel is still rejected.
+            response = self.client.post(self._url(), {
+                "results_channel": "999000000000000099",
+                "game_threads_channel": self.TEXT[0]["id"],
+            })
+            self.assertEqual(response.status_code, 422)
+
+            response = self.client.post(self._url(), {
+                "results_channel": "999000000000000099",
+                "game_threads_channel": self.FORUM[0]["id"],
+            })
+            self.assertEqual(response.status_code, 200)
+            self.tournament.refresh_from_db()
+            self.assertEqual(self.tournament.results_channel, "999000000000000099")
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_blank_values_clear_the_fields(self):
+        self.tournament.results_channel = self.TEXT[0]["id"]
+        self.tournament.game_threads_channel = self.FORUM[0]["id"]
+        self.tournament.save()
+
+        response = self._with_discord(lambda: self.client.post(self._url(), {
+            "results_channel": "", "schedule_channel": "", "game_threads_channel": "",
+        }))
+        self.assertEqual(response.status_code, 200)
+        self.tournament.refresh_from_db()
+        # Normalized to NULL, not an empty string.
+        self.assertIsNone(self.tournament.results_channel)
+        self.assertIsNone(self.tournament.game_threads_channel)
+
+    def test_a_series_in_another_guild_is_not_reachable(self):
+        other_guild = DiscordGuild.objects.create(guild_id="700999", name="Other",
+                                                  bot_member=True)
+        other = Tournament.objects.create(name="Not Yours", guild=other_guild)
+        for method in ("get", "post"):
+            with self.subTest(method=method):
+                response = self._with_discord(
+                    lambda: getattr(self.client, method)(self._url(other.pk)))
+                self.assertEqual(response.status_code, 404)
+
+    def test_non_moderator_is_denied(self):
+        other = User.objects.create_user(username="outsider", password="pw")
+        other.profile.player_onboard = True
+        other.profile.save()
+        self.client.force_login(other)
+        for method in ("get", "post"):
+            with self.subTest(method=method):
+                response = self._with_discord(
+                    lambda: getattr(self.client, method)(self._url()))
+                self.assertEqual(response.status_code, 403)
+
+    def test_edit_guild_page_lists_linked_series(self):
+        response = self._with_discord(
+            lambda: self.client.get(reverse("edit-guild", args=[self.guild.guild_id])))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Channel Cup")
+        self.assertContains(response, 'id="tournament-channels-modal"')
+
+
 class LFGCommandRefreshTests(_NoLoginSignalMixin, TestCase):
     """Every LFG-role change re-registers the guild's slash commands promptly, and a
     broker outage falls back to an inline PUT instead of silently dropping it."""

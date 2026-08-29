@@ -137,6 +137,35 @@
         </div>
     </div>
 
+    <!-- Series Channels (each save commits immediately via its own modal) -->
+    {% comment %} Which Discord channels each linked series posts into. Edited here rather
+    than on the tournament form because they're guild plumbing: the person who knows the
+    server's channels is the guild moderator, not necessarily the series host.
+
+    hx-headers sends the CSRF token on HTMX requests originating in this card (inherited by
+    descendants) — the form inside the modal is fetched into the modal shell, which lives
+    outside this card, so it carries its own {% templatetag openblock %} csrf_token {% templatetag closeblock %}.
+    {% endcomment %}
+    <div class="card mb-3" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+        <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-hash me-2"></i>{% trans 'Series Channels' %}</h5>
+        </div>
+        <div class="card-body">
+            {% if tournament_rows %}
+                <div id="tournament-channel-list">
+                    {% for row in tournament_rows %}
+                        {% include 'the_gatehouse/partials/tournament_channel_row.html' with tournament=row.tournament guild=row.guild channels=row.channels %}
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    {% trans 'No series are linked to this server yet. Link one from its settings page to choose its channels here.' %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
     {% comment %} This Save button sits outside the LFG card and reconnects to the main
     form via the `form` attribute, so the visual order stays Details → Moderators →
     Commands → LFG → Save. It does not (and need not) save LFG roles: those commit
@@ -147,12 +176,14 @@
     <form> and HTML forbids nesting it inside another. {% endcomment %}
     {% include 'the_gatehouse/partials/lfg_role_modal.html' %}
     {% include 'the_gatehouse/partials/lfg_role_delete_modal.html' %}
+    {% include 'the_gatehouse/partials/tournament_channels_modal.html' %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="{% static 'js/lfg_forum_tags.js' %}"></script>
 <script src="{% static 'js/lfg_role_modal.js' %}"></script>
+<script src="{% static 'js/tournament_channels_modal.js' %}"></script>
 <script>
     function getModeratorExcludeIds() {
         const inputs = document.querySelectorAll('input[name="moderators"]');
