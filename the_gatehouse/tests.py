@@ -2920,6 +2920,40 @@ class DraftLFGSeatingTests(TestCase):
     def test_empty_roster_falls_back_to_four(self):
         self.assertIn("**4 Player Draft**", self._command(self.THREAD_ID))
 
+    def test_group_thread_counts_the_groups_roster(self):
+        """Regression: a tournament group thread's LFGThread has an EMPTY players
+        M2M (players.set only runs on the /lfg path), so /draft read 0 and silently
+        opened a 4-player draft for a table of 3."""
+        guild = DiscordGuild.objects.create(guild_id="1093259831470735599",
+                                            name="Draft Guild")
+        tournament = Tournament.objects.create(
+            name="Draft Tournament", guild=guild,
+            designer=Profile.objects.create(discord="dgd", discord_id="8001"))
+        stage = Stage.objects.create(tournament=tournament, name="S1", order=1)
+        rnd = Round.objects.create(stage=stage, round_number=1)
+        thread_id = "1303834523347456099"
+        group = PlayerGroup.objects.create(
+            round=rnd, group_number=1, name="Draft Group",
+            discord_thread=(
+                f"https://discord.com/channels/{guild.guild_id}/{thread_id}"))
+        series = MatchSeries.objects.create(
+            round=rnd, player_group=group, number_of_games=1)
+        # A group thread's LFGThread: series set, players empty.
+        LFGThread.objects.create(thread_id=thread_id, series=series)
+        group.tournament_players.set([
+            TournamentPlayer.objects.create(
+                tournament=tournament,
+                profile=Profile.objects.create(
+                    discord=f"dgp{i}", discord_id=f"81{i}"))
+            for i in range(3)
+        ])
+
+        data = {"_channel_id": thread_id, "_author_id": "111",
+                "_guild_id": guild.guild_id}
+        content = json.loads(
+            di._handle_draft_command(data).content)["data"]["content"]
+        self.assertIn("**3 Player Draft**", content)
+
     # ── the ephemeral seating offer ─────────────────────────────────────────
     def _build_payload(self, channel_id, guild_id=None):
         payload = {
@@ -3263,11 +3297,43 @@ class SeatingCommandPlayerGroupTests(TestCase):
         self.assertIn("**Seating**", content)
         self.assertIn("\n1. ", content)
 
-    def test_seating_is_never_persisted(self):
-        """The whole point: a series-long thread must not carry a stored order."""
+    def test_seating_is_persisted_so_pick_can_reuse_it(self):
+        """A group seating is SAVED. It used to be display-only, which meant /pick
+        found no seating, shuffled its own, and announced a second order
+        contradicting the one players had just been shown."""
+        profiles = self._members(4)
+        self._command()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        self.assertTrue(thread.seating_set)
+        seats = list(thread.seats.select_related("profile").order_by("seat_number"))
+        self.assertEqual([s.seat_number for s in seats], [1, 2, 3, 4])
+        self.assertEqual({s.profile_id for s in seats},
+                         {p.pk for p in profiles})
+
+    def test_pick_reuses_the_seating_instead_of_reshuffling(self):
+        """The reported bug: /seating then /pick posted two different orders."""
+        self._members(4)
+        content = self._command()["content"]
+        order = [line for line in content.splitlines()
+                 if line[:2] in ("1.", "2.", "3.", "4.")]
+
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            di._handle_pick_command({
+                "_channel_id": self.THREAD_ID, "_author_id": "111",
+                "_guild_id": self.GUILD_ID,
+            })
+        # /pick must not announce a seating of its own.
+        post.assert_not_called()
+
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        seats = thread.seats.select_related("profile").order_by("seat_number")
+        self.assertEqual([f"{s.seat_number}. {s.profile.name}" for s in seats],
+                         order)
+
+    def test_reseating_says_it_replaced_the_previous_order(self):
         self._members(4)
         self._command()
-        self.assertEqual(LFGSeat.objects.count(), 0)
+        self.assertIn("Re-seated", self._command()["content"])
 
     def test_order_is_posted_publicly_without_pinging(self):
         self._members(3)
@@ -5158,7 +5224,7 @@ class RandomOptionsPanelTests(TestCase):
             with mock.patch.object(di, "_verify_signature", return_value=True):
                 response = self.client.post(
                     url, data=json.dumps(payload), content_type="application/json")
-            self.assertIn("commander",
+            self.assertIn("Only the host",
                           json.loads(response.content)["data"]["content"], action)
 
     def test_owner_may_use_the_panel_controls(self):
