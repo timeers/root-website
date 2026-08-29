@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static %}
+{% load static databot_filters %}
 
 {% block title %}Root Databot | {% endblock %}
 
@@ -131,103 +131,33 @@
           <h2 class="info-card-title">
             <i class="bi bi-person-plus-fill text-primary me-2"></i>How to Use LFG
           </h2>
-          <p class="databot-notify-intro">
-            <code class="databot-inline-cmd">/lfg</code> posts a looking-for-game message in your server,
-            pings the players who want to play, and gives the game its own thread. Everything rolled or
-            looked up in that thread is remembered, so recording the result afterwards is simplified.
-          </p>
+          {% comment %}
+            Copy lives in the_gatehouse/services/discord_commands.py (LFG_HELP_INTRO /
+            LFG_HELP_STEPS) so this card and /help category:LFG stay in sync. The
+            lfg_body filter expands the inline markup those bodies carry.
+          {% endcomment %}
+          <p class="databot-notify-intro">{{ lfg_intro|lfg_body }}</p>
 
           <div class="databot-lfg-steps">
+            {% for step in lfg_steps %}
             <div class="databot-lfg-step">
-              <span class="databot-lfg-num">1</span>
+              <span class="databot-lfg-num">{{ forloop.counter }}</span>
               <div>
-                <h5>Set up your LFG roles</h5>
-                <p>
-                  Add one or more LFG roles for your server on the
-                  <a href="{% url 'manage-guilds' %}">Manage your Guilds</a> page (for example
-                  <em>Root TTS LFG</em> and <em>Root Digital LFG</em>). Each role mentions a
-                  Discord role, so starting a game pings only the people who want to play.
-                  A role can also be tied to a series, which lets its games record into that series by default.
-                </p>
-              </div>
-            </div>
-
-            <div class="databot-lfg-step">
-              <span class="databot-lfg-num">2</span>
-              <div>
-                <h5>Choose where the thread goes</h5>
-                <p>
-                  By default the game thread appears under the LFG message itself. If you'd rather keep
-                  games tidy in one place, give the role a forum channel and each new game is created
-                  as a post there instead (you can give the thread a tag as well).
-                </p>
-              </div>
-            </div>
-
-            <div class="databot-lfg-step">
-              <span class="databot-lfg-num">3</span>
-              <div>
-                <h5>Start the game and set it up</h5>
-                <p>
-                  Players click join on the message to add themselves to the roster, starting it opens the thread. From there, anything you
-                  roll or look up is captured automatically and reduces the available options when recording the game (if none are used all factions/maps/decks are available):
-                </p>
+                <h5>{{ step.title }}</h5>
+                <p>{{ step.body|lfg_body }}</p>
+                {% if step.commands %}
                 <div class="databot-lfg-cmds">
+                  {% for name, blurb in step.commands %}
                   <div class="databot-chip">
-                    <code>/random</code>
-                    <span>Roll a random map, deck, faction, and more.</span>
+                    <code>/{{ name }}</code>
+                    <span>{{ blurb }}</span>
                   </div>
-                  <div class="databot-chip">
-                    <code>/map</code>
-                    <span>Pick the map you're playing on.</span>
-                  </div>
-                  <div class="databot-chip">
-                    <code>/deck</code>
-                    <span>Pick the deck you're playing with.</span>
-                  </div>
-                  <div class="databot-chip">
-                    <code>/faction</code>
-                    <span>Note a faction that's in the game.</span>
-                  </div>
-
-                  <div class="databot-chip">
-                    <code>/seating</code>
-                    <span>Randomly seat the players without drafting factions.</span>
-                  </div>
-                  <div class="databot-chip">
-                    <code>/draft</code>
-                    <span>Draft the factions that can be selected in this game.</span>
-                  </div>
-                  <div class="databot-chip">
-                    <code>/pick</code>
-                    <span>Have each player pick factions from the draft or assign factions to each player.</span>
-                  </div>
+                  {% endfor %}
                 </div>
+                {% endif %}
               </div>
             </div>
-
-            <div class="databot-lfg-step">
-              <span class="databot-lfg-num">4</span>
-              <div>
-                <h5>Record the result</h5>
-                <p>
-                  When the game is over, run <code class="databot-inline-cmd">/record</code> in the
-                  thread. You'll get a link to the game form with the players, seating, map,
-                  deck, and series already filled in from everything the thread captured.
-                </p>
-              </div>
-            </div>
-
-            <div class="databot-lfg-step">
-              <span class="databot-lfg-num">5</span>
-              <div>
-                <h5>Results come back to the thread</h5>
-                <p>
-                  Once the game is saved, a link to the finished game is posted back in the thread,
-                  so everyone who played can see the result without leaving Discord.
-                </p>
-              </div>
-            </div>
+            {% endfor %}
           </div>
         </div>
       </div>

@@ -46,9 +46,11 @@ from the_gatehouse.services.time_parsing import (
     TIMEZONE_REGIONS, timezone_regions, zones_for_region, timezone_label,
     region_for_timezone, describe_timezone, format_utc_offset,
 )
-from the_gatehouse.services.discordservice import build_upcoming_embed
+from the_gatehouse.services.discordservice import (build_upcoming_embed,
+                                                   build_lfg_help_embed, _LFG_LINK_RE)
 from the_gatehouse.services import discordservice as ds
 from the_gatehouse import discord_interactions as di
+from the_gatehouse.templatetags.databot_filters import lfg_body
 
 class UpdatePostStatusTaskTest(TestCase):
     def setUp(self):
@@ -2378,6 +2380,170 @@ class LFGCommandShapeTests(TestCase):
                             for c in self._type_option(cmd)["choices"]))
 
 
+class HelpCommandShapeTests(TestCase):
+    """/help gains a `category` dropdown only where /lfg is enabled, mirroring the
+    SINGLE/MULTI flip /lfg itself uses."""
+
+    def _category_option(self, cmd):
+        return next((o for o in cmd["options"] if o["name"] == "category"), None)
+
+    def test_without_lfg_the_option_less_variant_is_registered(self):
+        for enabled in ([], ["stats"], ["stats", "record"]):
+            with self.subTest(enabled=enabled):
+                cmd = dc.help_command_for_guild(enabled)
+                self.assertIsNone(self._category_option(cmd))
+
+    def test_with_lfg_an_optional_category_dropdown_is_registered(self):
+        cmd = dc.help_command_for_guild(["lfg", "stats"])
+        opt = self._category_option(cmd)
+        self.assertIsNotNone(opt)
+        # Optional so a bare /help keeps returning the command list, as in every other
+        # server.
+        self.assertFalse(opt["required"])
+
+    def test_commands_is_listed_first(self):
+        """Discord can't preselect a choice, so first-in-list is how Commands stays the
+        obvious default."""
+        opt = self._category_option(dc.help_command_for_guild(["lfg"]))
+        self.assertEqual([c["value"] for c in opt["choices"]],
+                         [dc.HELP_CATEGORY_COMMANDS, dc.HELP_CATEGORY_LFG])
+
+    def test_mutating_a_returned_definition_leaves_the_singleton_pristine(self):
+        cmd = dc.help_command_for_guild(["lfg"])
+        self._category_option(cmd)["choices"].append({"name": "X", "value": "x"})
+        self.assertEqual(len(self._category_option(dc.HELP_COMMAND_LFG)["choices"]), 2)
+
+    def test_help_is_never_whitelistable(self):
+        self.assertNotIn("help", dc.WHITELISTABLE)
+
+
+class LFGHelpContentTests(TestCase):
+    """The LFG walkthrough is shared by the Databot page and /help category:LFG, so the
+    copy has to stay renderable by both."""
+
+    def _bodies(self):
+        return [dc.LFG_HELP_INTRO] + [s["body"] for s in dc.LFG_HELP_STEPS]
+
+    def test_every_link_target_resolves(self):
+        """A renamed URL would raise NoReverseMatch inside a slash-command response —
+        a dead bot, not just a dead link."""
+        for body in self._bodies():
+            for _, url_name in _LFG_LINK_RE.findall(body):
+                with self.subTest(url_name=url_name):
+                    reverse(url_name)
+
+    def test_every_referenced_command_exists(self):
+        for step in dc.LFG_HELP_STEPS:
+            for name, _ in step.get("commands", []):
+                with self.subTest(command=name):
+                    self.assertIn(name, dc.WHITELISTABLE)
+
+    def test_embed_stays_within_discord_limits_without_truncating(self):
+        embed = build_lfg_help_embed()
+        total = len(embed["title"]) + len(embed["description"])
+        for field in embed["fields"]:
+            self.assertLess(len(field["name"]), 256)
+            self.assertLess(len(field["value"]), 1024)
+            # _enforce_embed_limits would clip with an ellipsis; nothing should hit it.
+            self.assertFalse(field["value"].endswith("…"))
+            total += len(field["name"]) + len(field["value"])
+        self.assertLess(total, 6000)
+
+    def test_embed_expands_every_link_to_a_real_url(self):
+        embed = build_lfg_help_embed()
+        rendered = embed["description"] + "".join(f["value"] for f in embed["fields"])
+        self.assertFalse(_LFG_LINK_RE.search(rendered),
+                         "an unexpanded [label](url-name) reached Discord")
+
+    def test_filter_expands_every_markup_rule(self):
+        for body in self._bodies():
+            with self.subTest(body=body[:40]):
+                html = lfg_body(body)
+                self.assertNotIn("`", html)
+                self.assertNotIn("](", html)
+                self.assertNotIn("*", html)
+
+    def test_filter_escapes_before_expanding_markup(self):
+        html = lfg_body("<script>alert(1)</script> and `/record`")
+        self.assertIn("&lt;script&gt;", html)
+        self.assertNotIn("<script>", html)
+        self.assertIn('<code class="databot-inline-cmd">/record</code>', html)
+
+    def test_step_commands_render_as_chips_after_the_body(self):
+        """Step 3's body ends in a colon introducing its chips."""
+        step = next(s for s in dc.LFG_HELP_STEPS if s.get("commands"))
+        value = build_lfg_help_embed()["fields"][dc.LFG_HELP_STEPS.index(step)]["value"]
+        self.assertIn(step["body"].rstrip()[-20:], value)
+        for name, _ in step["commands"]:
+            self.assertIn(f"`/{name}`", value)
+
+
+class HelpCommandHandlerTests(TestCase):
+    """/help dispatches on `category`, defaulting to the command list."""
+
+    def _help(self, **data):
+        return json.loads(di._handle_help_command(data).content)["data"]
+
+    def test_lfg_category_returns_the_walkthrough(self):
+        data = self._help(options=[{"name": "category", "value": dc.HELP_CATEGORY_LFG}])
+        self.assertEqual(data["embeds"][0]["title"], "How to Use LFG")
+
+    def test_bare_help_still_returns_the_command_list(self):
+        self.assertEqual(self._help()["embeds"][0]["title"], "Bot Commands")
+
+    def test_commands_category_returns_the_command_list(self):
+        data = self._help(options=[{"name": "category",
+                                    "value": dc.HELP_CATEGORY_COMMANDS}])
+        self.assertEqual(data["embeds"][0]["title"], "Bot Commands")
+
+    def test_both_categories_stay_ephemeral(self):
+        for options in ([], [{"name": "category", "value": dc.HELP_CATEGORY_LFG}]):
+            with self.subTest(options=options):
+                self.assertEqual(self._help(options=options)["flags"], di.EPHEMERAL)
+
+
+class RegisterGuildCommandsBodyTests(TestCase):
+    """The PUT body carries the per-guild variants of BOTH /help and /lfg — the two
+    substitutions must not clobber each other."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="700500", name="Body Guild")
+
+    def _body(self):
+        captured = {}
+
+        def fake_put(url, headers=None, json=None, timeout=None):
+            captured["body"] = json
+            return mock.Mock(raise_for_status=mock.Mock())
+
+        with mock.patch.object(ds.requests, "put", side_effect=fake_put), \
+             mock.patch.object(ds, "_bot_headers", return_value={}):
+            self.assertTrue(ds.register_guild_commands(self.guild))
+        return {c["name"]: c for c in captured["body"]}
+
+    def _opts(self, cmd):
+        return [o["name"] for o in cmd["options"]]
+
+    def test_without_lfg_help_has_no_category(self):
+        self.guild.enabled_commands = ["stats"]
+        self.guild.save()
+        body = self._body()
+        self.assertEqual(self._opts(body["help"]), [])
+        self.assertNotIn("lfg", body)
+
+    def test_with_lfg_both_help_and_lfg_get_their_variants(self):
+        """Regression: substituting /lfg off the pre-substitution list silently dropped
+        the /help swap, so LFG guilds never got the category dropdown."""
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.save()
+        for _ in range(2):
+            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % _,
+                                        role_id=str(100000000000000700 + _))
+        body = self._body()
+        self.assertIn("category", self._opts(body["help"]))
+        self.assertIn("type", self._opts(body["lfg"]))
+
+
 class EditGuildCommandSyncTests(_NoLoginSignalMixin, TestCase):
     """The guild form re-registers commands only when the enabled set actually changed."""
 
@@ -3396,7 +3562,9 @@ class PickCommandTests(TestCase):
     def test_a_player_out_of_turn_is_refused_and_nothing_is_written(self):
         players = self._roster(3)
         data = self._select(self.factions[0].slug, players[0].discord_id)
-        self.assertIn("pick right now", data["content"])
+        # Names whose turn it actually is, so the refused player knows who to wait on.
+        self.assertEqual(data["content"],
+                         f"It's {players[2].name}'s turn to pick a faction.")
         self.assertFalse(self.thread.seats.exclude(faction=None).exists())
 
     def test_the_turn_player_persists_their_faction(self):
@@ -3702,7 +3870,9 @@ class PickVagabondFollowUpTests(TestCase):
         player clicking out of turn itself."""
         self._select(self.vagabond_faction.slug, self.players[1].discord_id)
         data = self._choose_vagabond(self.ranger.slug, self.players[0].discord_id)
-        self.assertIn("pick right now", data["content"])
+        # Still players[1]'s turn: their faction is in, but the vagabond isn't chosen.
+        self.assertEqual(data["content"],
+                         f"It's {self.players[1].name}'s turn to pick a faction.")
         self.assertIsNone(self._last_seat().vagabond_id)
 
 

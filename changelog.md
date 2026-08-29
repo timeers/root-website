@@ -22,6 +22,7 @@
 - /schedule now proposes a time for every player in the game to confirm before it is scheduled
 - new models to store lfg data to help with the /record command
 - lfg thread is now named with the LFGRole description if no description was given
+- /help has an lfg option to explain how lfg works
 
 ### Bug Fixes
 - test matches are no longer counted as elo-eligible: the api/games `elo_system` filter and the `elo_systems` field on game payloads used to include them even though the rating engine has always skipped them, so the API could advertise a system for a game it would never rate (the filter now returns fewer, correct rows)

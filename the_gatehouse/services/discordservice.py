@@ -436,20 +436,24 @@ def register_guild_commands(guild):
     """PUT this guild's enabled command set (always /help + whitelisted) to Discord's
     guild-scoped command endpoint. Returns True on success. Guild-scoped registration is
     ~instant (unlike global). Call on bot-add and whenever the whitelist changes."""
-    from .discord_commands import commands_for_guild, lfg_command_for_roles
+    from .discord_commands import (commands_for_guild, help_command_for_guild,
+                                   lfg_command_for_roles)
     app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
     url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild.guild_id}/commands"
     # commands_for_guild returns references to the shared module-level command dicts, so
-    # build a NEW list and substitute the /lfg element with the per-guild variant (SINGLE
-    # vs MULTI, choices baked from this guild's tags). lfg_command_for_roles deep-copies,
-    # so the shared /lfg singleton is never mutated. Only touch /lfg when it's actually in
-    # the body (i.e. whitelisted).
-    base = commands_for_guild(guild.enabled_commands or [])
-    if any(c["name"] == "lfg" for c in base):
+    # build a NEW list and substitute the per-guild variants of the two commands that have
+    # them. Both helpers deep-copy, so the shared singletons are never mutated:
+    #   * /help — BASE vs the LFG variant with the `category` dropdown (always present, so
+    #     no membership check needed).
+    #   * /lfg  — SINGLE vs MULTI, choices baked from this guild's tags. Only when it's
+    #     actually in the body (i.e. whitelisted).
+    # The second comprehension chains off `body`, not `base`, so it keeps the /help swap.
+    enabled = guild.enabled_commands or []
+    base = commands_for_guild(enabled)
+    body = [help_command_for_guild(enabled) if c["name"] == "help" else c for c in base]
+    if any(c["name"] == "lfg" for c in body):
         roles = list(guild.lfg_roles.all())
-        body = [lfg_command_for_roles(roles) if c["name"] == "lfg" else c for c in base]
-    else:
-        body = base
+        body = [lfg_command_for_roles(roles) if c["name"] == "lfg" else c for c in body]
     try:
         resp = requests.put(url, headers=_bot_headers(), json=body, timeout=10)
         resp.raise_for_status()
@@ -2272,6 +2276,57 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
             })
 
     return {k: v for k, v in embed.items() if v is not None}
+
+
+# [label](url-name) in the shared LFG copy. The target is a Django URL name, never a
+# path, so the copy never hardcodes a URL.
+_LFG_LINK_RE = re.compile(r"\[([^\]]+)\]\(([a-z0-9-]+)\)")
+
+
+def _expand_lfg_markdown(text, site_url):
+    """Turn [label](url-name) into a real markdown link. Backticks and *italics* pass
+    through untouched — Discord renders both natively. Without a site_url the link
+    degrades to its plain label rather than emitting a broken relative link, matching how
+    build_help_embed drops its link fields in that case."""
+    def sub(match):
+        label, url_name = match.group(1), match.group(2)
+        if not site_url:
+            return label
+        return f"[{label}]({site_url}{reverse(url_name)})"
+    return _LFG_LINK_RE.sub(sub, text)
+
+
+def build_lfg_help_embed():
+    """Embed explaining how /lfg works, built from the same LFG_HELP_STEPS the Databot
+    page renders — edit the copy in discord_commands and both update.
+
+    Imported inside the function to avoid an import cycle (discord_commands imports
+    models that pull in this package), the same as build_help_embed.
+    """
+    from the_gatehouse.services.discord_commands import LFG_HELP_INTRO, LFG_HELP_STEPS
+
+    site_url = config.get("SITE_URL", "").rstrip("/")
+
+    fields = []
+    for i, step in enumerate(LFG_HELP_STEPS, 1):
+        value = _expand_lfg_markdown(step["body"], site_url)
+        # The chips follow the body in the same field: step 3's body ends in a colon
+        # introducing them.
+        if step.get("commands"):
+            value += "\n" + "\n".join(
+                f"`/{name}` — {blurb}" for name, blurb in step["commands"]
+            )
+        fields.append({"name": f"{i}. {step['title']}", "value": value, "inline": False})
+
+    embed = {
+        "title": "How to Use LFG",
+        "description": _expand_lfg_markdown(LFG_HELP_INTRO, site_url),
+        "fields": fields,
+        "url": f"{site_url}/databot/" if site_url else None,
+    }
+    embed = {k: v for k, v in embed.items() if v is not None}
+    # Current copy sits well inside every limit; this guards a future copy edit.
+    return _enforce_embed_limits(embed)
 
 
 def get_discord_invite_info(invite_code):

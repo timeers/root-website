@@ -53,14 +53,15 @@ from .tasks import (
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
-    build_captain_embed, build_card_embed, build_law_embed, build_help_embed, build_upcoming_embed,
+    build_captain_embed, build_card_embed, build_law_embed, build_help_embed,
+    build_lfg_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
     parse_emoji_object,
     roll_emoji_for, suit_static_image_url, embed_color, permissions_can_manage_guild,
     get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
 )
 from .services.discord_commands import (
-    DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD,
+    DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD, HELP_CATEGORY_LFG,
 )
 from .services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -2044,7 +2045,20 @@ def _handle_help_command(data):
 
     In a guild, only the guild's enabled commands (plus /help) are listed; if the invoker
     can manage the server and some commands are still disabled, a link to enable more is
-    appended. In a DM (no guild) the full command set is shown."""
+    appended. In a DM (no guild) the full command set is shown.
+
+    Guilds with /lfg enabled get a `category` option (see help_command_for_guild);
+    category:LFG returns the LFG walkthrough instead of the command list."""
+    # Checked before the guild lookup: the LFG walkthrough needs no guild, whitelist or
+    # manage check, so this avoids a wasted query. _get_option returns None when the
+    # option is absent, which is the bare-/help case. A stale category:LFG from an old
+    # registration still renders the walkthrough rather than erroring.
+    if _get_option(data, "category") == HELP_CATEGORY_LFG:
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": {"embeds": [build_lfg_help_embed()], "flags": EPHEMERAL},
+        })
+
     guild_id = data.get("_guild_id")
     enabled_names = None
     can_manage = False
