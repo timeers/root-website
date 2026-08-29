@@ -2304,15 +2304,25 @@ def _random_draft_vagabond(platform):
 DRAFT_CAPTAIN_COUNT = 4
 
 
-def _random_draft_captains(platform):
-    """Up to `DRAFT_CAPTAIN_COUNT` random captain-capable Vagabonds for a draft
-    that landed Knaves of the Deepwood — the same pool the game form and /captain
-    use (captain=True). Root Digital narrows to those available there. Returns as
-    many as exist when fewer than 4 qualify (possibly an empty list)."""
+def _captain_pool(platform=None):
+    """Every captain-capable Vagabond — the same pool the game form and /captain
+    use (captain=True). Root Digital narrows to those available there.
+
+    Ordered by title, not "?": callers that want a random subset shuffle
+    themselves, and a stable order is what a full picker should show."""
     qs = Vagabond.objects.filter(official=True, status=1, captain=True)
     if platform == DRAFT_PLATFORM_RD:
         qs = qs.filter(in_root_digital=True)
-    return list(qs.order_by("?")[:DRAFT_CAPTAIN_COUNT])
+    return list(qs.order_by("title"))
+
+
+def _random_draft_captains(platform):
+    """Up to `DRAFT_CAPTAIN_COUNT` random captain-capable Vagabonds for a draft
+    that landed Knaves of the Deepwood. Returns as many as exist when fewer than
+    4 qualify (possibly an empty list)."""
+    pool = _captain_pool(platform)
+    random.shuffle(pool)
+    return pool[:DRAFT_CAPTAIN_COUNT]
 
 
 def _handle_draft_build(payload):
@@ -2433,10 +2443,10 @@ def _offer_lfg_seating(payload):
     if not _guild_allows(payload.get("guild_id"), "seating"):
         return
     # thread.players deliberately, NOT the group roster: this offer leads to
-    # _handle_draft_seat, which PERSISTS an order. A tournament group thread's
-    # seating is display-only (it spans the whole series, so a stored order is
-    # stale by the next game), so a group thread has an empty `players` and
-    # correctly no-ops here. /seating is the deliberate route for those.
+    # _handle_draft_seat, which seats the THREAD's own roster. A tournament group
+    # thread has an empty `players` (only /lfg fills it), so it no-ops here and
+    # reaches seating through /seating instead -- which resolves the group roster
+    # itself. Using the group roster here would seat it from the wrong handler.
     thread = _lfg_thread_for_channel(payload.get("channel_id"))
     if not thread or thread.players.count() < 2:
         return
@@ -2693,21 +2703,25 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
     return profiles if len(profiles) >= 2 else []
 
 
-def _pick_seat_roster(thread, channel_id, ordered=True):
+def _pick_seat_roster(thread, channel_id, ordered=True, announce=True):
     """Give `thread` seats so /pick has something to attach factions to.
 
     Two very different callers:
 
-    * `ordered=True` — a real seating. The roster is SHUFFLED, seating_set is set,
-      and the order is posted publicly. This is the only path for a tournament
-      group thread, whose /seating is display-only (it spans a whole series, so a
-      stored order would be stale by the next game).
-    * `ordered=False` — /pick assigning factions with no seating. The roster keeps
-      its own order and NOTHING is posted: seat_number is non-nullable, so the rows
-      still need 1..N, but those numbers are filler and must not be presented as an
-      order. Shuffling here would be worse than useless -- with no explicit
-      seat_order on the record form, Effort.seat falls back to row order, so a
-      shuffle would silently invent a turn order nobody agreed to.
+    * `ordered=True` — a real seating. The roster is SHUFFLED and seating_set is
+      set. Reached from /pick's "Seat Players" button, where the invoker
+      explicitly asked for a random order.
+    * `ordered=False` — /pick's "Skip Seating". The roster keeps its own order and
+      NOTHING is posted: seat_number is non-nullable, so the rows still need 1..N,
+      but those numbers are filler and must not be presented as an order.
+      Shuffling here would be worse than useless -- with no explicit seat_order on
+      the record form, Effort.seat falls back to row order, so a shuffle would
+      silently invent a turn order nobody agreed to.
+
+    `announce` posts the order to the thread; only meaningful with ordered=True.
+    /pick passes False: the panel it opens next already lists the seats NUMBERED
+    (seating_set is set), so a separate seating message would just say the same
+    thing twice.
 
     Returns the seats, or [] when the roster is too small.
     """
@@ -2743,7 +2757,7 @@ def _pick_seat_roster(thread, channel_id, ordered=True):
     # second, contradictory order. Outside the lock: a broker hiccup shouldn't
     # hold the row, and the seats are already committed either way. Nothing is
     # posted for an unordered assignment: there is no order to announce.
-    if created and ordered:
+    if created and ordered and announce:
         post_channel_message_task.delay(
             thread.thread_id, _draft_seating_message(seats))
     return seats
@@ -2798,7 +2812,20 @@ def _pick_seat_lines(thread, seats):
 
     The emoji is a prefix, not a replacement -- faction_emoji_for returns "" for
     fan factions and for official ones whose emoji was never uploaded, and a name
-    alone still reads correctly."""
+    alone still reads correctly.
+
+    A seat's second choice trails the faction name: the Vagabond character it
+    took, or Knaves of the Deepwood's captains. Both are what distinguishes two
+    seats that otherwise read identically -- all 12 vagabond variants share one
+    Faction row -- so the board is ambiguous without them.
+
+    Captains are shown only once the seat has COMMITTED. `captains` holds the
+    OFFERED set while the follow-up prompt is open (the commit overwrites it with
+    the chosen 3), so rendering it then would show the table an offer as though it
+    were a decision. The FACTION is the marker: it too is written only by the
+    commit, which is why the prompt parks captains on a seat whose faction is
+    still None. (Not discarded_captain -- that is set only when exactly one
+    captain was left over, which a full-pool offer never produces.)"""
     ordered = thread.seating_set
     lines = ["**Faction Picks**" if ordered else "**Faction Assignments**", ""]
     for seat in sorted(seats, key=lambda s: s.seat_number):
@@ -2807,10 +2834,31 @@ def _pick_seat_lines(thread, seats):
         if seat.faction_id:
             emoji = faction_emoji_for(seat.faction.slug)
             mark = f"{emoji} {seat.faction.title}" if emoji else seat.faction.title
+            mark += _pick_seat_detail(seat)
             lines.append(f"{prefix}{who} - {mark}")
         else:
             lines.append(f"{prefix}{who}")
     return lines
+
+
+def _pick_seat_detail(seat):
+    """The trailing " <emoji> <name>" for a seat's vagabond, or " <emoji>…" for its
+    captains. "" when the seat has neither.
+
+    Emoji-with-name for the single vagabond (it names one character, so the name
+    carries), emoji-only for the three captains -- three names would crowd the
+    line, and the emoji are the quick read. Each falls back to the title when its
+    emoji isn't uploaded, so nothing silently disappears."""
+    if seat.vagabond_id:
+        emoji = vagabond_emoji_for(seat.vagabond)
+        return f" ({emoji} {seat.vagabond.title})" if emoji else f" ({seat.vagabond.title})"
+    # Callers only reach here for a seat that HAS a faction, and the faction is
+    # written by the same commit that narrows the parked offer to the chosen
+    # captains -- so these are a decision, never an open offer.
+    marks = [vagabond_emoji_for(c) or c.title for c in seat.captains.all()]
+    if marks:
+        return f" ({' '.join(marks)})"
+    return ""
 
 
 def _pick_panel_data(thread, seats, mode, owner, pool=None):
@@ -2967,11 +3015,20 @@ def _pick_setup_reminder(thread):
 
 
 def _pick_mode_prompt_data(thread, owner):
-    """The Players-pick / Assign-all prompt, for a thread that already has a
-    seating. Owner-locked: it decides how the whole table proceeds."""
+    """The Players-pick / Assign-all prompt. Owner-locked: it decides how the whole
+    table proceeds.
+
+    The ONLY prompt /pick opens, and its three buttons are the same either way --
+    a seating changes what order the seats are filled in, never what the invoker
+    is asked. Players-pick needs no seating: each pick is authorized against that
+    seat's own profile, so it simply follows the roster order instead.
+
+    Only the wording tracks that: "in seat order" would overstate a roster order
+    nobody agreed to, so it becomes "in turn" when there is no seating."""
+    turn = "in seat order" if thread.seating_set else "in turn"
     return {
-        "content": ("**Faction Picks** — assign every faction yourself, or let "
-                    "each player pick in seat order?"
+        "content": (f"**Faction Picks** — assign every faction yourself, or let "
+                    f"each player pick {turn}?"
                     + _pick_setup_reminder(thread)),
         "components": [action_row(
             button("Players pick",
@@ -2987,15 +3044,27 @@ def _pick_mode_prompt_data(thread, owner):
 
 
 def _pick_unseated_prompt_data(owner):
-    """Offered when the table has no seating but the guild has /seating: seat them
-    now (and pick in turn order), or skip seating and just assign factions."""
+    """The first /pick prompt when the thread has no seating: assign a random
+    order, or keep the players in their current order.
+
+    Neither button posts a seating message -- the panel that follows lists the
+    seats itself (numbered after Seat Players, bulleted after Skip Seating), so
+    announcing it separately would say the same thing twice.
+
+    Takes only `owner`, no thread: nothing is written until a button is pressed,
+    so an abandoned prompt leaves no seats behind.
+
+    Deliberately carries NO _pick_setup_reminder -- both buttons lead straight to
+    the mode prompt, which already has it, and repeating it one click apart would
+    just be noise."""
     return {
         "content": ("**Faction Picks** — these players haven't been seated yet. "
-                    "Seat them now, or assign factions without a seating order?"),
+                    "Assign a random seating order, or use the current player "
+                    "order?"),
         "components": [action_row(
-            button("Seat players", encode_custom_id("pick_seat", owner),
+            button("Seat Players", encode_custom_id("pick_seat", owner),
                    style=STYLE_SUCCESS),
-            button("Assign without seating",
+            button("Skip Seating",
                    encode_custom_id("pick_noseat", owner), style=STYLE_PRIMARY),
             button("Cancel", encode_custom_id("pick_cancel", owner, PICK_OPEN),
                    style=STYLE_SECONDARY),
@@ -3058,13 +3127,15 @@ def _pick_pool_error(thread, count):
 def _handle_pick_command(data):
     """/pick: choose factions for this game.
 
-    With a seating, picks run in seat order (last seat first). Without one, the
-    guild's /seating setting decides: offer to seat first where it's enabled, or
-    go straight to assigning factions where it isn't -- never send the user to a
-    command their guild doesn't have.
+    With a seating already established, picks run in seat order (last seat first)
+    and this goes straight to the mode prompt -- re-seating there would overwrite
+    an order players were just shown.
 
-    Works in an LFG game thread and in a tournament group thread (seating the
-    group's roster on first use). The pool is the thread's draft when it has one,
+    Without one, it first asks whether to assign a random order (Seat Players) or
+    keep the roster order (Skip Seating); either way the mode prompt follows.
+
+    Works in an LFG game thread and in a tournament group thread (whose roster
+    comes from the player group). The pool is the thread's draft when it has one,
     otherwise every official Stable faction."""
     channel_id = data.get("_channel_id")
     channel_name = data.get("_channel_name")
@@ -3082,7 +3153,9 @@ def _handle_pick_command(data):
             "or press **Stop** on it to start over.")
 
     owner = data.get("_author_id")
-    seats = list(thread.seats.select_related("profile", "faction"))
+    seats = list(thread.seats.select_related(
+        "profile", "faction", "vagabond",
+    ).prefetch_related("captains"))
 
     # Roster size is checked against the ROSTER, not the seat rows: an unseated
     # thread has no seats yet and must still reach the prompt below rather than
@@ -3102,34 +3175,13 @@ def _handle_pick_command(data):
     if error:
         return error
 
-    # A tournament group thread with no seating yet seats itself rather than
-    # offering the prompt below: that prompt sends people to /seating, and in a
-    # group thread /pick can do the same job in one step. When /seating HAS run,
-    # seating_set is set and the branch above reuses its order -- /pick must never
-    # shuffle a second, contradictory order over one players were just shown.
-    if thread.series_id:
-        seats = _pick_seat_roster(thread, channel_id, ordered=True)
-        if len(seats) < 2:
-            return _ephemeral("This game doesn't have enough players yet.")
-        return JsonResponse({
-            "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _pick_mode_prompt_data(thread, owner),
-        })
-
-    # No seating. Only offer to seat where the guild actually has /seating --
-    # otherwise go straight to assigning, which is all it can do.
-    if _guild_allows(data.get("_guild_id"), "seating"):
-        return JsonResponse({
-            "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _pick_unseated_prompt_data(owner),
-        })
-
-    seats = _pick_seat_roster(thread, channel_id, ordered=False)
-    if len(seats) < 2:
-        return _ephemeral("This game doesn't have enough players yet.")
+    # No seating yet: ask whether to assign a random order first. NO seats are
+    # written here -- both buttons create them, so an abandoned prompt leaves
+    # nothing behind. The roster and pool guards above have already run, so a
+    # table too small to pick never reaches this.
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": _pick_panel_data(thread, seats, PICK_MODE_ASSIGN, owner),
+        "data": _pick_unseated_prompt_data(owner),
     })
 
 
@@ -3143,7 +3195,9 @@ def _handle_pick_mode(payload):
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
         return _ephemeral("This isn't a game thread anymore.")
-    seats = list(thread.seats.select_related("profile", "faction"))
+    seats = list(thread.seats.select_related(
+        "profile", "faction", "vagabond",
+    ).prefetch_related("captains"))
     if len(seats) < 2:
         return _ephemeral("Not enough players in this thread to pick factions.")
 
@@ -3153,16 +3207,23 @@ def _handle_pick_mode(payload):
     })
 
 
+# ── legacy /pick seat-or-skip buttons ───────────────────────────────────────
 def _handle_pick_seat(payload):
-    """"Seat players": create a real seating (shuffled, posted publicly), then ask
-    how the table wants to pick. Owner-locked by the dispatcher."""
+    """"Seat Players": shuffle the roster into a real seating, then ask how the
+    table wants to pick. Owner-locked by the dispatcher.
+
+    announce=False: the mode prompt and the panel behind it already list the seats
+    NUMBERED (seating_set is now set), so posting a separate seating message would
+    repeat what the invoker is about to see. /seating remains the way to announce
+    an order to the thread."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])
     owner = args[-1] if args else ""
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
         return _ephemeral("This isn't a game thread anymore.")
 
-    seats = _pick_seat_roster(thread, payload.get("channel_id"), ordered=True)
+    seats = _pick_seat_roster(thread, payload.get("channel_id"),
+                              ordered=True, announce=False)
     if len(seats) < 2:
         return _ephemeral("This game doesn't have enough players yet.")
     return JsonResponse({
@@ -3172,8 +3233,9 @@ def _handle_pick_seat(payload):
 
 
 def _handle_pick_noseat(payload):
-    """"Assign without seating": give the thread filler seats (unshuffled, nothing
-    posted, seating_set left False) and go straight to assign mode."""
+    """"Skip Seating": give the thread filler seats (unshuffled, nothing posted,
+    seating_set left False), then ask how to fill them. The panel lists these
+    bulleted rather than numbered -- there is no order to present."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])
     owner = args[-1] if args else ""
     thread = _pick_thread_for_channel(payload.get("channel_id"))
@@ -3185,7 +3247,7 @@ def _handle_pick_noseat(payload):
         return _ephemeral("This game doesn't have enough players yet.")
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _pick_panel_data(thread, seats, PICK_MODE_ASSIGN, owner),
+        "data": _pick_mode_prompt_data(thread, owner),
     })
 
 
@@ -3204,7 +3266,9 @@ def _pick_turn(payload, mode, owner):
         return _ephemeral("This isn't a game thread anymore.")
 
     pool = _pick_pool(thread)
-    seats = list(thread.seats.select_related("profile", "faction"))
+    seats = list(thread.seats.select_related(
+        "profile", "faction", "vagabond",
+    ).prefetch_related("captains"))
     seat = _pick_next_seat(seats)
     if seat is None:
         return JsonResponse({
@@ -3279,7 +3343,12 @@ def _handle_pick_faction(payload):
     # turn on a data gap they can't fix.
     if faction.slug == "knaves-of-the-deepwood":
         draft = getattr(thread, "draft", None)
-        rolled = _random_draft_captains(draft.platform if draft else None)
+        # With a draft, the rule is pick 3 of 4 ROLLED, so the offer is a random 4
+        # and taking anything else would break the draft. WITHOUT a draft there is
+        # nothing to be faithful to -- the table is choosing freely, so offer every
+        # captain rather than an arbitrary 4 of them.
+        rolled = (_random_draft_captains(draft.platform) if draft
+                  else _captain_pool())
         if len(rolled) < PICK_CAPTAIN_CHOICES:
             logger.warning(
                 "Knaves picked in thread %s but only %d captain-capable "
@@ -3339,7 +3408,9 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
     # leaving it would record captains for a faction that has none.
     locked.captains.set(captains or [])
 
-    seats = list(thread.seats.select_related("profile", "faction"))
+    seats = list(thread.seats.select_related(
+        "profile", "faction", "vagabond",
+    ).prefetch_related("captains"))
 
     # Record the pick in the roll log so the record form's narrowing still offers
     # it -- lfg_option_querysets narrows factions to what the log contains, so a
@@ -3443,6 +3514,27 @@ def _handle_pick_captains(payload):
                         discarded_captain=discarded)
 
 
+def _pick_actor_name(payload):
+    """A display name for whoever clicked, for public /pick copy. "" when nothing
+    identifies them.
+
+    Prefers the linked Profile's name so it matches how the seat lines and the
+    rest of the site render people, then falls back to the Discord username the
+    interaction already carries -- a clicker with no account still has one, and
+    naming them is better than an anonymous "Picking stopped".
+
+    Returns a PLAIN name, never a <@id> mention: callers post this in public
+    content without allowed_mentions, where a mention would ping."""
+    discord_id = _interaction_user_id(payload)
+    if discord_id:
+        profile = Profile.objects.filter(discord_id=str(discord_id)).first()
+        if profile:
+            name = profile.display_name or profile.discord or profile.slug
+            if name:
+                return name
+    return _clicker_username(payload) or ""
+
+
 def _handle_pick_cancel(payload):
     """Stop picking and clear the session, so /pick can run again from scratch.
 
@@ -3450,17 +3542,31 @@ def _handle_pick_cancel(payload):
     faction exists. Clearing is idempotent, so this doesn't branch on which
     button sent it -- but the message reports what was actually cleared, so
     cancelling a prompt doesn't claim to have discarded picks that never
-    happened."""
+    happened.
+
+    Names whoever pressed it: any player can stop a session, so the table needs
+    to see who did."""
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
         return _ephemeral("This isn't a game thread anymore.")
 
     cleared = _pick_clear(thread)
-    content = ("Picking stopped and factions cleared. Run `/pick` to start over."
-               if cleared else "Picking stopped.")
+
+    # Who stopped it: this replaces the panel for the WHOLE table, and any player
+    # can press Stop (the buttons carry PICK_OPEN, not an owner snowflake), so
+    # without a name the table can't tell who discarded their picks.
+    #
+    # A plain display name, NOT a <@id> mention: this response sets no
+    # allowed_mentions, so a mention would ping the person who just clicked --
+    # the same reason /schedule's announcement names the scheduler in plain text.
+    who = _pick_actor_name(payload)
+    stopped = f"Picking stopped by {who}" if who else "Picking stopped"
+    content = (f"{stopped} and factions cleared. Run `/pick` to start over."
+               if cleared else f"{stopped}.")
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": {"content": content, "components": []},
+        "data": {"content": content, "components": [],
+                 "allowed_mentions": {"parse": []}},
     })
 
 

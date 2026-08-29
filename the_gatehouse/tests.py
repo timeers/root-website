@@ -4017,21 +4017,27 @@ class PickCommandTests(TestCase):
                                             enabled_commands=commands)
         return guild.guild_id
 
-    def test_unseated_offers_to_seat_when_seating_is_enabled(self):
+    def test_unseated_offers_the_seating_choice_first(self):
+        """With no seating, /pick asks whether to assign a random order before
+        asking who chooses the factions."""
         self._roster(3, seated=False)
         data = self._command(guild_id=self._guild(["pick", "seating"]))
-        self.assertIn("haven't been seated", data["content"])
         labels = [c["label"] for c in data["components"][0]["components"]]
-        self.assertEqual(labels, ["Seat players", "Assign without seating", "Cancel"])
+        self.assertEqual(labels, ["Seat Players", "Skip Seating", "Cancel"])
+        self.assertIn("haven't been seated", data["content"])
 
-    def test_the_unseated_prompt_writes_no_seats(self):
-        """Nothing is committed until the invoker chooses."""
+    def test_the_seating_choice_writes_nothing(self):
+        """Both buttons create the seats, so an abandoned prompt must leave none
+        behind."""
         self._roster(3, seated=False)
-        self._command(guild_id=self._guild(["pick", "seating"]))
-        self.assertEqual(self.thread.seats.count(), 0)
-        self.assertFalse(LFGThread.objects.get(pk=self.thread.pk).seating_set)
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            self._command(guild_id=self._guild(["pick"]))
+        post.assert_not_called()
+        thread = LFGThread.objects.get(pk=self.thread.pk)
+        self.assertEqual(thread.seats.count(), 0)
+        self.assertFalse(thread.seating_set)
 
-    def test_the_seat_or_assign_buttons_are_owner_locked(self):
+    def test_the_seating_choice_buttons_are_owner_locked(self):
         self._roster(3, seated=False)
         data = self._command(guild_id=self._guild(["pick", "seating"]))
         for comp in data["components"][0]["components"]:
@@ -4039,21 +4045,45 @@ class PickCommandTests(TestCase):
             if action in ("pick_seat", "pick_noseat"):
                 self.assertEqual(args[-1], self.OWNER)
 
-    # ── unseated: the guild does NOT have /seating ──
-    def test_unseated_goes_straight_to_assigning_without_seating(self):
+    def test_a_seated_thread_skips_the_seating_choice(self):
+        """It would offer to overwrite an order players were just shown."""
+        self._roster(3)
+        data = self._command(guild_id=self._guild(["pick", "seating"]))
+        labels = [c["label"] for c in data["components"][0]["components"]]
+        self.assertEqual(labels, ["Players pick", "Assign all", "Cancel"])
+
+    def test_the_guild_seating_setting_does_not_change_the_prompt(self):
+        """The prompt used to branch on whether the guild had /seating enabled.
+        /pick does the seating itself now, so that setting is irrelevant here."""
         self._roster(3, seated=False)
-        with mock.patch.object(di.post_channel_message_task, "delay") as post:
-            data = self._command(guild_id=self._guild(["pick"]))
-        self.assertIn("Faction Assignments", data["content"])
-        self.assertNotIn("haven't been seated", data["content"])
-        post.assert_not_called()          # no seating is announced
-        thread = LFGThread.objects.get(pk=self.thread.pk)
-        self.assertFalse(thread.seating_set)
-        self.assertEqual(thread.seats.count(), 3)
+        guild_id = self._guild(["pick", "seating"])
+        with_seating = self._command(guild_id=guild_id)
+
+        DiscordGuild.objects.filter(guild_id=guild_id).update(
+            enabled_commands=["pick"])
+        without = self._command(guild_id=guild_id)
+        self.assertEqual(with_seating["content"], without["content"])
+
+    def _skip_seating(self):
+        """Click Skip Seating, returning the mode prompt that follows."""
+        return json.loads(di._handle_pick_noseat({
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.OWNER}},
+            "data": {"custom_id": di.encode_custom_id("pick_noseat", self.OWNER)},
+            "message": {"id": "msg", "components": []},
+        }).content)["data"]
+
+    def test_the_unseated_mode_prompt_does_not_claim_a_seat_order(self):
+        self._roster(3, seated=False)
+        self._command(guild_id=self._guild(["pick"]))
+        data = self._skip_seating()
+        self.assertIn("each player pick in turn?", data["content"])
+        self.assertNotIn("seat order", data["content"])
 
     def test_the_unordered_panel_shows_no_seat_numbers(self):
         self._roster(3, seated=False)
-        data = self._command(guild_id=self._guild(["pick"]))
+        self._command(guild_id=self._guild(["pick"]))
+        data = self._skip_seating()
         self.assertNotIn("1. ", data["content"])
         self.assertNotIn("seat 3", data["content"])
 
@@ -4062,10 +4092,27 @@ class PickCommandTests(TestCase):
         the rows, so inventing a random order would be worse than none."""
         players = self._roster(4, seated=False)
         self._command(guild_id=self._guild(["pick"]))
+        self._skip_seating()
         seats = self.thread.seats.order_by("seat_number")
         self.assertEqual([s.profile_id for s in seats],
                          [p.pk for p in self.thread.players.all()])
         self.assertEqual(len(players), 4)
+
+    def test_seat_players_numbers_the_panel_without_posting(self):
+        """The whole point of the new flow: the order is visible in the panel, so
+        no separate seating message is announced."""
+        self._roster(3, seated=False)
+        self._command(guild_id=self._guild(["pick"]))
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            data = json.loads(di._handle_pick_seat({
+                "channel_id": self.THREAD_ID,
+                "member": {"user": {"id": self.OWNER}},
+                "data": {"custom_id": di.encode_custom_id("pick_seat", self.OWNER)},
+                "message": {"id": "msg", "components": []},
+            }).content)["data"]
+        post.assert_not_called()
+        self.assertTrue(LFGThread.objects.get(pk=self.thread.pk).seating_set)
+        self.assertIn("in seat order", data["content"])
 
     def test_unrelated_channel_is_refused(self):
         data = self._command("777777777777777777")
@@ -4406,6 +4453,17 @@ class PickVagabondFollowUpTests(TestCase):
              ("Vagabond", self.ranger.slug)])
         self.assertEqual(capture.call_args.kwargs["source"], "pick")
 
+    def test_the_chosen_vagabond_shows_on_the_board(self):
+        """All 12 vagabond variants share one Faction row, so a seat reading only
+        "Vagabond" can't be told apart from another one."""
+        self._select(self.vagabond_faction.slug, self.players[1].discord_id)
+        with mock.patch.object(di, "vagabond_emoji_for",
+                               lambda v: f"<:M{v.title.replace(' ', '')}:9>"):
+            data = self._choose_vagabond(self.ranger.slug,
+                                         self.players[1].discord_id)
+        self.assertIn(f"<:M{self.ranger.title.replace(' ', '')}:9> "
+                      f"{self.ranger.title}", data["content"])
+
     def test_a_drafted_vagabond_skips_the_prompt(self):
         """With a draft the vagabond is already decided, so the seat is written
         in one click -- the prompt exists only for the no-draft path."""
@@ -4434,11 +4492,13 @@ class PickVagabondFollowUpTests(TestCase):
 
 
 class PickCaptainsFollowUpTests(TestCase):
-    """Knaves of the Deepwood takes 3 of 4 ROLLED captains.
+    """Knaves of the Deepwood takes 3 captains.
 
-    The captain-capable pool is larger than 4 (6 official today), so the offer
-    must be a roll of 4, not the whole pool -- otherwise a seat could take
-    captains that were never offered.
+    WITH a draft the offer is a roll of 4 and the choice is 3 of those, so a seat
+    can't take captains the draft never offered. WITHOUT a draft there is nothing
+    to be faithful to, so the whole captain-capable pool is offered.
+
+    This fixture has NO draft, so its offer is the full pool (6 here).
     """
 
     THREAD_ID = "1303834523347456066"
@@ -4496,6 +4556,16 @@ class PickCaptainsFollowUpTests(TestCase):
         }
         return json.loads(di._handle_pick_faction(payload).content)["data"]
 
+    def _with_draft(self):
+        """Give the thread a draft, so the captain offer is a ROLL OF 4 rather
+        than the whole pool. Required by anything about the discarded 4th captain
+        or about rejecting captains outside the offer -- both only exist because a
+        draft constrains the offer."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        LFGDraftPick.objects.create(draft=draft, faction=self.knaves, order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.other, order=2)
+        return draft
+
     def _choose_captains(self, slugs, clicker):
         payload = {
             "channel_id": self.THREAD_ID,
@@ -4517,16 +4587,50 @@ class PickCaptainsFollowUpTests(TestCase):
         select = data["components"][0]["components"][0]
         return select, [o["value"] for o in select["options"]]
 
-    def test_picking_knaves_offers_four_of_the_six_and_requires_three(self):
+    def test_with_no_draft_every_captain_is_offered(self):
+        """No draft means no rolled 4 to be faithful to, so the table chooses
+        from the whole captain-capable pool rather than an arbitrary subset."""
         data = self._select(self.knaves.slug, self.players[1].discord_id)
         select, values = self._offered(data)
-        self.assertEqual(len(values), di.DRAFT_CAPTAIN_COUNT)
+        self.assertEqual(len(values), len(self.captains))
+        self.assertEqual(set(values), {c.slug for c in self.captains})
         self.assertEqual(select["min_values"], 3)
         self.assertEqual(select["max_values"], 3)
         # Never the non-captain vagabond.
         self.assertNotIn(self.non_captain.slug, values)
         # The faction is deferred, exactly as the vagabond path defers it.
         self.assertIsNone(self._last_seat().faction_id)
+
+    def test_with_a_draft_the_offer_is_still_a_roll_of_four(self):
+        """The 3-of-4 rule is what makes a drafted Knaves seat honest; widening
+        the no-draft offer must not have widened this one too."""
+        self._with_draft()
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, values = self._offered(data)
+        self.assertEqual(len(values), di.DRAFT_CAPTAIN_COUNT)
+
+    def test_chosen_captains_show_on_the_board(self):
+        """The seat line must say WHICH captains, not just Knaves -- that's the
+        whole difference between two Knaves seats."""
+        data = self._select(self.knaves.slug, self.players[1].discord_id)
+        _select_c, offered = self._offered(data)
+        with mock.patch.object(di, "vagabond_emoji_for",
+                               lambda v: f"<:M{v.title.replace(' ', '')}:9>"):
+            result = self._choose_captains(offered[:3], self.players[1].discord_id)
+        chosen = Vagabond.objects.filter(slug__in=offered[:3])
+        for captain in chosen:
+            self.assertIn(f"<:M{captain.title.replace(' ', '')}:9>",
+                          result["content"])
+
+    def test_the_offer_is_not_shown_as_a_decision(self):
+        """`captains` holds the OFFERED set while the prompt is open, so the board
+        must not render it until the seat commits."""
+        with mock.patch.object(di, "vagabond_emoji_for",
+                               lambda v: f"<:M{v.title.replace(' ', '')}:9>"):
+            data = self._select(self.knaves.slug, self.players[1].discord_id)
+        # The parked offer is on the seat, but no captain emoji is on the board.
+        self.assertEqual(self._last_seat().captains.count(), len(self.captains))
+        self.assertNotIn("<:M", data["content"])
 
     def test_the_offer_is_parked_on_the_seat(self):
         """The bot is stateless and a custom_id can't carry a list, so the rolled
@@ -4558,7 +4662,11 @@ class PickCaptainsFollowUpTests(TestCase):
 
     def test_captains_outside_the_offer_are_rejected(self):
         """A select echoes whatever values it is sent, so the handler must
-        validate against the parked roll rather than trusting the payload."""
+        validate against the parked roll rather than trusting the payload.
+
+        Needs a draft: without one every captain is offered, so there is no
+        "outside the offer" to forge."""
+        self._with_draft()
         data = self._select(self.knaves.slug, self.players[1].discord_id)
         _select_c, offered = self._offered(data)
         not_offered = [c.slug for c in self.captains if c.slug not in offered]
@@ -4571,7 +4679,8 @@ class PickCaptainsFollowUpTests(TestCase):
 
     def test_the_discarded_captain_is_stored(self):
         """The 4th offered captain. Only knowable at commit -- the chosen 3
-        overwrite the parked 4."""
+        overwrite the parked 4. Needs a draft: only a rolled offer has a 4th."""
+        self._with_draft()
         data = self._select(self.knaves.slug, self.players[1].discord_id)
         _select_c, offered = self._offered(data)
         chosen, expected = offered[:3], offered[3]
@@ -4583,7 +4692,9 @@ class PickCaptainsFollowUpTests(TestCase):
 
     def test_abandoning_knaves_clears_a_stale_discarded_captain(self):
         """A field left out of update_fields is silently not written, which would
-        strand the discarded captain on whatever faction won instead."""
+        strand the discarded captain on whatever faction won instead. Needs a
+        draft: with no draft nothing is discarded, so there is no stale value."""
+        self._with_draft()
         data = self._select(self.knaves.slug, self.players[1].discord_id)
         _select_c, offered = self._offered(data)
         self._choose_captains(offered[:3], self.players[1].discord_id)
@@ -4613,8 +4724,9 @@ class PickCaptainsFollowUpTests(TestCase):
     def test_abandoning_the_prompt_leaves_no_captains_on_another_faction(self):
         """The parked roll must not survive onto a different faction."""
         self._select(self.knaves.slug, self.players[1].discord_id)
-        self.assertEqual(self._last_seat().captains.count(),
-                         di.DRAFT_CAPTAIN_COUNT)
+        # Whatever was offered is parked; the size depends on whether a draft
+        # constrained it, and what matters here is that it's cleared below.
+        self.assertEqual(self._last_seat().captains.count(), len(self.captains))
 
         self._select(self.other.slug, self.players[1].discord_id)
         seat = self._last_seat()
@@ -4758,9 +4870,51 @@ class PickSessionLifecycleTests(TestCase):
         self.assertEqual(remaining, ["draft", "random"])
 
     def test_stop_on_a_prompt_with_no_picks_says_so(self):
-        """Cancel on the mode prompt must not claim to have cleared picks."""
+        """Cancel on the mode prompt must not claim to have cleared picks. This
+        clicker has no Profile and no username in the payload, so there is nobody
+        to name -- the message must still read correctly without a name."""
         data = self._stop()
         self.assertEqual(data["content"], "Picking stopped.")
+
+    def test_stop_names_the_player_who_pressed_it(self):
+        """Any player can Stop (the buttons carry PICK_OPEN, not an owner
+        snowflake), so the table needs to see who discarded their picks."""
+        self._select(self.factions[0].slug, self.players[1].discord_id)
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.players[1].discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }
+        data = json.loads(di._handle_pick_cancel(payload).content)["data"]
+        self.assertIn(f"Picking stopped by {self.players[1].name}", data["content"])
+        self.assertIn("factions cleared", data["content"])
+
+    def test_stop_names_an_unlinked_clicker_by_username(self):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": "999888777666555444",
+                                "username": "stranger"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }
+        data = json.loads(di._handle_pick_cancel(payload).content)["data"]
+        self.assertIn("Picking stopped by stranger", data["content"])
+
+    def test_stop_does_not_ping_whoever_pressed_it(self):
+        """A plain name, not a <@id> mention -- this is public content."""
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.players[1].discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }
+        data = json.loads(di._handle_pick_cancel(payload).content)["data"]
+        self.assertNotIn("<@", data["content"])
+        self.assertEqual(data["allowed_mentions"], {"parse": []})
 
     def test_an_open_follow_up_does_not_lock_the_thread(self):
         """A seat mid-prompt has no faction, so an abandoned prompt must leave
@@ -4826,18 +4980,23 @@ class PickSeatChoiceTests(TestCase):
         thread = self._reload()
         self.assertTrue(thread.seating_set)
         self.assertEqual(thread.seats.count(), 3)
-        post.assert_called_once()
-        self.assertIn("first pick", post.call_args.args[1])
+        # NOT announced: the panel this leads to lists the seats numbered, so a
+        # separate seating message would say the same thing twice. /seating is
+        # still the way to post an order to the thread.
+        post.assert_not_called()
         # Then asks how the table wants to pick.
         self.assertIn("assign every faction yourself", data["content"])
 
-    def test_assign_without_seating_leaves_seating_unset(self):
+    def test_skip_seating_leaves_seating_unset_and_asks_for_the_mode(self):
+        """Skipping the seating creates filler seats but decides only the ORDER --
+        the invoker still chooses whether players pick for themselves."""
         data, post = self._click("pick_noseat")
         thread = self._reload()
         self.assertFalse(thread.seating_set)
         self.assertEqual(thread.seats.count(), 3)
         post.assert_not_called()          # nothing announced
-        self.assertIn("Faction Assignments", data["content"])
+        labels = [c["label"] for c in data["components"][0]["components"]]
+        self.assertEqual(labels, ["Players pick", "Assign all", "Cancel"])
 
     def test_after_assigning_seating_offers_a_normal_prompt_not_an_overwrite(self):
         """The regression seating_set exists to prevent: these seats are filler,
@@ -4869,17 +5028,21 @@ class PickSeatChoiceTests(TestCase):
         self.assertNotIn("Re-seated", post.call_args.args[1])
         self.assertTrue(self._reload().seating_set)
 
-    def test_pick_still_offers_to_seat_after_an_unordered_assign(self):
-        """Otherwise assigning factions would be a one-way trap: the table could
-        never reach a real seating."""
+    def test_a_real_seating_is_still_reachable_after_an_unordered_pick(self):
+        """Filler seats must not be a one-way trap: /seating still establishes a
+        real order afterwards. (/pick itself no longer offers to seat -- it asks
+        only who chooses -- so /seating is the route.)"""
         self._click("pick_noseat")
-        guild = DiscordGuild.objects.create(guild_id="9300000000000002", name="G",
-                                            enabled_commands=["pick", "seating"])
-        data = json.loads(di._handle_pick_command({
-            "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
-            "_guild_id": guild.guild_id,
-        }).content)["data"]
-        self.assertIn("haven't been seated", data["content"])
+        self.assertFalse(self._reload().seating_set)
+
+        with mock.patch.object(di.post_channel_message_task, "delay"):
+            di._handle_draft_seat({
+                "channel_id": self.THREAD_ID,
+                "member": {"user": {"id": self.OWNER}},
+                "data": {"custom_id": di.encode_custom_id("draft_seat", self.OWNER)},
+                "message": {"id": "msg", "components": []},
+            })
+        self.assertTrue(self._reload().seating_set)
 
 
 class GuildAllowsTests(TestCase):
@@ -4911,7 +5074,8 @@ class GuildAllowsTests(TestCase):
 
 class PickCommandGroupThreadTests(TestCase):
     """/pick in a tournament group thread: it creates the LFGThread and seats the
-    group itself, and must NOT write rolls."""
+    group in ROSTER order without establishing a seating, and must NOT write
+    rolls. Run /seating first to get a real order -- /pick then reuses it."""
 
     GUILD_ID = "1093259831470735512"
     THREAD_ID = "1303834523347456040"
@@ -4963,33 +5127,94 @@ class PickCommandGroupThreadTests(TestCase):
             })
         return json.loads(response.content)["data"]
 
+    def _choose(self, action):
+        """Click Seat Players / Skip Seating. A button payload carries NO channel
+        name, so the group roster has to resolve by thread id alone -- which works
+        because /pick linked the thread to the group before showing the prompt."""
+        handler = (di._handle_pick_seat if action == "pick_seat"
+                   else di._handle_pick_noseat)
+        with mock.patch.object(di.post_channel_message_task, "delay") as post:
+            response = handler({
+                "channel_id": self.THREAD_ID,
+                "member": {"user": {"id": self.OWNER}},
+                "data": {"custom_id": di.encode_custom_id(action, self.OWNER)},
+                "message": {"id": "msg", "components": []},
+            })
+        return json.loads(response.content)["data"], post
+
     def test_it_creates_the_series_thread_and_seats_the_group(self):
         self._members(3)
         self.assertFalse(LFGThread.objects.filter(thread_id=self.THREAD_ID).exists())
         self._command()
         thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
         self.assertEqual(thread.series, self.series)
+        # The prompt itself writes no seats -- the button does.
+        self.assertEqual(thread.seats.count(), 0)
+        self._choose("pick_noseat")
         self.assertEqual(thread.seats.count(), 3)
 
     def test_it_works_without_a_draft(self):
+        """With no /seating run, /pick offers the seating choice first."""
         self._members(3)
         data = self._command()
-        self.assertIn("Faction Picks", data["content"])
-        self.assertIn("components", data)
+        labels = [c["label"] for c in data["components"][0]["components"]]
+        self.assertEqual(labels, ["Seat Players", "Skip Seating", "Cancel"])
 
-    def test_it_posts_the_seating_it_created(self):
+    def test_seat_players_seats_the_group_without_posting(self):
+        """Guards the id-only roster lookup: the button payload has no channel
+        name, so this only works because /pick linked the thread first."""
+        players = self._members(3)
+        self._command()
+        data, post = self._choose("pick_seat")
+        post.assert_not_called()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        self.assertTrue(thread.seating_set)
+        self.assertEqual({s.profile_id for s in thread.seats.all()},
+                         {p.pk for p in players})
+        self.assertIn("in seat order", data["content"])
+
+    def test_skip_seating_seats_the_group_in_roster_order(self):
+        players = self._members(3)
+        self._command()
+        _data, post = self._choose("pick_noseat")
+        post.assert_not_called()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        self.assertFalse(thread.seating_set)
+        self.assertEqual([s.profile_id for s in thread.seats.order_by("seat_number")],
+                         [p.pk for p in players])
+
+    def test_it_does_not_invent_a_seating(self):
+        """/pick must not assert an order nobody asked for: the prompt itself
+        shuffles nothing, sets no seating_set and posts nothing."""
         self._members(3)
         with mock.patch.object(di.post_channel_message_task, "delay") as post:
             di._handle_pick_command({
                 "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
             })
-        self.assertIn("first pick", post.call_args.args[1])
+        post.assert_not_called()
+        thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
+        self.assertFalse(thread.seating_set)
+        self.assertEqual(thread.seats.count(), 0)
+
+    def test_seating_first_still_drives_the_order(self):
+        """The seats /seating established are reused, numbered, and not replaced."""
+        self._members(3)
+        di._handle_seating_command({
+            "_channel_id": self.THREAD_ID, "_author_id": self.OWNER,
+            "_guild_id": self.GUILD_ID,
+        })
+        before = list(self.thread_seat_ids())
+        data = self._command()
+        self.assertIn("Faction Picks", data["content"])
+        self.assertEqual(before, list(self.thread_seat_ids()))
 
     def test_a_second_run_does_not_reseat(self):
         self._members(3)
         self._command()
+        self._choose("pick_noseat")
         before = list(self.thread_seat_ids())
         self._command()
+        self._choose("pick_noseat")
         self.assertEqual(before, list(self.thread_seat_ids()))
 
     def thread_seat_ids(self):
@@ -5001,6 +5226,7 @@ class PickCommandGroupThreadTests(TestCase):
         here would shrink that tournament match's allowed factions."""
         players = self._members(3)
         self._command()
+        self._choose("pick_noseat")
         thread = LFGThread.objects.get(thread_id=self.THREAD_ID)
         last = thread.seats.order_by("-seat_number").first()
         payload = {
