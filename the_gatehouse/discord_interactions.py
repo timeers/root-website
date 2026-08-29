@@ -38,8 +38,7 @@ from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
 from the_warroom.models import (
-    Tournament, Match, MatchSeat, CompetitionStatus, filtered_winrate,
-    EloParticipant,
+    Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant,
 )
 from the_gatehouse.models import (
     Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
@@ -77,6 +76,7 @@ from .services.discord_components import (
 )
 from .services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
+    group_roster, group_series_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -758,43 +758,12 @@ def _match_roster(match):
     PlayerGroup.tournament_players is an M2M to TournamentPlayer, not to Profile, so
     this hops through .profile (skipping any row missing one).
 
-    PREFERS tournament_players over MatchSeat: seats are the per-series seating
-    chart (what can_schedule and build_upcoming_embed read) and are often
-    unpopulated before a game is played. tournament_players is the group the round
-    was actually formed with — the people whose availability we're asking about.
-
-    But it FALLS BACK to MatchSeat when tournament_players yields nobody, because
-    an empty roster silently disables consensus (_consensus_required returns False)
-    — and can_schedule authorizes off MatchSeat. Without this fallback a group
-    populated by seats alone is one whose players may set a time but are never
-    asked to confirm one, which is the exact opposite of what the setting promises."""
+    Delegates to group_roster, which /seating and /pick also use, so the consensus
+    flow and the seating commands can't disagree about who is in a group. It
+    prefers tournament_players and falls back to the series' MatchSeats — see
+    that function for why."""
     group = match.series.player_group if match.series_id else None
-    if not group:
-        return []
-    seen, roster = set(), []
-    for tp in group.tournament_players.select_related("profile"):
-        profile = tp.profile
-        if profile and profile.pk and profile.pk not in seen:
-            seen.add(profile.pk)
-            roster.append(profile)
-    if roster or not match.series_id:
-        return roster
-
-    # seat_number is NULLABLE, and databases disagree on where NULLs sort (Postgres
-    # first, SQLite last), so order in Python rather than with order_by -- otherwise
-    # the roster's order would differ between dev and production.
-    seats = MatchSeat.objects.filter(
-        series_id=match.series_id).select_related(
-        "stage_participant__tournament_player__profile")
-    for seat in sorted(seats, key=lambda s: (s.seat_number is None,
-                                             s.seat_number, s.pk)):
-        participant = seat.stage_participant
-        tp = participant.tournament_player if participant else None
-        profile = tp.profile if tp else None
-        if profile and profile.pk and profile.pk not in seen:
-            seen.add(profile.pk)
-            roster.append(profile)
-    return roster
+    return group_roster(group, match.series_id)
 
 
 # Outcomes of resolving a button-clicker against a proposal's roster.
@@ -2552,9 +2521,10 @@ def _handle_seating_command(data):
     group = player_group_for_channel(
         channel_id, data.get("_channel_name"), data.get("_guild_id"))
     if group:
-        profiles = [tp.profile for tp in
-                    group.tournament_players.select_related("profile")
-                    if tp.profile_id]
+        # group_roster, not group.tournament_players: a group whose M2M was never
+        # populated still has MatchSeats, and those are what the site shows. Reading
+        # the M2M alone told people with 3 players on screen they had none.
+        profiles = group_roster(group, group_series_id(group))
         if len(profiles) < 2:
             return _ephemeral(
                 "This group doesn't have enough players to seat yet.")
@@ -2668,9 +2638,9 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
         group = player_group_for_channel(channel_id, channel_name, guild_id)
         if not group:
             return []
-        profiles = [tp.profile for tp in
-                    group.tournament_players.select_related("profile")
-                    if tp.profile_id]
+        # Same roster resolver /seating and the consensus flow use: reading
+        # tournament_players alone misses groups populated by seats only.
+        profiles = group_roster(group, thread.series_id)
     else:
         profiles = list(thread.players.all())
     return profiles if len(profiles) >= 2 else []
@@ -4552,7 +4522,7 @@ def discord_interactions(request):
             owner_id = last if (last.isdigit() and len(last) >= 17) else None
             clicker_id = _interaction_user_id(payload)
             if owner_id and clicker_id and clicker_id != owner_id:
-                return _ephemeral("Only the commander can use this button.")
+                return _ephemeral("Only the host can use this button.")
             try:
                 return handler(payload)  # component handlers take the full payload
             except Exception:

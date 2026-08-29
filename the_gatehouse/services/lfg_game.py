@@ -165,6 +165,67 @@ def player_group_for_channel(channel_id, channel_name=None, guild_id=None):
     return group
 
 
+def group_roster(group, series_id=None):
+    """Every Profile in a player group, deduped, in a stable order.
+
+    THE roster resolver for a tournament group -- used by the consensus flow
+    (_match_roster), /seating and /pick, so all three agree about who is in a
+    group. They used to each read `tournament_players` directly and therefore all
+    shared the same blind spot.
+
+    PREFERS PlayerGroup.tournament_players (an M2M to TournamentPlayer, not to
+    Profile, hence the hop through .profile): that's the group the round was
+    actually formed with.
+
+    FALLS BACK to MatchSeat when it yields nobody. Seats are the per-series
+    seating chart -- what can_schedule, build_upcoming_embed and the series page
+    all read -- so a group whose M2M was never populated still shows players on
+    the site. Without this fallback the bot disagrees with the site about whether
+    a group has any players at all.
+
+    `series_id` enables the fallback; with none (a group not tied to a series)
+    only the M2M is consulted."""
+    from the_warroom.models import MatchSeat
+
+    if not group:
+        return []
+
+    seen, roster = set(), []
+    for tp in group.tournament_players.select_related("profile"):
+        profile = tp.profile
+        if profile and profile.pk and profile.pk not in seen:
+            seen.add(profile.pk)
+            roster.append(profile)
+    if roster or not series_id:
+        return roster
+
+    # seat_number is NULLABLE, and databases disagree on where NULLs sort
+    # (Postgres first, SQLite last), so order in Python rather than with order_by
+    # -- otherwise the roster's order would differ between dev and production.
+    seats = MatchSeat.objects.filter(series_id=series_id).select_related(
+        "stage_participant__tournament_player__profile")
+    for seat in sorted(seats, key=lambda s: (s.seat_number is None,
+                                             s.seat_number, s.pk)):
+        participant = seat.stage_participant
+        tp = participant.tournament_player if participant else None
+        profile = tp.profile if tp else None
+        if profile and profile.pk and profile.pk not in seen:
+            seen.add(profile.pk)
+            roster.append(profile)
+    return roster
+
+
+def group_series_id(group):
+    """The group's MatchSeries id, or None.
+
+    getattr, NOT `group.series`: MatchSeries.player_group is a OneToOne, so the
+    reverse accessor RAISES RelatedObjectDoesNotExist when the group has no
+    series (a third of them don't) -- the same trap _pick_thread_for_channel
+    documents."""
+    series = getattr(group, "series", None) if group else None
+    return series.pk if series else None
+
+
 def rolled_components(thread):
     """`kind` -> [slug, ...] for everything surfaced in this thread.
 
