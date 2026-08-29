@@ -8080,6 +8080,10 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             group.save(update_fields=update_fields)
 
         # --- Match scheduled_time updates ---
+        # Imported here, not at module scope: the_gatehouse.discord_interactions
+        # imports the_warroom.models, so a top-level import would be circular.
+        from the_gatehouse.discord_interactions import _cancel_open_proposals
+
         for match_data in data.get('matches', []):
             match_id = match_data.get('id')
             if match_id is None:
@@ -8096,6 +8100,10 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             else:
                 match.scheduled_time = None
             match.save(update_fields=['scheduled_time'])
+            # Retire any proposal still awaiting confirmation in Discord: its
+            # Confirm button would otherwise overwrite the time just set here.
+            # Same sweep every /schedule write path does -- this one was missing.
+            _cancel_open_proposals(match, 'website')
 
         # --- Delete matches ---
         for match_id in data.get('delete_match_ids', []):

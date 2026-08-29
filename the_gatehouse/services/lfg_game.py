@@ -16,6 +16,26 @@ models lazily inside functions — the_warroom.models imports from
 the_gatehouse.models at module level, so a top-level import here is circular.
 """
 
+import re
+
+from django.db.models import Q
+
+
+# Collapse whitespace and strip leading decoration when comparing a thread title to
+# a group name; thread names routinely pick up an emoji or separator prefix.
+#
+# Defined HERE rather than in discord_interactions so the two thread resolvers --
+# _match_for_thread (which finds a Match) and player_group_for_channel (which finds
+# a PlayerGroup) -- normalize titles identically. They used to be able to disagree
+# about which threads matched, which is exactly the /schedule-finds-it-but-/seating-
+# doesn't asymmetry this module now closes.
+_TITLE_NOISE_RE = re.compile(r"^[^\w(]+|[^\w)]+$")
+_WS_RE = re.compile(r"\s+")
+
+
+def normalize_title(text):
+    return _WS_RE.sub(" ", _TITLE_NOISE_RE.sub("", (text or "").strip())).strip().lower()
+
 
 # Every `kind` an LFGThread roll can carry, mapped to the asset bucket it
 # validates against. Source of truth: _LFG_LOOKUP_KIND in discord_interactions
@@ -37,7 +57,68 @@ ROLL_KIND_TO_BUCKET = {
 }
 
 
-def player_group_for_channel(channel_id):
+def link_group_thread(group, guild_id, channel_id):
+    """Persist this thread as the group's `discord_thread`, once. Returns True when
+    this call is the one that wrote it.
+
+    Called ONLY after a group was resolved by TITLE: an id-resolved group is
+    already linked by definition, and an ambiguous title resolves to None, so
+    there's no group in hand to mislink.
+
+    A conditional UPDATE, not save(): it's a compare-and-swap on
+    discord_thread="" (so a link another request just wrote is never clobbered)
+    and it skips PlayerGroup.save()'s derivation entirely.
+
+    The URL shape mirrors LFGThread.thread_url() and must satisfy
+    the_warroom.views._DISCORD_THREAD_URL_RE, which parses this field back out to
+    decide where to announce a recorded game -- hence no trailing slash and no
+    message-id suffix.
+
+    NOTE this makes the group unreachable by the title fallback from now on (both
+    resolvers only consider groups with discord_thread=""). That's the point --
+    later lookups are by id -- but it does mean a WRONG title match cements
+    itself, which is why both resolvers refuse to guess when a title is
+    ambiguous."""
+    from the_warroom.models import PlayerGroup
+
+    if not group or not guild_id or not channel_id:
+        return False
+    if not str(guild_id).isdigit() or not str(channel_id).isdigit():
+        return False
+
+    url = f"https://discord.com/channels/{guild_id}/{channel_id}"
+    linked = PlayerGroup.objects.filter(
+        pk=group.pk, discord_thread="").update(discord_thread=url)
+    if linked:
+        # Keep the in-memory instance consistent with the row: callers go on to
+        # read group.discord_thread (and _match_thread_id parses it) in the same
+        # request that triggered the link.
+        group.discord_thread = url
+    return bool(linked)
+
+
+def _groups_matching_title(guild_id, title):
+    """Unlinked PlayerGroups in this guild whose name normalizes to `title`.
+
+    Mirrors _match_for_thread's title fallback, and deliberately keeps its two
+    guards: only groups with NO thread saved (a linked group is authoritative by
+    id, so a same-named thread can't hijack it), and scoped to the guild through
+    both round->stage->tournament and round->tournament, since a tournament may
+    skip stages.
+
+    Compared in Python so normalization applies to BOTH sides -- __iexact would
+    only fold case, missing the emoji prefixes real thread titles carry."""
+    from the_warroom.models import PlayerGroup
+
+    candidates = PlayerGroup.objects.filter(
+        Q(round__stage__tournament__guild__guild_id=str(guild_id))
+        | Q(round__tournament__guild__guild_id=str(guild_id)),
+        discord_thread="",
+    )
+    return [g for g in candidates if normalize_title(g.name) == title]
+
+
+def player_group_for_channel(channel_id, channel_name=None, guild_id=None):
     """The PlayerGroup whose Discord thread is this channel, or None.
 
     `discord_thread` is a URL ending in the thread id
@@ -46,6 +127,15 @@ def player_group_for_channel(channel_id):
     part of the guild id. Deliberately not routed through _schedulable_matches:
     a group is worth resolving whatever state its matches are in.
 
+    With `channel_name` AND `guild_id`, falls back to matching the thread's TITLE
+    against the group's name, the same fallback _match_for_thread has always had.
+    Without them the lookup is id-only, exactly as before -- so callers that have
+    no title (a button click carries no channel name) are unaffected.
+
+    On a title match the thread is LINKED to the group, so every later lookup --
+    from any command, and from the Celery tasks -- resolves by id instead of
+    re-running the guess.
+
     Lives here rather than in discord_interactions so the Celery task can reach
     it too. PlayerGroup is imported lazily for this module's usual circular
     import reason."""
@@ -53,8 +143,26 @@ def player_group_for_channel(channel_id):
 
     if not channel_id or not str(channel_id).isdigit():
         return None
-    return PlayerGroup.objects.filter(
+    group = PlayerGroup.objects.filter(
         discord_thread__contains=f"/{channel_id}").first()
+    if group:
+        return group
+
+    if not guild_id or not str(guild_id).isdigit():
+        return None
+    title = normalize_title(channel_name)
+    if not title:
+        return None
+
+    matches = _groups_matching_title(guild_id, title)
+    # Group names are unique per ROUND, not per tournament, so a title can
+    # legitimately match several groups. Don't guess -- and don't link.
+    if len(matches) != 1:
+        return None
+
+    group = matches[0]
+    link_group_thread(group, guild_id, channel_id)
+    return group
 
 
 def rolled_components(thread):
