@@ -38,7 +38,8 @@ from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
 from the_warroom.models import (
-    Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant,
+    Tournament, Match, MatchSeat, CompetitionStatus, filtered_winrate,
+    EloParticipant,
 )
 from the_gatehouse.models import (
     Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
@@ -74,7 +75,9 @@ from .services.discord_components import (
     encode_custom_id, decode_custom_id, selected_values,
     RESPONSE_UPDATE_MESSAGE, STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
 )
-from .services.lfg_game import player_group_for_channel
+from .services.lfg_game import (
+    player_group_for_channel, link_group_thread, normalize_title,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -631,14 +634,10 @@ def _schedule_profile(discord_id, username=None, author=None):
     return ensure_profile_from_discord(
         discord_id, username, (author or {}).get("name"))
 
-# Collapse whitespace and strip leading decoration when comparing a thread title to
-# a group name; thread names routinely pick up an emoji or separator prefix.
-_TITLE_NOISE_RE = re.compile(r"^[^\w(]+|[^\w)]+$")
-_WS_RE = re.compile(r"\s+")
-
-
-def _normalize_title(text):
-    return _WS_RE.sub(" ", _TITLE_NOISE_RE.sub("", (text or "").strip())).strip().lower()
+# Title normalization now lives in services.lfg_game so this module and
+# player_group_for_channel can't drift apart about which threads match a group.
+# Kept as a module-level alias: the name is used throughout this file.
+_normalize_title = normalize_title
 
 
 def _schedulable_matches(guild_id):
@@ -713,6 +712,12 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
                 "the group on the series edit page."
             )
         matches = sorted(candidates, key=lambda m: (m.match_number is None, m.match_number))
+        # Exactly one group matched by title: remember the thread, so every later
+        # lookup (this command, /seating, /pick, the Celery tasks) resolves by id
+        # instead of re-running the guess. Only reached on the title branch, and
+        # only for groups with no thread saved.
+        if matches:
+            link_group_thread(matches[0].series.player_group, guild_id, channel_id)
 
     if not matches:
         return None, (
@@ -753,16 +758,39 @@ def _match_roster(match):
     PlayerGroup.tournament_players is an M2M to TournamentPlayer, not to Profile, so
     this hops through .profile (skipping any row missing one).
 
-    Deliberately NOT MatchSeat: seats are the per-series seating chart (what
-    can_schedule and build_upcoming_embed read) and are often unpopulated before a
-    game is played. tournament_players is the group the round was actually formed
-    with — the people whose availability we're asking about."""
+    PREFERS tournament_players over MatchSeat: seats are the per-series seating
+    chart (what can_schedule and build_upcoming_embed read) and are often
+    unpopulated before a game is played. tournament_players is the group the round
+    was actually formed with — the people whose availability we're asking about.
+
+    But it FALLS BACK to MatchSeat when tournament_players yields nobody, because
+    an empty roster silently disables consensus (_consensus_required returns False)
+    — and can_schedule authorizes off MatchSeat. Without this fallback a group
+    populated by seats alone is one whose players may set a time but are never
+    asked to confirm one, which is the exact opposite of what the setting promises."""
     group = match.series.player_group if match.series_id else None
     if not group:
         return []
     seen, roster = set(), []
     for tp in group.tournament_players.select_related("profile"):
         profile = tp.profile
+        if profile and profile.pk and profile.pk not in seen:
+            seen.add(profile.pk)
+            roster.append(profile)
+    if roster or not match.series_id:
+        return roster
+
+    # seat_number is NULLABLE, and databases disagree on where NULLs sort (Postgres
+    # first, SQLite last), so order in Python rather than with order_by -- otherwise
+    # the roster's order would differ between dev and production.
+    seats = MatchSeat.objects.filter(
+        series_id=match.series_id).select_related(
+        "stage_participant__tournament_player__profile")
+    for seat in sorted(seats, key=lambda s: (s.seat_number is None,
+                                             s.seat_number, s.pk)):
+        participant = seat.stage_participant
+        tp = participant.tournament_player if participant else None
+        profile = tp.profile if tp else None
         if profile and profile.pk and profile.pk not in seen:
             seen.add(profile.pk)
             roster.append(profile)
@@ -2521,7 +2549,8 @@ def _handle_seating_command(data):
             "data": _lfg_seating_prompt_data(thread, data.get("_author_id")),
         })
 
-    group = player_group_for_channel(channel_id)
+    group = player_group_for_channel(
+        channel_id, data.get("_channel_name"), data.get("_guild_id"))
     if group:
         profiles = [tp.profile for tp in
                     group.tournament_players.select_related("profile")
@@ -2608,7 +2637,7 @@ PICK_MODE_PLAYERS = "p"
 PICK_OPEN = "g"
 
 
-def _pick_thread_for_channel(channel_id):
+def _pick_thread_for_channel(channel_id, channel_name=None, guild_id=None):
     """The LFGThread for this channel, creating one for a tournament group thread
     on first use. None when the channel is neither.
 
@@ -2616,11 +2645,14 @@ def _pick_thread_for_channel(channel_id):
     thread that has never captured a roll. `getattr`, NOT `group.series`:
     MatchSeries.player_group is a OneToOne, so the reverse accessor RAISES
     RelatedObjectDoesNotExist when the group has no series (a third of them
-    don't)."""
+    don't).
+
+    channel_name/guild_id are optional and only enable the group TITLE fallback;
+    the button paths have no channel name and stay id-only, as before."""
     thread = _lfg_thread_for_channel(channel_id)
     if thread:
         return thread
-    group = player_group_for_channel(channel_id)
+    group = player_group_for_channel(channel_id, channel_name, guild_id)
     series = getattr(group, "series", None) if group else None
     if not series:
         return None
@@ -2629,11 +2661,11 @@ def _pick_thread_for_channel(channel_id):
     return thread
 
 
-def _pick_roster(thread, channel_id):
+def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
     """The players /pick should seat: a tournament group's roster in a group
     thread, else the LFG thread's own players. [] when too small to seat."""
     if thread.series_id:
-        group = player_group_for_channel(channel_id)
+        group = player_group_for_channel(channel_id, channel_name, guild_id)
         if not group:
             return []
         profiles = [tp.profile for tp in
@@ -2987,7 +3019,9 @@ def _handle_pick_command(data):
     group's roster on first use). The pool is the thread's draft when it has one,
     otherwise every official Stable faction."""
     channel_id = data.get("_channel_id")
-    thread = _pick_thread_for_channel(channel_id)
+    channel_name = data.get("_channel_name")
+    guild_id = data.get("_guild_id")
+    thread = _pick_thread_for_channel(channel_id, channel_name, guild_id)
     if not thread:
         return _ephemeral(
             "Use this in a game thread or a player group's thread to pick factions.")
@@ -3005,7 +3039,7 @@ def _handle_pick_command(data):
     # Roster size is checked against the ROSTER, not the seat rows: an unseated
     # thread has no seats yet and must still reach the prompt below rather than
     # being told it has too few players.
-    roster = _pick_roster(thread, channel_id)
+    roster = _pick_roster(thread, channel_id, channel_name, guild_id)
     if not roster and not seats:
         return _ephemeral("This game doesn't have enough players yet.")
 

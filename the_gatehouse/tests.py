@@ -642,6 +642,19 @@ class MatchForThreadTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(match)
         self.assertTrue(err)
 
+    def test_title_fallback_links_the_thread_to_the_group(self):
+        """A title match is remembered, so later lookups (and /seating, /pick and
+        the capture tasks, which have no title fallback of their own) resolve by
+        id instead of re-running the guess."""
+        self.group.discord_thread = ""
+        self.group.save(update_fields=["discord_thread"])
+        di._match_for_thread(
+            "999888777", self.guild.guild_id, channel_name="Group A")
+        self.group.refresh_from_db()
+        self.assertEqual(
+            self.group.discord_thread,
+            f"https://discord.com/channels/{self.guild.guild_id}/999888777")
+
     def test_ambiguous_title_refuses_to_guess(self):
         """Group names are unique per round, so a title can match several groups."""
         self.group.discord_thread = ""
@@ -656,6 +669,12 @@ class MatchForThreadTests(ScheduleFixtureMixin, TestCase):
             "999888777", self.guild.guild_id, channel_name="Group A")
         self.assertIsNone(match)
         self.assertIn("several", err.lower())
+        # Nothing was linked: an ambiguous title must not pick a winner by
+        # writing one, which would cement the wrong group permanently.
+        self.group.refresh_from_db()
+        group2.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")
+        self.assertEqual(group2.discord_thread, "")
 
     def test_title_fallback_skips_groups_that_are_already_linked(self):
         """A group linked to a DIFFERENT thread must not be reachable by name.
@@ -979,9 +998,17 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
 
 
 class ScheduleConfirmTests(ScheduleFixtureMixin, TestCase):
+    """The DIRECT-write Confirm path: no roster to poll, so the invoker's click
+    sets the time. The consensus path (a roster exists) is covered by
+    ScheduleProposalFlowTests -- see ScheduleConsensusGateTests for the gate."""
 
     def setUp(self):
         self.build()
+        # Drop the seat so _match_roster finds nobody: with either group members
+        # or seats present, Confirm now opens a proposal instead of writing.
+        # That also un-seats self.player, so these payloads are owned by the GROUP
+        # MODERATOR, whose can_schedule permission doesn't depend on a seat.
+        MatchSeat.objects.filter(series=self.series).delete()
         self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
         self.ts = int(self.when.timestamp())
 
@@ -993,7 +1020,7 @@ class ScheduleConfirmTests(ScheduleFixtureMixin, TestCase):
                 "schedule_confirm",
                 self.match.id if match_id is self.UNSET else match_id,
                 self.ts if ts is self.UNSET else ts,
-                self.player.discord_id if owner is self.UNSET else owner,
+                self.group_mod.discord_id if owner is self.UNSET else owner,
             )},
             "guild_id": self.guild.guild_id if guild is self.UNSET else guild,
             "token": None,
@@ -3209,6 +3236,16 @@ class SeatingCommandPlayerGroupTests(TestCase):
         })
         return json.loads(response.content)["data"]
 
+    def _command_in_unlinked_thread(self, title, channel_id=None, guild=None):
+        """/seating in a thread the group is NOT linked to, matched by title."""
+        response = di._handle_seating_command({
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_channel_name": title,
+            "_guild_id": self.GUILD_ID if guild is None else guild,
+            "_author_id": "111",
+        })
+        return json.loads(response.content)["data"]
+
     def test_group_thread_is_resolved_from_its_url(self):
         self.assertEqual(player_group_for_channel(self.THREAD_ID), self.group)
 
@@ -3265,6 +3302,103 @@ class SeatingCommandPlayerGroupTests(TestCase):
         data = self._command("777777777777777777")
         self.assertIn("game thread", data["content"])
         self.assertIn("player group", data["content"])
+
+    # ── title fallback + auto-linking ────────────────────────────────────────
+    # /schedule could always find a group by thread title; /seating could not,
+    # so a thread /schedule scheduled would answer "use this in a game thread".
+
+    def _unlink(self):
+        self.group.discord_thread = ""
+        self.group.save(update_fields=["discord_thread"])
+
+    def test_seats_an_unlinked_group_matched_by_title(self):
+        self._members(3)
+        self._unlink()
+        data = self._command_in_unlinked_thread("Group A")
+        self.assertIn("**Seating**", data["content"])
+
+    def test_title_match_ignores_emoji_and_whitespace_decoration(self):
+        self._members(3)
+        self._unlink()
+        data = self._command_in_unlinked_thread("🏆  group   a  ")
+        self.assertIn("**Seating**", data["content"])
+
+    def test_title_match_links_the_thread_to_the_group(self):
+        """The point of linking: every later lookup resolves by id instead of
+        re-running the title guess."""
+        self._members(3)
+        self._unlink()
+        self._command_in_unlinked_thread("Group A")
+        self.group.refresh_from_db()
+        self.assertEqual(
+            self.group.discord_thread,
+            f"https://discord.com/channels/{self.GUILD_ID}/{self.THREAD_ID}")
+        # Resolvable by id alone now — no title needed.
+        self.assertEqual(player_group_for_channel(self.THREAD_ID), self.group)
+
+    def test_linked_url_matches_the_shape_the_site_parses(self):
+        """the_warroom.views._DISCORD_THREAD_URL_RE parses this field back out to
+        decide where to announce a recorded game, so the value we write must
+        satisfy it: no trailing slash, no message-id suffix."""
+        from the_warroom.views import _DISCORD_THREAD_URL_RE
+        self._members(3)
+        self._unlink()
+        self._command_in_unlinked_thread("Group A")
+        self.group.refresh_from_db()
+        found = _DISCORD_THREAD_URL_RE.match(self.group.discord_thread)
+        self.assertIsNotNone(found)
+        self.assertEqual(found.group(1), self.GUILD_ID)
+        self.assertEqual(found.group(2), self.THREAD_ID)
+
+    def test_ambiguous_title_seats_nobody_and_links_nothing(self):
+        """Group names are unique per ROUND, not per tournament, so a title can
+        legitimately match several groups. Never guess -- and never link."""
+        self._members(3)
+        self._unlink()
+        other_round = Round.objects.create(stage=self.stage, round_number=2)
+        twin = PlayerGroup.objects.create(
+            round=other_round, group_number=1, name="Group A")
+        data = self._command_in_unlinked_thread("Group A")
+        self.assertIn("game thread", data["content"])
+        self.group.refresh_from_db()
+        twin.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")
+        self.assertEqual(twin.discord_thread, "")
+
+    def test_a_linked_group_is_never_hijacked_by_a_same_named_thread(self):
+        """self.group keeps its own thread URL, so a DIFFERENT thread with the
+        same title must not resolve to it."""
+        self._members(3)
+        data = self._command_in_unlinked_thread(
+            "Group A", channel_id="888777666555444333")
+        self.assertIn("game thread", data["content"])
+
+    def test_title_match_is_scoped_to_the_guild(self):
+        self._members(3)
+        self._unlink()
+        other = DiscordGuild.objects.create(guild_id="999000111", name="Other")
+        data = self._command_in_unlinked_thread("Group A", guild=other.guild_id)
+        self.assertIn("game thread", data["content"])
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")
+
+    def test_without_a_title_the_lookup_stays_id_only(self):
+        """Button payloads carry no channel name; they must behave as before."""
+        self._members(3)
+        self._unlink()
+        self.assertIsNone(player_group_for_channel(self.THREAD_ID))
+
+    def test_linking_does_not_clobber_a_concurrent_link(self):
+        """The write is a compare-and-swap on discord_thread=""."""
+        from the_gatehouse.services.lfg_game import link_group_thread
+        self._unlink()
+        existing = "https://discord.com/channels/1/2"
+        PlayerGroup.objects.filter(pk=self.group.pk).update(
+            discord_thread=existing)
+        self.assertFalse(
+            link_group_thread(self.group, self.GUILD_ID, self.THREAD_ID))
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, existing)
 
     def test_a_series_linked_thread_still_seats_the_group(self):
         """A group thread gets its own LFGThread once it captures a roll, but it
@@ -5058,8 +5192,22 @@ class ScheduleConsensusGateTests(ScheduleFixtureMixin, TestCase):
         required, _roster = di._consensus_required(self.match)
         self.assertFalse(required)
 
-    def test_empty_roster_disables_consensus(self):
+    def test_seated_roster_enables_consensus_without_group_m2m(self):
+        """A group populated by SEATS alone still gets consensus.
+
+        _match_roster falls back to MatchSeat when tournament_players is empty,
+        because can_schedule authorizes off seats: without the fallback these
+        players could set a time but would never be asked to confirm one."""
         self.build()  # populate_group=False -> no tournament_players
+        required, roster = di._consensus_required(self.match)
+        self.assertTrue(required)
+        self.assertEqual([p.pk for p in roster], [self.player.pk])
+
+    def test_no_roster_at_all_disables_consensus(self):
+        """With neither group members NOR seats there is nobody to poll, so the
+        original single-confirm path stands."""
+        self.build()
+        MatchSeat.objects.filter(series=self.series).delete()
         required, roster = di._consensus_required(self.match)
         self.assertFalse(required)
         self.assertEqual(roster, [])
@@ -5073,9 +5221,24 @@ class ScheduleConsensusGateTests(ScheduleFixtureMixin, TestCase):
 
 class ScheduleRosterTests(ScheduleFixtureMixin, TestCase):
 
-    def test_roster_reads_tournament_players_not_seats(self):
-        """self.player is SEATED but not in the group's M2M unless populated."""
+    def test_roster_falls_back_to_seats(self):
+        """self.player is SEATED but not in the group's M2M. tournament_players is
+        still PREFERRED (see test_roster_lists_group_members); seats are only
+        consulted when it yields nobody."""
         self.build()
+        self.assertEqual([p.pk for p in di._match_roster(self.match)],
+                         [self.player.pk])
+
+    def test_roster_prefers_group_members_over_seats(self):
+        """With the M2M populated the seat fallback must not run: self.teammate is
+        a group member with NO seat, and must still appear."""
+        self.build(populate_group=True)
+        ids = {p.pk for p in di._match_roster(self.match)}
+        self.assertIn(self.teammate.pk, ids)
+
+    def test_roster_empty_without_members_or_seats(self):
+        self.build()
+        MatchSeat.objects.filter(series=self.series).delete()
         self.assertEqual(di._match_roster(self.match), [])
 
     def test_roster_lists_group_members(self):
@@ -5545,10 +5708,12 @@ class ScheduleProposalSupersedeTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(self.match.scheduled_time)
 
 
-class ScheduleProposalInvalidationTests(ScheduleFixtureMixin, TestCase):
+class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixin,
+                                        TestCase):
     """Every path that writes or clears scheduled_time must retire open proposals."""
 
     def setUp(self):
+        super().setUp()
         self.build(populate_group=True)
         self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
         self.ts = int(self.when.timestamp())
@@ -5585,6 +5750,51 @@ class ScheduleProposalInvalidationTests(ScheduleFixtureMixin, TestCase):
                 })
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+    def test_website_edit_cancels_open_proposals(self):
+        """The bracket editor writes scheduled_time directly. Without this sweep a
+        stale Confirm button in Discord could later overwrite the time set here."""
+        from django.urls import reverse
+        from django.contrib.auth.models import User
+
+        # create_user auto-creates the Profile, so use that one rather than
+        # reassigning self.designer (Profile.user is unique).
+        user = User.objects.create_user(username="organizer", password="pw")
+        self.tournament.designer = user.profile
+        self.tournament.save(update_fields=["designer"])
+        self.client.force_login(user)
+
+        url = reverse("round-edit-series", kwargs={
+            "tournament_slug": self.tournament.slug,
+            "stage_slug": self.stage.slug,
+            "round_slug": self.round.slug,
+        })
+        new_time = (timezone.now() + timedelta(days=20)).replace(microsecond=0)
+        with mock.patch.object(
+                di.strip_schedule_proposal_messages_task, "delay") as strip:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    url,
+                    data=json.dumps({
+                        "series_id": self.series.id,
+                        "matches": [{"id": self.match.id,
+                                     "scheduled_time": new_time.isoformat()}],
+                    }),
+                    content_type="application/json",
+                )
+        self.assertEqual(response.status_code, 200)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+        # The message edit says WHERE the time came from, not just that the
+        # proposal died -- "cancelled" is a vaguer catch-all.
+        _ids, reason = strip.call_args.args
+        self.assertEqual(reason, "website")
+
+    def test_website_reason_has_its_own_message(self):
+        from the_gatehouse.tasks import _PROPOSAL_RETIRED_TEXT
+        text = _PROPOSAL_RETIRED_TEXT["website"]
+        self.assertIn("website", text.lower())
+        self.assertNotEqual(text, _PROPOSAL_RETIRED_TEXT["cancelled"])
 
     def test_confirm_on_cancelled_proposal_refused(self):
         self.proposal.status = ScheduleProposal.Status.CANCELLED

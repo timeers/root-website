@@ -777,6 +777,12 @@ def record_lfg_components_task(channel_id, items, source="", draft=None):
             # so the reverse accessor RAISES RelatedObjectDoesNotExist when the
             # group has no series (a third of them don't). This task has no
             # autoretry, so a raise here would silently lose the capture.
+            # Id-only on purpose: this task's payload carries no channel NAME, so
+            # the title fallback isn't available here, and adding a parameter would
+            # change the wire format for tasks already queued by older code. It
+            # doesn't need one -- /schedule, /seating and /pick all link the thread
+            # to the group on first use, so by the time captures matter the group
+            # resolves by id anyway.
             from .services.lfg_game import player_group_for_channel
             group = player_group_for_channel(channel_id)
             series = getattr(group, "series", None) if group else None
@@ -887,6 +893,12 @@ _PROPOSAL_RETIRED_TEXT = {
     "cancelled": "This proposed time is no longer active — the match's scheduled "
                  "time was changed or cleared.",
     "expired": "This proposed time has passed without everyone confirming.",
+    # Distinct from "cancelled" so players mid-confirmation learn WHERE the time
+    # came from instead of just that theirs stopped mattering. Names no one: the
+    # bracket editor is open to organizers and admins, not only moderators, and
+    # _schedule_rejected_data sets the precedent of not singling anyone out.
+    "website": "The scheduled time for this match was set on the website. This "
+               "proposal is no longer active.",
 }
 
 
