@@ -657,6 +657,37 @@ class MatchForThreadTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(match)
         self.assertIn("several", err.lower())
 
+    def test_title_fallback_skips_groups_that_are_already_linked(self):
+        """A group linked to a DIFFERENT thread must not be reachable by name.
+
+        Otherwise a second thread sharing the group's title — a duplicate, a
+        rename, a scratch thread — schedules that group's match, and the
+        several-groups guard doesn't fire because only one group matches."""
+        self.group.discord_thread = (
+            f"https://discord.com/channels/{self.guild.guild_id}/111222333")
+        self.group.save(update_fields=["discord_thread"])
+        match, err = di._match_for_thread(
+            "999888777", self.guild.guild_id, channel_name="Group A")
+        self.assertIsNone(match)
+        self.assertIn("couldn't find", err.lower())
+
+    def test_title_fallback_ignores_a_linked_namesake(self):
+        """With one linked and one unlinked group of the same name, the unlinked
+        one is matched instead of tripping the ambiguity guard."""
+        self.group.discord_thread = (
+            f"https://discord.com/channels/{self.guild.guild_id}/111222333")
+        self.group.save(update_fields=["discord_thread"])
+        round2 = Round.objects.create(stage=self.stage, round_number=2)
+        unlinked = PlayerGroup.objects.create(
+            round=round2, group_number=1, name="Group A", discord_thread="")
+        series2 = MatchSeries.objects.create(round=round2, player_group=unlinked)
+        expected = Match.objects.create(round=round2, series=series2)
+
+        match, err = di._match_for_thread(
+            "999888777", self.guild.guild_id, channel_name="Group A")
+        self.assertIsNone(err)
+        self.assertEqual(match, expected)
+
     def test_blank_group_name_not_matched_by_blank_title(self):
         self.group.discord_thread = ""
         self.group.name = ""

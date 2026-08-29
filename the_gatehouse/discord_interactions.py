@@ -663,8 +663,9 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
 
     Primary key is the thread id inside PlayerGroup.discord_thread. Falls back to
     the thread's title matched against the player group's name (the name shown
-    everywhere in the UI; MatchSeries.name is usually blank), for groups whose
-    thread URL was never filled in.
+    everywhere in the UI; MatchSeries.name is usually blank), but ONLY for groups
+    with no thread URL saved — a linked group is reachable by its id alone, so a
+    same-named thread can't hijack it.
 
     `prefer` picks which match of a multi-game series to act on: "unscheduled"
     (setting a time) takes the first game still missing one; "scheduled"
@@ -689,10 +690,17 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
                 "moderator can link it on the series edit page (set the group's "
                 "Discord thread), then try again."
             )
-        # Title fallback. Compare in Python so normalization matches on both sides
-        # (emoji prefixes, collapsed whitespace) rather than relying on __iexact.
+        # Title fallback, for groups whose thread URL was never filled in. A group
+        # that IS linked is excluded even when its URL points somewhere else: the id
+        # lookup above is the authority for those, and matching them on title alone
+        # would let a second thread with the same name schedule the wrong group's
+        # match. discord_thread is blank=True without null=True, so "unlinked" means
+        # empty string — an isnull check would match nothing.
+        # Compare titles in Python so normalization applies to both sides (emoji
+        # prefixes, collapsed whitespace) rather than relying on __iexact.
         candidates = [
-            m for m in base.filter(series__player_group__isnull=False)
+            m for m in base.filter(series__player_group__isnull=False,
+                                   series__player_group__discord_thread="")
             if _normalize_title(m.series.player_group.name) == title
         ]
         groups = {m.series.player_group_id for m in candidates}
