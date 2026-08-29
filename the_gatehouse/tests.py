@@ -24,7 +24,9 @@ from the_warroom.models import (
     StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
 )
 from the_gatehouse.tasks import update_post_status
-from the_keep.models import StatusChoices, Faction, Map, Deck, Vagabond
+from the_keep.models import (
+    StatusChoices, Faction, Map, Deck, Vagabond, Language, Law, LawGroup,
+)
 from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
     LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, DEFAULT_PROFILE_IMAGE,
@@ -6276,3 +6278,91 @@ class EditGuildClaimTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         bot.assert_not_called()
         manage.assert_not_called()
+
+
+# ── /law embed author breadcrumb ─────────────────────────────────────────────
+
+class LawAuthorBreadcrumbTests(TestCase):
+    """The /law embed's author line: the group's prime-law title, plus the law's
+    IMMEDIATE parent when that parent isn't the prime law itself.
+
+    Only the direct parent is ever named, at any depth — the line used to carry
+    the two nearest ancestors with a " ... " marking elided levels, which made it
+    long and gave it a different shape at different depths."""
+
+    def setUp(self):
+        self.language = Language.objects.create(name="English", code="en")
+        self.group = LawGroup.objects.create(
+            title="Vagabond", abbreviation="V", public=True, slug="vagabond")
+        # prime -> Relationships -> Improving Relationships -> Aid -> Deep
+        self.prime = self._law("Vagabond", parent=None, prime_law=True)
+        self.l1 = self._law("Relationships", parent=self.prime)
+        self.l2 = self._law("Improving Relationships", parent=self.l1)
+        self.l3 = self._law("Aid", parent=self.l2)
+        self.l4 = self._law("Deep", parent=self.l3)
+
+    def _law(self, title, parent, prime_law=False, group=None):
+        return Law.objects.create(
+            group=group or self.group, language=self.language, title=title,
+            parent=parent, prime_law=prime_law)
+
+    # Distinct from None, so a test can pass prime=None (a group with no prime
+    # law) without it being read as "use the default".
+    UNSET = object()
+
+    def crumb(self, law, prime=UNSET, group=None):
+        prime = self.prime if prime is self.UNSET else prime
+        return ds._law_author_breadcrumb(law, prime, group or self.group)
+
+    def test_prime_law_itself_shows_only_the_prime(self):
+        self.assertEqual(self.crumb(self.prime), "Vagabond")
+
+    def test_direct_child_of_prime_shows_only_the_prime(self):
+        """The law's own title is already the embed title, so naming the prime as
+        its parent too would just repeat it."""
+        self.assertEqual(self.crumb(self.l1), "Vagabond")
+
+    def test_grandchild_names_its_parent(self):
+        self.assertEqual(self.crumb(self.l2), "Vagabond - Relationships")
+
+    def test_deeper_law_names_only_its_direct_parent(self):
+        """Previously "Vagabond - Relationships - Improving Relationships" — the
+        grandparent is no longer carried."""
+        self.assertEqual(self.crumb(self.l3), "Vagabond - Improving Relationships")
+
+    def test_deepest_law_drops_the_ellipsis(self):
+        """Previously "Vagabond ... Improving Relationships - Aid"."""
+        self.assertEqual(self.crumb(self.l4), "Vagabond - Aid")
+
+    def test_no_depth_produces_an_ellipsis(self):
+        for law in (self.prime, self.l1, self.l2, self.l3, self.l4):
+            with self.subTest(law=law.title):
+                self.assertNotIn("...", self.crumb(law))
+
+    # ── edges ────────────────────────────────────────────────────────────────
+    def test_orphaned_chain_still_names_the_direct_parent(self):
+        """A law whose ancestors never reach the prime. The old code flagged this
+        with the " ... "; now the parent is simply named."""
+        orphan_parent = self._law("Orphan A", parent=None)
+        orphan = self._law("Orphan B", parent=orphan_parent)
+        self.assertEqual(self.crumb(orphan), "Vagabond - Orphan A")
+
+    def test_group_title_is_the_base_when_there_is_no_prime_law(self):
+        other = LawGroup.objects.create(
+            title="Marquise", abbreviation="M", public=True, slug="marquise")
+        parent = self._law("Cats", parent=None, group=other)
+        child = self._law("Wood", parent=parent, group=other)
+        self.assertEqual(self.crumb(child, prime=None, group=other),
+                         "Marquise - Cats")
+
+    def test_blank_parent_title_degrades_to_the_base(self):
+        """Rather than emitting a dangling " - "."""
+        blank = self._law("", parent=self.prime)
+        child = self._law("Child", parent=blank)
+        self.assertEqual(self.crumb(child), "Vagabond")
+
+    def test_embed_author_uses_the_breadcrumb(self):
+        """The whole point of the function — confirm it reaches the embed."""
+        embed = ds.build_law_embed(self.l3)
+        self.assertEqual(embed["author"]["name"],
+                         "Vagabond - Improving Relationships")

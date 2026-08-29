@@ -1775,11 +1775,13 @@ def format_law_title_for_discord(text):
 
 
 def _law_author_breadcrumb(law, prime, group):
-    """Build the embed author line for a law: the group's prime-law title plus a
-    breadcrumb of the selected law's two nearest ancestors (immediate parent and
-    grandparent), top-down, e.g. "Vagabond ... Relationships - Improving
-    Relationships". A " ... " separates the prime law from the ancestors when
-    levels are skipped between them; shallow laws just show what exists.
+    """Build the embed author line for a law: the group's prime-law title, plus the
+    selected law's immediate parent when that parent isn't the prime law itself,
+    e.g. "Vagabond - Improving Relationships".
+
+    Only the direct parent is named, at any depth. The law's own title is already
+    the embed title, so a direct child of the prime law adds nothing and returns
+    just the prime — which is also why no marker is needed for elided levels.
 
     Titles use plain_title since the author line can't render markup/emoji.
     """
@@ -1788,25 +1790,13 @@ def _law_author_breadcrumb(law, prime, group):
 
     base = label(prime) if prime else (group.title or str(group)).strip()
 
-    # Walk up from the selected law, collecting ancestors above it. Stop at (and
-    # exclude) the prime law — it's already the base of the breadcrumb.
-    ancestors = []
-    node = law.parent
-    while node is not None and not node.prime_law:
-        ancestors.append(node)
-        node = node.parent
-    # `ancestors` is bottom-up (parent, grandparent, …); the two nearest are the
-    # first two. Render them top-down.
-    nearest = ancestors[:2]
-    # Skipped levels exist when we trimmed ancestors, or the chain never reached
-    # the prime law (so `base` sits outside this law's lineage).
-    skipped = len(ancestors) > len(nearest) or node is None
-    crumb_titles = [t for t in (label(a) for a in reversed(nearest)) if t]
-
-    if not crumb_titles:
+    parent = law.parent
+    if parent is None or parent.prime_law:
         return base
-    sep = " ... " if (base and skipped) else (" - " if base else "")
-    return f"{base}{sep}{' - '.join(crumb_titles)}"
+    crumb = label(parent)
+    if not crumb:
+        return base
+    return f"{base} - {crumb}" if base else crumb
 
 
 def build_law_embed(law):
@@ -1846,10 +1836,9 @@ def build_law_embed(law):
         except (ValueError, AttributeError):
             pass
 
-    # Author: the prime law title of the group (in this language), followed by a
-    # breadcrumb of the selected law's two nearest ancestors so e.g. 9.2.9.Ia
-    # reads "Vagabond ... Relationships - Improving Relationships". A " ... "
-    # marks any skipped levels between the prime law and the shown ancestors.
+    # Author: the prime law title of the group (in this language), followed by the
+    # law's immediate parent when that isn't the prime law itself — so e.g.
+    # 9.2.9.Ia reads "Vagabond - Improving Relationships".
     prime = group.get_prime_law(law.language)
     author_name = _law_author_breadcrumb(law, prime, group) or "Law"
     author = {"name": author_name[:256]}
