@@ -5129,6 +5129,172 @@ class GuildAllowsTests(TestCase):
         self.assertTrue(di._guild_allows(None, "seating"))
 
 
+class RosterGuardedCommandTests(TestCase):
+    """A thread with a roster belongs to its players: commands that WRITE to it are
+    refused for anyone else.
+
+    These go through the real view, not the handlers directly, because the guard
+    lives in the command dispatcher -- calling a handler bypasses it entirely.
+    """
+
+    GUILD_ID = "1093259831470735512"
+    THREAD_ID = "1303834523347456040"
+    OUTSIDER = "999888777666555444"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        self.guild = DiscordGuild.objects.create(
+            guild_id=self.GUILD_ID, name="Guard Guild")
+        designer = Profile.objects.create(discord="guarddz", discord_id="700")
+        for i in range(6):
+            Faction.objects.create(
+                title=f"Guard Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"guardp{i}", discord_id=f"71{i}",
+                                   display_name=f"Guard Player {i}")
+            for i in range(3)
+        ]
+        self.thread.players.set(self.players)
+
+    def _command(self, name, user_id, channel_id=None, options=None):
+        payload = {
+            "type": 2,
+            "data": {"name": name, "options": options or []},
+            "guild_id": self.GUILD_ID,
+            "channel_id": channel_id or self.THREAD_ID,
+            "channel": {"name": "a thread", "type": 11},
+            "member": {"user": {"id": user_id, "username": f"user{user_id}"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content)["data"]
+
+    def _refused(self, data):
+        return "Only the players in this game" in data.get("content", "")
+
+    def test_every_guarded_command_refuses_an_outsider(self):
+        for name in sorted(di.ROSTER_GUARDED_COMMANDS):
+            with self.subTest(command=name):
+                self.assertTrue(self._refused(self._command(name, self.OUTSIDER)),
+                                f"/{name} let a non-player through")
+
+    def test_nothing_is_written_by_a_refused_command(self):
+        self._command("pick", self.OUTSIDER)
+        self._command("seating", self.OUTSIDER)
+        thread = LFGThread.objects.get(pk=self.thread.pk)
+        self.assertEqual(thread.seats.count(), 0)
+        self.assertFalse(thread.seating_set)
+        self.assertEqual(LFGRoll.objects.filter(thread=thread).count(), 0)
+
+    def test_a_player_is_allowed(self):
+        data = self._command("pick", self.players[0].discord_id)
+        self.assertFalse(self._refused(data))
+
+    def test_the_host_is_allowed_even_if_not_a_player(self):
+        host = Profile.objects.create(discord="guardhost", discord_id="7900")
+        self.thread.host = host
+        self.thread.save(update_fields=["host"])
+        self.assertNotIn(host, self.thread.players.all())
+        self.assertFalse(self._refused(
+            self._command("pick", host.discord_id)))
+
+    def test_a_guild_moderator_is_allowed(self):
+        mod = Profile.objects.create(discord="guardmod", discord_id="7901")
+        self.guild.guild_moderators.add(mod)
+        self.assertFalse(self._refused(self._command("pick", mod.discord_id)))
+
+    def test_a_site_admin_is_allowed(self):
+        # `admin` is derived from group == "A", not a settable field.
+        admin = Profile.objects.create(discord="guardadmin", discord_id="7902",
+                                       group="A")
+        self.assertTrue(admin.admin)
+        self.assertFalse(self._refused(self._command("pick", admin.discord_id)))
+
+    # ── no roster, no restriction ────────────────────────────────────────────
+    def test_a_plain_channel_is_open_to_anyone(self):
+        data = self._command("faction", self.OUTSIDER, channel_id="555000999")
+        self.assertFalse(self._refused(data))
+
+    def test_a_thread_with_no_players_is_open(self):
+        """A game still being set up has nothing to protect yet."""
+        self.thread.players.clear()
+        self.assertFalse(self._refused(self._command("pick", self.OUTSIDER)))
+
+    def test_a_refused_channel_creates_no_profile(self):
+        """ensure_profile_from_discord WRITES, so it must not run before a roster
+        is established -- otherwise every lookup in any channel makes a row."""
+        before = Profile.objects.count()
+        self._command("faction", self.OUTSIDER, channel_id="555000999")
+        self.assertEqual(Profile.objects.count(), before)
+
+    # ── commands that stay open ──────────────────────────────────────────────
+    def test_ungated_commands_still_work_for_anyone(self):
+        for name in ("help", "record", "upcoming"):
+            with self.subTest(command=name):
+                self.assertFalse(self._refused(self._command(name, self.OUTSIDER)))
+
+    def test_record_is_not_guarded(self):
+        """It hands back a link the SITE re-checks permissions on, so gating it
+        would block a moderator fixing a mis-recorded game without protecting
+        anything."""
+        self.assertNotIn("record", di.ROSTER_GUARDED_COMMANDS)
+
+    # ── tournament group threads use a different roster source ───────────────
+    def _group_thread(self, thread_id="1303834523347456041"):
+        """A group thread whose roster comes from the PLAYER GROUP, not the
+        LFGThread (which has no players of its own)."""
+        designer = Profile.objects.create(discord="ggdz", discord_id="800")
+        tournament = Tournament.objects.create(
+            name="Guard Tournament", guild=self.guild, designer=designer)
+        stage = Stage.objects.create(tournament=tournament, name="S", order=1)
+        rnd = Round.objects.create(stage=stage, round_number=1)
+        self.group_mod = Profile.objects.create(discord="ggmod", discord_id="8100")
+        self.group = PlayerGroup.objects.create(
+            round=rnd, group_number=1, name="Guard Group",
+            discord_thread=(
+                f"https://discord.com/channels/{self.GUILD_ID}/{thread_id}"),
+            group_moderator=self.group_mod)
+        series = MatchSeries.objects.create(
+            round=rnd, player_group=self.group, number_of_games=1)
+        Match.objects.create(round=rnd, series=series)
+        self.group_players = [
+            Profile.objects.create(discord=f"ggp{i}", discord_id=f"81{i}")
+            for i in range(3)
+        ]
+        self.group.tournament_players.set([
+            TournamentPlayer.objects.create(tournament=tournament, profile=p)
+            for p in self.group_players
+        ])
+        return thread_id
+
+    def test_a_group_thread_guards_by_the_groups_roster(self):
+        thread_id = self._group_thread()
+        self.assertTrue(self._refused(
+            self._command("pick", self.OUTSIDER, channel_id=thread_id)))
+        self.assertFalse(self._refused(self._command(
+            "pick", self.group_players[0].discord_id, channel_id=thread_id)))
+
+    def test_a_group_moderator_may_act_in_a_group_thread(self):
+        thread_id = self._group_thread()
+        self.assertFalse(self._refused(self._command(
+            "pick", self.group_mod.discord_id, channel_id=thread_id)))
+
+    def test_a_group_with_no_players_is_open(self):
+        """Neither tournament_players nor MatchSeats: nothing to protect yet, and
+        it closes the moment anyone is added."""
+        thread_id = self._group_thread()
+        self.group.tournament_players.clear()
+        self.assertFalse(self._refused(
+            self._command("pick", self.OUTSIDER, channel_id=thread_id)))
+
+
 class PickCommandGroupThreadTests(TestCase):
     """/pick in a tournament group thread: it creates the LFGThread and seats the
     group in ROSTER order without establishing a seating, and must NOT write

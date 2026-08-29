@@ -2928,6 +2928,110 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
     return profiles if len(profiles) >= 2 else []
 
 
+# Commands that write to the thread they're used in, so a non-player must not run
+# them where a roster exists. Everything else stays open: /help, /stats,
+# /upcoming, /law, /card and /captain only read; /lfg CREATES a game (there is no
+# roster to belong to yet); and /record only hands back a link the site re-checks
+# permissions on, so gating it would block a moderator fixing a mis-recorded game
+# without actually protecting anything. /rename keeps its own host-only rule.
+ROSTER_GUARDED_COMMANDS = {
+    "pick", "seating", "draft", "schedule", "random",
+    *LOOKUP_QUERYSETS,   # faction, clockwork, map, deck, vagabond, landmark,
+                         # hireling, houserule -- all capture into the roll log
+}
+
+
+def _thread_roster(thread, channel_id, channel_name=None, guild_id=None):
+    """(roster, group) for this channel's game. Roster is [] when there is none.
+
+    Unlike _pick_roster this does NOT impose a minimum: a one-player thread still
+    HAS a roster, and treating it as empty would leave it unguarded.
+
+    The group is handed back so the caller can reuse it for the staff check
+    without resolving it a second time."""
+    if thread is not None and not thread.series_id:
+        return list(thread.players.all()), None
+    group = player_group_for_channel(channel_id, channel_name, guild_id)
+    if not group:
+        return [], None
+    return group_roster(group, group_series_id(group)), group
+
+
+def _thread_actor_error(data):
+    """Ephemeral refusal when this channel's game has a roster and the invoker is
+    not on it, its host, or staff. None when the command may proceed.
+
+    NO ROSTER, NO RESTRICTION. A plain channel, or a thread whose game has no
+    players yet, is unguarded -- there is nothing to protect and these commands
+    are how a table gets set up in the first place. That also means a tournament
+    group thread whose group has neither tournament_players NOR MatchSeats is
+    open; correct for a group that hasn't been populated, and it closes the moment
+    anyone is added.
+
+    Ordering is deliberate (Discord allows 3 seconds for the whole interaction):
+    the cheap indexed thread lookup runs first, and the profile resolution LAST --
+    ensure_profile_from_discord can WRITE (it claims or creates a Profile), so it
+    must never run for a command in a channel with no roster at all."""
+    channel_id = data.get("_channel_id")
+    if not channel_id:
+        return None
+
+    thread = _lfg_thread_for_channel(channel_id)
+    guild_id = data.get("_guild_id")
+    # NOTE this can LINK the thread to a matching group as a side effect of the
+    # title fallback (see player_group_for_channel). Deliberate: the link is
+    # correct whoever typed the command, and the alternative is re-guessing it on
+    # every later lookup.
+    roster, group = _thread_roster(
+        thread, channel_id, data.get("_channel_name"), guild_id)
+    if not roster:
+        return None
+
+    profile = ensure_profile_from_discord(
+        data.get("_author_id"), data.get("_author_username"),
+        (data.get("_author") or {}).get("name"))
+    if not profile:
+        return _ephemeral("I couldn't identify you, so I can't tell if you're in "
+                          "this game. Try again.")
+
+    if any(p.pk == profile.pk for p in roster):
+        return None
+    if thread is not None and thread.host_id == profile.pk:
+        return None
+    if _thread_staff_override(profile, group, guild_id):
+        return None
+
+    return _ephemeral(
+        "Only the players in this game can use that here. Ask one of them, or a "
+        "moderator, to run it for you.")
+
+
+def _thread_staff_override(profile, group, guild_id):
+    """Whether a non-player may act anyway: a guild moderator or site admin, or —
+    in a tournament group thread — anyone who could schedule that match (group
+    moderator, organizer, admin). Lets staff unstick a table they aren't in.
+
+    Takes the GROUP, not the LFGThread. A group thread has no LFGThread until the
+    first command creates one, so keying the can_schedule branch off the thread
+    would refuse a group moderator's very first command -- the same trap the
+    roster lookup avoids by resolving the group directly."""
+    from .views import can_moderate_guild
+
+    if guild_id:
+        guild = DiscordGuild.objects.filter(guild_id=str(guild_id)).first()
+        if guild and can_moderate_guild(profile, guild):
+            return True
+
+    # can_schedule lives on Match, so this only applies to a tournament group.
+    series_id = group_series_id(group) if group else None
+    if series_id:
+        match = Match.objects.filter(series_id=series_id).order_by(
+            "match_number").first()
+        if match and match.can_schedule(profile):
+            return True
+    return False
+
+
 def _pick_seat_roster(thread, channel_id, ordered=True, announce=True):
     """Give `thread` seats so /pick has something to attach factions to.
 
@@ -3773,6 +3877,10 @@ def _handle_pick_cancel(payload):
     owner-lock stays off -- any of the PLAYERS may stop a session, not just
     whoever ran /pick -- but that also let anyone in the channel discard the
     table's picks, so the roster check below is the lock's replacement.
+
+    Same rule as ROSTER_GUARDED_COMMANDS, applied at the other entry point: that
+    guard runs in the command dispatcher and never sees a button click, so this
+    check has to exist separately.
 
     Names whoever pressed it, since it replaces the panel for everyone."""
     channel_id = payload.get("channel_id")
@@ -4914,6 +5022,15 @@ def discord_interactions(request):
                 # Interaction token, so a handler can send a followup after its ACK
                 # (e.g. /lfg's ephemeral "add tags" nudge).
                 data["_token"] = payload.get("token")
+                # A thread with a roster belongs to its players: commands that
+                # write to it (seating, drafts, the roll log, proposals) are
+                # refused for anyone else. Enforced here rather than per handler
+                # so a new command can't quietly miss it -- and AFTER the stash
+                # above, which is where the helper's inputs come from.
+                if command_name in ROSTER_GUARDED_COMMANDS:
+                    refusal = _thread_actor_error(data)
+                    if refusal is not None:
+                        return refusal
                 return handler(data)
             except Exception:
                 logger.exception("Error handling /%s interaction", command_name)
