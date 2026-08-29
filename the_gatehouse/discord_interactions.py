@@ -3443,6 +3443,27 @@ def _handle_pick_captains(payload):
                         discarded_captain=discarded)
 
 
+def _pick_actor_name(payload):
+    """A display name for whoever clicked, for public /pick copy. "" when nothing
+    identifies them.
+
+    Prefers the linked Profile's name so it matches how the seat lines and the
+    rest of the site render people, then falls back to the Discord username the
+    interaction already carries -- a clicker with no account still has one, and
+    naming them is better than an anonymous "Picking stopped".
+
+    Returns a PLAIN name, never a <@id> mention: callers post this in public
+    content without allowed_mentions, where a mention would ping."""
+    discord_id = _interaction_user_id(payload)
+    if discord_id:
+        profile = Profile.objects.filter(discord_id=str(discord_id)).first()
+        if profile:
+            name = profile.display_name or profile.discord or profile.slug
+            if name:
+                return name
+    return _clicker_username(payload) or ""
+
+
 def _handle_pick_cancel(payload):
     """Stop picking and clear the session, so /pick can run again from scratch.
 
@@ -3450,17 +3471,31 @@ def _handle_pick_cancel(payload):
     faction exists. Clearing is idempotent, so this doesn't branch on which
     button sent it -- but the message reports what was actually cleared, so
     cancelling a prompt doesn't claim to have discarded picks that never
-    happened."""
+    happened.
+
+    Names whoever pressed it: any player can stop a session, so the table needs
+    to see who did."""
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
         return _ephemeral("This isn't a game thread anymore.")
 
     cleared = _pick_clear(thread)
-    content = ("Picking stopped and factions cleared. Run `/pick` to start over."
-               if cleared else "Picking stopped.")
+
+    # Who stopped it: this replaces the panel for the WHOLE table, and any player
+    # can press Stop (the buttons carry PICK_OPEN, not an owner snowflake), so
+    # without a name the table can't tell who discarded their picks.
+    #
+    # A plain display name, NOT a <@id> mention: this response sets no
+    # allowed_mentions, so a mention would ping the person who just clicked --
+    # the same reason /schedule's announcement names the scheduler in plain text.
+    who = _pick_actor_name(payload)
+    stopped = f"Picking stopped by {who}" if who else "Picking stopped"
+    content = (f"{stopped} and factions cleared. Run `/pick` to start over."
+               if cleared else f"{stopped}.")
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": {"content": content, "components": []},
+        "data": {"content": content, "components": [],
+                 "allowed_mentions": {"parse": []}},
     })
 
 

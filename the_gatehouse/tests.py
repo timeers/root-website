@@ -4758,9 +4758,51 @@ class PickSessionLifecycleTests(TestCase):
         self.assertEqual(remaining, ["draft", "random"])
 
     def test_stop_on_a_prompt_with_no_picks_says_so(self):
-        """Cancel on the mode prompt must not claim to have cleared picks."""
+        """Cancel on the mode prompt must not claim to have cleared picks. This
+        clicker has no Profile and no username in the payload, so there is nobody
+        to name -- the message must still read correctly without a name."""
         data = self._stop()
         self.assertEqual(data["content"], "Picking stopped.")
+
+    def test_stop_names_the_player_who_pressed_it(self):
+        """Any player can Stop (the buttons carry PICK_OPEN, not an owner
+        snowflake), so the table needs to see who discarded their picks."""
+        self._select(self.factions[0].slug, self.players[1].discord_id)
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.players[1].discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }
+        data = json.loads(di._handle_pick_cancel(payload).content)["data"]
+        self.assertIn(f"Picking stopped by {self.players[1].name}", data["content"])
+        self.assertIn("factions cleared", data["content"])
+
+    def test_stop_names_an_unlinked_clicker_by_username(self):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": "999888777666555444",
+                                "username": "stranger"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }
+        data = json.loads(di._handle_pick_cancel(payload).content)["data"]
+        self.assertIn("Picking stopped by stranger", data["content"])
+
+    def test_stop_does_not_ping_whoever_pressed_it(self):
+        """A plain name, not a <@id> mention -- this is public content."""
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.players[1].discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "pick_cancel", self.OWNER, di.PICK_OPEN)},
+            "message": {"id": "msg", "components": []},
+        }
+        data = json.loads(di._handle_pick_cancel(payload).content)["data"]
+        self.assertNotIn("<@", data["content"])
+        self.assertEqual(data["allowed_mentions"], {"parse": []})
 
     def test_an_open_follow_up_does_not_lock_the_thread(self):
         """A seat mid-prompt has no faction, so an abandoned prompt must leave
