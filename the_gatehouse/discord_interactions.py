@@ -2579,10 +2579,13 @@ def _handle_draft_seat(payload):
                  for i, p in enumerate(profiles, 1)]
         LFGSeat.objects.bulk_create(seats)
         # Same transaction as the rows it describes: the flag and the seats must
-        # never be separately visible.
+        # never be separately visible. Saved unconditionally -- the seats above
+        # were just rewritten, so a re-seat of an already-seated thread must
+        # still bump last_activity (save() supplies it) even though the flag is
+        # already True.
         if not locked.seating_set:
             locked.seating_set = True
-            locked.save(update_fields=["seating_set"])
+        locked.save(update_fields=["seating_set"])
 
     post_channel_message_task.delay(
         thread.thread_id, _draft_seating_message(seats, reseated))
@@ -2681,6 +2684,11 @@ def _pick_seat_roster(thread, channel_id, ordered=True):
             locked.seating_set = True
             locked.save(update_fields=["seating_set"])
             thread.seating_set = True  # keep the caller's instance in step
+        elif created:
+            # Seats were written but the flag didn't change, so nothing above
+            # saved the thread. Bump it so /pick-created seating counts as
+            # activity. The race loser (created False) changed nothing.
+            locked.save(update_fields=[])
 
     # Announce only the seating WE created -- the race loser must not post a
     # second, contradictory order. Outside the lock: a broker hiccup shouldn't
@@ -3234,6 +3242,10 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
         # captain from an abandoned Knaves prompt on whatever faction won.
         locked.discarded_captain = discarded_captain
         locked.save(update_fields=["faction", "vagabond", "discarded_captain"])
+        # `locked` is the SEAT, so that save doesn't touch the thread. Bump the
+        # parent explicitly (save() supplies last_activity) so picking factions
+        # keeps a thread out of the cleanup task's reach.
+        thread.save(update_fields=[])
 
     # M2M outside the lock: .set() writes a separate join table, so it neither
     # needs the row lock nor can run before the row exists.

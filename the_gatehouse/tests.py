@@ -3000,6 +3000,21 @@ class DraftLFGSeatingTests(TestCase):
             response = di._handle_draft_seat(payload)
         return response, post
 
+    def test_reseating_an_already_seated_thread_bumps_last_activity(self):
+        """The seating_set flag is already True on a re-seat, so the save that
+        keeps last_activity fresh must not be conditional on it -- otherwise an
+        actively-reseated table ages toward the cleanup task."""
+        self._roster(3)
+        self._seat()
+        stale = timezone.now() - timedelta(days=200)
+        LFGThread.objects.filter(pk=self.thread.pk).update(last_activity=stale)
+
+        self._seat()
+
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.seating_set)
+        self.assertGreater(self.thread.last_activity, stale)
+
     def test_seating_persists_and_posts(self):
         self._roster(3)
         response, post = self._seat()
@@ -4026,6 +4041,21 @@ class PickVagabondFollowUpTests(TestCase):
             "message": {"id": "msg", "components": []},
         }
         return json.loads(di._handle_pick_faction(payload).content)["data"]
+
+    def test_committing_a_faction_bumps_the_threads_last_activity(self):
+        """The commit saves the SEAT, so the parent needs its own bump -- without
+        it, a thread being actively picked in ages toward the cleanup task."""
+        stale = timezone.now() - timedelta(days=200)
+        LFGThread.objects.filter(pk=self.thread.pk).update(last_activity=stale)
+
+        # The LAST seat picks first, so players[1] is the valid clicker.
+        self._select(self.other.slug, self.players[1].discord_id)
+
+        self.thread.refresh_from_db()
+        self.assertEqual(
+            self.thread.seats.get(profile=self.players[1]).faction_id,
+            self.other.pk)
+        self.assertGreater(self.thread.last_activity, stale)
 
     def _choose_vagabond(self, slug, clicker, faction_slug=None):
         payload = {
@@ -6397,3 +6427,211 @@ class LawAuthorBreadcrumbTests(TestCase):
         embed = ds.build_law_embed(self.l3)
         self.assertEqual(embed["author"]["name"],
                          "Vagabond - Improving Relationships")
+
+
+class LFGThreadCleanupTaskTests(TestCase):
+    """cleanup_stale_lfg_threads: two windows, one for recorded threads and one
+    for abandoned ones, both keyed on last_activity."""
+
+    def _thread(self, thread_id, days_idle, **kw):
+        """Create a thread idle for `days_idle`. Pass every field via **kw:
+        backdating has to be the FINAL write, because LFGThread.save() bumps
+        last_activity on any save that doesn't name it."""
+        t = LFGThread.objects.create(thread_id=thread_id, **kw)
+        t.last_activity = timezone.now() - timedelta(days=days_idle)
+        t.save(update_fields=["last_activity"])
+        return t
+
+    # ── policy ──
+    def test_recorded_thread_past_the_grace_period_is_deleted(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000001", 45,
+                     status=LFGThread.Status.RECORDED)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_freshly_recorded_thread_survives(self):
+        """/record's duplicate guard is `if thread.game_id` — deleting the row
+        early makes the next /record offer a blank form."""
+        from the_gatehouse import tasks
+        self._thread("900000000000000002", 5,
+                     status=LFGThread.Status.RECORDED)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+    def test_open_thread_inside_the_long_window_survives(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000003", 90)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+    def test_abandoned_open_thread_is_deleted(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000004", 200)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_save_progress_draft_game_is_not_treated_as_recorded(self):
+        """game set but status OPEN is a game still being written. Keying the
+        short window on game_id instead of status would delete it."""
+        from the_gatehouse import tasks
+        game = Game.objects.create()
+        self._thread("900000000000000005", 45, game=game,
+                     status=LFGThread.Status.OPEN)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+    def test_series_threads_follow_the_same_idle_rule(self):
+        """Tournament group threads get no exemption."""
+        from the_gatehouse import tasks
+        designer = Profile.objects.create(discord="seriesdesigner",
+                                          discord_id="960000000000000001")
+        tournament = Tournament.objects.create(name="Cleanup Cup",
+                                               designer=designer)
+        stage = Stage.objects.create(tournament=tournament, name="Stage 1",
+                                     order=1)
+        round_ = Round.objects.create(stage=stage, round_number=1)
+        series = MatchSeries.objects.create(round=round_, number_of_games=1)
+        self._thread("900000000000000006", 200, series=series)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_cancelled_thread_uses_the_short_window(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000007", 45,
+                     status=LFGThread.Status.CANCELLED)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
+
+    def test_nothing_to_delete_returns_zero(self):
+        from the_gatehouse import tasks
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
+
+    # ── cascade / survival ──
+    def test_children_go_with_the_thread(self):
+        from the_gatehouse import tasks
+        thread = self._thread("900000000000000008", 200)
+        designer = Profile.objects.create(discord="cascadedesigner",
+                                          discord_id="960000000000000002")
+        faction = Faction.objects.create(title="Cascade Cats", animal="Cat",
+                                         designer=designer, slug="cascade-cats")
+        LFGRoll.objects.create(thread=thread, kind="Faction", slug="cascade-cats")
+        draft = LFGDraft.objects.create(thread=thread, players=4)
+        LFGDraftPick.objects.create(draft=draft, faction=faction, order=1)
+        LFGSeat.objects.create(thread=thread, seat_number=1)
+
+        tasks.cleanup_stale_lfg_threads()
+
+        self.assertFalse(LFGRoll.objects.exists())
+        self.assertFalse(LFGDraft.objects.exists())
+        self.assertFalse(LFGDraftPick.objects.exists())
+        self.assertFalse(LFGSeat.objects.exists())
+
+    def test_the_recorded_game_survives_its_thread(self):
+        """LFGThread.game is SET_NULL, so only the scaffolding is discarded."""
+        from the_gatehouse import tasks
+        game = Game.objects.create()
+        self._thread("900000000000000009", 45, game=game,
+                     status=LFGThread.Status.RECORDED)
+        tasks.cleanup_stale_lfg_threads()
+        self.assertTrue(Game.objects.filter(pk=game.pk).exists())
+
+    # ── safety ──
+    def test_dry_run_reports_without_deleting(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000010", 200)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(dry_run=True), 1)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+    def test_limit_caps_a_run(self):
+        from the_gatehouse import tasks
+        for i in range(5):
+            self._thread(f"90000000000000002{i}", 200)
+        self.assertEqual(tasks.cleanup_stale_lfg_threads(limit=2), 2)
+        self.assertEqual(LFGThread.objects.count(), 3)
+
+    def test_limit_takes_the_oldest_first(self):
+        from the_gatehouse import tasks
+        oldest = self._thread("900000000000000031", 400)
+        self._thread("900000000000000032", 300)
+        self._thread("900000000000000033", 200)
+        tasks.cleanup_stale_lfg_threads(limit=1)
+        self.assertFalse(LFGThread.objects.filter(pk=oldest.pk).exists())
+        self.assertEqual(LFGThread.objects.count(), 2)
+
+    def test_deletion_spans_multiple_chunks(self):
+        from the_gatehouse import tasks
+        for i in range(5):
+            self._thread(f"90000000000000004{i}", 200)
+        with mock.patch.object(tasks, "_LFG_DELETE_CHUNK", 2):
+            self.assertEqual(tasks.cleanup_stale_lfg_threads(), 5)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_the_two_windows_are_independent(self):
+        from the_gatehouse import tasks
+        self._thread("900000000000000051", 45,
+                     status=LFGThread.Status.RECORDED)
+        self._thread("900000000000000052", 45)
+        self.assertEqual(
+            tasks.cleanup_stale_lfg_threads(recorded_after_days=0,
+                                            stale_after_days=9999), 1)
+        self.assertEqual(LFGThread.objects.count(), 1)
+
+
+class LFGThreadLastActivityTests(TestCase):
+    """LFGThread.save() keeps last_activity current even on the narrow
+    update_fields writes that dominate this model's call sites."""
+
+    THREAD_ID = "910000000000000001"
+
+    def setUp(self):
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.stale = timezone.now() - timedelta(days=200)
+        self.thread.last_activity = self.stale
+        self.thread.save(update_fields=["last_activity"])
+
+    def _bumped(self):
+        self.thread.refresh_from_db()
+        return self.thread.last_activity > self.stale
+
+    def test_create_sets_a_fresh_timestamp(self):
+        """Covers the _state.adding guard: an insert must not be widened."""
+        fresh = LFGThread.objects.create(thread_id="910000000000000099")
+        self.assertGreater(fresh.last_activity,
+                           timezone.now() - timedelta(minutes=1))
+
+    def test_narrow_nickname_save_bumps_last_activity(self):
+        self.thread.nickname = "Renamed"
+        self.thread.save(update_fields=["nickname"])
+        self.assertTrue(self._bumped())
+
+    def test_narrow_seating_save_bumps_last_activity(self):
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        self.assertTrue(self._bumped())
+
+    def test_narrow_game_status_save_bumps_last_activity(self):
+        """The write the_warroom's record view makes."""
+        self.thread.status = LFGThread.Status.RECORDED
+        self.thread.save(update_fields=["game", "status"])
+        self.assertTrue(self._bumped())
+
+    def test_an_explicit_last_activity_write_is_respected(self):
+        """Every fixture in these tests depends on this escape hatch."""
+        pinned = timezone.now() - timedelta(days=300)
+        self.thread.last_activity = pinned
+        self.thread.save(update_fields=["last_activity"])
+        self.thread.refresh_from_db()
+        self.assertAlmostEqual(self.thread.last_activity, pinned,
+                               delta=timedelta(seconds=1))
+
+    def test_capturing_a_roll_bumps_the_thread(self):
+        """Rolls are children, so nothing else would touch the parent."""
+        from the_gatehouse import tasks
+        designer = Profile.objects.create(discord="bumpdesigner",
+                                          discord_id="960000000000000003")
+        Faction.objects.create(title="Bump Birds", animal="Bird",
+                               designer=designer, slug="bump-birds")
+        tasks.record_lfg_components_task(
+            self.THREAD_ID, [{"kind": "Faction", "slug": "bump-birds"}],
+            source="random")
+        self.assertTrue(self._bumped())

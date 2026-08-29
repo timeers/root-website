@@ -370,12 +370,48 @@ class LFGThread(models.Model):
         max_length=16, choices=Status.choices, default=Status.OPEN)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set explicitly, NOT auto_now: nearly every mutation path here writes with a
+    # narrow update_fields list (seating_set, nickname, host, map/deck,
+    # game+status), and auto_now does not fire when its field is absent from
+    # update_fields -- Django would silently leave this stale on exactly the
+    # writes that matter. save() below widens the list instead.
+    #
+    # Not derivable from the children either: LFGSeat carries no timestamp, so
+    # /seating and /rename would be invisible to a Greatest() over the roll and
+    # draft created_at columns.
+    last_activity = models.DateTimeField(
+        default=timezone.now, db_index=True,
+        help_text="Last time anything about this thread changed. Drives the "
+                  "cleanup task; never used for display.")
 
     class Meta:
         ordering = ["-created_at"]
 
     def __str__(self):
         return f"LFGThread {self.thread_id} ({self.players.count()} players)"
+
+    def save(self, *args, **kwargs):
+        """Keep `last_activity` current on every write, including the narrow
+        update_fields writes that dominate this model's call sites.
+
+        Callers pass update_fields=['seating_set'] etc. deliberately, so rather
+        than amend a dozen call sites -- and every future one -- this widens the
+        list here. Skipped when the caller names last_activity itself, so a
+        fixture can pin a value.
+
+        Three paths still need an explicit bump because they never save the
+        thread at all: roll capture and draft replacement (children only),
+        re-seating an already-seated thread, and /pick's faction commit (which
+        saves the LFGSeat). See the cleanup task for why this field matters.
+        M2M writes (players.set) don't call save() either, but they only happen
+        on the create path alongside other saves."""
+        update_fields = kwargs.get("update_fields")
+        if not self._state.adding and (
+                update_fields is None or "last_activity" not in update_fields):
+            self.last_activity = timezone.now()
+            if update_fields is not None:
+                kwargs["update_fields"] = list(update_fields) + ["last_activity"]
+        super().save(*args, **kwargs)
 
     def thread_url(self):
         """Discord permalink to this thread — seeds the game form's `link` field.

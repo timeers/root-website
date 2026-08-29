@@ -27,7 +27,7 @@
 - cleaner /law header
 
 ### Bug Fixes
-- test matches are no longer counted as elo-eligible: the api/games `elo_system` filter and the `elo_systems` field on game payloads used to include them even though the rating engine has always skipped them, so the API could advertise a system for a game it would never rate (the filter now returns fewer, correct rows)
+- test matches are no longer counted as elo-eligible: the api/games `elo_system` filter and the `elo_systems` field used to include them even though the rating engine skipped them, so the API could show a system for a game it would never rate (the filter now returns the correct games)
 - inactive stages don't error out on creation
 - fixed suspected bug where users logging in for the first time would be denied a restricted page even if they should have permission
 - fixed forge faction duplication bug where button did not trigger
