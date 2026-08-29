@@ -2,11 +2,16 @@
 Parsing user-typed times from Discord slash commands into aware UTC datetimes.
 
 Kept free of Django-request and Discord-payload concerns so it can be unit-tested
-directly. The only hard rule here: never silently guess. Anything ambiguous either
-returns an error for the caller to surface, or is resolved in a way the caller then
-shows back to the user for confirmation (see /schedule's confirm step) — Discord
-renders `<t:...>` in each viewer's own timezone, so a misparse is visible before
-anything is written.
+directly. The rule here: never silently guess in a way the user can't see. Anything
+ambiguous either returns an error for the caller to surface, or is resolved in a way
+the caller then shows back to the user for confirmation (see /schedule's confirm
+step) — Discord renders `<t:...>` in each viewer's own timezone, so a misparse is
+visible before anything is written.
+
+Dateless inputs lean on that confirm step. A bare time ("4pm"), a day word
+("tomorrow 4pm") and a weekday ("friday 4pm") all resolve to the NEXT occurrence of
+what was typed, rolling forward by a day or a week when the time has already gone.
+The resolved date is always shown back before anything is written.
 """
 
 import re
@@ -27,6 +32,19 @@ _DISCORD_TS_RE = re.compile(r"^<t:(\d{1,11})(?::[tTdDfFR])?>$")
 # A bare epoch. Bounded to 9-11 digits so a year ("2026") or a date typed without
 # separators ("20260315") can't be misread as a timestamp.
 _BARE_EPOCH_RE = re.compile(r"^\d{9,11}$")
+
+# Weekday names, matched LEXICALLY rather than through _supplied_fields. dateutil
+# resolves a weekday by shifting the default's day, which moves identically in both
+# probes below — so "friday 4pm" and a bare "4pm" both report just {"hour"} and are
+# otherwise indistinguishable. Without this, "friday 4pm" would lose the word
+# "friday" and get rolled to tomorrow.
+_WEEKDAY_RE = re.compile(
+    r"\b(mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun"
+    r"|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.I)
+
+# A leading "today"/"tomorrow", stripped before dateutil sees the text — dateutil
+# cannot parse either word and raises on them.
+_DAY_KEYWORD_RE = re.compile(r"^\s*(today|tomorrow|tmrw|tmr)\b[\s,]*", re.I)
 
 # Guardrails on the resulting datetime. A match scheduled years out is a typo far
 # more often than it's real; one scheduled well in the past can't be played.
@@ -287,8 +305,10 @@ def parse_user_datetime(text, tz_name=None, now=None):
     is either the NEED_TIMEZONE sentinel or a user-facing message.
 
     Accepts a Discord `<t:...>` paste or bare epoch (both timezone-independent), or
-    an absolute date+time interpreted in `tz_name`. Deliberately does NOT accept
-    relative offsets ("in 2 hours") or a bare time with no date.
+    a date+time interpreted in `tz_name`. The date may be left off: a bare time
+    ("4pm"), a leading day word ("tomorrow 4pm") and a weekday ("friday 4pm") each
+    resolve to the next occurrence of what was typed. Deliberately does NOT accept
+    relative offsets ("in 2 hours") or a bare date with no time of day.
     """
     text = (text or "").strip()
     if not text:
@@ -315,20 +335,37 @@ def parse_user_datetime(text, tz_name=None, now=None):
     except (ZoneInfoNotFoundError, ValueError, KeyError):
         return None, NEED_TIMEZONE
 
+    # Strip a leading "today"/"tomorrow" before anything else looks at the text:
+    # dateutil can't parse either word and raises, so leaving it in place would send
+    # "tomorrow 4pm" to the unparseable branch below. `day_offset` stays None when
+    # absent — 0 ("today") is meaningful and must not read as "not supplied".
+    day_offset = None
+    keyword = _DAY_KEYWORD_RE.match(text)
+    if keyword:
+        day_offset = 0 if keyword.group(1).lower() == "today" else 1
+        text = _DAY_KEYWORD_RE.sub("", text, count=1)
+
     supplied = _supplied_fields(text, tzinfo)
     if supplied is None:
         return None, (
             "I couldn't read that as a date and time. Try something like "
-            '`2026-03-15 20:00`, `Mar 15 8pm`, or paste a `<t:...>` timestamp.'
+            '`4pm`, `tomorrow 4pm`, `Mar 15 8pm`, or paste a `<t:...>` timestamp.'
         )
 
     # dateutil happily returns midnight for a date-only input, which would silently
     # schedule a match at 00:00. Require an explicit time of day.
     if not ({"hour", "minute"} & supplied):
         return None, "Please include a time of day, e.g. `Mar 15 8pm`."
-    # A bare time with no date would need us to guess which day. Don't.
-    if not ({"month", "day"} & supplied):
-        return None, "Please include a date, e.g. `Mar 15 8pm`."
+    # How the day was expressed, if at all. Both flags drive the roll below, so
+    # compute them once. `has_weekday` has to be lexical — see _WEEKDAY_RE.
+    has_date = bool({"month", "day"} & supplied)
+    has_weekday = bool(_WEEKDAY_RE.search(text))
+
+    # "tomorrow Mar 15 8pm" / "tomorrow friday 4pm" name the day twice, and the two
+    # can disagree. Ask rather than pick one.
+    if day_offset is not None and (has_date or has_weekday):
+        return None, ("Please give either a day word or a date, not both — "
+                      "e.g. `tomorrow 4pm` or `Mar 15 8pm`.")
 
     # Reparse against a real default so unsupplied fields fall back to today in the
     # user's zone (rather than to a probe sentinel).
@@ -346,10 +383,29 @@ def parse_user_datetime(text, tz_name=None, now=None):
         # conversion below. Either way the confirm step shows the real result.
         parsed = parsed.replace(tzinfo=tzinfo)
 
+    # Roll a past time forward to its next occurrence. Which unit to roll by depends
+    # on how the day was expressed, and the two branches are mutually exclusive: a
+    # dateless input has no year to roll, and rolling its year instead of its day
+    # would miss by twelve months rather than one day.
+    if not has_date:
+        # `parsed` already sits on today's date — the default above is midnight today.
+        if day_offset is not None:
+            if day_offset == 0 and parsed < local_now:
+                # An explicit "today" pins the date, so there's nothing to roll to.
+                # _MAX_PAST is a 24h grace, so without this the range check below
+                # would happily accept a time that has already gone.
+                return None, ("That time has already passed today — try "
+                              "`tomorrow` instead.")
+            parsed += timedelta(days=day_offset)
+        elif parsed < local_now:
+            # A named weekday that's already gone means the one next week; a bare
+            # time that's gone means tomorrow. timedelta (not .replace(day=...))
+            # so month and year rollover come for free.
+            parsed += timedelta(days=7 if has_weekday else 1)
     # Only roll forward when the user omitted the year — "Mar 15" in December means
     # next March. If they explicitly typed a past year, leave it and let the range
     # check reject it, rather than silently rewriting what they asked for.
-    if "year" not in supplied and parsed < local_now:
+    elif "year" not in supplied and parsed < local_now:
         try:
             parsed = parsed.replace(year=parsed.year + 1)
         except ValueError:

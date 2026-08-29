@@ -17,6 +17,7 @@ from django.urls import reverse
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 from datetime import datetime, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 from kombu.exceptions import OperationalError as KombuOperationalError
 from the_warroom.models import (
     Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup, Round, Stage,
@@ -112,8 +113,11 @@ NOW = datetime(2026, 8, 17, 15, 0, tzinfo=dt_timezone.utc)
 
 
 class ParseUserDatetimeTests(TestCase):
-    """The parser accepts absolute date+time and epoch forms, and refuses
-    anything it would have to guess at."""
+    """The parser accepts absolute date+time and epoch forms, resolves dateless
+    inputs to their next occurrence, and refuses what it can't pin down.
+
+    NOW is a Monday, 11:00 EDT — so 9am has passed and 4pm hasn't, which is what
+    the roll-forward cases below turn on."""
 
     def test_discord_timestamp_paste(self):
         when, err = parse_user_datetime("<t:1789000000:F>", None, now=NOW)
@@ -158,10 +162,97 @@ class ParseUserDatetimeTests(TestCase):
         self.assertIsNone(when)
         self.assertIn("time of day", err)
 
-    def test_time_without_date_rejected(self):
-        when, err = parse_user_datetime("8pm", TZ, now=NOW)
+    def _local(self, when):
+        """The parsed instant as wall-clock time in the user's own zone, which is
+        what the roll-forward rules are actually expressed in."""
+        return when.astimezone(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M")
+
+    # ── dateless inputs ──────────────────────────────────────────────────────
+    # A bare time, a day word and a weekday all resolve to the next occurrence of
+    # what was typed. The /schedule confirm step shows the resolved date back
+    # before anything is written, which is what makes the guess safe.
+
+    def test_bare_time_still_ahead_today_stays_today(self):
+        when, err = parse_user_datetime("4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:00")
+
+    def test_bare_time_already_past_rolls_to_tomorrow(self):
+        """The gating case. A bare time also satisfies the year-rollforward's
+        condition ("year" not supplied, instant is past), so if the two rolls
+        aren't mutually exclusive this comes back a year out instead of a day."""
+        when, err = parse_user_datetime("9am", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-18 09:00")
+
+    def test_bare_time_keeps_minutes(self):
+        when, err = parse_user_datetime("4:30pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:30")
+
+    def test_bare_24_hour_time(self):
+        when, err = parse_user_datetime("16:00", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:00")
+
+    def test_bare_time_rolls_across_month_end(self):
+        """timedelta, not .replace(day=...) — 31 Aug + 1 day has to reach September."""
+        end_of_month = datetime(2026, 9, 1, 3, 0, tzinfo=dt_timezone.utc)  # 31 Aug 11pm EDT
+        when, err = parse_user_datetime("9am", TZ, now=end_of_month)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-09-01 09:00")
+
+    def test_bare_time_keeps_wall_clock_across_dst(self):
+        """Rolling over the spring-forward boundary must preserve the hour the user
+        typed, not shift it — ZoneInfo recomputes the offset from the wall clock."""
+        before_dst = datetime(2026, 3, 7, 15, 0, tzinfo=dt_timezone.utc)  # 10am EST
+        when, err = parse_user_datetime("9am", TZ, now=before_dst)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-03-08 09:00")
+
+    def test_weekday_resolves_forward(self):
+        """NOW is a Monday, so "friday" is four days out — NOT tomorrow. Weekdays
+        and bare times are indistinguishable to _supplied_fields (both report just
+        {"hour"}), so this pins the lexical weekday check."""
+        when, err = parse_user_datetime("friday 4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-21 16:00")
+
+    def test_weekday_naming_today_still_ahead_stays_today(self):
+        when, err = parse_user_datetime("monday 4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:00")
+
+    def test_weekday_naming_today_already_past_rolls_a_week(self):
+        """A past weekday means the one next week, not next year — the same gating
+        trap as the bare-time case, one level deeper."""
+        when, err = parse_user_datetime("monday 9am", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-24 09:00")
+
+    def test_tomorrow_keyword(self):
+        when, err = parse_user_datetime("tomorrow 4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-18 16:00")
+
+    def test_today_keyword(self):
+        when, err = parse_user_datetime("today 4pm", TZ, now=NOW)
+        self.assertIsNone(err)
+        self.assertEqual(self._local(when), "2026-08-17 16:00")
+
+    def test_today_with_past_time_rejected(self):
+        """"today" pins the date, so there's nothing to roll to. _MAX_PAST is a 24h
+        grace, so without an explicit check this would be accepted as valid."""
+        when, err = parse_user_datetime("today 9am", TZ, now=NOW)
         self.assertIsNone(when)
-        self.assertIn("date", err)
+        self.assertIn("already passed today", err)
+
+    def test_day_word_with_explicit_date_rejected(self):
+        for text in ("tomorrow Mar 15 8pm", "tomorrow friday 4pm"):
+            with self.subTest(text=text):
+                when, err = parse_user_datetime(text, TZ, now=NOW)
+                self.assertIsNone(when)
+                self.assertIn("not both", err)
 
     def test_missing_timezone_returns_sentinel(self):
         when, err = parse_user_datetime("Sep 15 2026 8pm", None, now=NOW)
@@ -724,6 +815,19 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
 
+    def test_bare_time_reaches_the_confirm_prompt(self):
+        """A bare time used to be refused outright. It now resolves to the next
+        occurrence and gets the normal confirm prompt — the resolved date is shown
+        back as a <t:...> stamp, which is what makes the guess safe."""
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+        body = self.assertEphemeral(
+            di._handle_schedule_command(self._data(time="4pm")))
+        self.assertIn("<t:", body["data"]["content"])
+        self.assertNotIn("Please include a date", body["data"]["content"])
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
     def test_confirm_button_carries_owner_last(self):
         """The dispatcher owner-lock keys off the LAST custom_id arg."""
         self.player.timezone = TZ
@@ -1047,6 +1151,27 @@ class ScheduleTimezoneSelectTests(ScheduleFixtureMixin, TestCase):
         self.assertTrue(confirm["custom_id"].startswith("schedule_confirm:"))
         expected, _err = parse_user_datetime(self.TIME, TZ)
         self.assertEqual(self._confirm_ts(body), int(expected.timestamp()))
+
+    def test_bare_time_is_resolved_in_the_chosen_timezone(self):
+        """A bare time survives the picker and lands on 4pm local in whichever zone
+        was chosen.
+
+        Deliberately does NOT assert a fixed offset between the two coasts, the way
+        the dated case below can. A bare time is resolved relative to "now" in each
+        zone, so for the three UTC hours where 4pm has passed in New York but not in
+        Los Angeles the two roll to different days — asserting 3h here would fail
+        every evening."""
+        for zone in ("America/New_York", "America/Los_Angeles"):
+            with self.subTest(zone=zone):
+                body = self._body(di._handle_schedule_tz_zone(self._payload(
+                    "schedule_tz_zone", self.match.id, "AM", values=[zone],
+                    time_text="4pm")))
+                confirm = body["data"]["components"][0]["components"][0]
+                self.assertTrue(confirm["custom_id"].startswith("schedule_confirm:"))
+                local = datetime.fromtimestamp(
+                    self._confirm_ts(body), tz=ZoneInfo(zone))
+                self.assertEqual((local.hour, local.minute), (16, 0))
+                self.assertGreater(self._confirm_ts(body), 0)
 
     def test_changing_timezone_reparses_the_same_wall_clock_time(self):
         """The headline behavior: 8pm means 8pm wherever you actually are, so

@@ -100,7 +100,7 @@ SCHEDULE_COMMAND = {
         # Optional so that omitting it means "clear the current time" (the handler
         # asks for confirmation first, and errors when there's nothing to clear).
         {"name": "time",
-         "description": 'e.g. "Mar 15 8pm" or a pasted <t:...> timestamp — leave empty to clear',
+         "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste — leave empty to clear',
          "type": 3, "required": False},
         # Rarely needed: the handler asks for a timezone with a region/city picker
         # when it doesn't have one. This option stays because that picker is a
