@@ -912,16 +912,21 @@ def post_schedule_proposal_task(proposal_id, message_data):
     The id is the whole point: without it the proposal can't be edited later
     (superseded/cancelled) from outside its own interaction.
 
-    Bails out when the proposal stopped being OPEN while the task sat queued — e.g.
+    Bails out when the proposal stopped being LIVE while the task sat queued — e.g.
     another proposal finalized first. Posting live buttons for a dead proposal would
-    hand someone a control that could overwrite a confirmed time."""
+    hand someone a control that could overwrite a confirmed time.
+
+    is_live, NOT is_open: a fast roster can confirm everything before this task
+    runs, leaving the row AGREED and awaiting a moderator. Bailing on that would
+    never post the message at all, stranding the proposal with no message_id --
+    so nothing could later edit its buttons or sweep it."""
     from .models import ScheduleProposal
     from .services.discordservice import (
         post_channel_message_full, THREAD_OK, THREAD_ERROR,
     )
 
     proposal = ScheduleProposal.objects.filter(pk=proposal_id).first()
-    if not proposal or not proposal.is_open or not proposal.channel_id:
+    if not proposal or not proposal.is_live or not proposal.channel_id:
         return
 
     result, message_id = post_channel_message_full(
@@ -979,7 +984,7 @@ def cleanup_stale_schedule_proposals(max_age_days=14):
 
     now = timezone.now()
     stale = ScheduleProposal.objects.filter(
-        status=ScheduleProposal.Status.OPEN,
+        status__in=ScheduleProposal.LIVE_STATUSES,
     ).filter(
         Q(proposed_time__lt=now)
         | Q(created_at__lt=now - timedelta(days=max_age_days))

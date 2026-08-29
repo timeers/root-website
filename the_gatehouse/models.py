@@ -592,12 +592,24 @@ class ScheduleProposal(models.Model):
 
     class Status(models.TextChoices):
         OPEN = "open", "Open"
+        # Every roster player confirmed, but nobody who did could actually write
+        # the time (MODERATORS-only recording_access). The proposal waits here
+        # for a moderator to press Set Time. Still LIVE -- see LIVE_STATUSES.
+        AGREED = "agreed", "Agreed (awaiting a moderator)"
         CONFIRMED = "confirmed", "Confirmed"
         REJECTED = "rejected", "Rejected"
         SUPERSEDED = "superseded", "Superseded"   # another proposal won first
         # Retired without a human rejecting it: the time was cleared or directly
         # rewritten, the proposer lost permission, or the cleanup task expired it.
         CANCELLED = "cancelled", "Cancelled"
+
+    # The statuses that still compete for a match: a proposal in either can still
+    # become the scheduled time, so both must be swept when a time is set another
+    # way and both must be expired by the cleanup task. Query with
+    # `status__in=ScheduleProposal.LIVE_STATUSES`.
+    #
+    # Assigned after the class body -- a TextChoices member is not addressable as
+    # Status.OPEN from inside the class being defined.
 
     # Lazy string: this module never imports the_warroom at module level.
     match = models.ForeignKey(
@@ -641,7 +653,15 @@ class ScheduleProposal(models.Model):
 
     @property
     def is_open(self):
+        """EXACTLY open. Kept narrow on purpose: callers that mean "can still be
+        confirmed or rejected" want this, and must not silently start accepting
+        AGREED rows, whose confirmations are already complete."""
         return self.status == self.Status.OPEN
+
+    @property
+    def is_live(self):
+        """Still in play: open, or agreed and waiting on a moderator."""
+        return self.status in self.LIVE_STATUSES
 
     def pending_profiles(self):
         """Roster players who have not confirmed yet."""
@@ -654,6 +674,14 @@ class ScheduleProposal(models.Model):
         roster_ids = set(self.roster.values_list("pk", flat=True))
         return bool(roster_ids) and roster_ids <= set(
             self.confirmed_by.values_list("pk", flat=True))
+
+
+# See the note in ScheduleProposal.Status: assigned here because a TextChoices
+# member can't be referenced from inside its own class body.
+ScheduleProposal.LIVE_STATUSES = (
+    ScheduleProposal.Status.OPEN,
+    ScheduleProposal.Status.AGREED,
+)
 
 
 class Holiday(models.Model):

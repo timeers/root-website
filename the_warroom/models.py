@@ -773,12 +773,14 @@ class Tournament(models.Model):
         )
 
     def requires_schedule_confirmation(self):
-        """True when /schedule must collect every player's confirmation before it
-        writes a time. Requires BOTH the opt-in flag and players actually being
-        allowed to schedule — under MODERATORS-only access no player may set a
-        time, so there is nobody to poll and the moderator's word is already final."""
-        return (self.require_participant_schedule_confirmation
-                and self.players_can_record_matches())
+        """True when /schedule must collect every player's confirmation before a
+        time is written.
+
+        Deliberately does NOT consider recording_access. Being unable to SET a
+        time is no reason to be unable to say when you can play: under
+        MODERATORS-only access the roster still confirms, and the proposal then
+        waits on a moderator to press Set Time rather than writing itself."""
+        return self.require_participant_schedule_confirmation
 
     def players_can_record_standalone(self):
         """Registered players may record standalone games for rounds (REGISTERED, GUILD)."""

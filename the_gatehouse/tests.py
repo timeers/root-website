@@ -1614,11 +1614,17 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(self.match.scheduled_time)
 
     # ── responding to an LFG suggestion ──
-    def _respond(self, action, clicker, confirmed=None):
+    def _respond(self, action, clicker, confirmed=None, unavailable=None):
         embed = {"title": "🕐 Proposed time (not scheduled)", "description": "x"}
+        fields = []
         if confirmed:
-            embed["fields"] = [{"name": di.SCHEDULE_FREE_CONFIRMED_FIELD,
-                                "value": "\n".join(confirmed), "inline": False}]
+            fields.append({"name": di.SCHEDULE_FREE_CONFIRMED_FIELD,
+                           "value": "\n".join(confirmed), "inline": False})
+        if unavailable:
+            fields.append({"name": di.SCHEDULE_FREE_UNAVAILABLE_FIELD,
+                           "value": "\n".join(unavailable), "inline": False})
+        if fields:
+            embed["fields"] = fields
         payload = {
             "channel_id": self.UNLINKED_CHANNEL,
             "member": {"user": {"id": clicker, "username": "someone"}},
@@ -1649,12 +1655,48 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
                               confirmed=lines)
         self.assertEqual(len(again["embeds"][0]["fields"][0]["value"].splitlines()), 1)
 
-    def test_declining_removes_an_earlier_confirmation(self):
+    def test_declining_moves_a_confirmation_to_unavailable(self):
+        """Declining no longer just erases the confirmation -- it records that the
+        player answered, under ❌ Unavailable."""
         self._lfg_thread()
         first = self._respond("sched_lfg_ok", self.player.discord_id)
         lines = first["embeds"][0]["fields"][0]["value"].splitlines()
         after = self._respond("sched_lfg_no", self.player.discord_id, confirmed=lines)
-        self.assertEqual(after["embeds"][0].get("fields", []), [])
+        fields = after["embeds"][0].get("fields", [])
+        self.assertEqual([f["name"] for f in fields],
+                         [di.SCHEDULE_FREE_UNAVAILABLE_FIELD])
+        self.assertIn(f"<@{self.player.discord_id}>", fields[0]["value"])
+
+    def test_confirming_after_declining_moves_them_back(self):
+        self._lfg_thread()
+        declined = self._respond("sched_lfg_no", self.player.discord_id)
+        unavailable = declined["embeds"][0]["fields"][0]["value"].splitlines()
+        after = self._respond("sched_lfg_ok", self.player.discord_id,
+                              unavailable=unavailable)
+        fields = after["embeds"][0].get("fields", [])
+        self.assertEqual([f["name"] for f in fields],
+                         [di.SCHEDULE_FREE_CONFIRMED_FIELD])
+        self.assertIn(f"<@{self.player.discord_id}>", fields[0]["value"])
+
+    def test_a_player_is_never_in_both_lists(self):
+        self._lfg_thread()
+        data = self._respond("sched_lfg_ok", self.player.discord_id)
+        for _ in range(3):
+            lines = {f["name"]: f["value"].splitlines()
+                     for f in data["embeds"][0].get("fields", [])}
+            data = self._respond(
+                "sched_lfg_no", self.player.discord_id,
+                confirmed=lines.get(di.SCHEDULE_FREE_CONFIRMED_FIELD),
+                unavailable=lines.get(di.SCHEDULE_FREE_UNAVAILABLE_FIELD))
+            data = self._respond(
+                "sched_lfg_ok", self.player.discord_id,
+                confirmed=None,
+                unavailable=[f["value"] for f in data["embeds"][0].get("fields", [])
+                             if f["name"] == di.SCHEDULE_FREE_UNAVAILABLE_FIELD])
+        mention = f"<@{self.player.discord_id}>"
+        appearances = sum(
+            f["value"].count(mention) for f in data["embeds"][0].get("fields", []))
+        self.assertEqual(appearances, 1)
 
     def test_responding_writes_nothing(self):
         self._lfg_thread()
@@ -5541,29 +5583,32 @@ class RandomOptionsPanelTests(TestCase):
 
 class ScheduleConsensusGateTests(ScheduleFixtureMixin, TestCase):
     """_consensus_required decides which flow runs, and is the ONLY place that
-    decision is made. Both conditions must hold: the tournament opts in AND
-    players are actually allowed to schedule AND there's a roster to poll."""
+    decision is made. Two conditions: the tournament opts in AND there's a roster
+    to poll. recording_access is deliberately NOT one of them -- it governs who
+    may WRITE the time, not who may say when they're free."""
 
     def test_flag_defaults_true(self):
         self.build()
         self.assertTrue(self.tournament.require_participant_schedule_confirmation)
 
-    def test_requires_confirmation_needs_flag_and_recording_access(self):
+    def test_requires_confirmation_follows_the_flag_alone(self):
         self.build()
         self.assertTrue(self.tournament.requires_schedule_confirmation())
 
         self.tournament.require_participant_schedule_confirmation = False
         self.assertFalse(self.tournament.requires_schedule_confirmation())
 
-    def test_moderators_only_access_disables_consensus(self):
-        """MODERATORS is the DEFAULT recording_access, and there no player may
-        schedule — so staging a vote would ask people who aren't allowed to act."""
+    def test_moderators_only_access_still_polls_the_players(self):
+        """Being unable to SET a time is no reason to be unable to say when you
+        can play. Under MODERATORS access the roster still confirms; the write
+        then waits on a moderator pressing Set Time."""
         self.build(recording_access=Tournament.RecordingAccessTypes.MODERATORS,
                    populate_group=True)
         self.assertTrue(self.tournament.require_participant_schedule_confirmation)
-        self.assertFalse(self.tournament.requires_schedule_confirmation())
-        required, _roster = di._consensus_required(self.match)
-        self.assertFalse(required)
+        self.assertTrue(self.tournament.requires_schedule_confirmation())
+        required, roster = di._consensus_required(self.match)
+        self.assertTrue(required)
+        self.assertEqual(len(roster), 2)
 
     def test_seated_roster_enables_consensus_without_group_m2m(self):
         """A group populated by SEATS alone still gets consensus.
@@ -5765,17 +5810,22 @@ class ScheduleLegacyPathTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(int(self.match.scheduled_time.timestamp()), self.ts)
         self.assertEqual(ScheduleProposal.objects.count(), 0)
 
-    def test_moderators_access_writes_directly(self):
+    def test_moderators_access_now_opens_a_proposal(self):
+        """MODERATORS access used to skip consensus entirely. It now polls the
+        roster like any other tournament -- only the final write is reserved."""
         self.build(recording_access=Tournament.RecordingAccessTypes.MODERATORS,
                    populate_group=True)
-        di._handle_schedule_confirm({
-            "data": {"custom_id": di.encode_custom_id(
-                "schedule_confirm", self.match.id, self.ts, self.group_mod.discord_id)},
-            "guild_id": self.guild.guild_id, "channel_id": "555000111", "token": None,
-        })
+        with mock.patch.object(di.post_schedule_proposal_task, "delay"):
+            di._handle_schedule_confirm({
+                "data": {"custom_id": di.encode_custom_id(
+                    "schedule_confirm", self.match.id, self.ts,
+                    self.group_mod.discord_id)},
+                "guild_id": self.guild.guild_id, "channel_id": "555000111",
+                "token": None,
+            })
         self.match.refresh_from_db()
-        self.assertEqual(int(self.match.scheduled_time.timestamp()), self.ts)
-        self.assertEqual(ScheduleProposal.objects.count(), 0)
+        self.assertIsNone(self.match.scheduled_time)
+        self.assertEqual(ScheduleProposal.objects.count(), 1)
 
     def test_gate_is_rechecked_on_the_button_not_encoded(self):
         """Flipping the setting between prompt and click takes effect immediately."""
@@ -5810,6 +5860,109 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
 
     def _body(self, response):
         return json.loads(response.content)
+
+    def test_agreed_when_the_proposer_may_not_schedule(self):
+        """Consent and authority are separate. Under MODERATORS access the roster
+        can agree, but the time waits for someone allowed to write it."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.AGREED)
+        labels = [c["label"] for c in body["data"]["components"][0]["components"]]
+        self.assertEqual(labels, ["Set Time", "Reject"])
+
+    def test_set_time_refuses_a_player(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        body = self._body(di._handle_schedule_proposal_set(
+            self._payload(action="sched_prop_set")))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_set_time_writes_for_a_moderator(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        self._body(di._handle_schedule_proposal_set(self._payload(
+            action="sched_prop_set", user_id=self.group_mod.discord_id,
+            username="groupmod")))
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.scheduled_time, self.when)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
+
+    def test_confirm_is_refused_once_agreed(self):
+        """Consent is already complete there -- only Set Time and Reject apply."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("already agreed", body["data"]["content"])
+
+    def test_a_moderator_can_reject_an_agreed_time(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            self._body(di._handle_schedule_proposal_reject(self._payload(
+                action="sched_prop_no", user_id=self.group_mod.discord_id,
+                username="groupmod")))
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_a_player_cannot_reject_an_agreed_time(self):
+        """Rejecting a time still being negotiated is ordinary; destroying a
+        completed agreement on one late click undoes everyone else's work."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        body = self._body(di._handle_schedule_proposal_reject(
+            self._payload(action="sched_prop_no")))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("Ask a moderator", body["data"]["content"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.AGREED)
+
+    def test_a_player_can_still_reject_an_open_time(self):
+        """The narrowing applies only to AGREED -- an open proposal is unchanged."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            self._body(di._handle_schedule_proposal_reject(
+                self._payload(action="sched_prop_no")))
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+
+    def test_an_agreed_proposal_is_still_swept(self):
+        """AGREED is live, so it must not survive a time set another way."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                di._cancel_open_proposals(self.match, "cancelled")
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+
+    def test_an_agreed_proposal_is_still_expired(self):
+        from the_gatehouse.tasks import cleanup_stale_schedule_proposals
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        di._handle_schedule_proposal_confirm(self._payload())
+        ScheduleProposal.objects.filter(pk=self.proposal.pk).update(
+            proposed_time=timezone.now() - timedelta(days=1))
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            cleanup_stale_schedule_proposals()
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
 
     def test_non_roster_clicker_refused(self):
         body = self._body(di._handle_schedule_proposal_confirm(
@@ -6216,11 +6369,40 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         self.assertIn(f"<@{self.player.discord_id}>", fields["✅ Confirmed"])
         self.assertNotIn(f"<@{self.player.discord_id}>", fields["Waiting on"])
 
-    def test_first_post_mentions_but_edits_do_not(self):
+    def test_pings_are_off_so_nothing_notifies(self):
+        """SCHEDULE_PROPOSAL_PINGS is off: no content line and no open mentions,
+        even on the first post. The embed still names who is waiting."""
         first = di._schedule_proposal_data(self.proposal, self.match, mention=True)
-        self.assertEqual(first["allowed_mentions"]["parse"], ["users"])
+        self.assertNotIn("content", first)
+        self.assertEqual(first["allowed_mentions"]["parse"], [])
         edit = di._schedule_proposal_data(self.proposal, self.match)
+        self.assertNotIn("content", edit)
         self.assertEqual(edit["allowed_mentions"]["parse"], [])
+
+    def test_enabling_pings_mentions_the_pending_players(self):
+        """The disabled path must keep working, so exercise it explicitly."""
+        with mock.patch.object(di, "SCHEDULE_PROPOSAL_PINGS", True):
+            first = di._schedule_proposal_data(
+                self.proposal, self.match, mention=True)
+            edit = di._schedule_proposal_data(self.proposal, self.match)
+        pending = list(self.proposal.pending_profiles())
+        self.assertTrue(pending, "fixture needs someone still to confirm")
+        for profile in pending:
+            if profile.discord_id:
+                self.assertIn(f"<@{profile.discord_id}>", first["content"])
+        self.assertEqual(first["allowed_mentions"]["parse"], ["users"])
+        # Still only the FIRST post -- an edit carries no mention line.
+        self.assertNotIn("content", edit)
+
+    def test_an_unlinked_player_is_not_pinged_but_is_still_named(self):
+        unlinked = Profile.objects.create(discord="nolink", display_name="No Link")
+        self.proposal.roster.add(unlinked)
+        with mock.patch.object(di, "SCHEDULE_PROPOSAL_PINGS", True):
+            data = di._schedule_proposal_data(
+                self.proposal, self.match, mention=True)
+        self.assertNotIn("No Link", data.get("content", ""))
+        waiting = data["embeds"][0]["fields"][0]["value"]
+        self.assertIn("No Link", waiting)
 
     def test_rejected_view_does_not_name_the_rejecter(self):
         self.proposal.rejected_by = self.teammate
