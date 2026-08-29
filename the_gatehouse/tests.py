@@ -1682,6 +1682,94 @@ class UpcomingEmbedTimestampTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(self._scheduled_field(build_upcoming_embed(self.match)))
 
 
+class UpcomingEmbedSummaryTests(ScheduleFixtureMixin, TestCase):
+    """build_upcoming_embed's description. /upcoming keeps its "The next scheduled
+    game" wording; /schedule overrides it, since the match it just wrote isn't
+    necessarily the tournament's next one."""
+
+    def setUp(self):
+        self.build()
+
+    def test_upcoming_wording_is_the_default(self):
+        embed = build_upcoming_embed(self.match)
+        self.assertEqual(embed["description"], "The next scheduled game")
+
+    def test_filters_still_name_themselves(self):
+        embed = build_upcoming_embed(
+            self.match, series=self.tournament, player=self.player)
+        self.assertEqual(
+            embed["description"],
+            f"The next scheduled {self.tournament.name} game for {self.player.discord}")
+
+    def test_summary_override_replaces_description(self):
+        embed = build_upcoming_embed(self.match, summary="Scheduled by player")
+        self.assertEqual(embed["description"], "Scheduled by player")
+
+    def test_summary_none_drops_description(self):
+        # None is distinct from "not passed" — the key is omitted entirely rather
+        # than falling back to the /upcoming wording.
+        self.assertNotIn("description", build_upcoming_embed(self.match, summary=None))
+
+
+class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
+    """Neither /schedule announcement path may reuse /upcoming's "next scheduled
+    game" line — the title already says the match was just scheduled."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=2)).replace(microsecond=0)
+
+    def test_direct_write_names_the_scheduler_without_pinging(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        payload = {
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_confirm", self.match.pk, int(self.when.timestamp()),
+                self.player.discord_id)},
+            "guild_id": self.guild.guild_id,
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_consensus_required", return_value=(False, [])), \
+             mock.patch.object(di.post_interaction_followup_task, "apply_async") as followup:
+            di._handle_schedule_confirm(payload)
+
+        (_token, data), _kwargs = followup.call_args[0][0], followup.call_args[1]
+        description = data["embeds"][0]["description"]
+        self.assertEqual(description, f"Scheduled by {self.player.discord}")
+        self.assertNotIn("next scheduled", description)
+        # A raw mention would ping the clicker: this followup sets no
+        # allowed_mentions, so the name must stay plain text.
+        self.assertNotIn("<@", description)
+
+    def test_consensus_finalized_view_has_no_description(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player)
+        proposal.confirmed_by.add(self.player)
+
+        embed = di._schedule_finalized_data(proposal, self.match)["embeds"][0]
+        self.assertNotIn("description", embed)
+        self.assertIn("scheduled", embed["title"])
+        # The roster field is what reports who agreed; it survives the override.
+        self.assertTrue(
+            any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
+
+    def test_builder_failure_falls_back_without_doubling_the_title(self):
+        """The fallback title is prefixed and suffixed by the caller below it, so it
+        must not carry its own '🗓️'/'scheduled' — that read '🗓️ 🗓️ Scheduled
+        scheduled'."""
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player)
+        with mock.patch.object(di, "build_upcoming_embed", side_effect=ValueError):
+            embed = di._schedule_finalized_data(proposal, self.match)["embeds"][0]
+
+        self.assertEqual(embed["title"].count("🗓️"), 1)
+        self.assertEqual(embed["title"].lower().count("scheduled"), 1)
+        self.assertTrue(
+            any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
+
+
 class ScheduleAutocompleteTests(TestCase):
 
     def test_timezone_autocomplete_shape(self):

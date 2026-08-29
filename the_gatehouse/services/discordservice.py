@@ -2127,6 +2127,11 @@ def build_stats_embed(stats, *, player=None, faction=None, tournament=None, plat
     return {k: v for k, v in embed.items() if v is not None}
 
 
+# Distinguishes "caller didn't pass a summary" (use the /upcoming wording) from
+# an explicit summary=None (drop the description). A plain None default can't.
+_UNSET = object()
+
+
 def _upcoming_summary(series, player):
     """One-line summary naming the active /upcoming filters, e.g.
     "The next scheduled Brand New Series game for MrMirz". Drops whichever
@@ -2141,8 +2146,8 @@ def _upcoming_summary(series, player):
     return f"The next scheduled{series_part} game{player_part}"
 
 
-def build_upcoming_embed(match, series=None, player=None):
-    """Build a Discord embed for the next scheduled match.
+def build_upcoming_embed(match, series=None, player=None, summary=_UNSET):
+    """Build a Discord embed for a scheduled match.
 
     Links to the matches page that contains the match (via
     Match.get_matches_url, which adapts to the tournament's stage/round layout),
@@ -2154,6 +2159,11 @@ def build_upcoming_embed(match, series=None, player=None):
     "The next scheduled Brand New Series game for MrMirz". They reflect the
     user's filters, not the match — so an unfiltered search omits the series
     even though the match belongs to a tournament.
+
+    `summary` overrides that description for callers that aren't /upcoming.
+    /schedule announces the match it just wrote, which isn't necessarily the
+    *next* one in the tournament, so it passes its own line (or None to drop
+    the description entirely). Left unset, the /upcoming wording is used.
     """
     site_url = config.get("SITE_URL", "").rstrip("/")
     round = match.round
@@ -2162,7 +2172,8 @@ def build_upcoming_embed(match, series=None, player=None):
     embed = {
         "title": match.name or "Upcoming Match",
         "url": f"{site_url}{match.get_matches_url()}" if site_url else None,
-        "description": _upcoming_summary(series, player),
+        "description": (_upcoming_summary(series, player)
+                        if summary is _UNSET else summary),
     }
     if tournament:
         embed["author"] = {"name": tournament.name}

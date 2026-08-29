@@ -613,7 +613,7 @@ def _is_no_match(match_id):
 # has to avoid is someone believing they scheduled a game on the site when they only
 # suggested a time in a Discord thread, so this is deliberately not softened.
 SCHEDULE_UNLINKED_NOTE = (
-    "-# This isn't linked to a game on the site — it's just a time for this thread.")
+    "-# This isn't linked to a game on the site.")
 
 
 def _schedule_profile(discord_id, username=None, author=None):
@@ -1170,17 +1170,25 @@ def _schedule_rejected_data(proposal):
 def _schedule_finalized_data(proposal, match):
     """The 'game has been scheduled' view: the standard announcement embed plus the
     roster who agreed to it. build_upcoming_embed is treated as fallible here for
-    the same reason the legacy confirm path does."""
+    the same reason the legacy confirm path does.
+
+    summary=None drops that builder's "The next scheduled game" line: it's
+    /upcoming's wording, and the match just scheduled here isn't necessarily the
+    next one in the tournament. The title and the Confirmed-by field already say
+    what happened."""
     try:
-        embed = build_upcoming_embed(match)
+        embed = build_upcoming_embed(match, summary=None)
     except Exception:
         logger.exception("Failed to build /schedule announcement embed")
         embed = None
-    if not embed:
+    # `is None` rather than a falsy check: the builder strips None values, and with
+    # summary=None an embed can legitimately come back without a description. A
+    # bare `not embed` would treat such a sparse embed as a failure and fall
+    # through to the fallback, whose title would then get double-prefixed below.
+    if embed is None:
         embed = {
-            "title": "🗓️ Scheduled",
-            "description": (f"**{_match_label(match)}**\n"
-                            f"{format_discord_timestamp(proposal.proposed_time)}"),
+            "title": _match_label(match),
+            "description": format_discord_timestamp(proposal.proposed_time),
         }
     embed = dict(embed)
     embed["title"] = f"🗓️ {embed.get('title') or _match_label(match)} scheduled"
@@ -1492,7 +1500,15 @@ def _handle_schedule_confirm(payload):
     token = payload.get("token")
     if token:
         try:
-            embed = build_upcoming_embed(match)
+            # Not /upcoming's "The next scheduled game" line — this announces the
+            # match just written, which needn't be the tournament's next one. No
+            # roster confirmed it on this path, so name who set the time. A plain
+            # display name, not _roster_name: that renders a mention, and this
+            # followup sets no allowed_mentions, so it would ping the very person
+            # who just clicked Confirm.
+            who = profile.display_name or profile.discord or profile.slug
+            embed = build_upcoming_embed(
+                match, summary=f"Scheduled by {who}" if who else None)
         except Exception:
             logger.exception("Failed to build /schedule announcement embed")
             embed = None
