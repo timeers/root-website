@@ -9,8 +9,8 @@
 <meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="Root Databot">
-<meta property="og:description" content="The Root Databot is a Discord bot for looking up Root stats, laws, factions and more.">
-<meta name="description" content="The Root Databot is a Discord bot for looking up Root stats, laws, factions and more.">
+<meta property="og:description" content="The Root Databot is a Discord bot integrated with the Root Database for recording games and looking up Root stats, laws and factions.">
+<meta name="description" content="The Root Databot is a Discord bot integrated with the Root Database for recording games and looking up Root stats, laws and factions.">
 {% endblock meta %}
 
 
@@ -28,8 +28,7 @@
           Faction details, rules lookups, drafts, and random rolls in Discord.
         </p>
         {% if invite_url %}
-        <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
-           class="databot-btn databot-btn-hero">
+        <a href="{% url 'databot-add' %}" class="databot-btn databot-btn-hero">
           <i class="bi bi-discord me-2"></i>Add to Server
         </a>
         {% endif %}
@@ -164,14 +163,19 @@
 
       <div class="text-center mb-4 d-flex flex-wrap justify-content-center gap-3">
         {% if invite_url %}
-        <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
-           class="databot-btn databot-btn-primary">
+        <a href="{% url 'databot-add' %}" class="databot-btn databot-btn-primary">
           <i class="bi bi-discord me-2"></i>Add Databot to Your Server
         </a>
         {% endif %}
+        {% comment %}
+        Guild management is player-gated, so a logged-out visitor clicking through would
+        land on the Woodland Warriors page rather than their guilds. Hide it instead.
+        {% endcomment %}
+        {% if user_is_authenticated %}
         <a href="{% url 'manage-guilds' %}" class="databot-btn databot-btn-outline">
           <i class="bi bi-gear me-2"></i>Manage your Guilds
         </a>
+        {% endif %}
       </div>
 
       <!-- Discord notifications -->

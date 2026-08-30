@@ -12,7 +12,7 @@ from .views import (user_settings, player_page_view, dwd_profile_redirect,
                     guild_join_request, guild_invite_view, pending_guild_invites, pending_posts,
                     approve_guild_invite, reject_guild_invite, mark_guild_invite_clicked,
                     approve_post, reject_post, dismiss_notification, dismiss_global_message, add_guild_from_invite,
-                    woodland_warriors_info, databot_info, databot_added, set_global_message, send_notification,
+                    woodland_warriors_info, databot_info, databot_add, databot_added, set_global_message, send_notification,
                     manage_themes, manage_theme_edit, manage_theme_images,
                     hx_save_foreground_image, hx_delete_foreground_image,
                     hx_save_background_image, hx_delete_background_image,
@@ -77,6 +77,7 @@ urlpatterns = [
 
 
     path('databot/', databot_info, name='databot-info'),
+    path('databot/add/', databot_add, name='databot-add'),
     path('databot/added/', databot_added, name='databot-added'),
 
     path('guild/', join_discord_server, name='join-discord-server'),

@@ -39,6 +39,7 @@ This update improves the LFG command functionality substantially.
 - new user profiles failed to save avatar correctly
 - fixed possible error where following the manage guild commands link from /help could 404 if the guild was not registered previously
 - moved forge feedback to the feedback category and out of the forge activity category
+- Databot info page shows meta tags now
 
 ## [1.13.3] - 2026-8-21 Post Spain Updates
 

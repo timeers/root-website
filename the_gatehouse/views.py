@@ -1595,12 +1595,11 @@ def woodland_warriors_info(request):
         'guild_icon_url': guild_icon_url,
     })
 
-@player_onboard_required
-def databot_info(request):
-    """Public landing page for the Root Database Discord bot: what it does, its
-    commands, and an 'Add to Server' invite. No login required."""
-    from .services.discord_commands import (grouped_commands, LFG_HELP_INTRO,
-                                            LFG_HELP_STEPS)
+def _databot_invite_url():
+    """Discord OAuth authorize URL that adds the bot to a guild, or None if unconfigured.
+
+    Shared by databot_info (to decide whether to show the CTAs) and databot_add (which
+    redirects to it once the visitor is signed in)."""
     from urllib.parse import quote
 
     with open('/etc/config.json') as config_file:
@@ -1621,13 +1620,24 @@ def databot_info(request):
     # the app's OAuth2 Redirects in the Discord Developer Portal or Discord rejects it.
     site_url = ext_config.get('SITE_URL', '').rstrip('/')
     redirect_uri = f"{site_url}/databot/added/"
-    invite_url = (
+    return (
         f"https://discord.com/oauth2/authorize?client_id={discord_id}"
         "&scope=bot+applications.commands"
         f"&permissions={LFG_BOT_PERMISSIONS}"
         "&response_type=code"
         f"&redirect_uri={quote(redirect_uri, safe='')}"
     ) if discord_id and site_url else None
+
+
+def databot_info(request):
+    """Public landing page for the Root Database Discord bot: what it does, its
+    commands, and an 'Add to Server' invite. No login required — link unfurlers are
+    anonymous, so gating this page would hide its Open Graph tags from Discord. The
+    'Add to Server' CTAs point at databot_add, which is where the login gate lives."""
+    from .services.discord_commands import (grouped_commands, LFG_HELP_INTRO,
+                                            LFG_HELP_STEPS)
+
+    invite_url = _databot_invite_url()
 
     # Whether the visitor shares a guild with the bot (Discord's DM requirement),
     # same check as the notification settings page. Public page: anonymous or
@@ -1645,6 +1655,21 @@ def databot_info(request):
         'can_receive_dms': can_receive_dms,
         'user_is_authenticated': request.user.is_authenticated,
     })
+
+
+@login_required
+def databot_add(request):
+    """Login gate in front of Discord's bot-invite flow.
+
+    /databot/ is public so unfurlers see its meta tags, but only signed-in users reach
+    Discord's authorize screen — databot_added needs a request.user to attach the new
+    guild to. @login_required (not player_onboard) deliberately matches databot_added,
+    so this never blocks someone who could complete the flow."""
+    invite_url = _databot_invite_url()
+    if not invite_url:
+        messages.error(request, "The Databot invite isn't configured right now.")
+        return redirect('databot-info')
+    return redirect(invite_url)
 
 
 @login_required
