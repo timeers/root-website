@@ -52,7 +52,7 @@
                 <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>{% trans 'Moderators' %}</h5>
             </div>
             <div class="card-body">
-                <p class="text-muted small mb-3">{% trans 'Moderators can edit this guild.' %}</p>
+                <p class="text-muted small mb-3">{% trans 'Choose moderators who can edit this guild.' %}</p>
 
                 <div class="mb-3">
                     <input type="text"
@@ -136,6 +136,8 @@
             <h5 class="mb-0"><i class="bi bi-people me-2"></i>{% trans 'LFG Roles' %}</h5>
         </div>
         <div class="card-body">
+            <p class="text-muted small mb-3">{% trans 'Specify the LFG Roles the the bot can access.' %}</p>
+
             {% comment %} Single page-level forum→tag map, read by every LFG-role form to
             build the tag <select> client-side. Wrapped so each add/edit/delete response can
             refresh it out-of-band (see partials/lfg_forum_tag_blob.html), keeping it from
@@ -164,6 +166,7 @@
             <h5 class="mb-0"><i class="bi bi-hash me-2"></i>{% trans 'Series Channels' %}</h5>
         </div>
         <div class="card-body">
+            <p class="text-muted small mb-3">{% trans 'Choose the channels to post schedules, results and new game threads in.' %}</p>
             {% if tournament_rows %}
                 <div id="tournament-channel-list">
                     {% for row in tournament_rows %}

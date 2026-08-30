@@ -616,7 +616,7 @@ def _is_no_match(match_id):
 # has to avoid is someone believing they scheduled a game on the site when they only
 # suggested a time in a Discord thread, so this is deliberately not softened.
 SCHEDULE_UNLINKED_NOTE = (
-    "-# This isn't linked to a game on the site.")
+    "-# This isn't linked to a specific game.")
 
 
 def _schedule_profile(discord_id, username=None, author=None):
@@ -1701,9 +1701,9 @@ def _open_schedule_proposal(payload, match, when, profile, roster):
     )
 
     content = (f"✔ Proposed {format_discord_timestamp(when)}. "
-               "I've asked the other players to confirm.")
+               "The other players will need to confirm.")
     if others:
-        content += ("\n-# Another time is also awaiting confirmation — whichever is "
+        content += ("\n-# Another time is also awaiting confirmation - whichever is "
                     "confirmed first wins.")
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -2328,15 +2328,27 @@ def _handle_help_command(data):
     appended. In a DM (no guild) the full command set is shown.
 
     Guilds with /lfg enabled get a `category` option (see help_command_for_guild);
-    category:LFG returns the LFG walkthrough instead of the command list."""
-    # Checked before the guild lookup: the LFG walkthrough needs no guild, whitelist or
-    # manage check, so this avoids a wasted query. _get_option returns None when the
-    # option is absent, which is the bare-/help case. A stale category:LFG from an old
-    # registration still renders the walkthrough rather than erroring.
+    category:LFG returns the LFG walkthrough instead of the command list, trimmed to the
+    commands that guild actually has enabled."""
+    # _get_option returns None when the option is absent, which is the bare-/help case.
     if _get_option(data, "category") == HELP_CATEGORY_LFG:
+        # One indexed lookup on the unique guild_id, narrower than the full-row fetch the
+        # command-list branch below already runs -- worth it so the walkthrough never
+        # tells a server to use a command Discord won't offer it. str() to match
+        # _guild_allows; the value arrives from Discord as a string either way.
+        guild_id = data.get("_guild_id")
+        enabled_names = None
+        if guild_id:
+            enabled_names = (DiscordGuild.objects
+                             .filter(guild_id=str(guild_id))
+                             .values_list("enabled_commands", flat=True)
+                             .first()) or []
+        # A stale category:LFG from an old registration still renders rather than
+        # erroring. In a guild with no row that now means the trimmed-to-nothing-enabled
+        # walkthrough, matching how the branch below treats an absent row.
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": {"embeds": [build_lfg_help_embed()], "flags": EPHEMERAL},
+            "data": {"embeds": [build_lfg_help_embed(enabled_names)], "flags": EPHEMERAL},
         })
 
     guild_id = data.get("_guild_id")

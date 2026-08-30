@@ -3254,6 +3254,58 @@ class LFGHelpContentTests(TestCase):
                 with self.subTest(command=name):
                     self.assertIn(name, dc.WHITELISTABLE)
 
+    def test_every_required_command_exists(self):
+        """A renamed command would otherwise strand its step: `requires` would never be
+        satisfied and the step would vanish from every guild's walkthrough."""
+        for step in dc.LFG_HELP_STEPS:
+            for name in step.get("requires", []):
+                with self.subTest(step=step["title"], command=name):
+                    self.assertIn(name, dc.WHITELISTABLE)
+
+    def test_no_whitelist_returns_every_step(self):
+        self.assertEqual(dc.lfg_help_steps_for_guild(None), list(dc.LFG_HELP_STEPS))
+
+    def test_full_whitelist_returns_every_step_with_every_chip(self):
+        steps = dc.lfg_help_steps_for_guild(dc.WHITELISTABLE)
+        self.assertEqual(len(steps), len(dc.LFG_HELP_STEPS))
+        for got, original in zip(steps, dc.LFG_HELP_STEPS):
+            self.assertEqual(got.get("commands"), original.get("commands"))
+
+    def test_lfg_only_guild_drops_the_record_and_chip_steps(self):
+        """A guild with nothing but /lfg: the chip step has no chips left and both
+        /record steps are gone, leaving the three steps about /lfg itself."""
+        steps = dc.lfg_help_steps_for_guild(["lfg"])
+        self.assertEqual([s["title"] for s in steps],
+                         [s["title"] for s in dc.LFG_HELP_STEPS[:3]])
+
+        embed = build_lfg_help_embed(["lfg"])
+        self.assertEqual(len(embed["fields"]), 3)
+        rendered = embed["description"] + "".join(f["value"] for f in embed["fields"])
+        self.assertNotIn("`/record`", rendered)
+
+    def test_partial_whitelist_keeps_only_the_enabled_chips(self):
+        enabled = ["lfg", "record", "draft"]
+        steps = dc.lfg_help_steps_for_guild(enabled)
+        self.assertEqual(len(steps), len(dc.LFG_HELP_STEPS))
+
+        chip_step = next(s for s in steps if s.get("commands"))
+        self.assertEqual([name for name, _ in chip_step["commands"]], ["draft"])
+
+        value = self._field_for(build_lfg_help_embed(enabled), chip_step["title"])["value"]
+        self.assertIn("`/draft`", value)
+        self.assertNotIn("`/seating`", value)
+
+    def test_renumbering_closes_the_gap_left_by_a_dropped_step(self):
+        """Dropped steps must not leave a hole in the sequence."""
+        fields = build_lfg_help_embed(["lfg"])["fields"]
+        self.assertEqual([f["name"].split(".")[0] for f in fields], ["1", "2", "3"])
+
+    def test_filtering_never_mutates_the_shared_steps(self):
+        chip_step = next(s for s in dc.LFG_HELP_STEPS if s.get("commands"))
+        before = len(chip_step["commands"])
+        dc.lfg_help_steps_for_guild(["lfg", "draft"])
+        self.assertEqual(len(chip_step["commands"]), before)
+
     def test_embed_stays_within_discord_limits_without_truncating(self):
         embed = build_lfg_help_embed()
         total = len(embed["title"]) + len(embed["description"])
@@ -3285,10 +3337,18 @@ class LFGHelpContentTests(TestCase):
         self.assertNotIn("<script>", html)
         self.assertIn('<code class="databot-inline-cmd">/record</code>', html)
 
+    def _field_for(self, embed, title):
+        """The embed field for a step, found by title rather than by position.
+
+        Fields are numbered "N. Title" by the builder's enumerate, so a filtered
+        walkthrough shifts every field after a dropped step -- indexing positionally
+        would silently assert against the wrong one."""
+        return next(f for f in embed["fields"] if f["name"].endswith(title))
+
     def test_step_commands_render_as_chips_after_the_body(self):
-        """Step 3's body ends in a colon introducing its chips."""
+        """The in-thread-commands step's body ends in a colon introducing its chips."""
         step = next(s for s in dc.LFG_HELP_STEPS if s.get("commands"))
-        value = build_lfg_help_embed()["fields"][dc.LFG_HELP_STEPS.index(step)]["value"]
+        value = self._field_for(build_lfg_help_embed(), step["title"])["value"]
         self.assertIn(step["body"].rstrip()[-20:], value)
         for name, _ in step["commands"]:
             self.assertIn(f"`/{name}`", value)
@@ -3316,6 +3376,37 @@ class HelpCommandHandlerTests(TestCase):
         for options in ([], [{"name": "category", "value": dc.HELP_CATEGORY_LFG}]):
             with self.subTest(options=options):
                 self.assertEqual(self._help(options=options)["flags"], di.EPHEMERAL)
+
+    def _lfg_help(self, **data):
+        data["options"] = [{"name": "category", "value": dc.HELP_CATEGORY_LFG}]
+        embed = self._help(**data)["embeds"][0]
+        return embed["description"] + "".join(f["value"] for f in embed["fields"])
+
+    def test_lfg_walkthrough_is_trimmed_to_the_guilds_commands(self):
+        DiscordGuild.objects.create(guild_id="900100", name="LFG Only",
+                                    enabled_commands=["lfg"])
+        self.assertNotIn("`/record`", self._lfg_help(_guild_id="900100"))
+
+    def test_lfg_walkthrough_keeps_steps_for_enabled_commands(self):
+        DiscordGuild.objects.create(guild_id="900200", name="LFG Plus",
+                                    enabled_commands=["lfg", "record"])
+        self.assertIn("`/record`", self._lfg_help(_guild_id="900200"))
+
+    def test_lfg_walkthrough_in_a_dm_is_unfiltered(self):
+        """No guild_id -> no whitelist to consult, so show everything."""
+        self.assertIn("`/record`", self._lfg_help())
+
+    def test_lfg_walkthrough_costs_one_query_in_a_guild_and_none_in_a_dm(self):
+        DiscordGuild.objects.create(guild_id="900300", name="Counted",
+                                    enabled_commands=["lfg", "record"])
+        with self.assertNumQueries(1):
+            self._lfg_help(_guild_id="900300")
+        with self.assertNumQueries(0):
+            self._lfg_help()
+
+    def test_lfg_walkthrough_for_an_absent_guild_row_shows_nothing_enabled(self):
+        """Matches how the command-list branch treats a missing row."""
+        self.assertNotIn("`/record`", self._lfg_help(_guild_id="404404"))
 
 
 class RegisterGuildCommandsBodyTests(TestCase):
