@@ -95,7 +95,7 @@ UPCOMING_COMMAND = {
 
 SCHEDULE_COMMAND = {
     "name": "schedule",
-    "description": "Set or clear the scheduled time for this thread's match",
+    "description": "Suggest or clear the scheduled time for this thread's match",
     "options": [
         # Optional so that omitting it means "clear the current time" (the handler
         # asks for confirmation first, and errors when there's nothing to clear).
@@ -311,6 +311,20 @@ def lfg_command_for_roles(roles):
 #   *text*              -> italics
 #   [label](url-name)   -> link, addressed by Django URL NAME so neither renderer ever
 #                          hardcodes a path (the embed reverses it against SITE_URL).
+#
+# Steps may also carry "requires": a list of command names the step is about. /help
+# filters the walkthrough to what a guild has actually enabled (see
+# lfg_help_steps_for_guild): a step is shown only when EVERY name in its "requires" is
+# enabled, and a step's `commands` chips are filtered to enabled ones -- a step that had
+# chips but has none left is dropped whole, since its body only introduces them. Steps
+# with neither key are unconditional. The public Databot page passes no whitelist and so
+# still renders every step.
+#
+# "setup_only" marks a step as server configuration done on the web (the Manage your
+# Guilds page) rather than something you do from Discord. build_lfg_help_embed drops
+# those, since someone running /help category:LFG is asking how to USE lfg and usually
+# isn't the person who can configure it; the Databot page renders them, which is where
+# the setup instructions belong.
 LFG_HELP_INTRO = (
     "`/lfg` posts a looking-for-game message in your server, pings the players who want "
     "to play, and gives the game its own thread. Everything rolled or looked up in that "
@@ -320,6 +334,7 @@ LFG_HELP_INTRO = (
 LFG_HELP_STEPS = [
     {
         "title": "Set up your LFG Roles",
+        "setup_only": True,
         "body": "Add one or more LFG roles for your server on the "
                 "[Manage your Guilds](manage-guilds) page (for example *Root TTS LFG* "
                 "and *Root Digital LFG*). Each role mentions a Discord role, so starting "
@@ -328,8 +343,9 @@ LFG_HELP_STEPS = [
     },
     {
         "title": "Choose where the Thread goes",
+        "setup_only": True,
         "body": "By default the game thread appears under the LFG message itself. If "
-                "you'd rather keep games tidy in one place, give the role a forum "
+                "you'd rather keep game threads in one place, give the role a forum "
                 "channel and each new game is created as a post there instead (you can "
                 "give the thread a tag as well).",
     },
@@ -364,12 +380,16 @@ LFG_HELP_STEPS = [
     },
     {
         "title": "Record the Result",
+        # Both closing steps are about /record, so a guild without it sees neither
+        # rather than being told to run a command Discord won't offer them.
+        "requires": ["record"],
         "body": "When the game is over, run `/record` in the thread. You'll get a link "
                 "to the game form with the players, seating, map, deck, and series "
                 "already filled in from everything the thread captured.",
     },
     {
         "title": "Results Post to the Thread",
+        "requires": ["record"],
         "body": "Once the game is saved, a link to the finished game is posted back in "
                 "the thread, so everyone who played can see the result without leaving "
                 "Discord.",
@@ -412,7 +432,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats", "upcoming"]),
-    ("Games", ["lfg", "seating", "pick", "rename", "schedule", "record"]),
+    ("Games", ["lfg", "seating", "pick", "schedule", "record", "rename"]),
     ("Random", ["draft", "random"]),
 ]
 
@@ -438,6 +458,37 @@ def commands_for_guild(enabled_names):
     command. Ignores unknown/removed names so a stale whitelist never breaks registration."""
     allowed = set(enabled_names) & set(WHITELISTABLE)
     return [c for c in COMMANDS if c["name"] == "help" or c["name"] in allowed]
+
+
+def lfg_help_steps_for_guild(enabled_names=None):
+    """LFG_HELP_STEPS reduced to what this guild can actually do.
+
+    enabled_names=None (the default -- the public Databot page, or a DM where there's no
+    whitelist to consult) returns every step unfiltered. Otherwise a step is kept only
+    when every name in its "requires" is enabled, and its `commands` chips are filtered
+    to enabled ones; a step that had chips but has none left is dropped, since its body
+    only introduces them.
+
+    Steps are copied before their chips are filtered, so the module-level LFG_HELP_STEPS
+    is never mutated (the same singleton-safety rule help_command_for_guild follows).
+    Renumbering is the caller's enumerate, so dropped steps close the gap automatically.
+    """
+    if enabled_names is None:
+        return list(LFG_HELP_STEPS)
+
+    enabled = set(enabled_names)
+    kept = []
+    for step in LFG_HELP_STEPS:
+        if not all(name in enabled for name in step.get("requires", ())):
+            continue
+        chips = step.get("commands")
+        if chips:
+            chips = [(name, blurb) for name, blurb in chips if name in enabled]
+            if not chips:
+                continue
+            step = {**step, "commands": chips}
+        kept.append(step)
+    return kept
 
 
 def grouped_commands():

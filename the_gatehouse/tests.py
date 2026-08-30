@@ -976,7 +976,7 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         body = self.assertEphemeral(
             di._handle_schedule_command(self._data(channel="123123123")))
         content = body["data"]["content"]
-        self.assertIn("isn't linked to a game on the site", content)
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, content)
         self.assertNotIn("couldn't find", content.lower())
 
     def test_used_in_plain_channel_also_offers_a_suggestion(self):
@@ -985,7 +985,7 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         data = self._data(channel="123123123")
         data["_channel_type"] = 0  # GUILD_TEXT, not a thread
         body = self.assertEphemeral(di._handle_schedule_command(data))
-        self.assertIn("isn't linked to a game on the site", body["data"]["content"])
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, body["data"]["content"])
 
     def test_outside_guild_rejected(self):
         body = self.assertEphemeral(di._handle_schedule_command(self._data(guild=None)))
@@ -1527,13 +1527,13 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
     def test_a_bare_channel_offers_an_unlinked_suggestion(self):
         data = self._body(di._handle_schedule_command(self._data()))["data"]
         self.assertEqual(data.get("flags"), di.EPHEMERAL)
-        self.assertIn("isn't linked to a game on the site", data["content"])
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, data["content"])
         self.assertNotIn("confirm", data["content"].lower())
 
     def test_an_lfg_thread_says_players_will_confirm(self):
         self._lfg_thread()
         data = self._body(di._handle_schedule_command(self._data()))["data"]
-        self.assertIn("isn't linked to a game on the site", data["content"])
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, data["content"])
         self.assertIn("confirm", data["content"].lower())
 
     def test_the_confirm_button_is_sched_free_not_schedule_confirm(self):
@@ -1579,7 +1579,7 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         # proposer, which looks like the feature silently doing nothing.
         self.assertNotIn("flags", message)
         embed = message["embeds"][0]
-        self.assertIn("isn't linked to a game on the site", embed["description"])
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, embed["description"])
         self.assertIn("🕐", embed["title"])
 
     def test_the_bare_post_has_no_confirm_buttons(self):
@@ -3254,6 +3254,86 @@ class LFGHelpContentTests(TestCase):
                 with self.subTest(command=name):
                     self.assertIn(name, dc.WHITELISTABLE)
 
+    def test_every_required_command_exists(self):
+        """A renamed command would otherwise strand its step: `requires` would never be
+        satisfied and the step would vanish from every guild's walkthrough."""
+        for step in dc.LFG_HELP_STEPS:
+            for name in step.get("requires", []):
+                with self.subTest(step=step["title"], command=name):
+                    self.assertIn(name, dc.WHITELISTABLE)
+
+    def test_no_whitelist_returns_every_step(self):
+        self.assertEqual(dc.lfg_help_steps_for_guild(None), list(dc.LFG_HELP_STEPS))
+
+    def test_full_whitelist_returns_every_step_with_every_chip(self):
+        steps = dc.lfg_help_steps_for_guild(dc.WHITELISTABLE)
+        self.assertEqual(len(steps), len(dc.LFG_HELP_STEPS))
+        for got, original in zip(steps, dc.LFG_HELP_STEPS):
+            self.assertEqual(got.get("commands"), original.get("commands"))
+
+    def test_lfg_only_guild_drops_the_record_and_chip_steps(self):
+        """A guild with nothing but /lfg: the chip step has no chips left and both
+        /record steps are gone, leaving the three steps about /lfg itself."""
+        steps = dc.lfg_help_steps_for_guild(["lfg"])
+        self.assertEqual([s["title"] for s in steps],
+                         [s["title"] for s in dc.LFG_HELP_STEPS[:3]])
+
+        # The embed drops the two setup steps on top of that, leaving only the step
+        # about /lfg itself.
+        embed = build_lfg_help_embed(["lfg"])
+        self.assertEqual(len(embed["fields"]), 1)
+        rendered = embed["description"] + "".join(f["value"] for f in embed["fields"])
+        self.assertNotIn("`/record`", rendered)
+
+    def test_partial_whitelist_keeps_only_the_enabled_chips(self):
+        enabled = ["lfg", "record", "draft"]
+        steps = dc.lfg_help_steps_for_guild(enabled)
+        self.assertEqual(len(steps), len(dc.LFG_HELP_STEPS))
+
+        chip_step = next(s for s in steps if s.get("commands"))
+        self.assertEqual([name for name, _ in chip_step["commands"]], ["draft"])
+
+        value = self._field_for(build_lfg_help_embed(enabled), chip_step["title"])["value"]
+        self.assertIn("`/draft`", value)
+        self.assertNotIn("`/seating`", value)
+
+    def test_renumbering_closes_the_gap_left_by_a_dropped_step(self):
+        """Dropped steps must not leave a hole in the sequence.
+
+        /lfg + /record drops the two setup steps and the chip step (no chips enabled)
+        from the middle of the walkthrough, so the survivors have to renumber."""
+        fields = build_lfg_help_embed(["lfg", "record"])["fields"]
+        self.assertEqual([f["name"].split(".")[0] for f in fields], ["1", "2", "3"])
+
+    def test_embed_omits_the_setup_steps_the_databot_page_keeps(self):
+        """The setup steps are web-side configuration: the Databot page renders them,
+        /help category:LFG does not. Both the guild and the DM (None) path drop them."""
+        setup_titles = [s["title"] for s in dc.LFG_HELP_STEPS if s.get("setup_only")]
+        self.assertTrue(setup_titles, "no step is marked setup_only")
+
+        # Still present for the Databot page, which passes no whitelist.
+        page_titles = [s["title"] for s in dc.lfg_help_steps_for_guild(None)]
+        for title in setup_titles:
+            self.assertIn(title, page_titles)
+
+        for enabled in (None, dc.WHITELISTABLE):
+            with self.subTest(enabled=enabled):
+                names = [f["name"] for f in build_lfg_help_embed(enabled)["fields"]]
+                for title in setup_titles:
+                    self.assertFalse(any(n.endswith(title) for n in names),
+                                     f"setup step {title!r} reached Discord")
+
+    def test_embed_starts_at_the_first_non_setup_step(self):
+        first = next(s for s in dc.LFG_HELP_STEPS if not s.get("setup_only"))
+        fields = build_lfg_help_embed(dc.WHITELISTABLE)["fields"]
+        self.assertEqual(fields[0]["name"], f"1. {first['title']}")
+
+    def test_filtering_never_mutates_the_shared_steps(self):
+        chip_step = next(s for s in dc.LFG_HELP_STEPS if s.get("commands"))
+        before = len(chip_step["commands"])
+        dc.lfg_help_steps_for_guild(["lfg", "draft"])
+        self.assertEqual(len(chip_step["commands"]), before)
+
     def test_embed_stays_within_discord_limits_without_truncating(self):
         embed = build_lfg_help_embed()
         total = len(embed["title"]) + len(embed["description"])
@@ -3285,10 +3365,18 @@ class LFGHelpContentTests(TestCase):
         self.assertNotIn("<script>", html)
         self.assertIn('<code class="databot-inline-cmd">/record</code>', html)
 
+    def _field_for(self, embed, title):
+        """The embed field for a step, found by title rather than by position.
+
+        Fields are numbered "N. Title" by the builder's enumerate, so a filtered
+        walkthrough shifts every field after a dropped step -- indexing positionally
+        would silently assert against the wrong one."""
+        return next(f for f in embed["fields"] if f["name"].endswith(title))
+
     def test_step_commands_render_as_chips_after_the_body(self):
-        """Step 3's body ends in a colon introducing its chips."""
+        """The in-thread-commands step's body ends in a colon introducing its chips."""
         step = next(s for s in dc.LFG_HELP_STEPS if s.get("commands"))
-        value = build_lfg_help_embed()["fields"][dc.LFG_HELP_STEPS.index(step)]["value"]
+        value = self._field_for(build_lfg_help_embed(), step["title"])["value"]
         self.assertIn(step["body"].rstrip()[-20:], value)
         for name, _ in step["commands"]:
             self.assertIn(f"`/{name}`", value)
@@ -3316,6 +3404,37 @@ class HelpCommandHandlerTests(TestCase):
         for options in ([], [{"name": "category", "value": dc.HELP_CATEGORY_LFG}]):
             with self.subTest(options=options):
                 self.assertEqual(self._help(options=options)["flags"], di.EPHEMERAL)
+
+    def _lfg_help(self, **data):
+        data["options"] = [{"name": "category", "value": dc.HELP_CATEGORY_LFG}]
+        embed = self._help(**data)["embeds"][0]
+        return embed["description"] + "".join(f["value"] for f in embed["fields"])
+
+    def test_lfg_walkthrough_is_trimmed_to_the_guilds_commands(self):
+        DiscordGuild.objects.create(guild_id="900100", name="LFG Only",
+                                    enabled_commands=["lfg"])
+        self.assertNotIn("`/record`", self._lfg_help(_guild_id="900100"))
+
+    def test_lfg_walkthrough_keeps_steps_for_enabled_commands(self):
+        DiscordGuild.objects.create(guild_id="900200", name="LFG Plus",
+                                    enabled_commands=["lfg", "record"])
+        self.assertIn("`/record`", self._lfg_help(_guild_id="900200"))
+
+    def test_lfg_walkthrough_in_a_dm_is_unfiltered(self):
+        """No guild_id -> no whitelist to consult, so show everything."""
+        self.assertIn("`/record`", self._lfg_help())
+
+    def test_lfg_walkthrough_costs_one_query_in_a_guild_and_none_in_a_dm(self):
+        DiscordGuild.objects.create(guild_id="900300", name="Counted",
+                                    enabled_commands=["lfg", "record"])
+        with self.assertNumQueries(1):
+            self._lfg_help(_guild_id="900300")
+        with self.assertNumQueries(0):
+            self._lfg_help()
+
+    def test_lfg_walkthrough_for_an_absent_guild_row_shows_nothing_enabled(self):
+        """Matches how the command-list branch treats a missing row."""
+        self.assertNotIn("`/record`", self._lfg_help(_guild_id="404404"))
 
 
 class RegisterGuildCommandsBodyTests(TestCase):
@@ -3502,7 +3621,8 @@ class DraftLFGSeatingTests(TestCase):
         payload = {
             "channel_id": channel_id,
             "token": "tok",
-            "data": {"custom_id": di.encode_custom_id("draft_build", 3, "tts", "111")},
+            # Current id shape: the has_draft flag sits before the owner snowflake.
+            "data": {"custom_id": di.encode_custom_id("draft_build", 3, "tts", "n", "111")},
             "message": {"id": "msg", "components": []},
         }
         if guild_id is not None:
@@ -3678,6 +3798,198 @@ class DraftLFGSeatingTests(TestCase):
         response, post = self._seat("gone")
         post.assert_not_called()
         self.assertIn("game thread", json.loads(response.content)["data"]["content"])
+
+
+class DraftClearTests(TestCase):
+    """/draft on a thread that ALREADY has a draft: the prompt says so, renames
+    Build to Recreate, and offers a pure Clear that drops the draft without
+    building a replacement. With no existing draft the flow is unchanged."""
+
+    THREAD_ID = "thread-910"
+    OWNER = "111"
+
+    def setUp(self):
+        # See DraftLFGSeatingTests.setUp -- saving a Faction rewrites the shared
+        # default image in place, and nothing here tests image handling.
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        designer = Profile.objects.create(discord="cleardesigner", discord_id="820")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Clear Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT,
+            )
+            for i in range(8)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+
+    def _make_draft(self):
+        draft = LFGDraft.objects.create(thread=self.thread, players=3)
+        for i, faction in enumerate(self.factions[:4], 1):
+            LFGDraftPick.objects.create(draft=draft, faction=faction, order=i)
+        return draft
+
+    def _prompt(self, players=None, channel_id=None):
+        data = {"_channel_id": channel_id or self.THREAD_ID, "_author_id": self.OWNER}
+        if players is not None:
+            data["options"] = [{"name": "players", "value": players}]
+        return json.loads(di._handle_draft_command(data).content)["data"]
+
+    def _buttons(self, data):
+        return data["components"][1]["components"]
+
+    def _clear(self, channel_id=None):
+        payload = {
+            "channel_id": channel_id or self.THREAD_ID,
+            "data": {"custom_id": di.encode_custom_id("draft_clear", self.OWNER)},
+        }
+        return json.loads(di._handle_draft_clear(payload).content)["data"]
+
+    # ── the prompt ──────────────────────────────────────────────────────────
+    def test_no_draft_leaves_the_flow_unchanged(self):
+        """The explicit requirement: without an existing draft nothing differs."""
+        data = self._prompt()
+        labels = [b["label"] for b in self._buttons(data)]
+        self.assertEqual(labels, ["Build Draft", "Cancel"])
+        self.assertNotIn("already has a draft", data["content"])
+
+    def test_an_existing_draft_offers_recreate_and_clear(self):
+        self._make_draft()
+        data = self._prompt()
+        buttons = self._buttons(data)
+        self.assertEqual([b["label"] for b in buttons],
+                         ["Recreate Draft", "Clear Draft", "Cancel"])
+        self.assertIn("already has a draft", data["content"])
+        # Destructive actions are red, like /schedule's Clear Time.
+        self.assertEqual(buttons[1]["style"], di.STYLE_DANGER)
+
+    def test_the_draft_is_detected_with_an_explicit_player_count(self):
+        """Regression: the thread used to be resolved only by the roster-size
+        lookup, which runs ONLY when `players` was omitted -- so `/draft players:4`
+        on a drafted thread silently showed the no-draft prompt."""
+        self._make_draft()
+        data = self._prompt(players=4)
+        self.assertIn("**4 Player Draft**", data["content"])
+        self.assertIn("already has a draft", data["content"])
+        self.assertEqual([b["label"] for b in self._buttons(data)],
+                         ["Recreate Draft", "Clear Draft", "Cancel"])
+
+    def test_clear_is_owner_locked_by_its_trailing_snowflake(self):
+        """The dispatcher's lock keys on the LAST arg looking like a snowflake, so
+        the flag must never be appended after the owner."""
+        self._make_draft()
+        clear = self._buttons(self._prompt())[1]
+        self.assertTrue(clear["custom_id"].endswith(f":{self.OWNER}"))
+        _action, args = di.decode_custom_id(clear["custom_id"])
+        self.assertEqual(args[-1], self.OWNER)
+
+    def test_changing_a_ban_keeps_the_clear_button(self):
+        """The select re-renders the WHOLE message, so the flag has to survive the
+        round trip or Clear vanishes on the first ban."""
+        self._make_draft()
+        select_id = self._prompt()["components"][0]["components"][0]["custom_id"]
+        payload = {"channel_id": self.THREAD_ID,
+                   "data": {"custom_id": select_id,
+                            "values": [self.factions[0].slug]}}
+        data = json.loads(di._handle_draft_select(payload).content)["data"]
+        self.assertEqual([b["label"] for b in self._buttons(data)],
+                         ["Recreate Draft", "Clear Draft", "Cancel"])
+        self.assertIn("already has a draft", data["content"])
+
+    def test_a_ban_on_an_undrafted_thread_stays_two_buttons(self):
+        select_id = self._prompt()["components"][0]["components"][0]["custom_id"]
+        payload = {"channel_id": self.THREAD_ID,
+                   "data": {"custom_id": select_id,
+                            "values": [self.factions[0].slug]}}
+        data = json.loads(di._handle_draft_select(payload).content)["data"]
+        self.assertEqual([b["label"] for b in self._buttons(data)],
+                         ["Build Draft", "Cancel"])
+
+    def test_build_still_reads_players_platform_and_owner(self):
+        """The inserted flag sits between platform and owner, so _parse_draft_state
+        (args[0]/args[1]) and the owner read (args[-1]) must both still land."""
+        self._make_draft()
+        build_id = self._buttons(self._prompt(players=5))[0]["custom_id"]
+        action, players, platform = di._parse_draft_state(build_id)
+        self.assertEqual((action, players), ("draft_build", 5))
+        self.assertEqual(platform, di.DRAFT_PLATFORM_TTS)
+        _a, args = di.decode_custom_id(build_id)
+        self.assertEqual(args[-1], self.OWNER)
+
+    # ── clearing ────────────────────────────────────────────────────────────
+    def test_clear_drops_the_draft_and_its_picks(self):
+        self._make_draft()
+        data = self._clear()
+        self.assertFalse(LFGDraft.objects.filter(thread=self.thread).exists())
+        self.assertFalse(LFGDraftPick.objects.exists())  # cascaded
+        self.assertEqual(data["components"], [])
+        self.assertIn("cleared", data["content"])
+
+    def test_clear_drops_draft_rolls_but_spares_the_rest_of_the_log(self):
+        """/random, /pick and the lookups share the roll log; only this command's
+        rows are ours to delete."""
+        self._make_draft()
+        LFGRoll.objects.create(thread=self.thread, kind="Faction",
+                               slug=self.factions[0].slug, source="draft")
+        LFGRoll.objects.create(thread=self.thread, kind="Map",
+                               slug="some-map", source="random")
+        LFGRoll.objects.create(thread=self.thread, kind="Faction",
+                               slug=self.factions[1].slug, source="pick")
+
+        self._clear()
+
+        sources = sorted(LFGRoll.objects.filter(thread=self.thread)
+                         .values_list("source", flat=True))
+        self.assertEqual(sources, ["pick", "random"])
+
+    def test_clear_leaves_the_seating_alone(self):
+        """A table redoing its draft hasn't asked to lose the order it agreed on."""
+        self._make_draft()
+        profile = Profile.objects.create(discord="seated", discord_id="921")
+        LFGSeat.objects.create(thread=self.thread, profile=profile, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        self._clear()
+
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.seating_set)
+        self.assertTrue(self.thread.seats.exists())
+
+    def test_clear_bumps_last_activity(self):
+        """Both deletes touch children only, so nothing saves the thread on its
+        own -- without an explicit bump an active thread ages toward cleanup."""
+        self._make_draft()
+        stale = timezone.now() - timedelta(days=200)
+        LFGThread.objects.filter(pk=self.thread.pk).update(last_activity=stale)
+
+        self._clear()
+
+        self.thread.refresh_from_db()
+        self.assertGreater(self.thread.last_activity, stale)
+
+    def test_clearing_a_thread_with_no_draft_says_so(self):
+        """The button is a second request: the draft can be gone by the time it's
+        pressed. LFGDraft.thread is a OneToOne, so this must not raise."""
+        data = self._clear()
+        self.assertIn("no draft", data["content"])
+        self.assertEqual(data["components"], [])
+
+    def test_clearing_a_vanished_thread_is_refused(self):
+        data = self._clear(channel_id="gone")
+        self.assertIn("game thread", data["content"])
+
+    def test_pick_pool_widens_back_after_a_clear(self):
+        """Why clearing matters: with a draft, the draft IS /pick's whole pool."""
+        self._make_draft()
+        self.assertEqual(len(di._pick_pool(self.thread)), 4)
+
+        self._clear()
+
+        self.thread.refresh_from_db()
+        self.assertEqual(len(di._pick_pool(self.thread)), len(self.factions))
 
 
 class SeatingCommandTests(TestCase):
