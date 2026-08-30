@@ -35,6 +35,7 @@ from .models import Profile, Language, Website, Changelog, DiscordGuild, Discord
 from .services.discordservice import (update_discord_avatar, get_discord_invite_info, get_user_guilds,
                                       get_guild_roles, get_guild_forum_channels, get_forum_channel_info,
                                       get_guild_text_channels, guild_channel_names,
+                                      refresh_guild_cache,
                                       bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
@@ -1888,6 +1889,35 @@ def hx_save_lfg_role(request, guild_id, pk=None):
 
 
 @login_required
+def refresh_guild_discord_cache(request, guild_id):
+    """Drop this guild's cached Discord reads and reload the page.
+
+    Roles/channels/tags are cached ~5 min with no invalidation, so something created in
+    Discord moments ago is invisible here (and, since the send-time channel check reads
+    the same lists, can't be posted to) until the TTL lapses. This is the manual escape
+    hatch. A full redirect rather than an HTMX swap: every dropdown on the page is built
+    from these lookups, so rebuilding the whole page is the honest refresh.
+    """
+    guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
+    if not can_moderate_guild(request.user.profile, guild):
+        raise PermissionDenied()
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+
+    refresh_guild_cache(guild.guild_id)
+    # bot_member is a DB column, not a cache entry -- re-probe it here too so a guild
+    # the bot just joined stops falling back to manual-entry inputs. The cache was just
+    # cleared, so this is a live call.
+    is_member = bot_in_guild(guild.guild_id)
+    if is_member != guild.bot_member:
+        guild.bot_member = is_member
+        guild.save(update_fields=['bot_member'])
+
+    messages.success(request, 'Refreshed roles and channels from Discord.')
+    return redirect('edit-guild', guild_id=guild.guild_id)
+
+
+@login_required
 def hx_delete_lfg_role(request, guild_id, pk):
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     if not can_moderate_guild(request.user.profile, guild):
@@ -2000,14 +2030,40 @@ def _tournament_channel_context(guild, form):
         text_channels = None
         forum_channels = None
 
+    game_threads_sel = str(form['game_threads_channel'].value() or '')
+    tag_sel = str(form['game_threads_tag'].value() or '')
+
+    # Pre-fetch every forum's tags so the tag dropdown can be rebuilt client-side with no
+    # round-trip when the forum changes. Mirrors _lfg_field_context; get_forum_channel_info
+    # is cached ~5 min (successes only) and a guild has few forums, so a cold cache costs a
+    # handful of GETs. A failed fetch still gets an (empty-tags) entry so the client can
+    # tell "known forum, no tags" from "nothing selected". `requires_tag` rides along so
+    # the template can mark the field required — a tag-required forum rejects every post
+    # without one, which is what breaks Create Game Threads.
+    forum_tag_map = {}
+    for f in (forum_channels or []):
+        finfo = get_forum_channel_info(f['id'])
+        if finfo and finfo['is_forum']:
+            forum_tag_map[f['id']] = {'requires_tag': finfo['requires_tag'], 'tags': finfo['tags']}
+        else:
+            forum_tag_map[f['id']] = {'requires_tag': False, 'tags': []}
+
+    # Name for the saved tag's seeded <option>, so an edit form is correct before JS runs.
+    tag_selected_name = next(
+        (t['name'] for t in forum_tag_map.get(game_threads_sel, {}).get('tags', [])
+         if t['id'] == tag_sel), '')
+
     return {
         'text_channels': text_channels,
         'text_channel_ids': [c['id'] for c in text_channels] if text_channels else [],
         'forum_channels': forum_channels,
         'forum_channel_ids': [c['id'] for c in forum_channels] if forum_channels else [],
+        'forum_tag_map': forum_tag_map,
         'results_selected': str(form['results_channel'].value() or ''),
         'schedule_selected': str(form['schedule_channel'].value() or ''),
-        'game_threads_selected': str(form['game_threads_channel'].value() or ''),
+        'game_threads_selected': game_threads_sel,
+        'tag_selected': tag_sel,
+        'tag_selected_name': tag_selected_name,
     }
 
 

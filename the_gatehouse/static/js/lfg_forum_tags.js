@@ -1,7 +1,12 @@
 /*
- * LFG-role form: build the forum-tag <select> options client-side from a single
- * page-level JSON map of forum→tags (embedded by the view as #lfg-forum-tags — see
- * edit_guild.html). No network round-trip.
+ * Forum-tag <select>s: build their options client-side from a page-level JSON map of
+ * forum→tags (embedded by the view via json_script — see edit_guild.html). No network
+ * round-trip.
+ *
+ * Serves TWO forms, which are identical in behaviour but have their own container, blob
+ * and channel/tag controls (see SCOPES): the LFG-role form and the series-channels form.
+ * A tag-required forum rejects every post without applied_tags, so both forms must be
+ * able to mark the tag required — sharing this logic keeps that rule in one place.
  *
  * The map is the single source of truth for the tag choices. The server seeds the tag
  * <select> only with the saved option (so an edit form is correct with no flash before
@@ -12,14 +17,35 @@
  *   - after each HTMX swap (edit forms / the reset add form swapped in later),
  *   - on every forum-channel change/input.
  * Event handlers are delegated on `document`, so newly-swapped forms need no rebinding.
- * Each rebuild scopes itself to its enclosing `.lfg-role-fields`, so multiple forms open
- * at once stay independent.
+ * Each rebuild scopes itself to its enclosing container, so multiple forms open at once
+ * stay independent.
  */
 (function () {
-  var BLOB_ID = 'lfg-forum-tags';
+  // Each scope: the container that bounds one form, the JSON blob holding its forum→tag
+  // map, and the channel select whose change triggers a rebuild. The tag select and hint
+  // are looked up inside the container, so they need no per-scope selector.
+  var SCOPES = [
+    {
+      fields: '.lfg-role-fields',
+      blob: 'lfg-forum-tags',
+      channel: '.js-forum-channel-select'
+    },
+    {
+      fields: '.tournament-channel-fields',
+      blob: 'tournament-forum-tags',
+      channel: '.js-game-threads-select'
+    }
+  ];
 
-  function forumMap() {
-    var el = document.getElementById(BLOB_ID);
+  function scopeFor(el) {
+    for (var i = 0; i < SCOPES.length; i++) {
+      if (el.closest(SCOPES[i].fields)) return SCOPES[i];
+    }
+    return null;
+  }
+
+  function forumMap(blobId) {
+    var el = document.getElementById(blobId);
     if (!el) return {};
     try { return JSON.parse(el.textContent) || {}; } catch (e) { return {}; }
   }
@@ -34,13 +60,15 @@
   }
 
   function rebuild(channelEl) {
-    var fields = channelEl.closest('.lfg-role-fields');
+    var scope = scopeFor(channelEl);
+    if (!scope) return;
+    var fields = channelEl.closest(scope.fields);
     if (!fields) return;
     var select = fields.querySelector('.js-forum-tag-select');
     var hint = fields.querySelector('.js-forum-tag-hint');
     if (!select) return;
 
-    var map = forumMap();
+    var map = forumMap(scope.blob);
     var channelId = (channelEl.value || '').trim();
     var entry = map[channelId];
     var prev = select.value; // keep the current/saved pick only if it's in this forum
@@ -72,20 +100,32 @@
     }
   }
 
-  // Rebuild the tag select for every LFG-role form under `root`.
+  // Every scope's channel selector, as one selector list.
+  var CHANNEL_SELECTOR = SCOPES.map(function (s) {
+    return s.fields + ' ' + s.channel;
+  }).join(', ');
+  // Same, for matching an event target directly (no container prefix — scopeFor()
+  // establishes which form the element belongs to).
+  var TARGET_SELECTOR = SCOPES.map(function (s) { return s.channel; }).join(', ');
+  // The manual-entry fallback only: `input` fires while typing an id when Discord's
+  // channel list couldn't be fetched. Restricted to <input> so it never double-fires
+  // alongside `change` on a <select>.
+  var INPUT_TARGET_SELECTOR = SCOPES.map(function (s) {
+    return 'input' + s.channel;
+  }).join(', ');
+
+  // Rebuild the tag select for every form under `root`.
   function syncAll(root) {
-    (root || document)
-      .querySelectorAll('.lfg-role-fields .js-forum-channel-select')
-      .forEach(rebuild);
+    (root || document).querySelectorAll(CHANNEL_SELECTOR).forEach(rebuild);
   }
 
   // A forum <select> change, or typing in the manual-fallback <input>.
   document.addEventListener('change', function (e) {
-    var el = e.target.closest('.js-forum-channel-select');
+    var el = e.target.closest(TARGET_SELECTOR);
     if (el) rebuild(el);
   });
   document.addEventListener('input', function (e) {
-    var el = e.target.closest('input.js-forum-channel-select');
+    var el = e.target.closest(INPUT_TARGET_SELECTOR);
     if (el) rebuild(el);
   });
 

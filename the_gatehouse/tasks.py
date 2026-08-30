@@ -617,7 +617,7 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
     """
     from the_warroom.models import Round, MatchSeries, Tournament
     from the_warroom.services.channel_posts import resolve_tournament_channel
-    from .services.discordservice import create_forum_thread_detailed
+    from .services.discordservice import create_forum_thread_result
     from .services.lfg_game import group_roster, link_group_thread
 
     round = Round.objects.filter(pk=round_id).select_related('stage').first()
@@ -642,6 +642,9 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
         return
 
     guild_snowflake = tournament.guild.guild_id
+    # Forums with Discord's "require tag" flag reject every post without applied_tags,
+    # so the tag is not decoration -- omitting it fails the whole batch with a 400.
+    tag_id = tournament.game_threads_tag
     created = skipped = failed = 0
     # discord_thread is blank=True WITHOUT null=True -- unlinked is "", never NULL.
     # An __isnull=True filter here would match nothing at all.
@@ -652,6 +655,7 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
                  .order_by('id'))
 
     rate_limited = False
+    bad_request = False
     for index, series in enumerate(series_qs):
         group = series.player_group
         # Re-check under the current row: the page's count may be minutes stale, and
@@ -677,8 +681,8 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
         if index:
             time.sleep(_THREAD_CREATE_INTERVAL)
 
-        thread_id, retry_after = create_forum_thread_detailed(
-            forum_id, title, content=content)
+        thread_id, retry_after, status = create_forum_thread_result(
+            forum_id, title, content=content, tag_id=tag_id)
 
         # A 429 is not a failure -- the request was refused for pacing, and the same
         # call will succeed after the wait. Without this the remaining groups would
@@ -688,11 +692,15 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
             wait = min(retry_after, _THREAD_CREATE_MAX_BACKOFF)
             logger.warning("create_match_threads_task: rate limited, waiting %ss", wait)
             time.sleep(wait)
-            thread_id, retry_after = create_forum_thread_detailed(
-                forum_id, title, content=content)
+            # The retry must carry the tag too -- without it a rate-limited item would
+            # fail again for an entirely unrelated reason.
+            thread_id, retry_after, status = create_forum_thread_result(
+                forum_id, title, content=content, tag_id=tag_id)
 
         if not thread_id:
             failed += 1
+            if status == 400:
+                bad_request = True
             continue
         # Compare-and-swap on discord_thread="" -- never clobbers a link written
         # concurrently, and builds the exact URL shape _match_thread_id parses back.
@@ -711,6 +719,13 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
         # Tell the user WHY, so a retry looks worthwhile rather than pointless.
         message += (" Discord rate limited the batch — press Create Game Threads "
                     "again to finish the rest.")
+    elif failed and bad_request and not tag_id:
+        # The overwhelmingly common 400 here: the forum has "require tag when posting"
+        # set and we sent no applied_tags. Retrying is pointless until a tag is chosen,
+        # so name the fix instead of inviting another identical failure.
+        message += (" Discord rejected the posts — this forum may require a tag. "
+                    "Set a game threads tag for this series in Edit Guild, then try "
+                    "again.")
     UserNotification.create_notification(
         profile, message,
         message_type=(MessageChoices.WARNING if failed else MessageChoices.SUCCESS),

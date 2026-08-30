@@ -18,7 +18,7 @@ from .views import (user_settings, player_page_view, dwd_profile_redirect,
                     hx_save_background_image, hx_delete_background_image,
                     manage_holidays, manage_holiday_edit,
                     manage_guilds, edit_guild, hx_save_lfg_role, hx_delete_lfg_role,
-                    hx_save_tournament_channels)
+                    hx_save_tournament_channels, refresh_guild_discord_cache)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 from .discord_interactions import discord_interactions
 urlpatterns = [
@@ -94,6 +94,7 @@ urlpatterns = [
     path('guild/<str:guild_id>/lfg-role/<int:pk>/edit/', hx_save_lfg_role, name='guild-lfg-role-edit'),
     path('guild/<str:guild_id>/lfg-role/<int:pk>/delete/', hx_delete_lfg_role, name='guild-lfg-role-delete'),
     path('guild/<str:guild_id>/tournament/<int:pk>/channels/', hx_save_tournament_channels, name='guild-tournament-channels'),
+    path('guild/<str:guild_id>/refresh-discord/', refresh_guild_discord_cache, name='guild-refresh-discord'),
 
     path('posts/pending/', pending_posts, name='pending-posts'),
     path('posts/<int:post_id>/approve/', approve_post, name='approve-post'),

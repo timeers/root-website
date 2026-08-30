@@ -9,6 +9,7 @@ from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth import login as auth_login
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.cache import cache
 from django.core.management import call_command
 from django.db.models.signals import post_save
 from django.http import HttpResponse
@@ -3009,6 +3010,94 @@ class TournamentChannelSecurityTests(_NoLoginSignalMixin, TestCase):
         sent, delay = self._post(field='game_threads_channel')
         self.assertFalse(sent)
         delay.assert_not_called()
+
+
+class RefreshGuildCacheTests(_NoLoginSignalMixin, TestCase):
+    """Discord reads are cached ~5 min with no invalidation, so a channel created
+    moments ago is invisible (and unpostable) until the TTL lapses. The Refresh button
+    is the escape hatch."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.guild = DiscordGuild.objects.create(guild_id="960100", name="Cache Guild",
+                                                 bot_member=True)
+        self.user = User.objects.create_user(username="cachemod", password="pw")
+        self.profile = self.user.profile
+        self.profile.group = "P"
+        self.profile.player_onboard = True
+        self.profile.save()
+        self.guild.guild_moderators.add(self.profile)
+        self.client.force_login(self.user)
+
+    def _url(self, guild_id=None):
+        return reverse("guild-refresh-discord", args=[guild_id or self.guild.guild_id])
+
+    def test_clears_every_guild_scoped_key(self):
+        from the_gatehouse.services.discordservice import refresh_guild_cache
+        gid = self.guild.guild_id
+        for key in (f"bot_in_guild:{gid}", f"guild_roles:{gid}",
+                    f"guild_role_perms:{gid}", f"guild_object:{gid}",
+                    f"guild_forum_channels:{gid}", f"guild_text_channels:{gid}"):
+            cache.set(key, ["stale"], 300)
+        refresh_guild_cache(gid)
+        for key in (f"bot_in_guild:{gid}", f"guild_roles:{gid}",
+                    f"guild_role_perms:{gid}", f"guild_object:{gid}",
+                    f"guild_forum_channels:{gid}", f"guild_text_channels:{gid}"):
+            self.assertIsNone(cache.get(key), key)
+
+    def test_clears_per_forum_tag_entries(self):
+        """forum_channel_info is keyed by CHANNEL id, not guild id — clearing only the
+        guild keys would leave newly-added forum tags stale."""
+        from the_gatehouse.services.discordservice import refresh_guild_cache
+        gid = self.guild.guild_id
+        cache.set(f"guild_forum_channels:{gid}", [{"id": "555", "name": "f"}], 300)
+        cache.set("forum_channel_info:555", {"is_forum": True, "tags": []}, 300)
+        refresh_guild_cache(gid)
+        self.assertIsNone(cache.get("forum_channel_info:555"))
+
+    def test_leaves_another_guilds_cache_alone(self):
+        from the_gatehouse.services.discordservice import refresh_guild_cache
+        cache.set("guild_roles:999999", ["keep"], 300)
+        refresh_guild_cache(self.guild.guild_id)
+        self.assertEqual(cache.get("guild_roles:999999"), ["keep"])
+
+    def test_post_refreshes_and_redirects(self):
+        gid = self.guild.guild_id
+        cache.set(f"guild_roles:{gid}", ["stale"], 300)
+        with mock.patch("the_gatehouse.views.bot_in_guild", return_value=True):
+            response = self.client.post(self._url())
+        self.assertRedirects(response, reverse("edit-guild", args=[gid]),
+                             fetch_redirect_response=False)
+        self.assertIsNone(cache.get(f"guild_roles:{gid}"))
+
+    def test_reprobes_bot_membership(self):
+        """bot_member is a DB column, not a cache entry — refresh re-probes it so a
+        just-invited bot stops forcing the manual-entry fallbacks."""
+        self.guild.bot_member = False
+        self.guild.save(update_fields=["bot_member"])
+        with mock.patch("the_gatehouse.views.bot_in_guild", return_value=True):
+            self.client.post(self._url())
+        self.guild.refresh_from_db()
+        self.assertTrue(self.guild.bot_member)
+
+    def test_get_is_not_allowed(self):
+        with mock.patch("the_gatehouse.views.bot_in_guild", return_value=True):
+            response = self.client.get(self._url())
+        self.assertEqual(response.status_code, 405)
+
+    def test_non_moderator_is_forbidden(self):
+        other = User.objects.create_user(username="cacheoutsider", password="pw")
+        other.profile.player_onboard = True
+        other.profile.save()
+        self.client.force_login(other)
+        gid = self.guild.guild_id
+        cache.set(f"guild_roles:{gid}", ["stale"], 300)
+        response = self.client.post(self._url())
+        self.assertEqual(response.status_code, 403)
+        # And nothing was cleared.
+        self.assertEqual(cache.get(f"guild_roles:{gid}"), ["stale"])
 
 
 class LFGCommandRefreshTests(_NoLoginSignalMixin, TestCase):
@@ -8053,15 +8142,16 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         self.group.tournament_players.add(tp)
 
     def _run(self, thread_id="777001", forum=None, side_effect=None):
-        """Runs the task with Discord stubbed. The task calls the _detailed variant,
-        which returns (thread_id, retry_after). Sleeps are patched out so pacing
-        doesn't slow the suite."""
+        """Runs the task with Discord stubbed. The task calls the _result variant, which
+        returns (thread_id, retry_after, status) -- the status lets it tell a 400 (e.g. a
+        forum that requires a tag) from a transient failure. Sleeps are patched out so
+        pacing doesn't slow the suite."""
         from the_gatehouse import tasks
-        return_value = (thread_id, None)
+        return_value = (thread_id, None, None)
         with mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
                         return_value=self.FORUM if forum is None else forum), \
              mock.patch("the_gatehouse.tasks.time.sleep") as self.sleep, \
-             mock.patch("the_gatehouse.services.discordservice.create_forum_thread_detailed",
+             mock.patch("the_gatehouse.services.discordservice.create_forum_thread_result",
                         **({"side_effect": side_effect} if side_effect
                            else {"return_value": return_value})) as create:
             tasks.create_match_threads_task(
@@ -8136,7 +8226,7 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
     def test_a_rate_limit_is_retried_not_counted_as_failed(self):
         """A 429 means "too fast", not "impossible" -- wait and retry the SAME group,
         instead of burning it and racing on to the next."""
-        create = self._run(side_effect=[(None, 2.5), ("777009", None)])
+        create = self._run(side_effect=[(None, 2.5, 429), ("777009", None, None)])
         self.assertEqual(create.call_count, 2)
         self.sleep.assert_any_call(2.5)          # honoured Discord's retry_after
         self.group.refresh_from_db()
@@ -8148,14 +8238,14 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
     def test_a_long_retry_after_is_capped(self):
         """Discord can ask for hundreds of seconds; don't park the worker that long."""
         from the_gatehouse import tasks
-        create = self._run(side_effect=[(None, 900.0), ("777010", None)])
+        create = self._run(side_effect=[(None, 900.0, 429), ("777010", None, None)])
         self.sleep.assert_any_call(tasks._THREAD_CREATE_MAX_BACKOFF)
         for call in self.sleep.call_args_list:
             self.assertLessEqual(call.args[0], tasks._THREAD_CREATE_MAX_BACKOFF)
 
     def test_a_persistent_rate_limit_explains_itself(self):
         """Still limited after the retry: report it as retryable, not a mystery."""
-        create = self._run(side_effect=[(None, 1.0), (None, 1.0)])
+        create = self._run(side_effect=[(None, 1.0, 429), (None, 1.0, 429)])
         note = UserNotification.objects.get(profile=self.actor)
         self.assertIn("1 failed", note.message)
         self.assertIn("rate limited", note.message)
@@ -8178,3 +8268,203 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(note.message_type, MessageChoices.WARNING)
         self.group.refresh_from_db()
         self.assertEqual(self.group.discord_thread, "")
+
+    # --- forum tags -------------------------------------------------------------
+    # A forum with "require tag when posting" rejects EVERY post without applied_tags.
+    # That is what made this feature fail in production while /lfg (which does pass a
+    # tag) kept working in the very same channel.
+
+    def test_the_configured_tag_is_sent(self):
+        self.tournament.game_threads_tag = "55501"
+        self.tournament.save()
+        create = self._run()
+        self.assertEqual(create.call_args.kwargs["tag_id"], "55501")
+
+    def test_no_tag_configured_sends_none(self):
+        create = self._run()
+        self.assertIsNone(create.call_args.kwargs["tag_id"])
+
+    def test_the_rate_limit_retry_also_carries_the_tag(self):
+        """The retry must not drop the tag, or a throttled item fails a second time for
+        an entirely unrelated reason."""
+        self.tournament.game_threads_tag = "55501"
+        self.tournament.save()
+        create = self._run(side_effect=[(None, 1.0, 429), ("777011", None, None)])
+        self.assertEqual(create.call_count, 2)
+        for call in create.call_args_list:
+            self.assertEqual(call.kwargs["tag_id"], "55501")
+
+    def test_a_400_with_no_tag_set_names_the_likely_cause(self):
+        """The production symptom: retrying is pointless until a tag is chosen, so say
+        so rather than inviting an identical failure."""
+        create = self._run(side_effect=[(None, None, 400)])
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertIn("may require a tag", note.message)
+        self.assertNotIn("rate limited", note.message)
+        self.assertEqual(note.message_type, MessageChoices.WARNING)
+
+    def test_a_400_with_a_tag_already_set_does_not_blame_the_tag(self):
+        """A tag IS configured, so the 400 is something else -- don't misdirect."""
+        self.tournament.game_threads_tag = "55501"
+        self.tournament.save()
+        self._run(side_effect=[(None, None, 400)])
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertNotIn("may require a tag", note.message)
+
+    def test_a_non_400_failure_does_not_blame_the_tag(self):
+        self._run(side_effect=[(None, None, 403)])
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 failed", note.message)
+        self.assertNotIn("may require a tag", note.message)
+
+
+class CreateForumThreadResultTests(TestCase):
+    """create_forum_thread_result: the payload it builds and what it reports back."""
+
+    CHANNEL = "300000000000000033"
+
+    def _post(self, status=None, json_body=None, text="", exc=None):
+        """Patch requests.post with a response that raise_for_status()es on `status`."""
+        import requests
+        resp = mock.Mock()
+        resp.status_code = status
+        resp.text = text
+        resp.json.return_value = json_body or {}
+        resp.headers = {}
+        if status and status >= 400:
+            err = requests.HTTPError(f"{status} Client Error", response=resp)
+            resp.raise_for_status.side_effect = err
+        else:
+            resp.raise_for_status.return_value = None
+        return mock.patch("the_gatehouse.services.discordservice.requests.post",
+                          return_value=resp)
+
+    def test_a_tag_becomes_applied_tags(self):
+        from the_gatehouse.services.discordservice import create_forum_thread_result
+        with self._post(json_body={"id": "77"}) as post:
+            thread_id, retry_after, status = create_forum_thread_result(
+                self.CHANNEL, "Group A", content="hi", tag_id="55501")
+        self.assertEqual(thread_id, "77")
+        self.assertIsNone(status)
+        self.assertEqual(post.call_args.kwargs["json"]["applied_tags"], ["55501"])
+
+    def test_no_tag_omits_applied_tags(self):
+        from the_gatehouse.services.discordservice import create_forum_thread_result
+        with self._post(json_body={"id": "77"}) as post:
+            create_forum_thread_result(self.CHANNEL, "Group A", content="hi")
+        self.assertNotIn("applied_tags", post.call_args.kwargs["json"])
+
+    def test_a_400_reports_its_status(self):
+        from the_gatehouse.services.discordservice import create_forum_thread_result
+        with self._post(status=400, json_body={"code": 40067}):
+            thread_id, retry_after, status = create_forum_thread_result(
+                self.CHANNEL, "Group A", content="hi")
+        self.assertIsNone(thread_id)
+        self.assertIsNone(retry_after)
+        self.assertEqual(status, 400)
+
+    def test_a_failure_logs_discord_status_and_body(self):
+        """str(e) alone hides the JSON error code naming the real cause."""
+        from the_gatehouse.services.discordservice import create_forum_thread_result
+        body = '{"message": "A tag is required...", "code": 40067}'
+        with self._post(status=400, json_body={"code": 40067}, text=body):
+            with self.assertLogs("the_gatehouse.services.discordservice",
+                                 level="ERROR") as logs:
+                create_forum_thread_result(self.CHANNEL, "Group A", content="hi")
+        logged = "\n".join(logs.output)
+        self.assertIn("400", logged)
+        self.assertIn("40067", logged)
+
+    def test_the_detailed_wrapper_still_returns_a_pair(self):
+        """rename_channel shares the (result, retry_after) shape; /lfg destructures it."""
+        from the_gatehouse.services.discordservice import create_forum_thread_detailed
+        with self._post(json_body={"id": "77"}):
+            result = create_forum_thread_detailed(self.CHANNEL, "Group A", content="hi")
+        self.assertEqual(result, ("77", None))
+
+
+class TournamentGuildChannelsFormTagTests(TestCase):
+    """Tag validation on the series-channels form. Catches a tag-required forum at SAVE
+    time, so the moderator fixes it here rather than discovering it as a round of failed
+    threads later."""
+
+    FORUM = [{"id": "300000000000000033", "name": "matches"}]
+    TEXT = [{"id": "200000000000000011", "name": "general"}]
+    TAGS = [{"id": "55501", "name": "Match"}, {"id": "55502", "name": "Final"}]
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="930100", name="Form Guild",
+                                                 bot_member=True)
+        self.tournament = Tournament.objects.create(name="Form Cup", guild=self.guild)
+
+    # Sentinel: `info=None` is a meaningful value (Discord unreachable), so it can't
+    # double as "not supplied".
+    _UNSET = object()
+
+    def _form(self, data, requires_tag=False, info=_UNSET):
+        """Bind the form with Discord's channel lists and forum info stubbed."""
+        from the_gatehouse.forms import TournamentGuildChannelsForm
+        finfo = ({"is_forum": True, "requires_tag": requires_tag, "tags": self.TAGS}
+                 if info is self._UNSET else info)
+        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+                        return_value=self.TEXT), \
+             mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+                        return_value=self.FORUM), \
+             mock.patch("the_gatehouse.services.discordservice.get_forum_channel_info",
+                        return_value=finfo):
+            form = TournamentGuildChannelsForm(
+                data, instance=self.tournament, guild=self.guild)
+            form.is_valid()
+        return form
+
+    def test_a_tag_required_forum_rejects_a_blank_tag(self):
+        form = self._form({'game_threads_channel': self.FORUM[0]['id'],
+                           'game_threads_tag': ''}, requires_tag=True)
+        self.assertIn('game_threads_tag', form.errors)
+
+    def test_a_tag_required_forum_accepts_a_valid_tag(self):
+        form = self._form({'game_threads_channel': self.FORUM[0]['id'],
+                           'game_threads_tag': '55501'}, requires_tag=True)
+        self.assertEqual(form.errors, {})
+        self.assertEqual(form.cleaned_data['game_threads_tag'], '55501')
+
+    def test_a_tag_from_another_forum_is_rejected(self):
+        form = self._form({'game_threads_channel': self.FORUM[0]['id'],
+                           'game_threads_tag': '99999'})
+        self.assertIn('game_threads_tag', form.errors)
+
+    def test_an_optional_tag_forum_saves_without_one(self):
+        form = self._form({'game_threads_channel': self.FORUM[0]['id'],
+                           'game_threads_tag': ''})
+        self.assertEqual(form.errors, {})
+        self.assertIsNone(form.cleaned_data['game_threads_tag'])
+
+    def test_an_unreachable_discord_still_saves(self):
+        """An API outage must not lock the settings page (same rule as GuildLFGRoleForm)."""
+        form = self._form({'game_threads_channel': self.FORUM[0]['id'],
+                           'game_threads_tag': ''}, info=None)
+        self.assertEqual(form.errors, {})
+
+    def test_a_tag_without_a_forum_is_dropped(self):
+        """No forum means the tag has nothing to belong to; don't store an orphan that
+        would silently reattach to a different forum later."""
+        form = self._form({'game_threads_channel': '', 'game_threads_tag': '55501'})
+        self.assertEqual(form.errors, {})
+        self.assertIsNone(form.cleaned_data['game_threads_tag'])
+
+    def test_repointing_the_guild_clears_the_tag(self):
+        """The tag belongs to the OLD guild's forum, so it goes with the channel."""
+        other = DiscordGuild.objects.create(guild_id="930999", name="Other",
+                                            bot_member=True)
+        self.tournament.game_threads_channel = self.FORUM[0]['id']
+        self.tournament.game_threads_tag = "55501"
+        self.tournament.save()
+
+        self.tournament.guild = other
+        self.tournament.save()
+
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.game_threads_channel)
+        self.assertIsNone(self.tournament.game_threads_tag)

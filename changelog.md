@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.4] - 2026-8-26 Bot Evolution
+## [1.13.4] - 2026-8-29 Bot Evolution
 This update improves the LFG command functionality substantially.
 
 ### New Features
@@ -28,8 +28,10 @@ This update improves the LFG command functionality substantially.
 - /help has an lfg option to explain how lfg works
 - /schedule can now take time by itself (4pm) or weekday and time (friday 4pm)
 - cleaner /law header
+- refresh button on guild manage page
 
 ### Bug Fixes
+- create game threads failed on forums that require a tag
 - test matches are no longer counted as elo-eligible: the api/games `elo_system` filter and the `elo_systems` field used to include them even though the rating engine skipped them, so the API could show a system for a game it would never rate (the filter now returns the correct games)
 - inactive stages don't error out on creation
 - fixed suspected bug where users logging in for the first time would be denied a restricted page even if they should have permission

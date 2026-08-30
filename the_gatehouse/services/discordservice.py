@@ -209,6 +209,27 @@ def create_forum_thread_detailed(forum_channel_id, name, content=None, embeds=No
     sleeps for retry_after and retries instead of burning the item.
 
     Mirrors rename_channel's (result, retry_after) shape, for the same reason.
+    Never raises.
+
+    See create_forum_thread_result for the variant that also reports the HTTP status;
+    this two-value shape is kept because it's the established idiom here (rename_channel
+    shares it) and callers already destructure it as a pair."""
+    thread_id, retry_after, _status = create_forum_thread_result(
+        forum_channel_id, name, content=content, embeds=embeds, tag_id=tag_id)
+    return thread_id, retry_after
+
+
+def create_forum_thread_result(forum_channel_id, name, content=None, embeds=None,
+                               tag_id=None):
+    """create_forum_thread_detailed, plus the HTTP status of a failed attempt.
+
+    Returns (thread_id, retry_after, status). `status` is Discord's response code when
+    the request got one (None for a timeout/connection error, and None on success).
+
+    It exists so a BULK caller can tell the user WHY a batch failed rather than a bare
+    count. The distinction that matters in practice is 4xx-that-won't-self-heal --
+    notably 400 on a forum with "require tag" set, which rejects every post lacking
+    `applied_tags` -- versus a transient error where retrying is the right advice.
     Never raises."""
     name = (name or "Game")[:100]
     message = {}
@@ -229,16 +250,23 @@ def create_forum_thread_detailed(forum_channel_id, name, content=None, embeds=No
             timeout=5,
         )
         r.raise_for_status()
-        return r.json()["id"], None
+        return r.json()["id"], None, None
     except (requests.RequestException, KeyError, ValueError) as e:
         resp = getattr(e, "response", None)
         retry_after = _retry_after_seconds(resp)
+        status = resp.status_code if resp is not None else None
         if retry_after is not None:
             logger.warning("Rate limited creating forum thread in %s; retry after %ss",
                            forum_channel_id, retry_after)
         else:
-            logger.error("Failed to create forum thread in %s: %s", forum_channel_id, e)
-        return None, retry_after
+            # Log Discord's status AND response body, as create_message_thread does:
+            # str(e) alone is "400 Client Error: Bad Request for url: ...", which hides
+            # the JSON error code naming the real cause (e.g. 40067 "a tag is required",
+            # 50013 Missing Permissions). Without the body this is undiagnosable.
+            detail = resp.text if resp is not None else str(e)
+            logger.error("Failed to create forum thread in %s: %s %s",
+                         forum_channel_id, status if status is not None else "?", detail)
+        return None, retry_after, status
 
 
 def post_channel_message(channel_id, content):
@@ -713,6 +741,40 @@ def get_guild_text_channels(guild_id):
     ]
     cache.set(key, channels, _DISCORD_LOOKUP_TTL)
     return channels
+
+
+def refresh_guild_cache(guild_id):
+    """Drop every cached Discord read for one guild, so the next call refetches.
+
+    These lookups are cached ~5 min with no invalidation, which is fine for normal
+    browsing but means a channel or role created seconds ago is invisible until the TTL
+    expires — and, because channel_belongs_to_guild verifies against the same cached
+    lists, a brand-new channel can't be posted to until then either. This backs the
+    "Refresh from Discord" button on the Edit Guild page.
+
+    forum_channel_info is keyed by CHANNEL id rather than guild id, so the guild's
+    forums are read (from cache, before it's cleared) to find those keys. A forum
+    created since the last fetch isn't in that list — but its parent list is cleared
+    here too, so it appears on the next load and gets its own entry then.
+    """
+    if not guild_id:
+        return
+    keys = [
+        f"bot_in_guild:{guild_id}",
+        f"guild_roles:{guild_id}",
+        f"guild_role_perms:{guild_id}",
+        f"guild_object:{guild_id}",
+        f"guild_forum_channels:{guild_id}",
+        f"guild_text_channels:{guild_id}",
+    ]
+    # Defensive: this reads whatever is in the cache, which on a deploy that changed the
+    # entry's shape (or in a test) may not be the [{"id": ...}] this expects. A refresh
+    # must never 500 -- the guild keys above are the important part.
+    for forum in (cache.get(f"guild_forum_channels:{guild_id}") or []):
+        if isinstance(forum, dict) and forum.get("id"):
+            keys.append(f"forum_channel_info:{forum['id']}")
+    cache.delete_many(keys)
+    logger.info("Cleared %d cached Discord lookups for guild %s", len(keys), guild_id)
 
 
 def guild_channel_names(guild):

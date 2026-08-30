@@ -8364,6 +8364,20 @@ def round_create_game_threads(request, tournament_slug, stage_slug, round_slug):
             {'error': 'No game-threads forum channel is set for this series. A '
                       'moderator of the linked Discord server can set one.'}, status=400)
 
+    # A forum with "require tag when posting" rejects EVERY post without applied_tags, so
+    # queuing the task would fail every match one by one. Catch it here, where the modal
+    # shows the error, instead of as a notification minutes later. Only blocks on a
+    # CONFIRMED requirement: a None info (Discord unreachable) falls through and lets the
+    # task try, matching how the settings form treats an outage.
+    if not tournament.game_threads_tag:
+        from the_gatehouse.services.discordservice import get_forum_channel_info
+        info = get_forum_channel_info(tournament.game_threads_channel)
+        if info and info['is_forum'] and info['requires_tag']:
+            return JsonResponse(
+                {'error': 'That forum requires a tag on new posts, but no game threads '
+                          'tag is set for this series. A moderator of the linked Discord '
+                          'server can set one.'}, status=400)
+
     pending = _threads_to_create_count(round)
     if not pending:
         return JsonResponse(

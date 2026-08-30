@@ -611,6 +611,14 @@ class Tournament(models.Model):
     game_threads_channel = models.CharField(max_length=32, blank=True, null=True,
                                             validators=[validate_discord_snowflake],
                                             help_text='Discord FORUM channel where a thread is created for each match.')
+    # Deliberately NO validate_discord_snowflake: that validator's message is written for
+    # a ROLE id ("Copy Role ID"), which would be nonsense on a forum tag. GuildLFGRole.
+    # forum_tag_id -- the equivalent field on the working /lfg path -- has none either.
+    # Required by forums with Discord's "require tag when posting" flag, which reject any
+    # post without applied_tags; validated against the forum's real tags in
+    # TournamentGuildChannelsForm.clean().
+    game_threads_tag = models.CharField(max_length=32, blank=True, null=True,
+                                        help_text='Optional forum tag applied to each created game thread. Required if the forum requires a tag.')
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to a game. If disabled, only registered players will be available.')
     recording_access = models.CharField(
         max_length=20,
@@ -1078,12 +1086,15 @@ class Tournament(models.Model):
                 self.results_channel = None
                 self.schedule_channel = None
                 self.game_threads_channel = None
+                # The tag belongs to the OLD guild's forum, so it goes with the channel.
+                self.game_threads_tag = None
                 # update_fields would otherwise drop these columns from the UPDATE and
                 # silently discard the clear. Only needed when the caller named `guild`
                 # -- any other partial save can't have changed it.
                 if update_fields and 'guild' in update_fields:
                     kwargs['update_fields'] = list(update_fields) + [
-                        'results_channel', 'schedule_channel', 'game_threads_channel']
+                        'results_channel', 'schedule_channel', 'game_threads_channel',
+                        'game_threads_tag']
 
         super().save(*args, **kwargs)
 

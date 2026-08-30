@@ -11,9 +11,22 @@
             {% endif %}
             {{ guild.guild_name }}
         </h1>
-        <a href="{% url 'manage-guilds' %}" class="btn btn-sm btn-secondary">
-            <i class="bi bi-arrow-left"></i> {% trans 'Guilds' %}
-        </a>
+        <div class="d-flex gap-2">
+            {% comment %} Roles and channels are cached ~5 minutes with no invalidation,
+            so something just created in Discord is invisible here until the TTL lapses.
+            This drops that cache and reloads. Its own <form> — it sits before
+            #guild-edit-form and HTML forbids nesting forms. {% endcomment %}
+            <form method="post" action="{% url 'guild-refresh-discord' guild.guild_id %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-secondary"
+                        title="{% trans 'Re-read roles and channels from Discord' %}">
+                    <i class="bi bi-arrow-clockwise"></i> {% trans 'Refresh from Discord' %}
+                </button>
+            </form>
+            <a href="{% url 'manage-guilds' %}" class="btn btn-sm btn-secondary">
+                <i class="bi bi-arrow-left"></i> {% trans 'Guilds' %}
+            </a>
+        </div>
     </div>
 
     <form method="post" id="guild-edit-form">
