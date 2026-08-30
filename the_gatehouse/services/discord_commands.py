@@ -319,6 +319,12 @@ def lfg_command_for_roles(roles):
 # chips but has none left is dropped whole, since its body only introduces them. Steps
 # with neither key are unconditional. The public Databot page passes no whitelist and so
 # still renders every step.
+#
+# "setup_only" marks a step as server configuration done on the web (the Manage your
+# Guilds page) rather than something you do from Discord. build_lfg_help_embed drops
+# those, since someone running /help category:LFG is asking how to USE lfg and usually
+# isn't the person who can configure it; the Databot page renders them, which is where
+# the setup instructions belong.
 LFG_HELP_INTRO = (
     "`/lfg` posts a looking-for-game message in your server, pings the players who want "
     "to play, and gives the game its own thread. Everything rolled or looked up in that "
@@ -328,6 +334,7 @@ LFG_HELP_INTRO = (
 LFG_HELP_STEPS = [
     {
         "title": "Set up your LFG Roles",
+        "setup_only": True,
         "body": "Add one or more LFG roles for your server on the "
                 "[Manage your Guilds](manage-guilds) page (for example *Root TTS LFG* "
                 "and *Root Digital LFG*). Each role mentions a Discord role, so starting "
@@ -336,6 +343,7 @@ LFG_HELP_STEPS = [
     },
     {
         "title": "Choose where the Thread goes",
+        "setup_only": True,
         "body": "By default the game thread appears under the LFG message itself. If "
                 "you'd rather keep games tidy in one place, give the role a forum "
                 "channel and each new game is created as a post there instead (you can "

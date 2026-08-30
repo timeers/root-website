@@ -3278,8 +3278,10 @@ class LFGHelpContentTests(TestCase):
         self.assertEqual([s["title"] for s in steps],
                          [s["title"] for s in dc.LFG_HELP_STEPS[:3]])
 
+        # The embed drops the two setup steps on top of that, leaving only the step
+        # about /lfg itself.
         embed = build_lfg_help_embed(["lfg"])
-        self.assertEqual(len(embed["fields"]), 3)
+        self.assertEqual(len(embed["fields"]), 1)
         rendered = embed["description"] + "".join(f["value"] for f in embed["fields"])
         self.assertNotIn("`/record`", rendered)
 
@@ -3296,9 +3298,35 @@ class LFGHelpContentTests(TestCase):
         self.assertNotIn("`/seating`", value)
 
     def test_renumbering_closes_the_gap_left_by_a_dropped_step(self):
-        """Dropped steps must not leave a hole in the sequence."""
-        fields = build_lfg_help_embed(["lfg"])["fields"]
+        """Dropped steps must not leave a hole in the sequence.
+
+        /lfg + /record drops the two setup steps and the chip step (no chips enabled)
+        from the middle of the walkthrough, so the survivors have to renumber."""
+        fields = build_lfg_help_embed(["lfg", "record"])["fields"]
         self.assertEqual([f["name"].split(".")[0] for f in fields], ["1", "2", "3"])
+
+    def test_embed_omits_the_setup_steps_the_databot_page_keeps(self):
+        """The setup steps are web-side configuration: the Databot page renders them,
+        /help category:LFG does not. Both the guild and the DM (None) path drop them."""
+        setup_titles = [s["title"] for s in dc.LFG_HELP_STEPS if s.get("setup_only")]
+        self.assertTrue(setup_titles, "no step is marked setup_only")
+
+        # Still present for the Databot page, which passes no whitelist.
+        page_titles = [s["title"] for s in dc.lfg_help_steps_for_guild(None)]
+        for title in setup_titles:
+            self.assertIn(title, page_titles)
+
+        for enabled in (None, dc.WHITELISTABLE):
+            with self.subTest(enabled=enabled):
+                names = [f["name"] for f in build_lfg_help_embed(enabled)["fields"]]
+                for title in setup_titles:
+                    self.assertFalse(any(n.endswith(title) for n in names),
+                                     f"setup step {title!r} reached Discord")
+
+    def test_embed_starts_at_the_first_non_setup_step(self):
+        first = next(s for s in dc.LFG_HELP_STEPS if not s.get("setup_only"))
+        fields = build_lfg_help_embed(dc.WHITELISTABLE)["fields"]
+        self.assertEqual(fields[0]["name"], f"1. {first['title']}")
 
     def test_filtering_never_mutates_the_shared_steps(self):
         chip_step = next(s for s in dc.LFG_HELP_STEPS if s.get("commands"))

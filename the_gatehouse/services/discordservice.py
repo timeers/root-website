@@ -2467,10 +2467,15 @@ def build_lfg_help_embed(enabled_names=None):
     """Embed explaining how /lfg works, built from the same LFG_HELP_STEPS the Databot
     page renders — edit the copy in discord_commands and both update.
 
-    When `enabled_names` is given (a guild's whitelist), the walkthrough is trimmed to
-    what that server can actually do: steps about a disabled command are dropped and the
-    in-thread command chips are filtered to enabled ones (see lfg_help_steps_for_guild).
-    Pass None (the default, e.g. in DMs) for the full walkthrough.
+    Steps marked `setup_only` are always dropped here: they describe server configuration
+    done on the web, and someone running /help category:LFG wants to know how to use lfg,
+    not how to set it up. Those steps stay on the Databot page, which is where the setup
+    instructions belong.
+
+    When `enabled_names` is given (a guild's whitelist), the walkthrough is further
+    trimmed to what that server can actually do: steps about a disabled command are
+    dropped and the in-thread command chips are filtered to enabled ones (see
+    lfg_help_steps_for_guild). Pass None (the default, e.g. in DMs) to skip that trim.
 
     Imported inside the function to avoid an import cycle (discord_commands imports
     models that pull in this package), the same as build_help_embed.
@@ -2480,10 +2485,13 @@ def build_lfg_help_embed(enabled_names=None):
 
     site_url = config.get("SITE_URL", "").rstrip("/")
 
+    steps = [s for s in lfg_help_steps_for_guild(enabled_names)
+             if not s.get("setup_only")]
+
     fields = []
     # Numbering comes from this enumerate, so a dropped step closes the gap rather than
     # leaving a hole in the sequence.
-    for i, step in enumerate(lfg_help_steps_for_guild(enabled_names), 1):
+    for i, step in enumerate(steps, 1):
         value = _expand_lfg_markdown(step["body"], site_url)
         # The chips follow the body in the same field: that step's body ends in a colon
         # introducing them.
