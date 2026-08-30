@@ -76,7 +76,7 @@ from .services.discord_components import (
 )
 from .services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
-    group_roster, group_series_id,
+    group_roster, group_series_id, undrafted_pick,
 )
 
 logger = logging.getLogger(__name__)
@@ -3350,17 +3350,44 @@ def _pick_seat_detail(seat):
     Emoji-with-name for the single vagabond (it names one character, so the name
     carries), emoji-only for the three captains -- three names would crowd the
     line, and the emoji are the quick read. Each falls back to the title when its
-    emoji isn't uploaded, so nothing silently disappears."""
+    emoji isn't uploaded, so nothing silently disappears.
+
+    Takes an LFGSeat OR an LFGDraftPick: both carry `vagabond` and `captains`
+    under those exact names, and nothing here touches anything else. The
+    undrafted row below renders through it so the leftover faction reads
+    identically to a taken seat."""
     if seat.vagabond_id:
         emoji = vagabond_emoji_for(seat.vagabond)
         return f" ({emoji} {seat.vagabond.title})" if emoji else f" ({seat.vagabond.title})"
     # Callers only reach here for a seat that HAS a faction, and the faction is
     # written by the same commit that narrows the parked offer to the chosen
-    # captains -- so these are a decision, never an open offer.
+    # captains -- so these are a decision, never an open offer. (A draft pick's
+    # captains are likewise final: the draft rolls them once and never revises.)
     marks = [vagabond_emoji_for(c) or c.title for c in seat.captains.all()]
     if marks:
         return f" ({' '.join(marks)})"
     return ""
+
+
+def _pick_undrafted_line(thread):
+    """The board row for the one drafted faction nobody took, or "".
+
+    Only ever one line: undrafted_pick returns the leftover ONLY when exactly one
+    is left, so this is silent without a draft, mid-pick, and on any draft/seat
+    desync -- which is also why the no-draft case can't dump the whole faction
+    list here.
+
+    Rendered exactly like a taken seat (emoji prefix, _pick_seat_detail suffix) so
+    the leftover reads as part of the board rather than a footnote, but with a
+    seatless prefix -- it belongs to no player and must not look like one."""
+    pick = undrafted_pick(thread)
+    if pick is None:
+        return ""
+    emoji = faction_emoji_for(pick.faction.slug)
+    mark = f"{emoji} {pick.faction.title}" if emoji else pick.faction.title
+    mark += _pick_seat_detail(pick)
+    prefix = "-. " if thread.seating_set else "• "
+    return f"{prefix}Undrafted - {mark}"
 
 
 def _pick_panel_data(thread, seats, mode, owner, pool=None):
@@ -3383,6 +3410,11 @@ def _pick_panel_data(thread, seats, mode, owner, pool=None):
 
     nxt = _pick_next_seat(seats)
     if nxt is None:
+        # Only on the FINAL edit: mid-pick there is more than one faction left,
+        # and naming them would read as a suggestion to the seat still choosing.
+        leftover = _pick_undrafted_line(thread)
+        if leftover:
+            lines.append(leftover)
         lines += ["", "Draft Complete" if ordered else "All factions assigned."]
         return {"content": "\n".join(lines), "components": [],
                 "allowed_mentions": {"parse": []}}

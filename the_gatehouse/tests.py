@@ -5155,6 +5155,57 @@ class PickCommandTests(TestCase):
         self.assertEqual(data["components"], [])
         self.assertIn("Draft Complete", data["content"])
 
+    # ── the undrafted faction on the final panel ──
+    def _draft_with(self, *factions):
+        """A draft over `factions`. NOTE: with a draft, the draft IS the pool
+        (_pick_pool), so _select may only choose from these."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        for i, f in enumerate(factions, 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        return draft
+
+    def _finish_two(self):
+        """Drive a 2-player table to completion. The LAST seat picks first."""
+        players = self._roster(2)
+        self._select(self.factions[0].slug, players[1].discord_id)
+        return self._select(self.factions[1].slug, players[0].discord_id)
+
+    def test_the_final_panel_names_the_undrafted_faction(self):
+        self._draft_with(self.factions[0], self.factions[1], self.factions[2])
+        content = self._finish_two()["content"]
+        self.assertIn(f"Undrafted - {self.factions[2].title}", content)
+
+    def test_the_undrafted_row_sits_above_the_completion_line(self):
+        """It's the last entry on the BOARD, not a note after the verdict."""
+        self._draft_with(self.factions[0], self.factions[1], self.factions[2])
+        content = self._finish_two()["content"]
+        self.assertLess(content.index("Undrafted"), content.index("Draft Complete"))
+
+    def test_no_undrafted_row_without_a_draft(self):
+        """Without a draft the pool is every official faction, so dozens are
+        unpicked -- none of them 'the' undrafted one."""
+        self.assertNotIn("Undrafted", self._finish_two()["content"])
+
+    def test_no_undrafted_row_when_nothing_is_left_over(self):
+        """A draft dealt exactly to the table size leaves none over."""
+        self._draft_with(self.factions[0], self.factions[1])
+        self.assertNotIn("Undrafted", self._finish_two()["content"])
+
+    def test_the_undrafted_row_carries_its_vagabond(self):
+        """The leftover renders through _pick_seat_detail like a taken seat --
+        this is the case that runs it against an LFGDraftPick, not an LFGSeat."""
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        vb = Vagabond.objects.create(
+            title="Undrafted Panel Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        draft = self._draft_with(self.factions[0], self.factions[1])
+        LFGDraftPick.objects.create(
+            draft=draft, faction=self.factions[2], vagabond=vb, order=3)
+
+        content = self._finish_two()["content"]
+        self.assertIn(f"Undrafted - {self.factions[2].title} ({vb.title})", content)
+
     # ── the roll capture, which must branch on thread type ──
     def test_an_lfg_thread_records_the_pick_in_the_roll_log(self):
         """lfg_option_querysets narrows factions to the roll log, so a pick that
