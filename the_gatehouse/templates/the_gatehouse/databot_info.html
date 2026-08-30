@@ -108,6 +108,7 @@
       <div class="info-card mb-4">
         <div class="info-card-body">
           <h2 class="info-card-title">All Commands</h2>
+          <p class="databot-card-intro">The Databot commands are à la carte, so you can choose which ones to enable on your server. No command depends on another, but some work better together.</p>
           {% for group_name, rows in command_groups %}
           <div class="databot-cmd-group">
             <h5 class="databot-cmd-group-title">{{ group_name }}</h5>
@@ -135,7 +136,7 @@
             LFG_HELP_STEPS) so this card and /help category:LFG stay in sync. The
             lfg_body filter expands the inline markup those bodies carry.
           {% endcomment %}
-          <p class="databot-notify-intro">{{ lfg_intro|lfg_body }}</p>
+          <p class="databot-card-intro">{{ lfg_intro|lfg_body }}</p>
 
           <div class="databot-lfg-steps">
             {% for step in lfg_steps %}
@@ -184,7 +185,7 @@
           <h2 class="info-card-title">
             <i class="bi bi-bell-fill text-primary me-2"></i>Get notified in Discord
           </h2>
-          <p class="databot-notify-intro">
+          <p class="databot-card-intro">
             If you share a server with the Root Databot, it can send you a direct message when things you
             care about happen on the Root Database.
           </p>
@@ -271,7 +272,7 @@
    they can be reused on other pages (e.g. Manage Guilds). */
 
 /* ── Discord notifications ────────────────────────────────────────── */
-.databot-notify-intro {
+.databot-card-intro {
   font-size: 15px;
   color: #4f5660;
   line-height: 1.7;
