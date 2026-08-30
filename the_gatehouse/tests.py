@@ -976,7 +976,7 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         body = self.assertEphemeral(
             di._handle_schedule_command(self._data(channel="123123123")))
         content = body["data"]["content"]
-        self.assertIn("isn't linked to a game on the site", content)
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, content)
         self.assertNotIn("couldn't find", content.lower())
 
     def test_used_in_plain_channel_also_offers_a_suggestion(self):
@@ -985,7 +985,7 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         data = self._data(channel="123123123")
         data["_channel_type"] = 0  # GUILD_TEXT, not a thread
         body = self.assertEphemeral(di._handle_schedule_command(data))
-        self.assertIn("isn't linked to a game on the site", body["data"]["content"])
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, body["data"]["content"])
 
     def test_outside_guild_rejected(self):
         body = self.assertEphemeral(di._handle_schedule_command(self._data(guild=None)))
@@ -1527,13 +1527,13 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
     def test_a_bare_channel_offers_an_unlinked_suggestion(self):
         data = self._body(di._handle_schedule_command(self._data()))["data"]
         self.assertEqual(data.get("flags"), di.EPHEMERAL)
-        self.assertIn("isn't linked to a game on the site", data["content"])
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, data["content"])
         self.assertNotIn("confirm", data["content"].lower())
 
     def test_an_lfg_thread_says_players_will_confirm(self):
         self._lfg_thread()
         data = self._body(di._handle_schedule_command(self._data()))["data"]
-        self.assertIn("isn't linked to a game on the site", data["content"])
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, data["content"])
         self.assertIn("confirm", data["content"].lower())
 
     def test_the_confirm_button_is_sched_free_not_schedule_confirm(self):
@@ -1579,7 +1579,7 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         # proposer, which looks like the feature silently doing nothing.
         self.assertNotIn("flags", message)
         embed = message["embeds"][0]
-        self.assertIn("isn't linked to a game on the site", embed["description"])
+        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, embed["description"])
         self.assertIn("🕐", embed["title"])
 
     def test_the_bare_post_has_no_confirm_buttons(self):
