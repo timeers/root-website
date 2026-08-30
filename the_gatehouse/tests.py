@@ -3621,7 +3621,8 @@ class DraftLFGSeatingTests(TestCase):
         payload = {
             "channel_id": channel_id,
             "token": "tok",
-            "data": {"custom_id": di.encode_custom_id("draft_build", 3, "tts", "111")},
+            # Current id shape: the has_draft flag sits before the owner snowflake.
+            "data": {"custom_id": di.encode_custom_id("draft_build", 3, "tts", "n", "111")},
             "message": {"id": "msg", "components": []},
         }
         if guild_id is not None:
@@ -3797,6 +3798,198 @@ class DraftLFGSeatingTests(TestCase):
         response, post = self._seat("gone")
         post.assert_not_called()
         self.assertIn("game thread", json.loads(response.content)["data"]["content"])
+
+
+class DraftClearTests(TestCase):
+    """/draft on a thread that ALREADY has a draft: the prompt says so, renames
+    Build to Recreate, and offers a pure Clear that drops the draft without
+    building a replacement. With no existing draft the flow is unchanged."""
+
+    THREAD_ID = "thread-910"
+    OWNER = "111"
+
+    def setUp(self):
+        # See DraftLFGSeatingTests.setUp -- saving a Faction rewrites the shared
+        # default image in place, and nothing here tests image handling.
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+
+        designer = Profile.objects.create(discord="cleardesigner", discord_id="820")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Clear Faction {i}", animal="Fox", designer=designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT,
+            )
+            for i in range(8)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+
+    def _make_draft(self):
+        draft = LFGDraft.objects.create(thread=self.thread, players=3)
+        for i, faction in enumerate(self.factions[:4], 1):
+            LFGDraftPick.objects.create(draft=draft, faction=faction, order=i)
+        return draft
+
+    def _prompt(self, players=None, channel_id=None):
+        data = {"_channel_id": channel_id or self.THREAD_ID, "_author_id": self.OWNER}
+        if players is not None:
+            data["options"] = [{"name": "players", "value": players}]
+        return json.loads(di._handle_draft_command(data).content)["data"]
+
+    def _buttons(self, data):
+        return data["components"][1]["components"]
+
+    def _clear(self, channel_id=None):
+        payload = {
+            "channel_id": channel_id or self.THREAD_ID,
+            "data": {"custom_id": di.encode_custom_id("draft_clear", self.OWNER)},
+        }
+        return json.loads(di._handle_draft_clear(payload).content)["data"]
+
+    # ── the prompt ──────────────────────────────────────────────────────────
+    def test_no_draft_leaves_the_flow_unchanged(self):
+        """The explicit requirement: without an existing draft nothing differs."""
+        data = self._prompt()
+        labels = [b["label"] for b in self._buttons(data)]
+        self.assertEqual(labels, ["Build Draft", "Cancel"])
+        self.assertNotIn("already has a draft", data["content"])
+
+    def test_an_existing_draft_offers_recreate_and_clear(self):
+        self._make_draft()
+        data = self._prompt()
+        buttons = self._buttons(data)
+        self.assertEqual([b["label"] for b in buttons],
+                         ["Recreate Draft", "Clear Draft", "Cancel"])
+        self.assertIn("already has a draft", data["content"])
+        # Destructive actions are red, like /schedule's Clear Time.
+        self.assertEqual(buttons[1]["style"], di.STYLE_DANGER)
+
+    def test_the_draft_is_detected_with_an_explicit_player_count(self):
+        """Regression: the thread used to be resolved only by the roster-size
+        lookup, which runs ONLY when `players` was omitted -- so `/draft players:4`
+        on a drafted thread silently showed the no-draft prompt."""
+        self._make_draft()
+        data = self._prompt(players=4)
+        self.assertIn("**4 Player Draft**", data["content"])
+        self.assertIn("already has a draft", data["content"])
+        self.assertEqual([b["label"] for b in self._buttons(data)],
+                         ["Recreate Draft", "Clear Draft", "Cancel"])
+
+    def test_clear_is_owner_locked_by_its_trailing_snowflake(self):
+        """The dispatcher's lock keys on the LAST arg looking like a snowflake, so
+        the flag must never be appended after the owner."""
+        self._make_draft()
+        clear = self._buttons(self._prompt())[1]
+        self.assertTrue(clear["custom_id"].endswith(f":{self.OWNER}"))
+        _action, args = di.decode_custom_id(clear["custom_id"])
+        self.assertEqual(args[-1], self.OWNER)
+
+    def test_changing_a_ban_keeps_the_clear_button(self):
+        """The select re-renders the WHOLE message, so the flag has to survive the
+        round trip or Clear vanishes on the first ban."""
+        self._make_draft()
+        select_id = self._prompt()["components"][0]["components"][0]["custom_id"]
+        payload = {"channel_id": self.THREAD_ID,
+                   "data": {"custom_id": select_id,
+                            "values": [self.factions[0].slug]}}
+        data = json.loads(di._handle_draft_select(payload).content)["data"]
+        self.assertEqual([b["label"] for b in self._buttons(data)],
+                         ["Recreate Draft", "Clear Draft", "Cancel"])
+        self.assertIn("already has a draft", data["content"])
+
+    def test_a_ban_on_an_undrafted_thread_stays_two_buttons(self):
+        select_id = self._prompt()["components"][0]["components"][0]["custom_id"]
+        payload = {"channel_id": self.THREAD_ID,
+                   "data": {"custom_id": select_id,
+                            "values": [self.factions[0].slug]}}
+        data = json.loads(di._handle_draft_select(payload).content)["data"]
+        self.assertEqual([b["label"] for b in self._buttons(data)],
+                         ["Build Draft", "Cancel"])
+
+    def test_build_still_reads_players_platform_and_owner(self):
+        """The inserted flag sits between platform and owner, so _parse_draft_state
+        (args[0]/args[1]) and the owner read (args[-1]) must both still land."""
+        self._make_draft()
+        build_id = self._buttons(self._prompt(players=5))[0]["custom_id"]
+        action, players, platform = di._parse_draft_state(build_id)
+        self.assertEqual((action, players), ("draft_build", 5))
+        self.assertEqual(platform, di.DRAFT_PLATFORM_TTS)
+        _a, args = di.decode_custom_id(build_id)
+        self.assertEqual(args[-1], self.OWNER)
+
+    # ── clearing ────────────────────────────────────────────────────────────
+    def test_clear_drops_the_draft_and_its_picks(self):
+        self._make_draft()
+        data = self._clear()
+        self.assertFalse(LFGDraft.objects.filter(thread=self.thread).exists())
+        self.assertFalse(LFGDraftPick.objects.exists())  # cascaded
+        self.assertEqual(data["components"], [])
+        self.assertIn("cleared", data["content"])
+
+    def test_clear_drops_draft_rolls_but_spares_the_rest_of_the_log(self):
+        """/random, /pick and the lookups share the roll log; only this command's
+        rows are ours to delete."""
+        self._make_draft()
+        LFGRoll.objects.create(thread=self.thread, kind="Faction",
+                               slug=self.factions[0].slug, source="draft")
+        LFGRoll.objects.create(thread=self.thread, kind="Map",
+                               slug="some-map", source="random")
+        LFGRoll.objects.create(thread=self.thread, kind="Faction",
+                               slug=self.factions[1].slug, source="pick")
+
+        self._clear()
+
+        sources = sorted(LFGRoll.objects.filter(thread=self.thread)
+                         .values_list("source", flat=True))
+        self.assertEqual(sources, ["pick", "random"])
+
+    def test_clear_leaves_the_seating_alone(self):
+        """A table redoing its draft hasn't asked to lose the order it agreed on."""
+        self._make_draft()
+        profile = Profile.objects.create(discord="seated", discord_id="921")
+        LFGSeat.objects.create(thread=self.thread, profile=profile, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        self._clear()
+
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.seating_set)
+        self.assertTrue(self.thread.seats.exists())
+
+    def test_clear_bumps_last_activity(self):
+        """Both deletes touch children only, so nothing saves the thread on its
+        own -- without an explicit bump an active thread ages toward cleanup."""
+        self._make_draft()
+        stale = timezone.now() - timedelta(days=200)
+        LFGThread.objects.filter(pk=self.thread.pk).update(last_activity=stale)
+
+        self._clear()
+
+        self.thread.refresh_from_db()
+        self.assertGreater(self.thread.last_activity, stale)
+
+    def test_clearing_a_thread_with_no_draft_says_so(self):
+        """The button is a second request: the draft can be gone by the time it's
+        pressed. LFGDraft.thread is a OneToOne, so this must not raise."""
+        data = self._clear()
+        self.assertIn("no draft", data["content"])
+        self.assertEqual(data["components"], [])
+
+    def test_clearing_a_vanished_thread_is_refused(self):
+        data = self._clear(channel_id="gone")
+        self.assertIn("game thread", data["content"])
+
+    def test_pick_pool_widens_back_after_a_clear(self):
+        """Why clearing matters: with a draft, the draft IS /pick's whole pool."""
+        self._make_draft()
+        self.assertEqual(len(di._pick_pool(self.thread)), 4)
+
+        self._clear()
+
+        self.thread.refresh_from_db()
+        self.assertEqual(len(di._pick_pool(self.thread)), len(self.factions))
 
 
 class SeatingCommandTests(TestCase):

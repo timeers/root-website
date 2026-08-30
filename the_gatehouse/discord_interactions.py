@@ -42,7 +42,7 @@ from the_warroom.models import (
 )
 from the_gatehouse.models import (
     Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
-    LFGSeat, LFGRoll,
+    LFGSeat, LFGRoll, LFGDraft,
 )
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task,
@@ -2368,13 +2368,20 @@ def _handle_help_command(data):
 
 
 # ── /draft ─────────────────────────────────────────────────────────────────
+# "argument not supplied", for optional params whose None is a real value.
+_UNSET = object()
+
+
 def _parse_draft_state(custom_id):
     """('draft_build', players:int(2..6), platform:str) from a draft custom_id;
     falls back to defaults for a malformed/short id.
 
     ONLY valid for `draft_select`/`draft_build` ids (args[0]=players, args[1]=platform).
-    Do NOT call on `draft_cancel:{owner}` — its args[0] is the owner id, which would
-    silently parse to the default players/platform."""
+    Do NOT call on `draft_cancel:{owner}` or `draft_clear:{owner}` — their args[0] is
+    the owner id, which would silently parse to the default players/platform.
+
+    Unaffected by the `has_draft` flag those two ids carry at args[2]: it sits after
+    the fields read here and before the owner, so both ends stay in place."""
     action, args = decode_custom_id(custom_id)
     players, platform = 4, DRAFT_PLATFORM_TTS
     if len(args) >= 1:
@@ -2401,30 +2408,58 @@ def _draft_eligible_factions(platform, players):
     return list(qs.order_by("title").values_list("slug", "title", "type"))
 
 
-def _draft_ui_data(players, platform, factions, banned_slugs, owner):
+def _draft_ui_data(players, platform, factions, banned_slugs, owner, has_draft=False):
     """The public ban UI: a faction ban select (current bans pre-selected via
     default=True) plus Build/Cancel buttons. `factions` is a list of
     (slug, title, type); `banned_slugs` is a set. `owner` is the invoker's user id,
-    appended to every custom_id so only they can operate the controls."""
+    appended to every custom_id so only they can operate the controls.
+
+    `has_draft` -- the thread already holds a draft, which building would REPLACE
+    (LFGDraft is a OneToOne; see _replace_lfg_draft). That case says so in the copy,
+    renames Build to "Recreate Draft", and offers a third button that clears the
+    existing draft without building a new one -- previously only reachable through
+    the Django admin, leaving a table that drafted by mistake stuck with a pool
+    /pick would keep using. With no draft the layout is untouched: same copy, same
+    "Build Draft", same two buttons.
+
+    The flag rides in the select/build custom_ids (args[2]) rather than being
+    re-derived, because _handle_draft_select re-renders this whole message on every
+    ban change and a component handler has no cheap path back to the thread. It goes
+    BEFORE the owner: the dispatcher's owner-lock keys on the LAST arg looking like a
+    snowflake."""
     platform_key = DRAFT_PLATFORM_TO_KEY.get(platform, "tts")
+    draft_key = "d" if has_draft else "n"
     options = [
         select_option(title, slug, emoji=faction_emoji_object(slug), default=slug in banned_slugs)
         for slug, title, _type in factions
     ]
     select = string_select(
-        encode_custom_id("draft_select", players, platform_key, owner),
+        encode_custom_id("draft_select", players, platform_key, draft_key, owner),
         options,
         placeholder="Select factions to ban (optional)",
         min_values=0,
         max_values=len(options),
     )
-    buttons = action_row(
-        button("Build Draft", encode_custom_id("draft_build", players, platform_key, owner), style=STYLE_SUCCESS),
-        button("Cancel", encode_custom_id("draft_cancel", owner), style=STYLE_SECONDARY),
-    )
+    build_label = "Recreate Draft" if has_draft else "Build Draft"
+    row = [
+        button(build_label,
+               encode_custom_id("draft_build", players, platform_key, draft_key, owner),
+               style=STYLE_SUCCESS),
+    ]
+    if has_draft:
+        # Destructive, so STYLE_DANGER -- the vocabulary /schedule's Clear Time and
+        # the seating Overwrite button already use.
+        row.append(button("Clear Draft", encode_custom_id("draft_clear", owner),
+                          style=STYLE_DANGER))
+    row.append(button("Cancel", encode_custom_id("draft_cancel", owner),
+                      style=STYLE_SECONDARY))
+
+    content = f"**{players} Player Draft** — pick factions to ban, then Build."
+    if has_draft:
+        content += "\nThis thread already has a draft — recreating **replaces** it."
     return {
-        "content": f"**{players} Player Draft** — pick factions to ban, then Build.",
-        "components": [action_row(select), buttons],
+        "content": content,
+        "components": [action_row(select), action_row(*row)],
     }
 
 
@@ -2495,14 +2530,20 @@ def _draft_result_embed(drawn, players, platform, banned_slugs, factions, author
     return embed
 
 
-def _thread_roster_size(data):
+def _thread_roster_size(data, thread=_UNSET):
     """How many players this thread holds, for defaulting /draft's count. 0 when
     the channel is neither kind of thread.
 
     Mirrors _pick_roster's branch: a tournament group thread's roster lives on the
-    GROUP (its LFGThread has an empty `players`), an LFG thread's on the thread."""
+    GROUP (its LFGThread has an empty `players`), an LFG thread's on the thread.
+
+    `thread` is the already-resolved LFGThread from the caller, so its draft lookup
+    and this share one query. The default is a sentinel, NOT None: None is the
+    legitimate "this channel has no LFGThread" answer, and treating it as "not
+    supplied" would re-run the query the caller passed it to avoid."""
     channel_id = data.get("_channel_id")
-    thread = _lfg_thread_for_channel(channel_id)
+    if thread is _UNSET:
+        thread = _lfg_thread_for_channel(channel_id)
     if thread and not thread.series_id:
         return thread.players.count()
 
@@ -2523,10 +2564,21 @@ def _handle_draft_command(data):
     tournament group thread uses the GROUP's roster. A group thread's LFGThread is
     created with only `series` set -- players.set() only ever runs on the /lfg
     path -- so reading thread.players there always found 0 and silently opened a
-    4-player draft for a table of 3."""
+    4-player draft for a table of 3.
+
+    When the thread already holds a draft the prompt says so and offers Clear
+    alongside Recreate; see _draft_ui_data."""
+    # Resolved once, UNCONDITIONALLY: _thread_roster_size runs only when `players`
+    # was omitted, so relying on its lookup would miss the existing draft whenever
+    # someone passed an explicit count. One indexed hit on a unique column.
+    thread = _lfg_thread_for_channel(data.get("_channel_id"))
+    # getattr, NOT thread.draft: LFGDraft.thread is a OneToOne, so the reverse
+    # accessor RAISES when there's no draft.
+    has_draft = getattr(thread, "draft", None) is not None if thread else False
+
     players = _get_option(data, "players")
     if players is None:
-        players = _thread_roster_size(data) or 4
+        players = _thread_roster_size(data, thread) or 4
     players = max(2, min(6, int(players)))
     platform = _get_option(data, "platform") or DRAFT_PLATFORM_TTS
 
@@ -2541,23 +2593,33 @@ def _handle_draft_command(data):
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": _draft_ui_data(players, platform, factions, banned_slugs=set(),
-                               owner=data.get("_author_id")),
+                               owner=data.get("_author_id"), has_draft=has_draft),
     })
 
 
 def _handle_draft_select(payload):
     """Ban select changed: re-render the public UI with the chosen bans marked
     default=True, so the selection persists in the message's component state. The
-    owner rides in the incoming custom_id; re-emit it to keep the controls locked."""
+    owner rides in the incoming custom_id; re-emit it to keep the controls locked.
+
+    The has_draft flag rides along the same way. It has to: this rebuilds the WHOLE
+    message, so re-deriving it as False would drop the Clear button and revert the
+    copy the moment anyone touched a ban. Reading it from the id also keeps this
+    handler query-free -- a button click carries no channel name, and the flag was
+    already resolved when the prompt was built."""
     custom_id = payload["data"]["custom_id"]
     _action, players, platform = _parse_draft_state(custom_id)
     _, args = decode_custom_id(custom_id)
     owner = args[-1] if args else None
+    # args[2] on the current id shape; absent on one built before the flag existed,
+    # which reads as "no draft" and keeps the old two-button layout.
+    has_draft = len(args) >= 3 and args[2] == "d"
     banned_slugs = set(payload["data"].get("values", []))  # this select echoes its own values
     factions = _draft_eligible_factions(platform, players)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _draft_ui_data(players, platform, factions, banned_slugs, owner=owner),
+        "data": _draft_ui_data(players, platform, factions, banned_slugs, owner=owner,
+                               has_draft=has_draft),
     })
 
 
@@ -2631,8 +2693,9 @@ def _handle_draft_build(payload):
     if captains:
         items.extend(_lfg_item("Captain", c) for c in captains)
 
-    # The drafter's Discord id (last custom_id arg), resolved to a Profile in the
-    # worker so no extra query lands in this 3-second interaction budget.
+    # The drafter's Discord id (LAST custom_id arg -- the has_draft flag sits before
+    # it), resolved to a Profile in the worker so no extra query lands in this
+    # 3-second interaction budget.
     _action_id, id_args = decode_custom_id(payload["data"]["custom_id"])
     owner = id_args[-1] if id_args else ""
     # The vagabond attaches to the pick that drew "vagabond", and the captains to
@@ -2758,6 +2821,70 @@ def _handle_draft_cancel(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": "Draft cancelled.", "embeds": [], "components": []},
+    })
+
+
+def _draft_clear(thread):
+    """Drop the thread's draft and the rolls that recorded it. Returns whether
+    there was a draft to clear.
+
+    Only source="draft" rolls: /random, /pick and the lookups share the log and
+    their history isn't ours to drop -- the same scoping _pick_clear documents.
+    Leaving them behind would keep the record form (which narrows its component
+    choices from the roll log) offering a draft that no longer exists.
+
+    The SEATING and any picks survive. /seating and /pick own those; a table that
+    wants to redo a draft hasn't asked to lose the order it already agreed on.
+    """
+    with transaction.atomic():
+        deleted, _ = LFGDraft.objects.filter(thread=thread).delete()
+        # LFGDraftPick cascades off LFGDraft, so `deleted` counts picks too --
+        # hence the boolean rather than a row count.
+        LFGRoll.objects.filter(thread=thread, source="draft").delete()
+        # Both deletes touch CHILDREN only, so nothing above saved the thread.
+        # Without this bump an actively-used thread ages toward cleanup; save()
+        # supplies last_activity for the empty update_fields.
+        thread.save(update_fields=[])
+    return bool(deleted)
+
+
+def _handle_draft_clear(payload):
+    """Clear Draft button: delete the thread's existing draft without building a
+    new one, and edit the public prompt into a short notice.
+
+    Only offered when a draft exists (see _draft_ui_data), and owner-locked for
+    free -- `draft_clear:{owner}` ends in the invoker's snowflake, so the
+    dispatcher blocks everyone else before this runs.
+
+    Re-resolves and re-checks rather than trusting the flag baked into the button:
+    a click is a SECOND request, and the draft can have gone since the prompt was
+    rendered (a concurrent clear, the thread recorded). Same reason
+    _handle_schedule_clear_confirm re-fetches its match.
+
+    Carries only `draft_clear:{owner}` — like Cancel, deliberately NOT passed to
+    _parse_draft_state, which would misread the owner id as players/platform."""
+    thread = _lfg_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": "This isn't a game thread anymore.",
+                     "embeds": [], "components": []},
+        })
+
+    if not _draft_clear(thread):
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": "This thread has no draft to clear.",
+                     "embeds": [], "components": []},
+        })
+
+    # The pool consequence is the part worth telling: _pick_pool treats a draft as
+    # /pick's ENTIRE pool and silently widens back to every official Stable faction
+    # once it's gone.
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "✔ Draft cleared — `/pick` is back to the full faction pool.",
+                 "embeds": [], "components": []},
     })
 
 
@@ -4779,6 +4906,9 @@ COMPONENT_HANDLERS = {
     "draft_select": _handle_draft_select,
     "draft_build": _handle_draft_build,
     "draft_cancel": _handle_draft_cancel,
+    # Only rendered when the thread already has a draft; owner-locked by its
+    # trailing snowflake like the rest of the prompt's controls.
+    "draft_clear": _handle_draft_clear,
     "draft_seat": _handle_draft_seat,
     "draft_seat_no": _handle_draft_seat_no,
     # `pick_mode` ends in the invoker's snowflake, so the dispatcher locks it to

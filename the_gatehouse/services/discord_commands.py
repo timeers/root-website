@@ -95,7 +95,7 @@ UPCOMING_COMMAND = {
 
 SCHEDULE_COMMAND = {
     "name": "schedule",
-    "description": "Set or clear the scheduled time for this thread's match",
+    "description": "Suggest or clear the scheduled time for this thread's match",
     "options": [
         # Optional so that omitting it means "clear the current time" (the handler
         # asks for confirmation first, and errors when there's nothing to clear).
@@ -345,7 +345,7 @@ LFG_HELP_STEPS = [
         "title": "Choose where the Thread goes",
         "setup_only": True,
         "body": "By default the game thread appears under the LFG message itself. If "
-                "you'd rather keep games tidy in one place, give the role a forum "
+                "you'd rather keep game threads in one place, give the role a forum "
                 "channel and each new game is created as a post there instead (you can "
                 "give the thread a tag as well).",
     },
@@ -432,7 +432,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats", "upcoming"]),
-    ("Games", ["lfg", "seating", "pick", "rename", "schedule", "record"]),
+    ("Games", ["lfg", "seating", "pick", "schedule", "record", "rename"]),
     ("Random", ["draft", "random"]),
 ]
 
