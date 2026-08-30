@@ -140,7 +140,7 @@ HELP_COMMAND_BASE = {
 
 HELP_COMMAND_LFG = {
     "name": "help",
-    "description": "List the bot's available commands",
+    "description": "List the bot's available commands or request more info",
     "options": [
         {"name": "category", "description": "What to show (defaults to the command list)",
          "type": 3, "required": False,
@@ -319,7 +319,7 @@ LFG_HELP_INTRO = (
 
 LFG_HELP_STEPS = [
     {
-        "title": "Set up your LFG roles",
+        "title": "Set up your LFG Roles",
         "body": "Add one or more LFG roles for your server on the "
                 "[Manage your Guilds](manage-guilds) page (for example *Root TTS LFG* "
                 "and *Root Digital LFG*). Each role mentions a Discord role, so starting "
@@ -327,27 +327,34 @@ LFG_HELP_STEPS = [
                 "to a series, which lets its games record into that series by default.",
     },
     {
-        "title": "Choose where the thread goes",
+        "title": "Choose where the Thread goes",
         "body": "By default the game thread appears under the LFG message itself. If "
                 "you'd rather keep games tidy in one place, give the role a forum "
                 "channel and each new game is created as a post there instead (you can "
                 "give the thread a tag as well).",
     },
     {
-        "title": "Start the game and set it up",
+        "title": "Find Players for your Game",
+        "body": "Use `/lfg` to ping the players who want to play Root. "
+                "If your server has multiple LFG roles you can specify one in the command. "
+                "Give your LFG a description to specify the type of game you want to play. "
+                "Other players can click join to add themselves to the roster or click notify "
+                "be alerted when another player joins. Only the host can cancel or start the game."
+        ,
+    },
+    {
+        "title": "Optional in-thread Commands",
         # The trailing colon introduces the `commands` chips below, so both renderers
         # emit them immediately after the body. Drop the colon if the chips ever go.
-        "body": "Players click join on the message to add themselves to the roster; "
-                "starting it opens the thread. From there, anything you roll or look up "
-                "is captured automatically and reduces the available options when "
-                "recording the game (if none are used all factions/maps/decks are "
-                "available):",
+        "body": "Once the game is started a thread will automatically be created and the players will "
+        "be notified. Within the thread the players can use certain commands to help set up the game. "
+        "All of these commands are optional, but can be helpful when recording the game. The commands are as follows:",
         # LFG-specific blurbs: deliberately worded for what the command does *inside a
         # game thread*, which differs from its general registration description.
         "commands": [
-            ("random",  "Roll a random map, deck, faction, and more."),
-            ("map",     "Pick the map you're playing on."),
-            ("deck",    "Pick the deck you're playing with."),
+            ("random",  "Roll a random map, deck, faction, etc."),
+            ("map",     "Specify map you're playing on."),
+            ("deck",    "Specify deck you're playing with."),
             ("faction", "Note a faction that's in the game."),
             ("seating", "Randomly seat the players without drafting factions."),
             ("draft",   "Draft the factions that can be selected in this game."),
@@ -356,13 +363,13 @@ LFG_HELP_STEPS = [
         ],
     },
     {
-        "title": "Record the result",
+        "title": "Record the Result",
         "body": "When the game is over, run `/record` in the thread. You'll get a link "
                 "to the game form with the players, seating, map, deck, and series "
                 "already filled in from everything the thread captured.",
     },
     {
-        "title": "Results come back to the thread",
+        "title": "Results Post to the Thread",
         "body": "Once the game is saved, a link to the finished game is posted back in "
                 "the thread, so everyone who played can see the result without leaving "
                 "Discord.",

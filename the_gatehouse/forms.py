@@ -614,17 +614,18 @@ class TournamentGuildChannelsForm(forms.ModelForm):
     """The Discord channels a series posts into, edited from the Edit Guild page rather
     than any tournament form (they're guild plumbing, not series settings).
 
-    All three fields are rendered as live dropdowns by
-    tournament_channels_form_fields.html and bind normally by name. results/schedule are
-    TEXT channels; game_threads is a FORUM channel — validated against separate lists so
-    a text channel can't be saved where a forum is required."""
+    All fields are rendered as live dropdowns by tournament_channels_form_fields.html and
+    bind normally by name. results/schedule are TEXT channels; game_threads is a FORUM
+    channel — validated against separate lists so a text channel can't be saved where a
+    forum is required. game_threads_tag is one of that forum's tags."""
 
     class Meta:
         # apps.get_model rather than a module import: the_warroom.models imports from
         # the_gatehouse.models, so importing it at this module's top level risks a cycle
         # (GuildLFGRoleForm dodges the same problem with a function-local import).
         model = apps.get_model('the_warroom', 'Tournament')
-        fields = ['results_channel', 'schedule_channel', 'game_threads_channel']
+        fields = ['results_channel', 'schedule_channel', 'game_threads_channel',
+                  'game_threads_tag']
 
     def __init__(self, *args, guild=None, **kwargs):
         # `guild` is not a form field — it's the guild whose channels are valid choices,
@@ -659,4 +660,29 @@ class TournamentGuildChannelsForm(forms.ModelForm):
                 continue
             if channels is not None and value not in {c['id'] for c in channels}:
                 self.add_error(field, f'That channel is not {expected}.')
+
+        forum_id = cleaned.get('game_threads_channel')
+        tag_id = (cleaned.get('game_threads_tag') or '').strip() or None
+        cleaned['game_threads_tag'] = tag_id
+        # A tag without a forum is meaningless; drop it rather than storing an orphan
+        # that would silently reattach if a different forum were picked later.
+        if tag_id and not forum_id:
+            cleaned['game_threads_tag'] = tag_id = None
+
+        # Validate the tag against the forum's real tags, and catch the case that makes
+        # Create Game Threads fail wholesale: a forum with "require tag when posting"
+        # rejects every post lacking applied_tags. Same two rules as GuildLFGRoleForm.
+        # Skip when Discord is unreachable or the channel isn't a forum — don't
+        # hard-block a legitimate save (an outage shouldn't lock the settings page).
+        if forum_id:
+            from .services.discordservice import get_forum_channel_info
+            info = get_forum_channel_info(forum_id)
+            if info is not None and info['is_forum']:
+                valid_ids = {t['id'] for t in info['tags']}
+                if tag_id and tag_id not in valid_ids:
+                    self.add_error('game_threads_tag',
+                                   "That tag is not one of the forum channel's tags.")
+                if info['requires_tag'] and not tag_id:
+                    self.add_error('game_threads_tag',
+                                   'This forum requires a tag — please choose one.')
         return cleaned

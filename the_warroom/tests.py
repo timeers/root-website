@@ -7,15 +7,16 @@ from django.test import TestCase
 from django.urls import reverse
 
 from the_gatehouse.models import (
-    DiscordGuild, Profile, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
+    DiscordGuild, GuildLFGRole, Profile, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
 )
 from the_gatehouse.services.lfg_game import lfg_option_querysets
-from the_keep.models import Faction, StatusChoices, Vagabond
+from the_keep.models import Deck, Faction, Map, StatusChoices, Vagabond
 from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
 from the_warroom.forms import GameCreateForm
 from the_gatehouse.tasks import create_match_threads_task
 from the_warroom.models import (
-    Effort, Game, Match, MatchSeries, PlayerGroup, Round, Stage, Tournament,
+    Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup, Round, Stage,
+    StageParticipant, Tournament, TournamentPlayer,
 )
 from the_warroom.views import (
     _can_record_match, user_can_record_in_round, _prefill_undrafted,
@@ -958,3 +959,225 @@ class ResultsChannelAnnounceTests(TestCase):
         sent, delay = self._post("anything")
         self.assertFalse(sent)
         delay.assert_not_called()
+
+
+class ResultsChannelViewAnnounceTests(TestCase):
+    """Every game recorded into a tournament with a results_channel announces
+    there once -- match, LFG, or standalone -- and never again on a later edit.
+
+    View-level counterpart to ResultsChannelAnnounceTests above, which exercises
+    post_to_tournament_channel directly. The bug these cover was mode gating:
+    the announce block used to live inside the `elif match_mode` branch, so LFG
+    and standalone games never reached it at all.
+    """
+
+    CHANNEL = "200000000000000022"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        user_logged_in.disconnect(user_logged_in_handler)
+
+        self.guild = DiscordGuild.objects.create(guild_id="950100", name="Res Guild",
+                                                 bot_member=True)
+        self.user = User.objects.create_user(username="recorder", password="x")
+        # Bind the profile once: `user.profile` re-queries on each attribute
+        # access, so assigning through it and saving separately loses the change.
+        self.profile = self.user.profile
+        self.profile.discord = "recorder"
+        # group "A" backs both the `admin` and `player` properties -- the latter
+        # is what @player_required checks, so without it the view redirects to
+        # onboarding and the form never runs.
+        self.profile.group = "A"
+        self.profile.player_onboard = True
+        self.profile.save()
+        self.profile.guilds.add(self.guild)
+
+        self.tournament = Tournament.objects.create(
+            name="Res Cup", guild=self.guild, results_channel=self.CHANNEL,
+            is_active=True)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S1",
+                                          order=1, is_active=True)
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1, is_active=True,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+
+        # Post.save() builds a designers list, so these need one to exist.
+        _d = self.profile
+        self.map = Map.objects.create(title="Autumn", clearings=12, designer=_d)
+        self.deck = Deck.objects.create(title="Standard", card_total=54, designer=_d)
+        # `animal` is required: Faction.save() derives a default picture from it.
+        self.faction_a = Faction.objects.create(title="Marquise", type="M", reach=10,
+                                                animal="cat", designer=_d)
+        self.faction_b = Faction.objects.create(title="Eyrie", type="M", reach=7,
+                                                animal="bird", designer=_d)
+
+        self.opponent = Profile.objects.create(discord="opponent")
+        self.client.force_login(self.user)
+
+    def tearDown(self):
+        post_save.connect(handle_image_resize, sender=Profile)
+        user_logged_in.connect(user_logged_in_handler)
+
+    def _payload(self, **extra):
+        """A minimal valid two-player game submission."""
+        data = {
+            'platform': 'Tabletop Simulator',
+            'type': 'Live',
+            'map': self.map.pk,
+            'deck': self.deck.pk,
+            'round': self.round.pk,
+            'final': 'True',
+            'date_posted': '2026-01-01 12:00:00',
+            'form-TOTAL_FORMS': '2',
+            'form-INITIAL_FORMS': '0',
+            'form-MIN_NUM_FORMS': '0',
+            'form-MAX_NUM_FORMS': '1000',
+            'form-0-faction': self.faction_a.pk,
+            'form-0-player': self.profile.pk,
+            'form-0-score': '30',
+            'form-0-win': 'on',
+            'form-1-faction': self.faction_b.pk,
+            'form-1-player': self.opponent.pk,
+            'form-1-score': '20',
+        }
+        data.update(extra)
+        return data
+
+    def _seat(self, series, profile, seat_number):
+        """Seat a profile in a match series. Match mode restricts the effort
+        formset's player choices to seated participants (_get_match_profiles),
+        so a match submission needs the full Profile -> TournamentPlayer ->
+        StageParticipant -> MatchSeat chain to validate."""
+        tp = TournamentPlayer.objects.create(profile=profile,
+                                             tournament=self.tournament)
+        sp = StageParticipant.objects.create(stage=self.stage, tournament_player=tp)
+        return MatchSeat.objects.create(series=series, stage_participant=sp,
+                                        seat_number=seat_number)
+
+    def _record_committed(self, url, payload):
+        """POST a game with every Discord path patched, running the on_commit
+        callbacks -- they otherwise never fire inside TestCase's transaction."""
+        with mock.patch('the_warroom.views.post_to_tournament_channel') as announce, \
+             mock.patch('the_warroom.views.post_channel_message_task') as thread_post, \
+             mock.patch('the_warroom.views.send_rich_discord_message_task'):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(url, payload)
+        return resp, announce, thread_post
+
+    def test_standalone_game_announces(self):
+        """The case that never fired before: no match, no LFG thread, just a
+        round that belongs to a tournament."""
+        url = reverse('record-game-v2')
+        resp, announce, _ = self._record_committed(url, self._payload())
+        self.assertEqual(Game.objects.count(), 1)
+        announce.assert_called_once()
+        args = announce.call_args.args
+        self.assertEqual(args[0], self.tournament)
+        self.assertEqual(args[1], 'results_channel')
+        self.assertIn('See results [here]', args[2])
+
+    def test_game_outside_a_tournament_does_not_announce(self):
+        """A round with no tournament resolves to None and is skipped."""
+        orphan = Round.objects.create(round_number=9, is_active=True)
+        url = reverse('record-game-v2')
+        _, announce, _ = self._record_committed(
+            url, self._payload(round=orphan.pk))
+        announce.assert_not_called()
+
+    def test_editing_a_final_game_does_not_repost(self):
+        """The repost guard: `game_was_final` is read AFTER any rebinding, so a
+        second submission against an already-final game stays silent."""
+        url = reverse('record-game-v2')
+        _, announce, _ = self._record_committed(url, self._payload())
+        announce.assert_called_once()
+
+        game = Game.objects.get()
+        edit_url = reverse('game-update-v2', kwargs={'id': game.id})
+        efforts = list(game.efforts.order_by('seat'))
+        edit_payload = self._payload(**{
+            'form-INITIAL_FORMS': '2',
+            'form-0-id': efforts[0].pk,
+            'form-1-id': efforts[1].pk,
+            'nickname': 'renamed',
+        })
+        _, announce2, _ = self._record_committed(edit_url, edit_payload)
+        announce2.assert_not_called()
+
+    def test_resubmitting_to_a_match_that_already_has_a_final_game_does_not_repost(self):
+        """The guard's real teeth. Posting to ?match=<id> WITHOUT an id rebinds
+        `obj` to the match's existing game at views.py:1218 -- after
+        `initial_game_status` was read off a blank Game() and frozen at False.
+        A guard keyed on initial_game_status would see "not final -> final" and
+        announce a second time; `game_was_final`, read after the rebinding, sees
+        the game as already final and stays quiet.
+        """
+        series = MatchSeries.objects.create(round=self.round)
+        match = Match.objects.create(round=self.round, series=series)
+        self._seat(series, self.profile, 1)
+        self._seat(series, self.opponent, 2)
+
+        match_url = f"{reverse('record-game-v2')}?match={match.pk}"
+        _, announce, _ = self._record_committed(match_url, self._payload(
+            match_id=match.pk))
+        announce.assert_called_once()
+
+        match.refresh_from_db()
+        self.assertIsNotNone(match.game_id, "match should now hold the game")
+        game = match.game
+        efforts = list(game.efforts.order_by('seat'))
+
+        # Same URL, still no `id` in the path -- this is the rebinding path.
+        # INITIAL_FORMS must match the saved efforts or the stale-submission
+        # guard redirects before the view ever reaches the announce block.
+        _, announce2, _ = self._record_committed(match_url, self._payload(
+            match_id=match.pk,
+            **{
+                'form-INITIAL_FORMS': '2',
+                'form-0-id': efforts[0].pk,
+                'form-1-id': efforts[1].pk,
+            }))
+        announce2.assert_not_called()
+        self.assertEqual(Game.objects.count(), 1, "must not have created a 2nd game")
+
+    def test_lfg_game_announces_in_both_the_thread_and_the_results_channel(self):
+        """LFG games used to reach only their own thread: the results-channel
+        post sat behind `elif match_mode`, which the LFG branch short-circuited.
+        Both messages must now go out -- they have different audiences."""
+        role = GuildLFGRole.objects.create(guild=self.guild, name="TTS LFG",
+                                           tournament=self.tournament)
+        thread = LFGThread.objects.create(thread_id="300000000000000033",
+                                          guild=self.guild, lfg_role=role,
+                                          host=self.profile)
+        thread.players.add(self.profile, self.opponent)
+
+        url = f"{reverse('record-game-v2')}?lfg={thread.pk}"
+        _, announce, thread_post = self._record_committed(
+            url, self._payload(lfg_id=thread.pk))
+
+        announce.assert_called_once()
+        self.assertEqual(announce.call_args.args[0], self.tournament)
+        self.assertEqual(announce.call_args.args[1], 'results_channel')
+        # ...and the LFG thread still got its own post.
+        thread_post.delay.assert_called_once()
+        self.assertEqual(thread_post.delay.call_args.args[0], thread.thread_id)
+
+    def test_match_game_announces_in_both_the_group_thread_and_results_channel(self):
+        """The pre-existing match behaviour must survive the lift: one results
+        post AND the group-thread post, not one at the expense of the other."""
+        # _match_thread_id reads the URL off the series' PlayerGroup and only
+        # accepts it when the guild in the URL is the tournament's own guild.
+        group = PlayerGroup.objects.create(
+            round=self.round,
+            discord_thread=f"https://discord.com/channels/{self.guild.guild_id}"
+                           f"/400000000000000044")
+        series = MatchSeries.objects.create(round=self.round, player_group=group)
+        match = Match.objects.create(round=self.round, series=series)
+        self._seat(series, self.profile, 1)
+        self._seat(series, self.opponent, 2)
+
+        url = f"{reverse('record-game-v2')}?match={match.pk}"
+        _, announce, thread_post = self._record_committed(
+            url, self._payload(match_id=match.pk))
+
+        announce.assert_called_once()
+        thread_post.delay.assert_called_once()

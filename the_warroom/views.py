@@ -1244,6 +1244,13 @@ def manage_game_v2(request, id=None):
             messages.error(request, "You do not have permission to edit this game.")
             return redirect(obj.get_absolute_url())
 
+    # The game's final-ness as actually loaded, after match/LFG mode may have
+    # rebound `obj` to a pre-existing game just above. `initial_game_status` is
+    # read before that rebinding and so reports False for an ALREADY-final game,
+    # which would let a plain edit look like a first-time completion. Same trap
+    # `lfg_initial_status` exists to dodge; this is its results-channel analogue.
+    game_was_final = obj.final
+
     # Prepopulate round from query param (standalone mode)
     round_id = request.GET.get('series-round')
     selected_round = None
@@ -2078,22 +2085,30 @@ def manage_game_v2(request, id=None):
                                 lambda tid=_thread_id, msg=_message:
                                     post_channel_message_task.delay(tid, msg))
 
-                        # Also announce in the series' results channel, if it has one.
-                        # Separate from the thread post above (different audience,
-                        # different wording) and independent of it: a series can have a
-                        # results channel with no group thread, or vice versa.
-                        _tournament = match.round.get_tournament() if match.round_id else None
-                        if _tournament is not None and site:
-                            # recorder is nullable (league-imported games have none) and
-                            # is only assigned on CREATE, so fall back to whoever is
-                            # submitting -- this branch only runs on a live submission.
-                            _who = (parent.recorder.name if parent.recorder
-                                    else user.profile.name)
-                            _res_msg = (f'Game recorded by {_who}. '
-                                        f'See results [here]({site}{parent.get_absolute_url()}).')
-                            transaction.on_commit(
-                                lambda t=_tournament, msg=_res_msg:
-                                    post_to_tournament_channel(t, 'results_channel', msg))
+                    # Announce in the tournament's results channel, if it has one.
+                    # Deliberately OUTSIDE the mode chain above: every game recorded
+                    # into a tournament belongs here -- match, LFG, or a standalone
+                    # game that simply picked one of its rounds. This is independent
+                    # of, and additional to, any thread post above (different
+                    # audience, different wording); a tournament can have a results
+                    # channel with no threads, or vice versa.
+                    _tournament = parent.get_tournament()
+                    _res_site = (settings.SITE_URL or '').rstrip('/')
+                    # `game_was_final` (not initial_game_status) is what makes this
+                    # fire once, on the submission that first makes the game final,
+                    # rather than again on every later edit -- see its capture above.
+                    if (not game_was_final and parent.final
+                            and _tournament is not None and _res_site):
+                        # recorder is nullable (league-imported games have none) and
+                        # is only assigned on CREATE, so fall back to whoever is
+                        # submitting -- this branch only runs on a live submission.
+                        _who = (parent.recorder.name if parent.recorder
+                                else user.profile.name)
+                        _res_msg = (f'Game recorded by {_who}. '
+                                    f'See results [here]({_res_site}{parent.get_absolute_url()}).')
+                        transaction.on_commit(
+                            lambda t=_tournament, msg=_res_msg:
+                                post_to_tournament_channel(t, 'results_channel', msg))
                 _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
 
                 return redirect(parent.get_absolute_url())
@@ -8363,6 +8378,20 @@ def round_create_game_threads(request, tournament_slug, stage_slug, round_slug):
         return JsonResponse(
             {'error': 'No game-threads forum channel is set for this series. A '
                       'moderator of the linked Discord server can set one.'}, status=400)
+
+    # A forum with "require tag when posting" rejects EVERY post without applied_tags, so
+    # queuing the task would fail every match one by one. Catch it here, where the modal
+    # shows the error, instead of as a notification minutes later. Only blocks on a
+    # CONFIRMED requirement: a None info (Discord unreachable) falls through and lets the
+    # task try, matching how the settings form treats an outage.
+    if not tournament.game_threads_tag:
+        from the_gatehouse.services.discordservice import get_forum_channel_info
+        info = get_forum_channel_info(tournament.game_threads_channel)
+        if info and info['is_forum'] and info['requires_tag']:
+            return JsonResponse(
+                {'error': 'That forum requires a tag on new posts, but no game threads '
+                          'tag is set for this series. A moderator of the linked Discord '
+                          'server can set one.'}, status=400)
 
     pending = _threads_to_create_count(round)
     if not pending:

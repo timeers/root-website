@@ -12,6 +12,13 @@ and the form's clean() would then reject it.
 A None list means Discord couldn't be reached for that kind of channel; only that control
 degrades to a manual id input, never the others.
 {% endcomment %}
+
+{% comment %} forum→tags map for the tag <select> below (see static/js/lfg_forum_tags.js).
+Ships INSIDE the swapped form rather than in the page shell: the form is htmx-loaded per
+series, and each series' map reflects its own forum list, so a page-level blob would go
+stale the moment a different series' form was opened. {% endcomment %}
+{{ field_ctx.forum_tag_map|json_script:'tournament-forum-tags' }}
+
 <div class="tournament-channel-fields">
 
     {# ----- Results channel ----- #}
@@ -83,14 +90,14 @@ degrades to a manual id input, never the others.
             <div class="alert alert-danger py-2">{{ form.game_threads_channel.errors|striptags }}</div>
         {% endif %}
         {% if field_ctx.forum_channels is None %}
-            <input type="text" name="game_threads_channel" class="form-control"
+            <input type="text" name="game_threads_channel" class="form-control js-game-threads-select"
                    value="{{ field_ctx.game_threads_selected }}" autocomplete="off"
                    placeholder="{% trans 'Forum channel ID' %}">
             <div class="form-text text-warning">
                 {% trans "Couldn't load forums from Discord — enter a forum channel ID manually." %}
             </div>
         {% else %}
-            <select name="game_threads_channel" class="form-select">
+            <select name="game_threads_channel" class="form-select js-game-threads-select">
                 <option value="" {% if not field_ctx.game_threads_selected %}selected{% endif %}>{% trans '— No forum —' %}</option>
                 {% for forum in field_ctx.forum_channels %}
                     <option value="{{ forum.id }}" {% if forum.id == field_ctx.game_threads_selected %}selected{% endif %}>
@@ -105,6 +112,36 @@ degrades to a manual id input, never the others.
                 {% trans 'Must be a forum channel. Adds the option to create game threads from Matches page.' %}
             </div>
         {% endif %}
+    </div>
+
+    {% comment %} ----- Forum tag -----
+    OPTIONS are owned by static/js/lfg_forum_tags.js, which rebuilds them from the
+    page-level #tournament-forum-tags blob on load, after each HTMX swap, and whenever the
+    forum above changes. Seeded here only with the saved tag so an edit form is correct
+    with no flash before that runs.
+
+    Not cosmetic: a forum with Discord's "require tag when posting" flag rejects EVERY post
+    that has no tag, which is what made Create Game Threads fail for every match. The JS
+    marks this control required for such a forum, and the form re-checks server-side.
+    {% endcomment %}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Game threads tag' %}</label>
+        {% if form.game_threads_tag.errors %}
+            <div class="alert alert-danger py-2">{{ form.game_threads_tag.errors|striptags }}</div>
+        {% endif %}
+        <select name="game_threads_tag" class="form-select js-forum-tag-select">
+            {% if field_ctx.tag_selected %}
+                <option value="{{ field_ctx.tag_selected }}" selected>{{ field_ctx.tag_selected_name|default:field_ctx.tag_selected }}</option>
+            {% else %}
+                <option value="" selected>{% trans '— Choose a forum first —' %}</option>
+            {% endif %}
+        </select>
+        <div class="js-forum-tag-hint form-text text-warning d-none">
+            {% trans 'This forum requires a tag.' %}
+        </div>
+        <div class="form-text text-muted">
+            {% trans 'Applied to each game thread created for this series.' %}
+        </div>
     </div>
 
 </div>

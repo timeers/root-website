@@ -9,8 +9,8 @@
 <meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
 <meta property="og:site_name" content="Root Database">
 <meta property="og:title" content="Root Databot">
-<meta property="og:description" content="The Root Databot is a Discord bot for looking up Root stats, laws, factions and more.">
-<meta name="description" content="The Root Databot is a Discord bot for looking up Root stats, laws, factions and more.">
+<meta property="og:description" content="The Root Databot is a Discord bot integrated with the Root Database for recording games and looking up Root stats, laws and factions.">
+<meta name="description" content="The Root Databot is a Discord bot integrated with the Root Database for recording games and looking up Root stats, laws and factions.">
 {% endblock meta %}
 
 
@@ -28,8 +28,7 @@
           Faction details, rules lookups, drafts, and random rolls in Discord.
         </p>
         {% if invite_url %}
-        <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
-           class="databot-btn databot-btn-hero">
+        <a href="{% url 'databot-add' %}" class="databot-btn databot-btn-hero">
           <i class="bi bi-discord me-2"></i>Add to Server
         </a>
         {% endif %}
@@ -69,10 +68,10 @@
             </div>
             <div class="col-sm-6">
               <div class="databot-feature">
-                <i class="bi bi-calendar-event text-info"></i>
+                <i class="bi bi-person-plus-fill text-info"></i>
                 <div>
-                  <h5>Match Schedules</h5>
-                  <p>Check the next scheduled match for a player or tournament without leaving Discord.</p>
+                  <h5>Organize Games</h5>
+                  <p>Ping LFG rolls and set up threads to easily record prefilled results.</p>
                 </div>
               </div>
             </div>
@@ -109,6 +108,7 @@
       <div class="info-card mb-4">
         <div class="info-card-body">
           <h2 class="info-card-title">All Commands</h2>
+          <p class="databot-card-intro">The Databot commands are à la carte, so you can choose which ones to enable on your server. No command depends on another, but some work better together.</p>
           {% for group_name, rows in command_groups %}
           <div class="databot-cmd-group">
             <h5 class="databot-cmd-group-title">{{ group_name }}</h5>
@@ -136,7 +136,7 @@
             LFG_HELP_STEPS) so this card and /help category:LFG stay in sync. The
             lfg_body filter expands the inline markup those bodies carry.
           {% endcomment %}
-          <p class="databot-notify-intro">{{ lfg_intro|lfg_body }}</p>
+          <p class="databot-card-intro">{{ lfg_intro|lfg_body }}</p>
 
           <div class="databot-lfg-steps">
             {% for step in lfg_steps %}
@@ -164,14 +164,19 @@
 
       <div class="text-center mb-4 d-flex flex-wrap justify-content-center gap-3">
         {% if invite_url %}
-        <a href="{{ invite_url }}" target="_blank" rel="noopener noreferrer"
-           class="databot-btn databot-btn-primary">
+        <a href="{% url 'databot-add' %}" class="databot-btn databot-btn-primary">
           <i class="bi bi-discord me-2"></i>Add Databot to Your Server
         </a>
         {% endif %}
+        {% comment %}
+        Guild management is player-gated, so a logged-out visitor clicking through would
+        land on the Woodland Warriors page rather than their guilds. Hide it instead.
+        {% endcomment %}
+        {% if user_is_authenticated %}
         <a href="{% url 'manage-guilds' %}" class="databot-btn databot-btn-outline">
           <i class="bi bi-gear me-2"></i>Manage your Guilds
         </a>
+        {% endif %}
       </div>
 
       <!-- Discord notifications -->
@@ -180,7 +185,7 @@
           <h2 class="info-card-title">
             <i class="bi bi-bell-fill text-primary me-2"></i>Get notified in Discord
           </h2>
-          <p class="databot-notify-intro">
+          <p class="databot-card-intro">
             If you share a server with the Root Databot, it can send you a direct message when things you
             care about happen on the Root Database.
           </p>
@@ -267,7 +272,7 @@
    they can be reused on other pages (e.g. Manage Guilds). */
 
 /* ── Discord notifications ────────────────────────────────────────── */
-.databot-notify-intro {
+.databot-card-intro {
   font-size: 15px;
   color: #4f5660;
   line-height: 1.7;
