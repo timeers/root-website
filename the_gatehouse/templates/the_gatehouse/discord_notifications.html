@@ -31,15 +31,10 @@
         <p class="dn-note dn-note-warn">
           <i class="bi bi-exclamation-triangle-fill me-1"></i>
           {% trans "You're not in a server with the Root Databot yet, so notifications can't be delivered." %}
-          {% if rdb_feedback_invite %}
-            <a href="{{ rdb_feedback_invite }}" target="_blank" rel="noopener" class="dn-note-link">{% trans 'Join the RDB Discord' %}</a>
-            {% trans '(or' %}
-            <a href="{% url 'databot-info' %}" class="dn-note-link">{% trans 'add the bot' %}</a>
-            {% trans 'to your own server), then log out and back in. You can still set your preferences below.' %}
-          {% else %}
-            <a href="{% url 'databot-info' %}" class="dn-note-link">{% trans 'Add the bot' %}</a>
-            {% trans 'to a server (then log out and back in) to enable them. You can still set your preferences below.' %}
-          {% endif %}
+          <a href="https://discord.gg/xcGkhUvMt3" target="_blank" rel="noopener" class="dn-note-link">{% trans 'Join the Databot Test Server' %}</a>
+          {% trans '(or' %}
+          <a href="{% url 'databot-info' %}" class="dn-note-link">{% trans 'add the bot' %}</a>
+          {% trans 'to your own server), then log out and back in. You can still set your preferences below.' %}
         </p>
         {% endif %}
 

@@ -1368,12 +1368,12 @@ class Profile(models.Model):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None):
-        """
-        Get the players with the highest winrate (or most wins for top_quantity) from the effort_qs
-        The limit is how many players will be displayed.
-        The game theshold is how many games a player needs to play to qualify.
-        link_builder: optional callable(profile) -> str URL. Defaults to player-detail.
+    def _leaderboard_annotated(cls, effort_qs, game_threshold=10):
+        """The annotated, threshold-filtered board queryset, WITHOUT ordering or slicing.
+
+        Split out of leaderboard() so a caller needing both the "top" (by win rate) and
+        "most" (by tourney points) boards can build this once and order it twice, instead
+        of running the same aggregate twice. See leaderboard_pair().
         """
         # Start with the base queryset for profiles
         queryset = cls.objects.filter(efforts__in=effort_qs)
@@ -1409,6 +1409,51 @@ class Profile(models.Model):
             )
         )
 
+        return queryset
+
+    @classmethod
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None):
+        """
+        Get the players with the highest winrate (or most wins for top_quantity) from the effort_qs
+        The limit is how many players will be displayed.
+        The game theshold is how many games a player needs to play to qualify.
+        link_builder: optional callable(profile) -> str URL. Defaults to player-detail.
+        """
+        queryset = cls._leaderboard_annotated(effort_qs, game_threshold=game_threshold)
+        return cls._leaderboard_finish(queryset, top_quantity=top_quantity, limit=limit,
+                                       as_json=as_json, link_builder=link_builder)
+
+    @classmethod
+    def leaderboard_pair(cls, effort_qs, limit=5, game_threshold=10, as_json=False,
+                         link_builder=None):
+        """Both boards ("top" by win rate, "most" by tourney points) from ONE annotated
+        queryset. Equivalent to calling leaderboard() twice with the same game_threshold,
+        but builds the expensive annotation once. Returns (top, most).
+
+        Only valid when both boards use the SAME game_threshold -- a different threshold
+        changes the HAVING filter, making them genuinely different queries. Callers with
+        mismatched thresholds must keep using leaderboard() twice.
+
+        Evaluates the aggregate ONCE and sorts the two orderings in Python. Slicing the
+        same queryset twice would not help: querysets are lazy, so each slice re-executes
+        the SQL. The row set here is small (the threshold-qualifying players, from which
+        only `limit` are shown), so in-memory sorting is far cheaper than a second
+        aggregate over the whole effort table.
+        """
+        queryset = cls._leaderboard_annotated(effort_qs, game_threshold=game_threshold)
+        rows = list(queryset)
+        top = cls._leaderboard_finish_rows(
+            sorted(rows, key=lambda o: (-o.win_rate, -o.total_efforts))[:limit],
+            as_json=as_json, link_builder=link_builder)
+        most = cls._leaderboard_finish_rows(
+            sorted(rows, key=lambda o: (-o.tourney_points, -o.win_rate))[:limit],
+            as_json=as_json, link_builder=link_builder)
+        return top, most
+
+    @classmethod
+    def _leaderboard_finish(cls, queryset, top_quantity=False, limit=5, as_json=False,
+                            link_builder=None):
+        """Order, slice and materialize an annotated board queryset."""
         # Order the queryset
         if top_quantity:
             queryset = queryset.order_by('-tourney_points', '-win_rate')
@@ -1417,8 +1462,12 @@ class Profile(models.Model):
 
         queryset = queryset[:limit]
 
-        # Materialize queryset and set leaderboard_link on each profile
-        results = list(queryset)
+        return cls._leaderboard_finish_rows(list(queryset), as_json=as_json,
+                                            link_builder=link_builder)
+
+    @classmethod
+    def _leaderboard_finish_rows(cls, results, as_json=False, link_builder=None):
+        """Decorate already-ordered, already-sliced board rows (link + optional JSON)."""
         for profile in results:
             if link_builder:
                 profile.leaderboard_link = link_builder(profile)

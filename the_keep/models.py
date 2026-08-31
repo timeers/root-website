@@ -1670,18 +1670,13 @@ class Faction(Post):
 
 
     @classmethod
-    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None, include_fan_content=True):
-        """
-        Get the factions with the highest winrate (or most wins for top_quantity) from the effort_qs
-        The limit is how many factions will be displayed.
-        The game threshold is how many games a faction needs to play to qualify.
-        If as_json=True, returns a list of dicts with title, win_rate, tourney_points, url, and image_url.
-        link_builder: optional callable(faction) -> str URL. Defaults to faction-detail.
-        include_fan_content: when True (default) show all factions; pass False to
-        exclude unofficial (fan-made) factions (e.g. the /stats default).
-        """
-        language_code = get_language()
+    def _leaderboard_annotated(cls, effort_qs, game_threshold=10, include_fan_content=True):
+        """The annotated, threshold-filtered board queryset, WITHOUT ordering or slicing.
 
+        Split out of leaderboard() so a caller needing both the "top" (by win rate) and
+        "most" (by tourney points) boards can build this once and order it twice, instead
+        of running the same aggregate twice. See leaderboard_pair().
+        """
         # Start with the base queryset for factions
         queryset = cls.objects.filter(
             efforts__in=effort_qs,
@@ -1721,6 +1716,75 @@ class Faction(Post):
             )
         )
         
+        return queryset
+
+    @classmethod
+    def leaderboard(cls, effort_qs, top_quantity=False, limit=5, game_threshold=10, as_json=False, link_builder=None, include_fan_content=True):
+        """
+        Get the factions with the highest winrate (or most wins for top_quantity) from the effort_qs
+        The limit is how many factions will be displayed.
+        The game threshold is how many games a faction needs to play to qualify.
+        If as_json=True, returns a list of dicts with title, win_rate, tourney_points, url, and image_url.
+        link_builder: optional callable(faction) -> str URL. Defaults to faction-detail.
+        include_fan_content: when True (default) show all factions; pass False to
+        exclude unofficial (fan-made) factions (e.g. the /stats default).
+        """
+        queryset = cls._leaderboard_annotated(
+            effort_qs, game_threshold=game_threshold, include_fan_content=include_fan_content)
+        return cls._leaderboard_finish(queryset, top_quantity=top_quantity, limit=limit,
+                                       as_json=as_json, link_builder=link_builder)
+
+    @classmethod
+    def leaderboard_pair(cls, effort_qs, limit=5, game_threshold=10, as_json=False,
+                         link_builder=None, include_fan_content=True):
+        """Both boards ("top" by win rate, "most" by tourney points) from ONE annotated
+        queryset. Equivalent to calling leaderboard() twice with the same game_threshold,
+        but builds the expensive annotation once. Returns (top, most).
+
+        Only valid when both boards use the SAME game_threshold -- a different threshold
+        changes the HAVING filter, making them genuinely different queries. Callers with
+        mismatched thresholds must keep using leaderboard() twice.
+
+        Evaluates the aggregate ONCE and sorts the two orderings in Python. Slicing the
+        same queryset twice would not help: querysets are lazy, so each slice re-executes
+        the SQL. The row set here is small (the threshold-qualifying factions, from which
+        only `limit` are shown), so in-memory sorting is far cheaper than a second
+        aggregate over the whole effort table.
+        """
+        queryset = cls._leaderboard_annotated(
+            effort_qs, game_threshold=game_threshold, include_fan_content=include_fan_content)
+        # The translated-title annotation is applied here rather than post-slice (as the
+        # single-board path does), so the one evaluation carries it for both orderings.
+        queryset = cls._annotate_selected_title(queryset)
+        rows = list(queryset)
+        top = cls._leaderboard_finish_rows(
+            sorted(rows, key=lambda o: (-o.win_rate, -o.total_efforts))[:limit],
+            as_json=as_json, link_builder=link_builder)
+        most = cls._leaderboard_finish_rows(
+            sorted(rows, key=lambda o: (-o.tourney_points, -o.win_rate))[:limit],
+            as_json=as_json, link_builder=link_builder)
+        return top, most
+
+    @classmethod
+    def _annotate_selected_title(cls, queryset):
+        """Attach the active language's translated title, falling back to `title`."""
+        language_code = get_language()
+        return queryset.annotate(
+            selected_title=Coalesce(
+                Subquery(
+                    PostTranslation.objects.filter(
+                        post=OuterRef('pk'),
+                        language__code=language_code
+                    ).values('translated_title')[:1]
+                ),
+                F('title')  # Fallback
+            )
+        )
+
+    @classmethod
+    def _leaderboard_finish(cls, queryset, top_quantity=False, limit=5, as_json=False,
+                            link_builder=None):
+        """Order, slice, translate and materialize an annotated board queryset."""
         # Order the queryset
         if top_quantity:
             queryset = queryset.order_by('-tourney_points', '-win_rate')
@@ -1730,20 +1794,14 @@ class Faction(Post):
         queryset = queryset[:limit]
 
         # Annotate with translated title
-        queryset = queryset.annotate(
-            selected_title=Coalesce(
-                Subquery(
-                    PostTranslation.objects.filter(
-                        post=OuterRef('pk'), 
-                        language__code=language_code
-                    ).values('translated_title')[:1]
-                ),
-                F('title')  # Fallback
-            )
-        )
-        
-        # Materialize queryset and set leaderboard_link on each faction
-        results = list(queryset)
+        queryset = cls._annotate_selected_title(queryset)
+
+        return cls._leaderboard_finish_rows(list(queryset), as_json=as_json,
+                                            link_builder=link_builder)
+
+    @classmethod
+    def _leaderboard_finish_rows(cls, results, as_json=False, link_builder=None):
+        """Decorate already-ordered, already-sliced board rows (link + optional JSON)."""
         for faction in results:
             if link_builder:
                 faction.leaderboard_link = link_builder(faction)

@@ -566,8 +566,42 @@ PDF_TEXT = {
             'title': 'PREPARAÇÃO AVANÇADA'
         },
     },
+    'pl': {
+        'crafted_items': {
+            'title': 'Przekute przedmioty',
+            'body': 'Włóczęga może dać ci karty w zamian za przedmioty',
+        },
+        'phases': {
+            'birdsong': 'Świt',
+            'daylight': 'Dzień',
+            'evening': 'Wieczór',
+        },
+        'back': {
+            'manifest': 'Komponenty frakcji',
+            'warriors': 'Wojownicy',
+            'tokens': 'Żetony',
+            'buildings': 'Budynki',
+            'other': 'Pozostałe komponenty',
+            'complexity': 'Złożoność',
+            'aggression': 'Agresja',
+            'card_wealth': 'Zasobność w karty',
+            'crafting_ability': 'Przekuwanie',
+            'setup': 'Przygotowanie Rozgrywki',
+            'playing': 'Granie jako',
+            'none': 'brak',
+        },
+        'attr_levels': {
+            'N': 'N/A',
+            'L': 'NISKA',
+            'M': 'ŚREDNIA',
+            'H': 'WYSOKA',
+        },
+        'adset': {
+            'title': 'PRZYGOTOWANIE ZAAWANSOWANE'
+        },
+    },
 
-    # 'es', 'nl', 'pl', 'ru', 'de', 'pt' to be filled in later.
+    # 'nl', 'ru', 'de' to be filled in later.
 }
 
 def _pdf_text(element_key, lang_code):
@@ -789,7 +823,12 @@ SETUP_CARD_TITLE_FONT_SIZE = 9.5               # font size (pt) of the "ADVANCED
 SETUP_CARD_TITLE_TOP_MARGIN = 0.833 * inch     # distance from top of card to title baseline
 SETUP_CARD_TITLE_CHAR_SPACING = 0.35           # extra pts of space between each character in the title
 SETUP_CARD_TITLE_MAX_W = CARD_SLOT_W - 2 * SETUP_CARD_BAND_X_INSET  # title must fit within the band's horizontal extent
-SETUP_CARD_TITLE_MIN_FONT_SIZE = 6.5            # don't shrink the localized title below this
+SETUP_CARD_TITLE_MIN_FONT_SIZE = 5.5            # don't shrink the localized title below this.
+# 5.5 rather than 6.5 so Polish ("PRZYGOTOWANIE ZAAWANSOWANE", the longest title of any
+# language) still fits the band instead of running past the card edges — it lands at
+# ~5.54pt. This floor is a lower bound on shrinking, not a size: it only binds for titles
+# that would otherwise overflow at it, so every language that already fits (en unshrunk,
+# fr/es/pt at the window edge) renders at exactly the same size as before.
 
 # Header image hangs upward from the bottom-left of the band
 SETUP_CARD_HEADER_MAX_H = 1.4 * inch          # don't let the header overflow upward forever

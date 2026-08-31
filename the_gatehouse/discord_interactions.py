@@ -1805,6 +1805,31 @@ def _proposal_for_click(payload, allow_agreed=False, allow_passed=False):
     return proposal, match, None
 
 
+def _already_confirmed_text(proposal, me):
+    """Why a repeat Confirm click changed nothing.
+
+    The proposer is seeded into confirmed_by at creation and never pressed
+    anything, so a bare "you already confirmed" reads to them as a bug -- and on a
+    roster of three or more theirs is the commonest click to land here. Naming
+    who's still pending answers the question actually behind the second click: not
+    "did mine register" but "why hasn't this resolved".
+
+    Plain display names, NOT _roster_name: that renders a mention, and this text is
+    message content rather than an embed field, so every repeat click would ping
+    players who did nothing. Same reasoning as the followup in _finalize_proposal.
+    """
+    if proposal.proposed_by_id == me.pk:
+        lead = "You proposed this time, so you're already counted as confirmed."
+    else:
+        lead = "You've already confirmed this time."
+    pending = list(proposal.pending_profiles())
+    if pending:
+        names = ", ".join(
+            p.display_name or p.discord or p.slug or "—" for p in pending)
+        return f"{lead}\nStill waiting on: {names}"
+    return lead
+
+
 def _handle_schedule_proposal_confirm(payload):
     """Confirm on a public proposal. Only a roster player whose Discord is linked
     may act; everyone else is told why they can't."""
@@ -1827,8 +1852,18 @@ def _handle_schedule_proposal_confirm(payload):
             "game's players."
         )
 
-    # add() is idempotent, so a double-click is a no-op rather than an error.
+    # Captured BEFORE the write: add() is idempotent, so afterwards there is no
+    # way to tell a repeat click from a first one.
+    already = proposal.confirmed_by.filter(pk=me.pk).exists()
     proposal.confirmed_by.add(me)
+
+    # Silence here reads as a broken button, so say the consent already landed --
+    # but only when the roster is still incomplete. A repeat click can also be the
+    # click that FINISHES: once everyone else has confirmed, the seeded proposer
+    # pressing Confirm is both already-confirmed and the last confirmation owed,
+    # and returning early on `already` alone would strand the proposal unscheduled.
+    if already and not proposal.all_confirmed():
+        return _ephemeral(_already_confirmed_text(proposal, me))
 
     if not proposal.all_confirmed():
         return JsonResponse({

@@ -210,15 +210,7 @@ class ForgedFaction(models.Model):
                 sheet__faction=self,
                 element_color=ElementColor.FACTION,
             ).update(element_color=CardPile._meta.get_field('element_color').default)
-        if new and not clone_in_progress():
-            from the_gatehouse.tasks import send_rich_discord_message_task
-            from django.urls import reverse
-            url = reverse('forge-faction-detail', kwargs={'pk': self.pk})
-            fields = [{'name': 'By:', 'value': str(self.designer)}]
-            send_rich_discord_message_task.delay(
-                f'[{self.faction_name}]({settings.SITE_URL}{url})',
-                category='forge-activity', title='New Faction', fields=fields,
-            )
+
 
 
 class FactionSheet(models.Model):

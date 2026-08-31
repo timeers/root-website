@@ -7661,6 +7661,62 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         di._handle_schedule_proposal_confirm(self._payload())
         self.assertEqual(self.proposal.confirmed_by.count(), 2)
 
+    def test_double_click_says_the_confirmation_already_landed(self):
+        """Silence reads as a broken button, so a repeat click is told why
+        nothing changed -- and who the proposal is still waiting on."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        di._handle_schedule_proposal_confirm(self._payload())
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertEqual(body["type"], di.RESPONSE_CHANNEL_MESSAGE)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("already confirmed this time", body["data"]["content"])
+        self.assertIn("third", body["data"]["content"])
+
+    def test_repeat_click_feedback_never_pings_the_pending(self):
+        """The names ride message content, where a mention WOULD notify -- so
+        they must be plain, unlike the embed fields on the proposal itself."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        di._handle_schedule_proposal_confirm(self._payload())
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertNotIn("<@", body["data"]["content"])
+
+    def test_the_proposer_is_told_proposing_already_counted(self):
+        """They were seeded into confirmed_by and never pressed anything, so
+        "you already confirmed" would read to them as a bug."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload(
+            user_id=self.player.discord_id, username="player")))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("You proposed this time", body["data"]["content"])
+
+    def test_repeat_click_writes_nothing_and_leaves_the_proposal_open(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        di._handle_schedule_proposal_confirm(self._payload())
+        di._handle_schedule_proposal_confirm(self._payload())
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+
+    def test_a_repeat_click_that_completes_the_roster_still_finalizes(self):
+        """A repeat click can be the click that FINISHES. Once everyone else has
+        confirmed, the seeded proposer pressing Confirm is both already-confirmed
+        and the last confirmation owed -- refusing it as a repeat would strand the
+        proposal unscheduled."""
+        self.proposal.confirmed_by.add(self.teammate)
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload(
+            user_id=self.player.discord_id, username="player")))
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertNotIn("flags", body["data"])
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.scheduled_time, self.when)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
+
     def test_finalize_preserves_derived_name(self):
         original_name, original_number = self.match.name, self.match.match_number
         di._handle_schedule_proposal_confirm(self._payload())

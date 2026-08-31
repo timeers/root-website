@@ -21,10 +21,9 @@ def active_user_data(request):
             global_message = None
         woodland_warriors_invite = config.woodland_warriors_invite
         french_root_invite = config.french_root_invite
-        if config.primary_discord_guild:
-            rdb_feedback_invite = config.primary_discord_guild.server_invite
-        else:
-            rdb_feedback_invite = None
+
+        rdb_ww_thread = 'https://discord.com/channels/476234833572397056/1365067060379516928'
+
 
         post_count = 0
         recent_posts = []
@@ -141,7 +140,7 @@ def active_user_data(request):
             'global_message_type': global_message_type,
             'woodland_warriors_invite': woodland_warriors_invite,
             'french_root_invite': french_root_invite,
-            'rdb_feedback_invite': rdb_feedback_invite,
+            'rdb_ww_thread': rdb_ww_thread,
         }
 
     except Exception:

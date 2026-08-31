@@ -2423,8 +2423,18 @@ class Game(models.Model):
 
     class Meta:
         ordering = ['-date_posted']
+        # Leaderboard/filter support. Every leaderboard query narrows games by some
+        # combination of these columns and then joins efforts; before these indexes the
+        # planner had only date_posted and the FKs, so it fell back to a full scan.
+        # Composites lead with the selective column: `final` alone matches ~all rows
+        # (non-final games are transient drafts), so it never leads.
+        indexes = [
+            models.Index(fields=['platform', 'final', 'test_match'],
+                         name='game_platform_final_idx'),
+            models.Index(fields=['round', 'final'], name='game_round_final_idx'),
+            models.Index(fields=['official', 'final'], name='game_official_final_idx'),
+        ]
 
-        
 
 class GameBookmark(models.Model):
     player = models.ForeignKey(Profile, on_delete=models.CASCADE)
@@ -2518,6 +2528,15 @@ class Effort(models.Model):
 
     class Meta:
         ordering = ['game', 'seat']
+        # Leaderboard aggregation walks effort->game and groups by player/faction,
+        # counting wins. Only single-column FK indexes existed before, and nothing on
+        # `win`, so every board scanned and re-sorted the whole effort table.
+        indexes = [
+            models.Index(fields=['game', 'player'], name='effort_game_player_idx'),
+            models.Index(fields=['game', 'faction'], name='effort_game_faction_idx'),
+            models.Index(fields=['player', 'win'], name='effort_player_win_idx'),
+            models.Index(fields=['faction', 'win'], name='effort_faction_win_idx'),
+        ]
 
 
 class SeatDraftOption(models.Model):
