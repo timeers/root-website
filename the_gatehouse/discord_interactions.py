@@ -3625,12 +3625,6 @@ def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
     """A follow-up select for a faction that needs a second choice before the seat
     can be written (Vagabond, Knaves).
 
-    Re-renders the same seat lines as _pick_panel_data (via _pick_seat_lines): in
-    turn-order modes this REPLACES the panel message, so dropping them would blank
-    the board mid-pick. The seat whose turn it is is NOT carried here -- like the
-    panel, the follow-up handler re-derives it from the DB, which is what keeps a
-    stale message from driving a write.
-
     `faction_slug` rides in the custom_id because the seat has no faction yet:
     the write is deferred until this select resolves, so an abandoned prompt
     leaves the seat untouched rather than stranding it half-recorded.
@@ -3640,22 +3634,37 @@ def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
     message id, not the panel's -- so the panel's id has to be handed forward to
     be refreshed afterwards. Empty in turn-order modes, where the follow-up IS the
     panel. It sits before PICK_OPEN, which must stay last or the dispatcher
-    owner-locks the component."""
-    lines = _pick_seat_lines(thread, seats)
-    lines += ["", placeholder]
+    owner-locks the component.
+
+    That same flag decides the SHAPE of this prompt, because the two cases are
+    doing different jobs:
+
+    * Turn-order (panel_id ""): the prompt REPLACES the panel, so it carries the
+      whole board (dropping the seat lines would blank it mid-pick) and Stop,
+      which is then the table's only remaining control.
+    * Free mode (panel_id set): the panel is still on screen right above this,
+      so repeating the board here is a duplicate that goes stale the moment
+      anyone else picks -- and Stop would let one player clear the WHOLE table's
+      picks from a message nobody else can see. Ask the question, nothing more.
+      Abandoning it is already a no-op: the seat isn't written until this
+      resolves, so the player can ignore it and pick again from the panel."""
+    free = bool(panel_id)
+    lines = [] if free else _pick_seat_lines(thread, seats)
+    lines += ["", placeholder] if lines else [placeholder]
 
     select = string_select(
         encode_custom_id(action, mode, owner, faction_slug, panel_id, PICK_OPEN),
         options, placeholder=placeholder[:100],
         min_values=min_values, max_values=max_values,
     )
+    components = [action_row(select)]
+    if not free:
+        components.append(action_row(
+            button("Stop", encode_custom_id("pick_cancel", owner, PICK_OPEN),
+                   style=STYLE_SECONDARY)))
     return {
         "content": "\n".join(lines),
-        "components": [
-            action_row(select),
-            action_row(button("Stop", encode_custom_id("pick_cancel", owner, PICK_OPEN),
-                              style=STYLE_SECONDARY)),
-        ],
+        "components": components,
         "allowed_mentions": {"parse": []},
     }
 
@@ -3737,6 +3746,40 @@ def _pick_refresh_panel(payload, panel_id, data):
     if result != THREAD_OK:
         logger.warning("Could not refresh /pick panel %s in channel %s (%s).",
                        panel_id, payload.get("channel_id"), result)
+
+
+def _pick_panel_id(args):
+    """The shared panel's message id carried by a free-mode follow-up, or "".
+
+    args[3] is the panel slot ONLY when the custom_id actually has one. A
+    turn-order prompt encodes `action:mode:owner:faction:g`, so args[3] is
+    PICK_OPEN -- and a follow-up message posted before that slot existed looks
+    exactly the same. Reading either as an id would make a turn-order prompt
+    behave as free mode: it would try to PATCH a message called "g" and dismiss
+    the very panel it is supposed to be."""
+    if len(args) > 3 and args[3] != PICK_OPEN:
+        return args[3]
+    return ""
+
+
+def _pick_dismiss_ephemeral(text):
+    """Collapse a resolved free-mode prompt to one line with no controls.
+
+    Discord has no API to DELETE an ephemeral, so this is how one is dismissed --
+    the same thing _handle_draft_seat does with "Seating posted."
+
+    Returning the board here instead (which is what a shared-panel handler does)
+    would hand the player a private duplicate of the panel: a faction select that
+    can only ever refuse them, since they now hold a faction, and a Stop that
+    would clear the WHOLE table's picks from a message nobody else can see.
+
+    embeds is cleared alongside components because a type-7 response replaces
+    only the keys it sends -- these prompts are content-only today, so this just
+    keeps a future embed-bearing one from leaving a stale embed behind."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": text, "components": [], "embeds": []},
+    })
 
 
 def _pick_setup_reminder(thread):
@@ -4025,7 +4068,7 @@ def _pick_free_refusal(thread, seats, clicker, payload):
     return _ephemeral("You're not picking a faction in this game.")
 
 
-def _pick_turn(payload, mode, owner):
+def _pick_turn(payload, mode, owner, panel_id=""):
     """Resolve the thread and the seat whose turn it is, and authorize the
     clicker against it. Returns (thread, seats, seat, pool) or a JsonResponse to
     return as-is.
@@ -4056,9 +4099,16 @@ def _pick_turn(payload, mode, owner):
         # last picker's double-click must land on the finished board everyone else
         # sees, not on "you've already chosen".
         if _pick_next_seat(seats) is None:
+            data = _pick_panel_data(thread, seats, mode, owner, pool=pool)
+            # From a free-mode ephemeral (the table finished while this prompt sat
+            # open): the finished board goes to the shared panel, and the prompt is
+            # dismissed rather than becoming a private copy of it.
+            if panel_id:
+                _pick_refresh_panel(payload, panel_id, data)
+                return _pick_dismiss_ephemeral(
+                    "Every faction was taken while this was open.")
             return JsonResponse({
-                "type": RESPONSE_UPDATE_MESSAGE,
-                "data": _pick_panel_data(thread, seats, mode, owner, pool=pool),
+                "type": RESPONSE_UPDATE_MESSAGE, "data": data,
             })
         seat = _pick_seat_for_clicker(seats, clicker)
         if seat is None:
@@ -4082,7 +4132,8 @@ def _pick_turn(payload, mode, owner):
     return thread, seats, seat, pool
 
 
-def _pick_stale_pool_response(thread, seats, mode, owner, pool):
+def _pick_stale_pool_response(thread, seats, mode, owner, pool, payload=None,
+                              panel_id=""):
     """A click landed on a faction the pool no longer contains: re-render the panel
     from the CURRENT pool instead of leaving stale options on screen.
 
@@ -4099,13 +4150,21 @@ def _pick_stale_pool_response(thread, seats, mode, owner, pool):
     new draft doesn't contain, and that seat keeps it. Clearing seats the table
     already agreed on would be worse than the inconsistency, and the codebase
     already tolerates this desync elsewhere (see undrafted_pick, which returns None
-    rather than guessing)."""
-    return JsonResponse({
-        "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _pick_panel_data(
-            thread, seats, mode, owner, pool=pool,
-            notice="The draft changed — these are the current factions."),
-    })
+    rather than guessing).
+
+    `panel_id` marks a click that came from a free-mode EPHEMERAL rather than the
+    panel itself. The rebuilt board then belongs on the shared panel, and this
+    response only dismisses the prompt -- painting the board into the ephemeral
+    would duplicate it privately, the same trap _pick_dismiss_ephemeral exists to
+    avoid."""
+    data = _pick_panel_data(
+        thread, seats, mode, owner, pool=pool,
+        notice="The draft changed — these are the current factions.")
+    if panel_id:
+        _pick_refresh_panel(payload, panel_id, data)
+        return _pick_dismiss_ephemeral(
+            "The draft changed — pick again from the board above.")
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
 
 
 def _handle_pick_faction(payload):
@@ -4259,9 +4318,13 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
         _capture_lfg_components(payload.get("channel_id"), items, source="pick")
 
     data = _pick_panel_data(thread, seats, mode, owner, pool=pool)
-    # Rendered once, used twice: this response updates the ephemeral the player
-    # answered, and the shared panel is PATCHed with the same board.
-    _pick_refresh_panel(payload, panel_id, data)
+    if panel_id:
+        # Free mode: this interaction came from the player's own EPHEMERAL, so the
+        # board goes to the shared panel and the prompt is merely dismissed. The
+        # response edits the ephemeral, so returning the board here would leave
+        # the player a private second copy of it -- see _pick_dismiss_ephemeral.
+        _pick_refresh_panel(payload, panel_id, data)
+        return _pick_dismiss_ephemeral("Pick recorded.")
     return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
 
 
@@ -4279,9 +4342,9 @@ def _handle_pick_vagabond(payload):
     faction_slug = args[2] if len(args) > 2 else ""
     # Set only by a free-mode prompt, which was answered in an ephemeral -- the
     # shared panel it belongs to is a different message and needs refreshing.
-    panel_id = args[3] if len(args) > 3 else ""
+    panel_id = _pick_panel_id(args)
 
-    turn = _pick_turn(payload, mode, owner)
+    turn = _pick_turn(payload, mode, owner, panel_id=panel_id)
     if isinstance(turn, JsonResponse):
         return turn
     thread, seats, seat, pool = turn
@@ -4291,7 +4354,8 @@ def _handle_pick_vagabond(payload):
         return _ephemeral("No vagabond selected.")
 
     if not any(e[0] == faction_slug for e in pool):
-        return _pick_stale_pool_response(thread, seats, mode, owner, pool)
+        return _pick_stale_pool_response(thread, seats, mode, owner, pool,
+                                         payload=payload, panel_id=panel_id)
     faction = Faction.objects.filter(slug=faction_slug).first()
     if not faction:
         return _ephemeral("That faction couldn't be found anymore.")
@@ -4316,9 +4380,9 @@ def _handle_pick_captains(payload):
     faction_slug = args[2] if len(args) > 2 else ""
     # Set only by a free-mode prompt, which was answered in an ephemeral -- the
     # shared panel it belongs to is a different message and needs refreshing.
-    panel_id = args[3] if len(args) > 3 else ""
+    panel_id = _pick_panel_id(args)
 
-    turn = _pick_turn(payload, mode, owner)
+    turn = _pick_turn(payload, mode, owner, panel_id=panel_id)
     if isinstance(turn, JsonResponse):
         return turn
     thread, seats, seat, pool = turn
@@ -4328,7 +4392,8 @@ def _handle_pick_captains(payload):
         return _ephemeral(f"Choose exactly {PICK_CAPTAIN_CHOICES} captains.")
 
     if not any(e[0] == faction_slug for e in pool):
-        return _pick_stale_pool_response(thread, seats, mode, owner, pool)
+        return _pick_stale_pool_response(thread, seats, mode, owner, pool,
+                                         payload=payload, panel_id=panel_id)
     faction = Faction.objects.filter(slug=faction_slug).first()
     if not faction:
         return _ephemeral("That faction couldn't be found anymore.")

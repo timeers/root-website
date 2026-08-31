@@ -6379,6 +6379,148 @@ class PickFreeFollowUpTests(TestCase):
         self.assertEqual(edit.call_args.args[1], "panelmsg")
         self.assertIn("Ff Player 1", edit.call_args.kwargs["content"])
 
+    # ── dismissing the ephemeral once it's answered ──
+    def test_resolving_a_free_vagabond_dismisses_the_ephemeral(self):
+        """Discord can't delete an ephemeral, so it's collapsed to one line with
+        no controls. Returning the board here would leave the player a private
+        duplicate of the panel."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        out, _edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[0].discord_id,
+            self.vagabond_faction.slug, self._panel_id_from(body))
+        self.assertEqual(out["data"]["components"], [])
+        self.assertEqual(out["data"]["content"], "Pick recorded.")
+        # Not the board: no seat lines, no pending list.
+        self.assertNotIn("Ff Player 2", out["data"]["content"])
+
+    def test_resolving_free_knaves_dismisses_the_ephemeral(self):
+        body = self._select(self.knaves.slug, self.players[0].discord_id)
+        offered = list(self.thread.seats.get(seat_number=1).captains.all())
+        out, _edit = self._resolve(
+            "pick_captains", [c.slug for c in offered[:3]],
+            self.players[0].discord_id, self.knaves.slug,
+            self._panel_id_from(body))
+        self.assertEqual(out["data"]["components"], [])
+        self.assertEqual(out["data"]["content"], "Pick recorded.")
+
+    def test_the_free_prompt_has_no_stop_button(self):
+        """Stop clears the WHOLE table's picks. A private prompt for choosing your
+        own vagabond is the wrong place for it -- it stays on the shared panel."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        rows = body["data"]["components"]
+        self.assertEqual(len(rows), 1)
+        # The select, and nothing else.
+        self.assertIn("custom_id", rows[0]["components"][0])
+        self.assertNotIn("Stop", json.dumps(rows))
+
+    def test_the_free_prompt_does_not_duplicate_the_board(self):
+        """The panel is still on screen above it, and a copy here goes stale the
+        moment anyone else picks."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        content = body["data"]["content"]
+        self.assertIn("Which Vagabond?", content)
+        self.assertNotIn("Ff Player 2", content)
+
+    def test_a_seated_prompt_keeps_its_board_and_stop(self):
+        """Turn-order follow-ups REPLACE the panel, so dropping either would blank
+        the board and leave the table no control."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[2].discord_id, seated=True)
+        rows = body["data"]["components"]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["components"][0]["label"], "Stop")
+        self.assertIn("Ff Player 1", body["data"]["content"])
+
+    def test_a_seated_follow_up_still_returns_the_board(self):
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[2].discord_id, seated=True)
+        out, _edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[2].discord_id,
+            self.vagabond_faction.slug, self._panel_id_from(body))
+        self.assertIn("Ff Player 1", out["data"]["content"])
+        self.assertNotEqual(out["data"]["components"], [])
+
+    def test_a_redraft_dismisses_an_open_free_prompt(self):
+        """/draft re-ran while this prompt sat open. The rebuilt board belongs on
+        the shared panel, not painted into the ephemeral."""
+        draft = LFGDraft.objects.create(thread=self.thread, players=3)
+        for i, f in enumerate([self.vagabond_faction, self.knaves, self.other], 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        panel_id = self._panel_id_from(body)
+        # Re-draft, dropping the faction this prompt was for.
+        draft.picks.all().delete()
+        LFGDraftPick.objects.create(draft=draft, faction=self.other, order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.knaves, order=2)
+
+        out, edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[0].discord_id,
+            self.vagabond_faction.slug, panel_id)
+        self.assertEqual(out["data"]["components"], [])
+        self.assertIn("draft changed", out["data"]["content"])
+        edit.assert_called_once()
+
+    def test_a_completed_board_dismisses_an_open_free_prompt(self):
+        """The table finished while this prompt sat open."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        panel_id = self._panel_id_from(body)
+        # Everyone else takes the remaining seats.
+        for seat in self.thread.seats.exclude(seat_number=1):
+            seat.faction = self.other if seat.seat_number == 2 else self.knaves
+            seat.save(update_fields=["faction"])
+        self.thread.seats.filter(seat_number=1).update(faction=self.other)
+
+        out, edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[0].discord_id,
+            self.vagabond_faction.slug, panel_id)
+        self.assertEqual(out["data"]["components"], [])
+        self.assertIn("while this was open", out["data"]["content"])
+        # The finished board still reaches the shared panel.
+        edit.assert_called_once()
+
+    def test_the_open_sentinel_is_never_read_as_a_panel_id(self):
+        """A turn-order prompt encodes `...:faction:g`, so args[3] is PICK_OPEN --
+        and so does a follow-up message posted before the panel slot existed.
+        Reading either as an id would make a turn-order prompt act as free mode:
+        PATCH a message called "g" and dismiss the panel it IS."""
+        _a, args = di.decode_custom_id(
+            di.encode_custom_id("pick_vagabond", di.PICK_MODE_PLAYERS,
+                                self.OWNER, "vagabond", di.PICK_OPEN))
+        self.assertEqual(di._pick_panel_id(args), "")
+
+        _a, args = di.decode_custom_id(
+            di.encode_custom_id("pick_vagabond", di.PICK_MODE_PLAYERS,
+                                self.OWNER, "vagabond", "panelmsg",
+                                di.PICK_OPEN))
+        self.assertEqual(di._pick_panel_id(args), "panelmsg")
+
+    def test_a_pre_upgrade_custom_id_still_behaves_as_turn_order(self):
+        """A prompt already live in Discord when this shipped has no panel slot.
+        It must keep replacing the panel, not try to refresh a message named "g"."""
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.players[2].discord_id}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_vagabond", di.PICK_MODE_PLAYERS, self.OWNER,
+                    self.vagabond_faction.slug, di.PICK_OPEN),
+                "values": [self.ranger.slug],
+            },
+            "message": {"id": "oldmsg", "components": []},
+        }
+        with mock.patch.object(di, "edit_channel_message",
+                               return_value=di.THREAD_OK) as edit:
+            out = json.loads(di._handle_pick_vagabond(payload).content)
+        edit.assert_not_called()
+        self.assertIn("Ff Player 1", out["data"]["content"])
+
     def test_a_seated_follow_up_does_not_patch_anything(self):
         body = self._select(self.vagabond_faction.slug,
                             self.players[2].discord_id, seated=True)
