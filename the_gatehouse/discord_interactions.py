@@ -49,7 +49,7 @@ from .tasks import (
     ensure_profile_from_discord, notify_lfg_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
-    strip_schedule_proposal_messages_task,
+    strip_schedule_proposal_messages_task, _PROPOSAL_RETIRED_TEXT,
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
@@ -1315,6 +1315,32 @@ def _schedule_closed_data(title, description):
     }
 
 
+def _schedule_retire_response(proposal, description):
+    """Retire a proposal a button can no longer act on, and clear its buttons.
+
+    Refusing alone left the row LIVE and the public message fully buttoned, with
+    nothing able to dismiss it until cleanup_stale_schedule_proposals happened to
+    run -- and that is beat-scheduled from the admin (DatabaseScheduler, no
+    beat_schedule in code), so nothing guarantees when. The click itself is the
+    reliable moment to retire it.
+
+    CANCELLED matches how every other non-rejection retirement is recorded (see
+    _cancel_open_proposals and the cleanup task), so nothing downstream has to
+    learn a new state.
+
+    LIVE-guarded: a concurrent finalize may have just confirmed this row, and that
+    result must win -- the update is a no-op then, and the message this renders is
+    replaced by whatever the winner wrote."""
+    ScheduleProposal.objects.filter(
+        pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
+    ).update(status=ScheduleProposal.Status.CANCELLED,
+             resolved_at=timezone.now())
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_closed_data("Proposal closed", description),
+    })
+
+
 def _cancel_open_proposals(match, reason, exclude_pk=None):
     """Retire every OPEN proposal for this match and strip its buttons.
 
@@ -1713,7 +1739,7 @@ def _open_schedule_proposal(payload, match, when, profile, roster):
     })
 
 
-def _proposal_for_click(payload, allow_agreed=False):
+def _proposal_for_click(payload, allow_agreed=False, allow_passed=False):
     """Shared guards for the proposal buttons: (proposal, match, error).
 
     These custom_ids end in the non-snowflake "g" marker precisely so the
@@ -1723,7 +1749,17 @@ def _proposal_for_click(payload, allow_agreed=False):
     `allow_agreed` admits a proposal whose roster has already fully confirmed but
     whose time nobody present could write. Only Set Time passes it: Confirm and
     Reject act on consent that is already complete there, so for them an AGREED
-    row is correctly "no longer active"."""
+    row is correctly "no longer active".
+
+    `allow_passed` admits a proposal whose time has already gone by. Only REJECT
+    passes it: the passed-time check exists to keep a past time out of
+    Match.scheduled_time, and rejecting writes no time at all -- so for Reject the
+    check was not merely unnecessary, it was the thing stopping the one button
+    whose job is clearing the message.
+
+    The two branches that refuse a LIVE proposal below RETIRE it rather than only
+    saying no. A bare refusal left the row live and the message fully buttoned,
+    with nothing able to dismiss it until the cleanup sweep happened to run."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # [proposal_id, "g"]
     if not args:
         return None, None, _ephemeral("That button is out of date — run /schedule again.")
@@ -1748,12 +1784,29 @@ def _proposal_for_click(payload, allow_agreed=False):
     match = _schedulable_matches(payload.get("guild_id")).filter(
         pk=proposal.match_id).first()
     if not match:
+        # This filter fails for two very different reasons, and only one of them
+        # may retire the row. A match that was played or removed is a dead proposal
+        # -- and it is the COMMONEST way one goes stale, so refusing without
+        # retiring is what leaves a buttoned message nobody can dismiss.
+        #
+        # But the same filter is also the GUILD SCOPE check, and a cross-guild
+        # click must never be able to cancel a proposal it isn't allowed to even
+        # see. So retire only what belongs to this guild, and refuse the rest
+        # exactly as before.
+        if proposal.guild_id and str(proposal.guild_id) == str(
+                payload.get("guild_id") or ""):
+            return None, None, _schedule_retire_response(
+                proposal,
+                "This match can no longer be scheduled — it may have been played "
+                "or removed.")
         return None, None, _ephemeral(
             "That match can no longer be scheduled: it may have been played or removed.")
 
-    if proposal.proposed_time <= timezone.now():
-        return None, None, _ephemeral(
-            "That proposed time has already passed — run /schedule to propose another.")
+    if not allow_passed and proposal.proposed_time <= timezone.now():
+        return None, None, _schedule_retire_response(
+            proposal,
+            _PROPOSAL_RETIRED_TEXT["expired"]
+            + "\nRun `/schedule` to propose another time.")
     return proposal, match, None
 
 
@@ -1842,8 +1895,13 @@ def _handle_schedule_proposal_reject(payload):
     being negotiated is ordinary; destroying a completed agreement on one late
     click is not, and it would undo work every other player already did. A player
     who can no longer make it says so in the thread and a moderator clears it --
-    the same person the Set Time button is waiting on either way."""
-    proposal, match, error = _proposal_for_click(payload, allow_agreed=True)
+    the same person the Set Time button is waiting on either way.
+
+    allow_passed: rejecting writes no time, so the passed-time guard has nothing to
+    protect here -- and it was the reason a proposal whose time had gone by could
+    not be cleared by anyone at all."""
+    proposal, match, error = _proposal_for_click(
+        payload, allow_agreed=True, allow_passed=True)
     if error:
         return error
 

@@ -7542,11 +7542,94 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
 
-    def test_past_proposed_time_refused(self):
+    def _pass_the_time(self):
         self.proposal.proposed_time = timezone.now() - timedelta(hours=1)
         self.proposal.save(update_fields=["proposed_time"])
+
+    def test_a_passed_proposal_retires_on_confirm(self):
+        """Refusing alone left the message fully buttoned with nothing able to
+        dismiss it until the beat-scheduled sweep happened to run."""
+        self._pass_the_time()
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
-        self.assertIn("already passed", body["data"]["content"])
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertEqual(body["data"]["components"], [])
+        self.assertIn("has passed",
+                      body["data"]["embeds"][0]["description"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_a_passed_proposal_retires_on_set_time(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        self.proposal.status = ScheduleProposal.Status.AGREED
+        self.proposal.save(update_fields=["status"])
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_set(
+            self._payload(action="sched_prop_set", user_id="4",
+                          username="player")))
+        self.assertEqual(body["data"]["components"], [])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_a_passed_proposal_can_still_be_rejected(self):
+        """The headline fix: Reject writes no time, so the passed-time guard had
+        nothing to protect -- it was just stopping the one button whose job is
+        clearing the message."""
+        self._pass_the_time()
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            body = self._body(di._handle_schedule_proposal_reject(self._payload(
+                action="sched_prop_no")))
+        self.assertEqual(body["data"]["components"], [])
+        self.assertEqual(body["data"]["embeds"][0]["title"], "Time rejected")
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+        self.assertEqual(self.proposal.rejected_by_id, self.teammate.pk)
+
+    def test_a_passed_agreed_proposal_still_narrows_reject_to_moderators(self):
+        """allow_passed must not widen WHO may reject."""
+        self.proposal.status = ScheduleProposal.Status.AGREED
+        self.proposal.save(update_fields=["status"])
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_reject(
+            self._payload(action="sched_prop_no")))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("Ask a moderator", body["data"]["content"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.AGREED)
+
+    def test_a_passed_confirmed_proposal_still_reports_its_status(self):
+        """The status check runs BEFORE the time check and must keep doing so."""
+        self.proposal.status = ScheduleProposal.Status.CONFIRMED
+        self.proposal.save(update_fields=["status"])
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("already been confirmed", body["data"]["content"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
+
+    def test_a_cross_guild_click_refuses_without_retiring(self):
+        """The same filter enforces guild scope, so retiring there unconditionally
+        would let an outsider cancel a proposal they cannot even see."""
+        payload = self._payload()
+        payload["guild_id"] = "999999"
+        body = self._body(di._handle_schedule_proposal_confirm(payload))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+
+    def test_a_live_guard_protects_a_concurrently_confirmed_row(self):
+        """A finalize that won the race must not be knocked back to CANCELLED."""
+        self._pass_the_time()
+        ScheduleProposal.objects.filter(pk=self.proposal.pk).update(
+            status=ScheduleProposal.Status.CONFIRMED)
+        di._schedule_retire_response(self.proposal, "whatever")
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
 
     def test_cross_guild_refused(self):
         payload = self._payload()
@@ -7562,11 +7645,19 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         body = self._body(di._handle_schedule_proposal_confirm(payload))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
 
-    def test_match_played_since_proposal_refused(self):
+    def test_match_played_since_proposal_retires_it(self):
+        """Retired rather than merely refused: a played match is the commonest way
+        a proposal goes stale, and refusing left the message buttoned with nothing
+        able to dismiss it."""
         self.match.status = CompetitionStatus.COMPLETED
         self.match.save(update_fields=["status"])
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
-        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertEqual(body["data"]["components"], [])
+        self.assertIn("no longer be scheduled",
+                      body["data"]["embeds"][0]["description"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
 
 
 class UnlinkedClickerTests(ScheduleFixtureMixin, TestCase):
