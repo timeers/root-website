@@ -1367,6 +1367,10 @@ class Profile(models.Model):
 
 
 
+    # Columns the leaderboard boards actually read: the template shows image/display_name,
+    # get_absolute_url() needs slug, and the as_json payload falls back to discord.
+    LEADERBOARD_FIELDS = ('display_name', 'discord', 'slug', 'image')
+
     @classmethod
     def _leaderboard_annotated(cls, effort_qs, game_threshold=10):
         """The annotated, threshold-filtered board queryset, WITHOUT ordering or slicing.
@@ -1375,8 +1379,11 @@ class Profile(models.Model):
         "most" (by tourney points) boards can build this once and order it twice, instead
         of running the same aggregate twice. See leaderboard_pair().
         """
-        # Start with the base queryset for profiles
-        queryset = cls.objects.filter(efforts__in=effort_qs)
+        # Start with the base queryset for profiles. .only(...) keeps hydration to the
+        # columns the board actually reads (of ~54 on Profile) -- a smaller win than the
+        # Faction equivalent, which also spans a multi-table-inheritance join, but this
+        # hydrates far more rows (every threshold-qualifying player).
+        queryset = cls.objects.filter(efforts__in=effort_qs).only(*cls.LEADERBOARD_FIELDS)
 
         # Now, annotate with the total efforts and win counts
         queryset = queryset.annotate(
@@ -1443,10 +1450,10 @@ class Profile(models.Model):
         queryset = cls._leaderboard_annotated(effort_qs, game_threshold=game_threshold)
         rows = list(queryset)
         top = cls._leaderboard_finish_rows(
-            sorted(rows, key=lambda o: (-o.win_rate, -o.total_efforts))[:limit],
+            sorted(rows, key=lambda o: (-o.win_rate, -o.total_efforts, o.pk))[:limit],
             as_json=as_json, link_builder=link_builder)
         most = cls._leaderboard_finish_rows(
-            sorted(rows, key=lambda o: (-o.tourney_points, -o.win_rate))[:limit],
+            sorted(rows, key=lambda o: (-o.tourney_points, -o.win_rate, o.pk))[:limit],
             as_json=as_json, link_builder=link_builder)
         return top, most
 
@@ -1455,10 +1462,14 @@ class Profile(models.Model):
                             link_builder=None):
         """Order, slice and materialize an annotated board queryset."""
         # Order the queryset
+        # `pk` is a deterministic final tie-break: without it, rows with equal
+        # win_rate/tourney_points come back in whatever order the database happens to
+        # produce, which shifts when the fetched column set changes. Matches the
+        # leaderboard_pair() sort keys so both paths agree.
         if top_quantity:
-            queryset = queryset.order_by('-tourney_points', '-win_rate')
+            queryset = queryset.order_by('-tourney_points', '-win_rate', 'pk')
         else:
-            queryset = queryset.order_by('-win_rate', '-total_efforts')
+            queryset = queryset.order_by('-win_rate', '-total_efforts', 'pk')
 
         queryset = queryset[:limit]
 
