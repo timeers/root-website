@@ -2043,6 +2043,19 @@ class EditChannelMessageBodyTests(TestCase):
         body = self._patch_body(components=[])
         self.assertNotIn("embeds", body)
 
+    def test_content_is_sent_when_given(self):
+        body = self._patch_body(content="new text")
+        self.assertEqual(body["content"], "new text")
+
+    def test_content_empty_string_is_sent(self):
+        """"" CLEARS the text, so it must not be confused with "leave it alone"."""
+        body = self._patch_body(content="")
+        self.assertEqual(body["content"], "")
+
+    def test_content_omitted_when_none(self):
+        body = self._patch_body(embeds=[{"title": "x"}])
+        self.assertNotIn("content", body)
+
     def test_no_request_when_nothing_to_change(self):
         self.assertIsNone(self._patch_body())
 
@@ -5099,13 +5112,21 @@ class PickCommandTests(TestCase):
         self._roster(2)
         self.assertEqual(len(di._pick_pool(self.thread)), len(self.factions))
 
-    def test_a_faction_outside_the_pool_is_refused(self):
+    def test_a_faction_outside_the_pool_is_not_written(self):
         players = self._roster(2)
         draft = LFGDraft.objects.create(thread=self.thread, players=2)
         LFGDraftPick.objects.create(draft=draft, faction=self.factions[0], order=1)
         LFGDraftPick.objects.create(draft=draft, faction=self.factions[1], order=2)
         data = self._select(self.factions[5].slug, players[1].discord_id)
-        self.assertIn("isn't in this game's pool", data["content"])
+        self.assertFalse(self.thread.seats.exclude(faction=None).exists())
+        # Re-rendered from the CURRENT pool rather than dead-ended: a /draft re-run
+        # under an open panel used to leave Stop (which discards every pick) as the
+        # only way forward.
+        self.assertIn("The draft changed", data["content"])
+        offered = {o["value"] for o in
+                   data["components"][0]["components"][0]["options"]}
+        self.assertEqual(offered,
+                         {self.factions[0].slug, self.factions[1].slug})
 
     # ── the owner-lock escape hatch ──
     def test_pick_custom_ids_end_in_a_non_snowflake(self):
@@ -5154,6 +5175,57 @@ class PickCommandTests(TestCase):
         data = self._select(self.factions[1].slug, players[0].discord_id)
         self.assertEqual(data["components"], [])
         self.assertIn("Draft Complete", data["content"])
+
+    # ── the undrafted faction on the final panel ──
+    def _draft_with(self, *factions):
+        """A draft over `factions`. NOTE: with a draft, the draft IS the pool
+        (_pick_pool), so _select may only choose from these."""
+        draft = LFGDraft.objects.create(thread=self.thread)
+        for i, f in enumerate(factions, 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        return draft
+
+    def _finish_two(self):
+        """Drive a 2-player table to completion. The LAST seat picks first."""
+        players = self._roster(2)
+        self._select(self.factions[0].slug, players[1].discord_id)
+        return self._select(self.factions[1].slug, players[0].discord_id)
+
+    def test_the_final_panel_names_the_undrafted_faction(self):
+        self._draft_with(self.factions[0], self.factions[1], self.factions[2])
+        content = self._finish_two()["content"]
+        self.assertIn(f"Undrafted - {self.factions[2].title}", content)
+
+    def test_the_undrafted_row_sits_above_the_completion_line(self):
+        """It's the last entry on the BOARD, not a note after the verdict."""
+        self._draft_with(self.factions[0], self.factions[1], self.factions[2])
+        content = self._finish_two()["content"]
+        self.assertLess(content.index("Undrafted"), content.index("Draft Complete"))
+
+    def test_no_undrafted_row_without_a_draft(self):
+        """Without a draft the pool is every official faction, so dozens are
+        unpicked -- none of them 'the' undrafted one."""
+        self.assertNotIn("Undrafted", self._finish_two()["content"])
+
+    def test_no_undrafted_row_when_nothing_is_left_over(self):
+        """A draft dealt exactly to the table size leaves none over."""
+        self._draft_with(self.factions[0], self.factions[1])
+        self.assertNotIn("Undrafted", self._finish_two()["content"])
+
+    def test_the_undrafted_row_carries_its_vagabond(self):
+        """The leftover renders through _pick_seat_detail like a taken seat --
+        this is the case that runs it against an LFGDraftPick, not an LFGSeat."""
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        vb = Vagabond.objects.create(
+            title="Undrafted Panel Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        draft = self._draft_with(self.factions[0], self.factions[1])
+        LFGDraftPick.objects.create(
+            draft=draft, faction=self.factions[2], vagabond=vb, order=3)
+
+        content = self._finish_two()["content"]
+        self.assertIn(f"Undrafted - {self.factions[2].title} ({vb.title})", content)
 
     # ── the roll capture, which must branch on thread type ──
     def test_an_lfg_thread_records_the_pick_in_the_roll_log(self):
@@ -5913,6 +5985,440 @@ class PickSeatChoiceTests(TestCase):
                 "message": {"id": "msg", "components": []},
             })
         self.assertTrue(self._reload().seating_set)
+
+
+class PickFreeOrderTests(TestCase):
+    """Players-pick with NO seating: any player still owed a faction may pick at
+    any time, rather than waiting for a turn nobody agreed to."""
+
+    THREAD_ID = "1303834523347456077"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        self.designer = Profile.objects.create(discord="pkfree", discord_id="820")
+        self.factions = [
+            Faction.objects.create(
+                title=f"Free Faction {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True,
+                component="Faction", type=Faction.TypeChoices.MILITANT)
+            for i in range(5)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"pkf{i}", discord_id=f"82{i}",
+                                   display_name=f"Free Player {i}")
+            for i in range(1, 4)
+        ]
+        self.thread.players.set(self.players)
+        # Unseated, exactly as "Skip Seating" leaves it: rows 1..N with
+        # seating_set False, so the numbers are filler and not a turn order.
+        for i, p in enumerate(self.players, 1):
+            LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+
+    def _payload(self, slug, clicker, mode=di.PICK_MODE_PLAYERS):
+        return {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", mode, self.OWNER, di.PICK_OPEN),
+                "values": [slug],
+            },
+            "message": {"id": "panelmsg", "components": []},
+        }
+
+    def _select(self, slug, clicker, mode=di.PICK_MODE_PLAYERS):
+        response = di._handle_pick_faction(self._payload(slug, clicker, mode))
+        return json.loads(response.content)["data"]
+
+    def _panel(self, mode=di.PICK_MODE_PLAYERS):
+        seats = list(self.thread.seats.select_related(
+            "profile", "faction", "vagabond").prefetch_related("captains"))
+        return di._pick_panel_data(self.thread, seats, mode, self.OWNER)
+
+    def _options(self, data):
+        return {o["value"] for o in
+                data["components"][0]["components"][0]["options"]}
+
+    # ── the pending line ──
+    def test_the_panel_lists_everyone_still_to_choose(self):
+        self.assertIn("Free Player 1, Free Player 2 & Free Player 3 pick.",
+                      self._panel()["content"])
+
+    def test_two_pending_players_read_as_x_and_y(self):
+        self._select(self.factions[0].slug, self.players[0].discord_id)
+        content = self._panel()["content"]
+        self.assertIn("Free Player 2 & Free Player 3 pick.", content)
+        self.assertNotIn("Free Player 2, ", content)
+
+    def test_one_pending_player_reads_as_singular(self):
+        self._select(self.factions[0].slug, self.players[0].discord_id)
+        self._select(self.factions[1].slug, self.players[1].discord_id)
+        self.assertIn("Free Player 3 picks.", self._panel()["content"])
+
+    def test_the_pending_line_uses_plain_names_not_mentions(self):
+        """The board above renders plain names, and re-pinging the table on every
+        edit would spam it."""
+        self.assertNotIn("<@", self._panel()["content"])
+
+    def test_the_placeholder_names_nobody(self):
+        select = self._panel()["components"][0]["components"][0]
+        self.assertEqual(select["placeholder"], "Choose your faction")
+
+    def test_a_long_roster_truncates_the_pending_line(self):
+        extra = [
+            Profile.objects.create(discord=f"pkfx{i}", discord_id=f"84{i}",
+                                   display_name=f"Extra Player {i}")
+            for i in range(1, 8)
+        ]
+        for i, p in enumerate(extra, 4):
+            LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+        seats = list(self.thread.seats.select_related("profile", "faction"))
+        self.assertIn("& 2 more pick.", di._pick_pending_line(seats))
+
+    # ── free turn resolution ──
+    def test_any_pending_player_may_pick_first(self):
+        """Seat 1 is LAST in the reverse-seat order the seated flow uses, so this
+        is the behaviour change: no waiting for a turn."""
+        self._select(self.factions[0].slug, self.players[0].discord_id)
+        self.assertEqual(self.thread.seats.get(seat_number=1).faction,
+                         self.factions[0])
+
+    def test_a_pick_commits_to_the_clickers_own_seat(self):
+        self._select(self.factions[2].slug, self.players[1].discord_id)
+        self.assertEqual(self.thread.seats.get(seat_number=2).faction,
+                         self.factions[2])
+        self.assertIsNone(self.thread.seats.get(seat_number=1).faction)
+        self.assertIsNone(self.thread.seats.get(seat_number=3).faction)
+
+    def test_a_picked_player_drops_off_the_pending_list(self):
+        """Only off the PENDING line -- they stay on the board above with the
+        faction they took."""
+        self._select(self.factions[0].slug, self.players[1].discord_id)
+        content = self._panel()["content"]
+        self.assertEqual(content.splitlines()[-1],
+                         "Free Player 1 & Free Player 3 pick.")
+        self.assertIn("Free Player 2 - Free Faction 0", content)
+
+    def test_a_taken_faction_leaves_the_options(self):
+        data = self._select(self.factions[0].slug, self.players[0].discord_id)
+        self.assertNotIn(self.factions[0].slug, self._options(data))
+
+    def test_a_faction_cannot_be_taken_twice(self):
+        self._select(self.factions[0].slug, self.players[0].discord_id)
+        data = self._select(self.factions[0].slug, self.players[1].discord_id)
+        self.assertIn("already taken", data["content"])
+        self.assertIsNone(self.thread.seats.get(seat_number=2).faction)
+
+    def test_a_completed_board_shows_the_final_panel(self):
+        for i, p in enumerate(self.players):
+            data = self._select(self.factions[i].slug, p.discord_id)
+        self.assertIn("All factions assigned.", data["content"])
+        self.assertEqual(data["components"], [])
+
+    def test_a_late_click_on_a_completed_board_is_not_a_refusal(self):
+        """Completeness is checked BEFORE authorization, so the last picker's
+        double-click lands on the finished board everyone else sees."""
+        for i, p in enumerate(self.players):
+            self._select(self.factions[i].slug, p.discord_id)
+        data = self._select(self.factions[3].slug, self.players[0].discord_id)
+        self.assertIn("All factions assigned.", data["content"])
+
+    # ── refusals, each phrased for who the clicker is ──
+    def test_a_player_who_already_picked_is_refused(self):
+        self._select(self.factions[0].slug, self.players[0].discord_id)
+        data = self._select(self.factions[1].slug, self.players[0].discord_id)
+        self.assertIn("already chosen", data["content"])
+        self.assertEqual(self.thread.seats.get(seat_number=1).faction,
+                         self.factions[0])
+
+    def test_a_non_roster_clicker_is_refused(self):
+        data = self._select(self.factions[0].slug, "999999999999999999")
+        self.assertIn("not picking a faction", data["content"])
+        self.assertFalse(self.thread.seats.exclude(faction=None).exists())
+
+    def test_an_unlinked_roster_player_is_told_to_link(self):
+        """Seats come from roster Profiles, so an unlinked player sees their own
+        name on the board but can never click it. A flat refusal would be a dead
+        end for the one person who has an action to take."""
+        unlinked = Profile.objects.create(discord="freeunlinked",
+                                          display_name="Free Unlinked")
+        self.thread.players.add(unlinked)
+        LFGSeat.objects.create(thread=self.thread, profile=unlinked, seat_number=4)
+        payload = self._payload(self.factions[0].slug, "999999999999999999")
+        payload["member"]["user"]["username"] = "freeunlinked"
+        data = json.loads(di._handle_pick_faction(payload).content)["data"]
+        self.assertIn("isn't linked", data["content"])
+
+    def test_an_unlinked_player_is_still_listed_as_pending(self):
+        unlinked = Profile.objects.create(discord="freeunlinked2",
+                                          display_name="Free Unlinked 2")
+        self.thread.players.add(unlinked)
+        LFGSeat.objects.create(thread=self.thread, profile=unlinked, seat_number=4)
+        self.assertIn("Free Unlinked 2", self._panel()["content"])
+
+    # ── modes that must NOT change ──
+    def test_seated_players_mode_still_takes_turns(self):
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        data = self._select(self.factions[0].slug, self.players[0].discord_id)
+        self.assertIn("turn to pick", data["content"])
+        self.assertFalse(self.thread.seats.exclude(faction=None).exists())
+
+    def test_seated_players_mode_still_names_one_player(self):
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        panel = self._panel()
+        self.assertIn("<@823> picks (seat 3).", panel["content"])
+        self.assertEqual(panel["components"][0]["components"][0]["placeholder"],
+                         "Faction for seat 3")
+
+    def test_assign_mode_without_seating_is_unchanged(self):
+        panel = self._panel(mode=di.PICK_MODE_ASSIGN)
+        self.assertIn("Assigning for **Free Player 3**.", panel["content"])
+        self.assertNotIn("pick.", panel["content"])
+
+    def test_assign_mode_without_seating_still_refuses_other_players(self):
+        data = self._select(self.factions[0].slug, self.players[0].discord_id,
+                            mode=di.PICK_MODE_ASSIGN)
+        self.assertIn("can assign", data["content"])
+
+    # ── a /draft re-run under an open panel ──
+    def _draft(self, factions):
+        draft, _ = LFGDraft.objects.get_or_create(thread=self.thread,
+                                                  defaults={"players": 3})
+        draft.picks.all().delete()
+        for i, f in enumerate(factions, 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        return draft
+
+    def test_a_stale_faction_refreshes_the_panel_instead_of_dead_ending(self):
+        """Re-drafting used to leave Stop -- which discards every pick -- as the
+        only way forward."""
+        self._draft(self.factions[:4])
+        self._select(self.factions[0].slug, self.players[0].discord_id)
+        # Someone re-runs /draft while the panel is open.
+        self._draft([self.factions[0], self.factions[2],
+                     self.factions[3], self.factions[4]])
+        data = self._select(self.factions[1].slug, self.players[1].discord_id)
+
+        self.assertIn("The draft changed", data["content"])
+        # The CURRENT draft, minus what's already on a seat.
+        self.assertEqual(self._options(data),
+                         {self.factions[2].slug, self.factions[3].slug,
+                          self.factions[4].slug})
+        # And picking still works afterwards.
+        self._select(self.factions[2].slug, self.players[1].discord_id)
+        self.assertEqual(self.thread.seats.get(seat_number=2).faction,
+                         self.factions[2])
+
+    def test_a_seat_keeps_a_faction_the_new_draft_dropped(self):
+        """Accepted imperfection: clearing a pick the table already agreed on
+        would be worse than the inconsistency."""
+        self._draft(self.factions[:4])
+        self._select(self.factions[0].slug, self.players[0].discord_id)
+        self._draft(self.factions[1:5])
+        self._select(self.factions[0].slug, self.players[1].discord_id)
+        self.assertEqual(self.thread.seats.get(seat_number=1).faction,
+                         self.factions[0])
+
+    def test_an_unauthorized_clicker_cannot_redraw_the_panel(self):
+        """The pool check runs AFTER authorization, so a spectator's stale click
+        gets their own refusal instead of redrawing the table's panel."""
+        self._draft(self.factions[:4])
+        for p in self.players:
+            LFGSeat.objects.filter(thread=self.thread, profile=p).update(
+                faction=self.factions[0])
+        self.thread.seats.filter(seat_number__gt=1).update(faction=None)
+        self._draft(self.factions[1:5])
+        data = self._select(self.factions[0].slug, "999999999999999999")
+        self.assertIn("not picking a faction", data["content"])
+        self.assertNotIn("The draft changed", data["content"])
+
+    def test_no_options_left_drops_the_select_rather_than_sending_an_empty_one(self):
+        """Discord rejects a zero-option select. _pick_pool_error only guards the
+        pool at /pick START, so a re-draft to a smaller pool can strip the last
+        options mid-session and 400 the panel."""
+        self._draft(self.factions[:2])
+        self._select(self.factions[0].slug, self.players[0].discord_id)
+        self._select(self.factions[1].slug, self.players[1].discord_id)
+        panel = self._panel()
+        # Seat 3 is still owed a faction, but nothing is left to offer it.
+        self.assertIsNone(self.thread.seats.get(seat_number=3).faction)
+        self.assertEqual(len(panel["components"]), 1)
+        self.assertIn("No factions left to choose", panel["content"])
+        self.assertEqual(panel["components"][0]["components"][0]["label"], "Stop")
+
+
+class PickFreeFollowUpTests(TestCase):
+    """Vagabond/Knaves follow-ups in free mode: private to the player, so the
+    shared panel stays usable by everyone else still choosing."""
+
+    THREAD_ID = "1303834523347456066"
+    OWNER = "111111111111111111"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        self.designer = Profile.objects.create(discord="pkff", discord_id="830")
+        self.vagabond_faction = Faction.objects.create(
+            title="Vagabond", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT,
+            slug="vagabond")
+        self.knaves = Faction.objects.create(
+            title="Knaves of the Deepwood", animal="Mole", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.other = Faction.objects.create(
+            title="Ff Other Faction", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.ranger = Vagabond.objects.create(
+            title="Ff Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        self.captains = [
+            Vagabond.objects.create(
+                title=f"Ff Captain {i}", animal="Fox", designer=self.designer,
+                status=StatusChoices.STABLE, official=True, captain=True)
+            for i in range(6)
+        ]
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.players = [
+            Profile.objects.create(discord=f"pkg{i}", discord_id=f"83{i}",
+                                   display_name=f"Ff Player {i}")
+            for i in range(1, 4)
+        ]
+        self.thread.players.set(self.players)
+        for i, p in enumerate(self.players, 1):
+            LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=i)
+
+    def _select(self, slug, clicker, seated=False):
+        if seated and not self.thread.seating_set:
+            self.thread.seating_set = True
+            self.thread.save(update_fields=["seating_set"])
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_faction", di.PICK_MODE_PLAYERS, self.OWNER, di.PICK_OPEN),
+                "values": [slug],
+            },
+            "message": {"id": "panelmsg", "components": []},
+        }
+        return json.loads(di._handle_pick_faction(payload).content)
+
+    def _resolve(self, action, values, clicker, faction_slug, panel_id):
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": clicker}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    action, di.PICK_MODE_PLAYERS, self.OWNER, faction_slug,
+                    panel_id, di.PICK_OPEN),
+                "values": values,
+            },
+            "message": {"id": "ephemeral", "components": []},
+        }
+        handler = di.COMPONENT_HANDLERS[action]
+        with mock.patch.object(di, "edit_channel_message",
+                               return_value=di.THREAD_OK) as edit:
+            response = handler(payload)
+        return json.loads(response.content), edit
+
+    def _panel_id_from(self, body):
+        custom_id = body["data"]["components"][0]["components"][0]["custom_id"]
+        _action, args = di.decode_custom_id(custom_id)
+        return args[3]
+
+    def test_a_free_vagabond_prompt_is_ephemeral(self):
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        self.assertEqual(body["type"], di.RESPONSE_CHANNEL_MESSAGE)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+
+    def test_a_seated_vagabond_prompt_still_replaces_the_panel(self):
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[2].discord_id, seated=True)
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertNotIn("flags", body["data"])
+
+    def test_a_free_prompt_carries_the_panel_id(self):
+        """The interaction that resolves an ephemeral carries the EPHEMERAL's
+        message id, so the panel's has to be handed forward to refresh it."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        self.assertEqual(self._panel_id_from(body), "panelmsg")
+
+    def test_a_seated_prompt_carries_no_panel_id(self):
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[2].discord_id, seated=True)
+        self.assertEqual(self._panel_id_from(body), "")
+
+    def test_resolving_a_free_vagabond_commits_to_the_clickers_seat(self):
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        self._resolve("pick_vagabond", [self.ranger.slug],
+                      self.players[0].discord_id,
+                      self.vagabond_faction.slug, self._panel_id_from(body))
+        seat = self.thread.seats.get(seat_number=1)
+        self.assertEqual(seat.faction, self.vagabond_faction)
+        self.assertEqual(seat.vagabond, self.ranger)
+        self.assertIsNone(self.thread.seats.get(seat_number=2).faction)
+
+    def test_resolving_a_free_follow_up_refreshes_the_shared_panel(self):
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        _out, edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[0].discord_id,
+            self.vagabond_faction.slug, self._panel_id_from(body))
+        edit.assert_called_once()
+        self.assertEqual(edit.call_args.args[1], "panelmsg")
+        self.assertIn("Ff Player 1", edit.call_args.kwargs["content"])
+
+    def test_a_seated_follow_up_does_not_patch_anything(self):
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[2].discord_id, seated=True)
+        _out, edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[2].discord_id,
+            self.vagabond_faction.slug, self._panel_id_from(body))
+        edit.assert_not_called()
+
+    def test_another_player_can_pick_while_a_follow_up_is_open(self):
+        """The regression the ephemeral exists to prevent: replacing the shared
+        panel with one player's prompt took the board away from the rest."""
+        self._select(self.vagabond_faction.slug, self.players[0].discord_id)
+        self._select(self.other.slug, self.players[1].discord_id)
+        self.assertEqual(self.thread.seats.get(seat_number=2).faction,
+                         self.other)
+
+    def test_an_abandoned_free_follow_up_leaves_the_seat_pickable(self):
+        self._select(self.vagabond_faction.slug, self.players[0].discord_id)
+        self.assertIsNone(self.thread.seats.get(seat_number=1).faction)
+        self._select(self.other.slug, self.players[0].discord_id)
+        self.assertEqual(self.thread.seats.get(seat_number=1).faction,
+                         self.other)
+
+    def test_a_free_knaves_offer_is_read_off_the_clickers_own_seat(self):
+        """Two players can have Knaves prompts open at once. The offer is parked
+        on the seat, so resolving by clicker is what stops one player validating
+        against another's roll."""
+        body = self._select(self.knaves.slug, self.players[0].discord_id)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        mine = list(self.thread.seats.get(seat_number=1).captains.all())
+        # Park a DISJOINT offer on another seat; it must not be reachable.
+        theirs = [c for c in self.captains if c not in mine][:3]
+        self.thread.seats.get(seat_number=2).captains.set(theirs)
+
+        self._resolve("pick_captains", [c.slug for c in mine[:3]],
+                      self.players[0].discord_id, self.knaves.slug,
+                      self._panel_id_from(body))
+        seat = self.thread.seats.get(seat_number=1)
+        self.assertEqual(seat.faction, self.knaves)
+        self.assertEqual(set(seat.captains.all()), set(mine[:3]))
 
 
 class GuildAllowsTests(TestCase):
@@ -7036,11 +7542,94 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
 
-    def test_past_proposed_time_refused(self):
+    def _pass_the_time(self):
         self.proposal.proposed_time = timezone.now() - timedelta(hours=1)
         self.proposal.save(update_fields=["proposed_time"])
+
+    def test_a_passed_proposal_retires_on_confirm(self):
+        """Refusing alone left the message fully buttoned with nothing able to
+        dismiss it until the beat-scheduled sweep happened to run."""
+        self._pass_the_time()
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
-        self.assertIn("already passed", body["data"]["content"])
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertEqual(body["data"]["components"], [])
+        self.assertIn("has passed",
+                      body["data"]["embeds"][0]["description"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_a_passed_proposal_retires_on_set_time(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        self.proposal.status = ScheduleProposal.Status.AGREED
+        self.proposal.save(update_fields=["status"])
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_set(
+            self._payload(action="sched_prop_set", user_id="4",
+                          username="player")))
+        self.assertEqual(body["data"]["components"], [])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_a_passed_proposal_can_still_be_rejected(self):
+        """The headline fix: Reject writes no time, so the passed-time guard had
+        nothing to protect -- it was just stopping the one button whose job is
+        clearing the message."""
+        self._pass_the_time()
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+            body = self._body(di._handle_schedule_proposal_reject(self._payload(
+                action="sched_prop_no")))
+        self.assertEqual(body["data"]["components"], [])
+        self.assertEqual(body["data"]["embeds"][0]["title"], "Time rejected")
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+        self.assertEqual(self.proposal.rejected_by_id, self.teammate.pk)
+
+    def test_a_passed_agreed_proposal_still_narrows_reject_to_moderators(self):
+        """allow_passed must not widen WHO may reject."""
+        self.proposal.status = ScheduleProposal.Status.AGREED
+        self.proposal.save(update_fields=["status"])
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_reject(
+            self._payload(action="sched_prop_no")))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("Ask a moderator", body["data"]["content"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.AGREED)
+
+    def test_a_passed_confirmed_proposal_still_reports_its_status(self):
+        """The status check runs BEFORE the time check and must keep doing so."""
+        self.proposal.status = ScheduleProposal.Status.CONFIRMED
+        self.proposal.save(update_fields=["status"])
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("already been confirmed", body["data"]["content"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
+
+    def test_a_cross_guild_click_refuses_without_retiring(self):
+        """The same filter enforces guild scope, so retiring there unconditionally
+        would let an outsider cancel a proposal they cannot even see."""
+        payload = self._payload()
+        payload["guild_id"] = "999999"
+        body = self._body(di._handle_schedule_proposal_confirm(payload))
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+
+    def test_a_live_guard_protects_a_concurrently_confirmed_row(self):
+        """A finalize that won the race must not be knocked back to CANCELLED."""
+        self._pass_the_time()
+        ScheduleProposal.objects.filter(pk=self.proposal.pk).update(
+            status=ScheduleProposal.Status.CONFIRMED)
+        di._schedule_retire_response(self.proposal, "whatever")
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
 
     def test_cross_guild_refused(self):
         payload = self._payload()
@@ -7056,11 +7645,19 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         body = self._body(di._handle_schedule_proposal_confirm(payload))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
 
-    def test_match_played_since_proposal_refused(self):
+    def test_match_played_since_proposal_retires_it(self):
+        """Retired rather than merely refused: a played match is the commonest way
+        a proposal goes stale, and refusing left the message buttoned with nothing
+        able to dismiss it."""
         self.match.status = CompetitionStatus.COMPLETED
         self.match.save(update_fields=["status"])
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
-        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertEqual(body["data"]["components"], [])
+        self.assertIn("no longer be scheduled",
+                      body["data"]["embeds"][0]["description"])
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
 
 
 class UnlinkedClickerTests(ScheduleFixtureMixin, TestCase):

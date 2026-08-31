@@ -1637,6 +1637,9 @@ def databot_info(request):
     from .services.discord_commands import (grouped_commands, LFG_HELP_INTRO,
                                             LFG_HELP_STEPS)
 
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed Databot Info')
+
     invite_url = _databot_invite_url()
 
     # Whether the visitor shares a guild with the bot (Discord's DM requirement),

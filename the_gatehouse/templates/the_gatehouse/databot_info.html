@@ -162,6 +162,69 @@
         </div>
       </div>
 
+      <!-- Series Integrations -->
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">
+            <i class="bi bi-trophy-fill text-primary me-2"></i>Automated League and Tournament Messages
+          </h2>
+          {% comment %}
+            Unlike the LFG card above, this copy is template-only: nothing in Discord
+            renders it, so there is no second consumer to keep in sync. The channel names
+            reuse .databot-inline-cmd so they read like the /commands elsewhere on the page.
+          {% endcomment %}
+          <p class="databot-card-intro">Adding the Databot to your server can help you track when games are recorded or scheduled as well as create threads for players to discuss and coordinate their upcoming matches.</p>
+
+          <div class="databot-lfg-steps">
+
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">1</span>
+              <div>
+                <h5>Add the Databot to your Server</h5>
+                {# Mirrors the {% if invite_url %} guard on the page's two Add-to-Server CTAs. #}
+                {% if invite_url %}
+                <p>Use the <a class="databot-link" href="{% url 'databot-add' %}">Add to Server</a> button on this page to invite the Databot to the server your league or tournament runs in.</p>
+                {% else %}
+                <p>Invite the Databot to the server your league or tournament runs in.</p>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">2</span>
+              <div>
+                <h5>Add your Guild to your League or Tournament</h5>
+                <p>In the settings of your League or Tournament select your guild from the guild dropdown. This will link the two and give you access to the automation features.</p>
+              </div>
+            </div>
+
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">3</span>
+              <div>
+                <h5>Set the Channels</h5>
+                <p>{% if user_is_authenticated %}From the <a class="databot-link" href="{% url 'manage-guilds' %}">Manage your Guilds</a> page edit your guild.{% else %}From the Manage your Guilds page edit your guild.{% endif %}
+                  Near the bottom you will see your League or Tournament listed, where you can set three channels:</p>
+                <ul class="databot-channel-list">
+                  <li>
+                    <code class="databot-inline-cmd">#results</code>
+                    <span>Once a game is completed a message will post here.</span>
+                  </li>
+                  <li>
+                    <code class="databot-inline-cmd">#schedule</code>
+                    <span>If a match is scheduled a message with the scheduled time will be posted here.</span>
+                  </li>
+                  <li>
+                    <code class="databot-inline-cmd">#threads</code>
+                    <span>If you create matches ahead of time on the Series page you will see an option to create threads for each game. Choosing it creates a new thread here and pings each of the players.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
       <div class="text-center mb-4 d-flex flex-wrap justify-content-center gap-3">
         {% if invite_url %}
         <a href="{% url 'databot-add' %}" class="databot-btn databot-btn-primary">
@@ -270,6 +333,22 @@
 
 /* Discord-style buttons (.databot-btn*) now live in the_keep/main.css so
    they can be reused on other pages (e.g. Manage Guilds). */
+
+/* ── Inline links ─────────────────────────────────────────────────── */
+/* The global `a` rule in the_keep/main.css is `color: inherit` with no underline, so a
+   link in prose is invisible. Opt in with this class; the blurple matches
+   .databot-inline-cmd and .databot-cmd-list code, so links and /commands read as one set. */
+.databot-link {
+  color: #4752c4;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.databot-link:hover,
+.databot-link:focus {
+  color: #5865F2;
+  text-decoration: underline;
+}
 
 /* ── Discord notifications ────────────────────────────────────────── */
 .databot-card-intro {
@@ -469,6 +548,25 @@
   line-height: 1.6;
   margin: 0;
 }
+/* Channel list in the series-integrations card. Same shape as .databot-cmd-list, but
+   without its dividers, since it sits inside a step rather than standing alone. */
+.databot-channel-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+}
+.databot-channel-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+}
+.databot-channel-list span {
+  font-size: 14px;
+  color: #4f5660;
+  line-height: 1.6;
+}
+
 /* Command chips nested in step 3 sit tighter than the flagship list. */
 .databot-lfg-cmds {
   display: flex;
@@ -488,6 +586,12 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 7px;
+  }
+  /* Same reason: the channel tags are nowrap, so keep them off the text's line. */
+  .databot-channel-list li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
   }
 }
 </style>

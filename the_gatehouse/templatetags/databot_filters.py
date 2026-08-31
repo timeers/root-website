@@ -26,7 +26,13 @@ def lfg_body(text):
     # escape() FIRST: everything after this deliberately inserts markup, so expanding
     # before escaping would let the copy inject raw HTML.
     out = escape(text)
-    out = _LINK_RE.sub(lambda m: f'<a href="{reverse(m.group(2))}">{m.group(1)}</a>', out)
+    # .databot-link because the global `a` rule is `color: inherit` with no underline,
+    # which would render these as plain prose. Same class the Databot page's hand-written
+    # links use, so every link on that page matches.
+    out = _LINK_RE.sub(
+        lambda m: f'<a class="databot-link" href="{reverse(m.group(2))}">{m.group(1)}</a>',
+        out,
+    )
     out = _CODE_RE.sub(r'<code class="databot-inline-cmd">\1</code>', out)
     out = _EM_RE.sub(r"<em>\1</em>", out)
     return mark_safe(out)

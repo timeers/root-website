@@ -49,7 +49,7 @@ from .tasks import (
     ensure_profile_from_discord, notify_lfg_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
-    strip_schedule_proposal_messages_task,
+    strip_schedule_proposal_messages_task, _PROPOSAL_RETIRED_TEXT,
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
@@ -59,6 +59,7 @@ from .services.discordservice import (
     parse_emoji_object,
     roll_emoji_for, suit_static_image_url, embed_color, permissions_can_manage_guild,
     get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
+    edit_channel_message,
 )
 from .services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD, HELP_CATEGORY_LFG,
@@ -76,7 +77,7 @@ from .services.discord_components import (
 )
 from .services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
-    group_roster, group_series_id,
+    group_roster, group_series_id, undrafted_pick,
 )
 
 logger = logging.getLogger(__name__)
@@ -1134,10 +1135,11 @@ def _proposal_ping_content(pending):
     so they are simply omitted here -- the embed still names them.
 
     ⚠️ Two things to know before enabling SCHEDULE_PROPOSAL_PINGS:
-      * Omitting `content` on a later EDIT does not remove it. edit_channel_message
-        has no content parameter, and a type-7 interaction response only replaces
-        the keys it sends -- so this line persists above the embed for the life of
-        the message. (Harmless: Discord pings on the initial post, never on edits.)
+      * Omitting `content` on a later EDIT does not remove it: both
+        edit_channel_message and a type-7 interaction response only replace the
+        keys they send, so this line persists above the embed for the life of the
+        message unless an edit passes content="" explicitly. (Harmless: Discord
+        pings on the initial post, never on edits.)
       * _name_list_value can't be reused: it hard-codes the 1024-char embed FIELD
         cap, not the 2000-char content cap."""
     mentions = [f"<@{p.discord_id}>" for p in pending if p.discord_id]
@@ -1311,6 +1313,32 @@ def _schedule_closed_data(title, description):
         "components": [],
         "allowed_mentions": {"parse": []},
     }
+
+
+def _schedule_retire_response(proposal, description):
+    """Retire a proposal a button can no longer act on, and clear its buttons.
+
+    Refusing alone left the row LIVE and the public message fully buttoned, with
+    nothing able to dismiss it until cleanup_stale_schedule_proposals happened to
+    run -- and that is beat-scheduled from the admin (DatabaseScheduler, no
+    beat_schedule in code), so nothing guarantees when. The click itself is the
+    reliable moment to retire it.
+
+    CANCELLED matches how every other non-rejection retirement is recorded (see
+    _cancel_open_proposals and the cleanup task), so nothing downstream has to
+    learn a new state.
+
+    LIVE-guarded: a concurrent finalize may have just confirmed this row, and that
+    result must win -- the update is a no-op then, and the message this renders is
+    replaced by whatever the winner wrote."""
+    ScheduleProposal.objects.filter(
+        pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
+    ).update(status=ScheduleProposal.Status.CANCELLED,
+             resolved_at=timezone.now())
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_closed_data("Proposal closed", description),
+    })
 
 
 def _cancel_open_proposals(match, reason, exclude_pk=None):
@@ -1711,7 +1739,7 @@ def _open_schedule_proposal(payload, match, when, profile, roster):
     })
 
 
-def _proposal_for_click(payload, allow_agreed=False):
+def _proposal_for_click(payload, allow_agreed=False, allow_passed=False):
     """Shared guards for the proposal buttons: (proposal, match, error).
 
     These custom_ids end in the non-snowflake "g" marker precisely so the
@@ -1721,7 +1749,17 @@ def _proposal_for_click(payload, allow_agreed=False):
     `allow_agreed` admits a proposal whose roster has already fully confirmed but
     whose time nobody present could write. Only Set Time passes it: Confirm and
     Reject act on consent that is already complete there, so for them an AGREED
-    row is correctly "no longer active"."""
+    row is correctly "no longer active".
+
+    `allow_passed` admits a proposal whose time has already gone by. Only REJECT
+    passes it: the passed-time check exists to keep a past time out of
+    Match.scheduled_time, and rejecting writes no time at all -- so for Reject the
+    check was not merely unnecessary, it was the thing stopping the one button
+    whose job is clearing the message.
+
+    The two branches that refuse a LIVE proposal below RETIRE it rather than only
+    saying no. A bare refusal left the row live and the message fully buttoned,
+    with nothing able to dismiss it until the cleanup sweep happened to run."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # [proposal_id, "g"]
     if not args:
         return None, None, _ephemeral("That button is out of date — run /schedule again.")
@@ -1746,12 +1784,29 @@ def _proposal_for_click(payload, allow_agreed=False):
     match = _schedulable_matches(payload.get("guild_id")).filter(
         pk=proposal.match_id).first()
     if not match:
+        # This filter fails for two very different reasons, and only one of them
+        # may retire the row. A match that was played or removed is a dead proposal
+        # -- and it is the COMMONEST way one goes stale, so refusing without
+        # retiring is what leaves a buttoned message nobody can dismiss.
+        #
+        # But the same filter is also the GUILD SCOPE check, and a cross-guild
+        # click must never be able to cancel a proposal it isn't allowed to even
+        # see. So retire only what belongs to this guild, and refuse the rest
+        # exactly as before.
+        if proposal.guild_id and str(proposal.guild_id) == str(
+                payload.get("guild_id") or ""):
+            return None, None, _schedule_retire_response(
+                proposal,
+                "This match can no longer be scheduled — it may have been played "
+                "or removed.")
         return None, None, _ephemeral(
             "That match can no longer be scheduled: it may have been played or removed.")
 
-    if proposal.proposed_time <= timezone.now():
-        return None, None, _ephemeral(
-            "That proposed time has already passed — run /schedule to propose another.")
+    if not allow_passed and proposal.proposed_time <= timezone.now():
+        return None, None, _schedule_retire_response(
+            proposal,
+            _PROPOSAL_RETIRED_TEXT["expired"]
+            + "\nRun `/schedule` to propose another time.")
     return proposal, match, None
 
 
@@ -1840,8 +1895,13 @@ def _handle_schedule_proposal_reject(payload):
     being negotiated is ordinary; destroying a completed agreement on one late
     click is not, and it would undo work every other player already did. A player
     who can no longer make it says so in the thread and a moderator clears it --
-    the same person the Set Time button is waiting on either way."""
-    proposal, match, error = _proposal_for_click(payload, allow_agreed=True)
+    the same person the Set Time button is waiting on either way.
+
+    allow_passed: rejecting writes no time, so the passed-time guard has nothing to
+    protect here -- and it was the reason a proposal whose time had gone by could
+    not be cleared by anyone at all."""
+    proposal, match, error = _proposal_for_click(
+        payload, allow_agreed=True, allow_passed=True)
     if error:
         return error
 
@@ -3292,16 +3352,93 @@ def _pick_pool(thread):
     ]
 
 
+def _pick_free(thread, mode):
+    """Whether picks are OPEN to any pending player rather than taken in turn.
+
+    True only when the players are picking for themselves AND there is no seating:
+    with no agreed order, making them wait on an arbitrary roster position is
+    friction with no purpose. A seating (or Assign mode) keeps the strict turn
+    order -- there the order is the point.
+
+    The single source of truth for this branch, so the condition can't drift
+    between the panel, the turn resolver and the follow-ups. Takes `mode` because
+    mode lives only in the custom_id, never on the thread."""
+    return mode == PICK_MODE_PLAYERS and not thread.seating_set
+
+
+def _pick_pending_seats(seats):
+    """Every seat still owed a faction, in seat_number order.
+
+    Seats whose Profile was deleted are SKIPPED: no clicker could ever match them,
+    so waiting on one would stall the table forever. Filters on `profile_id`, NOT
+    on discord_id -- an unlinked player is someone the table is genuinely still
+    waiting on, and hiding them would silently shorten the board.
+
+    Ascending, because this list is DISPLAYED (the board reads top-to-bottom);
+    _pick_next_seat takes the last of it for the reverse-order turn."""
+    return [s for s in sorted(seats, key=lambda s: s.seat_number)
+            if not s.faction_id and s.profile_id]
+
+
 def _pick_next_seat(seats):
     """The seat whose turn it is: the highest-numbered seat with no faction yet.
 
     The LAST seat picks first, then descending -- Root drafts factions in reverse
-    seat order. Seats whose Profile was deleted are SKIPPED: no clicker could
-    ever match them, so waiting on one would stall the table forever."""
-    for seat in sorted(seats, key=lambda s: s.seat_number, reverse=True):
-        if not seat.faction_id and seat.profile_id:
-            return seat
-    return None
+    seat order.
+
+    Also serves as the board-complete test (None == every seat is filled), which
+    is correct in free mode too: "no highest pending seat" is exactly "no pending
+    seats at all"."""
+    pending = _pick_pending_seats(seats)
+    return pending[-1] if pending else None
+
+
+def _pick_seat_for_clicker(seats, clicker):
+    """The clicker's OWN unfilled seat, or None -- free mode's answer to "whose
+    turn is it", where the answer is "whoever just clicked, if they're owed one".
+
+    None covers three cases the caller phrases apart: not in the game, already
+    picked, and on the roster but unlinked.
+
+    Matched on discord_id ONLY. Profile.discord_id is nullable and seats are built
+    straight from roster Profiles, so an unlinked player has a real seat carrying a
+    NULL id -- and `str(None)` is the string "None", which would compare against a
+    snowflake rather than being skipped. The truthiness guard is what makes that
+    unreachable instead of accidentally-correct. (A username is user-controlled and
+    is never proof of identity; see _resolve_clicker.)"""
+    if not clicker:
+        return None
+    return next((s for s in _pick_pending_seats(seats)
+                 if s.profile.discord_id
+                 and str(s.profile.discord_id) == str(clicker)), None)
+
+
+# Enough names that a real table never truncates (Root seats 6), while still
+# bounding the line -- a large tournament roster must not push the panel past
+# Discord's 2000-char content limit.
+PICK_PENDING_NAMES_MAX = 8
+
+
+def _pick_pending_line(seats):
+    """"Alice, Bob & Carol pick." -- everyone still owed a faction.
+
+    Free mode's replacement for the single-name turn line: with no order there is
+    no "next", so the panel names everyone who may act.
+
+    Plain names, not mentions. The board directly above renders every seat as
+    `profile.name`, and re-pinging a group on each edit would spam the table --
+    the same reason the ordered turn line's mention is neutered by
+    allowed_mentions. Singular "picks" for one name: free mode reaches that state
+    on the last player."""
+    names = [s.profile.name for s in _pick_pending_seats(seats)]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return f"{names[0]} picks."
+    if len(names) > PICK_PENDING_NAMES_MAX:
+        shown = ", ".join(names[:PICK_PENDING_NAMES_MAX])
+        return f"{shown} & {len(names) - PICK_PENDING_NAMES_MAX} more pick."
+    return f"{', '.join(names[:-1])} & {names[-1]} pick."
 
 
 def _pick_seat_lines(thread, seats):
@@ -3350,26 +3487,57 @@ def _pick_seat_detail(seat):
     Emoji-with-name for the single vagabond (it names one character, so the name
     carries), emoji-only for the three captains -- three names would crowd the
     line, and the emoji are the quick read. Each falls back to the title when its
-    emoji isn't uploaded, so nothing silently disappears."""
+    emoji isn't uploaded, so nothing silently disappears.
+
+    Takes an LFGSeat OR an LFGDraftPick: both carry `vagabond` and `captains`
+    under those exact names, and nothing here touches anything else. The
+    undrafted row below renders through it so the leftover faction reads
+    identically to a taken seat."""
     if seat.vagabond_id:
         emoji = vagabond_emoji_for(seat.vagabond)
         return f" ({emoji} {seat.vagabond.title})" if emoji else f" ({seat.vagabond.title})"
     # Callers only reach here for a seat that HAS a faction, and the faction is
     # written by the same commit that narrows the parked offer to the chosen
-    # captains -- so these are a decision, never an open offer.
+    # captains -- so these are a decision, never an open offer. (A draft pick's
+    # captains are likewise final: the draft rolls them once and never revises.)
     marks = [vagabond_emoji_for(c) or c.title for c in seat.captains.all()]
     if marks:
         return f" ({' '.join(marks)})"
     return ""
 
 
-def _pick_panel_data(thread, seats, mode, owner, pool=None):
+def _pick_undrafted_line(thread):
+    """The board row for the one drafted faction nobody took, or "".
+
+    Only ever one line: undrafted_pick returns the leftover ONLY when exactly one
+    is left, so this is silent without a draft, mid-pick, and on any draft/seat
+    desync -- which is also why the no-draft case can't dump the whole faction
+    list here.
+
+    Rendered exactly like a taken seat (emoji prefix, _pick_seat_detail suffix) so
+    the leftover reads as part of the board rather than a footnote, but with a
+    seatless prefix -- it belongs to no player and must not look like one."""
+    pick = undrafted_pick(thread)
+    if pick is None:
+        return ""
+    emoji = faction_emoji_for(pick.faction.slug)
+    mark = f"{emoji} {pick.faction.title}" if emoji else pick.faction.title
+    mark += _pick_seat_detail(pick)
+    prefix = "-. " if thread.seating_set else "• "
+    return f"{prefix}Undrafted - {mark}"
+
+
+def _pick_panel_data(thread, seats, mode, owner, pool=None, notice=None):
     """The public pick panel, rebuilt from the DB on every interaction so the
     bot stays stateless and a stale message can never drive a write.
 
     The seat whose turn it is is derived here, not carried in a custom_id -- that
     is what makes a double-click land on the same seat and be rejected as already
-    taken, rather than consuming two picks."""
+    taken, rather than consuming two picks.
+
+    `notice` is an optional subtext line explaining why the panel just changed
+    under the reader (today: the draft was re-rolled). Rendered as Discord subtext
+    so it reads as an aside rather than competing with the board."""
     pool = pool if pool is not None else _pick_pool(thread)
     taken = {s.faction.slug for s in seats if s.faction_id}
 
@@ -3383,34 +3551,63 @@ def _pick_panel_data(thread, seats, mode, owner, pool=None):
 
     nxt = _pick_next_seat(seats)
     if nxt is None:
+        # Only on the FINAL edit: mid-pick there is more than one faction left,
+        # and naming them would read as a suggestion to the seat still choosing.
+        leftover = _pick_undrafted_line(thread)
+        if leftover:
+            lines.append(leftover)
         lines += ["", "Draft Complete" if ordered else "All factions assigned."]
         return {"content": "\n".join(lines), "components": [],
                 "allowed_mentions": {"parse": []}}
 
+    free = _pick_free(thread, mode)
     seat_label = f" (seat {nxt.seat_number})" if ordered else ""
     if mode == PICK_MODE_ASSIGN:
         lines += ["", f"Assigning for **{nxt.profile.name}**{seat_label}."]
+    elif free:
+        # No order, so no "next" to name -- everyone still owed a faction may act.
+        lines += ["", _pick_pending_line(seats)]
     else:
         lines += ["", f"<@{nxt.profile.discord_id}> picks{seat_label}."]
+
+    if notice:
+        lines.append(f"-# {notice}")
 
     options = [
         select_option(title, slug, emoji=faction_emoji_object(slug))
         for slug, title, _vb in pool if slug not in taken
     ]
+
+    stop_row = action_row(
+        button("Stop", encode_custom_id("pick_cancel", owner, PICK_OPEN),
+               style=STYLE_SECONDARY))
+
+    # Seats still owed a faction but nothing left to offer them. Discord rejects a
+    # select with zero options, so sending one would 400 and leave the panel frozen
+    # on whatever it last showed. _pick_pool_error only guards the pool at /pick
+    # START, so a /draft re-run to a smaller pool can strip the last options
+    # mid-session and reach here. Keep Stop: it's the only way out.
+    if not options:
+        lines += ["", "No factions left to choose. Use Stop to start over."]
+        return {"content": "\n".join(lines), "components": [stop_row],
+                "allowed_mentions": {"parse": []}}
+
+    if ordered:
+        placeholder = f"Faction for seat {nxt.seat_number}"
+    elif free:
+        # Addresses whoever is reading: several people may act on this panel, and
+        # naming one of them would read as a turn indicator.
+        placeholder = "Choose your faction"
+    else:
+        placeholder = f"Faction for {nxt.profile.name}"[:100]
+
     select = string_select(
         encode_custom_id("pick_faction", mode, owner, PICK_OPEN),
-        options,
-        placeholder=(f"Faction for seat {nxt.seat_number}" if ordered
-                     else f"Faction for {nxt.profile.name}"[:100]),
-        min_values=1, max_values=1,
+        options, placeholder=placeholder, min_values=1, max_values=1,
     )
     return {
         "content": "\n".join(lines),
-        "components": [
-            action_row(select),
-            action_row(button("Stop", encode_custom_id("pick_cancel", owner, PICK_OPEN),
-                              style=STYLE_SECONDARY)),
-        ],
+        "components": [action_row(select), stop_row],
         # The panel is edited on every pick; re-pinging each time would spam the
         # table, so the mention above renders as plain text.
         "allowed_mentions": {"parse": []},
@@ -3428,24 +3625,32 @@ def _pick_vagabond_pool():
 
 
 def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
-                        placeholder, action, min_values=1, max_values=1):
-    """A follow-up select shown IN PLACE of the pick panel, for a faction that
-    needs a second choice before the seat can be written (Vagabond, Knaves).
+                        placeholder, action, min_values=1, max_values=1,
+                        panel_id=""):
+    """A follow-up select for a faction that needs a second choice before the seat
+    can be written (Vagabond, Knaves).
 
-    Re-renders the same seat lines as _pick_panel_data (via _pick_seat_lines):
-    this replaces the panel message, so dropping them would blank the board
-    mid-pick. The seat whose turn it is is NOT carried here -- like the panel, the
-    follow-up handler re-derives it from the DB, which is what keeps a stale
-    message from driving a write.
+    Re-renders the same seat lines as _pick_panel_data (via _pick_seat_lines): in
+    turn-order modes this REPLACES the panel message, so dropping them would blank
+    the board mid-pick. The seat whose turn it is is NOT carried here -- like the
+    panel, the follow-up handler re-derives it from the DB, which is what keeps a
+    stale message from driving a write.
 
     `faction_slug` rides in the custom_id because the seat has no faction yet:
     the write is deferred until this select resolves, so an abandoned prompt
-    leaves the seat untouched rather than stranding it half-recorded."""
+    leaves the seat untouched rather than stranding it half-recorded.
+
+    `panel_id` likewise: in free mode this is shown as an EPHEMERAL beside the
+    shared panel, and the interaction that resolves it carries the EPHEMERAL's
+    message id, not the panel's -- so the panel's id has to be handed forward to
+    be refreshed afterwards. Empty in turn-order modes, where the follow-up IS the
+    panel. It sits before PICK_OPEN, which must stay last or the dispatcher
+    owner-locks the component."""
     lines = _pick_seat_lines(thread, seats)
     lines += ["", placeholder]
 
     select = string_select(
-        encode_custom_id(action, mode, owner, faction_slug, PICK_OPEN),
+        encode_custom_id(action, mode, owner, faction_slug, panel_id, PICK_OPEN),
         options, placeholder=placeholder[:100],
         min_values=min_values, max_values=max_values,
     )
@@ -3460,7 +3665,8 @@ def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
     }
 
 
-def _pick_vagabond_panel_data(thread, seats, mode, owner, faction_slug):
+def _pick_vagabond_panel_data(thread, seats, mode, owner, faction_slug,
+                              panel_id=""):
     """The "which Vagabond?" follow-up. All 12 vagabond variants share one Faction
     row, so without this the seat records Vagabond with no identity and Ranger and
     Thief collapse into the same record."""
@@ -3471,13 +3677,14 @@ def _pick_vagabond_panel_data(thread, seats, mode, owner, faction_slug):
     ]
     return _pick_followup_data(
         thread, seats, mode, owner, faction_slug, options,
-        "Which Vagabond?", "pick_vagabond")
+        "Which Vagabond?", "pick_vagabond", panel_id=panel_id)
 
 
 PICK_CAPTAIN_CHOICES = 3
 
 
-def _pick_captains_panel_data(thread, seats, mode, owner, faction_slug, captains):
+def _pick_captains_panel_data(thread, seats, mode, owner, faction_slug, captains,
+                              panel_id=""):
     """The "pick 3 of 4" follow-up for Knaves of the Deepwood.
 
     `captains` is the already-rolled offer, not the whole captain-capable pool:
@@ -3491,7 +3698,50 @@ def _pick_captains_panel_data(thread, seats, mode, owner, faction_slug, captains
     return _pick_followup_data(
         thread, seats, mode, owner, faction_slug, options,
         f"Choose {PICK_CAPTAIN_CHOICES} captains", "pick_captains",
-        min_values=PICK_CAPTAIN_CHOICES, max_values=PICK_CAPTAIN_CHOICES)
+        min_values=PICK_CAPTAIN_CHOICES, max_values=PICK_CAPTAIN_CHOICES,
+        panel_id=panel_id)
+
+
+def _pick_followup_response(data, free):
+    """How a Vagabond/Knaves follow-up is delivered.
+
+    Turn-order modes REPLACE the panel: only one seat can act, so nothing is taken
+    away from anyone.
+
+    Free mode can't do that -- several players may be choosing at once, and
+    replacing the shared panel with one player's prompt would take the board away
+    from the rest until they resolved it (or forever, if they wandered off; the
+    only reset is Stop, which discards everyone's picks). So the prompt goes to
+    that player as an EPHEMERAL and the panel is left alone. Type 4 is valid as the
+    INITIAL response to a component interaction, so this needs no deferral or
+    webhook."""
+    if free:
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": {**data, "flags": EPHEMERAL},
+        })
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
+
+
+def _pick_refresh_panel(payload, panel_id, data):
+    """PATCH the shared panel with freshly rendered `data`, for a free-mode
+    follow-up that was answered in an ephemeral.
+
+    Only the ephemeral is updated by the interaction response itself, so without
+    this the panel would sit one pick stale until somebody else picked.
+
+    Cosmetic, and deliberately best-effort: edit_channel_message never raises and
+    a failure (panel deleted, perms lost) leaves a stale-but-harmless panel that
+    the next pick rebuilds anyway -- a completed write must never be reported as
+    an error because its redraw didn't land."""
+    if not panel_id:
+        return
+    result = edit_channel_message(
+        payload.get("channel_id"), panel_id,
+        content=data.get("content"), components=data.get("components"))
+    if result != THREAD_OK:
+        logger.warning("Could not refresh /pick panel %s in channel %s (%s).",
+                       panel_id, payload.get("channel_id"), result)
 
 
 def _pick_setup_reminder(thread):
@@ -3753,6 +4003,33 @@ def _handle_pick_noseat(payload):
     })
 
 
+def _pick_free_refusal(thread, seats, clicker, payload):
+    """Why this clicker may not pick in free mode, phrased for which of them they
+    are: already picked, on the roster but unlinked, or not in the game.
+
+    The unlinked case has to be told apart from the rest. Seats are built from
+    roster Profiles, so an unlinked player sees their own name on the board but
+    can never click it -- a flat "you can't pick" would be a dead end for the one
+    person who has an action to take. Same resolution and same copy Stop already
+    uses (_handle_pick_cancel), so the two agree.
+
+    Only reached on refusal, so the extra roster lookup never touches the happy
+    path."""
+    if any(s.profile_id and s.profile.discord_id
+           and str(s.profile.discord_id) == str(clicker) for s in seats):
+        return _ephemeral("You've already chosen a faction in this game.")
+
+    roster = _pick_roster(thread, payload.get("channel_id"))
+    _me, status = _resolve_clicker(
+        roster, clicker, _clicker_username(payload))
+    if status == CLICKER_UNLINKED:
+        return _ephemeral(
+            "You're one of this game's players, but your Discord isn't linked to "
+            f"your site account yet. Log in{_login_hint()} with Discord once, then "
+            "try again.")
+    return _ephemeral("You're not picking a faction in this game.")
+
+
 def _pick_turn(payload, mode, owner):
     """Resolve the thread and the seat whose turn it is, and authorize the
     clicker against it. Returns (thread, seats, seat, pool) or a JsonResponse to
@@ -3762,7 +4039,13 @@ def _pick_turn(payload, mode, owner):
     request, so the turn is re-derived and re-authorized every time rather than
     trusting the check made when the message was built. Authorizing BEFORE the
     lock keeps a rejected click from holding a row lock while its response is
-    built."""
+    built.
+
+    In FREE mode the question changes from "whose turn is it" to "is this clicker
+    owed a faction", so the seat is resolved from the clicker instead of the
+    order. That also keeps the Knaves follow-up honest: the captains it validates
+    against are parked on the seat resolved here, so resolving by clicker is what
+    stops one player reading another's offer."""
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
         return _ephemeral("This isn't a game thread anymore.")
@@ -3771,6 +4054,22 @@ def _pick_turn(payload, mode, owner):
     seats = list(thread.seats.select_related(
         "profile", "faction", "vagabond",
     ).prefetch_related("captains"))
+    clicker = _interaction_user_id(payload)
+
+    if _pick_free(thread, mode):
+        # Completeness BEFORE authorization, matching the ordered path below: the
+        # last picker's double-click must land on the finished board everyone else
+        # sees, not on "you've already chosen".
+        if _pick_next_seat(seats) is None:
+            return JsonResponse({
+                "type": RESPONSE_UPDATE_MESSAGE,
+                "data": _pick_panel_data(thread, seats, mode, owner, pool=pool),
+            })
+        seat = _pick_seat_for_clicker(seats, clicker)
+        if seat is None:
+            return _pick_free_refusal(thread, seats, clicker, payload)
+        return thread, seats, seat, pool
+
     seat = _pick_next_seat(seats)
     if seat is None:
         return JsonResponse({
@@ -3778,7 +4077,6 @@ def _pick_turn(payload, mode, owner):
             "data": _pick_panel_data(thread, seats, mode, owner, pool=pool),
         })
 
-    clicker = _interaction_user_id(payload)
     if mode == PICK_MODE_ASSIGN:
         if clicker != owner:
             return _ephemeral("Only the player who ran `/pick` can assign factions.")
@@ -3787,6 +4085,32 @@ def _pick_turn(payload, mode, owner):
         return _ephemeral(f"It's {who}'s turn to pick a faction.")
 
     return thread, seats, seat, pool
+
+
+def _pick_stale_pool_response(thread, seats, mode, owner, pool):
+    """A click landed on a faction the pool no longer contains: re-render the panel
+    from the CURRENT pool instead of leaving stale options on screen.
+
+    /draft re-run replaces the thread's picks, so an open panel keeps offering the
+    old factions. Refusing the click and stopping there left no way back except
+    Stop, which discards every pick the table had already made -- one re-draft
+    locked the session out entirely.
+
+    No extra filtering needed: _pick_panel_data already drops options whose slug is
+    taken by a seat, and a re-draft doesn't touch LFGSeat, so factions chosen before
+    it keep their seats and simply don't reappear as choices.
+
+    Imperfect by design -- a faction committed BEFORE the re-draft can be one the
+    new draft doesn't contain, and that seat keeps it. Clearing seats the table
+    already agreed on would be worse than the inconsistency, and the codebase
+    already tolerates this desync elsewhere (see undrafted_pick, which returns None
+    rather than guessing)."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _pick_panel_data(
+            thread, seats, mode, owner, pool=pool,
+            notice="The draft changed — these are the current factions."),
+    })
 
 
 def _handle_pick_faction(payload):
@@ -3809,9 +4133,11 @@ def _handle_pick_faction(payload):
         return _ephemeral("No faction selected.")
     slug = values[0]
 
+    # Checked AFTER _pick_turn, so an unauthorized clicker gets their own refusal
+    # first -- a spectator must not be able to redraw the table's panel.
     entry = next((e for e in pool if e[0] == slug), None)
     if entry is None:
-        return _ephemeral("That faction isn't in this game's pool anymore.")
+        return _pick_stale_pool_response(thread, seats, mode, owner, pool)
     _slug, _title, vagabond_slug = entry
 
     faction = Faction.objects.filter(slug=slug).first()
@@ -3819,6 +4145,12 @@ def _handle_pick_faction(payload):
         return _ephemeral("That faction couldn't be found anymore.")
     vagabond = (Vagabond.objects.filter(slug=vagabond_slug).first()
                 if vagabond_slug else None)
+
+    # In free mode a follow-up is an ephemeral shown BESIDE the shared panel, so
+    # the panel's id has to be carried forward to refresh it after the commit.
+    # This payload came from the panel itself, so its message id IS the panel's.
+    free = _pick_free(thread, mode)
+    panel_id = (payload.get("message") or {}).get("id") or "" if free else ""
 
     # Vagabond with no draft needs an identity before the seat can be written:
     # all 12 variants share one Faction row. The draft path already carries one
@@ -3828,10 +4160,9 @@ def _handle_pick_faction(payload):
     # makes an abandoned prompt a no-op instead of a seat stranded with a faction
     # and no vagabond, which is the bug this exists to close.
     if faction.slug == "vagabond" and vagabond is None:
-        return JsonResponse({
-            "type": RESPONSE_UPDATE_MESSAGE,
-            "data": _pick_vagabond_panel_data(thread, seats, mode, owner, faction.slug),
-        })
+        return _pick_followup_response(
+            _pick_vagabond_panel_data(thread, seats, mode, owner, faction.slug,
+                                      panel_id=panel_id), free)
 
     # Knaves takes 3 of 4 ROLLED captains. The roll happens here and is parked on
     # the seat, because the bot is stateless and a custom_id can't carry a list --
@@ -3858,18 +4189,18 @@ def _handle_pick_faction(payload):
                 thread.thread_id, len(rolled))
         else:
             seat.captains.set(rolled)
-            return JsonResponse({
-                "type": RESPONSE_UPDATE_MESSAGE,
-                "data": _pick_captains_panel_data(
-                    thread, seats, mode, owner, faction.slug, rolled),
-            })
+            return _pick_followup_response(
+                _pick_captains_panel_data(thread, seats, mode, owner,
+                                          faction.slug, rolled,
+                                          panel_id=panel_id), free)
 
     return _pick_commit(payload, thread, seat, mode, owner, pool, faction,
                         vagabond=vagabond)
 
 
 def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
-                 vagabond=None, captains=None, discarded_captain=None):
+                 vagabond=None, captains=None, discarded_captain=None,
+                 panel_id=""):
     """Write the seat and advance the panel. Shared by the plain faction path and
     by every follow-up, so the lock, the race checks and the roll capture have one
     implementation.
@@ -3882,7 +4213,11 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
     it would LEFT OUTER JOIN, and Postgres rejects FOR UPDATE against the nullable
     side of an outer join (same trap as the Match lock in _finalize_proposal).
     Nothing below reads those relations -- `locked` only takes the write, and the
-    panel is rebuilt from its own query afterwards."""
+    panel is rebuilt from its own query afterwards.
+
+    `panel_id` is set only when a free-mode follow-up was answered in an ephemeral:
+    the response below updates that ephemeral, so the shared panel is PATCHed with
+    the SAME rendered data rather than being left stale or rendered twice."""
     with transaction.atomic():
         locked = (LFGSeat.objects.select_for_update()
                   .filter(pk=seat.pk, faction__isnull=True).first())
@@ -3928,10 +4263,11 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
         items.extend(_lfg_item("Captain", c) for c in (captains or []))
         _capture_lfg_components(payload.get("channel_id"), items, source="pick")
 
-    return JsonResponse({
-        "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _pick_panel_data(thread, seats, mode, owner, pool=pool),
-    })
+    data = _pick_panel_data(thread, seats, mode, owner, pool=pool)
+    # Rendered once, used twice: this response updates the ephemeral the player
+    # answered, and the shared panel is PATCHed with the same board.
+    _pick_refresh_panel(payload, panel_id, data)
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
 
 
 def _handle_pick_vagabond(payload):
@@ -3946,18 +4282,21 @@ def _handle_pick_vagabond(payload):
     mode = args[0] if args else PICK_MODE_PLAYERS
     owner = args[1] if len(args) > 1 else ""
     faction_slug = args[2] if len(args) > 2 else ""
+    # Set only by a free-mode prompt, which was answered in an ephemeral -- the
+    # shared panel it belongs to is a different message and needs refreshing.
+    panel_id = args[3] if len(args) > 3 else ""
 
     turn = _pick_turn(payload, mode, owner)
     if isinstance(turn, JsonResponse):
         return turn
-    thread, _seats, seat, pool = turn
+    thread, seats, seat, pool = turn
 
     values = payload["data"].get("values") or []
     if not values:
         return _ephemeral("No vagabond selected.")
 
     if not any(e[0] == faction_slug for e in pool):
-        return _ephemeral("That faction isn't in this game's pool anymore.")
+        return _pick_stale_pool_response(thread, seats, mode, owner, pool)
     faction = Faction.objects.filter(slug=faction_slug).first()
     if not faction:
         return _ephemeral("That faction couldn't be found anymore.")
@@ -3967,7 +4306,7 @@ def _handle_pick_vagabond(payload):
         return _ephemeral("That vagabond couldn't be found anymore.")
 
     return _pick_commit(payload, thread, seat, mode, owner, pool, faction,
-                        vagabond=vagabond)
+                        vagabond=vagabond, panel_id=panel_id)
 
 
 def _handle_pick_captains(payload):
@@ -3980,18 +4319,21 @@ def _handle_pick_captains(payload):
     mode = args[0] if args else PICK_MODE_PLAYERS
     owner = args[1] if len(args) > 1 else ""
     faction_slug = args[2] if len(args) > 2 else ""
+    # Set only by a free-mode prompt, which was answered in an ephemeral -- the
+    # shared panel it belongs to is a different message and needs refreshing.
+    panel_id = args[3] if len(args) > 3 else ""
 
     turn = _pick_turn(payload, mode, owner)
     if isinstance(turn, JsonResponse):
         return turn
-    thread, _seats, seat, pool = turn
+    thread, seats, seat, pool = turn
 
     values = payload["data"].get("values") or []
     if len(values) != PICK_CAPTAIN_CHOICES:
         return _ephemeral(f"Choose exactly {PICK_CAPTAIN_CHOICES} captains.")
 
     if not any(e[0] == faction_slug for e in pool):
-        return _ephemeral("That faction isn't in this game's pool anymore.")
+        return _pick_stale_pool_response(thread, seats, mode, owner, pool)
     faction = Faction.objects.filter(slug=faction_slug).first()
     if not faction:
         return _ephemeral("That faction couldn't be found anymore.")
@@ -4013,7 +4355,7 @@ def _handle_pick_captains(payload):
 
     return _pick_commit(payload, thread, seat, mode, owner, pool, faction,
                         captains=[offered[v] for v in values],
-                        discarded_captain=discarded)
+                        discarded_captain=discarded, panel_id=panel_id)
 
 
 def _pick_actor_name(payload):
