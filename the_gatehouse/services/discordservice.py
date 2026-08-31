@@ -342,7 +342,8 @@ def post_channel_message_full(channel_id, content=None, embeds=None, components=
         return THREAD_BLOCKED, None
 
 
-def edit_channel_message(channel_id, message_id, embeds=None, components=None):
+def edit_channel_message(channel_id, message_id, embeds=None, components=None,
+                         content=None):
     """Edit an existing bot message (PATCH). Never raises. Returns one of:
         THREAD_OK      — edited
         THREAD_BLOCKED — permanent failure (403 missing perms / 404 gone); do not retry
@@ -350,8 +351,9 @@ def edit_channel_message(channel_id, message_id, embeds=None, components=None):
 
     Only the parts you pass are sent, and an omitted key leaves that part of the
     message untouched. Note the `is not None` tests: `components=[]` is meaningful
-    (it CLEARS the button row) and must not be confused with "leave components
-    alone", so truthiness would be wrong here.
+    (it CLEARS the button row) and `content=""` likewise CLEARS the text, so
+    neither must be confused with "leave that part alone" -- truthiness would be
+    wrong here.
 
     No DEBUG_VALUE guard — see create_message_thread."""
     body = {}
@@ -359,6 +361,8 @@ def edit_channel_message(channel_id, message_id, embeds=None, components=None):
         body["embeds"] = embeds
     if components is not None:
         body["components"] = components
+    if content is not None:
+        body["content"] = content
     if not body:
         return THREAD_OK  # nothing to change; don't spend a request
     try:
