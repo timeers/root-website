@@ -1,7 +1,6 @@
 # Changelog
 
 ## [1.13.4] - 2026-8-31 Bot Evolution
-This update improves the LFG command functionality substantially to improve the game recording process.
 
 ### New Features
 - elo systems now have Games and Details tabs alongside the leaderboard
