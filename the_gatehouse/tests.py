@@ -6379,6 +6379,148 @@ class PickFreeFollowUpTests(TestCase):
         self.assertEqual(edit.call_args.args[1], "panelmsg")
         self.assertIn("Ff Player 1", edit.call_args.kwargs["content"])
 
+    # ── dismissing the ephemeral once it's answered ──
+    def test_resolving_a_free_vagabond_dismisses_the_ephemeral(self):
+        """Discord can't delete an ephemeral, so it's collapsed to one line with
+        no controls. Returning the board here would leave the player a private
+        duplicate of the panel."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        out, _edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[0].discord_id,
+            self.vagabond_faction.slug, self._panel_id_from(body))
+        self.assertEqual(out["data"]["components"], [])
+        self.assertEqual(out["data"]["content"], "Pick recorded.")
+        # Not the board: no seat lines, no pending list.
+        self.assertNotIn("Ff Player 2", out["data"]["content"])
+
+    def test_resolving_free_knaves_dismisses_the_ephemeral(self):
+        body = self._select(self.knaves.slug, self.players[0].discord_id)
+        offered = list(self.thread.seats.get(seat_number=1).captains.all())
+        out, _edit = self._resolve(
+            "pick_captains", [c.slug for c in offered[:3]],
+            self.players[0].discord_id, self.knaves.slug,
+            self._panel_id_from(body))
+        self.assertEqual(out["data"]["components"], [])
+        self.assertEqual(out["data"]["content"], "Pick recorded.")
+
+    def test_the_free_prompt_has_no_stop_button(self):
+        """Stop clears the WHOLE table's picks. A private prompt for choosing your
+        own vagabond is the wrong place for it -- it stays on the shared panel."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        rows = body["data"]["components"]
+        self.assertEqual(len(rows), 1)
+        # The select, and nothing else.
+        self.assertIn("custom_id", rows[0]["components"][0])
+        self.assertNotIn("Stop", json.dumps(rows))
+
+    def test_the_free_prompt_does_not_duplicate_the_board(self):
+        """The panel is still on screen above it, and a copy here goes stale the
+        moment anyone else picks."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        content = body["data"]["content"]
+        self.assertIn("Which Vagabond?", content)
+        self.assertNotIn("Ff Player 2", content)
+
+    def test_a_seated_prompt_keeps_its_board_and_stop(self):
+        """Turn-order follow-ups REPLACE the panel, so dropping either would blank
+        the board and leave the table no control."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[2].discord_id, seated=True)
+        rows = body["data"]["components"]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["components"][0]["label"], "Stop")
+        self.assertIn("Ff Player 1", body["data"]["content"])
+
+    def test_a_seated_follow_up_still_returns_the_board(self):
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[2].discord_id, seated=True)
+        out, _edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[2].discord_id,
+            self.vagabond_faction.slug, self._panel_id_from(body))
+        self.assertIn("Ff Player 1", out["data"]["content"])
+        self.assertNotEqual(out["data"]["components"], [])
+
+    def test_a_redraft_dismisses_an_open_free_prompt(self):
+        """/draft re-ran while this prompt sat open. The rebuilt board belongs on
+        the shared panel, not painted into the ephemeral."""
+        draft = LFGDraft.objects.create(thread=self.thread, players=3)
+        for i, f in enumerate([self.vagabond_faction, self.knaves, self.other], 1):
+            LFGDraftPick.objects.create(draft=draft, faction=f, order=i)
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        panel_id = self._panel_id_from(body)
+        # Re-draft, dropping the faction this prompt was for.
+        draft.picks.all().delete()
+        LFGDraftPick.objects.create(draft=draft, faction=self.other, order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.knaves, order=2)
+
+        out, edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[0].discord_id,
+            self.vagabond_faction.slug, panel_id)
+        self.assertEqual(out["data"]["components"], [])
+        self.assertIn("draft changed", out["data"]["content"])
+        edit.assert_called_once()
+
+    def test_a_completed_board_dismisses_an_open_free_prompt(self):
+        """The table finished while this prompt sat open."""
+        body = self._select(self.vagabond_faction.slug,
+                            self.players[0].discord_id)
+        panel_id = self._panel_id_from(body)
+        # Everyone else takes the remaining seats.
+        for seat in self.thread.seats.exclude(seat_number=1):
+            seat.faction = self.other if seat.seat_number == 2 else self.knaves
+            seat.save(update_fields=["faction"])
+        self.thread.seats.filter(seat_number=1).update(faction=self.other)
+
+        out, edit = self._resolve(
+            "pick_vagabond", [self.ranger.slug], self.players[0].discord_id,
+            self.vagabond_faction.slug, panel_id)
+        self.assertEqual(out["data"]["components"], [])
+        self.assertIn("while this was open", out["data"]["content"])
+        # The finished board still reaches the shared panel.
+        edit.assert_called_once()
+
+    def test_the_open_sentinel_is_never_read_as_a_panel_id(self):
+        """A turn-order prompt encodes `...:faction:g`, so args[3] is PICK_OPEN --
+        and so does a follow-up message posted before the panel slot existed.
+        Reading either as an id would make a turn-order prompt act as free mode:
+        PATCH a message called "g" and dismiss the panel it IS."""
+        _a, args = di.decode_custom_id(
+            di.encode_custom_id("pick_vagabond", di.PICK_MODE_PLAYERS,
+                                self.OWNER, "vagabond", di.PICK_OPEN))
+        self.assertEqual(di._pick_panel_id(args), "")
+
+        _a, args = di.decode_custom_id(
+            di.encode_custom_id("pick_vagabond", di.PICK_MODE_PLAYERS,
+                                self.OWNER, "vagabond", "panelmsg",
+                                di.PICK_OPEN))
+        self.assertEqual(di._pick_panel_id(args), "panelmsg")
+
+    def test_a_pre_upgrade_custom_id_still_behaves_as_turn_order(self):
+        """A prompt already live in Discord when this shipped has no panel slot.
+        It must keep replacing the panel, not try to refresh a message named "g"."""
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        payload = {
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.players[2].discord_id}},
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "pick_vagabond", di.PICK_MODE_PLAYERS, self.OWNER,
+                    self.vagabond_faction.slug, di.PICK_OPEN),
+                "values": [self.ranger.slug],
+            },
+            "message": {"id": "oldmsg", "components": []},
+        }
+        with mock.patch.object(di, "edit_channel_message",
+                               return_value=di.THREAD_OK) as edit:
+            out = json.loads(di._handle_pick_vagabond(payload).content)
+        edit.assert_not_called()
+        self.assertIn("Ff Player 1", out["data"]["content"])
+
     def test_a_seated_follow_up_does_not_patch_anything(self):
         body = self._select(self.vagabond_faction.slug,
                             self.players[2].discord_id, seated=True)
@@ -7560,6 +7702,29 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
 
+    def test_an_expired_proposal_names_nobody(self):
+        """Expiry is a clock, not a decision. Even with a rejecter recorded on the
+        row, the closing line must not attribute it to a person -- which is why
+        the reason is passed as a key rather than inferred from rejected_by."""
+        self.proposal.rejected_by = self.teammate
+        self.proposal.save(update_fields=["rejected_by"])
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        description = body["data"]["embeds"][0]["description"]
+        # The proposer IS named ("Proposed by ..."); nobody may be named as having
+        # closed it.
+        self.assertNotIn("Rejected by", description)
+        self.assertNotIn("Closed by", description)
+        self.assertIn("has passed", description)
+
+    def test_an_expired_proposal_still_keeps_its_history(self):
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        embed = body["data"]["embeds"][0]
+        self.assertIn(f"Proposed by <@{self.player.discord_id}>",
+                      embed["description"])
+        self.assertEqual(embed["fields"][0]["name"], "✅ Had agreed")
+
     def test_a_passed_proposal_retires_on_set_time(self):
         self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
         self.tournament.save(update_fields=["recording_access"])
@@ -8024,16 +8189,33 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         waiting = data["embeds"][0]["fields"][0]["value"]
         self.assertIn("No Link", waiting)
 
-    def test_rejected_view_does_not_name_the_rejecter(self):
+    def test_rejected_view_names_the_rejecter(self):
+        """The group can see who cleared the time rather than having to ask.
+        Safe as a mention: Discord never notifies from inside an embed."""
         self.proposal.rejected_by = self.teammate
         data = di._schedule_rejected_data(self.proposal)
         description = data["embeds"][0]["description"]
         self.assertEqual(data["components"], [])
-        # Match the rendered mention/name forms, not a bare id — a short snowflake
-        # like "5" also occurs inside the <t:...> timestamp.
-        self.assertNotIn(f"<@{self.teammate.discord_id}>", description)
-        self.assertNotIn(self.teammate.discord, description)
-        self.assertIn("A player rejected", description)
+        self.assertIn(f"Rejected by <@{self.teammate.discord_id}>", description)
+
+    def test_rejected_view_keeps_the_proposal_history(self):
+        """The record of who suggested the time and who had agreed used to be
+        discarded the moment the proposal closed."""
+        self.proposal.rejected_by = self.teammate
+        data = di._schedule_rejected_data(self.proposal)
+        embed = data["embeds"][0]
+        self.assertIn(f"Proposed by <@{self.player.discord_id}>",
+                      embed["description"])
+        self.assertIn(str(int(self.when.timestamp())), embed["description"])
+        agreed = embed["fields"][0]
+        self.assertEqual(agreed["name"], "✅ Had agreed")
+        self.assertIn(f"<@{self.player.discord_id}>", agreed["value"])
+
+    def test_an_unnamed_rejecter_falls_back(self):
+        """rejected_by is SET_NULL, so a deleted Profile must still render."""
+        self.proposal.rejected_by = None
+        data = di._schedule_rejected_data(self.proposal)
+        self.assertIn("A player rejected", data["embeds"][0]["description"])
 
     def test_finalized_view_clears_components(self):
         self.match.scheduled_time = self.when
@@ -8129,6 +8311,27 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         ) as edit:
             tasks.strip_schedule_proposal_messages_task([self.proposal.pk], "superseded")
         edit.assert_not_called()
+
+    def test_strip_task_embed_keeps_the_proposal_history(self):
+        """An out-of-band retirement (superseded here) keeps the same record a
+        clicked one does -- otherwise the detail shown depended on which path
+        happened to close the proposal."""
+        from the_gatehouse import tasks
+        self.proposal.message_id = "111"
+        self.proposal.save(update_fields=["message_id"])
+        with mock.patch(
+            "the_gatehouse.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_OK,
+        ) as edit:
+            tasks.strip_schedule_proposal_messages_task(
+                [self.proposal.pk], "superseded")
+        embed = edit.call_args.kwargs["embeds"][0]
+        self.assertEqual(embed["title"], "Proposal closed")
+        self.assertIn("Proposed by", embed["description"])
+        self.assertIn("A different time was confirmed", embed["description"])
+        # Closed by a consequence, not a person.
+        self.assertNotIn("Rejected by", embed["description"])
+        self.assertNotIn("Closed by", embed["description"])
 
     def test_strip_task_swallows_permanent_failure(self):
         from the_gatehouse import tasks

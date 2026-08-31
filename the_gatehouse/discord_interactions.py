@@ -49,7 +49,7 @@ from .tasks import (
     ensure_profile_from_discord, notify_lfg_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
-    strip_schedule_proposal_messages_task, _PROPOSAL_RETIRED_TEXT,
+    strip_schedule_proposal_messages_task,
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
@@ -78,6 +78,8 @@ from .services.discord_components import (
 from .services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
     group_roster, group_series_id, undrafted_pick,
+    roster_name, name_list_value, FIELD_VALUE_MAX, match_label,
+    schedule_closed_embed,
 )
 
 logger = logging.getLogger(__name__)
@@ -742,11 +744,9 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
     return (unscheduled[0] if unscheduled else matches[0]), None
 
 
-def _match_label(match):
-    """How a match is named back to the user: the player group's name (what the UI
-    shows everywhere), falling back to the derived match name."""
-    group = match.series.player_group if match.series_id else None
-    return (group.name if group and group.name else None) or match.name or "this match"
+# In services.lfg_game so the Celery strip task can label a closed proposal the
+# same way an interaction does. Aliased so every call site here is unchanged.
+_match_label = match_label
 
 
 # ── /schedule roster + clicker resolution ────────────────────────────────────
@@ -1076,39 +1076,13 @@ def _consensus_required(match):
     return bool(roster), roster
 
 
-def _roster_name(profile):
-    """A roster player as shown in the proposal lists: a mention once we know their
-    snowflake (so the people who owe a confirmation get pinged), otherwise their
-    display name plus a nudge — an unlinked player literally cannot click, and the
-    group deserves to know why the proposal is stuck on them."""
-    if profile.discord_id:
-        return f"<@{profile.discord_id}>"
-    name = profile.display_name or profile.discord or profile.slug or "—"
-    return f"{name} (not linked — log in with Discord once)"
-
-
-# Discord caps an embed field value at 1024 chars. /lfg guards this too (an
-# over-long field makes Discord reject the whole edit, which would silently discard
-# a change we've already committed to the DB).
-_FIELD_VALUE_MAX = 1024
-
-
-def _name_list_value(profiles, empty="—"):
-    """Newline-joined roster names, truncated to Discord's field cap with a
-    '…and N more' tail rather than overflowing it."""
-    names = [_roster_name(p) for p in profiles]
-    if not names:
-        return empty
-    out, used = [], 0
-    for i, name in enumerate(names):
-        remaining = len(names) - i
-        tail = f"\n…and {remaining} more"
-        # Keep room for the tail we'd need if this were the last one we could fit.
-        if used + len(name) + 1 + len(tail) > _FIELD_VALUE_MAX and out:
-            return "\n".join(out) + f"\n…and {remaining} more"
-        out.append(name)
-        used += len(name) + 1
-    return "\n".join(out)[:_FIELD_VALUE_MAX]
+# These live in services.lfg_game so the Celery strip task can render the same
+# closed-proposal embed (tasks.py cannot import this module -- see the note there
+# on EPHEMERAL). Aliased to their original private names so every call site here,
+# and the tests that reach for them, keep working unchanged.
+_roster_name = roster_name
+_FIELD_VALUE_MAX = FIELD_VALUE_MAX
+_name_list_value = name_list_value
 
 
 # Whether a new proposal pings the players it is waiting on.
@@ -1213,19 +1187,21 @@ def _schedule_proposal_data(proposal, match=None, mention=False):
     return data
 
 
-def _schedule_rejected_data(proposal):
-    """The rejected view. Deliberately does NOT name who rejected — scheduling is
-    social, and singling someone out publicly for declining a time is a needless
-    cost. The identity is on the row (rejected_by) for moderators."""
+def _schedule_rejected_data(proposal, match=None):
+    """The rejected view. Keeps the proposal's history -- who suggested the time,
+    what it was, and who had already agreed -- so the thread retains a record of
+    what fell through instead of just that something did.
+
+    Names the rejecter, so the group can see who cleared the time rather than
+    having to ask. Safe to render as a mention: Discord never notifies from inside
+    an embed."""
+    embed = schedule_closed_embed(
+        proposal, "Time rejected", "rejected",
+        actor=proposal.rejected_by,
+        label=_match_label(match) if match else None)
+    embed["description"] += "\nRun `/schedule` to propose another."
     return {
-        "embeds": [{
-            "title": "Time rejected",
-            "description": (
-                "A player rejected the proposed time of "
-                f"{format_discord_timestamp(proposal.proposed_time)}.\n"
-                "Run `/schedule` to propose another."
-            ),
-        }],
+        "embeds": [embed],
         "components": [],
         "allowed_mentions": {"parse": []},
     }
@@ -1306,17 +1282,38 @@ def _schedule_agreed_data(proposal, match=None):
     }
 
 
-def _schedule_closed_data(title, description):
-    """A retired proposal (cancelled / superseded): explain, drop the buttons."""
+def _schedule_closed_data(title, description=None, proposal=None, reason=None,
+                          actor=None):
+    """A retired proposal: explain, drop the buttons.
+
+    With a `proposal`, keeps its history -- proposer, time, who had agreed -- so
+    the record isn't lost the moment it closes, and `reason` (plus optional
+    `actor`) supplies the closing line. Passing the reason as a KEY rather than
+    prose is what lets an expired proposal name nobody: expiry is a clock, not
+    someone's decision.
+
+    Without one, falls back to the bare title+description it always rendered --
+    the finalize-failure paths describe a match-level problem rather than the
+    proposal's own history, and carry their own specific wording."""
+    if proposal is None:
+        embed = {"title": title, "description": description or ""}
+    else:
+        embed = schedule_closed_embed(
+            proposal, title, reason or "cancelled", actor=actor)
     return {
-        "embeds": [{"title": title, "description": description}],
+        "embeds": [embed],
         "components": [],
         "allowed_mentions": {"parse": []},
     }
 
 
-def _schedule_retire_response(proposal, description):
+def _schedule_retire_response(proposal, reason, actor=None):
     """Retire a proposal a button can no longer act on, and clear its buttons.
+
+    `reason` is a key (see PROPOSAL_RETIRED_TEXT), not prose, so the rendered
+    message keeps the proposal's history and names an actor only when a person
+    actually decided it -- an expired proposal was closed by the clock and must
+    not read as somebody's doing.
 
     Refusing alone left the row LIVE and the public message fully buttoned, with
     nothing able to dismiss it until cleanup_stale_schedule_proposals happened to
@@ -1337,7 +1334,8 @@ def _schedule_retire_response(proposal, description):
              resolved_at=timezone.now())
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _schedule_closed_data("Proposal closed", description),
+        "data": _schedule_closed_data(
+            "Proposal closed", proposal=proposal, reason=reason, actor=actor),
     })
 
 
@@ -1796,17 +1794,14 @@ def _proposal_for_click(payload, allow_agreed=False, allow_passed=False):
         if proposal.guild_id and str(proposal.guild_id) == str(
                 payload.get("guild_id") or ""):
             return None, None, _schedule_retire_response(
-                proposal,
-                "This match can no longer be scheduled — it may have been played "
-                "or removed.")
+                proposal, "unschedulable")
         return None, None, _ephemeral(
             "That match can no longer be scheduled: it may have been played or removed.")
 
+    # No actor: the time simply arrived. Naming whoever happened to click would
+    # attribute a decision nobody made.
     if not allow_passed and proposal.proposed_time <= timezone.now():
-        return None, None, _schedule_retire_response(
-            proposal,
-            _PROPOSAL_RETIRED_TEXT["expired"]
-            + "\nRun `/schedule` to propose another time.")
+        return None, None, _schedule_retire_response(proposal, "expired")
     return proposal, match, None
 
 
@@ -3630,12 +3625,6 @@ def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
     """A follow-up select for a faction that needs a second choice before the seat
     can be written (Vagabond, Knaves).
 
-    Re-renders the same seat lines as _pick_panel_data (via _pick_seat_lines): in
-    turn-order modes this REPLACES the panel message, so dropping them would blank
-    the board mid-pick. The seat whose turn it is is NOT carried here -- like the
-    panel, the follow-up handler re-derives it from the DB, which is what keeps a
-    stale message from driving a write.
-
     `faction_slug` rides in the custom_id because the seat has no faction yet:
     the write is deferred until this select resolves, so an abandoned prompt
     leaves the seat untouched rather than stranding it half-recorded.
@@ -3645,22 +3634,37 @@ def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
     message id, not the panel's -- so the panel's id has to be handed forward to
     be refreshed afterwards. Empty in turn-order modes, where the follow-up IS the
     panel. It sits before PICK_OPEN, which must stay last or the dispatcher
-    owner-locks the component."""
-    lines = _pick_seat_lines(thread, seats)
-    lines += ["", placeholder]
+    owner-locks the component.
+
+    That same flag decides the SHAPE of this prompt, because the two cases are
+    doing different jobs:
+
+    * Turn-order (panel_id ""): the prompt REPLACES the panel, so it carries the
+      whole board (dropping the seat lines would blank it mid-pick) and Stop,
+      which is then the table's only remaining control.
+    * Free mode (panel_id set): the panel is still on screen right above this,
+      so repeating the board here is a duplicate that goes stale the moment
+      anyone else picks -- and Stop would let one player clear the WHOLE table's
+      picks from a message nobody else can see. Ask the question, nothing more.
+      Abandoning it is already a no-op: the seat isn't written until this
+      resolves, so the player can ignore it and pick again from the panel."""
+    free = bool(panel_id)
+    lines = [] if free else _pick_seat_lines(thread, seats)
+    lines += ["", placeholder] if lines else [placeholder]
 
     select = string_select(
         encode_custom_id(action, mode, owner, faction_slug, panel_id, PICK_OPEN),
         options, placeholder=placeholder[:100],
         min_values=min_values, max_values=max_values,
     )
+    components = [action_row(select)]
+    if not free:
+        components.append(action_row(
+            button("Stop", encode_custom_id("pick_cancel", owner, PICK_OPEN),
+                   style=STYLE_SECONDARY)))
     return {
         "content": "\n".join(lines),
-        "components": [
-            action_row(select),
-            action_row(button("Stop", encode_custom_id("pick_cancel", owner, PICK_OPEN),
-                              style=STYLE_SECONDARY)),
-        ],
+        "components": components,
         "allowed_mentions": {"parse": []},
     }
 
@@ -3742,6 +3746,40 @@ def _pick_refresh_panel(payload, panel_id, data):
     if result != THREAD_OK:
         logger.warning("Could not refresh /pick panel %s in channel %s (%s).",
                        panel_id, payload.get("channel_id"), result)
+
+
+def _pick_panel_id(args):
+    """The shared panel's message id carried by a free-mode follow-up, or "".
+
+    args[3] is the panel slot ONLY when the custom_id actually has one. A
+    turn-order prompt encodes `action:mode:owner:faction:g`, so args[3] is
+    PICK_OPEN -- and a follow-up message posted before that slot existed looks
+    exactly the same. Reading either as an id would make a turn-order prompt
+    behave as free mode: it would try to PATCH a message called "g" and dismiss
+    the very panel it is supposed to be."""
+    if len(args) > 3 and args[3] != PICK_OPEN:
+        return args[3]
+    return ""
+
+
+def _pick_dismiss_ephemeral(text):
+    """Collapse a resolved free-mode prompt to one line with no controls.
+
+    Discord has no API to DELETE an ephemeral, so this is how one is dismissed --
+    the same thing _handle_draft_seat does with "Seating posted."
+
+    Returning the board here instead (which is what a shared-panel handler does)
+    would hand the player a private duplicate of the panel: a faction select that
+    can only ever refuse them, since they now hold a faction, and a Stop that
+    would clear the WHOLE table's picks from a message nobody else can see.
+
+    embeds is cleared alongside components because a type-7 response replaces
+    only the keys it sends -- these prompts are content-only today, so this just
+    keeps a future embed-bearing one from leaving a stale embed behind."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": text, "components": [], "embeds": []},
+    })
 
 
 def _pick_setup_reminder(thread):
@@ -4030,7 +4068,7 @@ def _pick_free_refusal(thread, seats, clicker, payload):
     return _ephemeral("You're not picking a faction in this game.")
 
 
-def _pick_turn(payload, mode, owner):
+def _pick_turn(payload, mode, owner, panel_id=""):
     """Resolve the thread and the seat whose turn it is, and authorize the
     clicker against it. Returns (thread, seats, seat, pool) or a JsonResponse to
     return as-is.
@@ -4061,9 +4099,16 @@ def _pick_turn(payload, mode, owner):
         # last picker's double-click must land on the finished board everyone else
         # sees, not on "you've already chosen".
         if _pick_next_seat(seats) is None:
+            data = _pick_panel_data(thread, seats, mode, owner, pool=pool)
+            # From a free-mode ephemeral (the table finished while this prompt sat
+            # open): the finished board goes to the shared panel, and the prompt is
+            # dismissed rather than becoming a private copy of it.
+            if panel_id:
+                _pick_refresh_panel(payload, panel_id, data)
+                return _pick_dismiss_ephemeral(
+                    "Every faction was taken while this was open.")
             return JsonResponse({
-                "type": RESPONSE_UPDATE_MESSAGE,
-                "data": _pick_panel_data(thread, seats, mode, owner, pool=pool),
+                "type": RESPONSE_UPDATE_MESSAGE, "data": data,
             })
         seat = _pick_seat_for_clicker(seats, clicker)
         if seat is None:
@@ -4087,7 +4132,8 @@ def _pick_turn(payload, mode, owner):
     return thread, seats, seat, pool
 
 
-def _pick_stale_pool_response(thread, seats, mode, owner, pool):
+def _pick_stale_pool_response(thread, seats, mode, owner, pool, payload=None,
+                              panel_id=""):
     """A click landed on a faction the pool no longer contains: re-render the panel
     from the CURRENT pool instead of leaving stale options on screen.
 
@@ -4104,13 +4150,21 @@ def _pick_stale_pool_response(thread, seats, mode, owner, pool):
     new draft doesn't contain, and that seat keeps it. Clearing seats the table
     already agreed on would be worse than the inconsistency, and the codebase
     already tolerates this desync elsewhere (see undrafted_pick, which returns None
-    rather than guessing)."""
-    return JsonResponse({
-        "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _pick_panel_data(
-            thread, seats, mode, owner, pool=pool,
-            notice="The draft changed — these are the current factions."),
-    })
+    rather than guessing).
+
+    `panel_id` marks a click that came from a free-mode EPHEMERAL rather than the
+    panel itself. The rebuilt board then belongs on the shared panel, and this
+    response only dismisses the prompt -- painting the board into the ephemeral
+    would duplicate it privately, the same trap _pick_dismiss_ephemeral exists to
+    avoid."""
+    data = _pick_panel_data(
+        thread, seats, mode, owner, pool=pool,
+        notice="The draft changed — these are the current factions.")
+    if panel_id:
+        _pick_refresh_panel(payload, panel_id, data)
+        return _pick_dismiss_ephemeral(
+            "The draft changed — pick again from the board above.")
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
 
 
 def _handle_pick_faction(payload):
@@ -4264,9 +4318,13 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
         _capture_lfg_components(payload.get("channel_id"), items, source="pick")
 
     data = _pick_panel_data(thread, seats, mode, owner, pool=pool)
-    # Rendered once, used twice: this response updates the ephemeral the player
-    # answered, and the shared panel is PATCHed with the same board.
-    _pick_refresh_panel(payload, panel_id, data)
+    if panel_id:
+        # Free mode: this interaction came from the player's own EPHEMERAL, so the
+        # board goes to the shared panel and the prompt is merely dismissed. The
+        # response edits the ephemeral, so returning the board here would leave
+        # the player a private second copy of it -- see _pick_dismiss_ephemeral.
+        _pick_refresh_panel(payload, panel_id, data)
+        return _pick_dismiss_ephemeral("Pick recorded.")
     return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
 
 
@@ -4284,9 +4342,9 @@ def _handle_pick_vagabond(payload):
     faction_slug = args[2] if len(args) > 2 else ""
     # Set only by a free-mode prompt, which was answered in an ephemeral -- the
     # shared panel it belongs to is a different message and needs refreshing.
-    panel_id = args[3] if len(args) > 3 else ""
+    panel_id = _pick_panel_id(args)
 
-    turn = _pick_turn(payload, mode, owner)
+    turn = _pick_turn(payload, mode, owner, panel_id=panel_id)
     if isinstance(turn, JsonResponse):
         return turn
     thread, seats, seat, pool = turn
@@ -4296,7 +4354,8 @@ def _handle_pick_vagabond(payload):
         return _ephemeral("No vagabond selected.")
 
     if not any(e[0] == faction_slug for e in pool):
-        return _pick_stale_pool_response(thread, seats, mode, owner, pool)
+        return _pick_stale_pool_response(thread, seats, mode, owner, pool,
+                                         payload=payload, panel_id=panel_id)
     faction = Faction.objects.filter(slug=faction_slug).first()
     if not faction:
         return _ephemeral("That faction couldn't be found anymore.")
@@ -4321,9 +4380,9 @@ def _handle_pick_captains(payload):
     faction_slug = args[2] if len(args) > 2 else ""
     # Set only by a free-mode prompt, which was answered in an ephemeral -- the
     # shared panel it belongs to is a different message and needs refreshing.
-    panel_id = args[3] if len(args) > 3 else ""
+    panel_id = _pick_panel_id(args)
 
-    turn = _pick_turn(payload, mode, owner)
+    turn = _pick_turn(payload, mode, owner, panel_id=panel_id)
     if isinstance(turn, JsonResponse):
         return turn
     thread, seats, seat, pool = turn
@@ -4333,7 +4392,8 @@ def _handle_pick_captains(payload):
         return _ephemeral(f"Choose exactly {PICK_CAPTAIN_CHOICES} captains.")
 
     if not any(e[0] == faction_slug for e in pool):
-        return _pick_stale_pool_response(thread, seats, mode, owner, pool)
+        return _pick_stale_pool_response(thread, seats, mode, owner, pool,
+                                         payload=payload, panel_id=panel_id)
     faction = Faction.objects.filter(slug=faction_slug).first()
     if not faction:
         return _ephemeral("That faction couldn't be found anymore.")
