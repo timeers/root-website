@@ -216,6 +216,159 @@ class ExtraRoundsCountingTests(TestCase):
         self.assertEqual(self.game.get_tournament(), self.tour_a)
 
 
+class ExtraRoundsLeaderboardAggregateTests(TestCase):
+    """Leaderboard AGGREGATES (not just counts) must not double-count a game that
+    reaches a tournament through several rounds.
+
+    ExtraRoundsCountingTests covers game_count()/all_player_count(). These cover the
+    win-rate path, which spans the same round/extra_rounds OR but multiplies effort
+    rows rather than game rows -- the failure mode is a doubled win count on a series
+    leaderboard, not a doubled game count.
+    """
+
+    def setUp(self):
+        self.tour_a = Tournament.objects.create(name="Aggregate Tournament", is_active=True)
+        self.stage_a = Stage.objects.create(tournament=self.tour_a, name="A1", order=1, is_active=True)
+        self.round_a = Round.objects.create(stage=self.stage_a, round_number=1, is_active=True)
+
+        self.tour_b = Tournament.objects.create(name="Other Tournament", is_active=True)
+        self.stage_b = Stage.objects.create(tournament=self.tour_b, name="B1", order=1, is_active=True)
+        self.round_b = Round.objects.create(stage=self.stage_b, round_number=1, is_active=True)
+
+        self.player = Profile.objects.create(discord="agg_player")
+        self.faction = Faction.objects.create(title="Agg Faction", type="M", reach=5,
+                                              animal="cat", designer=self.player)
+        self.game = Game.objects.create(round=self.round_a, final=True, test_match=False)
+        Effort.objects.create(game=self.game, player=self.player,
+                              faction=self.faction, win=True)
+
+    def _winrate(self, tournament):
+        from the_warroom.models import filtered_winrate
+        return filtered_winrate(player=self.player, tournament=tournament)
+
+    def test_or_across_extra_rounds_multiplies_raw_rows(self):
+        """Documents WHY the dedup below is required.
+
+        The round/extra_rounds OR emits two independent join chains, so a game reaching
+        the tournament through several legs yields the SAME effort row more than once.
+        Two separate safeguards currently mask this -- the queryset-level .distinct() and
+        the distinct=True on each Count in filtered_winrate -- so removing only one keeps
+        totals correct, and a test asserting only on totals will not notice. This test
+        pins the underlying duplication directly.
+
+        Measured threshold: duplication begins at TWO extra rounds in the same
+        tournament (one extra round still collapses to a single row), and the raw row
+        count then scales with the number of extra rounds.
+        """
+        from the_warroom.models import effort_counts_for_tournament_q
+
+        def raw_rows():
+            return list(Effort.objects
+                        .filter(game__final=True, player=self.player)
+                        .filter(effort_counts_for_tournament_q(self.tour_a))
+                        .values_list('id', flat=True))
+
+        # One extra round: no multiplication yet.
+        self.game.extra_rounds.add(
+            Round.objects.create(stage=self.stage_a, round_number=2, is_active=True))
+        self.assertEqual(len(raw_rows()), 1)
+
+        # Two extra rounds: the same effort row now comes back twice.
+        self.game.extra_rounds.add(
+            Round.objects.create(stage=self.stage_a, round_number=3, is_active=True))
+        ids = raw_rows()
+        self.assertEqual(len(ids), 2)
+        self.assertEqual(len(set(ids)), 1, "same effort row, duplicated by the OR")
+
+        # Three: scales with the number of legs.
+        self.game.extra_rounds.add(
+            Round.objects.create(stage=self.stage_a, round_number=4, is_active=True))
+        self.assertEqual(len(raw_rows()), 3)
+
+        # Dedup must bring it back to one.
+        self.assertEqual(
+            Effort.objects.filter(game__final=True, player=self.player)
+            .filter(effort_counts_for_tournament_q(self.tour_a)).distinct().count(), 1)
+
+    def test_duplicate_legs_do_not_inflate(self):
+        """Primary round AND two extra rounds, all inside the SAME tournament.
+
+        This is the regression guard: the game counts once, so the player has exactly
+        one effort and one win -- not two or three.
+        """
+        extra1 = Round.objects.create(stage=self.stage_a, round_number=2, is_active=True)
+        extra2 = Round.objects.create(stage=self.stage_a, round_number=3, is_active=True)
+        self.game.extra_rounds.add(extra1, extra2)
+
+        stats = self._winrate(self.tour_a)
+        self.assertEqual(stats['total'], 1)
+        self.assertEqual(stats['games'], 1)
+        self.assertEqual(stats['win_points'], 1)
+        self.assertEqual(stats['win_rate'], 100.0)
+
+    def test_leaderboard_boards_do_not_inflate_across_duplicate_legs(self):
+        """The rendered boards themselves -- not just filtered_winrate -- must show one
+        effort and one win for a game that reaches the tournament through three legs."""
+        extra1 = Round.objects.create(stage=self.stage_a, round_number=2, is_active=True)
+        extra2 = Round.objects.create(stage=self.stage_a, round_number=3, is_active=True)
+        self.game.extra_rounds.add(extra1, extra2)
+
+        qs = self._winrate(self.tour_a)['qs']
+        players = Profile.leaderboard(effort_qs=qs, limit=10, game_threshold=1)
+        self.assertEqual(len(players), 1)
+        self.assertEqual(players[0].total_efforts, 1)
+        self.assertEqual(players[0].win_count, 1)
+        self.assertEqual(players[0].win_rate, 100.0)
+
+        factions = Faction.leaderboard(effort_qs=qs, limit=10, game_threshold=1)
+        self.assertEqual(len(factions), 1)
+        self.assertEqual(factions[0].total_efforts, 1)
+        self.assertEqual(factions[0].win_count, 1)
+
+    def test_extra_round_only_still_counts(self):
+        """A game whose ONLY link to tournament B is via extra_rounds still counts."""
+        self.game.extra_rounds.add(self.round_b)
+
+        stats = self._winrate(self.tour_b)
+        self.assertEqual(stats['total'], 1)
+        self.assertEqual(stats['win_rate'], 100.0)
+
+    def test_game_with_no_primary_round_counts_via_extra(self):
+        """round=None is legitimate: a game can reach a tournament purely via extras."""
+        self.game.round = None
+        self.game.save()
+        self.game.extra_rounds.add(self.round_b)
+
+        stats = self._winrate(self.tour_b)
+        self.assertEqual(stats['total'], 1)
+        self.assertEqual(stats['win_rate'], 100.0)
+
+    def test_unrelated_tournament_counts_nothing(self):
+        tour_c = Tournament.objects.create(name="Unrelated", is_active=True)
+        stats = self._winrate(tour_c)
+        self.assertEqual(stats['total'], 0)
+
+    def test_roster_aggregate_matches_across_duplicate_legs(self):
+        """The roster shape used by the series leaderboard page agrees with
+        filtered_winrate even when the game reaches the tournament twice."""
+        from django.db.models import Count, Q
+        from the_warroom.models import effort_counts_for_tournament_q
+
+        extra1 = Round.objects.create(stage=self.stage_a, round_number=2, is_active=True)
+        self.game.extra_rounds.add(extra1)
+
+        counts_q = effort_counts_for_tournament_q(self.tour_a, prefix='efforts__game')
+        row = (Profile.objects.filter(counts_q).distinct().annotate(
+            total_efforts=Count('efforts', distinct=True,
+                                filter=counts_q & Q(efforts__game__final=True)),
+            win_count=Count('efforts', distinct=True,
+                            filter=counts_q & Q(efforts__win=True,
+                                                efforts__game__final=True)),
+        ).get(pk=self.player.pk))
+        self.assertEqual(row.total_efforts, 1)
+        self.assertEqual(row.win_count, 1)
+
+
 class ExtraRoundsControlTests(TestCase):
     """Add/remove extra-round endpoints authorize against the round's tournament.
 

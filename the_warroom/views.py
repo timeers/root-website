@@ -238,13 +238,15 @@ def leaderboard_view(request):
         #     send_discord_message_task.delay(f'{get_uuid(request)} viewing The Leaderboard')
         template_name = 'the_warroom/leaderboard_home.html'
     
-    # Build queryset
-    opts = Game.with_efforts()
+    # Build queryset. Deliberately WITHOUT Game.with_efforts(): this view never renders
+    # game rows (only games_count reaches the context), so the select_related JOINs and
+    # prefetches would be dead weight -- the JOINs land in both the .count() and the
+    # game__in=games subquery that feeds the leaderboards. The games-list views that do
+    # render rows still use with_efforts().
     if request.user.is_authenticated and not request.user.profile.weird:
         queryset = Game.objects.filter(official=True, final=True)
     else:
         queryset = Game.objects.filter(final=True)
-    queryset = queryset.select_related(*opts['select']).prefetch_related(*opts['prefetch'])
 
     # Apply filters
     filterset = GameFilter(request.GET, queryset=queryset, user=request.user)
@@ -314,27 +316,17 @@ def leaderboard_view(request):
             leaderboard_threshold, leaderboard_places, ['-cached_tourney_points', '-cached_winrate'])
     else:
         # Live path: filtered/logged-in requests aggregate over the scoped efforts.
+        # top/most share a game_threshold here, so each pair is one annotated queryset
+        # ordered two ways rather than two identical aggregates.
         efforts = Effort.objects.filter(game__in=games)
-        top_players = Profile.leaderboard(
+        top_players, most_players = Profile.leaderboard_pair(
             limit=leaderboard_places,
             effort_qs=efforts,
             game_threshold=leaderboard_threshold,
             as_json=False)
-        most_players = Profile.leaderboard(
+        top_factions, most_factions = Faction.leaderboard_pair(
             limit=leaderboard_places,
             effort_qs=efforts,
-            top_quantity=True,
-            game_threshold=leaderboard_threshold,
-            as_json=False)
-        top_factions = Faction.leaderboard(
-            limit=leaderboard_places,
-            effort_qs=efforts,
-            game_threshold=leaderboard_threshold,
-            as_json=False)
-        most_factions = Faction.leaderboard(
-            limit=leaderboard_places,
-            effort_qs=efforts,
-            top_quantity=True,
             game_threshold=leaderboard_threshold,
             as_json=False)
 
@@ -406,6 +398,12 @@ def player_game_list_view(request, slug=None):
         theme=theme, page='games'
     )
 
+    # Hoisted out of the context dict so each top/most pair is one aggregate, ordered twice.
+    top_players, most_players = Profile.leaderboard_pair(
+        limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold)
+    top_factions, most_factions = Faction.leaderboard_pair(
+        limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold)
+
     context = {
         'games': page_obj,
         'is_paginated': paginator.num_pages > 1,
@@ -416,10 +414,10 @@ def player_game_list_view(request, slug=None):
         'leaderboard_threshold': leaderboard_threshold,
         'player_view': True,
         'player_slug': slug,
-        'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-        'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
-        'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-        'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+        'top_players': top_players,
+        'most_players': most_players,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,
@@ -483,6 +481,12 @@ def my_submitted_games_view(request):
         theme=theme, page='games'
     )
 
+    # Hoisted out of the context dict so each top/most pair is one aggregate, ordered twice.
+    top_players, most_players = Profile.leaderboard_pair(
+        limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold)
+    top_factions, most_factions = Faction.leaderboard_pair(
+        limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold)
+
     context = {
         'games': page_obj,
         'is_paginated': paginator.num_pages > 1,
@@ -494,10 +498,10 @@ def my_submitted_games_view(request):
         'player_view': False,
         'submitted_view': True,
         'player': player,
-        'top_players': Profile.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-        'most_players': Profile.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
-        'top_factions': Faction.leaderboard(limit=10, effort_qs=efforts, game_threshold=leaderboard_threshold),
-        'most_factions': Faction.leaderboard(limit=10, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold),
+        'top_players': top_players,
+        'most_players': most_players,
+        'top_factions': top_factions,
+        'most_factions': most_factions,
         'background_image': background_image,
         'foreground_images': foreground_images,
         'background_pattern': background_pattern,
@@ -3114,10 +3118,9 @@ def tournament_leaderboard_page(request, slug):
 
     faction_link = lambda f: reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': f.slug})
     player_link = lambda p: reverse('tournament-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'profile_slug': p.slug})
-    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
-    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
-    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
-    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
+    # top/most share leaderboard_threshold, so one annotated queryset serves both orderings.
+    top_players, most_players = Profile.leaderboard_pair(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    top_factions, most_factions = Faction.leaderboard_pair(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
 
     if hasattr(request, 'htmx') and request.htmx:
         template_name = 'the_warroom/partials/leaderboard_list_home.html'
@@ -4454,8 +4457,7 @@ def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_
     else:
         player_link = lambda p: reverse('tournament-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'profile_slug': p.slug})
 
-    top_players = Profile.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold, as_json=False, link_builder=player_link)
-    most_players = Profile.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold, as_json=False, link_builder=player_link)
+    top_players, most_players = Profile.leaderboard_pair(limit=limit, effort_qs=efforts, game_threshold=threshold, as_json=False, link_builder=player_link)
 
     # Faction leaderboards (for non-faction components)
     top_factions = []
@@ -4467,8 +4469,7 @@ def tournament_component_leaderboard(request, tournament_slug, post_slug, stage_
             faction_link = lambda f: reverse('stage-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'post_slug': f.slug})
         else:
             faction_link = lambda f: reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': f.slug})
-        top_factions = Faction.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold, as_json=False, link_builder=faction_link)
-        most_factions = Faction.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold, as_json=False, link_builder=faction_link)
+        top_factions, most_factions = Faction.leaderboard_pair(limit=limit, effort_qs=efforts, game_threshold=threshold, as_json=False, link_builder=faction_link)
 
     if round:
         meta_title = f'{tournament.name} - {stage.name} ({round.name})'
@@ -4608,8 +4609,7 @@ def tournament_player_leaderboard(request, tournament_slug, profile_slug, stage_
     else:
         faction_link = lambda f: reverse('tournament-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'post_slug': f.slug})
 
-    top_factions = Faction.leaderboard(limit=limit, effort_qs=efforts, game_threshold=threshold, link_builder=faction_link)
-    most_factions = Faction.leaderboard(limit=limit, effort_qs=efforts, top_quantity=True, game_threshold=threshold, link_builder=faction_link)
+    top_factions, most_factions = Faction.leaderboard_pair(limit=limit, effort_qs=efforts, game_threshold=threshold, link_builder=faction_link)
 
     if round:
         meta_title = f'{tournament.name} - {stage.name} ({round.name})'
@@ -5939,10 +5939,9 @@ def stage_leaderboard_page(request, tournament_slug, stage_slug):
 
     faction_link = lambda f: reverse('stage-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'post_slug': f.slug})
     player_link = lambda p: reverse('stage-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'profile_slug': p.slug})
-    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
-    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
-    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
-    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
+    # top/most share leaderboard_threshold, so one annotated queryset serves both orderings.
+    top_players, most_players = Profile.leaderboard_pair(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    top_factions, most_factions = Faction.leaderboard_pair(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
 
     if hasattr(request, 'htmx') and request.htmx:
         template_name = 'the_warroom/partials/leaderboard_list_home.html'
@@ -6373,10 +6372,9 @@ def round_leaderboard_page(request, tournament_slug, round_slug, stage_slug=None
 
     faction_link = lambda f: reverse('round-component-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'post_slug': f.slug})
     player_link = lambda p: reverse('round-player-leaderboard', kwargs={'tournament_slug': tournament.slug, 'stage_slug': stage.slug, 'round_slug': round.slug, 'profile_slug': p.slug})
-    top_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
-    most_players = Profile.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
-    top_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
-    most_factions = Faction.leaderboard(limit=leaderboard_places, effort_qs=efforts, top_quantity=True, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
+    # top/most share leaderboard_threshold, so one annotated queryset serves both orderings.
+    top_players, most_players = Profile.leaderboard_pair(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=player_link)
+    top_factions, most_factions = Faction.leaderboard_pair(limit=leaderboard_places, effort_qs=efforts, game_threshold=leaderboard_threshold, as_json=False, link_builder=faction_link)
 
     if hasattr(request, 'htmx') and request.htmx:
         template_name = 'the_warroom/partials/leaderboard_list_home.html'

@@ -29,6 +29,7 @@ This update improves the LFG command functionality substantially to improve the 
 - /schedule can now take time by itself (4pm) or weekday and time (friday 4pm)
 - cleaner /law header
 - refresh button on guild manage page
+- Polish added to the Forge (thanks to Blichew)
 
 ### Bug Fixes
 - create game threads failed on forums that require a tag
