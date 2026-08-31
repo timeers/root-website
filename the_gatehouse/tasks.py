@@ -15,6 +15,9 @@ from .models import (BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile,
 
 from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, register_guild_commands, DM_ERROR
 from .services.context_service import get_daily_user_summary
+# lfg_game imports no models at module level (it defers them inside functions for
+# the circular-import reason documented there), so this is safe at import time.
+from .services.lfg_game import schedule_closed_embed, PROPOSAL_RETIRED_TEXT
 from .utils import format_bulleted_list
 
 import logging
@@ -1022,21 +1025,12 @@ def _replace_lfg_draft(thread, draft):
 # so it stays editable indefinitely: an interaction token expires after 15 minutes
 # and proposals routinely outlive that.
 
-# Copy for a proposal retired without anyone rejecting it. Keyed by the `reason`
-# the caller passes, so the task stays a dumb renderer.
-_PROPOSAL_RETIRED_TEXT = {
-    "superseded": "A different time was confirmed for this match. This proposal is "
-                  "no longer active.",
-    "cancelled": "This proposed time is no longer active — the match's scheduled "
-                 "time was changed or cleared.",
-    "expired": "This proposed time has passed without everyone confirming.",
-    # Distinct from "cancelled" so players mid-confirmation learn WHERE the time
-    # came from instead of just that theirs stopped mattering. Names no one: the
-    # bracket editor is open to organizers and admins, not only moderators, and
-    # _schedule_rejected_data sets the precedent of not singling anyone out.
-    "website": "The scheduled time for this match was set on the website. This "
-               "proposal is no longer active.",
-}
+# Copy for a proposal retired without anyone rejecting it, keyed by the `reason`
+# the caller passes. Defined in services.lfg_game alongside the embed renderer that
+# consumes it (imported at the top of this module), so the interaction path and
+# this task cannot drift apart on what a closed proposal says. The alias keeps the
+# old private name working for existing importers.
+_PROPOSAL_RETIRED_TEXT = PROPOSAL_RETIRED_TEXT
 
 
 @shared_task(
@@ -1094,14 +1088,25 @@ def strip_schedule_proposal_messages_task(proposal_ids, reason):
         edit_channel_message, THREAD_ERROR,
     )
 
-    text = _PROPOSAL_RETIRED_TEXT.get(reason, _PROPOSAL_RETIRED_TEXT["cancelled"])
     transient = []
-    for proposal in ScheduleProposal.objects.filter(pk__in=list(proposal_ids or [])):
+    # select_related/prefetch_related: the embed now reads the proposer and the
+    # confirmations for every id in the batch, which would otherwise be two extra
+    # queries per proposal.
+    proposals = (ScheduleProposal.objects
+                 .filter(pk__in=list(proposal_ids or []))
+                 .select_related("proposed_by", "match",
+                                 "match__series__player_group")
+                 .prefetch_related("confirmed_by"))
+    for proposal in proposals:
         if not proposal.channel_id or not proposal.message_id:
             continue  # never posted (or the id never landed) — nothing to strip
+        # No actor: every reason reaching this task (superseded, website, expired,
+        # cancelled) is a consequence rather than someone's decision about THIS
+        # proposal, so none of them may name a person.
         result = edit_channel_message(
             proposal.channel_id, proposal.message_id,
-            embeds=[{"title": "Proposal closed", "description": text}],
+            embeds=[schedule_closed_embed(
+                proposal, "Proposal closed", reason)],
             components=[],
         )
         if result == THREAD_ERROR:

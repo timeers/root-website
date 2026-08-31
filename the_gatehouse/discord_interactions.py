@@ -49,7 +49,7 @@ from .tasks import (
     ensure_profile_from_discord, notify_lfg_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
-    strip_schedule_proposal_messages_task, _PROPOSAL_RETIRED_TEXT,
+    strip_schedule_proposal_messages_task,
 )
 from .services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
@@ -78,6 +78,8 @@ from .services.discord_components import (
 from .services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
     group_roster, group_series_id, undrafted_pick,
+    roster_name, name_list_value, FIELD_VALUE_MAX, match_label,
+    schedule_closed_embed,
 )
 
 logger = logging.getLogger(__name__)
@@ -742,11 +744,9 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
     return (unscheduled[0] if unscheduled else matches[0]), None
 
 
-def _match_label(match):
-    """How a match is named back to the user: the player group's name (what the UI
-    shows everywhere), falling back to the derived match name."""
-    group = match.series.player_group if match.series_id else None
-    return (group.name if group and group.name else None) or match.name or "this match"
+# In services.lfg_game so the Celery strip task can label a closed proposal the
+# same way an interaction does. Aliased so every call site here is unchanged.
+_match_label = match_label
 
 
 # ── /schedule roster + clicker resolution ────────────────────────────────────
@@ -1076,39 +1076,13 @@ def _consensus_required(match):
     return bool(roster), roster
 
 
-def _roster_name(profile):
-    """A roster player as shown in the proposal lists: a mention once we know their
-    snowflake (so the people who owe a confirmation get pinged), otherwise their
-    display name plus a nudge — an unlinked player literally cannot click, and the
-    group deserves to know why the proposal is stuck on them."""
-    if profile.discord_id:
-        return f"<@{profile.discord_id}>"
-    name = profile.display_name or profile.discord or profile.slug or "—"
-    return f"{name} (not linked — log in with Discord once)"
-
-
-# Discord caps an embed field value at 1024 chars. /lfg guards this too (an
-# over-long field makes Discord reject the whole edit, which would silently discard
-# a change we've already committed to the DB).
-_FIELD_VALUE_MAX = 1024
-
-
-def _name_list_value(profiles, empty="—"):
-    """Newline-joined roster names, truncated to Discord's field cap with a
-    '…and N more' tail rather than overflowing it."""
-    names = [_roster_name(p) for p in profiles]
-    if not names:
-        return empty
-    out, used = [], 0
-    for i, name in enumerate(names):
-        remaining = len(names) - i
-        tail = f"\n…and {remaining} more"
-        # Keep room for the tail we'd need if this were the last one we could fit.
-        if used + len(name) + 1 + len(tail) > _FIELD_VALUE_MAX and out:
-            return "\n".join(out) + f"\n…and {remaining} more"
-        out.append(name)
-        used += len(name) + 1
-    return "\n".join(out)[:_FIELD_VALUE_MAX]
+# These live in services.lfg_game so the Celery strip task can render the same
+# closed-proposal embed (tasks.py cannot import this module -- see the note there
+# on EPHEMERAL). Aliased to their original private names so every call site here,
+# and the tests that reach for them, keep working unchanged.
+_roster_name = roster_name
+_FIELD_VALUE_MAX = FIELD_VALUE_MAX
+_name_list_value = name_list_value
 
 
 # Whether a new proposal pings the players it is waiting on.
@@ -1213,19 +1187,21 @@ def _schedule_proposal_data(proposal, match=None, mention=False):
     return data
 
 
-def _schedule_rejected_data(proposal):
-    """The rejected view. Deliberately does NOT name who rejected — scheduling is
-    social, and singling someone out publicly for declining a time is a needless
-    cost. The identity is on the row (rejected_by) for moderators."""
+def _schedule_rejected_data(proposal, match=None):
+    """The rejected view. Keeps the proposal's history -- who suggested the time,
+    what it was, and who had already agreed -- so the thread retains a record of
+    what fell through instead of just that something did.
+
+    Names the rejecter, so the group can see who cleared the time rather than
+    having to ask. Safe to render as a mention: Discord never notifies from inside
+    an embed."""
+    embed = schedule_closed_embed(
+        proposal, "Time rejected", "rejected",
+        actor=proposal.rejected_by,
+        label=_match_label(match) if match else None)
+    embed["description"] += "\nRun `/schedule` to propose another."
     return {
-        "embeds": [{
-            "title": "Time rejected",
-            "description": (
-                "A player rejected the proposed time of "
-                f"{format_discord_timestamp(proposal.proposed_time)}.\n"
-                "Run `/schedule` to propose another."
-            ),
-        }],
+        "embeds": [embed],
         "components": [],
         "allowed_mentions": {"parse": []},
     }
@@ -1306,17 +1282,38 @@ def _schedule_agreed_data(proposal, match=None):
     }
 
 
-def _schedule_closed_data(title, description):
-    """A retired proposal (cancelled / superseded): explain, drop the buttons."""
+def _schedule_closed_data(title, description=None, proposal=None, reason=None,
+                          actor=None):
+    """A retired proposal: explain, drop the buttons.
+
+    With a `proposal`, keeps its history -- proposer, time, who had agreed -- so
+    the record isn't lost the moment it closes, and `reason` (plus optional
+    `actor`) supplies the closing line. Passing the reason as a KEY rather than
+    prose is what lets an expired proposal name nobody: expiry is a clock, not
+    someone's decision.
+
+    Without one, falls back to the bare title+description it always rendered --
+    the finalize-failure paths describe a match-level problem rather than the
+    proposal's own history, and carry their own specific wording."""
+    if proposal is None:
+        embed = {"title": title, "description": description or ""}
+    else:
+        embed = schedule_closed_embed(
+            proposal, title, reason or "cancelled", actor=actor)
     return {
-        "embeds": [{"title": title, "description": description}],
+        "embeds": [embed],
         "components": [],
         "allowed_mentions": {"parse": []},
     }
 
 
-def _schedule_retire_response(proposal, description):
+def _schedule_retire_response(proposal, reason, actor=None):
     """Retire a proposal a button can no longer act on, and clear its buttons.
+
+    `reason` is a key (see PROPOSAL_RETIRED_TEXT), not prose, so the rendered
+    message keeps the proposal's history and names an actor only when a person
+    actually decided it -- an expired proposal was closed by the clock and must
+    not read as somebody's doing.
 
     Refusing alone left the row LIVE and the public message fully buttoned, with
     nothing able to dismiss it until cleanup_stale_schedule_proposals happened to
@@ -1337,7 +1334,8 @@ def _schedule_retire_response(proposal, description):
              resolved_at=timezone.now())
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _schedule_closed_data("Proposal closed", description),
+        "data": _schedule_closed_data(
+            "Proposal closed", proposal=proposal, reason=reason, actor=actor),
     })
 
 
@@ -1796,17 +1794,14 @@ def _proposal_for_click(payload, allow_agreed=False, allow_passed=False):
         if proposal.guild_id and str(proposal.guild_id) == str(
                 payload.get("guild_id") or ""):
             return None, None, _schedule_retire_response(
-                proposal,
-                "This match can no longer be scheduled — it may have been played "
-                "or removed.")
+                proposal, "unschedulable")
         return None, None, _ephemeral(
             "That match can no longer be scheduled: it may have been played or removed.")
 
+    # No actor: the time simply arrived. Naming whoever happened to click would
+    # attribute a decision nobody made.
     if not allow_passed and proposal.proposed_time <= timezone.now():
-        return None, None, _schedule_retire_response(
-            proposal,
-            _PROPOSAL_RETIRED_TEXT["expired"]
-            + "\nRun `/schedule` to propose another time.")
+        return None, None, _schedule_retire_response(proposal, "expired")
     return proposal, match, None
 
 

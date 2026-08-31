@@ -435,3 +435,151 @@ def lfg_option_querysets(thread, tournament):
 
     out["notices"] = notices
     return out
+
+
+# ── Schedule proposal rendering ──────────────────────────────────────────────
+# Lives here rather than in discord_interactions so the Celery task can reach it
+# too: strip_schedule_proposal_messages_task renders the same closed embed for a
+# proposal retired out of band (superseded, website-set, swept), and tasks.py
+# cannot import discord_interactions -- that module imports tasks, which is why
+# tasks.py duplicates EPHEMERAL locally rather than importing it.
+
+def roster_name(profile, nudge=True):
+    """A roster player as shown in the proposal lists: a mention once we know their
+    snowflake (so the people who owe a confirmation get pinged), otherwise their
+    display name.
+
+    `nudge` appends "(not linked — log in with Discord once)" to an unlinked
+    player. That belongs on a LIVE proposal, where it explains why the proposal is
+    stuck on someone and what they must do. It is wrong on a CLOSED one: the
+    proposal no longer exists, so telling them to go link an account for it is an
+    instruction with nothing behind it. Closed renderers pass nudge=False."""
+    if profile.discord_id:
+        return f"<@{profile.discord_id}>"
+    name = profile.display_name or profile.discord or profile.slug or "—"
+    return f"{name} (not linked — log in with Discord once)" if nudge else name
+
+
+# Discord caps an embed field value at 1024 chars. /lfg guards this too (an
+# over-long field makes Discord reject the whole edit, which would silently discard
+# a change we've already committed to the DB).
+FIELD_VALUE_MAX = 1024
+
+
+def name_list_value(profiles, empty="—", nudge=True):
+    """Newline-joined roster names, truncated to Discord's field cap with a
+    '…and N more' tail rather than overflowing it."""
+    names = [roster_name(p, nudge=nudge) for p in profiles]
+    if not names:
+        return empty
+    out, used = [], 0
+    for i, name in enumerate(names):
+        remaining = len(names) - i
+        tail = f"\n…and {remaining} more"
+        # Keep room for the tail we'd need if this were the last one we could fit.
+        if used + len(name) + 1 + len(tail) > FIELD_VALUE_MAX and out:
+            return "\n".join(out) + f"\n…and {remaining} more"
+        out.append(name)
+        used += len(name) + 1
+    return "\n".join(out)[:FIELD_VALUE_MAX]
+
+
+# Why a proposal closed, for the ones no person decided. Keyed by the same reason
+# strings strip_schedule_proposal_messages_task already takes.
+PROPOSAL_RETIRED_TEXT = {
+    "superseded": "A different time was confirmed for this match. This proposal is "
+                  "no longer active.",
+    "cancelled": "This proposed time is no longer active — the match's scheduled "
+                 "time was changed or cleared.",
+    "expired": "This proposed time has passed without everyone confirming.\n"
+               "Run `/schedule` to propose another time.",
+    # Distinct from "cancelled" so players mid-confirmation learn WHERE the time
+    # came from instead of just that theirs stopped mattering. Names no one: the
+    # bracket editor is open to organizers and admins, not only moderators.
+    "website": "The scheduled time for this match was set on the website. This "
+               "proposal is no longer active.",
+    "unschedulable": "This match can no longer be scheduled — it may have been "
+                     "played or removed.",
+}
+
+
+def proposal_reason_line(reason, actor=None):
+    """The one line saying WHY a proposal closed.
+
+    `actor` is named only when a person actually decided it. An EXPIRED proposal
+    was closed by nobody -- the time simply arrived -- so it must never read as
+    someone's doing. That is why the reason is passed in rather than inferred from
+    rejected_by: the row can carry a rejecter AND later expire, and guessing from
+    the field would invent an actor for a clock."""
+    if reason == "rejected":
+        # No actor means the Profile was deleted (rejected_by is SET_NULL), so
+        # fall back to a whole sentence rather than "Rejected by A player."
+        if actor is None:
+            return "A player rejected this time."
+        return f"Rejected by {roster_name(actor, nudge=False)}."
+    if actor is not None and reason == "unschedulable":
+        return (f"Closed by {roster_name(actor, nudge=False)} — "
+                "this match can no longer be scheduled.")
+    return PROPOSAL_RETIRED_TEXT.get(reason, PROPOSAL_RETIRED_TEXT["cancelled"])
+
+
+def match_label(match):
+    """How a match is named back to the user: the player group's name (what the UI
+    shows everywhere), falling back to the derived match name.
+
+    Here rather than in discord_interactions so the Celery strip task can label a
+    closed proposal the same way an interaction does -- pure model reads, nothing
+    Discord-specific."""
+    group = match.series.player_group if match.series_id else None
+    return (group.name if group and group.name else None) or match.name or "this match"
+
+
+def schedule_closed_embed(proposal, title, reason, actor=None, label=None):
+    """The embed for a proposal that has closed, keeping what it knew.
+
+    Rendered from the row rather than hardcoded, so the thread keeps a record of
+    who suggested the time, what time it was, and who had agreed before it fell
+    through. All of that was already on the row and used to be discarded the
+    moment the proposal closed.
+
+    Every part is optional on the model -- proposed_by and rejected_by are
+    SET_NULL and confirmed_by can be empty -- so each is included only when
+    present, and a proposal whose proposer was deleted still renders.
+
+    `label` defaults to the proposal's own match. It is NOT named match_label:
+    that would shadow the module-level function of that name inside this body,
+    turning any later call to it into a TypeError on a str.
+
+    Names render as mentions, which is safe: Discord only notifies from message
+    `content`, never from inside an embed, so a closed message cannot ping anyone
+    no matter who it lists."""
+    from .time_parsing import format_discord_timestamp
+
+    if label is None:
+        label = match_label(proposal.match)
+
+    lines = []
+    if label:
+        lines.append(f"**{label}**")
+
+    when = format_discord_timestamp(proposal.proposed_time)
+    if proposal.proposed_by_id:
+        lines.append(f"Proposed by {roster_name(proposal.proposed_by, nudge=False)} "
+                     f"for {when}")
+    else:
+        lines.append(f"Proposed for {when}")
+
+    lines.append(proposal_reason_line(reason, actor))
+
+    embed = {"title": title, "description": "\n".join(lines)}
+
+    # Past tense: these confirmations no longer stand. "✅ Confirmed" would read as
+    # though the time were still live.
+    agreed = list(proposal.confirmed_by.all())
+    if agreed:
+        embed["fields"] = [{
+            "name": "✅ Had agreed",
+            "value": name_list_value(agreed, nudge=False),
+            "inline": False,
+        }]
+    return embed

@@ -7560,6 +7560,29 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
 
+    def test_an_expired_proposal_names_nobody(self):
+        """Expiry is a clock, not a decision. Even with a rejecter recorded on the
+        row, the closing line must not attribute it to a person -- which is why
+        the reason is passed as a key rather than inferred from rejected_by."""
+        self.proposal.rejected_by = self.teammate
+        self.proposal.save(update_fields=["rejected_by"])
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        description = body["data"]["embeds"][0]["description"]
+        # The proposer IS named ("Proposed by ..."); nobody may be named as having
+        # closed it.
+        self.assertNotIn("Rejected by", description)
+        self.assertNotIn("Closed by", description)
+        self.assertIn("has passed", description)
+
+    def test_an_expired_proposal_still_keeps_its_history(self):
+        self._pass_the_time()
+        body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        embed = body["data"]["embeds"][0]
+        self.assertIn(f"Proposed by <@{self.player.discord_id}>",
+                      embed["description"])
+        self.assertEqual(embed["fields"][0]["name"], "✅ Had agreed")
+
     def test_a_passed_proposal_retires_on_set_time(self):
         self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
         self.tournament.save(update_fields=["recording_access"])
@@ -8024,16 +8047,33 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         waiting = data["embeds"][0]["fields"][0]["value"]
         self.assertIn("No Link", waiting)
 
-    def test_rejected_view_does_not_name_the_rejecter(self):
+    def test_rejected_view_names_the_rejecter(self):
+        """The group can see who cleared the time rather than having to ask.
+        Safe as a mention: Discord never notifies from inside an embed."""
         self.proposal.rejected_by = self.teammate
         data = di._schedule_rejected_data(self.proposal)
         description = data["embeds"][0]["description"]
         self.assertEqual(data["components"], [])
-        # Match the rendered mention/name forms, not a bare id — a short snowflake
-        # like "5" also occurs inside the <t:...> timestamp.
-        self.assertNotIn(f"<@{self.teammate.discord_id}>", description)
-        self.assertNotIn(self.teammate.discord, description)
-        self.assertIn("A player rejected", description)
+        self.assertIn(f"Rejected by <@{self.teammate.discord_id}>", description)
+
+    def test_rejected_view_keeps_the_proposal_history(self):
+        """The record of who suggested the time and who had agreed used to be
+        discarded the moment the proposal closed."""
+        self.proposal.rejected_by = self.teammate
+        data = di._schedule_rejected_data(self.proposal)
+        embed = data["embeds"][0]
+        self.assertIn(f"Proposed by <@{self.player.discord_id}>",
+                      embed["description"])
+        self.assertIn(str(int(self.when.timestamp())), embed["description"])
+        agreed = embed["fields"][0]
+        self.assertEqual(agreed["name"], "✅ Had agreed")
+        self.assertIn(f"<@{self.player.discord_id}>", agreed["value"])
+
+    def test_an_unnamed_rejecter_falls_back(self):
+        """rejected_by is SET_NULL, so a deleted Profile must still render."""
+        self.proposal.rejected_by = None
+        data = di._schedule_rejected_data(self.proposal)
+        self.assertIn("A player rejected", data["embeds"][0]["description"])
 
     def test_finalized_view_clears_components(self):
         self.match.scheduled_time = self.when
@@ -8129,6 +8169,27 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         ) as edit:
             tasks.strip_schedule_proposal_messages_task([self.proposal.pk], "superseded")
         edit.assert_not_called()
+
+    def test_strip_task_embed_keeps_the_proposal_history(self):
+        """An out-of-band retirement (superseded here) keeps the same record a
+        clicked one does -- otherwise the detail shown depended on which path
+        happened to close the proposal."""
+        from the_gatehouse import tasks
+        self.proposal.message_id = "111"
+        self.proposal.save(update_fields=["message_id"])
+        with mock.patch(
+            "the_gatehouse.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_OK,
+        ) as edit:
+            tasks.strip_schedule_proposal_messages_task(
+                [self.proposal.pk], "superseded")
+        embed = edit.call_args.kwargs["embeds"][0]
+        self.assertEqual(embed["title"], "Proposal closed")
+        self.assertIn("Proposed by", embed["description"])
+        self.assertIn("A different time was confirmed", embed["description"])
+        # Closed by a consequence, not a person.
+        self.assertNotIn("Rejected by", embed["description"])
+        self.assertNotIn("Closed by", embed["description"])
 
     def test_strip_task_swallows_permanent_failure(self):
         from the_gatehouse import tasks
