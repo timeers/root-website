@@ -852,7 +852,12 @@ class Tournament(models.Model):
     def get_absolute_url(self):
         """Canonical URL: the first visible tab, per the owner's configuration."""
         key = first_supported_tab(self.visible_tabs(), self.TAB_URL_NAMES) or 'overview'
-        name, kwarg = self.TAB_URL_NAMES[key]
+        # The bracket tab resolves to Matches in the simplified layout, so it
+        # can't come from the static mapping (mirrors Stage.get_absolute_url).
+        if key == 'bracket':
+            name, kwarg = self._bracket_url_name(), 'slug'
+        else:
+            name, kwarg = self.TAB_URL_NAMES[key]
         return reverse(name, kwargs={kwarg: self.slug})
 
     def get_settings_url(self):
@@ -861,6 +866,31 @@ class Tournament(models.Model):
     def get_schedule_url(self):
         return reverse('tournament-schedule-page', kwargs={'slug': self.slug})
 
+    def _is_simple_matches_mode(self):
+        """True when there is no bracket to lay out: no stages, and the single
+        hidden stage has no rounds. The 'Bracket' tab is really Matches here.
+
+        The one source of truth for this layout test -- the nav label, the tab
+        URL, both tournament views, and Match.get_matches_url() all defer to it,
+        so the routing can't drift into a redirect loop.
+        """
+        if self.use_stages:
+            return False
+        only_stage = self.stages.first()
+        return bool(only_stage and not only_stage.use_rounds)
+
+    def _bracket_url_name(self):
+        """The bracket tab links to the bracket page only when there is a
+        multi-stage/round layout to lay out; otherwise it is really showing
+        Matches. Mirrors Stage._bracket_url_name() one level up."""
+        if self._is_simple_matches_mode():
+            return 'tournament-matches-page'
+        return 'tournament-bracket-page'
+
+    def get_bracket_url(self):
+        """URL of the bracket tab, which is the matches page in simple mode."""
+        return reverse(self._bracket_url_name(), kwargs={'slug': self.slug})
+
     @property
     def bracket_tab_label(self):
         """Label for the shared 'Bracket' nav tab. The tab links to the bracket
@@ -868,10 +898,8 @@ class Tournament(models.Model):
         multi-round/stage layout to lay out (no stages + single stage with no
         rounds) -- mirrors ``tournament_bracket_page``. In that case the tab is
         really showing Matches, so name it accordingly."""
-        if not self.use_stages:
-            only_stage = self.stages.first()
-            if only_stage and not only_stage.use_rounds:
-                return gettext_lazy('Matches')
+        if self._is_simple_matches_mode():
+            return gettext_lazy('Matches')
         return gettext_lazy('Bracket')
 
     def get_edit_url(self):
@@ -2033,6 +2061,13 @@ class Match(models.Model):
     class Meta:
         ordering = ['round', 'match_number']
         unique_together = [('round', 'match_number')]
+        indexes = [
+            # Serves the Min(scheduled_time)-per-series aggregate behind the
+            # matches sort. series_id alone is already indexed (FK); the
+            # trailing column is what makes the aggregate index-only.
+            models.Index(fields=['series', 'scheduled_time'],
+                         name='match_series_sched_idx'),
+        ]
 
     def save(self, *args, **kwargs):
         if self.match_number is None:
@@ -2132,6 +2167,11 @@ class Match(models.Model):
         tournament = round.get_tournament()
         stage = round.stage
 
+        # Simplified layout — no stages and the hidden stage has no rounds, so
+        # matches live at the tournament level. Must precede the stage branch:
+        # both match here, and the stage URL would leak the hidden stage's slug.
+        if tournament._is_simple_matches_mode():
+            return reverse('tournament-matches-page', kwargs={'slug': tournament.slug})
         # Stage without rounds — matches live at the stage level.
         if stage and not stage.use_rounds:
             return reverse('stage-matches-page', kwargs={

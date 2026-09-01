@@ -21,7 +21,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import IntegrityError, models, transaction
 
-from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
+from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Min, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
 from django.utils.translation import get_language, gettext as _, gettext_lazy as _lazy
@@ -5481,7 +5481,7 @@ def _schedule_round_manage_url(tournament, round):
       (stages, rounds)  -> round-matches-page (full, with stage)
       (no stages, rounds) -> round-matches-simple (omits stage)
       (rounds off)      -> stage-matches-page (the stage's flat matches view)
-      (no stages, rounds off) -> tournament-bracket-page (delegates to matches)
+      (no stages, rounds off) -> tournament-matches-page
     """
     stage = round.stage
     if stage.use_rounds:
@@ -5500,7 +5500,7 @@ def _schedule_round_manage_url(tournament, round):
             'tournament_slug': tournament.slug,
             'stage_slug': stage.slug,
         })
-    return reverse('tournament-bracket-page', kwargs={'slug': tournament.slug})
+    return tournament.get_bracket_url()
 
 
 def _schedule_matches_context(tournament, rounds):
@@ -6251,10 +6251,40 @@ def _recordable_ids_for_matches(matches, user, tournament, view_as=None):
     return recordable
 
 
+def _order_match_series(qs):
+    """Order a MatchSeries queryset by status group, then soonest, then name.
+
+    Groups: 1 = scheduled (any match has a scheduled_time), 2 = incomplete and
+    unscheduled, 3 = complete. Within the scheduled group the soonest match
+    comes first; the others fall back to the displayed name (player_group.name,
+    which is what the card shows) and finally id for a stable order.
+
+    A single Min() supplies both the grouping and the tiebreak -- a null Min
+    means no match has a time -- so this adds one LEFT JOIN and no subquery.
+    The stored `status` field is used rather than MatchSeries.is_complete(),
+    which costs a query per series and calls an empty series complete.
+    """
+    return qs.annotate(
+        _next_scheduled=Min('matches__scheduled_time'),
+    ).annotate(
+        _status_group=Case(
+            When(status=CompetitionStatus.COMPLETED, then=Value(3)),
+            When(_next_scheduled__isnull=False, then=Value(1)),
+            default=Value(2),
+            output_field=IntegerField(),
+        ),
+    ).order_by(
+        '_status_group',
+        F('_next_scheduled').asc(nulls_last=True),
+        F('player_group__name').asc(nulls_last=True),
+        'id',
+    )
+
+
 def _stage_matches_context(request, tournament, stage):
     """Build the context for the scheduled-matches view of a stage's single
     (default) round. Shared by the stage matches page and the tournament
-    bracket page when the tournament has no stages and the stage has no rounds."""
+    matches page when the tournament has no stages and the stage has no rounds."""
     round = stage.rounds.first()
     match_series = []
     recordable_match_ids = set()
@@ -6263,15 +6293,17 @@ def _stage_matches_context(request, tournament, stage):
 
     if round:
         is_bracket_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
-        match_series = MatchSeries.objects.filter(round=round).select_related(
-            'player_group',
-        ).prefetch_related(
-            'winners__tournament_player__profile',
-            'matches__game',
-            'matches__game__efforts__faction',
-            'matches__game__efforts__player',
-            'matchseat_set__stage_participant__tournament_player__profile',
-        ).order_by('id')
+        match_series = _order_match_series(
+            MatchSeries.objects.filter(round=round).select_related(
+                'player_group',
+            ).prefetch_related(
+                'winners__tournament_player__profile',
+                'matches__game',
+                'matches__game__efforts__faction',
+                'matches__game__efforts__player',
+                'matchseat_set__stage_participant__tournament_player__profile',
+            )
+        )
 
         # Attach the effort/faction grid so cards render icons on initial load,
         # matching what round_matches_page and the edit-swap endpoint do.
@@ -6325,6 +6357,12 @@ def _stage_matches_context(request, tournament, stage):
 def stage_matches_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    # Stages collapse into the tournament when stages are disabled, so this
+    # stage-scoped URL would be a duplicate of the tournament matches page.
+    # Redirect rather than 404: Discord messages already link here.
+    if tournament._is_simple_matches_mode():
+        return redirect('tournament-matches-page', slug=tournament.slug)
 
     if request.user.is_authenticated:
         send_discord_message_task.delay(
@@ -6604,15 +6642,17 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
             f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed round matches: {round} ({tournament.name})'
         )
 
-    match_series = MatchSeries.objects.filter(round=round).select_related(
-        'player_group',
-    ).prefetch_related(
-        'winners__tournament_player__profile',
-        'matches__game',
-        'matches__game__efforts__faction',
-        'matches__game__efforts__player',
-        'matchseat_set__stage_participant__tournament_player__profile',
-    ).order_by('id')
+    match_series = _order_match_series(
+        MatchSeries.objects.filter(round=round).select_related(
+            'player_group',
+        ).prefetch_related(
+            'winners__tournament_player__profile',
+            'matches__game',
+            'matches__game__efforts__faction',
+            'matches__game__efforts__player',
+            'matchseat_set__stage_participant__tournament_player__profile',
+        )
+    )
 
     for series in match_series:
         _attach_series_effort_grid(series)
@@ -6676,7 +6716,7 @@ def tournament_schedule_page(request, slug):
         'breadcrumb_page': _('Schedule'),
         'page_name': tournament.name,
         'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
-        'bracket_url': reverse('tournament-bracket-page', kwargs={'slug': tournament.slug}),
+        'bracket_url': tournament.get_bracket_url(),
     })
     return render(request, 'the_warroom/schedule.html', context)
 
@@ -7066,37 +7106,56 @@ def stage_move_player(request, tournament_slug, stage_slug):
     })
 
 
+def tournament_matches_page(request, slug):
+    """Editable scheduled-matches view at the tournament level.
+
+    Serves the simplified layout (no stages, and the single default stage has
+    no rounds), where there is no bracket to lay out and the 'Bracket' nav tab
+    is really showing Matches. Anything else belongs on the bracket page."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    if not tournament._is_simple_matches_mode():
+        return redirect('tournament-bracket-page', slug=tournament.slug)
+
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed tournament matches: {tournament.name}'
+        )
+
+    single_stage = get_single_stage(tournament)
+    context = _stage_matches_context(request, tournament, single_stage)
+    context.update({
+        'active_page': 'bracket',
+        'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
+        # breadcrumb_page is deliberately left unset: matches.html defaults it
+        # to "Matches", which is what the URL and the nav tab both say here.
+        # The single stage is hidden from the user, so show the series name and
+        # meta title, not the stage's.
+        'page_name': tournament.name,
+        'meta_title': tournament.name,
+        # Override the stage-scoped schedule defaults with tournament scope.
+        'schedule_count': _upcoming_scheduled_matches(
+            {'round__stage__tournament': tournament}).count(),
+        'schedule_url': tournament.get_schedule_url(),
+    })
+    return render(request, 'the_warroom/matches.html', context)
+
+
 def tournament_bracket_page(request, slug):
     """Read-only bracket overview — shows all stages and their bracket status.
 
     When the tournament has no stages and its single default stage has no
-    rounds, there is nothing to lay out as a bracket — instead show the fuller,
-    editable scheduled-matches view (the same one the stage matches page uses)
-    so moderators can add and edit matches directly."""
+    rounds, there is nothing to lay out as a bracket — the editable
+    scheduled-matches view lives at its own URL, so redirect there."""
     tournament = get_object_or_404(Tournament, slug=slug)
+
+    if tournament._is_simple_matches_mode():
+        return redirect('tournament-matches-page', slug=tournament.slug)
 
     if request.user.is_authenticated:
         send_discord_message_task.delay(
             f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed tournament bracket: {tournament.name}'
         )
-
-    if not tournament.use_stages:
-        single_stage = get_single_stage(tournament)
-        if single_stage and not single_stage.use_rounds:
-            context = _stage_matches_context(request, tournament, single_stage)
-            context.update({
-                'active_page': 'bracket',
-                'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
-                'breadcrumb_page': _('Bracket'),
-                # This is the tournament-level bracket URL; the single stage is
-                # hidden from the user, so show the series name, not the stage's.
-                'page_name': tournament.name,
-                # Override the stage-scoped schedule defaults with tournament scope.
-                'schedule_count': _upcoming_scheduled_matches(
-                    {'round__stage__tournament': tournament}).count(),
-                'schedule_url': tournament.get_schedule_url(),
-            })
-            return render(request, 'the_warroom/matches.html', context)
 
     stages = tournament.stages.order_by('order').prefetch_related(
         Prefetch(

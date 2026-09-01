@@ -33,7 +33,7 @@ from .views import (game_list_view, leaderboard_view,
                     round_grouping_finalize,
                     round_generate_bracket, round_finalize_bracket, round_enable_matches, round_edit_series, round_create_series, round_delete_series,
                     round_create_game_threads,
-                    tournament_bracket_page,
+                    tournament_bracket_page, tournament_matches_page,
                     stage_manage_view, stage_overview_page, stage_settings_hub, StageDeleteView,
                     stage_manage_players, stage_search_players, stage_move_player,
                     stage_leaderboard_page, stage_games_page, stage_roster_page,
@@ -97,6 +97,7 @@ urlpatterns = [
     
     path('series/<slug:slug>/view-as/', set_view_as, name='tournament-view-as'),
 
+    path('series/<slug:slug>/matches/', tournament_matches_page, name='tournament-matches-page'),
     path('series/<slug:slug>/bracket/', tournament_bracket_page, name='tournament-bracket-page'),
     path('my-scheduled-matches/', my_scheduled_matches_page, name='my-scheduled-matches'),
     path('series/<slug:slug>/schedule/', tournament_schedule_page, name='tournament-schedule-page'),

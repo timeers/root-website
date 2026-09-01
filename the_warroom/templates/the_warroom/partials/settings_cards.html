@@ -317,7 +317,9 @@ page's ambient round/stage/tournament globals.
                 {% comment %}Stage level uses the current stage; Series level (no stages / no rounds) has stage=None, so fall back to the default stage.{% endcomment %}
                 {% with grouping_stage=stage|default:section.default_stage %}
                 {% if grouping_step == 'matches_finalized' %}
-                    <a href="{% url 'stage-matches-page' tournament_slug=tournament.slug stage_slug=grouping_stage.slug %}" class="btn btn-outline-success w-100">
+                    {% comment %}Series level has stage=None and the matches page lives at the
+                    tournament level; the stage URL would only redirect there.{% endcomment %}
+                    <a href="{% if stage %}{% url 'stage-matches-page' tournament_slug=tournament.slug stage_slug=grouping_stage.slug %}{% else %}{{ tournament.get_bracket_url }}{% endif %}" class="btn btn-outline-success w-100">
                         <i class="bi bi-trophy me-1"></i>View Matches
                     </a>
                 {% elif grouping_step == 'matches_draft' %}
