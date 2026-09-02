@@ -1131,13 +1131,19 @@ em, i {
    would ignore the surrounding colour and stay black in dark mode. Pair with a
    class that supplies mask-image (see .icon-link / .icon-unlink below).
 
-   No vertical-align nudge: these are masked boxes, not font glyphs, so they have
-   no baseline overhang to compensate for. Bootstrap Icons' -0.125em rides them
-   up against the top of a button. */
+   vertical-align matches what Bootstrap Icons applies to .bi::before, so a mask
+   icon lines up with the bi- glyphs it sits beside. An inline-block aligns its
+   BOTTOM edge to the text baseline, which leaves a 1em box riding high next to
+   its label; the nudge drops it back onto the text's optical centre.
+
+   Icon-only buttons want .btn-icon instead (below) -- its flex centring ignores
+   the baseline entirely, which is what you want when there is no label to align
+   against. */
 .icon-mask {
   display: inline-block;
   width: 1em;
   height: 1em;
+  vertical-align: -0.125em;
   background-color: currentColor;
   -webkit-mask-position: center;
   mask-position: center;
