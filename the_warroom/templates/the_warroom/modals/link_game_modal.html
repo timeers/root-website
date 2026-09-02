@@ -1,50 +1,14 @@
-{% load i18n static %}
+{% load i18n %}
 {% comment %} Link/unlink an existing Game to a scheduled Match. Included by matches.html
 under the same can_manage + is_bracket_finalized guard as the series edit modal, and
 driven by the buttons in series_card_matches.html. Both modals live here so they can
 share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
 
 <style>
-    /* The chain / broken-chain icons, drawn as CSS masks rather than <img> so they
-       take their colour from currentColor -- the SVGs have a hardcoded black fill,
-       which as images would ignore the button's colour and stay black in dark mode.
-       Same technique as the cross overlay in game_detail_page.html. */
-    .icon-link, .icon-unlink {
-        /* No vertical-align nudge: these are masked boxes, not font glyphs, so
-           they have no baseline overhang to compensate for. Bootstrap Icons'
-           -0.125em rides them up against the top of the button. */
-        display: inline-block;
-        width: 1em;
-        height: 1em;
-        background-color: currentColor;
-        -webkit-mask-position: center;
-        mask-position: center;
-        -webkit-mask-size: contain;
-        mask-size: contain;
-        -webkit-mask-repeat: no-repeat;
-        mask-repeat: no-repeat;
-    }
-    /* An icon-only button. Centres the icon in the button box rather than resting
-       it on the line's text baseline (which the surrounding newlines in the
-       template would otherwise create).
-
-       line-height is deliberately left at Bootstrap's inherited value rather than
-       set to 1: these buttons sit in a flex row beside text buttons (View / Edit /
-       Record), whose height comes from that line-height. Overriding it here makes
-       the icon button visibly shorter than its neighbours. */
-    .btn-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .icon-link {
-        -webkit-mask-image: url('{% static "icons/link.svg" %}');
-        mask-image: url('{% static "icons/link.svg" %}');
-    }
-    .icon-unlink {
-        -webkit-mask-image: url('{% static "icons/unlink.svg" %}');
-        mask-image: url('{% static "icons/unlink.svg" %}');
-    }
+    {% comment %} .icon-mask / .icon-link / .icon-unlink / .btn-icon live in
+    the_keep/main.css -- series_card_matches.html uses them too, and that partial is
+    re-rendered on its own by the link/unlink fetch, so the rules cannot be scoped to
+    this modal. Only the picker's own styles are here. {% endcomment %}
     /* Candidate picker: fixed-width cards, as many per row as fit.
        Flexbox rather than grid, deliberately -- an auto-fill grid reserves EMPTY
        tracks for the width it could hold, and centring then centres those too, so
@@ -98,7 +62,7 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="linkGameModalLabel">
-                    <i class="icon-link"></i> {% trans 'Link Existing Game' %}
+                    <i class="icon-mask icon-link"></i> {% trans 'Link Existing Game' %}
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -115,7 +79,7 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
                 <button type="button" class="btn btn-primary" id="linkGameConfirm" disabled>
-                    <i class="icon-link"></i> {% trans 'Link' %}
+                    <i class="icon-mask icon-link"></i> {% trans 'Link' %}
                 </button>
             </div>
         </div>
@@ -127,7 +91,7 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title" id="unlinkGameModalLabel">
-                    <i class="icon-unlink"></i> {% trans 'Unlink Game' %}
+                    <i class="icon-mask icon-unlink"></i> {% trans 'Unlink Game' %}
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -142,7 +106,7 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
                 <button type="button" class="btn btn-danger" id="unlinkGameConfirm">
-                    <i class="icon-unlink"></i> {% trans 'Unlink' %}
+                    <i class="icon-mask icon-unlink"></i> {% trans 'Unlink' %}
                 </button>
             </div>
         </div>
@@ -297,7 +261,7 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
         })
         .then(function (result) {
             btn.disabled = false;
-            btn.innerHTML = '<i class="icon-link"></i> {% trans "Link" %}';
+            btn.innerHTML = '<i class="icon-mask icon-link"></i> {% trans "Link" %}';
             if (!result.ok || !result.data.success) {
                 _showError('linkGameError', result.data.error || '{% trans "Something went wrong." %}');
                 return;
@@ -308,7 +272,7 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
         })
         .catch(function () {
             btn.disabled = false;
-            btn.innerHTML = '<i class="icon-link"></i> {% trans "Link" %}';
+            btn.innerHTML = '<i class="icon-mask icon-link"></i> {% trans "Link" %}';
             _showError('linkGameError', '{% trans "Something went wrong." %}');
         });
     });
@@ -345,7 +309,7 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
         })
         .then(function (result) {
             btn.disabled = false;
-            btn.innerHTML = '<i class="icon-unlink"></i> {% trans "Unlink" %}';
+            btn.innerHTML = '<i class="icon-mask icon-unlink"></i> {% trans "Unlink" %}';
             if (!result.ok || !result.data.success) {
                 _showError('unlinkGameError', result.data.error || '{% trans "Something went wrong." %}');
                 return;
@@ -356,7 +320,7 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
         })
         .catch(function () {
             btn.disabled = false;
-            btn.innerHTML = '<i class="icon-unlink"></i> {% trans "Unlink" %}';
+            btn.innerHTML = '<i class="icon-mask icon-unlink"></i> {% trans "Unlink" %}';
             _showError('unlinkGameError', '{% trans "Something went wrong." %}');
         });
     });

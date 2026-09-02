@@ -136,7 +136,7 @@
                     <button type="button" class="btn btn-outline-danger btn-sm p-0 px-1 btn-icon"
                             data-bs-toggle="tooltip" title="{% trans 'Unlink this game' %}"
                             onclick="openUnlinkGameModal({{ match.id }}, {{ series.id }}, this)">
-                        <i class="icon-unlink"></i>
+                        <i class="icon-mask icon-unlink"></i>
                     </button>
                     {% endif %}
                     {% if match.game.final %}
@@ -165,7 +165,7 @@
                     <button type="button" class="btn btn-outline-secondary btn-sm p-0 px-1 btn-icon"
                             data-bs-toggle="tooltip" title="{% trans 'Link an existing game' %}"
                             onclick="openLinkGameModal({{ match.id }}, {{ series.id }})">
-                        <i class="icon-link"></i>
+                        <i class="icon-mask icon-link"></i>
                     </button>
                     {% endif %}
                     <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm p-0 px-1">Record</a>
@@ -214,7 +214,7 @@
                 <button type="button" class="btn btn-outline-danger btn-sm p-0 px-1 btn-icon"
                         data-bs-toggle="tooltip" title="{% trans 'Unlink this game' %}"
                         onclick="openUnlinkGameModal({{ match.id }}, {{ series.id }}, this)">
-                    <i class="icon-unlink"></i>
+                    <i class="icon-mask icon-unlink"></i>
                 </button>
                 {% endif %}
                 {% if match.game.final %}
@@ -243,7 +243,7 @@
                 <button type="button" class="btn btn-outline-secondary btn-sm p-0 px-1 btn-icon"
                         data-bs-toggle="tooltip" title="{% trans 'Link an existing game' %}"
                         onclick="openLinkGameModal({{ match.id }}, {{ series.id }})">
-                    <i class="icon-link"></i>
+                    <i class="icon-mask icon-link"></i>
                 </button>
                 {% endif %}
                 <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm p-0 px-1">Record</a>

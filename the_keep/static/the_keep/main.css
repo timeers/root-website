@@ -1118,12 +1118,60 @@ em, i {
 
 .wide-icon {
   max-height: 50px;
-  max-width: 100px; 
-  height: auto;  
-  width: auto;  
+  max-width: 100px;
+  height: auto;
+  width: auto;
   margin-right: 2px;
   margin-bottom: 2px;
   border-radius: 3px;
+}
+
+/* An icon drawn as a CSS mask rather than an <img>, so it takes its colour from
+   currentColor -- our icon SVGs have a hardcoded black fill, which as images
+   would ignore the surrounding colour and stay black in dark mode. Pair with a
+   class that supplies mask-image (see .icon-link / .icon-unlink below).
+
+   No vertical-align nudge: these are masked boxes, not font glyphs, so they have
+   no baseline overhang to compensate for. Bootstrap Icons' -0.125em rides them
+   up against the top of a button. */
+.icon-mask {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* Chain / broken-chain icons, used by the link-game modal and the series match
+   cards it re-renders. Relative url() rather than {% static %}: this file is
+   collected from the_keep/static/the_keep/, so ../icons/ resolves to
+   the_keep/static/icons/ and Django rewrites it on collectstatic. */
+.icon-link {
+  -webkit-mask-image: url('../icons/link.svg');
+  mask-image: url('../icons/link.svg');
+}
+.icon-unlink {
+  -webkit-mask-image: url('../icons/unlink.svg');
+  mask-image: url('../icons/unlink.svg');
+}
+
+/* An icon-only button. Centres the icon in the button box rather than resting it
+   on the line's text baseline (which newlines in the template would otherwise
+   create).
+
+   line-height is deliberately left at Bootstrap's inherited value rather than set
+   to 1: these buttons sit in flex rows beside text buttons (View / Edit /
+   Record), whose height comes from that line-height. Overriding it here makes the
+   icon button visibly shorter than its neighbours. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 a {
