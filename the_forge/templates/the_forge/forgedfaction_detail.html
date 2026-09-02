@@ -451,7 +451,7 @@
               <li><hr class="dropdown-divider"></li>
               <li>
                 <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#unlinkForgeModal">
-                  <i class="bi bi-link-45deg me-1"></i>Unlink
+                  <i class="icon-mask icon-unlink me-1"></i>Unlink
                 </button>
               </li>
             </ul>
@@ -463,7 +463,7 @@
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
               <li><a class="dropdown-item" href="{% url 'forge-faction-submit' pk=faction.pk %}"><i class="bi bi-plus-circle me-1"></i>Submit</a></li>
-              <li><a class="dropdown-item" href="{% url 'forge-faction-link' pk=faction.pk %}"><i class="bi bi-link-45deg me-1"></i>Link to Existing Faction</a></li>
+              <li><a class="dropdown-item" href="{% url 'forge-faction-link' pk=faction.pk %}"><i class="icon-mask icon-link me-1"></i>Link to Existing Faction</a></li>
             </ul>
           </div>
         {% elif submit_ready %}
@@ -472,7 +472,7 @@
           </a>
         {% elif link_candidate_exists %}
           <a href="{% url 'forge-faction-link' pk=faction.pk %}" class="btn btn-primary">
-            <i class="bi bi-link-45deg me-1"></i>Link to Existing Faction
+            <i class="icon-mask icon-link me-1"></i>Link to Existing Faction
           </a>
         {% else %}
           <button type="button" class="btn btn-primary" disabled>
@@ -608,7 +608,7 @@
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title" id="unlinkForgeModalLabel">
-              <i class="bi bi-link-45deg"></i> Unlink from Faction
+              <i class="icon-mask icon-unlink"></i> Unlink from Faction
             </h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
@@ -623,7 +623,7 @@
             <form method="POST" action="{% url 'forge-faction-unlink' pk=faction.pk %}" class="d-inline">
               {% csrf_token %}
               <button type="submit" class="btn btn-warning">
-                <i class="bi bi-link-45deg"></i> Unlink
+                <i class="icon-mask icon-unlink"></i> Unlink
               </button>
             </form>
           </div>

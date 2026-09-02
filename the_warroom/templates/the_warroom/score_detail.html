@@ -16,7 +16,7 @@
             {% comment %} <a class="btn btn-primary btn-sm ms-1 mb-1" href="{% url 'scorecard-home' %}">{% trans 'My Box Scores' %} </a> {% endcomment %}
                 {% if object.efforts_available %}
                     <a class="btn btn-success btn-sm ms-1 mb-1" href="{% url 'assign-effort' object.id %}">
-                        <i class="bi bi-link"></i>
+                        <i class="icon-mask icon-link"></i>
                     </a>
                 {% else %}
                     <a class="btn btn-danger btn-sm ms-1 mb-1" href="{% url 'delete-scorecard' object.id %}">
