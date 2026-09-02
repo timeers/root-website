@@ -34,6 +34,7 @@ from the_gatehouse.models import Profile, DiscordGuild
 
 from the_warroom.models import Tournament, Round, Game, TournamentPlayer, PlayerGroup, Stage
 from the_warroom.services.grouping import GroupingService
+from the_warroom.utils import get_single_stage
 
 from the_keep.models import Post, PNPAsset
 from the_keep.utils import user_can_edit
@@ -191,8 +192,12 @@ def get_tournament_stages(request):
     if not tournament_id:
         return JsonResponse({'stages': []})
 
+    # Tournaments with stages disabled still have a hidden default stage. It is
+    # never a valid choice for a survey, so exclude it and let the caller fall
+    # back to "All stages / No specific stage".
     stages = Stage.objects.filter(
-        tournament_id=tournament_id
+        tournament_id=tournament_id,
+        tournament__use_stages=True,
     ).order_by('order')
 
     data = [{'id': s.id, 'name': s.name} for s in stages]
@@ -3266,12 +3271,12 @@ def survey_quiz_settings_view(request, slug):
 @player_onboard_required
 def survey_send_availability(request, slug):
     """
-    Send survey respondents to a specific Stage's roster.
-    Lets the user select from the survey's linked tournament's stages
-    and adds accepted respondents to that stage's roster.
+    Send survey respondents to the linked series' roster.
+    When the series uses stages, the user picks a destination stage (or the
+    series itself); when stages are disabled there is only one destination,
+    so the picker is skipped and respondents go to the series and its
+    single hidden stage.
     """
-    from the_warroom.services.grouping import GroupingService
-
     survey = get_object_or_404(Survey, slug=slug)
     profile = request.user.profile
 
@@ -3283,13 +3288,36 @@ def survey_send_availability(request, slug):
         return redirect('survey-detail', slug=survey.slug)
 
     tournament = survey.series
-    stages = tournament.stages.order_by('order')
+    # None when stages are enabled; otherwise the single hidden default stage.
+    hidden_stage = get_single_stage(tournament)
+    stages = tournament.stages.order_by('order') if tournament.use_stages else []
 
     if request.method == 'POST':
         stage_id = request.POST.get('stage_id')
 
         # Sync survey responses to TournamentPlayer records
         sync_result = GroupingService.sync_survey_responses_to_tournament(tournament, survey)
+
+        if hidden_stage is not None:
+            # Stages are disabled, so the hidden stage is the only destination and
+            # any posted stage_id is ignored. Mirrors Tournament.add_player() and the
+            # auto-enroll path, which both enroll REGISTERED players into the hidden
+            # stage when use_stages is False.
+            registered_players = TournamentPlayer.objects.filter(
+                tournament=tournament,
+                profile_id__in=sync_result['synced_profile_ids'],
+                status=TournamentPlayer.StatusChoices.REGISTERED,
+            )
+            added_count = registered_players.count()
+            for tp in registered_players:
+                hidden_stage.add_player(tp.profile)
+
+            messages.success(
+                request,
+                f"Synced {added_count} player(s) to {tournament.name}. "
+                f"Created: {sync_result['created']}, Updated: {sync_result['updated']}."
+            )
+            return redirect('tournament-manage-players', slug=tournament.slug)
 
         if stage_id == 'none' or not stage_id:
             # Just sync to tournament — no stage
@@ -3329,6 +3357,7 @@ def survey_send_availability(request, slug):
         'survey': survey,
         'tournament': tournament,
         'stages': stages,
+        'hidden_stage': hidden_stage,
         'designated_stage': survey.stage,
         'return_to': return_to,
         'return_title': return_title,

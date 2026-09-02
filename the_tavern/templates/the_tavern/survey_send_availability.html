@@ -21,7 +21,27 @@
                     <form method="post">
                         {% csrf_token %}
 
-                        {% if designated_stage %}
+                        {% comment %}
+                        The flat-series case must be tested before designated_stage: a survey on a
+                        series with stages disabled can still have a stage set (the hidden Stage 1),
+                        and naming that stage here would be meaningless to the user.
+                        {% endcomment %}
+                        {% if not tournament.use_stages %}
+                        <p class="text-muted mb-3">
+                            {% trans "Respondents will be synced to this series' roster." %}
+                        </p>
+                        <div class="mb-3 p-3 bg-light rounded border">
+                            <div class="d-flex align-items-center gap-2">
+                                <div>
+                                    <strong>{{ tournament.name }}</strong>
+                                    <small class="text-muted ms-2">
+                                        ({{ tournament.tournament_players.count }} player{{ tournament.tournament_players.count|pluralize }} in series)
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        {% elif designated_stage %}
                         <p class="text-muted mb-3">
                             This survey is linked to a specific stage. Respondents will be sent directly to that stage.
                         </p>
@@ -92,7 +112,12 @@
             <div class="card bg-light">
                 <div class="card-body">
                     <h6 class="card-title"><i class="bi bi-info-circle"></i> {% trans 'What this does' %}</h6>
-                    {% if designated_stage %}
+                    {% if not tournament.use_stages %}
+                    <ul class="small text-muted mb-0 ps-3">
+                        <li class="mb-1">Syncs each respondent's availability for the Series based on their responses</li>
+                        <li>Adds accepted respondents to the Series' roster</li>
+                    </ul>
+                    {% elif designated_stage %}
                     <ul class="small text-muted mb-0 ps-3">
                         <li class="mb-1">Syncs each respondent's availability for the Tournament based on their responses</li>
                         <li>Adds respondents to the designated Stage's roster as well as the Tournament's roster</li>
