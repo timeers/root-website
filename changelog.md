@@ -8,6 +8,7 @@
 - /schedule polls close on their own once everyone on the roster has answered
 - Notify subscribers are messaged when someone confirms and when a poll closes
 - a match poll that everyone confirms sets the scheduled time, whether or not the series requires confirmation
+- /adset command combines seating, draft and picking factions into one command message
 
 ### Improvements
 - matches are now sorted in this order: scheduled > unscheduled > complete

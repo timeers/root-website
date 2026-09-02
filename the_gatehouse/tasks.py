@@ -796,7 +796,7 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
 @shared_task
 def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description,
                            players, embed=None, token=None, host_id=None,
-                           in_thread=False):
+                           in_thread=False, send_kickoff=True, role_pk=None):
     """Create the game thread, ping the players, link the original message's title
     to the thread, and persist the LFGThread row. `players` = [{"id","name"}] parsed
     from the Players field lines, so this task resolves-or-creates every Profile
@@ -818,8 +818,16 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
         apply_thread_tag,
     )
     guild = DiscordGuild.objects.filter(guild_id=guild_id).first() if guild_id else None
-    role = (GuildLFGRole.objects.filter(guild=guild, role_id=role_id).first()
-            if role_id and guild else None)
+    # `role_pk` is preferred over `role_id` when supplied: role_id is the DISCORD
+    # snowflake and is nullable ("leave blank if you only want the display tag"),
+    # so a display-only tag can't be found by it -- and those are exactly the tags
+    # most likely to exist purely to carry a `tournament`, which is what /record
+    # reads to resolve a series.
+    if role_pk and guild:
+        role = GuildLFGRole.objects.filter(pk=role_pk, guild=guild).first()
+    else:
+        role = (GuildLFGRole.objects.filter(guild=guild, role_id=role_id).first()
+                if role_id and guild else None)
 
     pings = " ".join(f"<@{p['id']}>" for p in players)
     kickoff = f"{pings} your game can start!".strip()
@@ -843,7 +851,11 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
         # This mirrors what a freshly created thread receives: the same kickoff,
         # posted into the thread everyone is already reading.
         thread_id = channel_id
-        post_channel_message(thread_id, kickoff)
+        # /adset passes send_kickoff=False: everyone is already in the thread and
+        # just clicked Join, so the ping is noise -- and it would ping the table a
+        # second time moments after the join gate.
+        if send_kickoff:
+            post_channel_message(thread_id, kickoff)
         # Adopting an existing forum post means its tag wasn't set at creation, so
         # apply it now. Best-effort: a tag is decoration and must not cost the game
         # its thread (apply_thread_tag logs and swallows its own failures).

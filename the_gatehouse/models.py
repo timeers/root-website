@@ -333,6 +333,18 @@ class LFGThread(models.Model):
         help_text="True when the seats are a real seating order. False when /pick "
                   "assigned factions without seating and seat numbers are filler.")
 
+    # Discord message id of the CURRENT faction-pick panel, so restarting a pick
+    # session can close the superseded panel instead of leaving a live faction
+    # select on screen pointing at seats that have been cleared.
+    #
+    # Written when a panel is opened (the mode handler, which edits its own
+    # message into the panel and so is the only place the id is knowable -- an
+    # interaction response never reveals the id of a message it creates), and
+    # cleared by _pick_clear and on completion so a stale id can't outlive its
+    # session. Nullable: most threads have no open panel, and one that was never
+    # opened must be indistinguishable from one already closed.
+    pick_panel_id = models.CharField(max_length=32, blank=True, null=True)
+
     # `map`/`deck` hold the MOST RECENT of each (whether rolled or selected) — the
     # fields a Game needs directly. The full history lives in the related LFGRoll
     # rows (`roll_log`), which also drive the game form's option narrowing.

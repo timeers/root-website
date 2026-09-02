@@ -3341,22 +3341,25 @@ def _random_draft_captains(platform):
     return pool[:DRAFT_CAPTAIN_COUNT]
 
 
-def _handle_draft_build(payload):
-    """Build button: recover bans from the message's select state, build the draft,
-    and edit the public prompt message into the result embed in place."""
-    _action, players, platform = _parse_draft_state(payload["data"]["custom_id"])
-    # A button press doesn't echo the select's values, so recover them from the
-    # message's persisted select state.
-    banned_slugs = set(selected_values(payload, "draft_select"))
-    factions = _draft_eligible_factions(platform, players)
+def _draft_build_result(factions, banned_slugs, players, platform, owner):
+    """Draw a draft and assemble everything needed to record it.
 
+    Returns (drawn, vagabond, captains, items, draft_payload, error); on error
+    every other member is None and the caller renders `error` however suits its
+    message.
+
+    Shared by /draft and /adset, which differ only in how they PRESENT the
+    result: /draft edits its prompt into an embed and offers seating, /adset
+    edits into its next phase. Everything up to that point -- the draw, the two
+    conditional rolls, the exclusion rules, the roll-log items and the
+    Celery-safe payload -- is identical, and duplicating it is how the two would
+    drift apart.
+
+    `items` and `draft_payload` hold only slugs and ids: the payload is
+    JSON-serialized by Celery, so a model instance would raise EncodeError."""
     drawn, error = _build_draft(factions, banned_slugs, players)
     if error:
-        # Public edit (the message is public): show the error, clear the buttons.
-        return JsonResponse({
-            "type": RESPONSE_UPDATE_MESSAGE,
-            "data": {"content": error, "embeds": [], "components": []},
-        })
+        return None, None, None, None, None, error
 
     # If the Vagabond faction was drafted, roll a specific vagabond to play it;
     # if Knaves of the Deepwood was drafted, roll its 4 captains. (The two are
@@ -3364,11 +3367,6 @@ def _handle_draft_build(payload):
     vagabond = _random_draft_vagabond(platform) if "vagabond" in drawn else None
     captains = _random_draft_captains(platform) if "knaves-of-the-deepwood" in drawn else None
 
-    # If used inside an LFG thread, record the drafted factions plus the rolled
-    # vagabond / captains onto the LFGThread. Everything here is slugs and ids:
-    # the payload is JSON-serialized by Celery, so a model instance would raise
-    # EncodeError -- and this call is NOT wrapped in try/except, so that would
-    # replace an already-delivered draft with an error message.
     titles = {slug: title for slug, title, _ftype in factions}
     items = [{"kind": "Faction", "slug": slug, "title": titles.get(slug, slug)} for slug in drawn]
     if vagabond:
@@ -3376,11 +3374,6 @@ def _handle_draft_build(payload):
     if captains:
         items.extend(_lfg_item("Captain", c) for c in captains)
 
-    # The drafter's Discord id (LAST custom_id arg -- the has_draft flag sits before
-    # it), resolved to a Profile in the worker so no extra query lands in this
-    # 3-second interaction budget.
-    _action_id, id_args = decode_custom_id(payload["data"]["custom_id"])
-    owner = id_args[-1] if id_args else ""
     # The vagabond attaches to the pick that drew "vagabond", and the captains to
     # the one that drew "knaves-of-the-deepwood" -- never to picks[0]. The two are
     # mutually exclusive (DRAFT_EXCLUSIONS), so at most one pick carries either.
@@ -3397,6 +3390,36 @@ def _handle_draft_build(payload):
             for i, slug in enumerate(drawn, 1)
         ],
     }
+    return drawn, vagabond, captains, items, draft_payload, None
+
+
+def _handle_draft_build(payload):
+    """Build button: recover bans from the message's select state, build the draft,
+    and edit the public prompt message into the result embed in place."""
+    _action, players, platform = _parse_draft_state(payload["data"]["custom_id"])
+    # A button press doesn't echo the select's values, so recover them from the
+    # message's persisted select state.
+    banned_slugs = set(selected_values(payload, "draft_select"))
+    factions = _draft_eligible_factions(platform, players)
+
+    # The drafter's Discord id (LAST custom_id arg -- the has_draft flag sits before
+    # it), resolved to a Profile in the worker so no extra query lands in this
+    # 3-second interaction budget.
+    _action_id, id_args = decode_custom_id(payload["data"]["custom_id"])
+    owner = id_args[-1] if id_args else ""
+
+    drawn, vagabond, captains, items, draft_payload, error = _draft_build_result(
+        factions, banned_slugs, players, platform, owner)
+    if error:
+        # Public edit (the message is public): show the error, clear the buttons.
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": error, "embeds": [], "components": []},
+        })
+
+    # If used inside an LFG thread, record the drafted factions plus the rolled
+    # vagabond / captains onto the LFGThread. NOT wrapped in try/except: a failure
+    # here would otherwise replace an already-delivered draft with an error.
     _capture_lfg_components(payload.get("channel_id"), items,
                             source="draft", draft=draft_payload)
 
@@ -3717,7 +3740,10 @@ def _handle_draft_seat(payload):
     previous order)."""
     thread = _lfg_thread_for_channel(payload.get("channel_id"))
     if not thread:
-        return _ephemeral("This isn't a game thread anymore.")
+        # Type 7, not an ephemeral: this prompt carries Yes/No buttons, and an
+        # ephemeral cannot edit the message it came from -- the buttons would stay
+        # live and keep erroring with no way to dismiss them.
+        return _pick_retire_panel("This isn't a game thread anymore.")
     profiles = list(thread.players.all())
     if len(profiles) < 2:
         return _ephemeral("Not enough players in this thread to seat.")
@@ -3791,7 +3817,7 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
 # permissions on, so gating it would block a moderator fixing a mis-recorded game
 # without actually protecting anything. /rename keeps its own host-only rule.
 ROSTER_GUARDED_COMMANDS = {
-    "pick", "seating", "draft", "schedule", "random",
+    "pick", "seating", "draft", "adset", "schedule", "random",
     *LOOKUP_QUERYSETS,   # faction, clockwork, map, deck, vagabond, landmark,
                          # hireling, houserule -- all capture into the roll log
 }
@@ -4064,13 +4090,57 @@ def _pick_pending_line(seats):
     return f"{', '.join(names[:-1])} & {names[-1]} pick."
 
 
-def _pick_seat_lines(thread, seats):
+# Stands in for a faction that has been taken, in the Factions row. Discord
+# cannot dim or grey a custom emoji (they are fixed images, and ~~strikethrough~~
+# draws a line across the picture), so a neutral placeholder is the only way to
+# mark one as spent -- and unlike simply dropping it, this keeps the row's LENGTH
+# and ORDER stable across the dozen in-place edits a pick session makes.
+PICK_TAKEN_MARK = "⭘"
+
+
+def _pick_faction_row(thread, pool, taken, force=False):
+    """The 'Factions' row: every DRAFTED faction in draft order, taken ones shown
+    as PICK_TAKEN_MARK. "" when the thread has no draft.
+
+    Draft-only on purpose. With a draft the pool is a short, deliberate set the
+    table chose, and showing it turns the panel into the whole picture. Without
+    one the pool is every official Stable faction, and a 13-emoji row would be
+    noise that pushes the board itself off the first screen.
+
+    Falls back to the title when a faction's emoji was never uploaded, matching
+    _draft_result_embed.
+
+    `force` renders the row for a pool the CALLER knows is a draft even though the
+    thread doesn't show one yet: /adset records its draft through Celery, so the
+    row would otherwise be blank on the very message that announces the draw.
+
+    getattr, NOT thread.draft: LFGDraft.thread is a OneToOne, so the reverse
+    accessor RAISES when there's no draft."""
+    if not force and getattr(thread, "draft", None) is None:
+        return ""
+    marks = [PICK_TAKEN_MARK if slug in taken else (faction_emoji_for(slug) or title)
+             for slug, title, _vb in pool]
+    return "Factions\n" + " ".join(marks)
+
+
+def _pick_seat_lines(thread, seats, pool=None, header=None, force_row=False):
     """The seat board both /pick messages show: one line per seat, with each taken
     seat's faction as `<emoji> <name>`.
 
     Shared so the panel and its follow-up can't drift: the follow-up REPLACES the
     panel message, so any difference here would show up as the board silently
     changing shape mid-pick.
+
+    `header` overrides the default "**Faction Picks**" / "**Faction Assignments**"
+    title, so /adset can keep one stable name across every phase of its single
+    message.
+
+    `pool` enables the Factions row above the board (see _pick_faction_row); it
+    renders only when the thread has a draft. Passed in rather than re-derived so
+    callers that already hold the pool don't pay for a second query. The row lives
+    HERE rather than at each call site because both consumers need it: the panel,
+    and the turn-order follow-up that REPLACES the panel -- omit it there and the
+    row would vanish mid-pick and reappear after, which reads as a bug.
 
     The emoji is a prefix, not a replacement -- faction_emoji_for returns "" for
     fan factions and for official ones whose emoji was never uploaded, and a name
@@ -4089,7 +4159,13 @@ def _pick_seat_lines(thread, seats):
     still None. (Not discarded_captain -- that is set only when exactly one
     captain was left over, which a full-pool offer never produces.)"""
     ordered = thread.seating_set
-    lines = ["**Faction Picks**" if ordered else "**Faction Assignments**", ""]
+    lines = [header or ("**Faction Picks**" if ordered else "**Faction Assignments**"), ""]
+    if pool is not None:
+        row = _pick_faction_row(
+            thread, pool, {s.faction.slug for s in seats if s.faction_id},
+            force=force_row)
+        if row:
+            lines += [row, ""]
     for seat in sorted(seats, key=lambda s: s.seat_number):
         who = seat.profile.name if seat.profile_id else "(removed player)"
         prefix = f"{seat.seat_number}. " if ordered else "• "
@@ -4150,9 +4226,14 @@ def _pick_undrafted_line(thread):
     return f"{prefix}Undrafted - {mark}"
 
 
-def _pick_panel_data(thread, seats, mode, owner, pool=None, notice=None):
+def _pick_panel_data(thread, seats, mode, owner, pool=None, notice=None, header=None):
     """The public pick panel, rebuilt from the DB on every interaction so the
     bot stays stateless and a stale message can never drive a write.
+
+    `header` overrides the board title so /adset keeps one name across its whole
+    single-message flow; it rides in the custom_id (see _pick_header) because the
+    downstream follow-up handlers rebuild this panel too. The Factions row needs
+    no such flag -- it derives from the thread's own draft.
 
     The seat whose turn it is is derived here, not carried in a custom_id -- that
     is what makes a double-click land on the same seat and be rejected as already
@@ -4170,7 +4251,7 @@ def _pick_panel_data(thread, seats, mode, owner, pool=None, notice=None):
     # numbers must not be shown as an order the players never agreed to.
     ordered = thread.seating_set
 
-    lines = _pick_seat_lines(thread, seats)
+    lines = _pick_seat_lines(thread, seats, pool=pool, header=header)
 
     nxt = _pick_next_seat(seats)
     if nxt is None:
@@ -4249,7 +4330,7 @@ def _pick_vagabond_pool():
 
 def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
                         placeholder, action, min_values=1, max_values=1,
-                        panel_id=""):
+                        panel_id="", pool=None, header=None):
     """A follow-up select for a faction that needs a second choice before the seat
     can be written (Vagabond, Knaves).
 
@@ -4277,7 +4358,9 @@ def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
       Abandoning it is already a no-op: the seat isn't written until this
       resolves, so the player can ignore it and pick again from the panel."""
     free = bool(panel_id)
-    lines = [] if free else _pick_seat_lines(thread, seats)
+    # `pool`/`header` only matter on the turn-order branch, which carries the whole
+    # board: free mode renders no board at all, so passing them there is harmless.
+    lines = [] if free else _pick_seat_lines(thread, seats, pool=pool, header=header)
     lines += ["", placeholder] if lines else [placeholder]
 
     select = string_select(
@@ -4298,7 +4381,7 @@ def _pick_followup_data(thread, seats, mode, owner, faction_slug, options,
 
 
 def _pick_vagabond_panel_data(thread, seats, mode, owner, faction_slug,
-                              panel_id=""):
+                              panel_id="", pool=None, header=None):
     """The "which Vagabond?" follow-up. All 12 vagabond variants share one Faction
     row, so without this the seat records Vagabond with no identity and Ranger and
     Thief collapse into the same record."""
@@ -4309,14 +4392,15 @@ def _pick_vagabond_panel_data(thread, seats, mode, owner, faction_slug,
     ]
     return _pick_followup_data(
         thread, seats, mode, owner, faction_slug, options,
-        "Which Vagabond?", "pick_vagabond", panel_id=panel_id)
+        "Which Vagabond?", "pick_vagabond", panel_id=panel_id,
+        pool=pool, header=header)
 
 
 PICK_CAPTAIN_CHOICES = 3
 
 
 def _pick_captains_panel_data(thread, seats, mode, owner, faction_slug, captains,
-                              panel_id=""):
+                              panel_id="", pool=None, header=None):
     """The "pick 3 of 4" follow-up for Knaves of the Deepwood.
 
     `captains` is the already-rolled offer, not the whole captain-capable pool:
@@ -4331,7 +4415,7 @@ def _pick_captains_panel_data(thread, seats, mode, owner, faction_slug, captains
         thread, seats, mode, owner, faction_slug, options,
         f"Choose {PICK_CAPTAIN_CHOICES} captains", "pick_captains",
         min_values=PICK_CAPTAIN_CHOICES, max_values=PICK_CAPTAIN_CHOICES,
-        panel_id=panel_id)
+        panel_id=panel_id, pool=pool, header=header)
 
 
 def _pick_followup_response(data, free):
@@ -4388,6 +4472,79 @@ def _pick_panel_id(args):
     if len(args) > 3 and args[3] != PICK_OPEN:
         return args[3]
     return ""
+
+
+# Marks a pick custom_id as belonging to an /adset flow, so the panel keeps its
+# own title instead of reverting to "**Faction Picks**" the first time a pick
+# handler rebuilds it. A single character: custom_ids cap at 100 and the
+# follow-up ids already carry mode, owner, faction slug and panel id.
+PICK_ADSET_FLAG = "x"
+ADSET_TITLE = "**Adset Draft**"
+
+
+def _pick_retire_panel(
+        text="This game's setup has expired — start again with `/pick`."):
+    """Retire a panel whose thread is gone: say why and REMOVE the controls.
+
+    Deliberately NOT _ephemeral. An ephemeral is a separate private message and
+    never edits the one it came from, so the panel would keep live buttons that
+    can only ever error again -- and because cleanup_stale_lfg_threads deletes
+    threads on a 30/180-day timer while Discord keeps message components forever,
+    that state is permanent and undismissable. Type 7 is the only response that
+    can actually take the buttons away; _handle_draft_clear does the same for its
+    own missing-thread case.
+
+    Only for "this message can never work again". Authorization refusals ("it's
+    someone else's turn", "only the players can stop this") stay ephemeral: those
+    address one clicker and must leave the shared panel intact for everyone else.
+    """
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": text, "embeds": [], "components": []},
+    })
+
+
+def _pick_close_panel(thread, channel_id, actor, panel_id=None, skip_id=None):
+    """Edit a superseded pick panel into a closing notice, best-effort.
+
+    `panel_id` overrides thread.pick_panel_id, because the caller usually has to
+    read it BEFORE _pick_clear (which nulls the field, so reading it here would
+    find nothing left to close).
+
+    `skip_id` is the id of the message the caller is ALREADY answering. Skipping
+    it is not an optimisation: the takeover button usually lives on the panel
+    itself (_handle_pick_mode turns the current message into the panel and
+    records that id), so PATCHing it here while the interaction response also
+    edits it would be two concurrent writes on one message with no defined
+    winner -- the race link_lfg_message_task documents.
+
+    Best-effort like _pick_refresh_panel: edit_channel_message never raises, and
+    the picks are already cleared by the time this runs, so a failed redraw must
+    never fail the takeover."""
+    panel_id = panel_id or thread.pick_panel_id
+    if not panel_id or (skip_id and str(panel_id) == str(skip_id)):
+        return
+    who = f" by {actor}" if actor else ""
+    result = edit_channel_message(
+        channel_id, panel_id,
+        content=f"Picks closed and restarted{who}.", components=[])
+    if result != THREAD_OK:
+        logger.warning("Could not close superseded pick panel %s in channel %s (%s).",
+                       panel_id, channel_id, result)
+
+
+def _pick_header(args):
+    """The board title carried by a pick custom_id, or None for plain /pick.
+
+    Read from a trailing FLAG rather than from the action prefix, because the
+    downstream follow-up handlers (pick_vagabond / pick_captains) only ever see
+    `pick_*` ids no matter which command opened the panel -- a prefix test would
+    be right at the mode handler and wrong everywhere after it.
+
+    Scanned rather than read positionally: pick ids vary in length (the follow-ups
+    carry a faction slug and panel id that the panel's own select does not), and
+    the flag must not disturb _pick_panel_id's args[3] slot."""
+    return ADSET_TITLE if PICK_ADSET_FLAG in args else None
 
 
 def _pick_dismiss_ephemeral(text):
@@ -4529,6 +4686,12 @@ def _pick_clear(thread):
     # and their history isn't ours to drop. Leaving pick rolls behind would keep
     # the record form narrowed to factions no seat holds any more.
     LFGRoll.objects.filter(thread=thread, source="pick").delete()
+
+    # The session is over, so its panel id must not outlive it -- a stale id
+    # would let the next takeover "close" an unrelated message.
+    if thread.pick_panel_id:
+        thread.pick_panel_id = None
+        thread.save(update_fields=["pick_panel_id"])
     return cleared
 
 
@@ -4563,14 +4726,19 @@ def _handle_pick_command(data):
         return _ephemeral(
             "Use this in a game thread or a player group's thread to pick factions.")
 
-    # One session at a time: a second panel would write to the same seats, so two
-    # tables could pick into one game. Stop is the way back to a clean slate.
-    if _pick_in_progress(thread):
-        return _ephemeral(
-            "Picking is already underway in this thread — use the panel above, "
-            "or press **Stop** on it to start over.")
-
     owner = data.get("_author_id")
+    # One session at a time: a second panel would write to the same seats, so two
+    # tables could pick into one game. Rather than refuse and send the table off to
+    # find a panel that may have scrolled away, offer to close it and start over --
+    # the same confirmation /adset shows, so both commands share one path back.
+    if _pick_in_progress(thread):
+        underway = list(thread.seats.select_related(
+            "profile", "faction", "vagabond").prefetch_related("captains"))
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _adset_takeover_data(thread, underway, owner, header=None),
+        })
+
     seats = list(thread.seats.select_related(
         "profile", "faction", "vagabond",
     ).prefetch_related("captains"))
@@ -4605,23 +4773,42 @@ def _handle_pick_command(data):
 
 def _handle_pick_mode(payload):
     """Mode chosen: open the first turn panel. The mode buttons end in the
-    invoker's snowflake, so the dispatcher has already locked them to them."""
+    invoker's snowflake, so the dispatcher has already locked them to them.
+
+    Serves BOTH `pick_mode` and `adset_mode`: the two differ only in the board
+    title, which rides in the custom_id as PICK_ADSET_FLAG (before the owner, so
+    the dispatcher's owner-lock still keys on the last arg). Registering one
+    function under two actions follows random_opt_* / _handle_random_option.
+
+    This is also where a panel is BORN -- both /pick prompts and /adset's phase 2
+    converge here, and the response edits this very message into the panel -- so
+    it is the one place that can record pick_panel_id. A slash command cannot: an
+    interaction response never reveals the id of the message it creates."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])
     mode = args[0] if args else PICK_MODE_PLAYERS
     owner = args[-1] if args else ""
+    header = _pick_header(args)
 
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
-        return _ephemeral("This isn't a game thread anymore.")
+        return _pick_retire_panel()
     seats = list(thread.seats.select_related(
         "profile", "faction", "vagabond",
     ).prefetch_related("captains"))
     if len(seats) < 2:
         return _ephemeral("Not enough players in this thread to pick factions.")
 
+    # Best-effort: the panel is already rendered below either way, and a failed
+    # write here only costs a later takeover its tidy-up of the superseded message.
+    message_id = (payload.get("message") or {}).get("id")
+    if message_id and thread.pick_panel_id != message_id:
+        thread.pick_panel_id = message_id
+        thread.save(update_fields=["pick_panel_id"])
+
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _pick_panel_data(thread, seats, mode, owner),
+        "data": _pick_panel_data(thread, seats, mode, owner,
+                                 pool=_pick_pool(thread), header=header),
     })
 
 
@@ -4638,7 +4825,7 @@ def _handle_pick_seat(payload):
     owner = args[-1] if args else ""
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
-        return _ephemeral("This isn't a game thread anymore.")
+        return _pick_retire_panel("This isn't a game thread anymore.")
 
     seats = _pick_seat_roster(thread, payload.get("channel_id"),
                               ordered=True, announce=False)
@@ -4658,7 +4845,7 @@ def _handle_pick_noseat(payload):
     owner = args[-1] if args else ""
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
-        return _ephemeral("This isn't a game thread anymore.")
+        return _pick_retire_panel("This isn't a game thread anymore.")
 
     seats = _pick_seat_roster(thread, payload.get("channel_id"), ordered=False)
     if len(seats) < 2:
@@ -4696,7 +4883,7 @@ def _pick_free_refusal(thread, seats, clicker, payload):
     return _ephemeral("You're not picking a faction in this game.")
 
 
-def _pick_turn(payload, mode, owner, panel_id=""):
+def _pick_turn(payload, mode, owner, panel_id="", header=None):
     """Resolve the thread and the seat whose turn it is, and authorize the
     clicker against it. Returns (thread, seats, seat, pool) or a JsonResponse to
     return as-is.
@@ -4714,7 +4901,7 @@ def _pick_turn(payload, mode, owner, panel_id=""):
     stops one player reading another's offer."""
     thread = _pick_thread_for_channel(payload.get("channel_id"))
     if not thread:
-        return _ephemeral("This isn't a game thread anymore.")
+        return _pick_retire_panel("This isn't a game thread anymore.")
 
     pool = _pick_pool(thread)
     seats = list(thread.seats.select_related(
@@ -4727,7 +4914,8 @@ def _pick_turn(payload, mode, owner, panel_id=""):
         # last picker's double-click must land on the finished board everyone else
         # sees, not on "you've already chosen".
         if _pick_next_seat(seats) is None:
-            data = _pick_panel_data(thread, seats, mode, owner, pool=pool)
+            data = _pick_panel_data(thread, seats, mode, owner, pool=pool,
+                                    header=header)
             # From a free-mode ephemeral (the table finished while this prompt sat
             # open): the finished board goes to the shared panel, and the prompt is
             # dismissed rather than becoming a private copy of it.
@@ -4747,7 +4935,8 @@ def _pick_turn(payload, mode, owner, panel_id=""):
     if seat is None:
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
-            "data": _pick_panel_data(thread, seats, mode, owner, pool=pool),
+            "data": _pick_panel_data(thread, seats, mode, owner, pool=pool,
+                                     header=header),
         })
 
     if mode == PICK_MODE_ASSIGN:
@@ -4761,7 +4950,7 @@ def _pick_turn(payload, mode, owner, panel_id=""):
 
 
 def _pick_stale_pool_response(thread, seats, mode, owner, pool, payload=None,
-                              panel_id=""):
+                              panel_id="", header=None):
     """A click landed on a faction the pool no longer contains: re-render the panel
     from the CURRENT pool instead of leaving stale options on screen.
 
@@ -4786,7 +4975,7 @@ def _pick_stale_pool_response(thread, seats, mode, owner, pool, payload=None,
     would duplicate it privately, the same trap _pick_dismiss_ephemeral exists to
     avoid."""
     data = _pick_panel_data(
-        thread, seats, mode, owner, pool=pool,
+        thread, seats, mode, owner, pool=pool, header=header,
         notice="The draft changed — these are the current factions.")
     if panel_id:
         _pick_refresh_panel(payload, panel_id, data)
@@ -4804,8 +4993,9 @@ def _handle_pick_faction(payload):
     _action, args = decode_custom_id(payload["data"]["custom_id"])
     mode = args[0] if args else PICK_MODE_PLAYERS
     owner = args[1] if len(args) > 1 else ""
+    header = _pick_header(args)
 
-    turn = _pick_turn(payload, mode, owner)
+    turn = _pick_turn(payload, mode, owner, header=header)
     if isinstance(turn, JsonResponse):
         return turn
     thread, seats, seat, pool = turn
@@ -4819,7 +5009,8 @@ def _handle_pick_faction(payload):
     # first -- a spectator must not be able to redraw the table's panel.
     entry = next((e for e in pool if e[0] == slug), None)
     if entry is None:
-        return _pick_stale_pool_response(thread, seats, mode, owner, pool)
+        return _pick_stale_pool_response(thread, seats, mode, owner, pool,
+                                         header=header)
     _slug, _title, vagabond_slug = entry
 
     faction = Faction.objects.filter(slug=slug).first()
@@ -4844,7 +5035,8 @@ def _handle_pick_faction(payload):
     if faction.slug == "vagabond" and vagabond is None:
         return _pick_followup_response(
             _pick_vagabond_panel_data(thread, seats, mode, owner, faction.slug,
-                                      panel_id=panel_id), free)
+                                      panel_id=panel_id, pool=pool,
+                                      header=header), free)
 
     # Knaves takes 3 of 4 ROLLED captains. The roll happens here and is parked on
     # the seat, because the bot is stateless and a custom_id can't carry a list --
@@ -4874,15 +5066,16 @@ def _handle_pick_faction(payload):
             return _pick_followup_response(
                 _pick_captains_panel_data(thread, seats, mode, owner,
                                           faction.slug, rolled,
-                                          panel_id=panel_id), free)
+                                          panel_id=panel_id, pool=pool,
+                                          header=header), free)
 
     return _pick_commit(payload, thread, seat, mode, owner, pool, faction,
-                        vagabond=vagabond)
+                        vagabond=vagabond, header=header)
 
 
 def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
                  vagabond=None, captains=None, discarded_captain=None,
-                 panel_id=""):
+                 panel_id="", header=None):
     """Write the seat and advance the panel. Shared by the plain faction path and
     by every follow-up, so the lock, the race checks and the roll capture have one
     implementation.
@@ -4945,7 +5138,14 @@ def _pick_commit(payload, thread, seat, mode, owner, pool, faction,
         items.extend(_lfg_item("Captain", c) for c in (captains or []))
         _capture_lfg_components(payload.get("channel_id"), items, source="pick")
 
-    data = _pick_panel_data(thread, seats, mode, owner, pool=pool)
+    # Board finished: the panel has no controls left, so there is nothing for a
+    # later takeover to close. Dropping the id here keeps it from pointing at a
+    # completed board that a restart would then "close" misleadingly.
+    if _pick_next_seat(seats) is None and thread.pick_panel_id:
+        thread.pick_panel_id = None
+        thread.save(update_fields=["pick_panel_id"])
+
+    data = _pick_panel_data(thread, seats, mode, owner, pool=pool, header=header)
     if panel_id:
         # Free mode: this interaction came from the player's own EPHEMERAL, so the
         # board goes to the shared panel and the prompt is merely dismissed. The
@@ -4971,8 +5171,9 @@ def _handle_pick_vagabond(payload):
     # Set only by a free-mode prompt, which was answered in an ephemeral -- the
     # shared panel it belongs to is a different message and needs refreshing.
     panel_id = _pick_panel_id(args)
+    header = _pick_header(args)
 
-    turn = _pick_turn(payload, mode, owner, panel_id=panel_id)
+    turn = _pick_turn(payload, mode, owner, panel_id=panel_id, header=header)
     if isinstance(turn, JsonResponse):
         return turn
     thread, seats, seat, pool = turn
@@ -4983,7 +5184,8 @@ def _handle_pick_vagabond(payload):
 
     if not any(e[0] == faction_slug for e in pool):
         return _pick_stale_pool_response(thread, seats, mode, owner, pool,
-                                         payload=payload, panel_id=panel_id)
+                                         payload=payload, panel_id=panel_id,
+                                         header=header)
     faction = Faction.objects.filter(slug=faction_slug).first()
     if not faction:
         return _ephemeral("That faction couldn't be found anymore.")
@@ -4993,7 +5195,7 @@ def _handle_pick_vagabond(payload):
         return _ephemeral("That vagabond couldn't be found anymore.")
 
     return _pick_commit(payload, thread, seat, mode, owner, pool, faction,
-                        vagabond=vagabond, panel_id=panel_id)
+                        vagabond=vagabond, panel_id=panel_id, header=header)
 
 
 def _handle_pick_captains(payload):
@@ -5009,8 +5211,9 @@ def _handle_pick_captains(payload):
     # Set only by a free-mode prompt, which was answered in an ephemeral -- the
     # shared panel it belongs to is a different message and needs refreshing.
     panel_id = _pick_panel_id(args)
+    header = _pick_header(args)
 
-    turn = _pick_turn(payload, mode, owner, panel_id=panel_id)
+    turn = _pick_turn(payload, mode, owner, panel_id=panel_id, header=header)
     if isinstance(turn, JsonResponse):
         return turn
     thread, seats, seat, pool = turn
@@ -5021,7 +5224,8 @@ def _handle_pick_captains(payload):
 
     if not any(e[0] == faction_slug for e in pool):
         return _pick_stale_pool_response(thread, seats, mode, owner, pool,
-                                         payload=payload, panel_id=panel_id)
+                                         payload=payload, panel_id=panel_id,
+                                         header=header)
     faction = Faction.objects.filter(slug=faction_slug).first()
     if not faction:
         return _ephemeral("That faction couldn't be found anymore.")
@@ -5043,7 +5247,8 @@ def _handle_pick_captains(payload):
 
     return _pick_commit(payload, thread, seat, mode, owner, pool, faction,
                         captains=[offered[v] for v in values],
-                        discarded_captain=discarded, panel_id=panel_id)
+                        discarded_captain=discarded, panel_id=panel_id,
+                        header=header)
 
 
 def _pick_actor_name(payload):
@@ -5089,7 +5294,7 @@ def _handle_pick_cancel(payload):
     channel_id = payload.get("channel_id")
     thread = _pick_thread_for_channel(channel_id)
     if not thread:
-        return _ephemeral("This isn't a game thread anymore.")
+        return _pick_retire_panel("This isn't a game thread anymore.")
 
     # The roster resolves by thread id alone: a button payload carries no channel
     # name, and /pick already linked a group thread to its player group before any
@@ -5123,6 +5328,641 @@ def _handle_pick_cancel(payload):
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": content, "components": [],
                  "allowed_mentions": {"parse": []}},
+    })
+
+
+# ── /adset ─────────────────────────────────────────────────────────────────
+# /seating + /draft + /pick as ONE message, edited in place through every phase.
+# Nothing here re-implements those commands: the writes (_persist_seating,
+# _pick_seat_roster, _draft_build_result, _pick_commit) and the board renderer
+# (_pick_panel_data) are the same functions, reached from a different front end.
+#
+# Phase 0 join gate -> 1 bans -> 2 mode -> 3 picking (handed to /pick's engine).
+
+# Phase 0's roster lives in an embed field, exactly as /lfg's does, and is written
+# to thread.players only on Start. Join is a TOGGLE, so per-click writes would
+# delete-and-reinsert the M2M on every leave and strand a half-built roster on an
+# abandoned setup.
+ADSET_PLAYERS_FIELD = "Players"
+
+
+def _adset_thread(payload_or_data, key="_channel_id"):
+    """The LFGThread for this interaction, or None outside a game/group thread."""
+    return _pick_thread_for_channel(payload_or_data.get(key))
+
+
+def _role_valid_in(role, parent_id):
+    """Whether an LFG tag can legitimately apply to a thread under `parent_id`.
+
+    A tag with a forum_channel_id belongs to ONE forum, so offering it in a thread
+    somewhere else would attach a tag whose whole purpose is a home this thread
+    doesn't have. A tag without one is unbound and always valid.
+
+    Fails CLOSED when parent_id is unknown, unlike /lfg's equivalent check, which
+    fails open. /lfg is deciding whether to block a game the user asked for, so a
+    wrong guess costs them the game; here the only cost is a tag not being
+    offered, and wrongly attaching a forum-bound tag is the worse outcome."""
+    if not role.forum_channel_id:
+        return True
+    if not parent_id:
+        return False
+    return str(parent_id) == str(role.forum_channel_id)
+
+
+def _adset_roles(guild_id, parent_id, thread):
+    """The LFG tags worth offering in phase 0: none when the thread already has a
+    role (it keeps the one it has), else the guild's tags filtered to those valid
+    in this channel.
+
+    Returned as a list so the caller can test emptiness and skip the select
+    entirely -- Discord rejects a zero-option select."""
+    if thread is not None and thread.lfg_role_id:
+        return []
+    guild = DiscordGuild.objects.filter(guild_id=guild_id).first() if guild_id else None
+    if not guild:
+        return []
+    return [r for r in guild.lfg_roles.all() if _role_valid_in(r, parent_id)]
+
+
+def _adset_cancel_data(text="Adset draft cancelled."):
+    """Retire the /adset message: a short notice, no controls, no embed."""
+    return {"content": text, "embeds": [], "components": []}
+
+
+def _adset_join_data(owner, players=None, roles=None, role_pk=None):
+    """Phase 0: the join gate.
+
+    The roster rides in an embed FIELD (like /lfg) rather than in the content,
+    because the content is reserved for the board in later phases and an embed
+    field parses back reliably via _lfg_player_lines.
+
+    `roles` is the ALREADY-FILTERED tag list (see _adset_roles); this builder makes
+    no channel decisions. The select is omitted entirely when it's empty, and is
+    optional (min_values=0) even with a single tag -- unlike /lfg's SINGLE variant,
+    which silently uses the sole tag with no way to decline."""
+    players = players or []
+    value = "\n".join(_lfg_player_line(p["name"], p["id"]) for p in players) or "—"
+    embed = {
+        "title": ADSET_TITLE.strip("*"),
+        "fields": [{"name": ADSET_PLAYERS_FIELD, "value": value, "inline": False}],
+    }
+    rows = []
+    if roles:
+        rows.append(action_row(string_select(
+            encode_custom_id("adset_role", owner),
+            [select_option(r.name, str(r.pk), default=(str(r.pk) == str(role_pk)))
+             for r in roles[:25]],
+            placeholder="LFG tag (optional)", min_values=0, max_values=1)))
+    # Join is open to anyone (trailing "g" keeps the dispatcher's owner-lock off);
+    # Start and Cancel end in the host's snowflake, so they are locked to them.
+    rows.append(action_row(
+        button("Join", encode_custom_id("adset_join", owner, "g"), style=STYLE_PRIMARY),
+        button("Start", encode_custom_id("adset_start", owner), style=STYLE_SUCCESS,
+               emoji={"name": "✔"}),
+        button("Cancel", encode_custom_id("adset_cancel", owner), style=STYLE_SECONDARY,
+               emoji={"name": "✖"}),
+    ))
+    return {"content": "", "embeds": [embed], "components": rows,
+            "allowed_mentions": {"parse": []}}
+
+
+def _adset_ban_data(thread, seats, factions, banned_slugs, owner, has_draft=False,
+                    preseated=False):
+    """Phase 1: the seat list, a faction-ban select, and Build.
+
+    Mirrors _draft_ui_data's custom_id layout (players, platform, has_draft, owner)
+    so _parse_draft_state reads them unchanged; platform is always TTS here.
+
+    `preseated` is whether the seating EXISTED BEFORE this /adset run, which is not
+    the same as thread.seating_set: /adset seats the table itself on entry, so by
+    the time this renders the flag is always True. Only a pre-existing order is
+    worth remarking on -- announcing "already has a seating order" about one we
+    just created a moment ago would be nonsense. Reseat, by contrast, keys on
+    seating_set: it is offered whenever there is an order to replace."""
+    players = len([s for s in seats if s.profile_id])
+    options = [
+        select_option(title, slug, emoji=faction_emoji_object(slug),
+                      default=slug in banned_slugs)
+        for slug, title, _type in factions
+    ]
+    lines = [ADSET_TITLE, ""]
+    lines += [f"{s.seat_number}. "
+              f"{s.profile.name if s.profile_id else '(removed player)'}"
+              for s in sorted(seats, key=lambda s: s.seat_number)]
+    if preseated:
+        lines.append("")
+        lines.append("-# This game already had a seating order — Reseat to reshuffle.")
+    if has_draft:
+        lines.append("-# This thread already has a draft — building **replaces** it.")
+
+    row = [button("Build Draft",
+                  encode_custom_id("adset_build", players, "tts",
+                                   "d" if has_draft else "n", owner),
+                  style=STYLE_SUCCESS)]
+    if thread.seating_set:
+        row.append(button("Reseat", encode_custom_id("adset_reseat", owner),
+                          style=STYLE_DANGER))
+    if has_draft:
+        row.append(button("Clear Draft", encode_custom_id("adset_clear", owner),
+                          style=STYLE_DANGER))
+    row.append(button("Cancel", encode_custom_id("adset_cancel", owner),
+                      style=STYLE_SECONDARY))
+
+    select = string_select(
+        encode_custom_id("adset_select", players, "tts",
+                         "d" if has_draft else "n", owner),
+        options, placeholder="Select factions to ban (optional)",
+        min_values=0, max_values=len(options))
+    return {"content": "\n".join(lines), "embeds": [],
+            "components": [action_row(select), action_row(*row)],
+            "allowed_mentions": {"parse": []}}
+
+
+def _adset_mode_data(thread, seats, pool, owner, force_row=False):
+    """Phase 2: the drafted factions, the seats, and how to fill them.
+
+    The board comes from _pick_seat_lines so the Factions row and seat rendering
+    are identical to the panel that follows -- this message becomes that panel."""
+    lines = _pick_seat_lines(thread, seats, pool=pool, header=ADSET_TITLE,
+                             force_row=force_row)
+    turn = "in seat order" if thread.seating_set else "in turn"
+    lines += ["", f"Assign every faction yourself, or let each player pick {turn}?"]
+    reminder = _pick_setup_reminder(thread)
+    if reminder:
+        lines.append(reminder.lstrip("\n"))
+    return {
+        "content": "\n".join(lines), "embeds": [],
+        "components": [action_row(
+            # PICK_ADSET_FLAG sits BEFORE the owner so the dispatcher's owner-lock
+            # still keys on the last arg; _pick_header reads it back downstream.
+            button("Players pick",
+                   encode_custom_id("adset_mode", PICK_MODE_PLAYERS,
+                                    PICK_ADSET_FLAG, owner),
+                   style=STYLE_SUCCESS),
+            button("Assign all",
+                   encode_custom_id("adset_mode", PICK_MODE_ASSIGN,
+                                    PICK_ADSET_FLAG, owner),
+                   style=STYLE_PRIMARY),
+            button("Redraft", encode_custom_id("adset_redraft", owner),
+                   style=STYLE_DANGER),
+            button("Cancel", encode_custom_id("adset_cancel", owner),
+                   style=STYLE_SECONDARY),
+        )],
+        "allowed_mentions": {"parse": []},
+    }
+
+
+def _adset_takeover_data(thread, seats, owner, header=ADSET_TITLE):
+    """The confirmation shown when picks are already underway.
+
+    Renders the live board so the clicker sees exactly which picks Continue would
+    discard -- they are being asked to throw away named work, not an abstraction.
+
+    Both buttons end in PICK_OPEN rather than a snowflake, so the dispatcher's
+    owner-lock stays off and the handlers apply _handle_pick_cancel's roster gate
+    instead: a pick session can outlive whoever started it, and any player at the
+    table may restart it."""
+    lines = _pick_seat_lines(thread, seats, header=header)
+    lines += ["", "Continuing will clear these picks and start over. "
+                  "The seating is kept."]
+    return {
+        "content": "\n".join(lines), "embeds": [],
+        "components": [action_row(
+            button("Continue",
+                   encode_custom_id("adset_takeover", owner,
+                                    PICK_ADSET_FLAG if header else "p",
+                                    PICK_OPEN),
+                   style=STYLE_DANGER),
+            button("Cancel", encode_custom_id("adset_cancel", owner, PICK_OPEN),
+                   style=STYLE_SECONDARY),
+        )],
+        "allowed_mentions": {"parse": []},
+    }
+
+
+def _adset_entry(thread, data, owner):
+    """Response DATA for the first /adset phase whose work isn't already done, or
+    an (error_response, None) pair when the flow can't start.
+
+    Returns (data, error) -- never a JsonResponse -- because the caller decides the
+    response TYPE: /adset itself posts (type 4) while every button that re-enters
+    here edits in place (type 7). Baking in type 4 would make each of those post a
+    SECOND message and break the single-message premise outright.
+
+    Deliberately does NOT check _pick_in_progress: its callers do. Putting that
+    check here would mean _handle_adset_takeover -- which calls _pick_clear and
+    then this -- depends on its own write already being visible to avoid being
+    handed back the prompt it just answered.
+
+    Seating is created only when absent: reshuffling an order the table already
+    agreed on is exactly what _offer_lfg_seating refuses to do after a draft."""
+    channel_id = data.get("_channel_id")
+    if not thread.players.exists() and not thread.series_id:
+        roles = _adset_roles(data.get("_guild_id"),
+                             data.get("_channel_parent_id"), thread)
+        host = {"id": owner, "name": _author_display_from_data(data)}
+        return _adset_join_data(owner, players=[host], roles=roles), None
+
+    # Captured BEFORE seating: /adset seats the table itself when there is no
+    # order yet, so afterwards seating_set is always True and can no longer tell
+    # "the table already had an order" from "we just made one".
+    preseated = thread.seating_set
+    seats = list(thread.seats.select_related("profile", "faction", "vagabond")
+                 .prefetch_related("captains"))
+    if not thread.seating_set:
+        seats = _pick_seat_roster(thread, channel_id, ordered=True, announce=False)
+    if len([s for s in seats if s.profile_id]) < 2:
+        return None, _ephemeral("This game doesn't have enough players yet.")
+
+    if getattr(thread, "draft", None) is not None:
+        return _adset_mode_data(thread, seats, _pick_pool(thread), owner), None
+
+    players = len([s for s in seats if s.profile_id])
+    factions = _draft_eligible_factions(DRAFT_PLATFORM_TTS, players)
+    if len(factions) < players + 1:
+        return None, _ephemeral(
+            f"Only {len(factions)} eligible factions; need {players + 1} for a "
+            f"{players}-player draft.")
+    return _adset_ban_data(thread, seats, factions, set(), owner,
+                           preseated=preseated), None
+
+
+def _handle_adset_command(data):
+    """/adset: seat the players and draft factions, all in one message."""
+    thread = _adset_thread(data)
+    if not thread:
+        return _ephemeral(
+            "Use this in a game thread or a player group's thread to set up a game.")
+
+    owner = data.get("_author_id")
+    seats = list(thread.seats.select_related("profile", "faction", "vagabond")
+                 .prefetch_related("captains"))
+    if _pick_in_progress(thread):
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _adset_takeover_data(thread, seats, owner),
+        })
+
+    payload_data, error = _adset_entry(thread, data, owner)
+    if error:
+        return error
+    return JsonResponse({"type": RESPONSE_CHANNEL_MESSAGE, "data": payload_data})
+
+
+def _adset_component_data(payload):
+    """The `data`-shaped dict a component handler needs to re-enter _adset_entry.
+
+    The dispatcher only stashes _channel_* for SLASH commands, so a button payload
+    has to assemble the same keys itself."""
+    channel = payload.get("channel") or {}
+    return {
+        "_channel_id": payload.get("channel_id"),
+        "_channel_parent_id": channel.get("parent_id"),
+        "_guild_id": payload.get("guild_id"),
+        "_author": _interaction_author(payload),
+    }
+
+
+def _adset_resume(payload, thread, owner):
+    """Re-enter the flow from a button: same phases, but editing in place."""
+    payload_data, error = _adset_entry(thread, _adset_component_data(payload), owner)
+    if error:
+        return error
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": payload_data})
+
+
+def _handle_adset_cancel(payload):
+    """Cancel: retire the message without touching anything already written.
+
+    Serves phases 0-2. Reached with two custom_id shapes -- `adset_cancel:{owner}`
+    on the setup phases (owner-locked by the dispatcher) and
+    `adset_cancel:{owner}:g` on the takeover prompt (open, matching the Continue
+    button beside it) -- so nothing here reads the owner positionally.
+
+    NOT an undo: seating written on entry and a draft built in phase 1 both
+    survive, the same way _draft_clear and _pick_clear each preserve what they
+    don't own. Clear Draft and Reseat are the deliberate ways to undo those."""
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": _adset_cancel_data()})
+
+
+def _handle_adset_join(payload):
+    """Join (anyone, toggle): add or remove the clicker from the pending roster.
+
+    Mirrors _handle_lfg_join exactly, including its 1024-char field cap and the
+    host-can't-leave rule, and writes NOTHING to thread.players -- the roster is
+    committed only by Start."""
+    try:
+        embed = payload["message"]["embeds"][0]
+        clicker = _interaction_user_id(payload)
+        field = _lfg_field(embed, ADSET_PLAYERS_FIELD)
+        if field is None:
+            return _ephemeral("Couldn't update the game, try again.")
+
+        _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+        owner = args[0] if args else None
+
+        players = _lfg_player_lines(embed)
+        if clicker in {p["id"] for p in players}:
+            if clicker == owner:
+                return _ephemeral(
+                    "You're hosting this game and can't leave it, but you can "
+                    "cancel it with ✖.")
+            players = [p for p in players if p["id"] != clicker]
+        else:
+            display = _lfg_member_display_name(payload)
+            candidate = players + [{"id": clicker, "name": display}]
+            value = "\n".join(_lfg_player_line(p["name"], p["id"]) for p in candidate)
+            # Discord caps an embed field at 1024 chars; refuse rather than send an
+            # edit it would reject, which would drop the whole update.
+            if len(value) > 1024:
+                return _ephemeral("This game already has too many players to add you.")
+            players = candidate
+            user = (payload.get("member") or {}).get("user") or {}
+            ensure_profile_from_discord_task.delay(
+                clicker, user.get("username"), display)
+
+        # Re-emit the tag select WITH its current selection: this rebuilds the whole
+        # message, so a dropped default=True would silently discard the host's
+        # choice (the failure _handle_draft_select documents for bans).
+        thread = _adset_thread(payload, "channel_id")
+        roles = _adset_roles(payload.get("guild_id"),
+                             (payload.get("channel") or {}).get("parent_id"), thread)
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _adset_join_data(
+                owner, players=players, roles=roles,
+                role_pk=(selected_values(payload, "adset_role") or [None])[0]),
+        })
+    except (KeyError, IndexError, TypeError):
+        logger.exception("Error handling adset_join")
+        return _ephemeral("Couldn't update the game, try again.")
+
+
+def _handle_adset_role(payload):
+    """Tag select changed: re-render phase 0 with the choice marked default=True.
+
+    Writes nothing -- like the roster, the choice lives in the message until Start.
+    Owner-locked by its trailing snowflake."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    try:
+        embed = payload["message"]["embeds"][0]
+        players = _lfg_player_lines(embed)
+    except (KeyError, IndexError, TypeError):
+        players = []
+    thread = _adset_thread(payload, "channel_id")
+    roles = _adset_roles(payload.get("guild_id"),
+                         (payload.get("channel") or {}).get("parent_id"), thread)
+    chosen = (payload["data"].get("values") or [None])[0]
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _adset_join_data(owner, players=players, roles=roles, role_pk=chosen),
+    })
+
+
+def _handle_adset_start(payload):
+    """Start (host only): commit the pending roster, then open phase 1.
+
+    The roster is resolved to Profiles and written HERE rather than in the task,
+    because the very next message lists the seats and must be rendered
+    synchronously -- deferring would leave Start clickable and let a second press
+    enqueue a duplicate.
+
+    create_lfg_thread_task still runs, for the parts only it does: adopting the
+    thread, recording the host, and applying a forum tag. It is passed
+    kickoff=False (everyone is already here and just clicked Join) and role_pk
+    rather than role_id (a display-only tag has no snowflake)."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    channel_id = payload.get("channel_id")
+
+    try:
+        embed = payload["message"]["embeds"][0]
+        players = _lfg_player_lines(embed)
+    except (KeyError, IndexError, TypeError):
+        logger.exception("Error reading the adset roster")
+        return _pick_retire_panel("Couldn't read this game's players — run `/adset` again.")
+
+    if len(players) < 2:
+        # Before any mutation, so the message stays joinable.
+        return _ephemeral(
+            "You can't start with only one player — wait for someone to press Join.")
+
+    thread = _adset_thread(payload, "channel_id")
+    if not thread:
+        thread, _created = LFGThread.objects.get_or_create(thread_id=channel_id)
+
+    # Re-validate the tag server-side: a select echoes whatever it is sent, so the
+    # filter that built it is a UI affordance, not a boundary. Any failure degrades
+    # to no tag rather than erroring, matching /lfg's plain_post() fallback.
+    role_pk = (selected_values(payload, "adset_role") or [None])[0]
+    role = None
+    if role_pk:
+        guild = DiscordGuild.objects.filter(
+            guild_id=payload.get("guild_id")).first()
+        role = GuildLFGRole.objects.filter(pk=role_pk, guild=guild).first() if guild else None
+        if role and not _role_valid_in(
+                role, (payload.get("channel") or {}).get("parent_id")):
+            role = None
+
+    profiles = [ensure_profile_from_discord(p["id"], None, p.get("name"))
+                for p in players]
+    resolved = [p for p in profiles if p]
+    if len(resolved) < 2:
+        logger.error("adset start in thread %s resolved %d/%d profiles",
+                     channel_id, len(resolved), len(players))
+        return _ephemeral("Couldn't look up these players — try again in a moment.")
+    thread.players.set(resolved)
+    if role and not thread.lfg_role_id:
+        thread.lfg_role = role
+        thread.save(update_fields=["lfg_role"])
+
+    try:
+        create_lfg_thread_task.delay(
+            channel_id, (payload.get("message") or {}).get("id"),
+            payload.get("guild_id"), None, thread.description or "", players,
+            host_id=owner, in_thread=True, send_kickoff=False,
+            role_pk=str(role.pk) if role else None,
+        )
+    except TypeError:
+        # A signature mismatch is OUR bug, not a broker outage, and swallowing it
+        # would mean adoption silently never runs while the flow still looks fine.
+        raise
+    except Exception:
+        # The roster is already written and the flow can continue; only the host
+        # attribution and forum tag are lost, so a broker outage must not cost the
+        # user the game they just started.
+        logger.exception("Could not enqueue adset thread adoption for %s", channel_id)
+
+    return _adset_resume(payload, thread, owner)
+
+
+def _handle_adset_select(payload):
+    """Ban select changed: re-render phase 1 with the bans marked default=True."""
+    custom_id = payload["data"]["custom_id"]
+    _action, args = decode_custom_id(custom_id)
+    owner = args[-1] if args else ""
+    has_draft = len(args) >= 3 and args[2] == "d"
+    thread = _adset_thread(payload, "channel_id")
+    if not thread:
+        return _pick_retire_panel("This isn't a game thread anymore.")
+    seats = list(thread.seats.select_related("profile"))
+    players = max(2, min(6, len([s for s in seats if s.profile_id]) or 4))
+    factions = _draft_eligible_factions(DRAFT_PLATFORM_TTS, players)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _adset_ban_data(
+            thread, seats, factions,
+            set(payload["data"].get("values", [])),  # this select echoes its values
+            owner, has_draft=has_draft),
+    })
+
+
+def _handle_adset_build(payload):
+    """Build: draw the draft, record it, and edit into phase 2.
+
+    Shares _draft_build_result with /draft -- the draw, the vagabond/captains
+    rolls and the Celery-safe payload are identical. Only the presentation
+    differs: /draft renders an embed and offers seating, this edits into the mode
+    prompt. No followup is sent; that would break the single-message flow."""
+    _action, players, platform = _parse_draft_state(payload["data"]["custom_id"])
+    _action_id, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+
+    thread = _adset_thread(payload, "channel_id")
+    if not thread:
+        return _pick_retire_panel("This isn't a game thread anymore.")
+
+    banned_slugs = set(selected_values(payload, "adset_select"))
+    factions = _draft_eligible_factions(platform, players)
+    # `_captains` is unused here: unlike /draft, which names them in its result
+    # embed, this phase shows only the faction row -- the captains surface later,
+    # on the seat that takes Knaves.
+    drawn, vagabond, _captains, items, draft_payload, error = _draft_build_result(
+        factions, banned_slugs, players, platform, owner)
+    if error:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": {"content": error, "embeds": [], "components": []},
+        })
+
+    _capture_lfg_components(payload.get("channel_id"), items,
+                            source="draft", draft=draft_payload)
+
+    # The draft is recorded through Celery, so thread.draft isn't visible yet.
+    # Render phase 2 from the pool we just drew rather than re-reading it.
+    titles = {slug: title for slug, title, _t in factions}
+    pool = [(slug,
+             titles.get(slug, slug),
+             vagabond.slug if (slug == "vagabond" and vagabond) else None)
+            for slug in drawn]
+    seats = list(thread.seats.select_related("profile", "faction", "vagabond")
+                 .prefetch_related("captains"))
+    # force_row: the draft was just handed to Celery, so thread.draft isn't
+    # visible yet and the row would otherwise be blank on the very message that
+    # announces the draw.
+    data = _adset_mode_data(thread, seats, pool, owner, force_row=True)
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
+
+
+def _handle_adset_reseat(payload):
+    """Reseat: shuffle the seating again, then re-render phase 1.
+
+    Refused once any faction is committed -- reshuffling seats that hold factions
+    would scramble a table mid-pick."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    thread = _adset_thread(payload, "channel_id")
+    if not thread:
+        return _pick_retire_panel("This isn't a game thread anymore.")
+    if _pick_in_progress(thread):
+        return _ephemeral(
+            "Factions have already been picked — press Stop on the pick panel "
+            "before reseating.")
+    profiles = _pick_roster(thread, payload.get("channel_id"))
+    if len(profiles) < 2:
+        return _ephemeral("This game doesn't have enough players yet.")
+    _persist_seating(thread, profiles)
+    return _adset_resume(payload, thread, owner)
+
+
+def _handle_adset_redraft(payload):
+    """Redraft: back to the ban UI, with the existing draft still in place.
+
+    Writes nothing -- the replacement happens on Build, so backing out here costs
+    the table nothing."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    thread = _adset_thread(payload, "channel_id")
+    if not thread:
+        return _pick_retire_panel("This isn't a game thread anymore.")
+    seats = list(thread.seats.select_related("profile"))
+    players = max(2, min(6, len([s for s in seats if s.profile_id]) or 4))
+    factions = _draft_eligible_factions(DRAFT_PLATFORM_TTS, players)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _adset_ban_data(thread, seats, factions, set(), owner,
+                                has_draft=True),
+    })
+
+
+def _handle_adset_clear(payload):
+    """Clear Draft: drop the draft without building a new one, then re-render."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[-1] if args else ""
+    thread = _adset_thread(payload, "channel_id")
+    if not thread:
+        return _pick_retire_panel("This isn't a game thread anymore.")
+    _draft_clear(thread)
+    return _adset_resume(payload, thread, owner)
+
+
+def _handle_adset_takeover(payload):
+    """Continue: clear the in-progress picks and restart the flow.
+
+    Authorized against the ROSTER, not the host: this button carries PICK_OPEN so
+    the dispatcher's owner-lock is off, and _handle_pick_cancel already
+    establishes that any player may end a session (it can outlive whoever started
+    it). Same gate, same three outcomes, same copy."""
+    channel_id = payload.get("channel_id")
+    thread = _adset_thread(payload, "channel_id")
+    if not thread:
+        return _pick_retire_panel("This isn't a game thread anymore.")
+
+    roster = _pick_roster(thread, channel_id)
+    _me, status = _resolve_clicker(
+        roster, _interaction_user_id(payload), _clicker_username(payload))
+    if status == CLICKER_UNLINKED:
+        return _ephemeral(
+            "You're one of this game's players, but your Discord isn't linked to "
+            f"your site account yet. Log in{_login_hint()} with Discord once, then "
+            "try again.")
+    if status != CLICKER_MATCHED:
+        return _ephemeral("Only the players in this game can restart the picks.")
+
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    owner = args[0] if args else ""
+    # args[1] records which command opened the prompt, so Continue returns to that
+    # flow rather than always landing in /adset's phases.
+    from_adset = len(args) > 1 and args[1] == PICK_ADSET_FLAG
+    actor = _pick_actor_name(payload)
+    # Read the panel id BEFORE clearing: _pick_clear nulls it (so a stale id can't
+    # outlive its session), which would leave nothing to close here.
+    panel_id = thread.pick_panel_id
+    _pick_clear(thread)
+    # Skip the message we're about to edit: the panel is often THIS message, and
+    # PATCHing it while the interaction response also edits it is two writes
+    # racing on one message with no defined winner.
+    _pick_close_panel(thread, channel_id, actor, panel_id=panel_id,
+                      skip_id=(payload.get("message") or {}).get("id"))
+    if from_adset:
+        return _adset_resume(payload, thread, owner)
+    # /pick's own restart: back to its mode prompt, not into /adset's phases. The
+    # seating and any draft survive _pick_clear, so this is exactly where a fresh
+    # /pick would land anyway.
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _pick_mode_prompt_data(thread, owner),
     })
 
 
@@ -6005,6 +6845,7 @@ COMMAND_HANDLERS["record"] = _handle_record_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
 COMMAND_HANDLERS["seating"] = _handle_seating_command
 COMMAND_HANDLERS["pick"] = _handle_pick_command
+COMMAND_HANDLERS["adset"] = _handle_adset_command
 COMMAND_HANDLERS["rename"] = _handle_rename_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command
@@ -6035,6 +6876,21 @@ COMPONENT_HANDLERS = {
     "pick_vagabond": _handle_pick_vagabond,
     "pick_captains": _handle_pick_captains,
     "pick_cancel": _handle_pick_cancel,
+    # /adset. `adset_mode` shares _handle_pick_mode with /pick -- the two differ
+    # only in the board title, which rides in the custom_id as PICK_ADSET_FLAG.
+    "adset_join": _handle_adset_join,
+    "adset_role": _handle_adset_role,
+    "adset_start": _handle_adset_start,
+    "adset_select": _handle_adset_select,
+    "adset_build": _handle_adset_build,
+    "adset_reseat": _handle_adset_reseat,
+    "adset_redraft": _handle_adset_redraft,
+    "adset_clear": _handle_adset_clear,
+    # PICK_OPEN-terminated, so the dispatcher's owner-lock stays off and the
+    # handler applies /pick's roster gate instead.
+    "adset_takeover": _handle_adset_takeover,
+    "adset_mode": _handle_pick_mode,
+    "adset_cancel": _handle_adset_cancel,
     # The three options-panel selects share one handler; `random_roll` is the
     # (unrelated) dice prompt, hence `random_roll_post` for the panel's Roll button.
     "random_opt_platform": _handle_random_option,
