@@ -628,9 +628,14 @@ class ScheduleProposal(models.Model):
         'Profile', blank=True, related_name="schedule_proposals_confirmed",
         help_text="Roster players who pressed Confirm. The proposer is seeded here "
                   "at creation — proposing IS confirming.")
-    rejected_by = models.ForeignKey(
-        'Profile', on_delete=models.SET_NULL, null=True, blank=True,
-        related_name="schedule_proposals_rejected")
+    # A LIST, not a single rejecter: a "No" is now a vote rather than a
+    # termination, so several players can decline the same time and the poll stays
+    # open until everyone has answered. Was a nullable FK when one rejection
+    # closed the proposal outright; the migration copies those rows in.
+    rejected_by = models.ManyToManyField(
+        'Profile', blank=True, related_name="schedule_proposals_rejected",
+        help_text="Roster players who pressed No. Mutually exclusive with "
+                  "confirmed_by — answering moves you between the two.")
 
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True)
@@ -664,16 +669,37 @@ class ScheduleProposal(models.Model):
         return self.status in self.LIVE_STATUSES
 
     def pending_profiles(self):
-        """Roster players who have not confirmed yet."""
-        return self.roster.exclude(
-            pk__in=self.confirmed_by.values_list("pk", flat=True))
+        """Roster players who have not ANSWERED yet — neither yes nor no.
+
+        A player who said no has responded, so they are no longer pending even
+        though they never confirmed. Excluding only confirmed_by would leave them
+        listed as still-awaited forever and the poll could never complete."""
+        answered = list(self.confirmed_by.values_list("pk", flat=True)) + \
+            list(self.rejected_by.values_list("pk", flat=True))
+        return self.roster.exclude(pk__in=answered)
 
     def all_confirmed(self):
         """True when every roster player has confirmed. An EMPTY roster is NOT
-        'all confirmed' — an unpopulated player group must never auto-finalize."""
+        'all confirmed' — an unpopulated player group must never auto-finalize.
+
+        This decides whether a time is WRITTEN. all_responded decides whether the
+        poll closes; the two differ exactly when somebody said no."""
         roster_ids = set(self.roster.values_list("pk", flat=True))
         return bool(roster_ids) and roster_ids <= set(
             self.confirmed_by.values_list("pk", flat=True))
+
+    def all_responded(self):
+        """True when every roster player has answered, yes or no.
+
+        The poll's completion condition. Same EMPTY-roster guard as
+        all_confirmed, and for the same reason: a group with nobody in it would
+        otherwise satisfy 'everyone answered' vacuously and close on creation."""
+        roster_ids = set(self.roster.values_list("pk", flat=True))
+        if not roster_ids:
+            return False
+        answered = set(self.confirmed_by.values_list("pk", flat=True)) | set(
+            self.rejected_by.values_list("pk", flat=True))
+        return roster_ids <= answered
 
 
 # See the note in ScheduleProposal.Status: assigned here because a TextChoices

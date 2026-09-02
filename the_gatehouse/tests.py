@@ -44,7 +44,7 @@ from the_gatehouse.services.lfg_game import (
 )
 from the_gatehouse.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
-    notify_lfg_cancelled_task,
+    notify_lfg_cancelled_task, notify_schedule_poll_task,
 )
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -1164,8 +1164,18 @@ class ScheduleTimezoneSelectTests(ScheduleFixtureMixin, TestCase):
     def _body(self, response):
         return json.loads(response.content)
 
+    def _button(self, body, action):
+        """The prompt's button for `action`, found by its custom_id rather than
+        by position — the picker now offers Poll alongside Set Time, so an index
+        would silently follow whichever happens to be first."""
+        for row in body["data"].get("components", []):
+            for comp in row.get("components", []):
+                if di.decode_custom_id(comp.get("custom_id", ""))[0] == action:
+                    return comp
+        raise AssertionError(f"no {action} button in {body['data']}")
+
     def _confirm_ts(self, body):
-        confirm = body["data"]["components"][0]["components"][0]
+        confirm = self._button(body, "schedule_confirm")
         return int(di.decode_custom_id(confirm["custom_id"])[1][1])
 
     # ── region select ────────────────────────────────────────────────────────
@@ -1210,7 +1220,7 @@ class ScheduleTimezoneSelectTests(ScheduleFixtureMixin, TestCase):
         body = self._body(di._handle_schedule_tz_zone(self._payload(
             "schedule_tz_zone", self.match.id, "AM", values=[TZ])))
         self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
-        confirm = body["data"]["components"][0]["components"][0]
+        confirm = self._button(body, "schedule_confirm")
         self.assertTrue(confirm["custom_id"].startswith("schedule_confirm:"))
         expected, _err = parse_user_datetime(self.TIME, TZ)
         self.assertEqual(self._confirm_ts(body), int(expected.timestamp()))
@@ -1229,7 +1239,7 @@ class ScheduleTimezoneSelectTests(ScheduleFixtureMixin, TestCase):
                 body = self._body(di._handle_schedule_tz_zone(self._payload(
                     "schedule_tz_zone", self.match.id, "AM", values=[zone],
                     time_text="4pm")))
-                confirm = body["data"]["components"][0]["components"][0]
+                confirm = self._button(body, "schedule_confirm")
                 self.assertTrue(confirm["custom_id"].startswith("schedule_confirm:"))
                 local = datetime.fromtimestamp(
                     self._confirm_ts(body), tz=ZoneInfo(zone))
@@ -1368,16 +1378,18 @@ class ScheduleConfirmDisplayTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("UTC+5:45", data["content"])
 
     def test_confirmation_offers_a_change_timezone_button(self):
+        """Poll always leads; Set Time is the direct-write half of the picker."""
         _data, ids = self._buttons(tz_name=TZ, time_text="Sep 15 2026 8pm")
-        self.assertEqual(len(ids), 3)
-        self.assertTrue(ids[0].startswith("schedule_confirm:"))
-        self.assertTrue(ids[1].startswith("schedule_tz_change:"))
-        self.assertTrue(ids[2].startswith("schedule_cancel:"))
+        self.assertEqual(len(ids), 4)
+        self.assertTrue(ids[0].startswith("sched_poll_open:"))
+        self.assertTrue(ids[1].startswith("schedule_confirm:"))
+        self.assertTrue(ids[2].startswith("schedule_tz_change:"))
+        self.assertTrue(ids[3].startswith("schedule_cancel:"))
 
     def test_epoch_confirmation_has_no_timezone_line_or_button(self):
         """An epoch is absolute — there's no zone to show and nothing to change."""
         data, ids = self._buttons(tz_name=None, time_text="<t:1789000000:F>")
-        self.assertEqual(len(ids), 2)
+        self.assertEqual(len(ids), 3)
         self.assertNotIn("timezone", data["content"].lower())
 
     def test_confirmation_offset_reflects_dst_at_the_scheduled_time(self):
@@ -1587,13 +1599,24 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         _data, enqueue = self._confirm(kind="bare")
         self.assertNotIn("components", enqueue.call_args.args[0][1])
 
-    def test_the_lfg_post_carries_open_confirm_buttons(self):
-        _data, enqueue = self._confirm(kind="lfg")
-        rows = enqueue.call_args.args[0][1]["components"]
+    def test_suggest_carries_no_buttons_in_any_mode(self):
+        """Suggest is the minimal half of the picker: who suggested it and when.
+        Anything that collects responses is a Poll."""
+        for kind in ("bare", "lfg"):
+            with self.subTest(kind=kind):
+                _data, enqueue = self._confirm(kind=kind)
+                self.assertNotIn("components", enqueue.call_args.args[0][1])
+
+    def test_the_poll_post_carries_open_buttons(self):
+        """Every button on a PUBLIC poll ends in "g" so the dispatcher's
+        owner-lock stays off — including Close, which is host-gated but must also
+        admit moderators, whom a single-snowflake lock cannot express."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        rows = di._schedule_poll_data(
+            when, self.player.discord_id, yes=[], no=[], kind="bare")["components"]
         ids = [c["custom_id"] for r in rows for c in r["components"]]
-        self.assertTrue(ids)
+        self.assertEqual(len(ids), 4)
         for custom_id in ids:
-            # "g", not a snowflake, so the dispatcher's owner-lock stays off.
             self.assertEqual(di.decode_custom_id(custom_id)[1][-1], "g")
 
     def test_a_broker_outage_does_not_replace_the_confirmation_with_an_error(self):
@@ -1616,95 +1639,208 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
 
-    # ── responding to an LFG suggestion ──
-    def _respond(self, action, clicker, confirmed=None, unavailable=None):
-        embed = {"title": "🕐 Proposed time (not scheduled)", "description": "x"}
-        fields = []
-        if confirmed:
-            fields.append({"name": di.SCHEDULE_FREE_CONFIRMED_FIELD,
-                           "value": "\n".join(confirmed), "inline": False})
-        if unavailable:
-            fields.append({"name": di.SCHEDULE_FREE_UNAVAILABLE_FIELD,
-                           "value": "\n".join(unavailable), "inline": False})
-        if fields:
-            embed["fields"] = fields
+    # ── responding to an embed-mode poll ──
+    def _poll_embed(self, when, yes=None, no=None, notify=None, label=None):
+        """A rendered poll embed, as the handler would receive it echoed back."""
+        return di._schedule_poll_data(
+            when, self.player.discord_id, yes=yes or [], no=no or [],
+            notify_ids=notify or [], pending=None, label=label,
+            kind="bare")["embeds"][0]
+
+    def _click(self, action, clicker, kind="bare", embed=None, when=None,
+               username="someone"):
+        when = when or (timezone.now() + timedelta(days=5)).replace(microsecond=0)
         payload = {
-            "channel_id": self.UNLINKED_CHANNEL,
-            "member": {"user": {"id": clicker, "username": "someone"}},
-            "data": {"custom_id": di.encode_custom_id(action, "123", "g")},
-            "message": {"id": "m", "embeds": [embed], "components": []},
+            "channel_id": self.UNLINKED_CHANNEL, "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": clicker, "username": username}},
+            "data": {"custom_id": di.encode_custom_id(
+                action, kind, self.player.discord_id, "g")},
+            "message": {"id": "m", "components": [],
+                        "embeds": [embed or self._poll_embed(when)]},
         }
-        handler = di.COMPONENT_HANDLERS[action]
-        return self._body(handler(payload))["data"]
+        with mock.patch.object(di.notify_schedule_poll_task, "delay"):
+            return self._body(di.COMPONENT_HANDLERS[action](payload))["data"]
 
-    def test_a_thread_player_can_confirm(self):
-        self._lfg_thread()
-        data = self._respond("sched_lfg_ok", self.player.discord_id)
-        field = data["embeds"][0]["fields"][0]
-        self.assertEqual(field["name"], di.SCHEDULE_FREE_CONFIRMED_FIELD)
-        self.assertIn(f"<@{self.player.discord_id}>", field["value"])
+    def _field(self, data, base):
+        for field in data["embeds"][0].get("fields", []):
+            if field["name"] == base or field["name"].startswith(f"{base} ("):
+                return field["value"]
+        return None
 
-    def test_a_non_player_is_refused(self):
+    def test_a_thread_player_can_vote_yes(self):
         self._lfg_thread()
-        data = self._respond("sched_lfg_ok", "88888888")
+        data = self._click("sched_poll_ok", self.player.discord_id, kind="lfg")
+        self.assertIn(f"<@{self.player.discord_id}>",
+                      self._field(data, di.POLL_YES_FIELD))
+
+    def test_a_non_player_is_refused_in_an_lfg_thread(self):
+        self._lfg_thread()
+        data = self._click("sched_poll_ok", "88888888", kind="lfg")
         self.assertIn("players in this thread", data["content"])
 
-    def test_confirming_twice_does_not_double_count(self):
+    def test_anyone_may_vote_in_a_bare_channel(self):
+        data = self._click("sched_poll_ok", "88888888")
+        self.assertIn("<@88888888>", self._field(data, di.POLL_YES_FIELD))
+
+    def test_voting_twice_does_not_double_count(self):
         """Identity is the id, so a rename can't add a second line either."""
-        self._lfg_thread()
-        first = self._respond("sched_lfg_ok", self.player.discord_id)
-        lines = first["embeds"][0]["fields"][0]["value"].splitlines()
-        again = self._respond("sched_lfg_ok", self.player.discord_id,
-                              confirmed=lines)
-        self.assertEqual(len(again["embeds"][0]["fields"][0]["value"].splitlines()), 1)
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, when=when)
+        again = self._click("sched_poll_ok", self.player.discord_id, when=when,
+                            embed=first["embeds"][0], username="renamed")
+        value = self._field(again, di.POLL_YES_FIELD)
+        self.assertEqual(len(value.splitlines()), 1)
 
-    def test_declining_moves_a_confirmation_to_unavailable(self):
-        """Declining no longer just erases the confirmation -- it records that the
-        player answered, under ❌ Unavailable."""
-        self._lfg_thread()
-        first = self._respond("sched_lfg_ok", self.player.discord_id)
-        lines = first["embeds"][0]["fields"][0]["value"].splitlines()
-        after = self._respond("sched_lfg_no", self.player.discord_id, confirmed=lines)
-        fields = after["embeds"][0].get("fields", [])
-        self.assertEqual([f["name"] for f in fields],
-                         [di.SCHEDULE_FREE_UNAVAILABLE_FIELD])
-        self.assertIn(f"<@{self.player.discord_id}>", fields[0]["value"])
-
-    def test_confirming_after_declining_moves_them_back(self):
-        self._lfg_thread()
-        declined = self._respond("sched_lfg_no", self.player.discord_id)
-        unavailable = declined["embeds"][0]["fields"][0]["value"].splitlines()
-        after = self._respond("sched_lfg_ok", self.player.discord_id,
-                              unavailable=unavailable)
-        fields = after["embeds"][0].get("fields", [])
-        self.assertEqual([f["name"] for f in fields],
-                         [di.SCHEDULE_FREE_CONFIRMED_FIELD])
-        self.assertIn(f"<@{self.player.discord_id}>", fields[0]["value"])
-
-    def test_a_player_is_never_in_both_lists(self):
-        self._lfg_thread()
-        data = self._respond("sched_lfg_ok", self.player.discord_id)
-        for _ in range(3):
-            lines = {f["name"]: f["value"].splitlines()
-                     for f in data["embeds"][0].get("fields", [])}
-            data = self._respond(
-                "sched_lfg_no", self.player.discord_id,
-                confirmed=lines.get(di.SCHEDULE_FREE_CONFIRMED_FIELD),
-                unavailable=lines.get(di.SCHEDULE_FREE_UNAVAILABLE_FIELD))
-            data = self._respond(
-                "sched_lfg_ok", self.player.discord_id,
-                confirmed=None,
-                unavailable=[f["value"] for f in data["embeds"][0].get("fields", [])
-                             if f["name"] == di.SCHEDULE_FREE_UNAVAILABLE_FIELD])
+    def test_no_after_yes_moves_between_columns(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, when=when)
+        after = self._click("sched_poll_no", self.player.discord_id, when=when,
+                            embed=first["embeds"][0])
         mention = f"<@{self.player.discord_id}>"
-        appearances = sum(
-            f["value"].count(mention) for f in data["embeds"][0].get("fields", []))
+        self.assertIn(mention, self._field(after, di.POLL_NO_FIELD))
+        self.assertNotIn(mention, self._field(after, di.POLL_YES_FIELD) or "")
+
+    def test_a_player_is_never_in_both_columns(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        data = self._click("sched_poll_ok", self.player.discord_id, when=when)
+        for action in ("sched_poll_no", "sched_poll_ok", "sched_poll_no"):
+            data = self._click(action, self.player.discord_id, when=when,
+                               embed=data["embeds"][0])
+        mention = f"<@{self.player.discord_id}>"
+        appearances = sum(f["value"].count(mention)
+                          for f in data["embeds"][0].get("fields", []))
         self.assertEqual(appearances, 1)
+
+    def test_the_notify_toggle_adds_and_removes(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        on = self._click("sched_poll_notify", "77777777", when=when)
+        self.assertIn("<@77777777>", self._field(on, di.POLL_NOTIFY_FIELD))
+        off = self._click("sched_poll_notify", "77777777", when=when,
+                          embed=on["embeds"][0])
+        self.assertIsNone(self._field(off, di.POLL_NOTIFY_FIELD))
+
+    def test_the_response_cap_refuses_a_thirteenth(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        full = [{"id": str(90000 + i), "name": f"P{i}"}
+                for i in range(di.POLL_FREE_RESPONSE_MAX)]
+        embed = self._poll_embed(when, yes=full)
+        data = self._click("sched_poll_ok", "88888888", when=when, embed=embed)
+        self.assertIn("already has", data["content"])
+
+    def test_someone_already_listed_may_still_switch_when_full(self):
+        """A full column must not trap the people already in it."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        full = [{"id": str(90000 + i), "name": f"P{i}"}
+                for i in range(di.POLL_FREE_RESPONSE_MAX)]
+        embed = self._poll_embed(when, yes=full)
+        data = self._click("sched_poll_no", "90000", when=when, embed=embed)
+        self.assertIn("<@90000>", self._field(data, di.POLL_NO_FIELD))
+
+    def test_the_host_may_close_the_poll(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        data = self._click("sched_poll_close", self.player.discord_id, when=when)
+        self.assertEqual(data["components"], [])
+        self.assertIn("Closed", data["embeds"][0]["description"])
+
+    def test_an_outsider_cannot_close_the_poll(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        data = self._click("sched_poll_close", "88888888", when=when)
+        self.assertIn("started this poll", data["content"])
+
+    def test_closing_clears_the_notify_field(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        embed = self._poll_embed(when, notify=["77777777"])
+        data = self._click("sched_poll_close", self.player.discord_id, when=when,
+                           embed=embed)
+        self.assertIsNone(self._field(data, di.POLL_NOTIFY_FIELD))
+
+    def _close_targets(self, clicker, notify, **kwargs):
+        """The ids actually DMed when `clicker` closes a poll."""
+        when = kwargs.pop("when", None) or (
+            timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        embed = self._poll_embed(when, notify=notify, **kwargs)
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL, "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": clicker, "username": "someone"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_close", "bare", self.player.discord_id, "g")},
+            "message": {"id": "m", "components": [], "embeds": [embed]},
+        }
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            di._handle_schedule_poll_close(payload)
+        return delay.call_args.args[0] if delay.call_args else []
+
+    def test_closing_dms_everyone_except_the_closer(self):
+        targets = self._close_targets(
+            self.player.discord_id,
+            notify=[str(self.player.discord_id), "111", "222"])
+        self.assertEqual(sorted(targets), ["111", "222"])
+
+    def test_a_moderator_closing_is_excluded_not_the_host(self):
+        """The exclusion follows whoever CLOSED it. A moderator may close a poll
+        they didn't start, and the host must still hear the result."""
+        moderator = Profile.objects.create(
+            discord="mod", discord_id="44444444", display_name="Mod")
+        self.guild.guild_moderators.add(moderator)
+        targets = self._close_targets(
+            "44444444", notify=[str(self.player.discord_id), "44444444", "111"])
+        self.assertNotIn("44444444", targets)
+        # The host is still subscribed and did not close it.
+        self.assertIn(str(self.player.discord_id), targets)
+
+    def test_an_auto_close_excludes_the_last_voter(self):
+        """An auto-close is still somebody's click — the last answer owed."""
+        self._lfg_thread()   # players: self.player and self.outsider
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, kind="lfg",
+                            when=when)
+        # Notify lives in the embed; subscribe both players.
+        embed = first["embeds"][0]
+        embed.setdefault("fields", []).append({
+            "name": di.POLL_NOTIFY_FIELD,
+            "value": f"<@{self.player.discord_id}> <@{self.outsider.discord_id}>",
+            "inline": False})
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL, "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": self.outsider.discord_id,
+                                "username": "outsider"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_ok", "lfg", self.player.discord_id, "g")},
+            "message": {"id": "m", "components": [], "embeds": [embed]},
+        }
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            body = self._body(di._handle_schedule_poll_respond(payload))["data"]
+        self.assertEqual(body["components"], [])   # it closed
+        targets = delay.call_args.args[0]
+        self.assertNotIn(str(self.outsider.discord_id), targets)
+        self.assertIn(str(self.player.discord_id), targets)
+
+    def test_an_auto_close_is_not_reported_as_closed_by_someone(self):
+        """The last voter didn't CLOSE it — the roster simply finished."""
+        self._lfg_thread()
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, kind="lfg",
+                            when=when)
+        done = self._click("sched_poll_ok", self.outsider.discord_id, kind="lfg",
+                           when=when, embed=first["embeds"][0])
+        self.assertNotIn("Closed by", done["embeds"][0]["description"])
+
+    def test_an_lfg_poll_closes_when_everyone_has_answered(self):
+        self._lfg_thread()   # players: self.player and self.outsider
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, kind="lfg",
+                            when=when)
+        self.assertTrue(first["components"])
+        done = self._click("sched_poll_ok", self.outsider.discord_id, kind="lfg",
+                           when=when, embed=first["embeds"][0])
+        self.assertEqual(done["components"], [])
 
     def test_responding_writes_nothing(self):
         self._lfg_thread()
-        self._respond("sched_lfg_ok", self.player.discord_id)
+        self._click("sched_poll_ok", self.player.discord_id, kind="lfg")
         self.assertEqual(ScheduleProposal.objects.count(), 0)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
 
 
 class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
@@ -1971,7 +2107,11 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
         # allowed_mentions, so the name must stay plain text.
         self.assertNotIn("<@", description)
 
-    def test_consensus_finalized_view_has_no_description(self):
+    def test_consensus_finalized_view_carries_only_the_closing_note(self):
+        """summary=None still strips /upcoming's "next scheduled game" line. The
+        description that remains is the poll's own closing note and nothing else
+        — previously there was no description at all, which asserted the same
+        thing by proxy."""
         self.match.scheduled_time = self.when
         self.match.save(update_fields=["scheduled_time"])
         proposal = ScheduleProposal.objects.create(
@@ -1979,7 +2119,9 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
         proposal.confirmed_by.add(self.player)
 
         embed = di._schedule_finalized_data(proposal, self.match)["embeds"][0]
-        self.assertNotIn("description", embed)
+        self.assertEqual(embed["description"],
+                         "-# Scheduled — everyone confirmed.")
+        self.assertNotIn("next scheduled", embed["description"])
         self.assertIn("scheduled", embed["title"])
         # The roster field is what reports who agreed; it survives the override.
         self.assertTrue(
@@ -7505,6 +7647,364 @@ class RandomOptionsPanelTests(TestCase):
 # reaches Match.scheduled_time. Gated per tournament by
 # require_participant_schedule_confirmation (default True).
 
+class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
+    """The picker offers TWO buttons in every mode. Poll always leads; the second
+    depends on whether this time can actually be written."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+
+    def _ids(self, *, thread_id=None, channel="555000111"):
+        data = {
+            "name": "schedule",
+            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": thread_id or channel,
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        body = json.loads(di._handle_schedule_command(data).content)
+        return [c["custom_id"] for r in body["data"].get("components", [])
+                for c in r["components"]]
+
+    def _actions(self, **kwargs):
+        return [di.decode_custom_id(i)[0] for i in self._ids(**kwargs)]
+
+    def test_match_with_confirmation_off_offers_poll_and_set_time(self):
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        actions = self._actions()
+        self.assertEqual(actions[0], "sched_poll_open")
+        self.assertIn("schedule_confirm", actions)
+        self.assertNotIn("sched_free", actions)
+
+    def test_match_with_confirmation_on_offers_poll_and_suggest(self):
+        """The flag decides whether the BYPASS exists — not whether you're asked.
+        With it on, only a confirmed poll may write, so Set Time is not offered."""
+        actions = self._actions()
+        self.assertEqual(actions[0], "sched_poll_open")
+        self.assertIn("sched_free", actions)
+        self.assertNotIn("schedule_confirm", actions)
+
+    def test_an_lfg_thread_offers_poll_and_suggest(self):
+        thread = LFGThread.objects.create(thread_id="777000111")
+        thread.players.set([self.player, self.teammate])
+        actions = self._actions(thread_id="777000111")
+        self.assertEqual(actions[0], "sched_poll_open")
+        self.assertIn("sched_free", actions)
+        self.assertNotIn("schedule_confirm", actions)
+
+    def test_a_bare_channel_offers_poll_and_suggest(self):
+        actions = self._actions(channel="999000111")
+        self.assertEqual(actions[0], "sched_poll_open")
+        self.assertIn("sched_free", actions)
+
+    def test_the_poll_id_carries_the_match_in_match_mode(self):
+        """The open handler re-resolves the match at click time, so the id has to
+        travel; the sentinel keeps the arg count identical elsewhere."""
+        poll = next(i for i in self._ids() if i.startswith("sched_poll_open:"))
+        _action, args = di.decode_custom_id(poll)
+        self.assertEqual(args[0], "match")
+        self.assertEqual(args[1], str(self.match.id))
+
+    def test_the_poll_id_uses_the_sentinel_off_match(self):
+        poll = next(i for i in self._ids(channel="999000111")
+                    if i.startswith("sched_poll_open:"))
+        _action, args = di.decode_custom_id(poll)
+        self.assertEqual(len(args), 4)
+        self.assertTrue(di._is_no_match(args[1]))
+
+    def test_every_picker_button_is_owner_locked(self):
+        """The ephemeral prompt is the invoker's own — the opposite of the public
+        poll, where the lock must stay off."""
+        for custom_id in self._ids():
+            last = di.decode_custom_id(custom_id)[1][-1]
+            self.assertEqual(last, str(self.player.discord_id))
+
+
+class SchedulePollOpenTests(ScheduleFixtureMixin, TestCase):
+    """Pressing Poll. Match mode creates a durable ScheduleProposal; every other
+    mode posts an embed-backed poll."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+
+    def _payload(self, kind, match_id=None, channel="555000111"):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        return {
+            "channel_id": channel, "guild_id": self.guild.guild_id, "token": "tok",
+            "member": {"user": {"id": self.player.discord_id,
+                                "username": "player"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_open", kind,
+                match_id if match_id is not None else di.SCHEDULE_NO_MATCH,
+                int(when.timestamp()), self.player.discord_id)},
+            "message": {"id": "m", "components": []},
+        }
+
+    def test_a_match_poll_creates_a_proposal(self):
+        with mock.patch.object(di.post_schedule_proposal_task, "apply_async"):
+            di._handle_schedule_poll_open(self._payload("match", self.match.id))
+        self.assertEqual(ScheduleProposal.objects.count(), 1)
+        proposal = ScheduleProposal.objects.get()
+        self.assertEqual(proposal.proposed_by, self.player)
+        # Proposing IS confirming, for someone actually on the roster.
+        self.assertIn(self.player.pk,
+                      proposal.confirmed_by.values_list("pk", flat=True))
+
+    def test_a_match_poll_works_with_confirmation_off(self):
+        """The flag gates the Set Time bypass, not the poll."""
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        with mock.patch.object(di.post_schedule_proposal_task, "apply_async"):
+            di._handle_schedule_poll_open(self._payload("match", self.match.id))
+        self.assertEqual(ScheduleProposal.objects.count(), 1)
+
+    def test_a_match_poll_with_no_roster_is_refused(self):
+        """A poll nobody is on could never reach all-responded, so it must never
+        open. Emptying the group also strips the player's own permission, so this
+        is refused by whichever guard fires first — what matters is that no
+        proposal is created."""
+        self.group.tournament_players.clear()
+        MatchSeat.objects.filter(series=self.series).delete()
+        body = json.loads(di._handle_schedule_poll_open(
+            self._payload("match", self.match.id)).content)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+    def test_the_roster_guard_names_the_reason(self):
+        """A moderator who CAN schedule, on a match with nobody rostered, gets
+        the roster explanation rather than a permission refusal."""
+        self.group.tournament_players.clear()
+        MatchSeat.objects.filter(series=self.series).delete()
+        payload = self._payload("match", self.match.id)
+        payload["member"]["user"]["id"] = self.group_mod.discord_id
+        payload["data"]["custom_id"] = di.encode_custom_id(
+            "sched_poll_open", "match", self.match.id,
+            int((timezone.now() + timedelta(days=5)).timestamp()),
+            self.group_mod.discord_id)
+        body = json.loads(di._handle_schedule_poll_open(payload).content)
+        self.assertIn("nobody to poll", body["data"]["content"])
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+    def test_a_bare_poll_writes_no_row(self):
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(self._payload("bare",
+                                                        channel="999000111"))
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+        message = enqueue.call_args.args[0][1]
+        self.assertEqual(len(message["components"][0]["components"]), 4)
+
+    def test_a_bare_poll_has_no_pending_column(self):
+        """No roster means nobody knows who SHOULD answer, so the column is
+        absent — not rendered empty, which would claim otherwise."""
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(self._payload("bare",
+                                                        channel="999000111"))
+        names = [f["name"] for f
+                 in enqueue.call_args.args[0][1]["embeds"][0]["fields"]]
+        self.assertFalse(any(n.startswith(di.POLL_PENDING_FIELD) for n in names))
+
+    def test_an_lfg_poll_lists_the_thread_roster_as_pending(self):
+        thread = LFGThread.objects.create(thread_id="777000111")
+        thread.players.set([self.player, self.teammate])
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(
+                self._payload("lfg", channel="777000111"))
+        fields = enqueue.call_args.args[0][1]["embeds"][0]["fields"]
+        pending = next(f for f in fields
+                       if f["name"].startswith(di.POLL_PENDING_FIELD))
+        self.assertIn(f"<@{self.teammate.discord_id}>", pending["value"])
+
+    def test_the_response_columns_are_inline(self):
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(self._payload("bare",
+                                                        channel="999000111"))
+        for field in enqueue.call_args.args[0][1]["embeds"][0]["fields"]:
+            if field["name"].startswith(("✅", "❌", "⏳")):
+                self.assertTrue(field["inline"], field["name"])
+
+    def test_the_poll_carries_the_invokers_author_block(self):
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(self._payload("bare",
+                                                        channel="999000111"))
+        embed = enqueue.call_args.args[0][1]["embeds"][0]
+        self.assertEqual(embed["author"]["name"], "player")
+
+
+class SchedulePollNotifyDMTests(TestCase):
+    """The 🔔 DMs. Same shape as the lfg notify tasks: raw ids, actor excluded by
+    the caller, never raising."""
+
+    WHEN = 1789000000
+
+    def _send(self, **kwargs):
+        with mock.patch(
+            "the_gatehouse.services.discordservice.send_dm_by_id"
+        ) as dm:
+            notify_schedule_poll_task(["111"], **kwargs)
+        return dm.call_args.kwargs["content"]
+
+    def test_a_yes_names_the_actor_and_the_running_count(self):
+        content = self._send(event="yes", when_ts=self.WHEN, actor_name="Amy",
+                             yes_count=3, total=5)
+        self.assertIn("**Amy** confirmed", content)
+        self.assertIn("3 of 5 players confirmed", content)
+
+    def test_a_yes_without_a_roster_omits_the_denominator(self):
+        content = self._send(event="yes", when_ts=self.WHEN, actor_name="Amy",
+                             yes_count=3, total=None)
+        self.assertIn("3 confirmed so far", content)
+        self.assertNotIn(" of ", content)
+
+    def test_the_time_is_a_discord_timestamp_not_a_fixed_string(self):
+        """Each recipient must read it in their OWN timezone."""
+        self.assertIn(f"<t:{self.WHEN}:", self._send(
+            event="yes", when_ts=self.WHEN, actor_name="Amy", yes_count=1))
+
+    def test_a_scheduled_close_says_so(self):
+        content = self._send(event="closed", when_ts=self.WHEN, scheduled=True)
+        self.assertIn("everyone confirmed", content)
+
+    def test_a_declined_close_names_who_couldnt_make_it(self):
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"])
+        self.assertIn("**Ben** couldn't make it", content)
+        self.assertIn("no time was scheduled", content)
+
+    def test_an_early_close_says_it_ended_early(self):
+        content = self._send(event="closed", when_ts=self.WHEN)
+        self.assertIn("before everyone responded", content)
+
+
+class ScheduleWriteRuleTests(ScheduleFixtureMixin, TestCase):
+    """The one invariant everything else rests on:
+
+    a time is written ONLY by (a) an all-Yes poll, or (b) Set Time on a match
+    whose tournament does not require confirmation. Everything else writes
+    nothing.
+    """
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+
+    def _proposal(self):
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player,
+            channel_id="555000111", guild_id=self.guild.guild_id)
+        proposal.roster.set([self.player, self.teammate])
+        proposal.confirmed_by.add(self.player)
+        return proposal
+
+    def _vote(self, proposal, action, user_id):
+        payload = {
+            "data": {"custom_id": di.encode_custom_id(action, proposal.pk, "g")},
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": user_id, "username": "u"}},
+            "token": None, "message": {"id": "m", "embeds": [{}]},
+        }
+        handler = (di._handle_schedule_proposal_confirm if action == "sched_poll_ok"
+                   else di._handle_schedule_proposal_reject)
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+                mock.patch.object(di, "_announce_schedule_to_channel"):
+            return handler(payload)
+
+    def _scheduled(self):
+        self.match.refresh_from_db()
+        return self.match.scheduled_time
+
+    def test_an_all_yes_poll_writes_the_time_with_the_flag_on(self):
+        proposal = self._proposal()
+        self._vote(proposal, "sched_poll_ok", self.teammate.discord_id)
+        self.assertEqual(self._scheduled(), self.when)
+
+    def test_an_all_yes_poll_writes_the_time_with_the_flag_off(self):
+        """A voluntary poll schedules exactly like a required one — the flag
+        gates the bypass, not the outcome."""
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        proposal = self._proposal()
+        self._vote(proposal, "sched_poll_ok", self.teammate.discord_id)
+        self.assertEqual(self._scheduled(), self.when)
+
+    def test_any_no_writes_nothing(self):
+        proposal = self._proposal()
+        self._vote(proposal, "sched_poll_no", self.teammate.discord_id)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, ScheduleProposal.Status.REJECTED)
+        self.assertIsNone(self._scheduled())
+
+    def test_an_embed_poll_never_writes(self):
+        thread = LFGThread.objects.create(thread_id="777000111")
+        thread.players.set([self.player])
+        when = self.when
+        payload = {
+            "channel_id": "777000111", "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": self.player.discord_id, "username": "p"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_ok", "lfg", self.player.discord_id, "g")},
+            "message": {"id": "m", "components": [], "embeds": [
+                di._schedule_poll_data(when, self.player.discord_id, yes=[],
+                                       no=[], pending=[], kind="lfg")["embeds"][0]]},
+        }
+        with mock.patch.object(di.notify_schedule_poll_task, "delay"):
+            di._handle_schedule_poll_respond(payload)
+        self.assertIsNone(self._scheduled())
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+    def test_the_last_voter_is_excluded_from_the_result_dm(self):
+        """A match poll auto-closing is still somebody's click, so they must not
+        be DMed about their own vote — while the host, who is subscribed and did
+        not click, still hears the result."""
+        proposal = self._proposal()
+        payload = {
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_ok", proposal.pk, "g")},
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": self.teammate.discord_id,
+                                "username": "teammate"}},
+            "token": None,
+            "message": {"id": "m", "embeds": [{"fields": [{
+                "name": di.POLL_NOTIFY_FIELD,
+                "value": (f"<@{self.player.discord_id}> "
+                          f"<@{self.teammate.discord_id}>"),
+                "inline": False}]}]},
+        }
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+                mock.patch.object(di, "_announce_schedule_to_channel"), \
+                mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            di._handle_schedule_proposal_confirm(payload)
+        targets = delay.call_args.args[0]
+        self.assertNotIn(str(self.teammate.discord_id), targets)
+        self.assertIn(str(self.player.discord_id), targets)
+
+    def test_suggest_never_writes(self):
+        payload = {
+            "channel_id": "999000111", "token": "tok",
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_free", "bare", int(self.when.timestamp()),
+                self.player.discord_id)},
+            "message": {"id": "m", "components": []},
+        }
+        with mock.patch.object(di.post_interaction_followup_task, "apply_async"):
+            di._handle_schedule_free(payload)
+        self.assertIsNone(self._scheduled())
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+
 class ScheduleConsensusGateTests(ScheduleFixtureMixin, TestCase):
     """_consensus_required decides which flow runs, and is the ONLY place that
     decision is made. Two conditions: the tournament opts in AND there's a roster
@@ -7772,7 +8272,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.proposal.roster.set([self.player, self.teammate])
         self.proposal.confirmed_by.add(self.player)
 
-    def _payload(self, action="sched_prop_ok", user_id="5", username="teammate",
+    def _payload(self, action="sched_poll_ok", user_id="5", username="teammate",
                  proposal_id=None):
         return {
             "data": {"custom_id": di.encode_custom_id(
@@ -7835,7 +8335,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         di._handle_schedule_proposal_confirm(self._payload())
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
             self._body(di._handle_schedule_proposal_reject(self._payload(
-                action="sched_prop_no", user_id=self.group_mod.discord_id,
+                action="sched_poll_no", user_id=self.group_mod.discord_id,
                 username="groupmod")))
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
@@ -7849,21 +8349,25 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.tournament.save(update_fields=["recording_access"])
         di._handle_schedule_proposal_confirm(self._payload())
         body = self._body(di._handle_schedule_proposal_reject(
-            self._payload(action="sched_prop_no")))
+            self._payload(action="sched_poll_no")))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
         self.assertIn("Ask a moderator", body["data"]["content"])
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.AGREED)
 
     def test_a_player_can_still_reject_an_open_time(self):
-        """The narrowing applies only to AGREED -- an open proposal is unchanged."""
+        """The narrowing applies only to AGREED -- an open proposal is unchanged.
+        The vote is RECORDED; with a third player still to answer the poll stays
+        open rather than closing on this one No."""
         third = Profile.objects.create(discord="third", discord_id="6")
         self.proposal.roster.add(third)
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
             self._body(di._handle_schedule_proposal_reject(
-                self._payload(action="sched_prop_no")))
+                self._payload(action="sched_poll_no")))
         self.proposal.refresh_from_db()
-        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+        self.assertIn(self.teammate.pk,
+                      self.proposal.rejected_by.values_list("pk", flat=True))
 
     def test_an_agreed_proposal_is_still_swept(self):
         """AGREED is live, so it must not survive a time set another way."""
@@ -7983,15 +8487,48 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self.match.name, original_name)
         self.assertEqual(self.match.match_number, original_number)
 
-    def test_reject_retires_proposal_without_writing(self):
+    def test_reject_records_the_vote_without_closing(self):
+        """A "No" is a VOTE now, not a termination: with someone still to answer
+        the poll stays open so they get their say."""
+        third = Profile.objects.create(discord="third", discord_id="9001",
+                                       display_name="Third")
+        self.proposal.roster.add(third)
         body = self._body(di._handle_schedule_proposal_reject(self._payload(
-            action="sched_prop_no")))
+            action="sched_poll_no")))
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+        self.assertIn(self.teammate.pk,
+                      self.proposal.rejected_by.values_list("pk", flat=True))
+        # Buttons stay live while anyone is still to answer.
+        self.assertTrue(body["data"]["components"])
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_the_last_no_closes_without_writing(self):
+        """Once everyone has answered and somebody said no, the poll closes and
+        no time is written. The roster here is player (already confirmed) plus
+        teammate, so this rejection IS the last answer owed."""
+        body = self._body(di._handle_schedule_proposal_reject(self._payload(
+            action="sched_poll_no")))
         self.assertEqual(body["data"]["components"], [])
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
-        self.assertEqual(self.proposal.rejected_by_id, self.teammate.pk)
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
+
+    def test_answering_moves_between_columns(self):
+        """Yes after No clears the No, so neither column holds the same person.
+        A third roster member keeps the poll open across both clicks."""
+        third = Profile.objects.create(discord="third", discord_id="9001",
+                                       display_name="Third")
+        self.proposal.roster.add(third)
+        di._handle_schedule_proposal_reject(self._payload(action="sched_poll_no"))
+        di._handle_schedule_proposal_confirm(self._payload(action="sched_poll_ok"))
+        self.proposal.refresh_from_db()
+        self.assertNotIn(self.teammate.pk,
+                         self.proposal.rejected_by.values_list("pk", flat=True))
+        self.assertIn(self.teammate.pk,
+                      self.proposal.confirmed_by.values_list("pk", flat=True))
 
     def test_click_on_terminal_proposal_refused(self):
         self.proposal.status = ScheduleProposal.Status.REJECTED
@@ -8021,8 +8558,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         """Expiry is a clock, not a decision. Even with a rejecter recorded on the
         row, the closing line must not attribute it to a person -- which is why
         the reason is passed as a key rather than inferred from rejected_by."""
-        self.proposal.rejected_by = self.teammate
-        self.proposal.save(update_fields=["rejected_by"])
+        self.proposal.rejected_by.set([self.teammate])
         self._pass_the_time()
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
         description = body["data"]["embeds"][0]["description"]
@@ -8038,7 +8574,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         embed = body["data"]["embeds"][0]
         self.assertIn(f"Proposed by <@{self.player.discord_id}>",
                       embed["description"])
-        self.assertEqual(embed["fields"][0]["name"], "✅ Had agreed")
+        self.assertTrue(embed["fields"][0]["name"].startswith("✅ Had agreed"))
 
     def test_a_passed_proposal_retires_on_set_time(self):
         self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
@@ -8062,12 +8598,11 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self._pass_the_time()
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
             body = self._body(di._handle_schedule_proposal_reject(self._payload(
-                action="sched_prop_no")))
+                action="sched_poll_no")))
         self.assertEqual(body["data"]["components"], [])
-        self.assertEqual(body["data"]["embeds"][0]["title"], "Time rejected")
+        self.assertEqual(body["data"]["embeds"][0]["title"], "🗓 Time not scheduled")
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
-        self.assertEqual(self.proposal.rejected_by_id, self.teammate.pk)
 
     def test_a_passed_agreed_proposal_still_narrows_reject_to_moderators(self):
         """allow_passed must not widen WHO may reject."""
@@ -8075,7 +8610,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.proposal.save(update_fields=["status"])
         self._pass_the_time()
         body = self._body(di._handle_schedule_proposal_reject(
-            self._payload(action="sched_prop_no")))
+            self._payload(action="sched_poll_no")))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
         self.assertIn("Ask a moderator", body["data"]["content"])
         self.proposal.refresh_from_db()
@@ -8120,7 +8655,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(self.match.scheduled_time)
 
     def test_stale_custom_id_refused(self):
-        payload = {"data": {"custom_id": "sched_prop_ok"},
+        payload = {"data": {"custom_id": "sched_poll_ok"},
                    "guild_id": self.guild.guild_id, "token": None}
         body = self._body(di._handle_schedule_proposal_confirm(payload))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
@@ -8155,7 +8690,7 @@ class UnlinkedClickerTests(ScheduleFixtureMixin, TestCase):
         self.proposal.roster.set([self.player, self.teammate])
         self.proposal.confirmed_by.add(self.player)
 
-    def _payload(self, action="sched_prop_ok"):
+    def _payload(self, action="sched_poll_ok"):
         return {
             "data": {"custom_id": di.encode_custom_id(action, self.proposal.pk, "g")},
             "guild_id": self.guild.guild_id,
@@ -8197,23 +8732,29 @@ class ScheduleProposalRejectEligibilityTests(ScheduleFixtureMixin, TestCase):
     def _reject(self, user_id, username):
         return json.loads(di._handle_schedule_proposal_reject({
             "data": {"custom_id": di.encode_custom_id(
-                "sched_prop_no", self.proposal.pk, "g")},
+                "sched_poll_no", self.proposal.pk, "g")},
             "guild_id": self.guild.guild_id,
             "member": {"user": {"id": user_id, "username": username}},
             "token": None,
         }).content)
 
+    def _declined_pks(self):
+        return set(self.proposal.rejected_by.values_list("pk", flat=True))
+
     def test_already_confirmed_player_may_still_reject(self):
-        """Plans change — earlier consent must not trap the group."""
+        """Plans change — earlier consent must not trap the group. The vote is
+        recorded (and clears their earlier Yes); it no longer ends the poll."""
         self._reject("2", "player")
         self.proposal.refresh_from_db()
-        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+        self.assertIn(self.player.pk, self._declined_pks())
+        self.assertNotIn(self.player.pk,
+                         set(self.proposal.confirmed_by.values_list("pk", flat=True)))
 
     def test_group_moderator_off_roster_may_reject(self):
         """The escape hatch for a proposal stuck behind an unresponsive player."""
         self._reject("4", "groupmod")
         self.proposal.refresh_from_db()
-        self.assertEqual(self.proposal.status, ScheduleProposal.Status.REJECTED)
+        self.assertIn(self.group_mod.pk, self._declined_pks())
 
     def test_outsider_cannot_reject(self):
         body = self._reject("3", "outsider")
@@ -8313,7 +8854,7 @@ class ScheduleProposalSupersedeTests(ScheduleFixtureMixin, TestCase):
         self.match.refresh_from_db()
         original = self.match.scheduled_time
         body = json.loads(di._handle_schedule_proposal_confirm({
-            "data": {"custom_id": di.encode_custom_id("sched_prop_ok", self.b.pk, "g")},
+            "data": {"custom_id": di.encode_custom_id("sched_poll_ok", self.b.pk, "g")},
             "guild_id": self.guild.guild_id,
             "member": {"user": {"id": "5", "username": "teammate"}},
             "token": None,
@@ -8427,7 +8968,7 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
         self.proposal.save(update_fields=["status"])
         body = json.loads(di._handle_schedule_proposal_confirm({
             "data": {"custom_id": di.encode_custom_id(
-                "sched_prop_ok", self.proposal.pk, "g")},
+                "sched_poll_ok", self.proposal.pk, "g")},
             "guild_id": self.guild.guild_id,
             "member": {"user": {"id": "5", "username": "teammate"}},
             "token": None,
@@ -8462,12 +9003,21 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         for component in data["components"][0]["components"]:
             self.assertLessEqual(len(component["custom_id"]), 100)
 
+    def _poll_field(self, data, base):
+        """Field values are keyed by a name carrying a count ("✅ Yes (1)"), so
+        look them up by prefix."""
+        for field in data["embeds"][0]["fields"]:
+            if field["name"] == base or field["name"].startswith(f"{base} ("):
+                return field["value"]
+        raise AssertionError(f"no {base} field in {data['embeds'][0]}")
+
     def test_pending_view_lists_both_groups(self):
         data = di._schedule_proposal_data(self.proposal, self.match)
-        fields = {f["name"]: f["value"] for f in data["embeds"][0]["fields"]}
-        self.assertIn(f"<@{self.teammate.discord_id}>", fields["Waiting on"])
-        self.assertIn(f"<@{self.player.discord_id}>", fields["✅ Confirmed"])
-        self.assertNotIn(f"<@{self.player.discord_id}>", fields["Waiting on"])
+        pending = self._poll_field(data, di.POLL_PENDING_FIELD)
+        yes = self._poll_field(data, di.POLL_YES_FIELD)
+        self.assertIn(f"<@{self.teammate.discord_id}>", pending)
+        self.assertIn(f"<@{self.player.discord_id}>", yes)
+        self.assertNotIn(f"<@{self.player.discord_id}>", pending)
 
     def test_pings_are_off_so_nothing_notifies(self):
         """SCHEDULE_PROPOSAL_PINGS is off: no content line and no open mentions,
@@ -8501,34 +9051,45 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
             data = di._schedule_proposal_data(
                 self.proposal, self.match, mention=True)
         self.assertNotIn("No Link", data.get("content", ""))
-        waiting = data["embeds"][0]["fields"][0]["value"]
-        self.assertIn("No Link", waiting)
+        pending = next(f for f in data["embeds"][0]["fields"]
+                       if f["name"].startswith(di.POLL_PENDING_FIELD))
+        self.assertIn("No Link", pending["value"])
 
-    def test_rejected_view_names_the_rejecter(self):
-        """The group can see who cleared the time rather than having to ask.
+    def test_rejected_view_names_who_couldnt_make_it(self):
+        """The group can see why the time fell through rather than having to ask.
         Safe as a mention: Discord never notifies from inside an embed."""
-        self.proposal.rejected_by = self.teammate
+        self.proposal.rejected_by.set([self.teammate])
         data = di._schedule_rejected_data(self.proposal)
         description = data["embeds"][0]["description"]
         self.assertEqual(data["components"], [])
-        self.assertIn(f"Rejected by <@{self.teammate.discord_id}>", description)
+        self.assertIn(f"<@{self.teammate.discord_id}> couldn't make it",
+                      description)
+
+    def test_several_decliners_are_named_together(self):
+        """A list, not a single rejecter — the whole point of the vote change."""
+        self.proposal.rejected_by.set([self.teammate, self.player])
+        description = di._schedule_rejected_data(
+            self.proposal)["embeds"][0]["description"]
+        self.assertIn(" and ", description)
+        self.assertIn("couldn't make it", description)
 
     def test_rejected_view_keeps_the_proposal_history(self):
         """The record of who suggested the time and who had agreed used to be
         discarded the moment the proposal closed."""
-        self.proposal.rejected_by = self.teammate
+        self.proposal.rejected_by.set([self.teammate])
         data = di._schedule_rejected_data(self.proposal)
         embed = data["embeds"][0]
         self.assertIn(f"Proposed by <@{self.player.discord_id}>",
                       embed["description"])
         self.assertIn(str(int(self.when.timestamp())), embed["description"])
         agreed = embed["fields"][0]
-        self.assertEqual(agreed["name"], "✅ Had agreed")
+        self.assertTrue(agreed["name"].startswith("✅ Had agreed"))
         self.assertIn(f"<@{self.player.discord_id}>", agreed["value"])
 
     def test_an_unnamed_rejecter_falls_back(self):
-        """rejected_by is SET_NULL, so a deleted Profile must still render."""
-        self.proposal.rejected_by = None
+        """A closed proposal with nobody recorded as declining must still
+        render — the row can reach this state via a sweep."""
+        self.proposal.rejected_by.clear()
         data = di._schedule_rejected_data(self.proposal)
         self.assertIn("A player rejected", data["embeds"][0]["description"])
 
@@ -8540,6 +9101,35 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         names = [f["name"] for f in data["embeds"][0]["fields"]]
         self.assertIn("✅ Confirmed by", names)
 
+    def test_finalized_view_says_everyone_confirmed(self):
+        """Both modes must say HOW the poll ended; a match poll used to leave it
+        to be inferred from the title."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        data = di._schedule_finalized_data(self.proposal, self.match)
+        self.assertIn("-# Scheduled — everyone confirmed.",
+                      data["embeds"][0]["description"])
+
+    def test_closed_notes_are_subtext_in_both_modes(self):
+        """The closing line renders small and grey either side. Without the "-#"
+        a match poll showed it at full body weight for the same event."""
+        self.proposal.rejected_by.set([self.teammate])
+        description = di._schedule_rejected_data(
+            self.proposal)["embeds"][0]["description"]
+        note = next(line for line in description.split("\n")
+                    if "couldn't make it" in line)
+        self.assertTrue(note.startswith("-# "), note)
+
+    def test_every_line_of_a_multiline_reason_is_subtext(self):
+        """Discord's subtext marker applies per line, and "expired" carries an
+        embedded newline whose second line would otherwise render full size."""
+        from the_gatehouse.services.lfg_game import schedule_closed_embed
+        embed = schedule_closed_embed(self.proposal, "Proposal closed", "expired")
+        tail = embed["description"].split("\n")[2:]
+        self.assertTrue(tail)
+        for line in tail:
+            self.assertTrue(line.startswith("-# "), line)
+
     def test_field_value_truncates_at_discord_cap(self):
         """An over-long field makes Discord reject the whole edit — which would
         silently discard a change already committed to the DB."""
@@ -8549,8 +9139,8 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("more", value)
 
     def test_handlers_are_registered(self):
-        self.assertIn("sched_prop_ok", di.COMPONENT_HANDLERS)
-        self.assertIn("sched_prop_no", di.COMPONENT_HANDLERS)
+        self.assertIn("sched_poll_ok", di.COMPONENT_HANDLERS)
+        self.assertIn("sched_poll_no", di.COMPONENT_HANDLERS)
 
 
 class PostChannelMessageFullTests(TestCase):
@@ -8618,6 +9208,48 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         ) as post:
             tasks.post_schedule_proposal_task(self.proposal.pk, {"content": "x"})
         post.assert_not_called()
+
+    def test_strip_task_renders_the_new_closed_layout(self):
+        """The sweep must not revert a poll to the pre-restyle design: it needs
+        the author block and the ❌ column, not just "Had agreed"."""
+        from the_gatehouse import tasks
+        self.proposal.message_id = "98765"
+        self.proposal.save(update_fields=["message_id"])
+        self.proposal.confirmed_by.add(self.player)
+        self.proposal.rejected_by.add(self.teammate)
+        with mock.patch(
+            "the_gatehouse.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_OK,
+        ) as edit:
+            tasks.strip_schedule_proposal_messages_task([self.proposal.pk],
+                                                        "expired")
+        embed = edit.call_args.kwargs["embeds"][0]
+        names = [f["name"] for f in embed.get("fields", [])]
+        self.assertTrue(any(n.startswith("✅ Had agreed") for n in names))
+        self.assertTrue(any(n.startswith("❌ Couldn't make it") for n in names))
+
+    def test_strip_task_does_not_n_plus_one_over_responses(self):
+        """rejected_by is an M2M now, so it has to be prefetched alongside
+        confirmed_by or a batch costs an extra query per proposal."""
+        from the_gatehouse import tasks
+        pks = []
+        for i in range(3):
+            proposal = ScheduleProposal.objects.create(
+                match=self.match,
+                proposed_time=timezone.now() + timedelta(days=10 + i),
+                proposed_by=self.player, channel_id="555000111",
+                message_id=f"9000{i}")
+            proposal.confirmed_by.add(self.player)
+            proposal.rejected_by.add(self.teammate)
+            pks.append(proposal.pk)
+        with mock.patch(
+            "the_gatehouse.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_OK,
+        ):
+            # One for the proposals, one per prefetched M2M. Without the
+            # rejected_by prefetch this grows with the batch size.
+            with self.assertNumQueries(3):
+                tasks.strip_schedule_proposal_messages_task(pks, "expired")
 
     def test_strip_task_skips_blank_message_id(self):
         from the_gatehouse import tasks

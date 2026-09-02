@@ -1,5 +1,5 @@
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
@@ -625,6 +625,48 @@ def notify_lfg_cancelled_task(notify_ids, host_name, description, jump_url=None)
 
 
 @shared_task
+def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
+                              yes_count=0, total=None, declined=None,
+                              scheduled=False, jump_url=None):
+    """DM the 🔔 subscribers of a /schedule poll.
+
+    `event` is "yes" (someone just confirmed, with a running count) or "closed"
+    (the final result). The actor is excluded by the CALLER, as in the lfg notify
+    tasks. Raw-id DMs -- a subscriber need not have a Profile at all, which is
+    also why the notify list lives in the embed rather than an M2M.
+
+    The time is re-rendered as a Discord timestamp from the epoch so each
+    recipient reads it in their OWN timezone; a preformatted string would show
+    the sender's."""
+    from .services.discordservice import send_dm_by_id
+    from .services.time_parsing import format_discord_timestamp
+
+    when = format_discord_timestamp(
+        datetime.fromtimestamp(int(when_ts), tz=dt_timezone.utc))
+    link = f"\n{jump_url}" if jump_url else ""
+
+    if event == "yes":
+        who = f"**{actor_name}**" if actor_name else "Someone"
+        tally = (f" — {yes_count} of {total} players confirmed." if total
+                 else f" — {yes_count} confirmed so far.")
+        content = f"{who} confirmed for {when}.{tally}{link}"
+    else:
+        if scheduled:
+            content = f"The poll for {when} closed — everyone confirmed. ✅{link}"
+        elif declined:
+            names = ", ".join(f"**{n}**" for n in declined)
+            content = (f"The poll for {when} closed — {names} couldn't make it, so "
+                       f"no time was scheduled. Run `/schedule` to propose "
+                       f"another.{link}")
+        else:
+            content = (f"The poll for {when} closed before everyone "
+                       f"responded.{link}")
+
+    for uid in notify_ids:
+        send_dm_by_id(uid, content=content)
+
+
+@shared_task
 def create_match_threads_task(round_id, profile_id, tournament_id):
     """Create one forum thread per un-threaded MatchSeries in a round, ping its players,
     and link the thread back to the PlayerGroup. Reports the outcome as a
@@ -1146,7 +1188,10 @@ def strip_schedule_proposal_messages_task(proposal_ids, reason):
                  .filter(pk__in=list(proposal_ids or []))
                  .select_related("proposed_by", "match",
                                  "match__series__player_group")
-                 .prefetch_related("confirmed_by"))
+                 # rejected_by joined the embed when a "No" became a vote rather
+                 # than a termination. It is an M2M, so without it here the
+                 # closed-poll render costs an extra query per proposal.
+                 .prefetch_related("confirmed_by", "rejected_by"))
     for proposal in proposals:
         if not proposal.channel_id or not proposal.message_id:
             continue  # never posted (or the id never landed) — nothing to strip

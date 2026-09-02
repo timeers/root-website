@@ -47,6 +47,7 @@ from the_gatehouse.models import (
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task,
     ensure_profile_from_discord, notify_lfg_task, notify_lfg_cancelled_task,
+    notify_schedule_poll_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
     strip_schedule_proposal_messages_task,
@@ -79,7 +80,9 @@ from .services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
     group_roster, group_series_id, undrafted_pick,
     roster_name, name_list_value, FIELD_VALUE_MAX, match_label,
-    schedule_closed_embed,
+    schedule_closed_embed, name_join,
+    POLL_YES_FIELD, POLL_NO_FIELD, POLL_PENDING_FIELD, POLL_NOTIFY_FIELD,
+    poll_count_label, poll_response_fields,
 )
 
 logger = logging.getLogger(__name__)
@@ -1004,17 +1007,38 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     lines.append("\nDoes that look right?")
     if time_text:
         lines.append(_schedule_input_line(time_text))
+    # Two buttons in EVERY mode: poll the group, or put the time out directly.
+    # Which the second one is depends on whether this time can actually be
+    # written -- see the mode table below.
+    #
+    # Poll carries the match id in match mode so the open handler can re-resolve
+    # the match at click time; the sentinel keeps the arg count identical
+    # elsewhere, so one decode shape reads both.
+    poll_kind = "match" if not unlinked else unlinked_kind
+    poll_id = encode_custom_id("sched_poll_open", poll_kind,
+                               match_id if not unlinked else SCHEDULE_NO_MATCH,
+                               ts, owner)
+    buttons = [button("Poll", poll_id, style=STYLE_SUCCESS)]
+
     if unlinked:
         # NOT schedule_confirm: that handler looks the match up by id and would
         # answer "That match can no longer be scheduled". This is the path a user
         # lands on after setting their timezone through the picker, so it has to be
         # decided here, in the builder both flows share.
-        confirm_id = encode_custom_id("sched_free", unlinked_kind, ts, owner)
+        buttons.append(button(
+            "Suggest", encode_custom_id("sched_free", unlinked_kind, ts, owner),
+            style=STYLE_SECONDARY))
+    elif pending_confirmers:
+        # The tournament requires participant confirmation, so a direct write is
+        # not on offer -- only a confirmed poll may schedule. Suggest still lets a
+        # moderator float a time; it just writes nothing.
+        buttons.append(button(
+            "Suggest", encode_custom_id("sched_free", "match", ts, owner),
+            style=STYLE_SECONDARY))
     else:
-        confirm_id = encode_custom_id("schedule_confirm", match_id, ts, owner)
-    buttons = [button("Suggest Time" if unlinked else
-                      ("Propose Time" if pending_confirmers else "Confirm"),
-                      confirm_id, style=STYLE_SUCCESS)]
+        buttons.append(button(
+            "Set Time", encode_custom_id("schedule_confirm", match_id, ts, owner),
+            style=STYLE_SECONDARY))
     if tz_name:
         buttons.append(button(
             "Change timezone", encode_custom_id("schedule_tz_change", match_id, owner),
@@ -1133,73 +1157,83 @@ def _proposal_ping_content(pending):
     return line or None
 
 
-def _schedule_proposal_data(proposal, match=None, mention=False):
-    """The public proposal message: the proposed time, who still owes a
-    confirmation, who has already given one, and Confirm / Reject.
+def _proposal_entries(profiles):
+    """Profiles as the poll renderer's [{"id","name"}] shape.
 
-    Both custom_ids end in the non-snowflake "g" marker so the dispatcher's
-    owner-lock does NOT fire — every roster player must be able to click, which is
-    the opposite of what that lock does. Authorization therefore lives in the
-    handlers themselves.
+    A player with no linked Discord has no snowflake to key on, so they get their
+    pk as a stable stand-in -- it never matches a real clicker id, which is
+    correct: they cannot click until they link, and _resolve_clicker tells them
+    so."""
+    return [{"id": str(p.discord_id or f"profile-{p.pk}"),
+             "name": p.display_name or p.discord or p.slug or "—"}
+            for p in profiles]
+
+
+def _schedule_proposal_data(proposal, match=None, mention=False, author=None,
+                            notify_ids=()):
+    """The public proposal message, rendered as a poll.
+
+    Same visual design as an embed-mode poll -- Yes / No / Pending columns and the
+    four buttons -- but every response is read from and written to the
+    ScheduleProposal row, so it survives the message being deleted and can drive
+    the actual schedule write.
+
+    Every custom_id ends in the non-snowflake "g" marker so the dispatcher's
+    owner-lock does NOT fire; every roster player must be able to click, and each
+    handler authorizes for itself.
+
+    `notify_ids` are carried in the EMBED even here, because a subscriber need not
+    have a Profile -- so callers re-read them off the echoed message and pass them
+    back in. Dropping this argument silently unsubscribes everyone on the next
+    render.
 
     `mention` marks the FIRST post, where a ping would belong. It is currently
     INERT: pinging is off (see SCHEDULE_PROPOSAL_PINGS), and mentions inside an
     embed never notify anyone regardless -- Discord only pings from message
-    `content`. The names in the fields below are therefore display only."""
+    `content`."""
     match = match or proposal.match
     pending = list(proposal.pending_profiles())
-    confirmed = list(proposal.confirmed_by.all())
-    lines = [
-        f"**{_match_label(match)}**",
-        format_discord_timestamp(proposal.proposed_time),
-    ]
+    data = _schedule_poll_data(
+        proposal.proposed_time,
+        proposal.proposed_by.discord_id if proposal.proposed_by_id else None,
+        yes=_proposal_entries(proposal.confirmed_by.all()),
+        no=_proposal_entries(proposal.rejected_by.all()),
+        notify_ids=notify_ids,
+        pending=[_roster_name(p) for p in pending],
+        label=_match_label(match),
+        author=author,
+        proposal_pk=proposal.pk,
+        kind="match",
+    )
     if ScheduleProposal.objects.filter(
         match_id=proposal.match_id,
         status__in=ScheduleProposal.LIVE_STATUSES,
     ).exclude(pk=proposal.pk).exists():
-        lines.append("\n-# Another time is also proposed for this match — "
-                     "whichever is confirmed first wins.")
+        data["embeds"][0]["description"] += (
+            "\n-# Another time is also proposed for this match — "
+            "whichever is confirmed first wins.")
     ping = (_proposal_ping_content(pending)
             if mention and SCHEDULE_PROPOSAL_PINGS else None)
-    data = {
-        "embeds": [{
-            "title": "Proposed time",
-            "description": "\n".join(lines),
-            "fields": [
-                {"name": "Waiting on", "value": _name_list_value(pending),
-                 "inline": False},
-                {"name": "✅ Confirmed", "value": _name_list_value(confirmed),
-                 "inline": False},
-            ],
-        }],
-        "components": [action_row(
-            button("Confirm", encode_custom_id("sched_prop_ok", proposal.pk, "g"),
-                   style=STYLE_SUCCESS),
-            button("Reject", encode_custom_id("sched_prop_no", proposal.pk, "g"),
-                   style=STYLE_DANGER),
-        )],
-        # Only a real ping line opens mentions up; with none there is nothing to
-        # notify from, and the embed's names never notify anyway.
-        "allowed_mentions": {"parse": ["users"] if ping else []},
-    }
     if ping:
         data["content"] = ping
+        data["allowed_mentions"] = {"parse": ["users"]}
     return data
 
 
-def _schedule_rejected_data(proposal, match=None):
-    """The rejected view. Keeps the proposal's history -- who suggested the time,
-    what it was, and who had already agreed -- so the thread retains a record of
-    what fell through instead of just that something did.
+def _schedule_rejected_data(proposal, match=None, author=None):
+    """The closed view for a poll somebody couldn't make. Keeps the history --
+    who suggested the time, what it was, who agreed and who declined -- so the
+    thread retains a record of what fell through instead of just that something
+    did.
 
-    Names the rejecter, so the group can see who cleared the time rather than
-    having to ask. Safe to render as a mention: Discord never notifies from inside
-    an embed."""
+    Names the people who declined, so the group can see why the time fell through
+    rather than having to ask. Safe to render as mentions: Discord never notifies
+    from inside an embed."""
     embed = schedule_closed_embed(
-        proposal, "Time rejected", "rejected",
-        actor=proposal.rejected_by,
-        label=_match_label(match) if match else None)
-    embed["description"] += "\nRun `/schedule` to propose another."
+        proposal, "🗓 Time not scheduled", "rejected",
+        label=_match_label(match) if match else None,
+        author=author)
+    embed["description"] += "\n-# Run `/schedule` to propose another time."
     return {
         "embeds": [embed],
         "components": [],
@@ -1232,6 +1266,13 @@ def _schedule_finalized_data(proposal, match):
         }
     embed = dict(embed)
     embed["title"] = f"🗓️ {embed.get('title') or _match_label(match)} scheduled"
+    # The same closing note an embed-mode poll gets, so both modes say how the
+    # poll ended rather than leaving the match one to be inferred from the title.
+    # Appended to whatever description build_upcoming_embed produced (which may
+    # be absent entirely -- summary=None strips it).
+    note = "-# Scheduled — everyone confirmed."
+    existing = embed.get("description")
+    embed["description"] = f"{existing}\n\n{note}" if existing else note
     fields = list(embed.get("fields") or [])
     fields.append({
         "name": "✅ Confirmed by",
@@ -1697,7 +1738,7 @@ def _handle_schedule_confirm(payload):
     })
 
 
-def _open_schedule_proposal(payload, match, when, profile, roster):
+def _open_schedule_proposal(payload, match, when, profile, roster, author=None):
     """Create a ScheduleProposal and post it publicly for the roster to confirm.
 
     The proposer is seeded into confirmed_by — they picked the time, so asking them
@@ -1722,7 +1763,8 @@ def _open_schedule_proposal(payload, match, when, profile, roster):
     # countdown=2 sequences the post after this response's ACK, matching the
     # followup convention elsewhere in this module.
     post_schedule_proposal_task.apply_async(
-        (proposal.pk, _schedule_proposal_data(proposal, match, mention=True)),
+        (proposal.pk, _schedule_proposal_data(proposal, match, mention=True,
+                                              author=author)),
         countdown=2,
     )
 
@@ -1862,13 +1904,56 @@ def _handle_schedule_proposal_confirm(payload):
     # click that FINISHES: once everyone else has confirmed, the seeded proposer
     # pressing Confirm is both already-confirmed and the last confirmation owed,
     # and returning early on `already` alone would strand the proposal unscheduled.
-    if already and not proposal.all_confirmed():
+    if already and not proposal.all_responded():
         return _ephemeral(_already_confirmed_text(proposal, me))
 
-    if not proposal.all_confirmed():
+    proposal.rejected_by.remove(me)   # answering moves you between the columns
+    return _resolve_match_poll(payload, proposal, match)
+
+
+def _resolve_match_poll(payload, proposal, match):
+    """Re-render a match poll after a vote, closing it if that was the last one.
+
+    The single place the poll's outcome is decided, shared by Yes and No so the
+    two can't drift. Three outcomes:
+
+      * still waiting      -> re-render with the updated columns
+      * everyone said yes  -> write the time (or park at AGREED, see below)
+      * somebody said no   -> close REJECTED, writing nothing
+
+    all_responded is the CLOSE condition and all_confirmed the WRITE condition;
+    they differ exactly when someone declined, which is the whole point of a poll
+    that no longer dies on the first rejection."""
+    notify_ids = _poll_notify_ids_from_payload(payload)
+
+    if not proposal.all_responded():
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
-            "data": _schedule_proposal_data(proposal, match),
+            "data": _schedule_proposal_data(
+                proposal, match, author=_poll_author_from_payload(payload),
+                notify_ids=notify_ids),
+        })
+
+    declined = list(proposal.rejected_by.all())
+    if declined:
+        # Everyone answered and somebody can't make it: no time is written, and
+        # the message says who. LIVE-guarded so a proposal resolved another way
+        # in the meantime is not overwritten.
+        ScheduleProposal.objects.filter(
+            pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
+        ).update(status=ScheduleProposal.Status.REJECTED,
+                 resolved_at=timezone.now())
+        proposal.refresh_from_db()
+        if notify_ids:
+            # Excluding whoever's vote completed the roster -- they just clicked.
+            _notify_poll_closed(notify_ids, proposal.proposed_time,
+                                _proposal_entries(declined), scheduled=False,
+                                closed_by=str(_interaction_user_id(payload)),
+                                jump_url=_lfg_jump_url(payload))
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _schedule_rejected_data(
+                proposal, match, author=_poll_author_from_payload(payload)),
         })
 
     # Everyone agreed -- but agreement is CONSENT, not authority. When the
@@ -1902,10 +1987,37 @@ def _handle_schedule_proposal_confirm(payload):
                 f"The time can no longer be set for this match — {failure}."),
         })
     match.refresh_from_db()
+    if notify_ids:
+        # Excluding whoever's confirmation completed the roster -- they just clicked.
+        _notify_poll_closed(notify_ids, proposal.proposed_time, [],
+                            scheduled=True,
+                            closed_by=str(_interaction_user_id(payload)),
+                            jump_url=_lfg_jump_url(payload))
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _schedule_finalized_data(proposal, match),
     })
+
+
+def _poll_notify_ids_from_payload(payload):
+    """The 🔔 subscribers, read back off the echoed message.
+
+    Match-mode polls keep this list in the EMBED, not the row -- a subscriber
+    need not have a Profile, so an M2M could not hold them. Every match-mode
+    re-render rebuilds its embed from the row, so without carrying this across
+    the subscribers would vanish the moment anyone voted."""
+    embed = (payload.get("message", {}).get("embeds") or [{}])[0]
+    field = _poll_field_lookup(embed, POLL_NOTIFY_FIELD)
+    return _LFG_MENTION_RE.findall(field.get("value", "")) if field else []
+
+
+def _poll_author_from_payload(payload):
+    """The embed author block carried on the message being edited.
+
+    Not rebuilt from the clicker: the author is whoever PROPOSED the time, and
+    every re-render happens under someone else's interaction."""
+    embed = (payload.get("message", {}).get("embeds") or [{}])[0]
+    return embed.get("author")
 
 
 def _handle_schedule_proposal_reject(payload):
@@ -1965,17 +2077,12 @@ def _handle_schedule_proposal_reject(payload):
                 "game's players."
             )
 
-    updated = ScheduleProposal.objects.filter(
-        pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
-    ).update(status=ScheduleProposal.Status.REJECTED,
-             rejected_by=me, resolved_at=timezone.now())
-    if not updated:
-        return _ephemeral("That proposed time is no longer active.")
-    proposal.refresh_from_db()
-    return JsonResponse({
-        "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _schedule_rejected_data(proposal),
-    })
+    # A "No" is a VOTE, not a termination: record it and leave the poll open so
+    # everyone else still gets a say. The poll closes when the last roster player
+    # answers -- see _resolve_match_poll.
+    proposal.rejected_by.add(me)
+    proposal.confirmed_by.remove(me)   # answering moves you between the columns
+    return _resolve_match_poll(payload, proposal, match)
 
 
 def _handle_schedule_proposal_set(payload):
@@ -2064,25 +2171,30 @@ def _handle_schedule_clear_confirm(payload):
     })
 
 
-SCHEDULE_FREE_CONFIRMED_FIELD = "✅ Confirmed"
-SCHEDULE_FREE_UNAVAILABLE_FIELD = "❌ Unavailable"
+# The response field names. These are PARSED back out of the embed on every click
+# in embed mode, so their values are a wire format: a poll posted before a rename
+# stops being readable. Defined in services.lfg_game so the Celery strip task
+# renders the same labels; re-exported here under the names the call sites use.
+SCHEDULE_FREE_CONFIRMED_FIELD = POLL_YES_FIELD
+SCHEDULE_FREE_UNAVAILABLE_FIELD = POLL_NO_FIELD
+
+# How many Yes / No responses a poll with no roster accepts. Not a correctness
+# guard -- name_list_value's 1024-char truncation is that -- but a poll where
+# ninety people click Yes stops being readable long before Discord complains.
+POLL_FREE_RESPONSE_MAX = 12
 
 
-def _schedule_free_public_data(when, proposer_id, kind, confirmed=None,
-                               unavailable=None):
-    """The PUBLIC suggested-time message.
+def _schedule_free_public_data(when, proposer_id, kind, author=None):
+    """The PUBLIC suggested-time message: who suggested it, and when.
 
-    Deliberately unlike a real schedule: a different title and the unlinked note,
-    so nobody reads this as a game scheduled on the site. In an LFG thread it
-    carries Confirm/Can't make it buttons whose state lives in the embed — nothing
-    is stored, so deleting the message loses the responses.
+    Deliberately minimal -- this is the "just put a time out there" half of the
+    picker, so it carries no lists and no buttons. Anything that collects
+    responses is a poll (see _schedule_poll_data).
 
-    Both lists are built in a FIXED order (confirmed, then unavailable) and each is
-    omitted when empty. The order matters: the respond handler rebuilds these
-    fields on every click, and appending them in whatever order they happened to be
-    rewritten would make the two swap places under the reader."""
+    Deliberately unlike a real schedule too: a different title and the unlinked
+    note, so nobody reads this as a game scheduled on the site."""
     embed = {
-        "title": "🕐 Proposed time (not scheduled)" if kind == "lfg" else "🕐 Suggested time",
+        "title": "🕐 Suggested time",
         "description": "\n".join([
             format_discord_timestamp(when),
             "",
@@ -2090,31 +2202,149 @@ def _schedule_free_public_data(when, proposer_id, kind, confirmed=None,
             SCHEDULE_UNLINKED_NOTE,
         ]),
     }
-    fields = []
-    if confirmed:
-        fields.append({"name": SCHEDULE_FREE_CONFIRMED_FIELD,
-                       "value": "\n".join(confirmed), "inline": False})
-    if unavailable:
-        fields.append({"name": SCHEDULE_FREE_UNAVAILABLE_FIELD,
-                       "value": "\n".join(unavailable), "inline": False})
+    if author:
+        embed["author"] = author
+    return {"embeds": [embed], "allowed_mentions": {"parse": []}}
+
+
+def _poll_entry_lines(entries):
+    """"Name (<@id>)" per entry, as the embed field value. Mirrors /lfg's player
+    lines so _LFG_PLAYER_LINE_RE parses them straight back."""
+    return "\n".join(_lfg_player_line(e["name"], e["id"]) for e in entries) or "—"
+
+
+def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
+                        pending=None, label=None, closed=False, closed_reason=None,
+                        closed_by=None, scheduled=False, author=None,
+                        proposal_pk=None, kind="bare"):
+    """The poll message, in every mode.
+
+    ONE renderer for all four situations, fed a normalized shape so the two
+    backends converge: match mode passes values read from the ScheduleProposal
+    row, embed mode passes values parsed out of the echoed embed. This function
+    knows about neither store.
+
+    `yes` / `no` are [{"id", "name"}]. `pending` is a list of names for a poll
+    with a roster, or None for one without -- and None is NOT the same as empty:
+    empty means everyone answered (the poll closes), None means nobody knows who
+    should answer (a bare channel, where the column is absent entirely).
+
+    `notify_ids` are raw snowflakes. They live in the embed even in match mode,
+    because a subscriber need not have a Profile at all.
+
+    Mentions render but never notify: Discord only pings from message `content`,
+    which this never sets."""
+    lines = []
+    if label:
+        lines.append(f"**{label}**")
+    lines.append(format_discord_timestamp(when))
+    lines.append(f"Suggested by <@{proposer_id}>.")
+    if kind != "match":
+        lines.append(SCHEDULE_UNLINKED_NOTE)
+
+    if closed:
+        if scheduled:
+            title = "✅ Time confirmed"
+        elif closed_reason == "closed":
+            title = "🗓 Poll closed"
+        else:
+            title = "🗓 Time not scheduled"
+    else:
+        title = "🗓 Proposed time"
+
+    embed = {"title": title, "description": "\n".join(lines)}
+    if author:
+        embed["author"] = author
+
+    # Closed polls stack rather than column: the alignment columns protect only
+    # matters while votes are arriving, and empty lists are dropped instead of
+    # holding their slot with a "—".
+    if closed:
+        fields = poll_response_fields(
+            _poll_entry_lines(yes) if yes else None,
+            _poll_entry_lines(no) if no else None,
+            None, columns=False)
+    else:
+        fields = poll_response_fields(
+            _poll_entry_lines(yes), _poll_entry_lines(no),
+            # None (no roster) drops the column; a roster with nobody left simply
+            # renders empty until the close lands.
+            None if pending is None else ("\n".join(pending) or "—"))
+    for field in fields:
+        field["name"] = poll_count_label(
+            field["name"],
+            {POLL_YES_FIELD: yes, POLL_NO_FIELD: no}.get(field["name"],
+                                                         pending or []))
+
+    # Written HERE rather than via _lfg_set_notify_ids: that helper positions the
+    # field after /lfg's "Players" field, which a poll has no equivalent of, so it
+    # would land BETWEEN the response columns and break the inline row.
+    if notify_ids and not closed:
+        fields.append({"name": POLL_NOTIFY_FIELD,
+                       "value": " ".join(f"<@{i}>" for i in notify_ids),
+                       "inline": False})
     if fields:
         embed["fields"] = fields
+
+    if closed:
+        note = _poll_closed_note(closed_reason, closed_by, no, scheduled, kind)
+        if note:
+            embed["description"] += f"\n\n{note}"
+
     data = {"embeds": [embed], "allowed_mentions": {"parse": []}}
-    if kind == "lfg":
-        ts = int(when.timestamp())
-        data["components"] = [action_row(
-            # "g" (not a snowflake) keeps the dispatcher's owner-lock OFF so any
-            # thread player can click; this handler authorizes them itself.
-            button("Confirm", encode_custom_id("sched_lfg_ok", ts, "g"),
-                   style=STYLE_SUCCESS),
-            button("Can't make it", encode_custom_id("sched_lfg_no", ts, "g"),
-                   style=STYLE_SECONDARY),
-        )]
+    if not closed:
+        data["components"] = [_poll_buttons(proposal_pk, kind, proposer_id)]
+    else:
+        data["components"] = []
     return data
 
 
+def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind):
+    """The `-#` subtext explaining how a poll ended."""
+    if reason == "closed":
+        who = f" by <@{closed_by}>" if closed_by else ""
+        return f"-# Closed{who} before everyone responded."
+    if scheduled:
+        return "-# Scheduled — everyone confirmed."
+    if no_entries:
+        names = name_join([f"<@{e['id']}>" for e in no_entries])
+        tail = ("\n-# Run `/schedule` to propose another time."
+                if kind == "match" else "")
+        return f"-# Not scheduled — {names} couldn't make it.{tail}"
+    if kind != "match":
+        return "-# Everyone confirmed."
+    return None
+
+
+def _poll_buttons(proposal_pk, kind, proposer_id):
+    """Yes / No / 🔔 Notify / Close.
+
+    Every custom_id ends in the non-snowflake "g" marker so the dispatcher's
+    owner-lock does NOT fire -- anyone may be allowed to click, and each handler
+    authorizes for itself. That includes Close: it is host-gated, but the lock
+    admits exactly one snowflake and Close must also admit moderators.
+
+    Match-mode ids carry the proposal pk (the store); embed-mode ids carry the
+    kind (the voter gate) and the proposer (for Close). The proposer rides
+    NON-last so the lock stays off."""
+    if proposal_pk is not None:
+        args = (proposal_pk,)
+    else:
+        args = (kind, proposer_id)
+    return action_row(
+        button("Yes", encode_custom_id("sched_poll_ok", *args, "g"),
+               style=STYLE_SUCCESS),
+        button("No", encode_custom_id("sched_poll_no", *args, "g"),
+               style=STYLE_DANGER),
+        button("", encode_custom_id("sched_poll_notify", *args, "g"),
+               style=STYLE_SECONDARY, emoji={"name": "🔔"}),
+        button("Close", encode_custom_id("sched_poll_close", *args, "g"),
+               style=STYLE_SECONDARY),
+    )
+
+
 def _handle_schedule_free(payload):
-    """Suggest Time: post the unlinked suggestion publicly. Nothing is written."""
+    """Suggest: post the unlinked suggestion publicly. Nothing is written."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # [kind, ts, owner]
     if len(args) < 3:
         return _ephemeral("That button is out of date — run /schedule again.")
@@ -2134,7 +2364,9 @@ def _handle_schedule_free(payload):
     # an error.
     try:
         post_interaction_followup_task.apply_async(
-            (token, _schedule_free_public_data(when, owner, kind)), countdown=2)
+            (token, _schedule_free_public_data(
+                when, owner, kind, author=_interaction_author(payload))),
+            countdown=2)
     except Exception:
         logger.exception("Could not enqueue the suggested-time post")
         return _ephemeral("Couldn't post that just now — try again in a moment.")
@@ -2146,71 +2378,432 @@ def _handle_schedule_free(payload):
     })
 
 
-def _handle_schedule_free_respond(payload):
-    """Confirm / Can't make it on an unlinked LFG suggestion.
+def _handle_schedule_poll_open(payload):
+    """Poll: post the public time poll.
 
-    Both lists live in the message's own embed fields — there is no row to update.
-    Only players in the thread may respond.
+    Routes on `kind`: a match poll becomes a ScheduleProposal (durable, drives the
+    actual schedule write); every other poll lives in its own embed."""
+    # [kind, match_id|SCHEDULE_NO_MATCH, ts, owner]
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    if len(args) < 4:
+        return _ephemeral("That button is out of date — run /schedule again.")
+    kind, ts, owner = args[0], args[2], args[3]
+    try:
+        when = datetime.fromtimestamp(int(ts), tz=dt_timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        return _ephemeral("That time is no longer valid: run /schedule again.")
 
-    A response MOVES the clicker between the two lists rather than only adding:
-    they are removed from both first, then appended to whichever one they chose.
-    So Confirm after Can't-make-it clears the ❌ entry and vice versa, and neither
-    list can ever hold the same person twice."""
-    action, args = decode_custom_id(payload["data"]["custom_id"])  # [ts, "g"]
-    thread = _lfg_thread_for_channel(payload.get("channel_id"))
-    if not thread:
-        return _ephemeral("This isn't a game thread anymore.")
+    author = _interaction_author(payload)
 
-    roster = list(thread.players.all())
-    me, status = _resolve_clicker(
-        roster, _interaction_user_id(payload), _clicker_username(payload))
-    if status == CLICKER_UNLINKED:
-        return _ephemeral(
-            "You're one of this game's players, but your Discord isn't linked to "
-            f"your site account yet. Log in{_login_hint()} with Discord once, then "
-            "click Confirm again.")
-    if status != CLICKER_MATCHED:
-        return _ephemeral("Only the players in this thread can respond to that.")
+    if kind == "match":
+        return _open_match_poll(payload, when, owner, author)
 
-    embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
+    token = payload.get("token")
+    if not token:
+        return _ephemeral("Couldn't post that — run /schedule again.")
 
-    def _lines(name):
-        field = _lfg_field(embed, name)
-        return [ln for ln in (field or {}).get("value", "").splitlines()
-                if ln.strip()]
+    roster, _thread = _poll_lfg_roster(payload) if kind == "lfg" else ([], None)
+    pending = [_roster_name(p) for p in roster] if roster else None
 
-    confirmed = _lines(SCHEDULE_FREE_CONFIRMED_FIELD)
-    unavailable = _lines(SCHEDULE_FREE_UNAVAILABLE_FIELD)
-
-    # Identity is the id, not the display name, so a rename can't double-count.
-    clicker_id = str(_interaction_user_id(payload))
-    mine = f"<@{clicker_id}>"
-    confirmed = [ln for ln in confirmed if mine not in ln]
-    unavailable = [ln for ln in unavailable if mine not in ln]
-    line = _lfg_player_line(me.name, clicker_id)
-    if action == "sched_lfg_ok":
-        confirmed.append(line)
-    else:
-        unavailable.append(line)
-
-    # Rebuild BOTH managed fields in a fixed order, keeping any other field the
-    # embed carries. Appending them as they were rewritten would let the two swap
-    # places from one click to the next.
-    managed = {SCHEDULE_FREE_CONFIRMED_FIELD, SCHEDULE_FREE_UNAVAILABLE_FIELD}
-    fields = [f for f in embed.get("fields", []) if f.get("name") not in managed]
-    if confirmed:
-        fields.append({"name": SCHEDULE_FREE_CONFIRMED_FIELD,
-                       "value": "\n".join(confirmed), "inline": False})
-    if unavailable:
-        fields.append({"name": SCHEDULE_FREE_UNAVAILABLE_FIELD,
-                       "value": "\n".join(unavailable), "inline": False})
-    embed["fields"] = fields
+    data = _schedule_poll_data(when, owner, yes=[], no=[], notify_ids=[],
+                               pending=pending, author=author, kind=kind)
+    try:
+        post_interaction_followup_task.apply_async((token, data), countdown=2)
+    except Exception:
+        logger.exception("Could not enqueue the time poll")
+        return _ephemeral("Couldn't post that just now — try again in a moment.")
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": {"embeds": [embed], "components": payload["message"].get("components", []),
+        "data": {"content": "Posted your time poll.", "components": [],
+                 "embeds": []},
+    })
+
+
+def _open_match_poll(payload, when, owner, author):
+    """A poll on a real tournament match: durable, and able to write the time.
+
+    Re-resolves the match and permission at click time rather than trusting the
+    prompt, exactly as _handle_schedule_confirm does -- the button is a second
+    request and the world may have moved."""
+    match_id = _poll_match_id_from_message(payload)
+    match = (_schedulable_matches(payload.get("guild_id"))
+             .filter(pk=match_id).first() if match_id else None)
+    if not match:
+        return _ephemeral(
+            "That match can no longer be scheduled: it may have been played or "
+            "removed.")
+
+    profile = Profile.objects.filter(discord_id=str(owner)).first()
+    if not profile or not match.can_schedule(profile):
+        return _ephemeral("You can't set the time for this match.")
+
+    roster = _match_roster(match)
+    if not roster:
+        return _ephemeral(
+            "This game has no players on its roster yet, so there's nobody to "
+            "poll. A moderator can set the time directly instead.")
+
+    return _open_schedule_proposal(payload, match, when, profile, roster,
+                                   author=author)
+
+
+def _poll_match_id_from_message(payload):
+    """The match id out of a Poll custom_id: sched_poll_open:{kind}:{id}:{ts}:{owner}.
+
+    SCHEDULE_NO_MATCH in every non-match mode, so the arg count is identical
+    across all four and one decode shape reads them all."""
+    _action, args = decode_custom_id((payload.get("data") or {}).get("custom_id") or "")
+    if len(args) < 4:
+        return None
+    return None if _is_no_match(args[1]) else args[1]
+
+
+def _handle_schedule_poll_dispatch(payload):
+    """Route a poll button to the store that backs it.
+
+    Match-mode ids carry the numeric proposal pk as their first arg; embed-mode
+    ids carry the kind ("lfg"/"bare"). Telling them apart on `isdigit` keeps one
+    handler name per button in the dispatch table while the two backends stay
+    completely separate underneath."""
+    action, args = decode_custom_id((payload.get("data") or {}).get("custom_id") or "")
+    first = args[0] if args else ""
+    if first.isdigit():
+        return _handle_match_poll_click(payload, action)
+    if action == "sched_poll_close":
+        return _handle_schedule_poll_close(payload)
+    return _handle_schedule_poll_respond(payload)
+
+
+def _handle_match_poll_click(payload, action):
+    """Yes / No / 🔔 / Close on a match poll — the ScheduleProposal-backed one."""
+    if action == "sched_poll_ok":
+        return _handle_schedule_proposal_confirm(payload)
+    if action == "sched_poll_no":
+        return _handle_schedule_proposal_reject(payload)
+    if action == "sched_poll_notify":
+        return _handle_match_poll_notify(payload)
+    return _handle_match_poll_close(payload)
+
+
+def _handle_match_poll_notify(payload):
+    """🔔 on a match poll. The subscriber list lives in the embed even here, so
+    this toggles the field and re-renders from the row + that list."""
+    proposal, match, error = _proposal_for_click(payload, allow_agreed=True)
+    if error:
+        return error
+    clicker_id = str(_interaction_user_id(payload))
+    notify_ids = _poll_notify_ids_from_payload(payload)
+    if clicker_id in notify_ids:
+        notify_ids = [i for i in notify_ids if i != clicker_id]
+    else:
+        notify_ids.append(clicker_id)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_proposal_data(
+            proposal, match, author=_poll_author_from_payload(payload),
+            notify_ids=notify_ids),
+    })
+
+
+def _handle_match_poll_close(payload):
+    """Close on a match poll: the proposer or a moderator ends it early.
+
+    Retires the row as CANCELLED rather than REJECTED -- nobody declined the
+    time, the poll simply stopped -- which also keeps it out of the way of a
+    later proposal for the same match."""
+    proposal, match, error = _proposal_for_click(payload, allow_agreed=True)
+    if error:
+        return error
+
+    clicker = Profile.objects.filter(
+        discord_id=str(_interaction_user_id(payload) or "")).first()
+    is_proposer = clicker and clicker.pk == proposal.proposed_by_id
+    if not is_proposer and not (clicker and match.can_schedule(clicker)):
+        return _ephemeral(
+            "Only the person who started this poll, or a moderator, can close it.")
+
+    notify_ids = _poll_notify_ids_from_payload(payload)
+    ScheduleProposal.objects.filter(
+        pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
+    ).update(status=ScheduleProposal.Status.CANCELLED,
+             resolved_at=timezone.now())
+    proposal.refresh_from_db()
+    if notify_ids:
+        _notify_poll_closed(notify_ids, proposal.proposed_time, [],
+                            scheduled=False,
+                            closed_by=str(_interaction_user_id(payload)),
+                            jump_url=_lfg_jump_url(payload))
+    embed = schedule_closed_embed(
+        proposal, "🗓 Poll closed", "closed", actor=clicker,
+        label=_match_label(match), author=_poll_author_from_payload(payload))
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"embeds": [embed], "components": [],
                  "allowed_mentions": {"parse": []}},
     })
+
+
+def _poll_entries(field):
+    """[{"id","name"}] parsed out of one response column's field.
+
+    The lines are /lfg's "Name (<@id>)" shape, so _LFG_PLAYER_LINE_RE reads them
+    straight back. A line that doesn't match is DROPPED rather than guessed at --
+    the id is the identity, and an entry without one can't be moved or deduped."""
+    entries = []
+    for line in (field or {}).get("value", "").splitlines():
+        m = _LFG_PLAYER_LINE_RE.match(line.strip())
+        if m:
+            entries.append({"name": m.group(1), "id": m.group(2)})
+    return entries
+
+
+def _poll_field_lookup(embed, base_name):
+    """Find a response field whose name STARTS with the base label.
+
+    The rendered names carry a count -- "✅ Yes (2)" -- so an exact match would
+    miss every field that has anyone in it. Matching on the prefix keeps the
+    count purely presentational, which is what lets it change on every click
+    without breaking the parse."""
+    for field in embed.get("fields", []):
+        name = field.get("name", "")
+        if name == base_name or name.startswith(f"{base_name} ("):
+            return field
+    return None
+
+
+def _poll_state(embed):
+    """(yes, no, notify_ids) read out of a poll embed."""
+    def entries(base):
+        return _poll_entries(_poll_field_lookup(embed, base))
+
+    notify_field = _poll_field_lookup(embed, POLL_NOTIFY_FIELD)
+    notify_ids = (_LFG_MENTION_RE.findall(notify_field.get("value", ""))
+                  if notify_field else [])
+    return entries(POLL_YES_FIELD), entries(POLL_NO_FIELD), notify_ids
+
+
+def _poll_embed_meta(embed):
+    """(when, proposer_id, label, author) recovered from a rendered poll embed.
+
+    The poll is stateless in embed mode, so everything needed to re-render comes
+    back off the message. The timestamp is parsed from the `<t:unix:F>` the
+    description opens with rather than carried in the custom_id, which is capped
+    at 100 chars and ':'-delimited."""
+    description = embed.get("description", "")
+    ts_match = re.search(r"<t:(\d+):", description)
+    when = None
+    if ts_match:
+        try:
+            when = datetime.fromtimestamp(int(ts_match.group(1)), tz=dt_timezone.utc)
+        except (ValueError, OSError, OverflowError):
+            when = None
+    proposer = re.search(r"Suggested by <@!?(\d+)>", description)
+    label_match = re.match(r"\*\*(.+?)\*\*", description)
+    return (when, proposer.group(1) if proposer else None,
+            label_match.group(1) if label_match else None,
+            embed.get("author"))
+
+
+def _poll_lfg_roster(payload):
+    """(roster, thread) for an LFG-thread poll. Roster is [] when the thread is
+    gone or has no players -- which makes the poll behave like a bare one rather
+    than becoming unusable."""
+    thread = _lfg_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return [], None
+    return list(thread.players.all()), thread
+
+
+def _handle_schedule_poll_respond(payload):
+    """Yes / No / 🔔 Notify on an embed-mode poll (LFG thread or plain channel).
+
+    All state lives in the message's own embed fields — there is no row. A Yes or
+    No MOVES the clicker between the two columns rather than only adding: they are
+    removed from both first, then appended to whichever they chose, so neither
+    column can hold the same person twice and switching answers works.
+
+    Identity is the snowflake throughout, never the display name, so a rename
+    can't double-count someone."""
+    action, args = decode_custom_id(payload["data"]["custom_id"])
+    kind = args[0] if args else "bare"
+    proposer_id = args[1] if len(args) > 1 else None
+
+    embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
+    when, embed_proposer, label, author = _poll_embed_meta(embed)
+    if when is None:
+        return _ephemeral("That poll is out of date — run /schedule again.")
+    proposer_id = embed_proposer or proposer_id
+
+    clicker_id = str(_interaction_user_id(payload))
+    display = _lfg_member_display_name(payload)
+
+    # Who may vote. An LFG thread's poll belongs to its players; a bare channel's
+    # is open to anyone there.
+    roster, _thread = _poll_lfg_roster(payload) if kind == "lfg" else ([], None)
+    if kind == "lfg" and roster:
+        me, status = _resolve_clicker(
+            roster, _interaction_user_id(payload), _clicker_username(payload))
+        if status == CLICKER_UNLINKED:
+            return _ephemeral(
+                "You're one of this game's players, but your Discord isn't linked "
+                f"to your site account yet. Log in{_login_hint()} with Discord "
+                "once, then click again.")
+        if status != CLICKER_MATCHED:
+            return _ephemeral("Only the players in this thread can respond to that.")
+        display = me.display_name or display
+
+    yes, no, notify_ids = _poll_state(embed)
+
+    if action == "sched_poll_notify":
+        if clicker_id in notify_ids:
+            notify_ids = [i for i in notify_ids if i != clicker_id]
+        else:
+            notify_ids.append(clicker_id)
+    else:
+        joining_yes = action == "sched_poll_ok"
+        target = yes if joining_yes else no
+        already_here = any(e["id"] == clicker_id for e in target)
+        # The cap applies only to a NEW entry on a full column. Someone already on
+        # it may always switch or be counted again, or a full poll would trap them.
+        if (not already_here and roster == [] and kind != "match"
+                and len(target) >= POLL_FREE_RESPONSE_MAX):
+            return _ephemeral(
+                f"This poll already has {POLL_FREE_RESPONSE_MAX} "
+                f"{'Yes' if joining_yes else 'No'} responses.")
+        yes = [e for e in yes if e["id"] != clicker_id]
+        no = [e for e in no if e["id"] != clicker_id]
+        (yes if joining_yes else no).append({"id": clicker_id, "name": display})
+
+        if joining_yes and notify_ids:
+            _notify_poll_yes(notify_ids, clicker_id, display, when, len(yes),
+                             len(roster) or None, _lfg_jump_url(payload))
+
+    # Everyone on the roster has answered -> close. A poll with no roster has no
+    # completion condition and closes only via the Close button.
+    pending = _poll_pending_names(roster, yes, no) if roster else None
+    if roster and not pending:
+        # An auto-close is still SOMEBODY's click -- the last answer owed -- so
+        # exclude them from the result DM the same way a manual Close excludes
+        # whoever pressed it. `closed_by` is only passed as the exclusion here;
+        # the rendered note stays the everyone-answered one, not "closed by".
+        return _poll_close_response(
+            when, proposer_id, yes, no, notify_ids, label, author, kind,
+            reason=None, closed_by=clicker_id, jump_url=_lfg_jump_url(payload))
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_poll_data(
+            when, proposer_id, yes=yes, no=no, notify_ids=notify_ids,
+            pending=pending, label=label, author=author, kind=kind),
+    })
+
+
+def _poll_pending_names(roster, yes, no):
+    """Roster members who haven't answered, as rendered names."""
+    answered = {e["id"] for e in yes} | {e["id"] for e in no}
+    return [_roster_name(p) for p in roster
+            if str(p.discord_id or "") not in answered]
+
+
+def _handle_schedule_poll_close(payload):
+    """Close (embed mode): the proposer ends the poll early.
+
+    NOT owner-locked by the dispatcher — the lock admits exactly one snowflake,
+    and this must also admit guild moderators. So the id rides non-last and the
+    check happens here."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    kind = args[0] if args else "bare"
+    proposer_id = args[1] if len(args) > 1 else None
+
+    embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
+    when, embed_proposer, label, author = _poll_embed_meta(embed)
+    if when is None:
+        return _ephemeral("That poll is out of date — run /schedule again.")
+    proposer_id = embed_proposer or proposer_id
+
+    clicker_id = str(_interaction_user_id(payload))
+    if proposer_id and clicker_id != proposer_id and not _poll_closer_is_staff(payload):
+        return _ephemeral("Only the person who started this poll can close it.")
+
+    yes, no, notify_ids = _poll_state(embed)
+    return _poll_close_response(
+        when, proposer_id, yes, no, notify_ids, label, author, kind,
+        reason="closed", closed_by=clicker_id,
+        jump_url=_lfg_jump_url(payload))
+
+
+def _poll_closer_is_staff(payload):
+    """Whether a non-proposer may close: a guild moderator or site admin.
+
+    Embed-mode polls have no Match, so there is no can_schedule to consult --
+    guild moderation is the only staff signal available here."""
+    from .views import can_moderate_guild
+
+    guild_id = payload.get("guild_id")
+    if not guild_id:
+        return False
+    profile = Profile.objects.filter(
+        discord_id=str(_interaction_user_id(payload))).first()
+    if not profile:
+        return False
+    guild = DiscordGuild.objects.filter(guild_id=str(guild_id)).first()
+    return bool(guild and can_moderate_guild(profile, guild))
+
+
+def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
+                         kind, *, reason, closed_by, jump_url=None):
+    """Render the closed poll and DM the subscribers. Embed modes write nothing.
+
+    `closed_by` always names whoever's click ended the poll, so they are excluded
+    from the DM. It only reaches the RENDERER for an early close (reason
+    "closed"), where "Closed by X" is the right note -- on an auto-close the last
+    voter did not close anything, the roster simply finished."""
+    if notify_ids:
+        _notify_poll_closed(notify_ids, when, no, scheduled=False,
+                            closed_by=closed_by, jump_url=jump_url)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_poll_data(
+            when, proposer_id, yes=yes, no=no, notify_ids=[], pending=None,
+            label=label, author=author, kind=kind, closed=True,
+            closed_reason=reason,
+            closed_by=closed_by if reason == "closed" else None,
+            scheduled=False),
+    })
+
+
+def _notify_poll_yes(notify_ids, actor_id, actor_name, when, yes_count, total,
+                     jump_url):
+    """DM the subscribers that someone confirmed. The actor is excluded — they
+    just clicked, so telling them is noise."""
+    targets = [i for i in notify_ids if str(i) != str(actor_id)]
+    if not targets:
+        return
+    notify_schedule_poll_task.delay(
+        targets, "yes", int(when.timestamp()), actor_name=actor_name,
+        yes_count=yes_count, total=total, jump_url=jump_url)
+
+
+def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=None,
+                        jump_url=None):
+    """DM the subscribers the final result.
+
+    `closed_by` is whoever's click ENDED the poll -- the person who pressed Close,
+    or, on an auto-close, whoever cast the answer that completed the roster. They
+    are excluded: they just did it, so telling them is noise.
+
+    Deliberately not the host. A moderator may close a poll they did not start,
+    and an auto-close is triggered by whichever player happens to answer last --
+    so excluding the proposer would both spam the closer and silently drop the
+    host from a result they are still subscribed to."""
+    targets = [i for i in notify_ids if str(i) != str(closed_by or "")]
+    if not targets:
+        return
+    notify_schedule_poll_task.delay(
+        targets, "closed", int(when.timestamp()),
+        declined=[e["name"] for e in no_entries], scheduled=scheduled,
+        jump_url=jump_url)
 
 
 def _handle_schedule_cancel(payload):
@@ -5460,11 +6053,17 @@ COMPONENT_HANDLERS = {
     "sched_prop_no": _handle_schedule_proposal_reject,
     # Rides the "Everyone agreed" message: the roster consented, this writes it.
     "sched_prop_set": _handle_schedule_proposal_set,
-    # Unlinked (no Match) suggestions. sched_free is owner-locked; the two response
-    # buttons end in "g" so any player in the thread can click them.
+    # Suggestions that write nothing. Owner-locked (the invoker's own prompt).
     "sched_free": _handle_schedule_free,
-    "sched_lfg_ok": _handle_schedule_free_respond,
-    "sched_lfg_no": _handle_schedule_free_respond,
+    # The time poll. `sched_poll_open` is owner-locked on the ephemeral prompt;
+    # every button on the PUBLIC poll ends in "g" so the lock stays off and the
+    # handlers authorize for themselves -- including Close, which is host-gated
+    # but must also admit moderators, whom a single-snowflake lock cannot express.
+    "sched_poll_open": _handle_schedule_poll_open,
+    "sched_poll_ok": _handle_schedule_poll_dispatch,
+    "sched_poll_no": _handle_schedule_poll_dispatch,
+    "sched_poll_notify": _handle_schedule_poll_dispatch,
+    "sched_poll_close": _handle_schedule_poll_dispatch,
     "schedule_tz_region": _handle_schedule_tz_region,
     "schedule_tz_zone": _handle_schedule_tz_zone,
     "schedule_tz_back": _handle_schedule_tz_back,

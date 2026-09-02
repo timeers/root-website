@@ -2,8 +2,17 @@
 
 ## [1.13.5] - 2026-9-1 Remember September
 
+### New Features
+- /schedule now offers a choice between Poll and Suggest (or Set Time) every time it's used
+- /schedule polls have Yes, No, Notify and Close buttons and show responses in columns
+- /schedule polls close on their own once everyone on the roster has answered
+- Notify subscribers are messaged when someone confirms and when a poll closes
+- a match poll that everyone confirms sets the scheduled time, whether or not the series requires confirmation
+
 ### Improvements
 - matches are now sorted in this order: scheduled > unscheduled > complete
+- a "No" on a match no longer cancels the whole proposal — everyone still gets to answer
+- /schedule messages now show who suggested the time as the message author
 - /lfg no longer starts a thread with only 1 player
 - /lfg messages subscribed users when game is cancelled
 - /lfg does not ping role when used inside threads
