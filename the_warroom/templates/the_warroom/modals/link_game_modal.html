@@ -1,0 +1,364 @@
+{% load i18n static %}
+{% comment %} Link/unlink an existing Game to a scheduled Match. Included by matches.html
+under the same can_manage + is_bracket_finalized guard as the series edit modal, and
+driven by the buttons in series_card_matches.html. Both modals live here so they can
+share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
+
+<style>
+    /* The chain / broken-chain icons, drawn as CSS masks rather than <img> so they
+       take their colour from currentColor -- the SVGs have a hardcoded black fill,
+       which as images would ignore the button's colour and stay black in dark mode.
+       Same technique as the cross overlay in game_detail_page.html. */
+    .icon-link, .icon-unlink {
+        /* No vertical-align nudge: these are masked boxes, not font glyphs, so
+           they have no baseline overhang to compensate for. Bootstrap Icons'
+           -0.125em rides them up against the top of the button. */
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        background-color: currentColor;
+        -webkit-mask-position: center;
+        mask-position: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+    }
+    /* An icon-only button. Centres the icon in the button box rather than resting
+       it on the line's text baseline (which the surrounding newlines in the
+       template would otherwise create).
+
+       line-height is deliberately left at Bootstrap's inherited value rather than
+       set to 1: these buttons sit in a flex row beside text buttons (View / Edit /
+       Record), whose height comes from that line-height. Overriding it here makes
+       the icon button visibly shorter than its neighbours. */
+    .btn-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .icon-link {
+        -webkit-mask-image: url('{% static "icons/link.svg" %}');
+        mask-image: url('{% static "icons/link.svg" %}');
+    }
+    .icon-unlink {
+        -webkit-mask-image: url('{% static "icons/unlink.svg" %}');
+        mask-image: url('{% static "icons/unlink.svg" %}');
+    }
+    /* Candidate picker: fixed-width cards, as many per row as fit.
+       Flexbox rather than grid, deliberately -- an auto-fill grid reserves EMPTY
+       tracks for the width it could hold, and centring then centres those too, so
+       a single card in a 3-track-wide modal lands a quarter of the way in. Flex
+       only lays out the items that exist, so alignment always reflects the real
+       card count. */
+    #linkGameList {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        /* Left-aligned by default: with room for several cards, a left edge that
+           lines up row to row is easier to scan than a centred block. */
+        justify-content: flex-start;
+    }
+    #linkGameList > .link-game-card { width: 260px; }
+    #linkGameList > .alert { width: 100%; }
+
+    /* Narrow enough that only one card fits per row: centre it, and let it use the
+       available width rather than sitting at a fixed 260px against the edge. */
+    @media (max-width: 620px) {
+        #linkGameList { justify-content: center; }
+        #linkGameList > .link-game-card { width: 100%; max-width: 320px; }
+    }
+
+    .link-game-card {
+        cursor: pointer;
+        transition: box-shadow .2s;
+        /* .card can clip its contents when a border-radius is present, which would
+           crop the laurel regardless of how much padding the body has. */
+        overflow: visible;
+    }
+    .link-game-card:hover { box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .15); }
+    .link-game-card.selected {
+        border-color: var(--bs-primary);
+        box-shadow: 0 0 0 .2rem rgba(13, 110, 253, .25);
+    }
+    /* The winner laurel is a 40px image absolutely positioned over a 20px icon at
+       top:-4.5px / left:-10.5px, so it spills 10.5px left and 4.5px up out of the
+       icon box. That overflow happens INSIDE the card, so the card body is what
+       needs the room -- padding on the grid container doesn't help, because the
+       clipping edge is the card's own. Left/top are oversized accordingly. */
+    .link-game-card .card-body { padding: 10px 12px 8px 16px; }
+    /* text-truncate only ellipses when the flex item may shrink below its content
+       width, and .effort-row already sets white-space: nowrap -- without this a long
+       name widens the card instead of truncating. */
+    .link-game-card .effort-row > .text-truncate { min-width: 0; }
+</style>
+
+<div class="modal fade" id="linkGameModal" tabindex="-1" aria-labelledby="linkGameModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="linkGameModalLabel">
+                    <i class="icon-link"></i> {% trans 'Link Existing Game' %}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2" id="linkGameIntro"></p>
+                <div id="linkGameSpinner" class="text-center py-3">
+                    <span class="spinner-border spinner-border-sm"></span>
+                </div>
+                {% comment %} No .list-group class: it sets display:flex/column, which
+                would fight the grid layout above. {% endcomment %}
+                <div id="linkGameList"></div>
+                <div id="linkGameError" class="alert alert-danger d-none mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" id="linkGameConfirm" disabled>
+                    <i class="icon-link"></i> {% trans 'Link' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="unlinkGameModal" tabindex="-1" aria-labelledby="unlinkGameModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="unlinkGameModalLabel">
+                    <i class="icon-unlink"></i> {% trans 'Unlink Game' %}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>{% trans 'Unlink this game from the match?' %}</p>
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle-fill"></i>
+                    {% trans "The game itself is not deleted. Its nickname and this match's roster stay as they are. Unlinking only removes the connection, so the match can be recorded or linked again." %}
+                </div>
+                <div id="unlinkGameError" class="alert alert-danger d-none mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-danger" id="unlinkGameConfirm">
+                    <i class="icon-unlink"></i> {% trans 'Unlink' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    // Selection state for the picker. _linkGameMatchId/_SeriesId are also used by
+    // the unlink modal, which reuses the same endpoint.
+    var _linkGameMatchId = null;
+    var _linkGameSeriesId = null;
+    var _linkGameSelectedId = null;
+
+    function _linkGameUrl(matchId) {
+        // The endpoint is per-match, so substitute into the template URL declared
+        // in matches.html rather than reversing one URL per card.
+        return _linkGameUrlTemplate.replace('/0/', '/' + matchId + '/');
+    }
+
+    // Index of this series' card among its siblings, +1 -- the card falls back to
+    // "Match <n>" when the series has no player group. Same derivation as
+    // saveSeriesEdit in series_edit_modal.html.
+    function _seriesIndexFor(seriesId) {
+        var wrapper = document.getElementById('series-card-' + seriesId);
+        if (!wrapper || !wrapper.parentElement) return 1;
+        return Array.from(wrapper.parentElement.children).indexOf(wrapper) + 1;
+    }
+
+    // Swap in the re-rendered card. Both re-inits are mandatory: the card carries
+    // .scheduled-time spans that are formatted client-side, and tooltip-bearing
+    // buttons that Bootstrap only wires up once.
+    function _swapSeriesCard(data) {
+        var wrapper = document.getElementById('series-card-' + data.series_id);
+        if (!wrapper) return;
+        wrapper.innerHTML = data.html;
+        if (typeof _initScheduledTimes === 'function') _initScheduledTimes();
+        wrapper.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+            if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
+        });
+    }
+
+    function _showError(id, message) {
+        var box = document.getElementById(id);
+        box.textContent = message;
+        box.classList.remove('d-none');
+    }
+
+    // Any tooltip still showing when its button is removed by the swap is orphaned
+    // and would hang on screen, so dispose it before the card is replaced.
+    function _disposeTooltip(el) {
+        if (!el) return;
+        var tip = bootstrap.Tooltip.getInstance(el);
+        if (tip) tip.dispose();
+    }
+
+    function _renderCandidates(games) {
+        var list = document.getElementById('linkGameList');
+        list.innerHTML = '';
+        if (!games.length) {
+            list.innerHTML = '<div class="alert alert-info mb-0">' +
+                '{% trans "No unlinked games in this round." %}</div>';
+            return;
+        }
+        // The card markup is rendered server-side (see _match_link_candidates), so
+        // there is no HTML assembly here -- and no escaping to do either: the Django
+        // template autoescapes the nickname and player names.
+        games.forEach(function (game) {
+            var wrap = document.createElement('div');
+            wrap.innerHTML = game.html;
+            var card = wrap.firstElementChild;
+            if (!card) return;
+
+            function select() {
+                list.querySelectorAll('.link-game-card').forEach(function (el) {
+                    el.classList.remove('selected');
+                });
+                card.classList.add('selected');
+                _linkGameSelectedId = game.id;
+                document.getElementById('linkGameConfirm').disabled = false;
+            }
+
+            card.addEventListener('click', select);
+            // The card is role="button" tabindex="0", so honour keyboard activation.
+            card.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    select();
+                }
+            });
+            list.appendChild(card);
+        });
+    }
+
+    window.openLinkGameModal = function (matchId, seriesId) {
+        _linkGameMatchId = matchId;
+        _linkGameSeriesId = seriesId;
+        _linkGameSelectedId = null;
+
+        document.getElementById('linkGameConfirm').disabled = true;
+        document.getElementById('linkGameError').classList.add('d-none');
+        document.getElementById('linkGameList').innerHTML = '';
+        document.getElementById('linkGameIntro').textContent = '';
+        document.getElementById('linkGameSpinner').classList.remove('d-none');
+
+        new bootstrap.Modal(document.getElementById('linkGameModal')).show();
+
+        fetch(_linkGameUrl(matchId), {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    return {ok: response.ok, data: data};
+                });
+            })
+            .then(function (result) {
+                document.getElementById('linkGameSpinner').classList.add('d-none');
+                if (!result.ok || !result.data.success) {
+                    _showError('linkGameError', result.data.error || '{% trans "Something went wrong." %}');
+                    return;
+                }
+                document.getElementById('linkGameIntro').textContent =
+                    '{% trans "Linking to" %} ' + result.data.match_name;
+                _renderCandidates(result.data.games);
+            })
+            .catch(function () {
+                document.getElementById('linkGameSpinner').classList.add('d-none');
+                _showError('linkGameError', '{% trans "Something went wrong." %}');
+            });
+    };
+
+    document.getElementById('linkGameConfirm').addEventListener('click', function () {
+        if (!_linkGameSelectedId) return;
+        var btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> {% trans "Linking..." %}';
+        document.getElementById('linkGameError').classList.add('d-none');
+
+        fetch(_linkGameUrl(_linkGameMatchId), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': _seriesCsrfToken,
+            },
+            body: JSON.stringify({
+                game_id: _linkGameSelectedId,
+                series_index: _seriesIndexFor(_linkGameSeriesId),
+            }),
+        })
+        .then(function (response) {
+            return response.json().then(function (data) {
+                return {ok: response.ok, data: data};
+            });
+        })
+        .then(function (result) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="icon-link"></i> {% trans "Link" %}';
+            if (!result.ok || !result.data.success) {
+                _showError('linkGameError', result.data.error || '{% trans "Something went wrong." %}');
+                return;
+            }
+            var modal = bootstrap.Modal.getInstance(document.getElementById('linkGameModal'));
+            if (modal) modal.hide();
+            _swapSeriesCard(result.data);
+        })
+        .catch(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="icon-link"></i> {% trans "Link" %}';
+            _showError('linkGameError', '{% trans "Something went wrong." %}');
+        });
+    });
+
+    window.openUnlinkGameModal = function (matchId, seriesId, triggerEl) {
+        _linkGameMatchId = matchId;
+        _linkGameSeriesId = seriesId;
+        _disposeTooltip(triggerEl);
+        document.getElementById('unlinkGameError').classList.add('d-none');
+        new bootstrap.Modal(document.getElementById('unlinkGameModal')).show();
+    };
+
+    document.getElementById('unlinkGameConfirm').addEventListener('click', function () {
+        var btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> {% trans "Unlinking..." %}';
+        document.getElementById('unlinkGameError').classList.add('d-none');
+
+        fetch(_linkGameUrl(_linkGameMatchId), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': _seriesCsrfToken,
+            },
+            body: JSON.stringify({
+                action: 'unlink',
+                series_index: _seriesIndexFor(_linkGameSeriesId),
+            }),
+        })
+        .then(function (response) {
+            return response.json().then(function (data) {
+                return {ok: response.ok, data: data};
+            });
+        })
+        .then(function (result) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="icon-unlink"></i> {% trans "Unlink" %}';
+            if (!result.ok || !result.data.success) {
+                _showError('unlinkGameError', result.data.error || '{% trans "Something went wrong." %}');
+                return;
+            }
+            var modal = bootstrap.Modal.getInstance(document.getElementById('unlinkGameModal'));
+            if (modal) modal.hide();
+            _swapSeriesCard(result.data);
+        })
+        .catch(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="icon-unlink"></i> {% trans "Unlink" %}';
+            _showError('unlinkGameError', '{% trans "Something went wrong." %}');
+        });
+    });
+})();
+</script>

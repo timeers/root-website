@@ -9,6 +9,7 @@
 - Notify subscribers are messaged when someone confirms and when a poll closes
 - a match poll that everyone confirms sets the scheduled time, whether or not the series requires confirmation
 - /adset command combines seating, draft and picking factions into one command message
+- series moderators can now link or unlink games to the bracket
 
 ### Improvements
 - matches are now sorted in this order: scheduled > unscheduled > complete

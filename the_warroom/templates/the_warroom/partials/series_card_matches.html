@@ -125,29 +125,51 @@
             <span class="text-muted small scheduled-time" data-utc="{{ match.scheduled_time|date:'c' }}"></span>
             {% endif %}
 
+            {% comment %} Both action branches use the same wrapper — ms-auto d-flex gap-1 —
+            so the icon buttons inside them are laid out identically. The link and unlink
+            buttons differ only in colour, icon and handler. {% endcomment %}
             {% if match.game %}
-                {% if match.game.final %}
-                {% if match.game.video_link %}
-                <a href="{{ match.game.video_link }}" target="_blank" rel="noopener"
-                   class="btn btn-sm btn-outline-secondary ms-auto p-0 px-1"
-                   data-bs-toggle="tooltip" title="{% trans 'Watch VOD' %}">
-                    {% if match.game.video_platform == 'twitch' %}
-                    <i class="bi bi-twitch"></i>
-                    {% else %}
-                    <i class="bi bi-youtube"></i>
+                <div class="ms-auto d-flex gap-1">
+                    {% comment %} Placed once, before the split below, so it renders beside
+                    whichever button that chose rather than three times over. {% endcomment %}
+                    {% if can_manage %}
+                    <button type="button" class="btn btn-outline-danger btn-sm p-0 px-1 btn-icon"
+                            data-bs-toggle="tooltip" title="{% trans 'Unlink this game' %}"
+                            onclick="openUnlinkGameModal({{ match.id }}, {{ series.id }}, this)">
+                        <i class="icon-unlink"></i>
+                    </button>
                     {% endif %}
-                </a>
-                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
-                {% else %}
-                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto p-0 px-1">{% trans 'View' %}</a>
-                {% endif %}
-                {% elif match.id in recordable_match_ids %}
-                <a href="{% url 'game-update-v2' id=match.game.id %}" class="btn btn-outline-primary btn-sm ms-auto p-0 px-1"><i class="bi bi-pencil-square me-1"></i></a>
-                {% else %}
-                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm ms-auto p-0 px-1">{% trans 'View' %}</a>
-                {% endif %}
+                    {% if match.game.final %}
+                        {% if match.game.video_link %}
+                        <a href="{{ match.game.video_link }}" target="_blank" rel="noopener"
+                           class="btn btn-sm btn-outline-secondary p-0 px-1"
+                           data-bs-toggle="tooltip" title="{% trans 'Watch VOD' %}">
+                            {% if match.game.video_platform == 'twitch' %}
+                            <i class="bi bi-twitch"></i>
+                            {% else %}
+                            <i class="bi bi-youtube"></i>
+                            {% endif %}
+                        </a>
+                        {% endif %}
+                        <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
+                    {% elif match.id in recordable_match_ids %}
+                        <a href="{% url 'game-update-v2' id=match.game.id %}" class="btn btn-outline-primary btn-sm p-0 px-1"><i class="bi bi-pencil-square"></i></a>
+                    {% else %}
+                        <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
+                    {% endif %}
+
+                </div>
             {% elif match.id in recordable_match_ids %}
-                <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm ms-auto p-0 px-1">Record</a>
+                <div class="ms-auto d-flex gap-1">
+                    {% if can_manage %}
+                    <button type="button" class="btn btn-outline-secondary btn-sm p-0 px-1 btn-icon"
+                            data-bs-toggle="tooltip" title="{% trans 'Link an existing game' %}"
+                            onclick="openLinkGameModal({{ match.id }}, {{ series.id }})">
+                        <i class="icon-link"></i>
+                    </button>
+                    {% endif %}
+                    <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm p-0 px-1">Record</a>
+                </div>
             {% elif match.status == 'Completed' %}
                 <span class="badge bg-success ms-auto">{% trans 'Done' %}</span>
             {% else %}
@@ -184,27 +206,48 @@
             {% else %}
             <span class="me-auto"></span>
             {% endif %}
+            {% comment %} Both branches share the same d-flex gap-1 wrapper — see the
+            multi-game block above. {% endcomment %}
             {% if match.game %}
+            <div class="d-flex gap-1">
+                {% if can_manage %}
+                <button type="button" class="btn btn-outline-danger btn-sm p-0 px-1 btn-icon"
+                        data-bs-toggle="tooltip" title="{% trans 'Unlink this game' %}"
+                        onclick="openUnlinkGameModal({{ match.id }}, {{ series.id }}, this)">
+                    <i class="icon-unlink"></i>
+                </button>
+                {% endif %}
                 {% if match.game.final %}
-                {% if match.game.video_link %}
-                <a href="{{ match.game.video_link }}" target="_blank" rel="noopener"
-                   class="btn btn-sm btn-outline-secondary p-0 px-1 me-1"
-                   data-bs-toggle="tooltip" title="{% trans 'Watch VOD' %}">
-                    {% if match.game.video_platform == 'twitch' %}
-                    <i class="bi bi-twitch"></i>
-                    {% else %}
-                    <i class="bi bi-youtube"></i>
+                    {% if match.game.video_link %}
+                    <a href="{{ match.game.video_link }}" target="_blank" rel="noopener"
+                       class="btn btn-sm btn-outline-secondary p-0 px-1"
+                       data-bs-toggle="tooltip" title="{% trans 'Watch VOD' %}">
+                        {% if match.game.video_platform == 'twitch' %}
+                        <i class="bi bi-twitch"></i>
+                        {% else %}
+                        <i class="bi bi-youtube"></i>
+                        {% endif %}
+                    </a>
                     {% endif %}
-                </a>
-                {% endif %}
-                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
+                    <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
                 {% elif match.id in recordable_match_ids %}
-                <a href="{% url 'game-update-v2' id=match.game.id %}" class="btn btn-outline-primary btn-sm p-0 px-1"><i class="bi bi-pencil-square me-1"></i>{% trans 'Edit' %}</a>
+                    <a href="{% url 'game-update-v2' id=match.game.id %}" class="btn btn-outline-primary btn-sm p-0 px-1"><i class="bi bi-pencil-square me-1"></i>{% trans 'Edit' %}</a>
                 {% else %}
-                <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
+                    <a href="{{ match.game.get_absolute_url }}" class="btn btn-outline-secondary btn-sm p-0 px-1">{% trans 'View' %}</a>
                 {% endif %}
+
+            </div>
             {% elif match.id in recordable_match_ids %}
-            <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm p-0 px-1">Record</a>
+            <div class="d-flex gap-1">
+                {% if can_manage %}
+                <button type="button" class="btn btn-outline-secondary btn-sm p-0 px-1 btn-icon"
+                        data-bs-toggle="tooltip" title="{% trans 'Link an existing game' %}"
+                        onclick="openLinkGameModal({{ match.id }}, {{ series.id }})">
+                    <i class="icon-link"></i>
+                </button>
+                {% endif %}
+                <a href="{% url 'record-game-v2' %}?match={{ match.id }}" class="btn btn-success btn-sm p-0 px-1">Record</a>
+            </div>
             {% endif %}
         </div>
         {% endif %}

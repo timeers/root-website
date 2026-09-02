@@ -59,6 +59,12 @@
 
     {% if can_manage and is_bracket_finalized and edit_series_url %}
     {% include 'the_warroom/partials/series_edit_modal.html' %}
+    {% comment %} Link/unlink modals. The endpoint is per-match, so the URL is declared
+    once with a placeholder id that the modal's JS substitutes into. {% endcomment %}
+    {% include 'the_warroom/modals/link_game_modal.html' %}
+    <script>
+    var _linkGameUrlTemplate = '{% url "match-link-game" match_id=0 %}';
+    </script>
     <style>
     .group-card { transition: box-shadow 0.2s; }
     .group-card:hover { box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15); }

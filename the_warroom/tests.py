@@ -1,9 +1,14 @@
+import json
 from unittest import mock
 
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
+from django.db import connection
+from django.db.models import Prefetch
 from django.db.models.signals import post_save
+from django.template.loader import render_to_string
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from the_gatehouse.models import (
@@ -15,8 +20,8 @@ from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
 from the_warroom.forms import GameCreateForm
 from the_gatehouse.tasks import create_match_threads_task
 from the_warroom.models import (
-    Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup, Round, Stage,
-    StageParticipant, Tournament, TournamentPlayer,
+    CompetitionStatus, Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup,
+    Round, Stage, StageParticipant, Tournament, TournamentPlayer,
 )
 from the_warroom.views import (
     _can_record_match, user_can_record_in_round, _prefill_undrafted,
@@ -1334,3 +1339,418 @@ class ResultsChannelViewAnnounceTests(TestCase):
 
         announce.assert_called_once()
         thread_post.delay.assert_called_once()
+
+
+class MatchLinkGameTests(TestCase):
+    """The moderator-only 'link an existing game to a scheduled match' endpoint.
+
+    Covers the three writes the link performs (link, roster sync, nickname), the
+    unlink that reverses only the link, and the permission/state gates -- the
+    endpoint is reachable independently of the button that opens it.
+    """
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        user_logged_in.disconnect(user_logged_in_handler)
+
+        self.user = User.objects.create_user(username="mod", password="x")
+        self.profile = self.user.profile
+        self.profile.discord = "mod"
+        # Group "A" backs both `admin` and `player`; the endpoint's gate mirrors
+        # can_manage, which requires profile.player as well as has_permission.
+        self.profile.group = "A"
+        self.profile.player_onboard = True
+        self.profile.save()
+
+        self.tournament = Tournament.objects.create(name="Link Cup", is_active=True)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S1",
+                                          order=1, is_active=True)
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1, is_active=True,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+
+        _d = self.profile
+        self.map = Map.objects.create(title="Autumn", clearings=12, designer=_d)
+        self.deck = Deck.objects.create(title="Standard", card_total=54, designer=_d)
+        self.faction_a = Faction.objects.create(title="Marquise", type="M", reach=10,
+                                                animal="cat", designer=_d)
+        self.faction_b = Faction.objects.create(title="Eyrie", type="M", reach=7,
+                                                animal="bird", designer=_d)
+
+        self.group = PlayerGroup.objects.create(round=self.round, group_number=1,
+                                                name="Group A")
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+        self.match = Match.objects.create(round=self.round, series=self.series)
+
+        self.p1 = Profile.objects.create(discord="alice")
+        self.p2 = Profile.objects.create(discord="bob")
+        self._seat(self.p1, 1)
+        self._seat(self.p2, 2)
+
+        self.client.force_login(self.user)
+
+    def tearDown(self):
+        post_save.connect(handle_image_resize, sender=Profile)
+        user_logged_in.connect(user_logged_in_handler)
+
+    def _seat(self, profile, seat_number):
+        tp = TournamentPlayer.objects.create(profile=profile,
+                                             tournament=self.tournament)
+        sp = StageParticipant.objects.create(stage=self.stage, tournament_player=tp)
+        return MatchSeat.objects.create(series=self.series, stage_participant=sp,
+                                        seat_number=seat_number)
+
+    def _game(self, players, final=True):
+        """A recorded game in the match's round that no match has claimed."""
+        game = Game.objects.create(round=self.round, map=self.map, deck=self.deck,
+                                   final=final)
+        for i, (profile, faction) in enumerate(players, start=1):
+            Effort.objects.create(game=game, player=profile, faction=faction,
+                                  seat=i, win=(i == 1))
+        return game
+
+    def _url(self):
+        return reverse('match-link-game', kwargs={'match_id': self.match.pk})
+
+    def _link(self, game):
+        return self.client.post(self._url(),
+                                data=json.dumps({'game_id': game.pk}),
+                                content_type='application/json')
+
+    # --- GET: candidates ---
+
+    def test_lists_unlinked_games_in_the_round(self):
+        game = self._game([(self.p1, self.faction_a), (self.p2, self.faction_b)])
+        body = json.loads(self.client.get(self._url()).content)
+        self.assertTrue(body['success'])
+        self.assertEqual([g['id'] for g in body['games']], [game.pk])
+
+    def test_exact_roster_game_sorts_first(self):
+        """The game whose players equal the seats is nearly always the wanted one,
+        so it must outrank a newer game that merely overlaps."""
+        self._game([(self.p1, self.faction_a)])          # partial, newer
+        exact = self._game([(self.p1, self.faction_a),
+                            (self.p2, self.faction_b)])
+        body = json.loads(self.client.get(self._url()).content)
+        self.assertEqual(body['games'][0]['id'], exact.pk)
+        self.assertTrue(body['games'][0]['exact_roster'])
+
+    def test_excludes_games_from_other_rounds_and_linked_games(self):
+        other_round = Round.objects.create(
+            stage=self.stage, round_number=2,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+        Game.objects.create(round=other_round, map=self.map, deck=self.deck)
+
+        taken = self._game([(self.p1, self.faction_a)])
+        other_match = Match.objects.create(round=self.round, series=self.series,
+                                           game=taken)
+        self.assertTrue(other_match.pk)
+
+        body = json.loads(self.client.get(self._url()).content)
+        self.assertEqual(body['games'], [])
+
+    def test_get_is_allowed(self):
+        """Regression: the sibling endpoint is POST-only, and copying its
+        decorator would 405 the candidate fetch."""
+        self.assertEqual(self.client.get(self._url()).status_code, 200)
+
+    # --- GET: rendered candidate cards ---
+
+    def _card(self, game_id=None):
+        """The rendered HTML for one candidate (the first, unless given an id)."""
+        body = json.loads(self.client.get(self._url()).content)
+        for row in body['games']:
+            if game_id is None or row['id'] == game_id:
+                return row['html']
+        self.fail(f'game {game_id} not among the candidates')
+
+    def test_card_shows_faction_icons_and_the_winner_laurel(self):
+        """The point of the card: each player's faction icon, with winner.png laid
+        over the winner's."""
+        game = self._game([(self.p1, self.faction_a), (self.p2, self.faction_b)])
+        html = self._card(game.pk)
+
+        self.assertIn(self.faction_a.small_icon.url, html)
+        self.assertIn(self.faction_b.small_icon.url, html)
+        self.assertIn('winner.png', html)
+        # _game() marks only the first effort as the winner, so exactly one laurel.
+        self.assertEqual(html.count('winner.png'), 1)
+        self.assertIn(self.p1.display_name, html)
+        self.assertIn(self.p2.display_name, html)
+
+    def test_card_skips_an_effort_with_no_faction(self):
+        """Effort.faction is nullable and cache_bust returns '' for an empty field,
+        which would render a broken image."""
+        game = Game.objects.create(round=self.round, map=self.map, deck=self.deck,
+                                   final=True)
+        Effort.objects.create(game=game, player=self.p1, faction=self.faction_a,
+                              seat=1, win=True)
+        Effort.objects.create(game=game, player=self.p2, faction=None, seat=2)
+
+        html = self._card(game.pk)
+        self.assertNotIn('src=""', html)
+        self.assertIn(self.p1.display_name, html)
+        # The factionless row is dropped entirely rather than rendered iconless.
+        self.assertNotIn(self.p2.display_name, html)
+
+    def test_card_shows_the_date_and_only_shows_a_nickname_when_set(self):
+        """A nickname-less game gets the date alone -- no invented placeholder
+        title, which would read identically on every card."""
+        plain = self._game([(self.p1, self.faction_a)])
+        self.assertEqual(plain.nickname, None)
+        html = self._card(plain.pk)
+        self.assertIn(plain.date_posted.strftime('%b'), html)
+
+        plain.nickname = 'Semifinal rematch'
+        plain.save(update_fields=['nickname'])
+        html = self._card(plain.pk)
+        self.assertIn('Semifinal rematch', html)
+        self.assertIn(plain.date_posted.strftime('%b'), html)
+
+    def test_card_marks_the_exact_roster_match_and_drafts(self):
+        exact = self._game([(self.p1, self.faction_a), (self.p2, self.faction_b)])
+        self.assertIn('Roster match', self._card(exact.pk))
+
+        draft = self._game([(self.p1, self.faction_a)], final=False)
+        draft_html = self._card(draft.pk)
+        self.assertIn('Draft', draft_html)
+        self.assertNotIn('Roster match', draft_html)
+
+    def test_card_escapes_user_entered_text(self):
+        """Nicknames and display names are user-entered; the template autoescapes
+        them, which is what replaced the JS textContent handling."""
+        game = self._game([(self.p1, self.faction_a)])
+        game.nickname = '<script>alert(1)</script>'
+        game.save(update_fields=['nickname'])
+
+        html = self._card(game.pk)
+        self.assertNotIn('<script>alert(1)</script>', html)
+        self.assertIn('&lt;script&gt;', html)
+
+    def test_candidate_cards_render_without_extra_queries(self):
+        """The cards must render entirely from prefetched data.
+
+        Faction is multi-table inheritance, so an unprefetched effort.faction costs
+        a SELECT on the_keep_post per effort. Measured around the RENDER only --
+        counting the whole helper would bury 4 extra queries under the candidate
+        queryset's own cost, and counting a full request would add context-processor
+        queries that move when the fixture creates Profiles.
+        """
+        # Distinct factions per seat: reusing two factions lets Django's per-queryset
+        # instance cache dedupe the lookups, hiding the N+1 entirely.
+        seats = []
+        for i in range(4):
+            profile = Profile.objects.create(discord=f"extra{i}")
+            faction = Faction.objects.create(title=f"Extra {i}", type="M", reach=5,
+                                             animal=f"beast{i}", designer=self.profile)
+            seats.append((profile, faction))
+        self._game(seats)
+
+        games = list(
+            Game.objects.filter(round_id=self.round.id, match__isnull=True)
+            .prefetch_related(
+                'efforts__player',
+                Prefetch('efforts__faction',
+                         queryset=Faction.objects.only(*Faction.LEADERBOARD_FIELDS))))
+
+        with CaptureQueriesContext(connection) as ctx:
+            for game in games:
+                render_to_string('the_warroom/partials/link_game_candidate.html',
+                                 {'game': game, 'exact_roster': False})
+
+        self.assertEqual(
+            len(ctx), 0,
+            f'card rendering issued {len(ctx)} queries; it must read only '
+            f'prefetched data')
+
+    # --- POST: link ---
+
+    def test_link_sets_game_status_nickname_and_roster(self):
+        game = self._game([(self.p1, self.faction_a), (self.p2, self.faction_b)])
+        response = self._link(game)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(json.loads(response.content)['success'])
+
+        self.match.refresh_from_db()
+        game.refresh_from_db()
+        self.assertEqual(self.match.game_id, game.pk)
+        self.assertEqual(self.match.status, CompetitionStatus.COMPLETED)
+        # match.name is derived from the player group in Match.save(), and is what
+        # record_game_v2.html posts as the nickname in match mode.
+        self.assertEqual(game.nickname, self.match.name)
+        self.assertEqual(game.nickname, "Group A")
+
+    def test_link_returns_rerendered_card(self):
+        game = self._game([(self.p1, self.faction_a), (self.p2, self.faction_b)])
+        body = json.loads(self._link(game).content)
+        self.assertEqual(body['series_id'], self.series.pk)
+        self.assertIn('<div class="card', body['html'])
+
+    def test_link_replaces_roster_with_the_games_players(self):
+        """Seats mirror who actually played: a scheduled player who didn't play
+        loses their seat, and a player who did gains one."""
+        ringer = Profile.objects.create(discord="ringer")
+        game = self._game([(self.p1, self.faction_a), (ringer, self.faction_b)])
+        self._link(game)
+
+        seated = set(MatchSeat.objects
+                     .filter(series=self.series)
+                     .values_list('stage_participant__tournament_player__profile_id',
+                                  flat=True))
+        self.assertEqual(seated, {self.p1.pk, ringer.pk})
+
+    def test_link_registers_players_missing_from_the_tournament(self):
+        outsider = Profile.objects.create(discord="outsider")
+        game = self._game([(self.p1, self.faction_a), (outsider, self.faction_b)])
+        self._link(game)
+
+        tp = TournamentPlayer.objects.filter(tournament=self.tournament,
+                                             profile=outsider).first()
+        self.assertIsNotNone(tp)
+        self.assertTrue(StageParticipant.objects.filter(
+            stage=self.stage, tournament_player=tp).exists())
+
+    def test_link_dedupes_a_player_holding_two_efforts(self):
+        """Nothing constrains Effort.player to be unique within a game (coalition
+        and coop games seat one profile twice), which would otherwise create two
+        MatchSeat rows for the same person."""
+        game = Game.objects.create(round=self.round, map=self.map, deck=self.deck,
+                                   final=True)
+        Effort.objects.create(game=game, player=self.p1, faction=self.faction_a,
+                              seat=1, win=True)
+        Effort.objects.create(game=game, player=self.p1, faction=self.faction_b,
+                              seat=2)
+        self._link(game)
+
+        self.assertEqual(MatchSeat.objects.filter(series=self.series).count(), 1)
+
+    def test_linking_a_draft_game_leaves_the_match_active(self):
+        game = self._game([(self.p1, self.faction_a)], final=False)
+        self._link(game)
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.status, CompetitionStatus.ACTIVE)
+
+    def test_link_rejects_a_match_that_already_has_a_game(self):
+        first = self._game([(self.p1, self.faction_a)])
+        self._link(first)
+        second = self._game([(self.p2, self.faction_b)])
+
+        response = self._link(second)
+        self.assertEqual(response.status_code, 400)
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.game_id, first.pk)
+
+    def test_link_rejects_a_game_in_another_round(self):
+        other_round = Round.objects.create(
+            stage=self.stage, round_number=2,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+        game = Game.objects.create(round=other_round, map=self.map, deck=self.deck)
+        self.assertEqual(self._link(game).status_code, 400)
+
+    # --- POST: unlink ---
+
+    def _unlink(self):
+        return self.client.post(self._url(),
+                                data=json.dumps({'action': 'unlink'}),
+                                content_type='application/json')
+
+    def test_unlink_clears_the_link_but_keeps_nickname_and_roster(self):
+        ringer = Profile.objects.create(discord="ringer")
+        game = self._game([(self.p1, self.faction_a), (ringer, self.faction_b)])
+        self._link(game)
+
+        self.assertEqual(self._unlink().status_code, 200)
+
+        self.match.refresh_from_db()
+        game.refresh_from_db()
+        self.assertIsNone(self.match.game_id)
+        self.assertEqual(self.match.status, CompetitionStatus.PENDING)
+        # Deliberately NOT reverted -- link kept no "before" state to restore.
+        self.assertEqual(game.nickname, "Group A")
+        seated = set(MatchSeat.objects
+                     .filter(series=self.series)
+                     .values_list('stage_participant__tournament_player__profile_id',
+                                  flat=True))
+        self.assertEqual(seated, {self.p1.pk, ringer.pk})
+
+    def test_unlink_keeps_the_match_name(self):
+        """Match.save() rewrites self.name from the player group regardless of
+        update_fields, so the unlink must restrict the fields it saves."""
+        game = self._game([(self.p1, self.faction_a)])
+        self._link(game)
+        original = Match.objects.get(pk=self.match.pk).name
+
+        self._unlink()
+        self.assertEqual(Match.objects.get(pk=self.match.pk).name, original)
+
+    def test_unlink_clears_series_winners(self):
+        game = self._game([(self.p1, self.faction_a), (self.p2, self.faction_b)])
+        self._link(game)
+        self.assertTrue(MatchSeries.objects.get(pk=self.series.pk).winners.exists())
+
+        self._unlink()
+        series = MatchSeries.objects.get(pk=self.series.pk)
+        self.assertFalse(series.winners.exists())
+        self.assertEqual(series.status, CompetitionStatus.PENDING)
+
+    def test_unlink_reopens_a_completed_round_and_stage(self):
+        """reevaluate_round_status never reopens a COMPLETED round, which is the
+        opposite of what unlinking means -- reopen_round is the correct call."""
+        game = self._game([(self.p1, self.faction_a), (self.p2, self.faction_b)])
+        self._link(game)
+        self.round.refresh_from_db()
+        self.assertEqual(self.round.status, CompetitionStatus.COMPLETED)
+
+        self._unlink()
+        self.round.refresh_from_db()
+        self.stage.refresh_from_db()
+        self.assertEqual(self.round.status, CompetitionStatus.ACTIVE)
+        self.assertEqual(self.stage.status, CompetitionStatus.ACTIVE)
+
+    def test_unlink_leaves_a_multi_game_series_active(self):
+        """A best-of series whose other games are still recorded stays Active,
+        not Pending -- the other_completed branch."""
+        self.series.number_of_games = 3
+        self.series.save(update_fields=['number_of_games'])
+        sibling = Match.objects.create(round=self.round, series=self.series,
+                                       status=CompetitionStatus.COMPLETED)
+        self.assertTrue(sibling.pk)
+
+        game = self._game([(self.p1, self.faction_a)])
+        self._link(game)
+        self._unlink()
+
+        self.assertEqual(MatchSeries.objects.get(pk=self.series.pk).status,
+                         CompetitionStatus.ACTIVE)
+
+    def test_unlink_rejects_a_match_with_no_game(self):
+        self.assertEqual(self._unlink().status_code, 400)
+
+    def test_unlink_relists_the_game_as_a_candidate(self):
+        game = self._game([(self.p1, self.faction_a)])
+        self._link(game)
+        self._unlink()
+
+        body = json.loads(self.client.get(self._url()).content)
+        self.assertEqual([g['id'] for g in body['games']], [game.pk])
+
+    # --- Gates ---
+
+    def test_non_moderator_is_refused(self):
+        other = User.objects.create_user(username="rando", password="x")
+        p = other.profile
+        p.group = "P"          # player, but not a tournament moderator
+        p.player_onboard = True
+        p.save()
+        self.client.force_login(other)
+
+        self.assertEqual(self.client.get(self._url()).status_code, 403)
+        game = self._game([(self.p1, self.faction_a)])
+        self.assertEqual(self._link(game).status_code, 403)
+
+    def test_unfinalized_bracket_is_refused(self):
+        self.round.bracket_status = Round.BracketStatusChoices.DRAFT
+        self.round.save(update_fields=['bracket_status'])
+        game = self._game([(self.p1, self.faction_a)])
+        self.assertEqual(self._link(game).status_code, 400)
