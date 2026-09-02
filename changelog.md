@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.13.5] - 2026-9-1 Remember September
+
+### Improvements
+- matches are now sorted in this order: scheduled > unscheduled > complete
+- /lfg no longer starts a thread with only 1 player
+- /lfg messages subscribed users when game is cancelled
+- /lfg does not ping role when used inside threads
+- /lfg claims the thread it is used in when possible
+- /lfg does not claim a thread if the role specified belongs to a different forum channel (you can't create a forum specific game outside of that forum)
+
 ## [1.13.4] - 2026-8-31 Bot Evolution
 
 ### New Features

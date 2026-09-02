@@ -609,6 +609,22 @@ def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=Non
 
 
 @shared_task
+def notify_lfg_cancelled_task(notify_ids, host_name, description, jump_url=None):
+    """DM every notify subscriber that the host cancelled the game, so they stop
+    waiting on it. The host is excluded by the CALLER -- they're the one who
+    cancelled. Raw-id DMs (subscribers may have no Profile/SocialAccount);
+    Discord's 403 is swallowed per id. Mirrors notify_lfg_task."""
+    from .services.discordservice import send_dm_by_id
+    game = f"*{description}*" if description else "the game"
+    link = f" {jump_url}" if jump_url else ""
+    # Fall back to "The host" rather than emitting an empty bold "** cancelled".
+    host = f"**{host_name}**" if host_name else "The host"
+    for uid in notify_ids:
+        send_dm_by_id(uid, content=(f"{host} cancelled {game}.{link}\n"
+                                    "Use `/lfg` to start a new game."))
+
+
+@shared_task
 def create_match_threads_task(round_id, profile_id, tournament_id):
     """Create one forum thread per un-threaded MatchSeries in a round, ping its players,
     and link the thread back to the PlayerGroup. Reports the outcome as a
@@ -737,7 +753,8 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
 
 @shared_task
 def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description,
-                           players, embed=None, token=None, host_id=None):
+                           players, embed=None, token=None, host_id=None,
+                           in_thread=False):
     """Create the game thread, ping the players, link the original message's title
     to the thread, and persist the LFGThread row. `players` = [{"id","name"}] parsed
     from the Players field lines, so this task resolves-or-creates every Profile
@@ -749,9 +766,14 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
 
     If the game's LFG role has a `forum_channel_id`, the thread is created as a post
     in that forum channel; otherwise it hangs off the LFG message. A role's optional
-    `thread_message` is appended to the kickoff ping."""
+    `thread_message` is appended to the kickoff ping.
+
+    `in_thread` means /lfg was run inside a thread, so no thread is created at all:
+    that thread IS the game thread and is adopted as-is. Keyword-defaulted like
+    `host_id`, so a task enqueued before this argument existed still deserializes."""
     from .services.discordservice import (
         create_message_thread, create_forum_thread, post_channel_message,
+        apply_thread_tag,
     )
     guild = DiscordGuild.objects.filter(guild_id=guild_id).first() if guild_id else None
     role = (GuildLFGRole.objects.filter(guild=guild, role_id=role_id).first()
@@ -770,7 +792,22 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
                    or (embed or {}).get("title")
                    or "Game")[:100]
 
-    if role and role.forum_channel_id:
+    if in_thread:
+        # /lfg was run inside a thread: that thread IS the game thread. Discord
+        # cannot nest a thread on a message already inside one -- attempting it is
+        # what used to fail here -- and the host asked for the game right here.
+        # A thread's channel id IS its own id, so channel_id already names it.
+        #
+        # This mirrors what a freshly created thread receives: the same kickoff,
+        # posted into the thread everyone is already reading.
+        thread_id = channel_id
+        post_channel_message(thread_id, kickoff)
+        # Adopting an existing forum post means its tag wasn't set at creation, so
+        # apply it now. Best-effort: a tag is decoration and must not cost the game
+        # its thread (apply_thread_tag logs and swallows its own failures).
+        if role and role.forum_tag_id:
+            apply_thread_tag(thread_id, role.forum_tag_id)
+    elif role and role.forum_channel_id:
         # Forum post: the starter message carries the kickoff ping (+ the game embed
         # for context). No parent message to hang off of.
         forum_embed = None
@@ -809,10 +846,23 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
             countdown=2,
         )
 
-    thread, _ = LFGThread.objects.get_or_create(
+    thread, created = LFGThread.objects.get_or_create(
         thread_id=thread_id,
         defaults={"guild": guild, "lfg_role": role, "description": description or ""},
     )
+    # An adopted thread that ALREADY had a row is not ours to write to: players.set
+    # below would replace the existing game's roster wholesale. /lfg refuses in a
+    # linked thread, so the only way here is a race -- two /lfg in one thread, both
+    # started before either persisted. Bail, keeping the first game intact; the
+    # kickoff already posted above is harmless.
+    #
+    # Deliberately NOT applied to the other paths: there, created=False means a task
+    # retry on a thread this same game created, where re-running these writes is the
+    # correct idempotent behaviour.
+    if in_thread and not created:
+        logger.warning("LFG thread %s already linked; refusing to adopt (race with "
+                       "another /lfg in this thread)", thread_id)
+        return
     # Resolve-or-create each player's Profile synchronously (display name is in the
     # embed line), so players.set attaches everyone — no reliance on Join-time tasks.
     if not players:

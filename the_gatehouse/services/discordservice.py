@@ -446,6 +446,38 @@ def rename_channel(channel_id, name):
         return THREAD_ERROR, retry_after
 
 
+def apply_thread_tag(thread_id, tag_id):
+    """Apply one forum tag to an EXISTING forum post (PATCH applied_tags).
+
+    Distinct from create_forum_thread_result, which can only set applied_tags at
+    creation time. This exists for /lfg used inside a forum post the bot did not
+    create: the post is adopted as the game thread, so its tag has to be applied
+    after the fact.
+
+    Returns True on success, else False. Never raises -- a tag is decoration, and
+    failing to apply one must never cost the game its thread, so the caller logs
+    and carries on. Discord rejects this on a non-forum thread (the parent has no
+    tag set to choose from), which is why the failure is swallowed rather than
+    surfaced.
+
+    No DEBUG_VALUE guard — see create_message_thread."""
+    try:
+        r = requests.patch(
+            f"{DISCORD_API}/channels/{thread_id}",
+            headers=_bot_headers(),
+            json={"applied_tags": [str(tag_id)]},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        logger.warning("Could not apply tag %s to thread %s: %s",
+                       tag_id, thread_id, detail)
+        return False
+
+
 def get_bot_guilds():
     """
     Return the list of guilds the bot is a member of (from Discord),

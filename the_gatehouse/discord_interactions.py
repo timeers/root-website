@@ -46,7 +46,7 @@ from the_gatehouse.models import (
 )
 from .tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task,
-    ensure_profile_from_discord, notify_lfg_task,
+    ensure_profile_from_discord, notify_lfg_task, notify_lfg_cancelled_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
     strip_schedule_proposal_messages_task,
@@ -5018,12 +5018,16 @@ def _lfg_set_notify_ids(embed, ids):
 
 
 def _lfg_message_data(author, owner, description, players_value,
-                      content=None, title=LFG_DEFAULT_TITLE):
+                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
     """Build the full join-message payload (embed + button row). Used ONLY for the
     initial post and the picker→join transition — never to re-render on Join/Notify
     (that would wipe the other field; those handlers mutate the echoed embed).
 
-    The Notify field is omitted until someone subscribes (added on first 🔔)."""
+    The Notify field is omitted until someone subscribes (added on first 🔔).
+
+    `ping_role=False` renders the role mention WITHOUT notifying anyone — used
+    inside a thread, where the ping is noise but the mention must still be in the
+    content for ✔ Start to recover the tag from (see _handle_lfg_start)."""
     embed = {
         "author": author,
         "title": title,
@@ -5049,7 +5053,12 @@ def _lfg_message_data(author, owner, description, players_value,
         data["content"] = content
         # Authorize the role ping. This is always a fresh channel message (the tag is
         # chosen up front in /lfg), so the mention notifies natively.
-        data["allowed_mentions"] = {"parse": ["roles"]}
+        #
+        # In a thread we still SEND the mention but authorize nothing: it renders as
+        # a role chip that pings no one. The mention has to stay in the content
+        # because it's the only place the tag survives to ✔ Start, which regexes the
+        # role id back out of it.
+        data["allowed_mentions"] = {"parse": ["roles"] if ping_role else []}
     return data
 
 
@@ -5077,6 +5086,23 @@ def _handle_lfg_command(data):
     owner = data.get("_author_id")
     if not owner:
         return _ephemeral("Couldn't identify you, try again.")
+
+    # In a thread, THIS thread becomes the game thread (Discord can't nest one), so
+    # a thread that already has a game is not available for another. Checked first,
+    # before any work: it needs no role and refuses outright.
+    #
+    # This is load-bearing beyond UX -- ✔ Start adopts the thread with a
+    # get_or_create, and without this gate a second /lfg here would overwrite the
+    # first game's roster. See create_lfg_thread_task.
+    in_thread = data.get("_channel_type") in _THREAD_CHANNEL_TYPES
+    if in_thread:
+        existing = _lfg_thread_for_channel(data.get("_channel_id"))
+        if existing is not None:
+            if existing.series_id:
+                return _ephemeral("This is a tournament group thread, so you can't "
+                                  "start an LFG game in it.")
+            return _ephemeral("This thread is already linked to an LFG game, so you "
+                              "can't use `/lfg` here.")
 
     # Onboard the invoker to the site (fire-and-forget).
     ensure_profile_from_discord_task.delay(owner, data.get("_author_username"),
@@ -5126,6 +5152,19 @@ def _handle_lfg_command(data):
     else:
         role = roles[0]
 
+    # This tag's games live in a specific forum, so a thread elsewhere is the wrong
+    # home for one. Refuse before posting anything rather than adopting a thread in
+    # the wrong place. Only when parent_id is known: absent (older payload, or a
+    # shape we didn't expect) means we can't tell, and guessing wrong would block a
+    # valid /lfg -- so fail open, matching _lfg_role_is_live's posture.
+    if in_thread and role.forum_channel_id:
+        parent_id = data.get("_channel_parent_id")
+        if parent_id and str(parent_id) != str(role.forum_channel_id):
+            return _ephemeral(
+                f"{role.name} games belong in <#{role.forum_channel_id}> - run "
+                "`/lfg` in the appropriate LFG channel to automatically create a "
+                "thread there.")
+
     title = role.description or role.name or LFG_DEFAULT_TITLE
     # Ping only if the underlying Discord role still exists; otherwise post with the tag
     # name as the title but no mention (avoids a broken @deleted-role ping).
@@ -5133,7 +5172,10 @@ def _handle_lfg_command(data):
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": _lfg_message_data(author, owner, description, players_value,
-                                  content=content, title=title),
+                                  content=content, title=title,
+                                  # In a thread the mention renders but notifies
+                                  # nobody -- the people here are already here.
+                                  ping_role=not in_thread),
     })
 
 
@@ -5245,8 +5287,29 @@ def _handle_lfg_notify(payload):
 
 def _handle_lfg_cancel(payload):
     """✖ Cancel (owner-only, enforced by the dispatcher owner-lock): remove the
-    buttons and note the game was cancelled. Players leave via the Join toggle."""
+    buttons, note the game was cancelled, and DM everyone who subscribed to 🔔 so
+    they don't keep waiting on a game that isn't happening. Players leave via the
+    Join toggle."""
     embed = (payload.get("message", {}).get("embeds") or [{}])[0]
+
+    # The host, read off this button's own custom_id (`lfg_cancel:{owner}`), the
+    # same way ✔ Start does. The clicker only equals the host because the
+    # dispatcher owner-locks this button, so the custom_id is what actually means
+    # "host". Defensive .get chain with an `or ""`, not payload["data"]: a missing
+    # OR null custom_id must cost only the host exclusion, never the cancel the
+    # host just asked for.
+    _action, id_args = decode_custom_id(
+        (payload.get("data") or {}).get("custom_id") or "")
+    host_id = id_args[-1] if id_args else None
+
+    # Read the subscribers BEFORE _lfg_set_notify_ids wipes them below. The host is
+    # excluded -- they're the one who just cancelled.
+    notify_ids = list(_lfg_ids_in_field(embed, LFG_NOTIFY_FIELD) - {host_id})
+    if notify_ids:
+        notify_lfg_cancelled_task.delay(
+            notify_ids, _lfg_member_display_name(payload),
+            embed.get("description", ""), _lfg_jump_url(payload))
+
     # Status subtext goes in the embed footer (small text at the very bottom).
     # Use the monochrome ✖ to match the Cancel button glyph.
     embed["footer"] = {"text": "✖ Game was cancelled."}
@@ -5273,6 +5336,15 @@ def _handle_lfg_start(payload):
     if not players:
         return _ephemeral("This game has no players yet.")
 
+    # A table of one is the host alone -- the kickoff would ping only them and the
+    # LFGThread would hold a single player. Refused BEFORE the mutations below so
+    # the message stays fully joinable (an ephemeral never edits the source
+    # message, so the buttons survive untouched). The host cannot leave via Join,
+    # so the only way to be here is that nobody has joined yet.
+    if len(players) < 2:
+        return _ephemeral("You can't start a game with only one player — "
+                          "wait for someone to press Join.")
+
     # Status subtext goes in the embed footer (small text at the very bottom).
     # Use the monochrome ✔ to match the Start button glyph.
     embed["footer"] = {"text": "✔ Game has started."}
@@ -5288,11 +5360,18 @@ def _handle_lfg_start(payload):
     # _interaction_user_id -- the clicker only equals the host because the
     # dispatcher owner-locks this button, so the custom_id is what actually means
     # "host".
-    # .get chain, not payload["data"]: a missing custom_id must cost only the host
-    # attribution, never the thread the player just asked for.
+    # .get chain with an `or ""`, not payload["data"]: a missing or null custom_id
+    # must cost only the host attribution, never the thread the player asked for.
     _action, id_args = decode_custom_id(
-        (payload.get("data") or {}).get("custom_id", ""))
+        (payload.get("data") or {}).get("custom_id") or "")
     host_id = id_args[-1] if id_args else None
+
+    # Whether /lfg was run inside a thread. Read off THIS payload rather than
+    # carried through the embed or custom_id: Discord sends the partial channel
+    # object on component clicks too, and the custom_id can't take it (the owner
+    # snowflake must stay last for the dispatcher owner-lock). The dispatcher only
+    # stashes _channel_* for slash commands, so read it here.
+    in_thread = (payload.get("channel") or {}).get("type") in _THREAD_CHANNEL_TYPES
 
     # Pass the started embed so the task can re-edit it with the title linked to the
     # thread once the thread id is known (the thread is created in the task). The
@@ -5301,7 +5380,7 @@ def _handle_lfg_start(payload):
     create_lfg_thread_task.delay(
         payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
         role_id, description, players, embed, token=payload.get("token"),
-        host_id=host_id,
+        host_id=host_id, in_thread=in_thread,
     )
     # Answer synchronously (type 7) rather than deferring (type 6) and letting the
     # task be the sole writer. Deferring would leave the buttons LIVE until the
@@ -5628,6 +5707,10 @@ def discord_interactions(request):
                 channel = payload.get("channel") or {}
                 data["_channel_name"] = channel.get("name")
                 data["_channel_type"] = channel.get("type")
+                # A thread's parent channel (the forum, or the channel it hangs
+                # off). Lets /lfg check a forum post is in the tag's OWN forum
+                # without an API round-trip. Absent on a plain channel.
+                data["_channel_parent_id"] = channel.get("parent_id")
                 # The invoker's computed permissions in this channel (Discord resolves
                 # roles/owner/admin for us). Lets /help decide, without an API call,
                 # whether to offer the "enable more commands" link.

@@ -44,6 +44,7 @@ from the_gatehouse.services.lfg_game import (
 )
 from the_gatehouse.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
+    notify_lfg_cancelled_task,
 )
 from the_gatehouse.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -2073,7 +2074,10 @@ class EditChannelMessageBodyTests(TestCase):
 
 
 class LFGStartGuardTests(TestCase):
-    """✔ Start must not create a thread for a game with no parsed players."""
+    """✔ Start must not create a thread for a game that hasn't got a table:
+    no parsed players at all, or the host sitting alone."""
+
+    TWO = "Bob (<@123>)\nAmy (<@456>)"
 
     def _payload(self, players_value, custom_id=None):
         payload = {
@@ -2101,11 +2105,28 @@ class LFGStartGuardTests(TestCase):
         delay.assert_not_called()
         self.assertIn("no players", json.loads(response.content)["data"]["content"])
 
-    def test_start_with_players_enqueues_thread_creation(self):
+    def test_a_solo_host_cannot_start(self):
+        """One player is the host alone: the kickoff would ping only them."""
         with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
             response = di._handle_lfg_start(self._payload("Bob (<@123>)"))
+        delay.assert_not_called()
+        self.assertIn("only one player", json.loads(response.content)["data"]["content"])
+
+    def test_the_refusal_leaves_the_message_joinable(self):
+        """An ephemeral refusal must not strip the buttons or mark the game
+        started — someone still has to be able to press Join."""
+        with mock.patch.object(di.create_lfg_thread_task, "delay"):
+            response = di._handle_lfg_start(self._payload("Bob (<@123>)"))
+        data = json.loads(response.content)["data"]
+        self.assertNotIn("components", data)
+        self.assertNotIn("embeds", data)
+
+    def test_start_with_players_enqueues_thread_creation(self):
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            response = di._handle_lfg_start(self._payload(self.TWO))
         delay.assert_called_once()
-        self.assertEqual(delay.call_args.args[5], [{"name": "Bob", "id": "123"}])
+        self.assertEqual(delay.call_args.args[5],
+                         [{"name": "Bob", "id": "123"}, {"name": "Amy", "id": "456"}])
         data = json.loads(response.content)["data"]
         self.assertEqual(data["components"], [])
         self.assertEqual(data["embeds"][0]["footer"]["text"], "✔ Game has started.")
@@ -2114,9 +2135,23 @@ class LFGStartGuardTests(TestCase):
         """The host is read off the button's custom_id, but losing it must cost
         only the host attribution — never the thread the player asked for."""
         with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
-            di._handle_lfg_start(self._payload("Bob (<@123>)"))
+            di._handle_lfg_start(self._payload(self.TWO))
         delay.assert_called_once()
         self.assertIsNone(delay.call_args.kwargs["host_id"])
+
+    def test_a_plain_channel_is_not_in_thread(self):
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            di._handle_lfg_start(self._payload(self.TWO))
+        self.assertFalse(delay.call_args.kwargs["in_thread"])
+
+    def test_a_thread_payload_forwards_in_thread(self):
+        """✔ Start reads thread-ness off its OWN payload — nothing is carried
+        through the embed or custom_id."""
+        payload = self._payload(self.TWO)
+        payload["channel"] = {"type": 11}
+        with mock.patch.object(di.create_lfg_thread_task, "delay") as delay:
+            di._handle_lfg_start(payload)
+        self.assertTrue(delay.call_args.kwargs["in_thread"])
 
 
 class LFGThreadNameTests(TestCase):
@@ -2155,6 +2190,228 @@ class LFGThreadNameTests(TestCase):
 
     def test_the_name_is_capped_at_discords_limit(self):
         self.assertEqual(len(self._create("", {"title": "x" * 200})), 100)
+
+
+class LFGCancelNotifyTests(TestCase):
+    """✖ Cancel tells the 🔔 subscribers, so they stop waiting on a game that
+    isn't happening. The host is excluded — they cancelled it."""
+
+    HOST = "830000000000000001"
+
+    def _payload(self, notify_value, custom_id=..., nick="Tim"):
+        embed = {
+            "title": "Looking for Game", "description": "a game",
+            "fields": [
+                {"name": di.LFG_PLAYERS_FIELD, "value": f"Tim (<@{self.HOST}>)",
+                 "inline": False},
+            ],
+        }
+        if notify_value is not None:
+            embed["fields"].append(
+                {"name": di.LFG_NOTIFY_FIELD, "value": notify_value, "inline": False})
+        payload = {
+            "channel_id": "chan", "guild_id": "guild",
+            "member": {"nick": nick, "user": {"id": self.HOST}},
+            "message": {"id": "msg", "content": "", "embeds": [embed]},
+        }
+        if custom_id is not ...:
+            payload["data"] = {"custom_id": custom_id}
+        else:
+            payload["data"] = {"custom_id": di.encode_custom_id("lfg_cancel", self.HOST)}
+        return payload
+
+    def _cancel(self, *args, **kwargs):
+        with mock.patch.object(di.notify_lfg_cancelled_task, "delay") as delay:
+            response = di._handle_lfg_cancel(self._payload(*args, **kwargs))
+        return delay, json.loads(response.content)["data"]
+
+    def test_subscribers_are_notified_and_the_host_is_not(self):
+        delay, _ = self._cancel(f"<@{self.HOST}> <@111> <@222>")
+        delay.assert_called_once()
+        self.assertEqual(sorted(delay.call_args.args[0]), ["111", "222"])
+
+    def test_the_host_is_named_in_the_dm(self):
+        delay, _ = self._cancel("<@111>", nick="Tim")
+        self.assertEqual(delay.call_args.args[1], "Tim")
+
+    def test_no_dm_when_the_host_is_the_only_subscriber(self):
+        delay, _ = self._cancel(f"<@{self.HOST}>")
+        delay.assert_not_called()
+
+    def test_no_dm_when_nobody_subscribed(self):
+        delay, _ = self._cancel(None)
+        delay.assert_not_called()
+
+    def test_cancelling_still_clears_the_message(self):
+        _, data = self._cancel("<@111>")
+        self.assertEqual(data["components"], [])
+        self.assertEqual(data["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
+        self.assertIsNone(di._lfg_field(data["embeds"][0], di.LFG_NOTIFY_FIELD))
+
+    def test_a_missing_custom_id_still_cancels(self):
+        """Losing the custom_id costs only the host exclusion, never the cancel."""
+        delay, data = self._cancel("<@111>", custom_id=None)
+        self.assertEqual(data["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
+        self.assertEqual(sorted(delay.call_args.args[0]), ["111"])
+
+
+class LFGInThreadCommandTests(TestCase):
+    """/lfg used INSIDE a thread. Discord can't nest a thread on a message that's
+    already in one, so the thread itself becomes the game thread — which means
+    /lfg has to refuse a thread that already has a game, and must not ping."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="900000000000000001",
+                                                 name="Guild")
+        self.role = GuildLFGRole.objects.create(
+            guild=self.guild, name="Digital LFG", role_id="910000000000000001")
+
+    def _data(self, channel_id="920000000000000001", channel_type=11, parent_id=None,
+              role=None):
+        data = {
+            "_author": {"name": "Tim"}, "_author_id": "830000000000000001",
+            "_author_username": "tim", "_guild_id": self.guild.guild_id,
+            "_channel_id": channel_id, "_channel_type": channel_type,
+            "_channel_parent_id": parent_id, "_token": "tok",
+            "options": [],
+        }
+        if role is not None:
+            data["options"] = [{"name": "type", "value": str(role.pk)}]
+        return data
+
+    def _run(self, **kwargs):
+        with mock.patch.object(di.ensure_profile_from_discord_task, "delay"), \
+                mock.patch.object(di, "_lfg_role_is_live", return_value=True):
+            response = di._handle_lfg_command(self._data(**kwargs))
+        return json.loads(response.content)
+
+    def test_a_thread_with_a_game_is_refused(self):
+        LFGThread.objects.create(thread_id="920000000000000001", guild=self.guild)
+        body = self._run()
+        self.assertIn("already linked", body["data"]["content"])
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+
+    def test_a_tournament_group_thread_says_so(self):
+        series_thread = LFGThread.objects.create(thread_id="920000000000000001",
+                                                 guild=self.guild)
+        # A group thread is marked by `series`; simulate without a MatchSeries by
+        # patching the lookup, since only series_id is read here.
+        with mock.patch.object(di, "_lfg_thread_for_channel") as lookup:
+            lookup.return_value = mock.Mock(series_id=7)
+            with mock.patch.object(di.ensure_profile_from_discord_task, "delay"):
+                response = di._handle_lfg_command(self._data())
+        self.assertIn("tournament group thread",
+                      json.loads(response.content)["data"]["content"])
+        series_thread.delete()
+
+    def test_an_unclaimed_thread_posts_without_pinging(self):
+        """The mention still renders (✔ Start recovers the tag from it) but
+        allowed_mentions authorizes nothing, so nobody is notified."""
+        body = self._run()
+        self.assertEqual(body["type"], di.RESPONSE_CHANNEL_MESSAGE)
+        self.assertIn(self.role.mention(), body["data"]["content"])
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": []})
+
+    def test_a_plain_channel_still_pings(self):
+        body = self._run(channel_type=0)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": ["roles"]})
+
+    def test_a_thread_in_the_wrong_forum_is_refused(self):
+        self.role.forum_channel_id = "930000000000000001"
+        self.role.save()
+        body = self._run(parent_id="930000000000000009")
+        self.assertIn("belong in <#930000000000000001>", body["data"]["content"])
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+
+    def test_a_thread_in_the_right_forum_is_allowed(self):
+        self.role.forum_channel_id = "930000000000000001"
+        self.role.save()
+        body = self._run(parent_id="930000000000000001")
+        self.assertEqual(body["type"], di.RESPONSE_CHANNEL_MESSAGE)
+
+    def test_an_unknown_parent_fails_open(self):
+        """We can't tell where we are, so don't block a valid /lfg."""
+        self.role.forum_channel_id = "930000000000000001"
+        self.role.save()
+        body = self._run(parent_id=None)
+        self.assertEqual(body["type"], di.RESPONSE_CHANNEL_MESSAGE)
+
+
+class LFGAdoptThreadTests(TestCase):
+    """✔ Start inside a thread adopts that thread instead of creating one."""
+
+    THREAD = "940000000000000001"
+
+    def _run(self, in_thread=True, thread_id=THREAD, role_id=None, guild=None):
+        with mock.patch("the_gatehouse.services.discordservice.create_message_thread",
+                        return_value="950000000000000001") as message_thread, \
+                mock.patch("the_gatehouse.services.discordservice.create_forum_thread",
+                           return_value="950000000000000002") as forum_thread, \
+                mock.patch("the_gatehouse.services.discordservice.post_channel_message") as post, \
+                mock.patch("the_gatehouse.services.discordservice.apply_thread_tag") as tag, \
+                mock.patch("the_gatehouse.tasks.link_lfg_message_task.apply_async"):
+            create_lfg_thread_task(
+                thread_id, "msg", guild, role_id, "a game",
+                [{"id": "960000000000000001", "name": "Bob"},
+                 {"id": "960000000000000002", "name": "Amy"}],
+                {}, host_id="960000000000000001", in_thread=in_thread,
+            )
+        return message_thread, forum_thread, post, tag
+
+    def test_no_thread_is_created(self):
+        message_thread, forum_thread, post, _ = self._run()
+        message_thread.assert_not_called()
+        forum_thread.assert_not_called()
+        # The kickoff is mirrored into the thread we're already in.
+        self.assertEqual(post.call_args.args[0], self.THREAD)
+        self.assertIn("your game can start!", post.call_args.args[1])
+
+    def test_the_thread_is_linked_with_its_players(self):
+        self._run()
+        thread = LFGThread.objects.get(thread_id=self.THREAD)
+        self.assertEqual(thread.players.count(), 2)
+        self.assertEqual(thread.host.discord_id, "960000000000000001")
+
+    def test_an_already_linked_thread_is_left_alone(self):
+        """The /lfg gate makes this reachable only by a race. The first game's
+        roster must survive it."""
+        existing = LFGThread.objects.create(thread_id=self.THREAD)
+        keeper = ensure_profile_from_discord("960000000000000009", None, "Zed")
+        existing.players.set([keeper])
+        self._run()
+        existing.refresh_from_db()
+        self.assertEqual([p.pk for p in existing.players.all()], [keeper.pk])
+        self.assertIsNone(existing.host)
+
+    def test_the_normal_path_still_writes_to_an_existing_row(self):
+        """created=False off the adopt path means a task RETRY, where re-running
+        the writes is correct — the bail must not leak into it."""
+        LFGThread.objects.create(thread_id="950000000000000001")
+        self._run(in_thread=False, thread_id="chan")
+        thread = LFGThread.objects.get(thread_id="950000000000000001")
+        self.assertEqual(thread.players.count(), 2)
+        self.assertEqual(thread.host.discord_id, "960000000000000001")
+
+
+class LFGCancelledDMTests(TestCase):
+    """The cancellation DM itself."""
+
+    def _send(self, host_name="Tim", description="a game", jump_url=None):
+        with mock.patch("the_gatehouse.services.discordservice.send_dm_by_id") as dm:
+            notify_lfg_cancelled_task(["111"], host_name, description, jump_url)
+        return dm.call_args.kwargs["content"]
+
+    def test_it_names_the_host_and_points_at_lfg(self):
+        content = self._send()
+        self.assertIn("**Tim** cancelled *a game*.", content)
+        self.assertIn("`/lfg`", content)
+
+    def test_a_missing_host_name_falls_back(self):
+        """Never render an empty bold '** cancelled'."""
+        self.assertIn("The host cancelled", self._send(host_name=""))
+
+    def test_a_blank_description_still_reads_well(self):
+        self.assertIn("cancelled the game.", self._send(description=""))
 
 
 class RenameCommandTests(TestCase):
@@ -2388,8 +2645,10 @@ class LFGHostRecordingTests(TestCase):
                 "id": "msg", "content": "",
                 "embeds": [{
                     "title": "Looking for Game", "description": "a game",
+                    # Two players: ✔ Start refuses a solo table.
                     "fields": [{"name": di.LFG_PLAYERS_FIELD,
-                                "value": f"Bob (<@{owner}>)", "inline": False}],
+                                "value": f"Bob (<@{owner}>)\nAmy (<@830000000000000009>)",
+                                "inline": False}],
                 }],
             },
         }
