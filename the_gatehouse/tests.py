@@ -6136,14 +6136,29 @@ class PickSessionLifecycleTests(TestCase):
         }
         return json.loads(di._handle_pick_cancel(payload).content)["data"]
 
+    def _is_takeover(self, data):
+        """Whether this response is the 'picks are underway' confirmation rather
+        than a live pick panel.
+
+        Keyed on the BUTTONS, not the prose: a plain refusal was replaced by this
+        shared confirmation (see _adset_takeover_data), and an assertion on the
+        wording silently stopped matching when that landed. The Continue/Cancel
+        pair is the thing that actually distinguishes the two responses."""
+        actions = [c for row in data.get("components", [])
+                   for c in row.get("components", [])]
+        return any(di.decode_custom_id(c.get("custom_id", ""))[0] == "adset_takeover"
+                   for c in actions if c.get("custom_id"))
+
     def test_a_second_pick_is_refused_once_a_faction_is_taken(self):
         self._select(self.factions[0].slug, self.players[1].discord_id)
         data = self._command()
-        self.assertIn("already underway", data["content"])
+        # Offered a takeover (Continue/Cancel), not a second live panel.
+        self.assertTrue(self._is_takeover(data))
+        self.assertIn("Continuing will clear these picks", data["content"])
 
     def test_a_fresh_thread_still_opens_a_panel(self):
         data = self._command()
-        self.assertNotIn("already underway", data["content"])
+        self.assertFalse(self._is_takeover(data))
 
     def test_stop_clears_the_picks_but_keeps_the_seating(self):
         self._select(self.factions[0].slug, self.players[1].discord_id)
@@ -6161,7 +6176,7 @@ class PickSessionLifecycleTests(TestCase):
         self._select(self.factions[0].slug, self.players[1].discord_id)
         self._stop()
         data = self._command()
-        self.assertNotIn("already underway", data["content"])
+        self.assertFalse(self._is_takeover(data))
 
     def test_stop_clears_vagabond_and_captains(self):
         vb = Vagabond.objects.create(
@@ -6274,7 +6289,7 @@ class PickSessionLifecycleTests(TestCase):
         self.assertFalse(
             self.thread.seats.filter(faction__isnull=False).exists())
         data = self._command()
-        self.assertNotIn("already underway", data["content"])
+        self.assertFalse(self._is_takeover(data))
 
 
 class PickSeatChoiceTests(TestCase):
