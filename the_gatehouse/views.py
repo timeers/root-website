@@ -273,7 +273,7 @@ def _not_a_player_redirect(request):
     bouncing them there would be wrong. Hold them on the interstitial instead, which
     forwards to where they were headed once the sync lands.
     """
-    if request.user.profile.guilds_refreshing:
+    if request.user.profile.guilds_refresh_in_progress:
         # get_full_path(), not path: keep any query string across the round trip.
         next_url = urlencode({'next': request.get_full_path()})
         return redirect(f'{reverse("finishing-signin")}?{next_url}')
@@ -2199,14 +2199,14 @@ def status_check(request):
 def profile_guilds_status(request):
     """HTMX poll target for the header avatar "syncing Discord roles" spinner.
 
-    While refresh_user_guilds_task is running (profile.guilds_refreshing) return an
+    While refresh_user_guilds_task is running (guilds_refresh_in_progress) return an
     empty 200 so the hidden poller (hx-swap="none") leaves the spinner untouched. Once
     the task clears the flag, emit HX-Refresh so the page reloads with fresh
     group/membership and the spinner gone. HX-Refresh is emitted ONLY on the cleared
     branch (and thus only once) so there's no reload loop. Anonymous / no-profile
     requests get a plain empty 200 and never trigger a refresh."""
     profile = getattr(request.user, 'profile', None)
-    if profile is None or profile.guilds_refreshing:
+    if profile is None or profile.guilds_refresh_in_progress:
         return HttpResponse(status=200)
 
     response = HttpResponse(status=200)
@@ -2219,7 +2219,7 @@ def finishing_signin(request):
     """Hold page for a user whose Discord guild sync didn't finish during login.
 
     Reached from @player_required when the cached group would deny access but
-    `guilds_refreshing` says the group may simply be stale. Polls the existing
+    `guilds_refresh_in_progress` says the group may simply be stale. Polls the existing
     profile-guilds-status endpoint; once the flag clears, that endpoint emits HX-Refresh
     and the reload lands back here to be routed on.
     """
@@ -2230,7 +2230,7 @@ def finishing_signin(request):
         next_url = reverse(settings.LOGIN_REDIRECT_URL)
 
     profile = request.user.profile
-    if not profile.guilds_refreshing:
+    if not profile.guilds_refresh_in_progress:
         # Sync is done — decide on the REAL answer, not on the assumption that they're a
         # player now. Sending a genuine non-player to `next` would just bounce them back
         # through @player_required; route them explicitly instead.

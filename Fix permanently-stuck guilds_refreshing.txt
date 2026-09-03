@@ -1,0 +1,524 @@
+Fix permanently-stuck guilds_refreshing logins
+==============================================
+
+REVISION NOTE (this pass)
+Changes 1, 2 and 3 are already implemented on the lfg-improvements branch. Changes 4, 5
+and the read-half of Change 1 are not, and the branch is currently in a BROKEN
+intermediate state — see "Current state" and Change 0 below. This revision:
+  * adds Change 0, a live bug the half-landed work introduced (must fix first);
+  * pins down the call-site contract the original plan left implicit (the cause of that
+    bug);
+  * gives the NO_TOKEN report an actual home and a spam cap;
+  * makes the staleness window track liveness instead of total elapsed time;
+  * aligns the poller cap with GUILDS_REFRESH_MAX_AGE instead of the retry ladder;
+  * corrects the test instructions to the names/types that actually shipped.
+
+Context
+Users report being stranded forever on the "Finishing your sign-in" spinner, or (for
+groups E/P) carrying a permanent header avatar spinner plus an every-2s XHR on every
+page. Root cause: Profile.guilds_refreshing is set to True on every login but is cleared
+by only three narrow code paths, none of them fail-closed. Once the flag sticks, nothing
+in the system ever retries or expires it — there is no timeout, no attempt cap, no
+sweep, and no admin lever.
+
+Four independent ways a profile gets stranded today:
+1. A permanent failure routed through a transient-retry path (the main cause).
+   get_valid_discord_token (discordservice.py:1071-1120) returns None when there is no
+   SocialToken row, or the token is expired with an empty token_secret. get_user_guilds
+   then returns None, refresh_user_guilds returns False writing nothing, and the task
+   burns 4 attempts over ~180s. Any worker restart, deploy, or dropped broker message
+   inside that window strands the profile permanently.
+2. Early return with no cleanup. tasks.py:430-432 — if user is None or not
+   hasattr(user, 'profile'): return, a bare return that leaves the flag up.
+3. Dead broker at enqueue time. signals.py:289 enqueues inside transaction.on_commit.
+   The flag is committed True first; the callback then runs post-commit and .delay()
+   raises kombu.exceptions.OperationalError if Redis is down — stranding every user who
+   logs in during the outage, and letting the exception escape into the login response.
+4. No fail-closed cleanup. refresh_user_guilds (tasks.py:317-411) clears only on its
+   success path; both return False sites write nothing. That's correct for the helper,
+   but neither caller compensates.
+
+Why E/P users are affected. Profile.player (models.py:1259-1265) is True for A/D/E/P, so
+player_required never bounces them — they pass the check and never see the hold page.
+Their symptom is the permanent avatar spinner (rendered twice, header.html:80,93) and
+unbounded polling. The users who actually land on "Finishing your sign-in" are stuck
+group O users, via _not_a_player_redirect (views.py:268-280).
+
+Auth model — verified, and it shapes the fix. Login is Discord OAuth via allauth, so in
+the normal case every user does have a Discord token, and _store_token()
+(allauth/socialaccount/models.py:362-383) upserts it on every login
+(SOCIALACCOUNT_STORE_TOKENS = True, settings.py:310). A missing token is therefore an
+error condition to control for, not a user-facing state. Three verified ways it still
+arises:
+1. Non-Discord logins are reachable. SOCIALACCOUNT_ONLY is commented out
+   (settings.py:312) and urls.py:77 includes all of allauth.urls, exposing
+   account_login/account_signup (account/urls.py:11,19); ACCOUNT_SIGNUP_FIELDS includes
+   password fields (settings.py:305) and ModelBackend is first in
+   AUTHENTICATION_BACKENDS (settings.py:124-130). Django admin at urls.py:36 is exactly
+   this path — every superuser login fires user_logged_in with no SocialAccount, hitting
+   the "No Discord social account" branch (discordservice.py:1079-1082) and, today,
+   burning the full 180s retry chain.
+2. prompt: 'none' (settings.py:157-163) skips the consent screen — correct for UX, but
+   if a user revoked the app's authorization on Discord's side, the OAuth round trip
+   errors rather than re-consenting, so a re-login does not silently repair them.
+3. Discord doesn't always resend a refresh token — allauth only overwrites token_secret
+   when non-empty (models.py:373-376), and discordservice.py:1091-1093 returns None for
+   an expired token with no token_secret. A token can be present-but-unusable.
+
+So the token check below exists purely to classify retries and surface the error, not to
+drive any user-facing flow.
+
+Intended outcome: a stuck flag becomes impossible to sustain — it expires on read, every
+terminal task path clears it, a broker outage can't strand anyone, and the flag is only
+ever raised when a sync the user actually needs is in flight.
+
+Out of scope (user's call): production users were already unstuck by hand, so no
+management command, admin action, or periodic sweep task. The staleness window below is
+the durable safety net.
+
+
+Current state (what is already on the branch)
+Implemented and verified:
+  * Change 1, model half — models.py:35 GUILDS_REFRESH_MAX_AGE, models.py:1030 the
+    field, models.py:1283 guilds_refresh_in_progress with the NULL-reads-as-stale
+    branch. Migration 0042_profile_guilds_refresh_started_at.py, plain nullable AddField.
+  * Change 2 — the predicate landed as discord_refresh_capability
+    (discordservice.py:1071), NOT has_discord_refresh_capability, and returns the string
+    'ok' | 'no_account' | 'no_token' rather than a bool. This is BETTER than the original
+    plan: it keeps the account-vs-token distinction the reporting rule needs. All
+    references below use the shipped name and string returns.
+  * Change 2, enum — GuildSyncResult at tasks.py:319; refresh_user_guilds calls the
+    predicate before any HTTP at tasks.py:371.
+  * Change 3 — complete. _clear_guilds_refreshing (tasks.py:330), orphan cleanup
+    (tasks.py:474), `except Retry: raise` correctly ordered ahead of the broad handler
+    (tasks.py:479), all four terminal paths clear.
+
+Not implemented: Change 4 (signals.py untouched), Change 1 read half (all five consumers
+still read the raw boolean), Change 5 (no poller cap), and every test update.
+
+
+Change 0 — Fix the live truthiness bug (do this FIRST, it ships alone)
+The original plan said the enum and its call sites "must land in the same commit or
+logins break." The enum landed; the call sites did not. The result is a live bug on the
+branch.
+
+signals.py:278 assigns a GuildSyncResult into `synced_inline`, which is then tested at
+signals.py:284 as `if not synced_inline:`. GuildSyncResult subclasses str, so EVERY
+member — including TRANSIENT and NO_TOKEN — is truthy. `not synced_inline` is therefore
+always False and the fallback enqueue NEVER fires. A user whose inline sync fails now
+gets no async retry at all, and (because signals still never stamps
+guilds_refresh_started_at) a flag that the new property reads as instantly stale.
+
+Two edits, both required:
+
+(a) Drop `str` from the enum base at tasks.py:319:
+
+    class GuildSyncResult(Enum):
+
+Verified safe: the enum never crosses a serialization boundary. Its only producer is
+refresh_user_guilds and its only consumers are tasks.py:478 and signals.py:278;
+refresh_user_guilds_task returns None on every path, so no Celery result carries it.
+Keeping `str` is what let a wrong comparison pass silently instead of raising — with
+plain Enum, `if not result` on an Enum member is still legal Python but the value can no
+longer masquerade as its string, and the identity comparisons below become the only
+correct way to read it.
+
+(b) Compare by identity at the call site. See the contract immediately below.
+
+CALL-SITE CONTRACT (the thing the original plan left implicit — state it, don't infer it)
+refresh_user_guilds returns a GuildSyncResult, never a bool. Both call sites MUST test
+it by identity against a named member. Never truth-test the result, never `==` it
+against a string, and never store it in a variable whose name implies a bool.
+
+  * signals.py — `synced_inline = refresh_user_guilds(...)` becomes:
+        result = refresh_user_guilds(user, budget=INLINE_GUILD_SYNC_BUDGET)
+        ...
+        if result is not GuildSyncResult.OK:   # hand off to Celery
+    with `result = None` as the "didn't try" initial value, so the not-OK branch covers
+    both "no attempt" and "attempt failed" exactly as the old `synced_inline = False` did.
+  * tasks.py:488-497 — already correct (`is GuildSyncResult.OK`, `is GuildSyncResult.NO_TOKEN`).
+
+signals.py must import GuildSyncResult alongside the existing refresh_user_guilds import
+at signals.py:23.
+
+
+Change 1 — Make the flag self-expiring  [model half DONE, read half TODO]
+This is the fix that retroactively frees any stranded profile with no data migration.
+
+Already shipped (do not redo): the field, GUILDS_REFRESH_MAX_AGE = timedelta(minutes=5),
+the guilds_refresh_in_progress property, and migration 0042. The NULL-reads-as-stale
+branch is deliberate: existing stuck rows got NULL from the AddField default, so they
+were freed by the schema migration alone.
+
+Still TODO — switch every consumer from the raw boolean to the property:
+  * views.py:276 _not_a_player_redirect
+  * views.py:2209 profile_guilds_status
+  * views.py:2233 finishing_signin
+  * _guilds_refreshing_poller.html:8   (the_keep/templates/includes/)
+  * _guilds_refreshing_spinner.html:9  (the_keep/templates/includes/)
+Update the comment at the top of each template and at views.py:2202/2222, which still
+name the raw flag.
+
+Every writer sets both fields together — timezone.now() when raising, None when
+clearing. All three existing update_fields lists must carry the new field or the write
+is silently dropped: tasks.py:405-410 (done), tasks.py:443-445 (done), signals.py:273
+(TODO, Change 4).
+
+REVISION — keep the window tracking liveness, not total elapsed time.
+GUILDS_REFRESH_MAX_AGE is justified as "~180s of retries plus queue latency", but
+tasks.py:503 retries with countdown=30*(retries+1): 30+60+90 = 180s of backoff alone,
+before execution time. The window and the retry ladder are two independent constants that
+silently overlap, and if max_retries is ever raised the ladder outruns the window — the
+spinner vanishes while a retry is genuinely still queued, which is the exact contract
+tasks.py:460-463 promises to preserve.
+
+Fix: re-stamp the timestamp before each retry, so the window measures "time since the
+last sign of life" rather than "time since login":
+
+    profile = user.profile
+    profile.guilds_refresh_started_at = timezone.now()
+    profile.save(update_fields=['guilds_refresh_started_at'])
+    raise self.retry(countdown=30 * (self.request.retries + 1))
+
+This makes GUILDS_REFRESH_MAX_AGE independent of the retry configuration: it now only
+has to exceed the longest single gap between attempts (90s worst case), which 5 minutes
+comfortably does. Add a comment at the constant saying so, replacing the "~180s of
+retries" rationale, which no longer holds.
+
+
+Change 2 — Classify transient vs. no-token failure  [predicate + enum DONE, report TODO]
+Shipped: discord_refresh_capability (discordservice.py:1071), the GuildSyncResult enum,
+and the pre-HTTP check at tasks.py:371. Purely additive — get_valid_discord_token and
+get_user_guilds signatures were untouched, so their other callers (the add-guild-from-
+invite view) are unaffected.
+
+REVISION — the report has no home, and needs a spam cap.
+The original plan said a NO_TOKEN outcome for a user who DOES have a Discord
+SocialAccount should logger.warning and send a category='report' message, suppressed
+when there's no SocialAccount at all. That never landed, and as written it cannot:
+refresh_user_guilds collapses 'no_account' and 'no_token' into the single
+GuildSyncResult.NO_TOKEN (tasks.py:371-372), discarding the exact distinction the
+predicate was built to preserve. Neither caller can tell them apart. tasks.py contains no
+category='report' send at all.
+
+Fix: report at the point that still has the string — inside refresh_user_guilds, where
+the predicate is called. Do NOT widen the enum; the callers genuinely don't need a third
+member (both treat any no-token outcome identically: clear and stop).
+
+    capability = discord_refresh_capability(user)
+    if capability != 'ok':
+        if capability == 'no_token':
+            # Has a Discord account but no usable token: a real fault, and invisible
+            # until someone reports a stuck spinner. 'no_account' is the ordinary
+            # admin/password login and is NOT a fault, so it stays silent.
+            logger.warning("Discord token unusable for %s; skipping guild refresh", user)
+            _report_unusable_token(user)
+        return GuildSyncResult.NO_TOKEN
+
+Spam cap. A user with a revoked token re-logs in repeatedly, and each login would fire a
+report. Gate it on a short-lived cache key so a broken account reports at most once a day:
+
+    def _report_unusable_token(user):
+        """One report per user per day: a revoked token re-reports on every login, and
+        an alert that repeats is an alert that gets muted."""
+        key = f'unusable-discord-token:{user.pk}'
+        if cache.add(key, True, timeout=60 * 60 * 24):
+            send_discord_message_task.delay(
+                f"No usable Discord token for {user} — guild refresh skipped. "
+                f"They should log out and back in via Discord.", category='report')
+
+cache.add is atomic and returns False when the key exists, so concurrent logins send
+once. tasks.py has no `cache` import yet; add `from django.core.cache import cache`
+(signals.py:7 is the existing precedent).
+
+Note the tasks.py:492 branch in refresh_user_guilds_task already logger.warning's
+NO_TOKEN. Leave it — it names the task context, and the report now fires one level down.
+
+
+Change 3 — Fail-closed cleanup in refresh_user_guilds_task  [DONE]
+Implemented as specified. Recorded here for completeness:
+_clear_guilds_refreshing(profile, synced) writes guilds_refreshing=False,
+guilds_refresh_started_at=None, and guilds_synced_at=timezone.now() only when synced. A
+failed outcome must not claim a successful sync timestamp, since guilds_synced_at gates
+needs_sync_now at signals.py:266. This corrected the old tasks.py:443-445 behavior where
+giving up stamped guilds_synced_at and thereby suppressed the inline retry on the user's
+next login.
+
+Terminal paths, all clearing: early return (orphan profile lookup), NO_TOKEN, TRANSIENT
+with the budget exhausted, and unexpected exception. No bare try/finally — self.retry()
+raises celery.exceptions.Retry, and a finally would clear the flag on every pending
+retry. `except Retry: raise` is ordered ahead of the broad handler.
+
+The only edit here is the retry re-stamp from Change 1 above.
+
+
+Change 4 — Raise the flag only when the group can't be trusted  [TODO]
+signals.py:266-289. Today the flag is set unconditionally at signals.py:270-273, before
+needs_sync_now is even consulted, and guilds_refresh_started_at is never written at all —
+so every login currently persists True with a NULL timestamp, which the new property
+reads as immediately stale. The spinner is effectively dead for everyone right now,
+including the first-login and group-O users it exists for. Change 4 is what makes the
+flag correct again rather than accidentally-always-off.
+
+Login-safety constraint. signals.py:273 is profile.save(update_fields=sorted(dirty_fields)),
+and dirty_fields currently always contains guilds_refreshing. Making that add conditional
+means the set can now be empty — Django then silently skips the save entirely
+(base.py:863-864). That is safe (no crash), but it would silently drop a pending
+discord_id write in the one case where discord_id was set and needs_sync_now was False.
+Guard the save with `if dirty_fields:` and keep discord_id in the set independently of
+the flag. Verify with a test that logs in a user whose discord_id is newly resolved while
+needs_sync_now is False, then asserts discord_id persisted.
+
+(a) Make the flag+timestamp write conditional on needs_sync_now (first login, or group
+O) — precisely the case the flag was invented for, per the handler's own comment at
+signals.py:257-265. Returning A/D/E/P players keep the silent background refresh but get
+no spinner, no polling, and no reload-on-completion for a result they were never blocked
+on. This removes the visible symptom for the E/P cohort entirely. Visible UX change —
+call it out in the PR.
+
+Also skip raising the flag (and skip enqueuing) when discord_refresh_capability(user) is
+not 'ok'. Nothing can clear a spinner for a sync that cannot start — this is the branch
+that stops an admin/password login (or a revoked-token user) from being handed a flag
+with no clearer, which is strand route #1.
+
+REVISION — two notes on that capability check.
+  * It is an OPTIMIZATION here, not the guarantee. refresh_user_guilds checks it again
+    (tasks.py:371) and that second check is the one that actually protects the task from
+    a doomed retry ladder. Both are wanted; neither is redundant. Say so in a comment, or
+    a later edit will delete one as duplication.
+  * It is not free. The predicate runs two queries (socialaccount_set.get, then
+    socialtoken_set.first) and this is the login hot path. Two indexed lookups is an
+    acceptable cost for not enqueueing a doomed task, but the original plan billed it as
+    free ("a DB read, not a network call") and that undersold it. Keep it inside the
+    needs_sync_now branch where possible so the returning-player path — the common one —
+    pays nothing.
+
+(b) Survive a dead broker. Wrap the on_commit callback body, following the existing
+precedent at views.py:453-459:
+
+    def _enqueue():
+        try:
+            refresh_user_guilds_task.delay(user.id)
+        except OperationalError:
+            logger.warning("Celery broker unavailable; clearing guilds_refreshing for %s", user)
+            Profile.objects.filter(pk=profile.pk).update(
+                guilds_refreshing=False, guilds_refresh_started_at=None)
+    transaction.on_commit(_enqueue)
+
+OperationalError from kombu.exceptions, matching the import at views.py:6 (signals.py
+does not import it yet — add it). The callback runs after commit, so it must write via a
+fresh .update() queryset — not profile.save() on the stale in-memory instance, per the
+handler's own warning at signals.py:239-241. Catching here is what stops a broker outage
+from 500-ing every login.
+
+
+Change 5 — Bound the client-side poller  [TODO]
+_guilds_refreshing_poller.html currently polls every 2s forever with no cap.
+
+Change 1 already makes the server self-terminate: once the flag reads stale,
+profile_guilds_status returns HX-Refresh: true and the page reloads without the poller.
+Add a client-side cap for the case where the endpoint itself is unreachable. Hyperscript
+is loaded globally (template.html:40).
+
+REVISION — 3 minutes is too short and would strand the very users it protects.
+The original plan proposed `wait 3m`, reasoning "≈90 requests, matching the retry
+ceiling". But the server-side flag legitimately reads in-progress for up to
+GUILDS_REFRESH_MAX_AGE = 5 minutes (longer now that Change 1 re-stamps on each retry). A
+sync that takes four minutes would have its poller removed at three — the user sits on a
+spinner that never clears until they navigate away, which is a milder version of the
+exact bug this plan exists to fix. The cap must EXCEED the staleness window, not match
+the retry ladder:
+
+    _="on load wait 6m then remove me"
+
+Add a one-line comment tying the 6m to GUILDS_REFRESH_MAX_AGE (5m) so the two can't
+drift apart silently — if the constant is ever raised, this must be raised past it.
+
+finishing_signin.html — keep the existing "Continue anyway" escape hatch, unchanged. Its
+top comment block explaining why the page renders no poller of its own stays accurate. No
+reconnect prompt: a missing token is handled as an internal error condition (Change 2),
+not surfaced as a user-facing flow.
+
+
+Ordering
+0. Change 0 — enum base + signals call site. Fixes a live bug; ships alone. FIRST.
+1. Change 2's report helper + cache import (pure addition, no callers change shape).
+2. Change 1 retry re-stamp in refresh_user_guilds_task.
+3. Change 4 — signals: conditional flag+timestamp, `if dirty_fields:` guard, capability
+   skip, broker-safe enqueue. Subsumes Change 0(b)'s call-site edit if done together.
+4. Change 1 read half — views (3 sites) + both templates.
+5. Change 5 — poller cap. Independent.
+6. Tests, throughout — but _patch_discord's capability patch must land before any of the
+   existing suite is run, or every test short-circuits to NO_TOKEN.
+
+Steps 3 and 4 must not be split across a deploy: between them, a first-login user gets a
+correctly-stamped flag that no consumer reads. Harmless (they simply see no spinner) but
+pointless as an intermediate state.
+
+
+Login-safety audit
+Reviewed specifically for anything that could break or change how users log in.
+
+Errors found and corrected in this plan:
+1. Enum truthiness — see Change 0. GuildSyncResult subclassing str made every member
+   truthy, so `if not synced_inline` silently disabled the async fallback. This is what
+   the original plan's "must land in the same commit" warning was pointing at, but it
+   never said what the new comparison should BE. Now pinned in the call-site contract.
+2. Empty update_fields silently skips the save — see the constraint in Change 4. Was a
+   real data-loss path for discord_id; now guarded.
+3. property name vs. update_fields — guilds_refresh_in_progress is a @property, so it
+   must never appear in an update_fields list. Only the two concrete fields
+   (guilds_refreshing, guilds_refresh_started_at) may. Django raises ValueError for
+   non-concrete names (base.py:869-875) — that would 500 the login, so this is worth a
+   careful read at each of the three call sites.
+4. except Retry: raise ordering — if a broad except Exception is placed before it, Retry
+   (a subclass of Exception) gets swallowed and the retry silently becomes a terminal
+   clear. The Retry branch must come first. (Already correct at tasks.py:479.)
+5. Staleness window vs. retry ladder — two independent constants that could drift into
+   contradiction. Change 1's re-stamp decouples them.
+
+Verified as NOT breaking login:
+  * Only one user_logged_in receiver exists (signals.py:225) — confirmed by grep across
+    the app. No second handler races the flag.
+  * The signal is wrapped so Discord failures can't break login (signals.py:277-282) —
+    the existing try/except stays; Change 2's predicate is a DB read, not a network call,
+    and runs inside it.
+  * profile_guilds_status has no @login_required (views.py:2199, urls.py:30) and relies
+    on getattr(request.user, 'profile', None) returning None for AnonymousUser. Switching
+    line 2209 to the property must keep the `profile is None` check first, or an
+    anonymous poll raises AttributeError. Preserve the existing short-circuit exactly.
+  * transaction.on_commit still fires under TestCase only inside
+    captureOnCommitCallbacks; existing tests already account for this (tests.py:9365), so
+    Change 4(b)'s wrapper doesn't alter test semantics.
+  * No migration backfill runs against the users table, so the deploy is a pure additive
+    AddField — no lock of consequence, no login downtime. (Already deployed as 0042.)
+  * The report send in Change 2 is send_discord_message_task.delay — itself a broker
+    call, and therefore itself able to raise OperationalError during an outage. It runs
+    inside refresh_user_guilds, which the login handler already wraps in try/except
+    (signals.py:279-282), so a broker outage during a no-token login still cannot break
+    login. Confirm this stays true if the report is ever moved.
+
+Behavior changes users will actually notice (intended, but call out in the PR):
+  * Returning A/D/E/P players: the header spinner and the every-2s poll disappear, and
+    there is no longer a full page reload mid-session when the background sync lands.
+    Login itself is unchanged and slightly lighter.
+  * REVISION — the flip side of that, which the original plan omitted: a returning player
+    who was DEMOTED on Discord (left the guild) now renders the entire session against
+    the stale cached group, with no mid-session reload to correct it. Their next login
+    catches it. This is an accepted trade — the alternative is the spinner-for-everyone
+    behavior being removed — but it is a real behavior change and belongs in the PR notes
+    rather than being discovered later.
+  * First-login and group-O users: unchanged happy path (inline sync under the 6s budget,
+    spinner only if it doesn't finish).
+  * Admin/password logins: no longer set a flag or enqueue a doomed task. Previously this
+    silently burned a 180s retry chain per admin login.
+
+Explicitly unchanged: the OAuth flow, INLINE_GUILD_SYNC_BUDGET = 6 (signals.py:40), the
+needs_sync_now predicate itself, group-promotion logic, the admin-group sync at
+signals.py:302-328, and the "Continue anyway" escape hatch.
+
+
+Verification
+Existing tests: tests.py:9330-9610. Iterate with:
+  python manage.py test the_gatehouse.tests.InlineGuildSyncOnLoginTests \
+    the_gatehouse.tests.RefreshUserGuildsBudgetTests \
+    the_gatehouse.tests.FinishingSigninViewTests \
+    the_gatehouse.tests.PlayerRequiredInterstitialTests
+
+Tests needing updates (corrected to what actually shipped):
+  * _patch_discord (tests.py:9375) must patch
+    'the_gatehouse.services.discordservice.discord_refresh_capability' with
+    return_value='ok' — NOT has_discord_refresh_capability, and NOT True. The predicate
+    returns a string and the shipped name differs from the original plan. Every test
+    short-circuits to NO_TOKEN without this, so do it first; it is the highest-risk edit
+    in the suite. (Patching the discordservice module path is correct here because
+    tasks.py imports the predicate inside the function body, tasks.py:362-365.)
+  * test_returning_player_makes_no_inline_discord_call (tests.py:9408) asserts
+    assertTrue(guilds_refreshing) at line 9420. Under Change 4 the flag is no longer
+    raised for a returning player — invert to assertFalse, keep the
+    task.delay.assert_called_once_with half.
+  * test_discord_failure_falls_back_to_async (tests.py:9422) and
+    test_login_survives_discord_exception (tests.py:9434) stay valid; add
+    assertIsNotNone(guilds_refresh_started_at), since a True flag with a NULL timestamp
+    now reads as stale. Both users are group O, so needs_sync_now holds and the flag is
+    still expected.
+  * RefreshUserGuildsBudgetTests (tests.py:9458-9520) asserts on the boolean:
+    assertTrue(ok) → assertIs(result, GuildSyncResult.OK); assertFalse(ok) →
+    assertIs(result, GuildSyncResult.TRANSIENT) (budget exhaustion should still retry).
+  * FinishingSigninViewTests (tests.py:9542) and PlayerRequiredInterstitialTests
+    (tests.py:9592) set guilds_refreshing = True with no timestamp, which now reads
+    stale — set guilds_refresh_started_at = timezone.now() in both setups and add it to
+    the update_fields lists at tests.py:9544 and 9594. These failing first is the suite
+    confirming the staleness semantics work.
+
+New tests (named as sentences, matching the suite's existing convention — e.g.
+tests.py:1622, 3532):
+  * Staleness property — True + 10-min-old timestamp → False; True + 10s-old → True;
+    True + NULL → False (comment this one as the production-recovery case).
+  * A no-token user terminates instead of retrying — patch the predicate to 'no_token',
+    run the task eagerly, assert self.retry never called and the flag clear. Headline
+    regression test.
+  * An admin password login never raises the flag — log in a user with no SocialAccount
+    (the ModelBackend path used by Django admin, urls.py:36); assert guilds_refreshing is
+    False, no task enqueued, and no category='report' message sent. This is strand route
+    #1 and the case the current code handles worst.
+  * A no-token user WITH a Discord account is reported — a user who has a SocialAccount
+    but no usable SocialToken; assert the flag is not raised and a category='report'
+    message is sent (the visibility half of Change 2).
+  * REVISION, new — the report is sent at most once a day. Two consecutive no-token
+    refreshes for the same user send exactly one report. Guards the spam cap; use
+    override_settings with a locmem cache, or clear the key in setUp, since a cache
+    shared across tests would make this order-dependent.
+  * REVISION, new — a queued retry re-stamps the timestamp. Assert
+    guilds_refresh_started_at MOVES FORWARD across a retry, so a long ladder can't age
+    out of the staleness window mid-flight. Guards Change 1's re-stamp.
+  * The early return clears an orphaned profile — run the task for a profile whose user
+    was deleted; assert the flag clears.
+  * A pending retry does NOT clear the flag — patch refresh_user_guilds → TRANSIENT;
+    assert Retry raised and flag still True (guards the contract against a careless
+    finally).
+  * Exhausted retries clear the flag without claiming a sync — same, with
+    self.request.retries = max_retries; assert guilds_synced_at is NOT stamped.
+  * A dead broker at login does not strand anyone — patch .delay with
+    side_effect=KombuOperationalError; assert login succeeds and the flag is clear.
+    KombuOperationalError is already imported at tests.py:22, with precedents at
+    tests.py:1632, 3536, 4079.
+  * A discord_id resolved on a no-sync login still persists — the `if dirty_fields:`
+    guard from Change 4. Returning player (needs_sync_now False) whose discord_id is
+    newly resolved; assert it survives.
+  * The poller is absent for a stale flag — render test asserting the poller <span> is
+    gone for a stale-flag profile. This is what protects the E/P cohort from the infinite
+    poll.
+
+Deviations made during implementation (plan updated to match the code as shipped)
+1. can_refresh is evaluated for EVERY login, not only when needs_sync_now. The plan's
+   phrasing ("keep it inside the needs_sync_now branch so the common path pays nothing")
+   would have skipped the enqueue for returning A/D/E/P players entirely -- they are
+   supposed to keep the silent background refresh. The predicate now gates the flag
+   (with needs_sync_now) and the enqueue (alone), costing two indexed queries on every
+   login. That is the real price of not enqueueing doomed work; the comment at
+   signals.py says so rather than claiming it is free.
+2. The orphan-cleanup branch in refresh_user_guilds_task is narrower than the original
+   plan implied. Profile.user is on_delete=SET_NULL (models.py:1017), so DELETING a user
+   nulls profile.user_id and Profile.objects.filter(user_id=user_id) finds nothing -- the
+   lookup cannot reach a truly orphaned profile. Those rows are freed by the staleness
+   window instead. The branch still covers the reachable case (the row points at a user
+   the task failed to load) and is kept, with a comment saying which case is which, plus
+   a test documenting the SET_NULL behavior so the branch isn't mistaken for the fix.
+3. Test patch targets differ by call site, and this is easy to get wrong: signals.py
+   imports discord_refresh_capability at MODULE level (signals.py:22), so tests patch
+   'the_gatehouse.signals.discord_refresh_capability'; refresh_user_guilds imports it
+   INSIDE the function, so that one is patched on
+   'the_gatehouse.services.discordservice.discord_refresh_capability'. Tests exercising
+   a full login through to the inline refresh need BOTH.
+4. Staging a retries-exhausted state uses task.push_request(retries=...) /
+   task.pop_request(). Task.request is a read-only property backed by a stack, so
+   mock.patch.object(task, 'request') raises AttributeError.
+
+Results
+Full suite green: 919 the_gatehouse tests OK (skipped=1); 147 across the_keep,
+the_warroom, the_tavern and the_forge OK. makemigrations --check reports no changes.
+
+Manual check: log in as a returning E/P player and confirm no avatar spinner and no
+/profile/guilds-status/ requests in the network tab; log in as a first-time/group-O user
+and confirm the spinner appears and clears normally.

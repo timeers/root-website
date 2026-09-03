@@ -5,7 +5,7 @@
 Hold page for a user whose Discord guild sync didn't finish during login.
 
 Deliberately does NOT render its own HTMX poller: the header already includes
-_guilds_refreshing_poller.html once per page while profile.guilds_refreshing is True.
+_guilds_refreshing_poller.html once per page while guilds_refresh_in_progress is True.
 A second poller here would race it and fire overlapping HX-Refresh reloads. When the
 flag clears, that shared poller reloads this page, and the finishing_signin view routes
 the user onward.

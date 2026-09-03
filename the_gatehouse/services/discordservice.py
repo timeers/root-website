@@ -1068,6 +1068,37 @@ def update_discord_avatar(user, force=False):
     return profile.image.url
 
 
+def discord_refresh_capability(user):
+    """Can a guild refresh for this user plausibly succeed? Network-free.
+
+    Mirrors the three give-up conditions in get_valid_discord_token below, but without
+    the HTTP call, so callers can tell a RETRYABLE failure (Discord slow/erroring) from
+    one where no amount of retrying helps. Returns:
+
+      'ok'          — a Discord account with a usable (or refreshable) token
+      'no_account'  — no Discord social account at all. Normal for a username/password
+                      login, e.g. Django admin: not a fault, don't report it.
+      'no_token'    — has a Discord account but no usable token. A real fault worth
+                      surfacing; allauth re-stores the token on their next Discord login.
+    """
+    try:
+        social_account = user.socialaccount_set.get(provider='discord')
+    except user.socialaccount_set.model.DoesNotExist:
+        return 'no_account'
+
+    token_obj = social_account.socialtoken_set.first()
+    if token_obj is None:
+        return 'no_token'
+
+    # Expired (same 60s buffer as get_valid_discord_token) with nothing to refresh from.
+    if (token_obj.expires_at
+            and timezone.now() >= token_obj.expires_at - timedelta(seconds=60)
+            and not token_obj.token_secret):
+        return 'no_token'
+
+    return 'ok'
+
+
 def get_valid_discord_token(user, timeout=5):
     """Get a valid Discord access token, refreshing if expired.
 

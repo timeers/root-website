@@ -4,6 +4,7 @@ import calendar
 import logging
 import secrets
 import hashlib
+from datetime import timedelta
 
 from urllib.parse import urlparse
 from django.contrib.auth.models import User
@@ -25,6 +26,15 @@ logger = logging.getLogger(__name__)
 # The shared fallback avatar every Profile starts on. Lives here (not in
 # discordservice) because discordservice imports this module, not the reverse.
 DEFAULT_PROFILE_IMAGE = "default_images/default_user.png"
+
+# How long a guild refresh may plausibly be in flight before we stop believing it.
+# refresh_user_guilds_task re-stamps guilds_refresh_started_at before each retry, so this
+# only has to exceed the longest single gap BETWEEN attempts (90s worst case), not the
+# whole ladder -- which keeps it independent of the task's max_retries. Past this the
+# flag is treated as stale rather than in-progress, which is what stops a dropped task
+# from stranding a profile on the "Finishing your sign-in" spinner forever.
+# See Profile.guilds_refresh_in_progress.
+GUILDS_REFRESH_MAX_AGE = timedelta(minutes=5)
 
 # Component types eligible for the per-component Discord notification groups
 # ("A new <X> is published" / "A <X> is marked Stable"). Each value equals the
@@ -1012,7 +1022,14 @@ class Profile(models.Model):
     # Set True by the login signal, cleared by refresh_user_guilds_task once the
     # background Discord guild-membership sync finishes. Drives the "syncing" spinner
     # on the header avatar so login never blocks on a slow Discord API call.
+    # NEVER read this raw: use guilds_refresh_in_progress, which ignores a flag left
+    # standing by a task that died before it could clear it.
     guilds_refreshing = models.BooleanField(default=False)
+    # When guilds_refreshing was last raised. Paired with GUILDS_REFRESH_MAX_AGE to
+    # expire the flag on read. NULL while the flag is up means "raised before this
+    # field existed" — treated as stale, which is what frees the profiles stranded
+    # before the expiry existed.
+    guilds_refresh_started_at = models.DateTimeField(null=True, blank=True)
     guilds_synced_at = models.DateTimeField(null=True, blank=True)
 
     dwd = models.CharField(max_length=100, unique=True, blank=True, null=True)
@@ -1263,6 +1280,23 @@ class Profile(models.Model):
             return True
         else:
             return False
+
+    @property
+    def guilds_refresh_in_progress(self):
+        """Is a Discord guild refresh plausibly still running right now?
+
+        Read this instead of the raw guilds_refreshing flag. The flag is cleared only
+        by the task's terminal paths, so a worker killed mid-retry (or a task the broker
+        never delivered) used to leave it True forever — an endless spinner with no way
+        out. Anything older than GUILDS_REFRESH_MAX_AGE is treated as abandoned, so a
+        stuck flag stops counting on its own rather than needing an operator to clear it.
+        """
+        if not self.guilds_refreshing:
+            return False
+        if self.guilds_refresh_started_at is None:
+            # Flag raised before this field existed: it can't be timed, so don't trust it.
+            return False
+        return timezone.now() - self.guilds_refresh_started_at < GUILDS_REFRESH_MAX_AGE
         
 
     def winrate(self, faction = None, deck = None, tournament = None, round = None):

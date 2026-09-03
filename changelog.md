@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.5] - 2026-9-1 Remember September
+## [1.13.5] - 2026-9-1 September Forever
 
 ### New Features
 - /schedule now offers a choice between Poll and Suggest (or Set Time) every time it's used
@@ -23,6 +23,9 @@
 - /lfg claims the thread it is used in when possible
 - /lfg does not claim a thread if the role specified belongs to a different forum channel (you can't create a forum specific game outside of that forum)
 - hid confusing survey choice to send results to tournament or first stage when tournament doesn't use stages
+
+### Bug Fixes
+- fixed login bug where user could get stuck updating guilds forever
 
 ## [1.13.4] - 2026-8-31 Bot Evolution
 

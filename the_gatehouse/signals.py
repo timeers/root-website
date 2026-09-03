@@ -15,12 +15,14 @@ from django.core.files.base import ContentFile
 from django.contrib.auth.models import Group
 
 from django.db import transaction
+from django.utils import timezone
+from kombu.exceptions import OperationalError
 
 from .models import Profile, ForegroundImage, BackgroundImage, Changelog, BotBlacklist
-from .services.discordservice import get_discord_id
+from .services.discordservice import get_discord_id, discord_refresh_capability
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
 from .tasks import (send_discord_message_task, update_discord_avatar_task,
-                    refresh_user_guilds_task, refresh_user_guilds)
+                    refresh_user_guilds_task, refresh_user_guilds, GuildSyncResult)
 
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
 from the_keep.models import (Post, Piece, PostTranslation, Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak,
@@ -265,28 +267,62 @@ def user_logged_in_handler(request, user, **kwargs):
     # refresh INLINE under a short budget; everyone else keeps the fully async path.
     needs_sync_now = profile.guilds_synced_at is None or profile.group == 'O'
 
-    # Set the flag BEFORE the inline attempt: mid-call, a second tab must see the spinner
-    # rather than a stale group with no indication anything is happening.
-    profile.guilds_refreshing = True
-    dirty_fields.add('guilds_refreshing')
+    # Only raise the flag for the users it exists for: the ones whose cached group can't
+    # be trusted and who would otherwise be bounced by @player_required. A returning
+    # A/D/E/P player still gets the background refresh, but no spinner, no 2s poll and no
+    # mid-session reload for a result they were never blocked on.
+    #
+    # can_refresh gates BOTH the flag and the enqueue: nothing can clear a spinner for a
+    # sync that cannot start, and an admin/password login shouldn't burn a retry ladder
+    # rediscovering it has no Discord account. It's an OPTIMIZATION, not the guarantee --
+    # refresh_user_guilds checks the same predicate again and THAT is what actually
+    # protects the task. Both are wanted; don't delete either as duplication. Costs two
+    # indexed queries on every login, which is the price of not enqueueing doomed work.
+    can_refresh = discord_refresh_capability(user) == 'ok'
+    if needs_sync_now and can_refresh:
+        # Set the flag BEFORE the inline attempt: mid-call, a second tab must see the
+        # spinner rather than a stale group with no indication anything is happening.
+        profile.guilds_refreshing = True
+        profile.guilds_refresh_started_at = timezone.now()
+        dirty_fields.update(('guilds_refreshing', 'guilds_refresh_started_at'))
 
-    profile.save(update_fields=sorted(dirty_fields))
+    # dirty_fields can now be empty, and Django SKIPS a save() with an empty
+    # update_fields entirely -- which would silently drop a pending discord_id write.
+    if dirty_fields:
+        profile.save(update_fields=sorted(dirty_fields))
 
-    synced_inline = False
+    result = None
     if needs_sync_now:
         try:
-            synced_inline = refresh_user_guilds(user, budget=INLINE_GUILD_SYNC_BUDGET)
+            result = refresh_user_guilds(user, budget=INLINE_GUILD_SYNC_BUDGET)
         except Exception:
             # A Discord outage must never break login itself.
             logger.exception("Inline guild refresh failed for user %s", user)
-            synced_inline = False
+            result = None
 
-    if not synced_inline:
+    # Identity check against the enum, never a truth test: refresh_user_guilds returns a
+    # GuildSyncResult, and `result` is None only when we didn't try. Both of those mean
+    # hand off to Celery.
+    if can_refresh and result is not GuildSyncResult.OK:
         # Either we didn't try, or Discord was slow/erroring. Leave guilds_refreshing True
         # so the spinner + interstitial keep working, and hand off to the task.
         # Enqueue AFTER the request commits so the task can't read the profile before
         # guilds_refreshing=True is persisted (matches the on_commit pattern elsewhere).
-        transaction.on_commit(lambda: refresh_user_guilds_task.delay(user.id))
+        def _enqueue():
+            try:
+                refresh_user_guilds_task.delay(user.id)
+            except OperationalError:
+                # Broker down. When the flag WAS raised (needs_sync_now) it is already
+                # committed True, so without this every such login during a Redis outage
+                # strands its user permanently -- and the raised exception would 500 the
+                # login response too. The clear is unconditional because it's a no-op for
+                # the returning-player case that never raised it. Write via a fresh
+                # queryset: this runs post-commit, so the in-memory profile is stale.
+                logger.warning(
+                    "Celery broker unavailable; clearing guilds_refreshing for %s", user)
+                Profile.objects.filter(pk=profile.pk).update(
+                    guilds_refreshing=False, guilds_refresh_started_at=None)
+        transaction.on_commit(_enqueue)
 
     if new_user:
         send_discord_message_task.delay(f'Profile created for [{profile.user}]({build_absolute_uri(request, profile.get_absolute_url())}) ({profile.group})', category='user_updates')
