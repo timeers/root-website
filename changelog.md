@@ -10,6 +10,8 @@
 - a match poll that everyone confirms sets the scheduled time, whether or not the series requires confirmation
 - /adset command combines seating, draft and picking factions into one command message
 - series moderators can now link or unlink games to the bracket
+- import json button on game page
+- /boxscore command to upload box score to the game thread for later recording
 
 ### Improvements
 - matches are now sorted in this order: scheduled > unscheduled > complete

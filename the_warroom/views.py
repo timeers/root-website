@@ -36,6 +36,8 @@ from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, Asse
                      game_counts_for_round_q, game_counts_for_stage_q,
                      game_counts_for_tournament_q)
 from .services.grouping import GroupingService, build_opponent_history
+from .services.box_score_import import (
+    BoxScoreImportError, grid_cells_from_turns, parse_box_score_json, resolve_import)
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TurnScoreCreateForm, TurnScoreForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
                     RoundCreateForm, StageCreateForm,
@@ -1164,6 +1166,10 @@ def manage_game_v2(request, id=None):
     lfg_round = None
     lfg_seats = []
     lfg_opts = None
+    # Box score cells prefilled from LFGThread.turns_data, keyed by form index.
+    # Folded into grid_rows where that is built (further down), since it is
+    # constructed after this block runs.
+    lfg_grid_rows = {}
 
     # Determine mode
     match_id = request.GET.get('match') or request.POST.get('match_id')
@@ -1425,6 +1431,41 @@ def manage_game_v2(request, id=None):
                         if discarded:
                             formset.forms[i].initial['discarded_captain'] = discarded.pk
 
+            # Box score captured on the thread. Keyed by turn_order (the seat
+            # number), not list position, so a re-seat can't move a score onto a
+            # different player; entries whose seat is gone are simply ignored.
+            #
+            # Stashed rather than written straight into grid_rows: that dict is
+            # built further down (from saved ScoreCards), so writing here would
+            # be overwritten. The construction below folds this in.
+            seat_row_by_number = {
+                seat_no: i for i, (seat_no, _p, _f, _v) in enumerate(lfg_seats)}
+            for entry in (lfgthread.turns_data or []):
+                if not isinstance(entry, dict):
+                    continue
+                seat_no = entry.get('turn_order', entry.get('seat'))
+                i = seat_row_by_number.get(seat_no)
+                if i is None or i >= len(formset.forms):
+                    continue
+
+                dominance = entry.get('dominance')
+                if dominance in {c.value for c in Effort.DominanceChoices}:
+                    formset.forms[i].initial['dominance'] = dominance
+                    # No deck gate: a thread's deck is often unset, and the save
+                    # path clears brazen_demagogue unless the deck is
+                    # Squires & Disciples, so an invalid value can't be stored.
+                    if entry.get('brazen_demagogue'):
+                        formset.forms[i].initial['brazen_demagogue'] = True
+
+                try:
+                    cells = grid_cells_from_turns(entry.get('turns'))
+                except BoxScoreImportError:
+                    # Stored data shouldn't be malformed (clean() validates), but
+                    # a bad row must not take the whole record form down.
+                    continue
+                if cells:
+                    lfg_grid_rows[i] = {'detailed': False, 'cells': cells}
+
         for notice in lfg_opts.get('notices', []):
             messages.warning(request, notice)
 
@@ -1555,6 +1596,12 @@ def manage_game_v2(request, id=None):
         grid_rows[idx] = {'detailed': is_detailed, 'cells': cells}
         if is_detailed:
             grid_has_detailed = True
+
+    # Fold in the box score captured on an LFG thread (collected above, before
+    # this dict existed). A saved ScoreCard always wins: it is the recorded
+    # result, whereas turns_data is what the thread predicted.
+    for idx, row in lfg_grid_rows.items():
+        grid_rows.setdefault(idx, row)
 
     # On a POST that fails validation the form re-renders, but the grid's cell
     # values live only in the DOM and would be lost. Re-hydrate the grid from the
@@ -2124,6 +2171,147 @@ def manage_game_v2(request, id=None):
 
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+
+
+@player_onboard_required
+@require_POST
+def import_box_score(request):
+    """Resolve an uploaded game JSON against what this form is allowed to offer.
+
+    Pure resolver: it reads the file, resolves slugs to primary keys against the
+    same querysets the form's dropdowns are built from, and returns them. It
+    writes NOTHING -- no Game, no formset, no session. The client shows a summary
+    and, on confirm, writes the values into the live form, so a partially filled
+    form is never lost to a page reload.
+
+    Mode (match / LFG / round) decides which querysets are used, and is
+    re-checked here rather than trusted: without that, this endpoint would be a
+    way to read a tournament's roster from a game the user may not record.
+    """
+    user = request.user
+
+    upload = request.FILES.get('box_score_file')
+    if upload is None:
+        return JsonResponse({'ok': False, 'error': _('No file was uploaded.')}, status=400)
+    # The format is small by nature (one game); anything larger is a wrong file.
+    if upload.size > 512 * 1024:
+        return JsonResponse({'ok': False, 'error': _('That file is too large.')}, status=400)
+
+    try:
+        payload = parse_box_score_json(upload.read())
+    except BoxScoreImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+    match = None
+    lfgthread = None
+    tournament = None
+    round_obj = None
+    seat_limit = None
+    allow_game_fields = True
+
+    match_id = request.POST.get('match_id')
+    lfg_id = request.POST.get('lfg_id')
+    round_id = request.POST.get('round')
+    game_id = request.POST.get('game_id')
+
+    if match_id:
+        match = get_object_or_404(Match, id=match_id)
+        if not (user.profile.admin or _can_record_match(user.profile, match)):
+            return JsonResponse(
+                {'ok': False, 'error': _('You do not have permission to record this game.')},
+                status=403)
+        round_obj = match.round
+        seat_limit = MatchSeat.objects.filter(series=match.series).count() or None
+        # Match mode locks the round, platform and nickname.
+        allow_game_fields = False
+    elif lfg_id:
+        lfgthread = get_object_or_404(LFGThread, id=lfg_id)
+        _lfg_tournament = _lfg_tournament_for(lfgthread)
+        round_obj = _lfg_round_for(_lfg_tournament)
+        if not (user.profile.admin or _can_record_lfg(user.profile, lfgthread, round_obj)):
+            return JsonResponse(
+                {'ok': False, 'error': _('You do not have permission to record this game.')},
+                status=403)
+        seat_limit = len(seated_profiles(lfgthread)) or None
+        allow_game_fields = False
+    elif round_id:
+        round_obj = Round.objects.filter(id=round_id).first()
+
+    # An existing game's detailed scorecards are server-owned and read-only here.
+    locked_indices = set()
+    if game_id:
+        game = Game.objects.filter(id=game_id).first()
+        if game is not None:
+            if not game.can_edit(user.profile):
+                return JsonResponse(
+                    {'ok': False, 'error': _('You do not have permission to edit this game.')},
+                    status=403)
+            for idx, effort in enumerate(game.efforts.order_by('seat', 'id')):
+                scorecard = ScoreCard.objects.filter(effort=effort).first()
+                if scorecard is not None and scorecard.is_detailed:
+                    locked_indices.add(idx)
+
+    # Which assets and players this form may offer. Same resolution the
+    # dropdowns use, so legality needs no separate rule here.
+    if lfgthread is not None:
+        option_querysets = lfg_option_querysets(lfgthread, _lfg_tournament_for(lfgthread))
+        player_queryset = lfgthread.players.all()
+    else:
+        if round_obj is not None:
+            tournament = round_obj.get_tournament()
+        if tournament is not None:
+            assets = tournament.get_asset_querysets()
+            option_querysets = dict(assets)
+            option_querysets['captains'] = assets['vagabonds'].filter(captain=True)
+            if match is not None:
+                # Match mode narrows the player dropdown to the match roster.
+                player_queryset = _get_match_profiles(match)
+            elif tournament.open_roster:
+                player_queryset = Profile.objects.all()
+            else:
+                player_queryset = round_obj.current_player_queryset()
+        else:
+            option_querysets = {
+                'factions': Faction.objects.all(), 'maps': Map.objects.all(),
+                'decks': Deck.objects.all(), 'vagabonds': Vagabond.objects.all(),
+                'captains': Vagabond.objects.filter(captain=True),
+                'landmarks': Landmark.objects.all(), 'tweaks': Tweak.objects.all(),
+                'hirelings': Hireling.objects.all(),
+            }
+            player_queryset = Profile.objects.all()
+
+    # The deck currently chosen on the form, so a Brazen Demagogue note can be
+    # accurate when the file itself carries no deck.
+    game_data = dict(payload)
+    current_deck_id = request.POST.get('deck')
+    if current_deck_id:
+        current_deck = Deck.objects.filter(id=current_deck_id).first()
+        if current_deck is not None:
+            game_data['_current_deck_title'] = current_deck.title
+
+    try:
+        result = resolve_import(
+            payload.get('participants'),
+            option_querysets=option_querysets,
+            player_queryset=player_queryset,
+            seat_limit=seat_limit,
+            locked_indices=locked_indices,
+            game_data=game_data,
+            allow_game_fields=allow_game_fields,
+        )
+    except BoxScoreImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+    if not allow_game_fields and any(
+            payload.get(key) is not None for key in
+            ('title', 'board_map', 'deck', 'landmarks', 'hirelings', 'tweaks')):
+        result.notes.append(
+            _('Game details from the file were ignored: this game gets them from '
+              'the match or thread it belongs to.'))
+
+    response = {'ok': True}
+    response.update(result.as_dict())
+    return JsonResponse(response)
 
 
 @player_required

@@ -234,6 +234,27 @@ ADSET_COMMAND = {
     "options": [],
 }
 
+# The only command that takes a FILE. Discord option type 11 (ATTACHMENT) is used
+# nowhere else in this project, so the handler needs its own resolver to read the
+# upload -- the option's value is the attachment's ID, and the metadata lives in
+# data["resolved"]["attachments"] (see _get_attachment).
+#
+# Like /seating and /pick it has no thread option: the game comes from the thread
+# it's run in. The description names the file type because Discord's picker will
+# happily attach anything and the refusal would otherwise be the first hint.
+BOXSCORE_COMMAND = {
+    "name": "boxscore",
+    "description": "Add a box score to this game from a JSON file",
+    "options": [
+        {
+            "name": "file",
+            "description": "The game's box score, as a .json file",
+            "type": 11,
+            "required": True,
+        }
+    ],
+}
+
 # Free text, no autocomplete — the title is whatever the host wants to call the
 # game. Only the host of the /lfg that made the thread may use it.
 RENAME_COMMAND = {
@@ -434,6 +455,7 @@ COMMANDS = [
     SEATING_COMMAND,
     PICK_COMMAND,
     ADSET_COMMAND,
+    BOXSCORE_COMMAND,
     RENAME_COMMAND,
     RANDOM_COMMAND,
     LFG_COMMAND,
@@ -448,7 +470,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats", "upcoming"]),
-    ("Games", ["lfg", "adset", "seating", "pick", "schedule", "record", "rename"]),
+    ("Games", ["lfg", "adset", "seating", "pick", "schedule", "boxscore", "record", "rename"]),
     ("Random", ["draft", "random"]),
 ]
 

@@ -242,7 +242,10 @@
     <div class="slider-panel" id="main-panel">
 
 <div style="display: flex; justify-content: space-between; align-items: center;">
-    <legend>
+    {% comment %} width:auto overrides Bootstrap Reboot's `legend { width: 100% }`, which
+       would otherwise take the whole flex row and squeeze the buttons into a
+       column narrow enough to wrap the Import icon above its label. {% endcomment %}
+    <legend style="width: auto;">
         {% if object.id %}{% trans 'Update Game' %}
         {% elif match_mode %}{% trans 'Record Match Game' %}
         {% elif lfg_mode %}{% trans 'Record LFG Game' %}
@@ -250,9 +253,20 @@
         {% endif %}
     </legend>
 
-    <button class="btn btn-info btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
-        <i class="bi bi-info-circle"></i>
-    </button>
+    <div class="d-flex align-items-center flex-shrink-0">
+        {% comment %} No `name` attribute: this input sits inside #game-form-v2, and an
+           unnamed field is never submitted with it. The trigger must be type="button"
+           for the same reason -- a bare <button> in a form defaults to submit. {% endcomment %}
+        <input type="file" id="box-score-file" accept=".json,application/json" class="d-none">
+        <button class="btn btn-outline-primary btn-sm ms-2 text-nowrap" id="import-json-btn" type="button"
+                title="{% trans 'Import a game from a JSON file' %}">
+            <i class="bi bi-upload"></i> {% trans 'Import JSON' %}
+        </button>
+
+        <button class="btn btn-info btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
+            <i class="bi bi-info-circle"></i>
+        </button>
+    </div>
 </div>
 
 {% if lfg_mode %}
@@ -692,6 +706,7 @@
 {% include 'the_warroom/modals/save_progress_modal.html' %}
 {% include 'the_warroom/modals/cancel_game_modal.html' %}
 {% include 'the_warroom/modals/restore_draft_modal.html' %}
+{% include 'the_warroom/modals/import_box_score_modal.html' %}
 {% if object.id %}
     {% include 'the_warroom/modals/delete_game_modal.html' %}
 {% endif %}
@@ -1647,8 +1662,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // seats, columns are turns, cumulative score per cell, a Dominance Tag on
     // dominance turns — but with a text row label instead of a faction icon,
     // since a draft isn't linked to specific factions.
-    function renderDraftPreview(draft) {
-        var host = document.getElementById('restore-draft-preview');
+    // `hostId` defaults to the restore modal's host; the JSON-import modal passes
+    // its own so both render the same read-only table through one function.
+    // `labelFor` optionally overrides the row label (the importer knows the
+    // INCOMING faction, which isn't on the form yet).
+    function renderDraftPreview(draft, hostId, labelFor) {
+        var host = document.getElementById(hostId || 'restore-draft-preview');
         if (!host) return;
         host.innerHTML = '';
         if (!draft || !draft.rows || !draft.rows.length) return;
@@ -1664,6 +1683,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Resolve a readable label for a row from the live effort form's faction
         // select; fall back to "Seat N" when no faction is chosen yet.
         function rowLabel(formIndex) {
+            if (labelFor) {
+                var override = labelFor(formIndex);
+                if (override) return override;
+            }
             var sel = document.getElementById('id_form-' + formIndex + '-faction');
             if (sel && sel.options && sel.selectedIndex >= 0) {
                 var opt = sel.options[sel.selectedIndex];
@@ -1767,6 +1790,362 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         modal.show();
     })();
+
+    // ── JSON game import ────────────────────────────────────────────────
+    // Upload a game JSON (the read API's shape plus per-participant `turns`),
+    // preview what it will fill, and on confirm write it into the LIVE form.
+    //
+    // Nothing navigates: the file goes out via fetch and the resolved values are
+    // written into the page as it stands. That is deliberate -- only the Box
+    // Score survives a reload (via ScorecardDraft), so a redirect would silently
+    // destroy any other field the user had already filled in.
+    var BoxScoreImport = (function () {
+        var pending = null;   // resolved payload awaiting confirmation
+        var modal = null;
+
+        function el(id) { return document.getElementById(id); }
+
+        function modalInstance() {
+            var node = el('importBoxScoreModal');
+            if (!node) return null;
+            if (!modal) modal = new bootstrap.Modal(node);
+            return modal;
+        }
+
+        function fillList(wrapId, listId, items) {
+            var wrap = el(wrapId), list = el(listId);
+            if (!wrap || !list) return;
+            list.innerHTML = '';
+            if (!items || !items.length) { wrap.classList.add('d-none'); return; }
+            items.forEach(function (text) {
+                var li = document.createElement('li');
+                li.textContent = text;
+                list.appendChild(li);
+            });
+            wrap.classList.remove('d-none');
+        }
+
+        function showError(message) {
+            var box = el('import-error');
+            if (box) { box.textContent = message; box.classList.remove('d-none'); }
+            var body = el('import-body');
+            if (body) body.classList.add('d-none');
+            var confirm = el('import-confirm');
+            if (confirm) confirm.classList.add('d-none');
+            var inst = modalInstance();
+            if (inst) inst.show();
+        }
+
+        // Human-readable name for a resolved id, read from the target select so
+        // the summary shows "Marquise de Cat", not a primary key.
+        function optionText(selectId, value) {
+            var sel = el(selectId);
+            if (!sel) return String(value);
+            var opt = sel.querySelector('option[value="' + value + '"]');
+            return opt ? opt.text.trim() : String(value);
+        }
+
+        function currentText(selectId) {
+            var sel = el(selectId);
+            if (!sel || !sel.value) return '';
+            var opt = sel.options[sel.selectedIndex];
+            return opt ? opt.text.trim() : '';
+        }
+
+        // What the import would overwrite. Computed BEFORE anything is written,
+        // by reading each target field: only fields that are non-empty now and
+        // would actually change are listed.
+        function buildReplacements(data) {
+            var out = [];
+
+            Object.keys(data.game || {}).forEach(function (field) {
+                var selectId = 'id_' + field;
+                var sel = el(selectId);
+                if (!sel) return;
+                if (sel.tagName === 'SELECT' && !sel.multiple) {
+                    var now = currentText(selectId);
+                    var next = optionText(selectId, data.game[field]);
+                    if (now && now !== next) {
+                        out.push(fieldLabel(field) + ': ' + now + ' → ' + next);
+                    }
+                } else if (sel.tagName !== 'SELECT' && sel.type !== 'checkbox') {
+                    if (sel.value && sel.value !== data.game[field]) {
+                        out.push(fieldLabel(field) + ': ' + "{% trans 'replaced' %}");
+                    }
+                }
+            });
+
+            var gridSeats = 0;
+            (data.participants || []).forEach(function (seat) {
+                var i = seat.form_index;
+                Object.keys(seat.fields || {}).forEach(function (field) {
+                    var selectId = 'id_form-' + i + '-' + field;
+                    var sel = el(selectId);
+                    if (!sel || sel.tagName !== 'SELECT' || sel.multiple) return;
+                    var now = currentText(selectId);
+                    var next = optionText(selectId, seat.fields[field]);
+                    if (now && now !== next) {
+                        out.push("{% trans 'Seat' %} " + (i + 1) + ' ' + fieldLabel(field)
+                                 + ': ' + now + ' → ' + next);
+                    }
+                });
+                // A row counts as overwritten only if it already holds values.
+                if ((seat.cells || []).length) {
+                    var row = document.querySelector('.grid-row[data-form-index="' + i + '"]');
+                    if (row && row.querySelector('.grid-cell-input[value], .grid-cell-input')) {
+                        var filled = Array.prototype.slice
+                            .call(row.querySelectorAll('.grid-cell-input'))
+                            .some(function (input) { return input.value.trim() !== ''; });
+                        if (filled) gridSeats++;
+                    }
+                }
+            });
+            if (gridSeats) {
+                out.push("{% trans 'Box Score for' %} " + gridSeats + " {% trans 'seat(s)' %}");
+            }
+            return out;
+        }
+
+        var FIELD_LABELS = {
+            faction: "{% trans 'Faction' %}", player: "{% trans 'Player' %}",
+            vagabond: "{% trans 'Vagabond' %}", dominance: "{% trans 'Dominance' %}",
+            coalition_with: "{% trans 'Coalition' %}", starting_leader: "{% trans 'Starting Leader' %}",
+            deck: "{% trans 'Deck' %}", map: "{% trans 'Map' %}", nickname: "{% trans 'Name' %}",
+            link: "{% trans 'Discord Thread' %}", notes: "{% trans 'Notes' %}"
+        };
+        function fieldLabel(field) {
+            return FIELD_LABELS[field] || field.replace(/_/g, ' ');
+        }
+
+        function renderSummary(data) {
+            var box = el('import-error');
+            if (box) box.classList.add('d-none');
+            var body = el('import-body');
+            if (body) body.classList.remove('d-none');
+            var confirmBtn = el('import-confirm');
+            if (confirmBtn) confirmBtn.classList.remove('d-none');
+
+            var seatCount = (data.participants || []).length;
+            var maxTurn = 0;
+            (data.participants || []).forEach(function (seat) {
+                (seat.cells || []).forEach(function (c) { if (c.turn > maxTurn) maxTurn = c.turn; });
+            });
+            var intro = el('import-intro');
+            if (intro) {
+                intro.textContent = seatCount + " {% trans 'seat(s)' %}"
+                    + (maxTurn ? (', ' + maxTurn + " {% trans 'turn(s)' %}") : '')
+                    + " {% trans 'will be filled in.' %}";
+            }
+
+            // Preview the incoming box score, labelling rows with the INCOMING
+            // faction rather than whatever the form currently shows.
+            renderDraftPreview(
+                {turnCount: maxTurn,
+                 rows: (data.participants || [])
+                     .filter(function (s) { return (s.cells || []).length; })
+                     .map(function (s) { return {form_index: s.form_index, cells: s.cells}; })},
+                'import-preview',
+                function (formIndex) {
+                    var seat = (data.participants || []).find(function (s) {
+                        return s.form_index === formIndex;
+                    });
+                    if (seat && seat.fields && seat.fields.faction) {
+                        return optionText('id_form-' + formIndex + '-faction', seat.fields.faction);
+                    }
+                    return null;
+                });
+
+            fillList('import-replace-wrap', 'import-replace', buildReplacements(data));
+            fillList('import-skipped-wrap', 'import-skipped', data.skipped);
+            fillList('import-notes-wrap', 'import-notes', data.notes);
+
+            var inst = modalInstance();
+            if (inst) inst.show();
+        }
+
+        // Write one Select2-bound field. `.value` alone would leave the visible
+        // control stale, and the change event is what drives the dependent-field
+        // show/hide handlers.
+        function setSelect(id, value) {
+            var sel = el(id);
+            if (!sel) return false;
+            $(sel).val(value).trigger('change');
+            return true;
+        }
+
+        function applyGame(game) {
+            Object.keys(game || {}).forEach(function (field) {
+                var node = el('id_' + field);
+                if (!node) return;
+                var value = game[field];
+                if (node.tagName === 'SELECT') {
+                    setSelect('id_' + field, value);
+                } else if (node.type === 'checkbox') {
+                    node.checked = !!value;
+                } else if (field === 'date_posted') {
+                    // Mirror into the visible pickers too, then let the existing
+                    // sync own the hidden field's format.
+                    var when = new Date(value);
+                    if (!isNaN(when)) {
+                        var dateInput = el('date_posted_date');
+                        var timeInput = el('date_posted_time');
+                        if (dateInput) {
+                            dateInput.value = when.getFullYear() + '-'
+                                + String(when.getMonth() + 1).padStart(2, '0') + '-'
+                                + String(when.getDate()).padStart(2, '0');
+                        }
+                        if (timeInput) {
+                            timeInput.value = String(when.getHours()).padStart(2, '0') + ':'
+                                + String(when.getMinutes()).padStart(2, '0');
+                        }
+                        if (typeof syncDatePosted === 'function') syncDatePosted();
+                    }
+                } else {
+                    node.value = value;
+                }
+            });
+        }
+
+        function applySeat(seat) {
+            var i = seat.form_index;
+            var fields = seat.fields || {};
+
+            // Faction first, and let its change handler run: it reveals the
+            // vagabond / captains / coalition / starting-leader fields that the
+            // values below are written into.
+            if (fields.faction) setSelect('id_form-' + i + '-faction', fields.faction);
+
+            ['vagabond', 'captains', 'discarded_captain', 'coalition_with',
+             'starting_leader'].forEach(function (field) {
+                if (fields[field] !== undefined) {
+                    setSelect('id_form-' + i + '-' + field, fields[field]);
+                }
+            });
+
+            // Dominance before brazen: its change handler runs
+            // updateBrazenVisibility, which CLEARS the brazen checkbox whenever
+            // it hides the field.
+            if (fields.dominance) setSelect('id_form-' + i + '-dominance', fields.dominance);
+
+            if (fields.brazen_demagogue) {
+                var brazen = el('id_form-' + i + '-brazen_demagogue');
+                if (brazen) {
+                    // Stash it: the field is hidden (and the box cleared) until a
+                    // deck is chosen, so the value has to outlive that. Restored
+                    // by updateBrazenVisibility when it shows the field.
+                    var row = brazen.closest('.effort-form');
+                    if (row) row.setAttribute('data-import-brazen', '1');
+                    brazen.checked = true;
+                }
+            }
+
+            if (fields.player) setSelect('id_form-' + i + '-player', fields.player);
+        }
+
+        function apply(data) {
+            applyGame(data.game);
+
+            (data.participants || []).forEach(applySeat);
+
+            // Grid last: applyDraft calls recalcRow, which writes each Score
+            // field and auto-checks Win at 30+.
+            var rows = (data.participants || [])
+                .filter(function (s) { return (s.cells || []).length; })
+                .map(function (s) { return {form_index: s.form_index, cells: s.cells}; });
+            if (rows.length) {
+                var maxTurn = 1;
+                rows.forEach(function (r) {
+                    r.cells.forEach(function (c) { if (c.turn > maxTurn) maxTurn = c.turn; });
+                });
+                ScorecardGrid.applyDraft({turnCount: maxTurn, rows: rows});
+            }
+
+            // Win AFTER the grid: recalcRow sets it from the score, so an
+            // imported sub-30 win (dominance, coalition, timed finish) would be
+            // undone if this ran first.
+            (data.participants || []).forEach(function (seat) {
+                if (seat.fields && seat.fields.win !== undefined) {
+                    var win = el('id_form-' + seat.form_index + '-win');
+                    if (win) win.checked = !!seat.fields.win;
+                }
+            });
+
+            // Capture the imported state in the autosave draft immediately.
+            ScorecardDraft.save();
+        }
+
+        function upload(file) {
+            var data = new FormData();
+            data.append('box_score_file', file);
+            {% if match.id %}data.append('match_id', '{{ match.id }}');{% endif %}
+            {% if lfgthread.id %}data.append('lfg_id', '{{ lfgthread.id }}');{% endif %}
+            {% if object.id %}data.append('game_id', '{{ object.id }}');{% endif %}
+            var round = el('id_round');
+            if (round && round.value) data.append('round', round.value);
+            var deck = el('id_deck');
+            if (deck && deck.value) data.append('deck', deck.value);
+
+            fetch("{% url 'import-box-score' %}", {
+                method: 'POST',
+                headers: {'X-CSRFToken': '{{ csrf_token }}'},
+                body: data
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (payload) {
+                    if (!payload || !payload.ok) {
+                        showError((payload && payload.error)
+                                  || "{% trans 'That file could not be imported.' %}");
+                        return;
+                    }
+                    if (!(payload.participants || []).length) {
+                        showError("{% trans 'Nothing in that file could be applied here.' %}"
+                                  + ((payload.skipped || []).length
+                                     ? ' ' + payload.skipped.join(' ') : ''));
+                        return;
+                    }
+                    pending = payload;
+                    renderSummary(payload);
+                })
+                .catch(function () {
+                    showError("{% trans 'That file could not be uploaded.' %}");
+                });
+        }
+
+        function init() {
+            var trigger = el('import-json-btn');
+            var input = el('box-score-file');
+            if (!trigger || !input) return;
+
+            trigger.addEventListener('click', function () { input.click(); });
+            input.addEventListener('change', function () {
+                if (input.files && input.files[0]) upload(input.files[0]);
+                // Reset so re-picking the same file fires `change` again.
+                input.value = '';
+            });
+
+            var confirmBtn = el('import-confirm');
+            if (confirmBtn) {
+                confirmBtn.addEventListener('click', function () {
+                    if (pending) apply(pending);
+                    pending = null;
+                    var inst = modalInstance();
+                    if (inst) inst.hide();
+                });
+            }
+            var cancelBtn = el('import-cancel');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', function () {
+                    pending = null;
+                    var inst = modalInstance();
+                    if (inst) inst.hide();
+                });
+            }
+        }
+
+        return {init: init};
+    })();
+
+    BoxScoreImport.init();
 
     // ── Re-enable disabled fields on form submit + double-submit guard ──
     var formIsSubmitting = false;
@@ -2128,6 +2507,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const isVagabond = $(factionSelector + ' option:selected').text() === 'Vagabond';
         if (deckIsSquiresAndDisciples() && hasDominance && !isVagabond) {
             $brazenWrap.show();
+            // Restore a value the JSON import set while this field was hidden.
+            // The import can arrive before a deck is chosen, and the hide branch
+            // below clears the box -- so the value is stashed on the row and
+            // reinstated here, once, the first time the field becomes visible.
+            const $row = $brazenInput.closest('.effort-form');
+            if ($row.attr('data-import-brazen') === '1') {
+                $brazenInput.prop('checked', true);
+                $row.removeAttr('data-import-brazen');
+            }
         } else {
             $brazenWrap.hide();
             $brazenInput.prop('checked', false);   // clear stale state when hidden

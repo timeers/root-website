@@ -25,6 +25,7 @@ import random
 import re
 from datetime import datetime, timedelta, timezone as dt_timezone
 
+import requests
 from nacl.signing import VerifyKey
 from nacl.exceptions import BadSignatureError
 
@@ -38,7 +39,7 @@ from django.views.decorators.http import require_POST
 
 from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tweak, Law, Post, Card, CardTag
 from the_warroom.models import (
-    Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant,
+    Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant, Effort,
 )
 from the_gatehouse.models import (
     Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
@@ -205,6 +206,21 @@ def _get_option(data, name):
         if opt.get("name") == name:
             return opt.get("value")
     return None
+
+
+def _get_attachment(data, name):
+    """The resolved attachment dict for an ATTACHMENT (type 11) option, or None.
+
+    An attachment option's VALUE is the attachment's id; the metadata that
+    matters -- filename, size, url -- lives in data["resolved"]["attachments"],
+    keyed by that id. The dispatcher stashes its own "_" keys into `data` but
+    never touches "resolved", so it arrives here intact.
+    """
+    attachment_id = _get_option(data, name)
+    if not attachment_id:
+        return None
+    attachments = (data.get("resolved") or {}).get("attachments") or {}
+    return attachments.get(str(attachment_id))
 
 
 def _lookup_post(queryset, name):
@@ -3614,7 +3630,7 @@ def _draft_seating_message(seats, reseated=False):
     return "\n".join(lines)
 
 
-def _persist_seating(thread, profiles):
+def _persist_seating(thread, profiles, shuffle=True):
     """Shuffle `profiles` into seats 1..N on `thread`, REPLACING any current order.
     Returns (seats, reseated).
 
@@ -3625,9 +3641,15 @@ def _persist_seating(thread, profiles):
 
     `reseated` keys on seating_set, NOT seats.exists(): /pick can leave seat rows
     behind with filler numbers and no real order, and those must not be reported
-    as a previous seating this replaces."""
+    as a previous seating this replaces.
+
+    `shuffle=False` keeps the given order, for a caller that already knows the
+    seating (/boxscore reads it from an uploaded game). `profiles` may contain
+    None in that case -- LFGSeat.profile is nullable, and a blank seat still
+    holds its position so the record form renders a row for it."""
     ordered = list(profiles)
-    random.shuffle(ordered)
+    if shuffle:
+        random.shuffle(ordered)
     with transaction.atomic():
         locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
         reseated = locked.seating_set
@@ -3817,7 +3839,7 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
 # permissions on, so gating it would block a moderator fixing a mis-recorded game
 # without actually protecting anything. /rename keeps its own host-only rule.
 ROSTER_GUARDED_COMMANDS = {
-    "pick", "seating", "draft", "adset", "schedule", "random",
+    "pick", "seating", "draft", "adset", "schedule", "random", "boxscore",
     *LOOKUP_QUERYSETS,   # faction, clockwork, map, deck, vagabond, landmark,
                          # hireling, houserule -- all capture into the roll log
 }
@@ -6024,6 +6046,226 @@ def _handle_rename_command(data):
     return _ephemeral(f"Renamed this thread to **{title[:100]}**.")
 
 
+# ── /boxscore ──────────────────────────────────────────────────────────────
+# Seeds a thread from an uploaded game JSON so /record opens a pre-filled form.
+#
+# The file is DECOMPOSED rather than stored whole: map/deck go through the roll
+# capture (the record form narrows its dropdowns from the roll log, so a map set
+# without a roll would be dropped from its own options), players become seats,
+# and only the box score / dominance / brazen demagogue -- the three things an
+# LFGThread has no other field for -- land in turns_data.
+
+# Two orders of magnitude above a real box score (a maximal 6-seat, 12-turn game
+# is ~10KB), so this only ever catches a wrong file.
+_BOXSCORE_MAX_BYTES = 256 * 1024
+# Tighter than the timeout=5 used elsewhere in discordservice: this download runs
+# inside Discord's 3-second interaction budget, and there is no deferred-response
+# path in this codebase to fall back on.
+_BOXSCORE_TIMEOUT = 2
+
+# Effort.DominanceChoices values, resolved once rather than per participant.
+_BOXSCORE_DOMINANCE_VALUES = frozenset(c.value for c in Effort.DominanceChoices)
+
+
+def _boxscore_size_text(size):
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    return f"{max(1, round(size / 1024))} KB"
+
+
+def _handle_boxscore_command(data):
+    """/boxscore: attach a game JSON to this thread's game.
+
+    Writes three places, none of which overwrite work the thread already has a
+    better source for: the roll log + map/deck, the seating (ONLY when there
+    isn't one -- a reseat would cascade away /pick's factions), and turns_data.
+    """
+    from the_warroom.services.box_score_import import (
+        BoxScoreImportError, normalize_turns, parse_box_score_json,
+        validate_participants,
+    )
+
+    channel_id = data.get("_channel_id")
+    thread = _pick_thread_for_channel(
+        channel_id, data.get("_channel_name"), data.get("_guild_id"))
+    if not thread:
+        channel_type = data.get("_channel_type")
+        if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
+            return _ephemeral("Run this inside your game's thread to add a box score.")
+        return _ephemeral("This isn't a game thread I know about.")
+
+    attachment = _get_attachment(data, "file")
+    if not attachment:
+        return _ephemeral("Attach a JSON file with your box score.")
+
+    # The FILENAME decides, not content_type: Discord sets the latter by sniffing,
+    # so accepting either would let a mislabeled .png through on a JSON-ish sniff.
+    filename = attachment.get("filename") or "your file"
+    if not filename.lower().endswith(".json"):
+        return _ephemeral(f"That needs to be a `.json` file — got `{filename}`.")
+
+    size = attachment.get("size") or 0
+    if size > _BOXSCORE_MAX_BYTES:
+        return _ephemeral(
+            f"That file is too big to be a box score ({_boxscore_size_text(size)}).")
+
+    url = attachment.get("url")
+    if not url:
+        return _ephemeral("Discord didn't give me a link to that file — try again.")
+    try:
+        response = requests.get(url, timeout=_BOXSCORE_TIMEOUT)
+        response.raise_for_status()
+        raw = response.content
+    except requests.RequestException:
+        # Distinct from the dispatcher's generic catch-all, which would otherwise
+        # tell the user "Something went wrong" for a plain network blip.
+        logger.warning("boxscore download failed for thread %s", channel_id)
+        return _ephemeral("Couldn't download that file — try again.")
+
+    try:
+        payload = parse_box_score_json(raw)
+    except BoxScoreImportError as exc:
+        return _ephemeral(f"That box score couldn't be read: {exc}")
+
+    participants = payload.get("participants") or []
+    if not participants:
+        return _ephemeral("That file has no participants.")
+
+    notes = []
+    collapsed_seats = []
+
+    # ── Trim to what only turns_data can hold, normalizing turns on the way in
+    # so the stored shape is canonical however the file was written.
+    entries = []
+    for index, participant in enumerate(participants):
+        seat_no = participant.get("turn_order", participant.get("seat")) or index + 1
+        label = f"Seat {seat_no}"
+        entry = {"turn_order": seat_no}
+
+        dominance = participant.get("dominance")
+        if dominance:
+            if dominance in _BOXSCORE_DOMINANCE_VALUES:
+                entry["dominance"] = dominance
+            else:
+                notes.append(f"{label}: ignored an unknown dominance “{dominance}”.")
+                dominance = None
+        if participant.get("brazen_demagogue"):
+            if entry.get("dominance"):
+                entry["brazen_demagogue"] = True
+            else:
+                notes.append(f"{label}: Brazen Demagogue needs a dominance, so I left it off.")
+
+        try:
+            cells, turn_notes = normalize_turns(participant.get("turns"), label=label)
+        except BoxScoreImportError as exc:
+            return _ephemeral(f"That box score couldn't be read: {exc}")
+        if cells:
+            entry["turns"] = [
+                {"turn": c["turn"], "score": c["value"],
+                 **({"dominance": True} if c["dominance"] else {})}
+                for c in cells
+            ]
+        # normalize_turns' own notes are phrased for the record form ("enter it
+        # from the Game detail page"), which reads as a non-sequitur in Discord.
+        # Say the same thing in terms of what happened to the upload.
+        if turn_notes:
+            collapsed_seats.append(label)
+
+        if len(entry) > 1:
+            entries.append(entry)
+
+    if collapsed_seats:
+        notes.append(
+            "Kept turn totals only for " + ", ".join(collapsed_seats)
+            + " — per-category points can be added on the game's page.")
+
+    # ── Map / deck, resolved before writing so an unknown slug is reported.
+    # Titles are kept for the reply: the capture below is a Celery enqueue, so
+    # thread.map/.deck are NOT set yet by the time this message is built.
+    items = []
+    component_titles = []
+    for key, kind, model in (("board_map", "Map", Map), ("deck", "Deck", Deck)):
+        slug = payload.get(key)
+        if not slug:
+            continue
+        obj = model.objects.filter(slug=slug).first()
+        if obj:
+            items.append({"kind": kind, "slug": slug})
+            component_titles.append(obj.title)
+        else:
+            notes.append(f"I didn't recognise the {kind.lower()} `{slug}`.")
+
+    if not entries and not items:
+        return _ephemeral("There was nothing in that file I can use.")
+
+    # ── Seating: only when there isn't one. _persist_seating deletes every seat,
+    # and that cascade takes /pick's factions and captains with it.
+    seating_line = None
+    already_seated = thread.seating_set or thread.seats.exists()
+    if already_seated:
+        seating_line = f"Seating: left as it was ({thread.seats.count()} seats)."
+    else:
+        profiles, unmatched = [], []
+        for index, participant in enumerate(participants):
+            slug = participant.get("player")
+            profile = Profile.objects.filter(slug=slug).first() if slug else None
+            if slug and not profile:
+                unmatched.append(slug)
+            profiles.append(profile)
+
+        # Seat by POSITION, not by raw turn_order: a stray "7" in a 2-player file
+        # would otherwise create seven seats.
+        raw_seats = [p.get("turn_order", p.get("seat")) for p in participants]
+        if [s for s in raw_seats if s is not None] != list(
+                range(1, len([s for s in raw_seats if s is not None]) + 1)):
+            notes.append("Seat numbers weren't 1-N, so I used the order they appear in.")
+
+        seats, _reseated = _persist_seating(thread, profiles, shuffle=False)
+        order = "  ".join(
+            f"{s.seat_number}. {s.profile.name if s.profile_id else '(blank)'}"
+            for s in seats)
+        seating_line = f"Seating: {order}"
+        if unmatched:
+            notes.append(
+                "Couldn't match players: " + ", ".join(f"`{s}`" for s in unmatched)
+                + " — pick them on the form.")
+
+    if items:
+        _capture_lfg_components(channel_id, items, source="boxscore")
+
+    if entries:
+        # clean() is not run by save(), and this model's own docstring says a
+        # caller writing turns_data directly should validate first.
+        try:
+            validate_participants(entries)
+        except BoxScoreImportError as exc:
+            logger.error("boxscore built an invalid turns_data: %s", exc)
+            return _ephemeral("That box score couldn't be saved — check the file and try again.")
+        thread.turns_data = entries
+        thread.save(update_fields=["turns_data"])
+
+    turn_count = max(
+        (len(e.get("turns") or []) for e in entries), default=0)
+    lines = [
+        f"Box score added from `{filename}` — {len(entries)} seats, {turn_count} turns."
+        if entries else f"Read `{filename}`."
+    ]
+    if seating_line:
+        lines.append(seating_line)
+    if component_titles:
+        lines.append("Map/Deck: " + " · ".join(component_titles))
+    lines.extend(notes)
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {
+            "content": "\n".join(line for line in lines if line),
+            # Naming a player must not ping them, same as /seating.
+            "allowed_mentions": {"parse": []},
+        },
+    })
+
+
 # ── /random ────────────────────────────────────────────────────────────────
 # Base queryset per post-backed kind. Faction is filtered to component="Faction"
 # like /draft; Captain to captain-capable vagabonds (as /captain).
@@ -6847,6 +7089,7 @@ COMMAND_HANDLERS["seating"] = _handle_seating_command
 COMMAND_HANDLERS["pick"] = _handle_pick_command
 COMMAND_HANDLERS["adset"] = _handle_adset_command
 COMMAND_HANDLERS["rename"] = _handle_rename_command
+COMMAND_HANDLERS["boxscore"] = _handle_boxscore_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command
 

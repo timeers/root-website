@@ -1,0 +1,50 @@
+{% load i18n static %}
+<div class="modal fade" id="importBoxScoreModal" tabindex="-1" aria-labelledby="importBoxScoreModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="importBoxScoreModalLabel">
+                    <i class="bi bi-upload"></i> {% trans 'Import this game?' %}
+                </h5>
+            </div>
+            <div class="modal-body">
+                {% comment %} Error state: shown instead of everything else when the file
+                   can't be read. The confirm button is hidden alongside it. {% endcomment %}
+                <div id="import-error" class="alert alert-danger d-none" role="alert"></div>
+
+                <div id="import-body">
+                    <p id="import-intro" class="mb-2"></p>
+
+                    {% comment %} Box score preview. Shares the .box-score-preview styles with
+                       the restore-draft modal (defined in restore_draft_modal.html). {% endcomment %}
+                    <div id="import-preview" class="box-score-preview mb-3"></div>
+
+                    {% comment %} Only rendered when something already on the form would be
+                       overwritten -- absent entirely on a clean form. {% endcomment %}
+                    <div id="import-replace-wrap" class="d-none mb-3">
+                        <h6 class="mb-1"><i class="bi bi-exclamation-triangle text-warning"></i> {% trans 'Will replace' %}</h6>
+                        <ul id="import-replace" class="mb-0 small"></ul>
+                    </div>
+
+                    <div id="import-skipped-wrap" class="d-none mb-3">
+                        <h6 class="mb-1"><i class="bi bi-slash-circle text-danger"></i> {% trans 'Skipped' %}</h6>
+                        <ul id="import-skipped" class="mb-0 small"></ul>
+                    </div>
+
+                    <div id="import-notes-wrap" class="d-none">
+                        <h6 class="mb-1"><i class="bi bi-info-circle text-muted"></i> {% trans 'Notes' %}</h6>
+                        <ul id="import-notes" class="mb-0 small text-muted"></ul>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="import-cancel">
+                    <i class="bi bi-x-lg"></i> {% trans 'Cancel' %}
+                </button>
+                <button type="button" class="btn btn-primary" id="import-confirm">
+                    <i class="bi bi-check-lg"></i> {% trans 'Import' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

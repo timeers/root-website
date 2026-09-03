@@ -381,6 +381,19 @@ class LFGThread(models.Model):
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.OPEN)
 
+    # Per-seat box score for the recorded game, in the same shape the game form's
+    # JSON import accepts: the `participants` array documented in
+    # the_warroom/services/box_score_import.py (turn scores plus dominance and
+    # brazen_demagogue). The record form pre-fills the Box Score grid from it.
+    #
+    # HERE rather than on LFGSeat, even though the seat already holds
+    # faction/vagabond/captains: seats are replaced wholesale on re-seat
+    # (`locked.seats.all().delete()` in discord_interactions), which would
+    # destroy a box score stored there. Entries are keyed by their `turn_order`
+    # (the seat number), not list position, so a re-seat can't silently reattach
+    # a score to a different player.
+    turns_data = models.JSONField(default=list, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     # Set explicitly, NOT auto_now: nearly every mutation path here writes with a
     # narrow update_fields list (seating_set, nickname, host, map/deck,
@@ -401,6 +414,29 @@ class LFGThread(models.Model):
 
     def __str__(self):
         return f"LFGThread {self.thread_id} ({self.players.count()} players)"
+
+    def clean(self):
+        """Reject a structurally invalid `turns_data` so the record form can
+        trust it.
+
+        Shape only -- the same check the JSON upload runs. Whether a faction or
+        player is *allowed* needs a tournament's querysets, which a thread has no
+        access to at write time (its role may not even name one yet), so that is
+        left to the form.
+
+        NOTE full_clean() is not automatic on save(), so this backstops admin and
+        form edits; a caller writing turns_data directly should validate first.
+        """
+        super().clean()
+        if self.turns_data:
+            # Imported here: the_warroom imports from this module at module
+            # level, so a top-level import would be circular.
+            from the_warroom.services.box_score_import import (
+                BoxScoreImportError, validate_participants)
+            try:
+                validate_participants(self.turns_data)
+            except BoxScoreImportError as exc:
+                raise ValidationError({'turns_data': str(exc)})
 
     def save(self, *args, **kwargs):
         """Keep `last_activity` current on every write, including the narrow

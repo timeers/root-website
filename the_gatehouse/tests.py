@@ -40,7 +40,7 @@ from the_gatehouse.services.discordservice import update_discord_avatar
 from the_gatehouse.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
     picked_factions_by_profile, captains_by_seat, undrafted_pick,
-    FULL_CAPTAIN_COMPLEMENT,
+    lfg_option_querysets, FULL_CAPTAIN_COMPLEMENT,
 )
 from the_gatehouse.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
@@ -10527,3 +10527,349 @@ class TournamentGuildChannelsFormTagTests(TestCase):
         self.tournament.refresh_from_db()
         self.assertIsNone(self.tournament.game_threads_channel)
         self.assertIsNone(self.tournament.game_threads_tag)
+
+
+class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
+    """/boxscore: seed a thread from an uploaded game JSON.
+
+    The invariants worth protecting are about what it must NOT do -- overwrite a
+    seating /pick has populated, set a map the record form would then reject, or
+    report success when it silently dropped half the file.
+    """
+
+    THREAD_ID = "boxscore-thread-1"
+    AUTHOR = "910000000000000001"
+
+    def setUp(self):
+        super().setUp()
+        post_save.disconnect(handle_image_resize, sender=Faction)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+
+        self.designer = Profile.objects.create(discord="bsdesigner", discord_id="900")
+        self.map = Map.objects.create(title="Autumn Board", clearings=12,
+                                      designer=self.designer)
+        self.deck = Deck.objects.create(title="Squires & Disciples", card_total=54,
+                                        designer=self.designer)
+        self.faction = Faction.objects.create(
+            title="BS Faction", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+
+        self.alice = Profile.objects.create(discord="bsalice", discord_id="901",
+                                            display_name="Alice")
+        self.bob = Profile.objects.create(discord="bsbob", discord_id="902",
+                                          display_name="Bob")
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.thread.players.set([self.alice, self.bob])
+
+    # ── helpers ──
+
+    def _run(self, doc=None, *, raw=None, filename="game.json", size=None,
+             channel_type=11, channel_id=None, download_error=False,
+             run_capture=False):
+        """Invoke the handler with the download mocked. Returns (content, mocks)."""
+        body = raw if raw is not None else json.dumps(doc).encode()
+        data = {
+            "name": "boxscore",
+            "options": [{"name": "file", "type": 11, "value": "att-1"}],
+            "resolved": {"attachments": {"att-1": {
+                "filename": filename,
+                "size": len(body) if size is None else size,
+                "url": "https://cdn.discordapp.com/attachments/x/y/game.json",
+                "content_type": "application/json",
+            }}},
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_channel_type": channel_type,
+            "_author_id": self.AUTHOR,
+            "_guild_id": None,
+        }
+
+        class _Response:
+            content = body
+
+            def raise_for_status(self):
+                pass
+
+        getter = (mock.Mock(side_effect=di.requests.RequestException("boom"))
+                  if download_error else mock.Mock(return_value=_Response()))
+        # run_capture executes the Celery task inline, so map/deck and the roll
+        # rows really land -- needed by the round-trip test.
+        delay = (mock.Mock(side_effect=lambda *a, **k: record_lfg_components_task(*a, **k))
+                 if run_capture else mock.Mock())
+        with mock.patch.object(di.requests, "get", getter), \
+                mock.patch.object(di.record_lfg_components_task, "delay", delay):
+            response = di._handle_boxscore_command(data)
+        return json.loads(response.content)["data"]["content"], getter, delay
+
+    def _doc(self, **kw):
+        doc = {"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 3}, {"turn": 2, "score": 9}]},
+            {"turn_order": 2, "player": self.bob.slug, "dominance": "Fox",
+             "brazen_demagogue": True,
+             "turns": [{"turn": 1, "score": 5},
+                       {"turn": 2, "score": 11, "dominance": True}]},
+        ]}
+        doc.update(kw)
+        return doc
+
+    # ── the happy path ──
+
+    def test_it_seats_in_turn_order_and_stores_only_the_box_score(self):
+        content, _, delay = self._run(
+            self._doc(board_map=self.map.slug, deck=self.deck.slug))
+        self.thread.refresh_from_db()
+
+        # Seated by turn_order, NOT shuffled.
+        self.assertEqual(
+            [(s.seat_number, s.profile_id) for s in self.thread.seats.all()],
+            [(1, self.alice.pk), (2, self.bob.pk)])
+
+        # map/deck ride the existing capture task so the roll log is written too.
+        items = delay.call_args.args[1]
+        self.assertEqual([(i["kind"], i["slug"]) for i in items],
+                         [("Map", self.map.slug), ("Deck", self.deck.slug)])
+        self.assertEqual(delay.call_args.kwargs["source"], "boxscore")
+
+        # Only what no other field can hold.
+        self.assertEqual(self.thread.turns_data, [
+            {"turn_order": 1,
+             "turns": [{"turn": 1, "score": 3}, {"turn": 2, "score": 9}]},
+            {"turn_order": 2, "dominance": "Fox", "brazen_demagogue": True,
+             "turns": [{"turn": 1, "score": 5},
+                       {"turn": 2, "score": 11, "dominance": True}]},
+        ])
+        self.assertIn("2 seats", content)
+
+    def test_deltas_are_normalized_to_cumulative_on_the_way_in(self):
+        # turns_data holds ONE canonical shape however the file was written.
+        self._run({"participants": [{
+            "turn_order": 1,
+            "turns": [{"turn": 1, "generic_points": 4},
+                      {"turn": 2, "battle_points": 6}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.turns_data[0]["turns"],
+                         [{"turn": 1, "score": 4}, {"turn": 2, "score": 10}])
+
+    def test_the_reply_names_the_map_and_deck_it_set(self):
+        # Read from the resolved objects, not thread.map: the capture is a Celery
+        # enqueue, so the FKs are not written yet when the reply is built.
+        content, _, _ = self._run(
+            self._doc(board_map=self.map.slug, deck=self.deck.slug))
+        self.assertIn(self.map.title, content)
+        self.assertIn(self.deck.title, content)
+
+    # ── never destroy what another command wrote ──
+
+    def test_an_existing_seating_is_left_alone(self):
+        seat = LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                                      seat_number=1, faction=self.faction)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        content, _, _ = self._run(self._doc())
+        self.thread.refresh_from_db()
+        seat.refresh_from_db()
+
+        # _persist_seating would have deleted this row and its faction with it.
+        self.assertEqual(self.thread.seats.count(), 1)
+        self.assertEqual(seat.faction_id, self.faction.pk)
+        self.assertEqual(seat.profile_id, self.alice.pk)
+        self.assertIn("left as it was", content)
+        # The box score still saves.
+        self.assertTrue(self.thread.turns_data)
+
+    def test_seats_left_by_pick_also_block_a_reseat(self):
+        # /pick can leave seat rows with filler numbers and seating_set False.
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                               seat_number=1, faction=self.faction)
+        self._run(self._doc())
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.seats.count(), 1)
+
+    # ── unresolvable players ──
+
+    def test_unmatched_players_still_get_a_seat_but_a_blank_one(self):
+        content, _, _ = self._run({"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player": "nobody-with-this-slug",
+             "turns": [{"turn": 1, "score": 4}]},
+        ]})
+        self.thread.refresh_from_db()
+        self.assertEqual(
+            [(s.seat_number, s.profile_id) for s in self.thread.seats.all()],
+            [(1, self.alice.pk), (2, None)])
+        self.assertIn("nobody-with-this-slug", content)
+
+    def test_a_file_with_no_players_still_sets_the_seat_count_and_order(self):
+        self._run({"participants": [
+            {"turn_order": 1, "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "turns": [{"turn": 1, "score": 4}]},
+            {"turn_order": 3, "turns": [{"turn": 1, "score": 6}]},
+        ]})
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.seats.count(), 3)
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [None, None, None])
+
+    def test_sparse_seat_numbers_do_not_create_extra_seats(self):
+        content, _, _ = self._run({"participants": [
+            {"turn_order": 1, "turns": [{"turn": 1, "score": 1}]},
+            {"turn_order": 7, "turns": [{"turn": 1, "score": 2}]},
+        ]})
+        self.thread.refresh_from_db()
+        # Seated by position: a stray 7 must not mean seven seats.
+        self.assertEqual(self.thread.seats.count(), 2)
+        self.assertIn("1-N", content)
+
+    # ── file-level refusals ──
+
+    def test_a_non_json_filename_is_refused_without_downloading(self):
+        content, getter, _ = self._run(self._doc(), filename="screenshot.png")
+        self.assertIn("`.json`", content)
+        self.assertFalse(getter.called)
+        self.assertEqual(self.thread.seats.count(), 0)
+
+    def test_an_oversized_file_is_refused_without_downloading(self):
+        content, getter, _ = self._run(self._doc(), size=5 * 1024 * 1024)
+        self.assertIn("too big", content)
+        self.assertFalse(getter.called)
+
+    def test_a_download_failure_says_so_rather_than_something_went_wrong(self):
+        content, _, _ = self._run(self._doc(), download_error=True)
+        self.assertIn("try again", content)
+        self.assertNotIn("Something went wrong", content)
+
+    def test_running_outside_a_thread_says_where_to_run_it(self):
+        content, _, _ = self._run(self._doc(), channel_id="not-a-thread",
+                                  channel_type=0)
+        self.assertIn("inside your game's thread", content)
+
+    # ── malformed and unusable content ──
+
+    def test_malformed_json_reports_the_parsers_own_message(self):
+        content, _, _ = self._run(raw=b"{oops")
+        self.assertIn("isn't valid JSON", content)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.turns_data, [])
+        self.assertEqual(self.thread.seats.count(), 0)
+
+    def test_a_bad_score_names_the_seat_it_is_on(self):
+        # One line of feedback in Discord, and the user can't see the file.
+        content, _, _ = self._run({"participants": [
+            {"turn_order": 3, "turns": [{"turn": 1, "score": "ten"}]}]})
+        self.assertIn("Seat 3", content)
+
+    def test_an_empty_participants_list_is_refused(self):
+        content, _, _ = self._run({"participants": []})
+        self.assertIn("no participants", content)
+
+    def test_a_file_with_nothing_usable_is_refused(self):
+        content, _, _ = self._run({"participants": [{"turn_order": 1}]})
+        self.assertIn("nothing in that file", content)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.seats.count(), 0)
+
+    def test_partial_problems_are_named_rather_than_silently_dropped(self):
+        for doc, fragment in [
+            ({"participants": [{"turn_order": 1, "dominance": "Platypus",
+                                "turns": [{"turn": 1, "score": 2}]}]},
+             "unknown dominance"),
+            ({"participants": [{"turn_order": 1, "brazen_demagogue": True,
+                                "turns": [{"turn": 1, "score": 2}]}]},
+             "needs a dominance"),
+            ({"board_map": "no-such-map",
+              "participants": [{"turn_order": 1, "turns": [{"turn": 1, "score": 2}]}]},
+             "didn't recognise"),
+        ]:
+            with self.subTest(fragment=fragment):
+                LFGSeat.objects.filter(thread=self.thread).delete()
+                self.thread.seating_set = False
+                self.thread.save(update_fields=["seating_set"])
+                content, _, _ = self._run(doc)
+                self.assertIn(fragment, content)
+
+    def test_an_invalid_dominance_does_not_reach_turns_data(self):
+        self._run({"participants": [{"turn_order": 1, "dominance": "Platypus",
+                                     "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertNotIn("dominance", self.thread.turns_data[0])
+
+    # ── re-running ──
+
+    def test_a_second_run_replaces_turns_data_rather_than_appending(self):
+        self._run(self._doc())
+        self._run({"participants": [
+            {"turn_order": 1, "turns": [{"turn": 1, "score": 99}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual(len(self.thread.turns_data), 1)
+        self.assertEqual(self.thread.turns_data[0]["turns"][0]["score"], 99)
+
+    # ── registration wiring ──
+
+    def test_the_command_is_registered_and_roster_guarded(self):
+        names = [c["name"] for c in dc.all_command_definitions()]
+        self.assertIn("boxscore", names)
+        self.assertIn("boxscore", di.COMMAND_HANDLERS)
+        # It writes to a thread, so it must be gated like /seating and /pick.
+        self.assertIn("boxscore", di.ROSTER_GUARDED_COMMANDS)
+
+    def test_the_file_option_is_an_attachment(self):
+        definition = next(c for c in dc.all_command_definitions()
+                          if c["name"] == "boxscore")
+        option = definition["options"][0]
+        self.assertEqual(option["name"], "file")
+        self.assertEqual(option["type"], 11)   # ATTACHMENT
+        self.assertTrue(option["required"])
+
+    def test_a_guild_must_opt_in_before_it_registers(self):
+        # enabled_commands defaults to empty, so shipping the command is not
+        # enough to make it appear -- a moderator has to enable it.
+        self.assertNotIn(
+            "boxscore", [c["name"] for c in dc.commands_for_guild([])])
+        self.assertIn(
+            "boxscore", [c["name"] for c in dc.commands_for_guild(["boxscore"])])
+
+    # ── the round trip that motivates the whole design ──
+
+    def test_the_map_survives_the_record_forms_narrowing(self):
+        """The record form narrows its dropdowns from the ROLL LOG, so a map set
+        without a roll would be dropped from its own options. Routing map/deck
+        through the capture task is what prevents that -- this is the test that
+        catches a regression to assigning thread.map directly."""
+        user = User.objects.create_user(username="bsrecorder", password="x")
+        recorder = user.profile
+        recorder.discord = "bsrecorder"
+        # "P" backs profile.player, which player_onboard_required checks before
+        # the onboarding flag.
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+
+        self._run(self._doc(board_map=self.map.slug, deck=self.deck.slug),
+                  run_capture=True)
+        self.thread.refresh_from_db()
+
+        # The capture wrote BOTH the typed FK and the roll rows.
+        self.assertEqual(self.thread.map_id, self.map.pk)
+        self.assertEqual(
+            sorted((r.kind, r.slug) for r in self.thread.roll_log.all()),
+            [("Deck", self.deck.slug), ("Map", self.map.slug)])
+
+        # And the narrowing keeps it, so the form prefills without complaint.
+        options = lfg_option_querysets(self.thread, None)
+        self.assertTrue(options["maps"].filter(pk=self.map.pk).exists())
+        self.assertTrue(options["decks"].filter(pk=self.deck.pk).exists())
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            html = self.client.get(
+                f"/record/game/v2/?lfg={self.thread.id}").content.decode()
+        self.assertNotIn("isn't playable here", html)
+        # The box score reached the grid, and the seat fields were preselected.
+        self.assertIn("grid-cell", html)
+        self.assertIn("Fox", html)

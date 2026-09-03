@@ -3,6 +3,7 @@ from unittest import mock
 
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
+from django.core.exceptions import ValidationError
 from django.db import connection
 from django.db.models import Prefetch
 from django.db.models.signals import post_save
@@ -15,7 +16,13 @@ from the_gatehouse.models import (
     DiscordGuild, GuildLFGRole, Profile, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
 )
 from the_gatehouse.services.lfg_game import lfg_option_querysets
-from the_keep.models import Deck, Faction, Map, StatusChoices, Vagabond
+from the_keep.models import (
+    Deck, Faction, Hireling, Landmark, Map, StatusChoices, Tweak, Vagabond,
+)
+from the_warroom.services.box_score_import import (
+    BoxScoreImportError, normalize_turns, parse_box_score_json, resolve_import,
+    validate_participants,
+)
 from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
 from the_warroom.forms import GameCreateForm
 from the_gatehouse.tasks import create_match_threads_task
@@ -1754,3 +1761,294 @@ class MatchLinkGameTests(TestCase):
         self.round.save(update_fields=['bracket_status'])
         game = self._game([(self.p1, self.faction_a)])
         self.assertEqual(self._link(game).status_code, 400)
+
+
+class BoxScoreImportNormalizeTests(TestCase):
+    """`normalize_turns` -- the one place the wire format's turn entries are
+    interpreted, shared by the JSON upload and the LFG prefill."""
+
+    def test_cumulative_scores_pass_through(self):
+        cells, notes = normalize_turns([
+            {'turn': 1, 'score': 3},
+            {'turn': 2, 'score': 8, 'dominance': True},
+        ])
+        self.assertEqual(cells, [
+            {'turn': 1, 'value': 3, 'dominance': False},
+            {'turn': 2, 'value': 8, 'dominance': True},
+        ])
+        self.assertEqual(notes, [])
+
+    def test_missing_turns_backfill_with_the_previous_total(self):
+        # A gap means the score didn't move -- the grid needs a contiguous run
+        # from turn 1, matching the server's Phase-1 backfill.
+        cells, _ = normalize_turns([{'turn': 1, 'score': 5}, {'turn': 4, 'score': 20}])
+        self.assertEqual([c['value'] for c in cells], [5, 5, 5, 20])
+
+    def test_delta_keys_accumulate_into_a_running_total(self):
+        cells, notes = normalize_turns([
+            {'turn': 1, 'generic_points': 3},
+            {'turn': 2, 'battle_points': 5, 'generic_points': 1},
+        ])
+        self.assertEqual([c['value'] for c in cells], [3, 9])
+        # Category detail can't be shown by the V2 grid, so say so.
+        self.assertEqual(len(notes), 1)
+        self.assertIn('collapsed', notes[0])
+
+    def test_a_turns_data_row_pastes_in_unchanged(self):
+        # ScoreCard.turns_data carries BOTH a cumulative game_points_total and
+        # per-turn deltas; the cumulative key must win.
+        cells, _ = normalize_turns([
+            {'turn_number': 1, 'total_points': 4, 'battle_points': 4,
+             'game_points_total': 4, 'dominance': False},
+            {'turn_number': 2, 'total_points': 6, 'battle_points': 6,
+             'game_points_total': 10, 'dominance': True},
+        ])
+        self.assertEqual([c['value'] for c in cells], [4, 10])
+        self.assertTrue(cells[1]['dominance'])
+
+    def test_empty_and_missing_turns_are_not_errors(self):
+        self.assertEqual(normalize_turns(None)[0], [])
+        self.assertEqual(normalize_turns([])[0], [])
+
+    def test_malformed_turns_are_rejected(self):
+        for bad in ([{'turn': 0, 'score': 1}],
+                    [{'turn': 1, 'score': 'abc'}],
+                    [{'score': 5}],
+                    [{'turn': 99, 'score': 1}],
+                    'not-a-list'):
+            with self.assertRaises(BoxScoreImportError):
+                normalize_turns(bad)
+
+    def test_duplicate_seat_numbers_are_rejected(self):
+        with self.assertRaises(BoxScoreImportError):
+            validate_participants([{'turn_order': 1}, {'turn_order': 1}])
+
+
+class BoxScoreImportParseTests(TestCase):
+    def test_a_bare_participants_list_is_accepted(self):
+        # So a thread's stored turns_data can be pasted in directly.
+        payload = parse_box_score_json(json.dumps([{'turn_order': 1}]))
+        self.assertEqual(payload['participants'], [{'turn_order': 1}])
+
+    def test_unusable_files_report_why(self):
+        for raw, fragment in [('', 'empty'),
+                              ('not json{', 'valid JSON'),
+                              ('{"title": "x"}', 'participants')]:
+            with self.assertRaises(BoxScoreImportError) as caught:
+                parse_box_score_json(raw)
+            self.assertIn(fragment, str(caught.exception))
+
+
+class BoxScoreImportResolveTests(TestCase):
+    """Resolution against the querysets the form's dropdowns are built from.
+
+    That is the whole legality mechanism: a faction outside the supplied
+    queryset simply doesn't resolve, so no separate "is this allowed" rule
+    exists here to drift from the three that already govern the form.
+    """
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.designer = Profile.objects.create(discord="designer")
+        self.marquise = Faction.objects.create(title="Marquise", type="M", reach=10,
+                                               animal="cat", designer=self.designer)
+        self.eyrie = Faction.objects.create(title="Eyrie Dynasties", type="M", reach=7,
+                                            animal="bird", designer=self.designer)
+        self.vagabond_faction = Faction.objects.create(
+            title="Vagabond", type="M", reach=5, animal="vagabond", designer=self.designer)
+        self.ranger = Vagabond.objects.create(title="Ranger", animal="Fox",
+                                              designer=self.designer)
+        self.deck = Deck.objects.create(title="Squires & Disciples", card_total=54,
+                                        designer=self.designer)
+        self.map = Map.objects.create(title="Autumn", clearings=12, designer=self.designer)
+        self.player = Profile.objects.create(discord="alice")
+
+    def tearDown(self):
+        post_save.connect(handle_image_resize, sender=Profile)
+
+    def _buckets(self, factions=None, players=None):
+        return {
+            'factions': factions if factions is not None else Faction.objects.all(),
+            'maps': Map.objects.all(),
+            'decks': Deck.objects.all(),
+            'vagabonds': Vagabond.objects.all(),
+            'captains': Vagabond.objects.filter(captain=True),
+            'landmarks': Landmark.objects.all(),
+            'tweaks': Tweak.objects.all(),
+            'hirelings': Hireling.objects.all(),
+        }
+
+    def _resolve(self, participants, *, factions=None, players=None, **kwargs):
+        kwargs.setdefault('seat_limit', None)
+        kwargs.setdefault('locked_indices', ())
+        kwargs.setdefault('game_data', {})
+        kwargs.setdefault('allow_game_fields', False)
+        return resolve_import(
+            participants,
+            option_querysets=self._buckets(factions=factions),
+            player_queryset=players if players is not None else Profile.objects.all(),
+            **kwargs)
+
+    def test_slugs_resolve_to_primary_keys(self):
+        result = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
+                                 'player': self.player.slug}])
+        self.assertEqual(result.seats[0]['form_index'], 0)
+        self.assertEqual(result.seats[0]['fields']['faction'], self.marquise.pk)
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+        self.assertEqual(result.skipped, [])
+
+    def test_a_faction_outside_the_allowed_set_is_skipped_not_selected(self):
+        result = self._resolve(
+            [{'turn_order': 1, 'faction': self.marquise.slug,
+              'turns': [{'turn': 1, 'score': 7}]}],
+            factions=Faction.objects.filter(pk=self.eyrie.pk))
+        self.assertNotIn('faction', result.seats[0]['fields'])
+        self.assertIn('not playable here', result.skipped[0])
+        # The rest of the seat still imports.
+        self.assertEqual(result.seats[0]['cells'][0]['value'], 7)
+
+    def test_an_unknown_slug_reads_differently_from_a_disallowed_one(self):
+        result = self._resolve([{'turn_order': 1, 'faction': 'no-such-faction'}])
+        self.assertIn('no faction matching', result.skipped[0])
+
+    def test_a_player_off_the_roster_is_skipped(self):
+        result = self._resolve([{'turn_order': 1, 'player': self.player.slug}],
+                               players=Profile.objects.none())
+        self.assertIn('not available for this game', result.skipped[0])
+
+    def test_tournament_score_above_zero_marks_a_sub_30_win(self):
+        # Without this a dominance/coalition/timed win would import with no
+        # winner: the form only auto-checks Win at 30+.
+        result = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
+                                 'tournament_score': 1,
+                                 'turns': [{'turn': 1, 'score': 11}]}])
+        self.assertIs(result.seats[0]['fields']['win'], True)
+
+    def test_a_coalition_half_point_still_counts_as_a_win(self):
+        result = self._resolve([{'turn_order': 1, 'tournament_score': 0.5}])
+        self.assertIs(result.seats[0]['fields']['win'], True)
+
+    def test_a_zero_tournament_score_is_a_loss(self):
+        result = self._resolve([{'turn_order': 1, 'tournament_score': 0}])
+        self.assertIs(result.seats[0]['fields']['win'], False)
+
+    def test_brazen_demagogue_needs_a_dominance(self):
+        # Nothing else on this seat resolves, so it contributes no row at all --
+        # only the reason it was dropped.
+        result = self._resolve([{'turn_order': 1, 'brazen_demagogue': True}])
+        self.assertEqual(result.seats, [])
+        self.assertIn('needs a dominance', result.skipped[0])
+
+    def test_brazen_without_dominance_leaves_the_rest_of_the_seat_intact(self):
+        result = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
+                                 'brazen_demagogue': True}])
+        self.assertNotIn('brazen_demagogue', result.seats[0]['fields'])
+        self.assertEqual(result.seats[0]['fields']['faction'], self.marquise.pk)
+
+    def test_brazen_demagogue_survives_an_unset_deck(self):
+        # The deck may not be chosen yet. The save path clears an invalid value,
+        # so resolving it here loses nothing and keeps the data alive.
+        result = self._resolve([{'turn_order': 1, 'dominance': 'Fox',
+                                 'brazen_demagogue': True}])
+        self.assertIs(result.seats[0]['fields']['brazen_demagogue'], True)
+
+    def test_a_wrong_deck_keeps_brazen_but_warns(self):
+        result = self._resolve(
+            [{'turn_order': 1, 'dominance': 'Fox', 'brazen_demagogue': True}],
+            game_data={'_current_deck_title': 'Base'})
+        self.assertIs(result.seats[0]['fields']['brazen_demagogue'], True)
+        self.assertTrue(any('will be cleared' in n for n in result.notes))
+
+    def test_dependent_fields_follow_their_faction(self):
+        # A vagabond only applies to the Vagabond faction, mirroring
+        # EffortCreateForm.clean, so the importer can't build a rejected state.
+        result = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
+                                 'vagabond': self.ranger.slug}])
+        self.assertNotIn('vagabond', result.seats[0]['fields'])
+        self.assertIn('Vagabond faction', result.skipped[0])
+
+        ok = self._resolve([{'turn_order': 1, 'faction': self.vagabond_faction.slug,
+                             'vagabond': self.ranger.slug}])
+        self.assertEqual(ok.seats[0]['fields']['vagabond'], self.ranger.pk)
+
+    def test_starting_leader_only_applies_to_the_eyrie(self):
+        result = self._resolve([{'turn_order': 1, 'faction': self.eyrie.slug,
+                                 'starting_leader': 'Despot'}])
+        self.assertEqual(result.seats[0]['fields']['starting_leader'], 'Despot')
+
+        wrong = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
+                                'starting_leader': 'Despot'}])
+        self.assertNotIn('starting_leader', wrong.seats[0]['fields'])
+
+    def test_an_unknown_dominance_is_rejected(self):
+        result = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
+                                 'dominance': 'Platypus'}])
+        self.assertNotIn('dominance', result.seats[0]['fields'])
+        self.assertIn('unknown dominance', result.skipped[0].lower())
+
+    def test_seats_past_the_limit_are_dropped(self):
+        result = self._resolve(
+            [{'turn_order': 1, 'faction': self.marquise.slug},
+             {'turn_order': 5, 'faction': self.marquise.slug}],
+            seat_limit=4)
+        self.assertEqual([s['form_index'] for s in result.seats], [0])
+        self.assertIn('only has 4 seats', result.skipped[0])
+
+    def test_a_locked_row_keeps_its_scorecard(self):
+        # A detailed scorecard is server-owned; the file's turns must not touch it.
+        result = self._resolve(
+            [{'turn_order': 1, 'faction': self.marquise.slug,
+              'turns': [{'turn': 1, 'score': 5}]}],
+            locked_indices={0})
+        self.assertEqual(result.seats[0]['cells'], [])
+        self.assertIn('locked', result.skipped[0])
+
+    def test_game_fields_resolve_and_lowercased_timing_maps_back(self):
+        result = self._resolve(
+            [{'turn_order': 1}],
+            allow_game_fields=True,
+            game_data={'board_map': self.map.slug, 'deck': self.deck.slug,
+                       'title': 'Round 3', 'random_suits': True,
+                       'turn_timing': 'live'})
+        self.assertEqual(result.game['map'], self.map.pk)
+        self.assertEqual(result.game['deck'], self.deck.pk)
+        self.assertEqual(result.game['nickname'], 'Round 3')
+        self.assertIs(result.game['random_clearing'], True)
+        # The API lowercases Game.type on the way out.
+        self.assertEqual(result.game['type'], 'Live')
+
+    def test_a_tournament_in_the_file_is_reported_not_applied(self):
+        # The round comes from how the form was opened; importing an exported
+        # game must never silently reassign it.
+        result = self._resolve([{'turn_order': 1}], allow_game_fields=True,
+                               game_data={'tournament': [{'round': 'r1'}]})
+        self.assertNotIn('round', result.game)
+        self.assertTrue(any('round' in n for n in result.notes))
+
+
+class LFGThreadTurnsDataTests(TestCase):
+    """`LFGThread.turns_data` -- storage for a thread's box score, and the
+    validation that keeps the record form able to trust it."""
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+
+    def tearDown(self):
+        post_save.connect(handle_image_resize, sender=Profile)
+
+    def test_a_malformed_box_score_is_refused_on_clean(self):
+        thread = LFGThread(thread_id="t-bad")
+        thread.turns_data = [{'turn_order': 1, 'turns': [{'turn': 0, 'score': 5}]}]
+        with self.assertRaises(ValidationError) as caught:
+            thread.clean()
+        self.assertIn('turns_data', caught.exception.message_dict)
+
+    def test_a_valid_box_score_passes(self):
+        thread = LFGThread(thread_id="t-ok")
+        thread.turns_data = [{'turn_order': 1, 'turns': [{'turn': 1, 'score': 5}]}]
+        thread.clean()   # must not raise
+
+    def test_the_field_defaults_to_empty(self):
+        thread = LFGThread.objects.create(thread_id="t-empty")
+        self.assertEqual(thread.turns_data, [])
+        thread.clean()
