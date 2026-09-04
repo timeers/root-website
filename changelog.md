@@ -8,6 +8,7 @@
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
 - fixed title on /schedule saying "Not Scheduled" when all players confirmed in LFG
+- Vagabond allowed to have coalition partner when importing boxscore json
 
 ## [1.13.5] - 2026-9-1 September Forever
 

@@ -1929,6 +1929,30 @@ class BoxScoreImportResolveTests(TestCase):
         result = self._resolve([{'turn_order': 1, 'tournament_score': 0.5}])
         self.assertIs(result.seats[0]['fields']['win'], True)
 
+    def test_the_vagabond_can_take_a_coalition(self):
+        """EffortCreateForm.clean nests its Chameleander check inside the "not
+        Vagabond" branch, so BOTH factions keep coalition_with. Gating on
+        Chameleander alone silently dropped every Vagabond coalition."""
+        result = self._resolve([{'turn_order': 1, 'faction': self.vagabond_faction.slug,
+                                 'vagabond': self.ranger.slug,
+                                 'coalition': self.marquise.slug}])
+        self.assertEqual(result.seats[0]['fields']['coalition_with'], self.marquise.pk)
+        self.assertEqual(result.skipped, [])
+
+    def test_the_chameleander_can_take_a_coalition(self):
+        chameleander = Faction.objects.create(title="Chameleander", type="M", reach=6,
+                                              animal="lizard", designer=self.designer)
+        result = self._resolve([{'turn_order': 1, 'faction': chameleander.slug,
+                                 'coalition': self.marquise.slug}])
+        self.assertEqual(result.seats[0]['fields']['coalition_with'], self.marquise.pk)
+        self.assertEqual(result.skipped, [])
+
+    def test_any_other_faction_still_cannot_take_a_coalition(self):
+        result = self._resolve([{'turn_order': 1, 'faction': self.eyrie.slug,
+                                 'coalition': self.marquise.slug}])
+        self.assertNotIn('coalition_with', result.seats[0]['fields'])
+        self.assertIn('only applies to', result.skipped[0])
+
     def test_a_zero_tournament_score_is_a_loss(self):
         result = self._resolve([{'turn_order': 1, 'tournament_score': 0}])
         self.assertIs(result.seats[0]['fields']['win'], False)
