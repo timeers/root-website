@@ -899,7 +899,7 @@ def survey_take_view(request, slug):
 
             send_discord_message_task.delay(f"[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) took {survey.title}")
             # DM the survey owner if they opted in
-            from the_gatehouse.services.notifyservice import notify_survey_response
+            from the_databot.services.notifyservice import notify_survey_response
             notify_survey_response(survey_response)
             messages.success(request, _('Thank you for completing the survey!'))
             # Calculate the quiz score if needed

@@ -2096,7 +2096,7 @@ def manage_game_v2(request, id=None):
                             category='New Game', title='Game Recorded', fields=fields
                         )
                         # DM opted-in players / component designers / tournament hosts
-                        from the_gatehouse.services.notifyservice import notify_game_recorded
+                        from the_databot.services.notifyservice import notify_game_recorded
                         notify_game_recorded(parent)
 
                     # Post the game link back into the LFG thread it came from, so
@@ -8455,9 +8455,9 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             group.save(update_fields=update_fields)
 
         # --- Match scheduled_time updates ---
-        # Imported here, not at module scope: the_gatehouse.discord_interactions
+        # Imported here, not at module scope: the_databot.discord_interactions
         # imports the_warroom.models, so a top-level import would be circular.
-        from the_gatehouse.discord_interactions import _cancel_open_proposals
+        from the_databot.discord_interactions import _cancel_open_proposals
 
         for match_data in data.get('matches', []):
             match_id = match_data.get('id')
