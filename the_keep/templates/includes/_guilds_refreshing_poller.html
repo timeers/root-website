@@ -1,14 +1,22 @@
 {% comment %}
 Single HTMX poller for the guild-refresh spinner. Rendered ONCE per page (not per
-avatar) so we don't double-poll. While profile.guilds_refreshing is True it hits the
+avatar) so we don't double-poll. While guilds_refresh_in_progress is True it hits the
 status endpoint every 2s (hx-swap="none", so nothing on the page changes); when the
 task clears the flag the endpoint responds with HX-Refresh and the page reloads —
 picking up any group/membership change and removing the spinner.
 {% endcomment %}
-{% if user.is_authenticated and user.profile.guilds_refreshing %}
+{% if user.is_authenticated and user.profile.guilds_refresh_in_progress %}
   <span
     hx-get="{% url 'profile-guilds-status' %}"
     hx-trigger="every 2s"
     hx-swap="none"
+    {% comment %}
+    Stop polling after 6 minutes. The server already self-terminates -- once the flag
+    reads stale, profile-guilds-status emits HX-Refresh and the reload drops this span.
+    This cap only covers the case where that endpoint is unreachable. It must stay
+    LONGER than GUILDS_REFRESH_MAX_AGE (5m in models.py), or a slow-but-legitimate sync
+    would lose its poller before the flag goes stale and never pick up the reload.
+    {% endcomment %}
+    _="on load wait 6m then remove me"
     style="display:none;"></span>
 {% endif %}

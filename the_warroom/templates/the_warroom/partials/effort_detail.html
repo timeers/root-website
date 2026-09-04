@@ -115,7 +115,7 @@
     {% elif effort.available_scorecard %}
         {% if user.is_authenticated %}
             {% if user.profile in participants %}
-                <a class="btn btn-warning btn-sm" href="{% url 'assign-scorecard' id=effort.id %}"><i class="bi bi-link"></i></a>
+                <a class="btn btn-warning btn-sm" href="{% url 'assign-scorecard' id=effort.id %}"><i class="icon-mask icon-link"></i></a>
             {% endif %}
         {% endif %}
     {% else %}

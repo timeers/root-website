@@ -446,6 +446,38 @@ def rename_channel(channel_id, name):
         return THREAD_ERROR, retry_after
 
 
+def apply_thread_tag(thread_id, tag_id):
+    """Apply one forum tag to an EXISTING forum post (PATCH applied_tags).
+
+    Distinct from create_forum_thread_result, which can only set applied_tags at
+    creation time. This exists for /lfg used inside a forum post the bot did not
+    create: the post is adopted as the game thread, so its tag has to be applied
+    after the fact.
+
+    Returns True on success, else False. Never raises -- a tag is decoration, and
+    failing to apply one must never cost the game its thread, so the caller logs
+    and carries on. Discord rejects this on a non-forum thread (the parent has no
+    tag set to choose from), which is why the failure is swallowed rather than
+    surfaced.
+
+    No DEBUG_VALUE guard — see create_message_thread."""
+    try:
+        r = requests.patch(
+            f"{DISCORD_API}/channels/{thread_id}",
+            headers=_bot_headers(),
+            json={"applied_tags": [str(tag_id)]},
+            timeout=5,
+        )
+        r.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        resp = getattr(e, "response", None)
+        detail = resp.text if resp is not None else str(e)
+        logger.warning("Could not apply tag %s to thread %s: %s",
+                       tag_id, thread_id, detail)
+        return False
+
+
 def get_bot_guilds():
     """
     Return the list of guilds the bot is a member of (from Discord),
@@ -1034,6 +1066,37 @@ def update_discord_avatar(user, force=False):
 
     profile.image.save(f"discord_{user.id}.webp", ContentFile(content), save=True)
     return profile.image.url
+
+
+def discord_refresh_capability(user):
+    """Can a guild refresh for this user plausibly succeed? Network-free.
+
+    Mirrors the three give-up conditions in get_valid_discord_token below, but without
+    the HTTP call, so callers can tell a RETRYABLE failure (Discord slow/erroring) from
+    one where no amount of retrying helps. Returns:
+
+      'ok'          — a Discord account with a usable (or refreshable) token
+      'no_account'  — no Discord social account at all. Normal for a username/password
+                      login, e.g. Django admin: not a fault, don't report it.
+      'no_token'    — has a Discord account but no usable token. A real fault worth
+                      surfacing; allauth re-stores the token on their next Discord login.
+    """
+    try:
+        social_account = user.socialaccount_set.get(provider='discord')
+    except user.socialaccount_set.model.DoesNotExist:
+        return 'no_account'
+
+    token_obj = social_account.socialtoken_set.first()
+    if token_obj is None:
+        return 'no_token'
+
+    # Expired (same 60s buffer as get_valid_discord_token) with nothing to refresh from.
+    if (token_obj.expires_at
+            and timezone.now() >= token_obj.expires_at - timedelta(seconds=60)
+            and not token_obj.token_secret):
+        return 'no_token'
+
+    return 'ok'
 
 
 def get_valid_discord_token(user, timeout=5):

@@ -21,7 +21,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import IntegrityError, models, transaction
 
-from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
+from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Min, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone 
 from django.utils.translation import get_language, gettext as _, gettext_lazy as _lazy
@@ -36,6 +36,8 @@ from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, Asse
                      game_counts_for_round_q, game_counts_for_stage_q,
                      game_counts_for_tournament_q)
 from .services.grouping import GroupingService, build_opponent_history
+from .services.box_score_import import (
+    BoxScoreImportError, grid_cells_from_turns, parse_box_score_json, resolve_import)
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TurnScoreCreateForm, TurnScoreForm, ScoreCardCreateForm, AssignScorecardForm, AssignEffortForm,
                     RoundCreateForm, StageCreateForm,
@@ -1164,6 +1166,10 @@ def manage_game_v2(request, id=None):
     lfg_round = None
     lfg_seats = []
     lfg_opts = None
+    # Box score cells prefilled from LFGThread.turns_data, keyed by form index.
+    # Folded into grid_rows where that is built (further down), since it is
+    # constructed after this block runs.
+    lfg_grid_rows = {}
 
     # Determine mode
     match_id = request.GET.get('match') or request.POST.get('match_id')
@@ -1425,6 +1431,41 @@ def manage_game_v2(request, id=None):
                         if discarded:
                             formset.forms[i].initial['discarded_captain'] = discarded.pk
 
+            # Box score captured on the thread. Keyed by turn_order (the seat
+            # number), not list position, so a re-seat can't move a score onto a
+            # different player; entries whose seat is gone are simply ignored.
+            #
+            # Stashed rather than written straight into grid_rows: that dict is
+            # built further down (from saved ScoreCards), so writing here would
+            # be overwritten. The construction below folds this in.
+            seat_row_by_number = {
+                seat_no: i for i, (seat_no, _p, _f, _v) in enumerate(lfg_seats)}
+            for entry in (lfgthread.turns_data or []):
+                if not isinstance(entry, dict):
+                    continue
+                seat_no = entry.get('turn_order', entry.get('seat'))
+                i = seat_row_by_number.get(seat_no)
+                if i is None or i >= len(formset.forms):
+                    continue
+
+                dominance = entry.get('dominance')
+                if dominance in {c.value for c in Effort.DominanceChoices}:
+                    formset.forms[i].initial['dominance'] = dominance
+                    # No deck gate: a thread's deck is often unset, and the save
+                    # path clears brazen_demagogue unless the deck is
+                    # Squires & Disciples, so an invalid value can't be stored.
+                    if entry.get('brazen_demagogue'):
+                        formset.forms[i].initial['brazen_demagogue'] = True
+
+                try:
+                    cells = grid_cells_from_turns(entry.get('turns'))
+                except BoxScoreImportError:
+                    # Stored data shouldn't be malformed (clean() validates), but
+                    # a bad row must not take the whole record form down.
+                    continue
+                if cells:
+                    lfg_grid_rows[i] = {'detailed': False, 'cells': cells}
+
         for notice in lfg_opts.get('notices', []):
             messages.warning(request, notice)
 
@@ -1555,6 +1596,12 @@ def manage_game_v2(request, id=None):
         grid_rows[idx] = {'detailed': is_detailed, 'cells': cells}
         if is_detailed:
             grid_has_detailed = True
+
+    # Fold in the box score captured on an LFG thread (collected above, before
+    # this dict existed). A saved ScoreCard always wins: it is the recorded
+    # result, whereas turns_data is what the thread predicted.
+    for idx, row in lfg_grid_rows.items():
+        grid_rows.setdefault(idx, row)
 
     # On a POST that fails validation the form re-renders, but the grid's cell
     # values live only in the DOM and would be lost. Re-hydrate the grid from the
@@ -2124,6 +2171,147 @@ def manage_game_v2(request, id=None):
 
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+
+
+@player_onboard_required
+@require_POST
+def import_box_score(request):
+    """Resolve an uploaded game JSON against what this form is allowed to offer.
+
+    Pure resolver: it reads the file, resolves slugs to primary keys against the
+    same querysets the form's dropdowns are built from, and returns them. It
+    writes NOTHING -- no Game, no formset, no session. The client shows a summary
+    and, on confirm, writes the values into the live form, so a partially filled
+    form is never lost to a page reload.
+
+    Mode (match / LFG / round) decides which querysets are used, and is
+    re-checked here rather than trusted: without that, this endpoint would be a
+    way to read a tournament's roster from a game the user may not record.
+    """
+    user = request.user
+
+    upload = request.FILES.get('box_score_file')
+    if upload is None:
+        return JsonResponse({'ok': False, 'error': _('No file was uploaded.')}, status=400)
+    # The format is small by nature (one game); anything larger is a wrong file.
+    if upload.size > 512 * 1024:
+        return JsonResponse({'ok': False, 'error': _('That file is too large.')}, status=400)
+
+    try:
+        payload = parse_box_score_json(upload.read())
+    except BoxScoreImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+    match = None
+    lfgthread = None
+    tournament = None
+    round_obj = None
+    seat_limit = None
+    allow_game_fields = True
+
+    match_id = request.POST.get('match_id')
+    lfg_id = request.POST.get('lfg_id')
+    round_id = request.POST.get('round')
+    game_id = request.POST.get('game_id')
+
+    if match_id:
+        match = get_object_or_404(Match, id=match_id)
+        if not (user.profile.admin or _can_record_match(user.profile, match)):
+            return JsonResponse(
+                {'ok': False, 'error': _('You do not have permission to record this game.')},
+                status=403)
+        round_obj = match.round
+        seat_limit = MatchSeat.objects.filter(series=match.series).count() or None
+        # Match mode locks the round, platform and nickname.
+        allow_game_fields = False
+    elif lfg_id:
+        lfgthread = get_object_or_404(LFGThread, id=lfg_id)
+        _lfg_tournament = _lfg_tournament_for(lfgthread)
+        round_obj = _lfg_round_for(_lfg_tournament)
+        if not (user.profile.admin or _can_record_lfg(user.profile, lfgthread, round_obj)):
+            return JsonResponse(
+                {'ok': False, 'error': _('You do not have permission to record this game.')},
+                status=403)
+        seat_limit = len(seated_profiles(lfgthread)) or None
+        allow_game_fields = False
+    elif round_id:
+        round_obj = Round.objects.filter(id=round_id).first()
+
+    # An existing game's detailed scorecards are server-owned and read-only here.
+    locked_indices = set()
+    if game_id:
+        game = Game.objects.filter(id=game_id).first()
+        if game is not None:
+            if not game.can_edit(user.profile):
+                return JsonResponse(
+                    {'ok': False, 'error': _('You do not have permission to edit this game.')},
+                    status=403)
+            for idx, effort in enumerate(game.efforts.order_by('seat', 'id')):
+                scorecard = ScoreCard.objects.filter(effort=effort).first()
+                if scorecard is not None and scorecard.is_detailed:
+                    locked_indices.add(idx)
+
+    # Which assets and players this form may offer. Same resolution the
+    # dropdowns use, so legality needs no separate rule here.
+    if lfgthread is not None:
+        option_querysets = lfg_option_querysets(lfgthread, _lfg_tournament_for(lfgthread))
+        player_queryset = lfgthread.players.all()
+    else:
+        if round_obj is not None:
+            tournament = round_obj.get_tournament()
+        if tournament is not None:
+            assets = tournament.get_asset_querysets()
+            option_querysets = dict(assets)
+            option_querysets['captains'] = assets['vagabonds'].filter(captain=True)
+            if match is not None:
+                # Match mode narrows the player dropdown to the match roster.
+                player_queryset = _get_match_profiles(match)
+            elif tournament.open_roster:
+                player_queryset = Profile.objects.all()
+            else:
+                player_queryset = round_obj.current_player_queryset()
+        else:
+            option_querysets = {
+                'factions': Faction.objects.all(), 'maps': Map.objects.all(),
+                'decks': Deck.objects.all(), 'vagabonds': Vagabond.objects.all(),
+                'captains': Vagabond.objects.filter(captain=True),
+                'landmarks': Landmark.objects.all(), 'tweaks': Tweak.objects.all(),
+                'hirelings': Hireling.objects.all(),
+            }
+            player_queryset = Profile.objects.all()
+
+    # The deck currently chosen on the form, so a Brazen Demagogue note can be
+    # accurate when the file itself carries no deck.
+    game_data = dict(payload)
+    current_deck_id = request.POST.get('deck')
+    if current_deck_id:
+        current_deck = Deck.objects.filter(id=current_deck_id).first()
+        if current_deck is not None:
+            game_data['_current_deck_title'] = current_deck.title
+
+    try:
+        result = resolve_import(
+            payload.get('participants'),
+            option_querysets=option_querysets,
+            player_queryset=player_queryset,
+            seat_limit=seat_limit,
+            locked_indices=locked_indices,
+            game_data=game_data,
+            allow_game_fields=allow_game_fields,
+        )
+    except BoxScoreImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+    if not allow_game_fields and any(
+            payload.get(key) is not None for key in
+            ('title', 'board_map', 'deck', 'landmarks', 'hirelings', 'tweaks')):
+        result.notes.append(
+            _('Game details from the file were ignored: this game gets them from '
+              'the match or thread it belongs to.'))
+
+    response = {'ok': True}
+    response.update(result.as_dict())
+    return JsonResponse(response)
 
 
 @player_required
@@ -5481,7 +5669,7 @@ def _schedule_round_manage_url(tournament, round):
       (stages, rounds)  -> round-matches-page (full, with stage)
       (no stages, rounds) -> round-matches-simple (omits stage)
       (rounds off)      -> stage-matches-page (the stage's flat matches view)
-      (no stages, rounds off) -> tournament-bracket-page (delegates to matches)
+      (no stages, rounds off) -> tournament-matches-page
     """
     stage = round.stage
     if stage.use_rounds:
@@ -5500,7 +5688,7 @@ def _schedule_round_manage_url(tournament, round):
             'tournament_slug': tournament.slug,
             'stage_slug': stage.slug,
         })
-    return reverse('tournament-bracket-page', kwargs={'slug': tournament.slug})
+    return tournament.get_bracket_url()
 
 
 def _schedule_matches_context(tournament, rounds):
@@ -6251,10 +6439,40 @@ def _recordable_ids_for_matches(matches, user, tournament, view_as=None):
     return recordable
 
 
+def _order_match_series(qs):
+    """Order a MatchSeries queryset by status group, then soonest, then name.
+
+    Groups: 1 = scheduled (any match has a scheduled_time), 2 = incomplete and
+    unscheduled, 3 = complete. Within the scheduled group the soonest match
+    comes first; the others fall back to the displayed name (player_group.name,
+    which is what the card shows) and finally id for a stable order.
+
+    A single Min() supplies both the grouping and the tiebreak -- a null Min
+    means no match has a time -- so this adds one LEFT JOIN and no subquery.
+    The stored `status` field is used rather than MatchSeries.is_complete(),
+    which costs a query per series and calls an empty series complete.
+    """
+    return qs.annotate(
+        _next_scheduled=Min('matches__scheduled_time'),
+    ).annotate(
+        _status_group=Case(
+            When(status=CompetitionStatus.COMPLETED, then=Value(3)),
+            When(_next_scheduled__isnull=False, then=Value(1)),
+            default=Value(2),
+            output_field=IntegerField(),
+        ),
+    ).order_by(
+        '_status_group',
+        F('_next_scheduled').asc(nulls_last=True),
+        F('player_group__name').asc(nulls_last=True),
+        'id',
+    )
+
+
 def _stage_matches_context(request, tournament, stage):
     """Build the context for the scheduled-matches view of a stage's single
     (default) round. Shared by the stage matches page and the tournament
-    bracket page when the tournament has no stages and the stage has no rounds."""
+    matches page when the tournament has no stages and the stage has no rounds."""
     round = stage.rounds.first()
     match_series = []
     recordable_match_ids = set()
@@ -6263,15 +6481,17 @@ def _stage_matches_context(request, tournament, stage):
 
     if round:
         is_bracket_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
-        match_series = MatchSeries.objects.filter(round=round).select_related(
-            'player_group',
-        ).prefetch_related(
-            'winners__tournament_player__profile',
-            'matches__game',
-            'matches__game__efforts__faction',
-            'matches__game__efforts__player',
-            'matchseat_set__stage_participant__tournament_player__profile',
-        ).order_by('id')
+        match_series = _order_match_series(
+            MatchSeries.objects.filter(round=round).select_related(
+                'player_group',
+            ).prefetch_related(
+                'winners__tournament_player__profile',
+                'matches__game',
+                'matches__game__efforts__faction',
+                'matches__game__efforts__player',
+                'matchseat_set__stage_participant__tournament_player__profile',
+            )
+        )
 
         # Attach the effort/faction grid so cards render icons on initial load,
         # matching what round_matches_page and the edit-swap endpoint do.
@@ -6325,6 +6545,12 @@ def _stage_matches_context(request, tournament, stage):
 def stage_matches_page(request, tournament_slug, stage_slug):
     tournament = get_object_or_404(Tournament, slug=tournament_slug)
     stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    # Stages collapse into the tournament when stages are disabled, so this
+    # stage-scoped URL would be a duplicate of the tournament matches page.
+    # Redirect rather than 404: Discord messages already link here.
+    if tournament._is_simple_matches_mode():
+        return redirect('tournament-matches-page', slug=tournament.slug)
 
     if request.user.is_authenticated:
         send_discord_message_task.delay(
@@ -6604,15 +6830,17 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
             f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed round matches: {round} ({tournament.name})'
         )
 
-    match_series = MatchSeries.objects.filter(round=round).select_related(
-        'player_group',
-    ).prefetch_related(
-        'winners__tournament_player__profile',
-        'matches__game',
-        'matches__game__efforts__faction',
-        'matches__game__efforts__player',
-        'matchseat_set__stage_participant__tournament_player__profile',
-    ).order_by('id')
+    match_series = _order_match_series(
+        MatchSeries.objects.filter(round=round).select_related(
+            'player_group',
+        ).prefetch_related(
+            'winners__tournament_player__profile',
+            'matches__game',
+            'matches__game__efforts__faction',
+            'matches__game__efforts__player',
+            'matchseat_set__stage_participant__tournament_player__profile',
+        )
+    )
 
     for series in match_series:
         _attach_series_effort_grid(series)
@@ -6676,7 +6904,7 @@ def tournament_schedule_page(request, slug):
         'breadcrumb_page': _('Schedule'),
         'page_name': tournament.name,
         'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
-        'bracket_url': reverse('tournament-bracket-page', kwargs={'slug': tournament.slug}),
+        'bracket_url': tournament.get_bracket_url(),
     })
     return render(request, 'the_warroom/schedule.html', context)
 
@@ -7066,37 +7294,56 @@ def stage_move_player(request, tournament_slug, stage_slug):
     })
 
 
+def tournament_matches_page(request, slug):
+    """Editable scheduled-matches view at the tournament level.
+
+    Serves the simplified layout (no stages, and the single default stage has
+    no rounds), where there is no bracket to lay out and the 'Bracket' nav tab
+    is really showing Matches. Anything else belongs on the bracket page."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+
+    if not tournament._is_simple_matches_mode():
+        return redirect('tournament-bracket-page', slug=tournament.slug)
+
+    if request.user.is_authenticated:
+        send_discord_message_task.delay(
+            f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed tournament matches: {tournament.name}'
+        )
+
+    single_stage = get_single_stage(tournament)
+    context = _stage_matches_context(request, tournament, single_stage)
+    context.update({
+        'active_page': 'bracket',
+        'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
+        # breadcrumb_page is deliberately left unset: matches.html defaults it
+        # to "Matches", which is what the URL and the nav tab both say here.
+        # The single stage is hidden from the user, so show the series name and
+        # meta title, not the stage's.
+        'page_name': tournament.name,
+        'meta_title': tournament.name,
+        # Override the stage-scoped schedule defaults with tournament scope.
+        'schedule_count': _upcoming_scheduled_matches(
+            {'round__stage__tournament': tournament}).count(),
+        'schedule_url': tournament.get_schedule_url(),
+    })
+    return render(request, 'the_warroom/matches.html', context)
+
+
 def tournament_bracket_page(request, slug):
     """Read-only bracket overview — shows all stages and their bracket status.
 
     When the tournament has no stages and its single default stage has no
-    rounds, there is nothing to lay out as a bracket — instead show the fuller,
-    editable scheduled-matches view (the same one the stage matches page uses)
-    so moderators can add and edit matches directly."""
+    rounds, there is nothing to lay out as a bracket — the editable
+    scheduled-matches view lives at its own URL, so redirect there."""
     tournament = get_object_or_404(Tournament, slug=slug)
+
+    if tournament._is_simple_matches_mode():
+        return redirect('tournament-matches-page', slug=tournament.slug)
 
     if request.user.is_authenticated:
         send_discord_message_task.delay(
             f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed tournament bracket: {tournament.name}'
         )
-
-    if not tournament.use_stages:
-        single_stage = get_single_stage(tournament)
-        if single_stage and not single_stage.use_rounds:
-            context = _stage_matches_context(request, tournament, single_stage)
-            context.update({
-                'active_page': 'bracket',
-                'nav_partial': 'the_warroom/partials/tournament_nav_header.html',
-                'breadcrumb_page': _('Bracket'),
-                # This is the tournament-level bracket URL; the single stage is
-                # hidden from the user, so show the series name, not the stage's.
-                'page_name': tournament.name,
-                # Override the stage-scoped schedule defaults with tournament scope.
-                'schedule_count': _upcoming_scheduled_matches(
-                    {'round__stage__tournament': tournament}).count(),
-                'schedule_url': tournament.get_schedule_url(),
-            })
-            return render(request, 'the_warroom/matches.html', context)
 
     stages = tournament.stages.order_by('order').prefetch_related(
         Prefetch(
@@ -8116,6 +8363,46 @@ def _build_series_response(series):
     }
 
 
+def _render_series_matches_card(request, series, round, tournament, series_index=1):
+    """Re-render one series card for the matches page, as an HTML string.
+
+    Shared by round_edit_series and match_link_game so the swapped-in card is built
+    the same way both places. Re-queries the series rather than trusting the caller's
+    instance: Match.game is a OneToOne, so both match.game and the reverse game.match
+    are cached on whatever objects the caller just mutated, and a stale reverse would
+    render the wrong buttons.
+
+    Only ever called after the caller has established manage permission, hence
+    can_manage=True.
+    """
+    from django.template.loader import render_to_string
+
+    series_fresh = MatchSeries.objects.select_related(
+        'player_group',
+    ).prefetch_related(
+        'winners__tournament_player__profile',
+        'matches__game',
+        'matches__game__efforts__faction',
+        'matches__game__efforts__player',
+        'matchseat_set__stage_participant__tournament_player__profile',
+    ).get(pk=series.pk)
+    _attach_series_effort_grid(series_fresh)
+
+    # view_as is passed so the swapped-in card agrees with what a full page load
+    # would render for this viewer.
+    recordable_match_ids, is_participant_series = _recordable_match_ids(
+        round, request.user, tournament, view_as=get_view_as(request, tournament))
+
+    html = render_to_string('the_warroom/partials/series_card_matches.html', {
+        'series': series_fresh,
+        'recordable_match_ids': recordable_match_ids,
+        'can_manage': True,
+        'series_index': series_index,
+        'is_participant_series': is_participant_series,
+    }, request=request)
+    return html, series_fresh
+
+
 @login_required
 @require_http_methods(['POST'])
 def round_edit_series(request, tournament_slug, stage_slug, round_slug):
@@ -8275,56 +8562,22 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
         card_type = data.get('card_type')
         if card_type:
             from django.template.loader import render_to_string
-            series_fresh = MatchSeries.objects.select_related(
-                'player_group',
-            ).prefetch_related(
-                'winners__tournament_player__profile',
-                'matches__game',
-                'matches__game__efforts__faction',
-                'matches__game__efforts__player',
-                'matchseat_set__stage_participant__tournament_player__profile',
-            ).get(pk=series.pk)
-            _attach_series_effort_grid(series_fresh)
 
             if card_type == 'matches':
-                profile = request.user.profile
-                if profile.admin or tournament.has_permission(profile):
-                    recordable_match_ids = set(
-                        Match.objects.filter(round=round).values_list('id', flat=True)
-                    )
-                elif tournament.players_can_record_matches():
-                    participant_series_ids = MatchSeat.objects.filter(
-                        series__round=round,
-                        stage_participant__tournament_player__profile=profile
-                    ).values_list('series_id', flat=True)
-                    recordable_match_ids = set(
-                        Match.objects.filter(
-                            round=round, series_id__in=participant_series_ids
-                        ).values_list('id', flat=True)
-                    )
-                else:
-                    recordable_match_ids = set()
-                # Guild members may record standalone (non-match) games under GUILD
-                # access, but not match games -- so no guild grant here.
-                # Group moderators can always record their group's matches.
-                recordable_match_ids |= set(
-                    Match.objects.filter(
-                        round=round, series__player_group__group_moderator=profile
-                    ).values_list('id', flat=True)
-                )
-                series_index = data.get('series_index', 1)
-                is_participant_series = set(MatchSeat.objects.filter(
-                    series__round=round,
-                    stage_participant__tournament_player__profile=profile
-                ).values_list('series_id', flat=True))
-                html = render_to_string('the_warroom/partials/series_card_matches.html', {
-                    'series': series_fresh,
-                    'recordable_match_ids': recordable_match_ids,
-                    'can_manage': True,
-                    'series_index': series_index,
-                    'is_participant_series': is_participant_series,
-                }, request=request)
+                html, series_fresh = _render_series_matches_card(
+                    request, series, round, tournament,
+                    series_index=data.get('series_index', 1))
             else:  # bracket
+                series_fresh = MatchSeries.objects.select_related(
+                    'player_group',
+                ).prefetch_related(
+                    'winners__tournament_player__profile',
+                    'matches__game',
+                    'matches__game__efforts__faction',
+                    'matches__game__efforts__player',
+                    'matchseat_set__stage_participant__tournament_player__profile',
+                ).get(pk=series.pk)
+                _attach_series_effort_grid(series_fresh)
                 html = render_to_string('the_warroom/partials/series_card_bracket.html', {
                     'series': series_fresh,
                     'is_bracket_finalized': True,
@@ -8484,6 +8737,246 @@ def round_delete_series(request, tournament_slug, stage_slug, round_slug):
 
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(['GET', 'POST'])
+def match_link_game(request, match_id):
+    """Link an already-recorded Game to a scheduled Match, or unlink one.
+
+    Players often record a game standalone instead of using the match's Record
+    button, which leaves the match reading as unplayed. This lets a moderator
+    attach that game after the fact, performing the same writes match mode would
+    have: the link, the roster sync, and the player-group nickname.
+
+    GET  -> candidate games for this match (JSON).
+    POST -> {"game_id": N} links; {"action": "unlink"} clears an existing link.
+
+    Keyed off the match id alone rather than tournament/stage/round slugs: matches
+    pages render at all three scopes, and Match reaches everything it needs through
+    round.get_tournament().
+    """
+    from django.http import JsonResponse
+
+    # round__tournament as well as round__stage__tournament: get_tournament()
+    # resolves through either, and a no-stage layout uses the direct FK.
+    match = get_object_or_404(
+        Match.objects.select_related(
+            'round__stage__tournament', 'round__tournament', 'series__player_group'),
+        id=match_id)
+    tournament = match.round.get_tournament()
+    profile = request.user.profile
+
+    # Mirrors `can_manage`, which gates the button in the template: has_permission
+    # AND profile.player, then downgraded by any active "view as" role. Gating on
+    # has_permission alone would leave the endpoint reachable when the button is not.
+    if not tournament or not (tournament.has_permission(profile) and profile.player):
+        raise PermissionDenied
+    if get_view_as(request, tournament) not in (None, 'moderator'):
+        raise PermissionDenied
+
+    # Same gate manage_game_v2 applies to recording: no games before the bracket is
+    # settled. The matches page only renders cards under is_bracket_finalized anyway.
+    if match.round.bracket_status != Round.BracketStatusChoices.FINALIZED:
+        return JsonResponse(
+            {'error': 'The bracket must be finalized before games can be linked.'},
+            status=400)
+
+    if request.method == 'GET':
+        return _match_link_candidates(request, match)
+
+    try:
+        data = json.loads(request.body or '{}')
+    except ValueError:
+        return JsonResponse({'error': 'Invalid request body.'}, status=400)
+
+    series_index = data.get('series_index', 1)
+    if data.get('action') == 'unlink':
+        return _match_unlink_game(request, match, tournament, series_index)
+    return _match_do_link_game(request, match, tournament, data, series_index)
+
+
+def _match_link_candidates(request, match):
+    """Candidate games for this match, each rendered as a ready-to-insert card.
+
+    Games whose roster equals the match's seats sort first, then by how many seated
+    players they share, then newest -- the exact-roster game is nearly always the one
+    the moderator wants.
+
+    The cards are rendered server-side rather than assembled in JS: the faction icon
+    URL comes from the cache_bust template filter, which JS can't call, and rendering
+    here means the picker reuses the same markup and CSS as the match cards behind it.
+    """
+    from django.http import JsonResponse
+    from django.template.loader import render_to_string
+
+    # Match.clean() requires the game to belong to the match's round, so candidates
+    # can only come from there. lfg_thread__isnull excludes games a Discord thread
+    # already owns through its own OneToOne (related_name is 'lfg_thread', not the
+    # default 'lfgthread'); linking one would leave two owners pointing at one row.
+    #
+    # efforts__faction is needed by the card (small_icon, its version, and title).
+    # Faction is multi-table inheritance, so it is narrowed to the icon-rendering
+    # column set rather than hydrating ~58 columns per row.
+    candidates = (Game.objects
+                  .filter(round_id=match.round_id, match__isnull=True,
+                          lfg_thread__isnull=True)
+                  .prefetch_related(
+                      'efforts__player',
+                      Prefetch('efforts__faction',
+                               queryset=Faction.objects.only(*Faction.LEADERBOARD_FIELDS)))
+                  .order_by('-date_posted'))
+
+    seat_profile_ids = set(
+        MatchSeat.objects.filter(series_id=match.series_id)
+        .values_list('stage_participant__tournament_player__profile_id', flat=True))
+
+    rows = []
+    for game in candidates:
+        game_profile_ids = {e.player_id for e in game.efforts.all() if e.player_id}
+        exact = bool(seat_profile_ids) and game_profile_ids == seat_profile_ids
+        rows.append({
+            'id': game.id,
+            'exact_roster': exact,
+            # Only used for the sort below; dropped before the response.
+            '_overlap': len(game_profile_ids & seat_profile_ids),
+            'html': render_to_string(
+                'the_warroom/partials/link_game_candidate.html',
+                {'game': game, 'exact_roster': exact}, request=request),
+        })
+
+    rows.sort(key=lambda r: (not r['exact_roster'], -r['_overlap']))
+    for row in rows:
+        del row['_overlap']
+
+    return JsonResponse({
+        'success': True,
+        'match_name': match.name or str(match),
+        'games': rows,
+    })
+
+
+def _match_do_link_game(request, match, tournament, data, series_index):
+    """Attach a game to the match: link, roster sync, nickname."""
+    from django.http import JsonResponse
+
+    game_id = data.get('game_id')
+    if not game_id:
+        return JsonResponse({'error': 'No game selected.'}, status=400)
+
+    with transaction.atomic():
+        # Lock the match row so two moderators (or a racing Record submit) can't
+        # both claim it. Only the match is locked: match.game is where uniqueness
+        # lives, and locking the game too would take locks in the opposite order
+        # from manage_game_v2.
+        match = Match.objects.select_for_update().get(id=match.id)
+        if match.game_id:
+            return JsonResponse(
+                {'error': 'This match already has a game linked.'}, status=400)
+
+        game = Game.objects.filter(id=game_id, round_id=match.round_id).first()
+        if game is None:
+            return JsonResponse({'error': 'That game is no longer available.'}, status=400)
+        if Match.objects.filter(game_id=game.id).exists():
+            return JsonResponse(
+                {'error': 'That game is already linked to another match.'}, status=400)
+
+        # --- Roster: make the seats mirror who actually played ---
+        stage = match.round.stage
+        # Dedupe on profile, keeping first-seen (seat) order: nothing constrains
+        # Effort.player to be unique within a game, and a coalition or coop game can
+        # seat one profile twice -- which would otherwise create duplicate seats.
+        game_players = []
+        seen = set()
+        for effort in game.efforts.select_related('player').order_by('seat'):
+            if effort.player_id and effort.player_id not in seen:
+                seen.add(effort.player_id)
+                game_players.append(effort.player)
+
+        if stage:
+            for player in game_players:
+                # Creates the TournamentPlayer and StageParticipant if the player
+                # wasn't registered; idempotent when they were.
+                stage.add_player(player)
+
+            MatchSeat.objects.filter(series_id=match.series_id).delete()
+            for seat_number, player in enumerate(game_players, start=1):
+                # .first(), not .get(): (stage, tournament_player) has no unique
+                # constraint and duplicates exist -- see the dedupe_stage_participants
+                # management command.
+                sp = (StageParticipant.objects
+                      .filter(stage=stage, tournament_player__profile=player)
+                      .order_by('id').first())
+                if sp:
+                    MatchSeat.objects.create(
+                        series_id=match.series_id, stage_participant=sp,
+                        seat_number=seat_number)
+
+        # --- Nickname: what match mode would have set ---
+        # record_game_v2.html posts a hidden input of match.name (the player group
+        # name), so this is the same value recording through the button produces.
+        if match.name:
+            game.nickname = match.name[:50]
+            game.save(update_fields=['nickname'])
+
+        # --- The link itself, mirroring manage_game_v2 ---
+        match.game = game
+        match.status = (CompetitionStatus.COMPLETED if game.final
+                        else CompetitionStatus.ACTIVE)
+        match.save()
+
+        if game.final:
+            from the_warroom.services.bracket import BracketService
+            BracketService.on_game_complete(match)
+
+    html, _ = _render_series_matches_card(
+        request, match.series, match.round, tournament, series_index=series_index)
+    return JsonResponse({'success': True, 'html': html, 'series_id': match.series_id})
+
+
+def _match_unlink_game(request, match, tournament, series_index):
+    """Clear a match's game link, resetting match/series/round status.
+
+    Deliberately narrow: the game itself, its nickname and the match roster are all
+    left as they are. Linking overwrote the nickname and replaced the seats without
+    keeping the previous values, so there is nothing to restore -- guessing would be
+    worse than leaving the moderator to fix it by hand.
+    """
+    from django.http import JsonResponse
+
+    with transaction.atomic():
+        match = Match.objects.select_for_update().get(id=match.id)
+        if not match.game_id:
+            return JsonResponse({'error': 'This match has no linked game.'}, status=400)
+
+        series = match.series
+        match.game = None
+        match.status = CompetitionStatus.PENDING
+        # update_fields matters: Match.save() rewrites self.name from the player
+        # group regardless of which fields were asked for, and restricting the set
+        # is what keeps that from being persisted.
+        match.save(update_fields=['game', 'status'])
+
+        # The same teardown game_pre_delete_reevaluate_match does -- it can't help
+        # here, being a pre_delete receiver on a game that survives. The
+        # other_completed branch keeps a multi-game series Active when its remaining
+        # games are still recorded.
+        series.winners.clear()
+        other_completed = series.matches.filter(
+            status=CompetitionStatus.COMPLETED).exclude(pk=match.pk).exists()
+        series.status = (CompetitionStatus.ACTIVE if other_completed
+                         else CompetitionStatus.PENDING)
+        series.save(update_fields=['status'])
+
+        # The match is playable again, so a round that had finished no longer has.
+        # reopen_round (not reevaluate_round_status, which never reopens a COMPLETED
+        # round) cascades to a completed stage/tournament, and no-ops otherwise.
+        from the_warroom.services.bracket import BracketService
+        BracketService.reopen_round(match.round)
+
+    html, _ = _render_series_matches_card(
+        request, match.series, match.round, tournament, series_index=series_index)
+    return JsonResponse({'success': True, 'html': html, 'series_id': match.series_id})
 
 
 # ===== Stage Advancement Views =====

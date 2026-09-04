@@ -503,24 +503,95 @@ PROPOSAL_RETIRED_TEXT = {
 }
 
 
-def proposal_reason_line(reason, actor=None):
+def proposal_reason_line(reason, actor=None, actors=None):
     """The one line saying WHY a proposal closed.
 
     `actor` is named only when a person actually decided it. An EXPIRED proposal
     was closed by nobody -- the time simply arrived -- so it must never read as
     someone's doing. That is why the reason is passed in rather than inferred from
     rejected_by: the row can carry a rejecter AND later expire, and guessing from
-    the field would invent an actor for a clock."""
+    the field would invent an actor for a clock.
+
+    `actors` is the LIST of people who said no, for the poll flow where a
+    rejection is a vote rather than a termination. It supersedes `actor` for the
+    "rejected" reason. `actor` is kept for the single-decider reasons (a manual
+    close, an unschedulable match) and for rows written before polls existed."""
     if reason == "rejected":
+        names = [roster_name(p, nudge=False) for p in (actors or [])]
+        if names:
+            return f"{name_join(names)} couldn't make it."
         # No actor means the Profile was deleted (rejected_by is SET_NULL), so
         # fall back to a whole sentence rather than "Rejected by A player."
         if actor is None:
             return "A player rejected this time."
         return f"Rejected by {roster_name(actor, nudge=False)}."
+    if reason == "closed":
+        if actor is None:
+            return "This poll was closed before everyone responded."
+        return (f"Closed by {roster_name(actor, nudge=False)} before everyone "
+                "responded.")
     if actor is not None and reason == "unschedulable":
         return (f"Closed by {roster_name(actor, nudge=False)} — "
                 "this match can no longer be scheduled.")
     return PROPOSAL_RETIRED_TEXT.get(reason, PROPOSAL_RETIRED_TEXT["cancelled"])
+
+
+def name_join(names):
+    """"A", "A and B", "A, B and C" — for naming the people who said no.
+
+    A bare ", ".join reads as a list of nobody in particular; the conjunction is
+    what makes it a sentence. Kept here beside proposal_reason_line, its only
+    caller, and reachable from the Celery strip task for the same reason
+    everything else in this section is."""
+    names = list(names)
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+# ── Poll rendering (shared by the interaction handlers and the strip task) ────
+# The response fields. These names are PARSED back out of the embed on every
+# click in embed mode, so changing a value is a wire-format change -- an in-flight
+# poll posted before the change stops being readable. See the plan's note on
+# deliberately not parsing both old and new names.
+POLL_YES_FIELD = "✅ Yes"
+POLL_NO_FIELD = "❌ No"
+POLL_PENDING_FIELD = "⏳ Pending"
+POLL_NOTIFY_FIELD = "🔔 Notify"
+
+# Discord renders up to three inline fields side by side. That is exactly the
+# three response lists, which is why Pending is the last of them -- a fourth
+# inline field would wrap to a new row and break the column illusion.
+_POLL_COLUMN_FIELDS = (POLL_YES_FIELD, POLL_NO_FIELD, POLL_PENDING_FIELD)
+
+
+def poll_count_label(name, entries):
+    """"✅ Yes (2)" — the tally belongs in the field NAME.
+
+    Side by side and short, the count is the thing people scan for, and reading
+    it off the column header saves counting rows across three columns."""
+    return f"{name} ({len(entries)})" if entries else name
+
+
+def poll_response_fields(yes_value, no_value, pending_value=None, *, columns=True):
+    """The response fields, as columns when there is room for them.
+
+    `pending_value` is None for a poll with no roster -- a bare channel, where
+    nobody knows who SHOULD respond. That field is then absent entirely rather
+    than rendered empty: an empty Pending column would claim we are waiting on
+    someone in particular.
+
+    `columns=False` stacks them, for a closed poll where the alignment the
+    columns protect no longer matters and a full-width list reads better."""
+    fields = []
+    for name, value in ((POLL_YES_FIELD, yes_value), (POLL_NO_FIELD, no_value),
+                        (POLL_PENDING_FIELD, pending_value)):
+        if value is None:
+            continue
+        fields.append({"name": name, "value": value, "inline": columns})
+    return fields
 
 
 def match_label(match):
@@ -534,21 +605,27 @@ def match_label(match):
     return (group.name if group and group.name else None) or match.name or "this match"
 
 
-def schedule_closed_embed(proposal, title, reason, actor=None, label=None):
+def schedule_closed_embed(proposal, title, reason, actor=None, label=None,
+                          author=None):
     """The embed for a proposal that has closed, keeping what it knew.
 
     Rendered from the row rather than hardcoded, so the thread keeps a record of
-    who suggested the time, what time it was, and who had agreed before it fell
-    through. All of that was already on the row and used to be discarded the
-    moment the proposal closed.
+    who suggested the time, what time it was, and who agreed or couldn't make it
+    before it fell through. All of that was already on the row and used to be
+    discarded the moment the proposal closed.
 
-    Every part is optional on the model -- proposed_by and rejected_by are
-    SET_NULL and confirmed_by can be empty -- so each is included only when
-    present, and a proposal whose proposer was deleted still renders.
+    Every part is optional on the model -- proposed_by is SET_NULL and both
+    response M2Ms can be empty -- so each is included only when present, and a
+    proposal whose proposer was deleted still renders.
 
     `label` defaults to the proposal's own match. It is NOT named match_label:
     that would shadow the module-level function of that name inside this body,
     turning any later call to it into a TypeError on a str.
+
+    `author` is the embed author block (name + avatar) carried over from the open
+    poll, so a closed message keeps its header. It cannot be rebuilt here: the
+    Celery strip task has no interaction payload, which is why the caller passes
+    whatever the message already had.
 
     Names render as mentions, which is safe: Discord only notifies from message
     `content`, never from inside an embed, so a closed message cannot ping anyone
@@ -569,17 +646,36 @@ def schedule_closed_embed(proposal, title, reason, actor=None, label=None):
     else:
         lines.append(f"Proposed for {when}")
 
-    lines.append(proposal_reason_line(reason, actor))
+    agreed = list(proposal.confirmed_by.all())
+    declined = list(proposal.rejected_by.all())
+    # "-#" renders small and grey. The embed-mode poll marks its closing note the
+    # same way, and the two must not read at different visual weights for the same
+    # event -- this is the one line saying how the poll ended, not part of the
+    # proposal's own description.
+    #
+    # Prefixed PER LINE: Discord's subtext marker applies to one line only, and
+    # some reasons ("expired") carry an embedded newline, whose second line would
+    # otherwise render full size.
+    reason_text = proposal_reason_line(reason, actor, actors=declined)
+    lines.extend(f"-# {line}" for line in reason_text.split("\n"))
 
     embed = {"title": title, "description": "\n".join(lines)}
+    if author:
+        embed["author"] = author
 
-    # Past tense: these confirmations no longer stand. "✅ Confirmed" would read as
-    # though the time were still live.
-    agreed = list(proposal.confirmed_by.all())
+    # Past tense: these responses no longer stand. "✅ Yes" would read as though
+    # the poll were still live. Stacked rather than columned -- a closed poll is
+    # a record, and the alignment the columns protect only matters while votes
+    # are arriving.
+    fields = []
     if agreed:
-        embed["fields"] = [{
-            "name": "✅ Had agreed",
-            "value": name_list_value(agreed, nudge=False),
-            "inline": False,
-        }]
+        fields.append({"name": poll_count_label("✅ Had agreed", agreed),
+                       "value": name_list_value(agreed, nudge=False),
+                       "inline": False})
+    if declined:
+        fields.append({"name": poll_count_label("❌ Couldn't make it", declined),
+                       "value": name_list_value(declined, nudge=False),
+                       "inline": False})
+    if fields:
+        embed["fields"] = fields
     return embed

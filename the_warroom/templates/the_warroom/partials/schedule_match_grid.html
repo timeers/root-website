@@ -9,9 +9,9 @@
     {% endif %}
 </p>
 {% else %}
-<div class="row g-3 mb-1">
+<div class="series-card-grid mb-1">
     {% for match in schedule_matches %}
-    <div class="col-md-6 col-lg-4">
+    <div>
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <strong>{% firstof match.name match.series.player_group.name %}{% if not match.name and not match.series.player_group.name %}{% trans 'Match' %}{% endif %}</strong>
@@ -45,11 +45,11 @@
                 {% for seat in match.series.matchseat_set.all %}
                 <div class="d-flex align-items-center gap-2 mb-1">
                     {% if seat.stage_participant.tournament_player.profile.image %}
-                    <img src="{{ seat.stage_participant.tournament_player.profile.image.url }}" alt="" class="rounded-circle" style="width:22px;height:22px;">
+                    <img src="{{ seat.stage_participant.tournament_player.profile.image.url }}" alt="" class="rounded-circle flex-shrink-0" style="width:22px;height:22px;">
                     {% else %}
-                    <i class="bi bi-person-circle"></i>
+                    <i class="bi bi-person-circle flex-shrink-0"></i>
                     {% endif %}
-                    <span>{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
+                    <span class="player-name-clamp" title="{{ seat.stage_participant.tournament_player.profile.display_name }}">{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
                 </div>
                 {% empty %}
                 <p class="text-muted mb-1">{% trans 'Players TBD' %}</p>
@@ -63,11 +63,11 @@
                 </div>
                 <div class="d-flex align-items-center gap-2">
                     {% if mod.image %}
-                    <img src="{{ mod.image.url }}" alt="" class="rounded-circle" style="width:22px;height:22px;">
+                    <img src="{{ mod.image.url }}" alt="" class="rounded-circle flex-shrink-0" style="width:22px;height:22px;">
                     {% else %}
-                    <i class="bi bi-person-circle"></i>
+                    <i class="bi bi-person-circle flex-shrink-0"></i>
                     {% endif %}
-                    <span>{{ mod.display_name }}</span>
+                    <span class="player-name-clamp" title="{{ mod.display_name }}">{{ mod.display_name }}</span>
                 </div>
                 {% endif %}
                 {% endwith %}

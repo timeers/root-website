@@ -22,14 +22,14 @@
         {% endif %}
 
         <!-- Match Cards Grid -->
-        <div class="row g-3 mb-4">
+        <div class="series-card-grid mb-4">
             {% for series in bracket_series %}
-            <div class="col-md-6 col-lg-4" id="series-card-{{ series.id }}" data-series-id="{{ series.id }}">
+            <div id="series-card-{{ series.id }}" data-series-id="{{ series.id }}">
                 {% include 'the_warroom/partials/series_card_bracket.html' %}
             </div>
             {% endfor %}
             {% if is_bracket_finalized %}
-            <div class="col-md-6 col-lg-4" id="addSeriesCard">
+            <div id="addSeriesCard">
                 <div class="card h-100 group-card d-flex align-items-center justify-content-center"
                      style="min-height: 120px; border-style: dashed !important; cursor: pointer;"
                      onclick="createNewSeries()">
@@ -179,7 +179,6 @@ function createNewSeries() {
 
         const grid = addCard.parentElement;
         const newCol = document.createElement('div');
-        newCol.className = 'col-md-6 col-lg-4';
         newCol.id = `series-card-${series.id}`;
         newCol.dataset.seriesId = series.id;
         newCol.innerHTML = `

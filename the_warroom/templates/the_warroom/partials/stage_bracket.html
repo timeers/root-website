@@ -45,11 +45,11 @@ Expects:
         {% endfor %}
     </div>
 {% else %}
-    <div class="row g-3 p-3">
+    <div class="series-card-grid p-3">
         {% for round in rounds %}
             {% if round.is_bracket_finalized %}
                 {% for match in round.matches.all %}
-                <div class="col-md-6 col-lg-4">
+                <div>
                     {% include 'the_warroom/partials/bracket_match.html' %}
                 </div>
                 {% empty %}

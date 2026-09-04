@@ -219,6 +219,42 @@ PICK_COMMAND = {
     "options": [],
 }
 
+# /seating + /draft + /pick as ONE message that is edited in place through every
+# phase. No options at all: the roster comes from the thread, and the platform is
+# always Tabletop Simulator (the ban/draft/pick flow has no Root Digital case).
+#
+# The description is deliberately broad about WHAT (it also gathers players and
+# runs the picks, and naming every step would be long and still incomplete) but
+# explicit about WHERE: Discord lists the command everywhere, while the handler
+# refuses outside an LFG game thread or a player group's thread, so the picker is
+# the only place to set that expectation before someone hits the refusal.
+ADSET_COMMAND = {
+    "name": "adset",
+    "description": "Seat players and draft factions within a thread",
+    "options": [],
+}
+
+# The only command that takes a FILE. Discord option type 11 (ATTACHMENT) is used
+# nowhere else in this project, so the handler needs its own resolver to read the
+# upload -- the option's value is the attachment's ID, and the metadata lives in
+# data["resolved"]["attachments"] (see _get_attachment).
+#
+# Like /seating and /pick it has no thread option: the game comes from the thread
+# it's run in. The description names the file type because Discord's picker will
+# happily attach anything and the refusal would otherwise be the first hint.
+BOXSCORE_COMMAND = {
+    "name": "boxscore",
+    "description": "Add a box score to this game from a JSON file",
+    "options": [
+        {
+            "name": "file",
+            "description": "The game's box score, as a .json file",
+            "type": 11,
+            "required": True,
+        }
+    ],
+}
+
 # Free text, no autocomplete — the title is whatever the host wants to call the
 # game. Only the host of the /lfg that made the thread may use it.
 RENAME_COMMAND = {
@@ -418,6 +454,8 @@ COMMANDS = [
     DRAFT_COMMAND,
     SEATING_COMMAND,
     PICK_COMMAND,
+    ADSET_COMMAND,
+    BOXSCORE_COMMAND,
     RENAME_COMMAND,
     RANDOM_COMMAND,
     LFG_COMMAND,
@@ -432,7 +470,7 @@ COMMAND_GROUPS = [
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats", "upcoming"]),
-    ("Games", ["lfg", "seating", "pick", "schedule", "record", "rename"]),
+    ("Games", ["lfg", "adset", "seating", "pick", "schedule", "boxscore", "record", "rename"]),
     ("Random", ["draft", "random"]),
 ]
 

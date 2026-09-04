@@ -29,7 +29,7 @@
                 {% trans 'Games' %}
             </a>
                 {% elif key == 'bracket' and has_bracket %}
-            <a href="{% url 'tournament-bracket-page' tournament.slug %}"
+            <a href="{{ tournament.get_bracket_url }}"
                class="section-nav-tab root-title {% if active_page == 'bracket' %}active{% endif %}">
                 {{ tournament.bracket_tab_label }}
             </a>

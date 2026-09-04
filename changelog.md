@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.13.5] - 2026-9-1 September Forever
+
+### New Features
+- /schedule now offers a choice between Poll and Suggest (or Set Time) every time it's used
+- /schedule polls have Yes, No, Notify and Close buttons and show responses in columns
+- /schedule polls close on their own once everyone on the roster has answered
+- Notify subscribers are messaged when someone confirms and when a poll closes
+- a match poll that everyone confirms sets the scheduled time, whether or not the series requires confirmation
+- /adset command combines seating, draft and picking factions into one command message
+- series moderators can now link or unlink games to the bracket
+- import json button on game page
+- /boxscore command to upload box score to the game thread for later recording
+
+### Improvements
+- matches are now sorted in this order: scheduled > unscheduled > complete
+- a "No" on a match no longer cancels the whole proposal — everyone still gets to answer
+- /schedule messages now show who suggested the time as the message author
+- /lfg no longer starts a thread with only 1 player
+- /lfg messages subscribed users when game is cancelled
+- /lfg does not ping role when used inside threads
+- /lfg claims the thread it is used in when possible
+- /lfg does not claim a thread if the role specified belongs to a different forum channel (you can't create a forum specific game outside of that forum)
+- hid confusing survey choice to send results to tournament or first stage when tournament doesn't use stages
+- match pages now display more matches per line on wider screens
+
+### Bug Fixes
+- fixed login bug where user could get stuck updating guilds forever
+
 ## [1.13.4] - 2026-8-31 Bot Evolution
 
 ### New Features

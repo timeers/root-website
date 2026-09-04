@@ -1,8 +1,11 @@
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
+from enum import Enum
 
 from celery import shared_task
+from celery.exceptions import Retry
 from dateutil.relativedelta import relativedelta
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
@@ -314,14 +317,52 @@ def update_discord_avatar_task(user_id, force=False):
     update_discord_avatar(user, force=force)
 
 
+class GuildSyncResult(Enum):
+    """Why a guild refresh ended, so callers know whether retrying could ever help."""
+    OK = 'ok'
+    # Discord was slow, rate-limited or erroring, or the inline budget ran out.
+    # A retry is worth doing.
+    TRANSIENT = 'transient'
+    # No usable Discord token (or no Discord account at all). Retrying re-discovers
+    # the same thing, so terminate immediately instead of burning the retry ladder.
+    NO_TOKEN = 'no_token'
+
+
+def _report_unusable_token(user):
+    """Surface a Discord account whose token no longer works.
+
+    One report per user per day: a revoked token re-reports on every single login, and
+    an alert that repeats is an alert that gets muted. cache.add is atomic and returns
+    False when the key is already set, so concurrent logins send exactly once.
+    """
+    key = f'unusable-discord-token:{user.pk}'
+    if cache.add(key, True, timeout=60 * 60 * 24):
+        send_discord_message_task.delay(
+            f"No usable Discord token for {user} - guild refresh skipped. "
+            f"They should log out and back in via Discord.", category='report')
+
+
+def _clear_guilds_refreshing(profile, synced):
+    """Drop the refresh flag. `synced` stamps guilds_synced_at; a FAILED refresh must
+    not, because guilds_synced_at feeds needs_sync_now in the login signal — claiming a
+    sync we never achieved would suppress the inline retry on the user's next login."""
+    fields = ['guilds_refreshing', 'guilds_refresh_started_at']
+    profile.guilds_refreshing = False
+    profile.guilds_refresh_started_at = None
+    if synced:
+        profile.guilds_synced_at = timezone.now()
+        fields.append('guilds_synced_at')
+    profile.save(update_fields=fields)
+
+
 def refresh_user_guilds(user, budget=None):
     """Refresh a user's Discord guild membership, flags, group and display name.
 
     Shared by refresh_user_guilds_task (the async path, no budget) and the login signal
-    (the inline path for a STALE profile, under a short budget). Returns True when the
-    refresh completed — the profile is saved with `guilds_refreshing` cleared — and
-    False when it could not, in which case NOTHING is written: the caller keeps the
-    spinner up and hands off to the task.
+    (the inline path for a STALE profile, under a short budget). Returns a
+    GuildSyncResult: OK means the refresh completed and the profile was saved with
+    `guilds_refreshing` cleared. TRANSIENT and NO_TOKEN both mean NOTHING was written —
+    the caller decides whether to retry (TRANSIENT) or give up now (NO_TOKEN).
 
     `budget` is a wall-clock allowance in seconds for the Discord calls. Enforced with a
     monotonic deadline: each call gets whatever time is left as its `timeout`. Note
@@ -335,10 +376,23 @@ def refresh_user_guilds(user, budget=None):
     from the_keep.models import Post
     from .services.discordservice import (
         get_user_guilds, update_user_guilds, derive_guild_membership,
-        get_discord_display_name,
+        get_discord_display_name, discord_refresh_capability,
     )
 
     profile = user.profile
+
+    # Check before spending any time: without a usable token every call below fails the
+    # same way, and the task would burn its whole retry ladder rediscovering that.
+    capability = discord_refresh_capability(user)
+    if capability != 'ok':
+        if capability == 'no_token':
+            # Has a Discord account but no usable token: a real fault, and invisible
+            # until someone reports a stuck spinner. 'no_account' is the ordinary
+            # admin/password login and is NOT a fault, so it stays silent.
+            logger.warning("Discord token unusable for %s; skipping guild refresh", user)
+            _report_unusable_token(user)
+        return GuildSyncResult.NO_TOKEN
+
     deadline = None if budget is None else time.monotonic() + budget
 
     def _remaining():
@@ -352,13 +406,14 @@ def refresh_user_guilds(user, budget=None):
         return {} if left is None else {'timeout': left}
 
     if _remaining() is not None and _remaining() <= 0:
-        return False
+        return GuildSyncResult.TRANSIENT
 
     guilds = get_user_guilds(user, **_timeout_kwargs())
     if guilds is None:
-        # API/token failure — distinct from "really in no guilds" ([]). Do NOT touch
+        # API failure — distinct from "really in no guilds" ([]). The token was usable
+        # a moment ago (checked above), so treat this as transient: do NOT touch
         # flags/group (never demote on a transient failure).
-        return False
+        return GuildSyncResult.TRANSIENT
 
     update_user_guilds(user, guilds)
     in_ww, in_wr, in_fr = derive_guild_membership(guilds)
@@ -400,15 +455,19 @@ def refresh_user_guilds(user, budget=None):
             updated = True
 
     profile.guilds_refreshing = False
+    profile.guilds_refresh_started_at = None
     profile.guilds_synced_at = timezone.now()
     if updated:
         profile.save(update_fields=[
             'group', 'in_weird_root', 'weird', 'in_french_root', 'in_woodland_warriors',
-            'display_name', 'guilds_refreshing', 'guilds_synced_at',
+            'display_name', 'guilds_refreshing', 'guilds_refresh_started_at',
+            'guilds_synced_at',
         ])
     else:
-        profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
-    return True
+        profile.save(update_fields=[
+            'guilds_refreshing', 'guilds_refresh_started_at', 'guilds_synced_at',
+        ])
+    return GuildSyncResult.OK
 
 
 @shared_task(bind=True, max_retries=3)
@@ -422,27 +481,60 @@ def refresh_user_guilds_task(self, user_id):
 
     Retry is manual (NOT autoretry_for) so `guilds_refreshing` stays True across pending
     retries — clearing it per-failed-attempt would drop the header spinner while a retry
-    is still queued. The flag clears exactly once: on success, on the no-token no-op, or
-    when retries are exhausted.
+    is still queued. The flag clears on every TERMINAL path and only there: success,
+    no usable token, retries exhausted, or an unexpected error. Anything that leaves
+    here without clearing must be a retry that is genuinely still queued.
     """
     from django.contrib.auth import get_user_model
 
     user = get_user_model().objects.filter(pk=user_id).first()
     if user is None or not hasattr(user, 'profile'):
+        # Never a bare return while a profile could still hold the flag. Note that
+        # Profile.user is on_delete=SET_NULL (models.py:1017), so a DELETED user detaches
+        # its profile and this lookup finds nothing -- those rows are freed by the
+        # staleness window instead. This covers the reachable case: the row still points
+        # at a user we just failed to load.
+        orphan = Profile.objects.filter(user_id=user_id).first()
+        if orphan is not None:
+            _clear_guilds_refreshing(orphan, synced=False)
         return
 
-    if refresh_user_guilds(user):
+    try:
+        result = refresh_user_guilds(user)
+    except Retry:
+        # Must precede the broad handler: Retry subclasses Exception, and swallowing it
+        # would silently turn a queued retry into a terminal clear.
+        raise
+    except Exception:
+        logger.exception("Guild refresh failed for user %s", user)
+        _clear_guilds_refreshing(user.profile, synced=False)
         return
 
-    # Couldn't complete. Retry a few times, then give up and clear the spinner so it
-    # can't get stuck on the header forever.
+    if result is GuildSyncResult.OK:
+        # refresh_user_guilds already saved the profile with the flag cleared.
+        return
+
+    if result is GuildSyncResult.NO_TOKEN:
+        # Retrying cannot conjure a token. Stop now rather than holding the spinner up
+        # for the full ~180s ladder. Not stamping guilds_synced_at means the next login
+        # (which re-stores the token via allauth) syncs inline as if never synced.
+        logger.warning("No usable Discord token for user %s; skipping guild refresh", user)
+        _clear_guilds_refreshing(user.profile, synced=False)
+        return
+
+    # TRANSIENT: Discord was slow or erroring. Retry a few times, then give up and clear
+    # the spinner so it can't get stuck on the header forever.
     if self.request.retries < self.max_retries:
+        # Re-stamp so the staleness window measures time since the last sign of life,
+        # not time since login. Without this the ladder (30+60+90s of backoff, plus
+        # execution) races GUILDS_REFRESH_MAX_AGE and the spinner can vanish while a
+        # retry is genuinely still queued -- breaking the contract in this docstring.
+        profile = user.profile
+        profile.guilds_refresh_started_at = timezone.now()
+        profile.save(update_fields=['guilds_refresh_started_at'])
         raise self.retry(countdown=30 * (self.request.retries + 1))
 
-    profile = user.profile
-    profile.guilds_refreshing = False
-    profile.guilds_synced_at = timezone.now()
-    profile.save(update_fields=['guilds_refreshing', 'guilds_synced_at'])
+    _clear_guilds_refreshing(user.profile, synced=False)
 
 
 @shared_task(
@@ -609,6 +701,64 @@ def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=Non
 
 
 @shared_task
+def notify_lfg_cancelled_task(notify_ids, host_name, description, jump_url=None):
+    """DM every notify subscriber that the host cancelled the game, so they stop
+    waiting on it. The host is excluded by the CALLER -- they're the one who
+    cancelled. Raw-id DMs (subscribers may have no Profile/SocialAccount);
+    Discord's 403 is swallowed per id. Mirrors notify_lfg_task."""
+    from .services.discordservice import send_dm_by_id
+    game = f"*{description}*" if description else "the game"
+    link = f" {jump_url}" if jump_url else ""
+    # Fall back to "The host" rather than emitting an empty bold "** cancelled".
+    host = f"**{host_name}**" if host_name else "The host"
+    for uid in notify_ids:
+        send_dm_by_id(uid, content=(f"{host} cancelled {game}.{link}\n"
+                                    "Use `/lfg` to start a new game."))
+
+
+@shared_task
+def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
+                              yes_count=0, total=None, declined=None,
+                              scheduled=False, jump_url=None):
+    """DM the 🔔 subscribers of a /schedule poll.
+
+    `event` is "yes" (someone just confirmed, with a running count) or "closed"
+    (the final result). The actor is excluded by the CALLER, as in the lfg notify
+    tasks. Raw-id DMs -- a subscriber need not have a Profile at all, which is
+    also why the notify list lives in the embed rather than an M2M.
+
+    The time is re-rendered as a Discord timestamp from the epoch so each
+    recipient reads it in their OWN timezone; a preformatted string would show
+    the sender's."""
+    from .services.discordservice import send_dm_by_id
+    from .services.time_parsing import format_discord_timestamp
+
+    when = format_discord_timestamp(
+        datetime.fromtimestamp(int(when_ts), tz=dt_timezone.utc))
+    link = f"\n{jump_url}" if jump_url else ""
+
+    if event == "yes":
+        who = f"**{actor_name}**" if actor_name else "Someone"
+        tally = (f" — {yes_count} of {total} players confirmed." if total
+                 else f" — {yes_count} confirmed so far.")
+        content = f"{who} confirmed for {when}.{tally}{link}"
+    else:
+        if scheduled:
+            content = f"The poll for {when} closed — everyone confirmed. ✅{link}"
+        elif declined:
+            names = ", ".join(f"**{n}**" for n in declined)
+            content = (f"The poll for {when} closed — {names} couldn't make it, so "
+                       f"no time was scheduled. Run `/schedule` to propose "
+                       f"another.{link}")
+        else:
+            content = (f"The poll for {when} closed before everyone "
+                       f"responded.{link}")
+
+    for uid in notify_ids:
+        send_dm_by_id(uid, content=content)
+
+
+@shared_task
 def create_match_threads_task(round_id, profile_id, tournament_id):
     """Create one forum thread per un-threaded MatchSeries in a round, ping its players,
     and link the thread back to the PlayerGroup. Reports the outcome as a
@@ -737,7 +887,8 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
 
 @shared_task
 def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description,
-                           players, embed=None, token=None, host_id=None):
+                           players, embed=None, token=None, host_id=None,
+                           in_thread=False, send_kickoff=True, role_pk=None):
     """Create the game thread, ping the players, link the original message's title
     to the thread, and persist the LFGThread row. `players` = [{"id","name"}] parsed
     from the Players field lines, so this task resolves-or-creates every Profile
@@ -749,13 +900,26 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
 
     If the game's LFG role has a `forum_channel_id`, the thread is created as a post
     in that forum channel; otherwise it hangs off the LFG message. A role's optional
-    `thread_message` is appended to the kickoff ping."""
+    `thread_message` is appended to the kickoff ping.
+
+    `in_thread` means /lfg was run inside a thread, so no thread is created at all:
+    that thread IS the game thread and is adopted as-is. Keyword-defaulted like
+    `host_id`, so a task enqueued before this argument existed still deserializes."""
     from .services.discordservice import (
         create_message_thread, create_forum_thread, post_channel_message,
+        apply_thread_tag,
     )
     guild = DiscordGuild.objects.filter(guild_id=guild_id).first() if guild_id else None
-    role = (GuildLFGRole.objects.filter(guild=guild, role_id=role_id).first()
-            if role_id and guild else None)
+    # `role_pk` is preferred over `role_id` when supplied: role_id is the DISCORD
+    # snowflake and is nullable ("leave blank if you only want the display tag"),
+    # so a display-only tag can't be found by it -- and those are exactly the tags
+    # most likely to exist purely to carry a `tournament`, which is what /record
+    # reads to resolve a series.
+    if role_pk and guild:
+        role = GuildLFGRole.objects.filter(pk=role_pk, guild=guild).first()
+    else:
+        role = (GuildLFGRole.objects.filter(guild=guild, role_id=role_id).first()
+                if role_id and guild else None)
 
     pings = " ".join(f"<@{p['id']}>" for p in players)
     kickoff = f"{pings} your game can start!".strip()
@@ -770,7 +934,26 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
                    or (embed or {}).get("title")
                    or "Game")[:100]
 
-    if role and role.forum_channel_id:
+    if in_thread:
+        # /lfg was run inside a thread: that thread IS the game thread. Discord
+        # cannot nest a thread on a message already inside one -- attempting it is
+        # what used to fail here -- and the host asked for the game right here.
+        # A thread's channel id IS its own id, so channel_id already names it.
+        #
+        # This mirrors what a freshly created thread receives: the same kickoff,
+        # posted into the thread everyone is already reading.
+        thread_id = channel_id
+        # /adset passes send_kickoff=False: everyone is already in the thread and
+        # just clicked Join, so the ping is noise -- and it would ping the table a
+        # second time moments after the join gate.
+        if send_kickoff:
+            post_channel_message(thread_id, kickoff)
+        # Adopting an existing forum post means its tag wasn't set at creation, so
+        # apply it now. Best-effort: a tag is decoration and must not cost the game
+        # its thread (apply_thread_tag logs and swallows its own failures).
+        if role and role.forum_tag_id:
+            apply_thread_tag(thread_id, role.forum_tag_id)
+    elif role and role.forum_channel_id:
         # Forum post: the starter message carries the kickoff ping (+ the game embed
         # for context). No parent message to hang off of.
         forum_embed = None
@@ -809,10 +992,23 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
             countdown=2,
         )
 
-    thread, _ = LFGThread.objects.get_or_create(
+    thread, created = LFGThread.objects.get_or_create(
         thread_id=thread_id,
         defaults={"guild": guild, "lfg_role": role, "description": description or ""},
     )
+    # An adopted thread that ALREADY had a row is not ours to write to: players.set
+    # below would replace the existing game's roster wholesale. /lfg refuses in a
+    # linked thread, so the only way here is a race -- two /lfg in one thread, both
+    # started before either persisted. Bail, keeping the first game intact; the
+    # kickoff already posted above is harmless.
+    #
+    # Deliberately NOT applied to the other paths: there, created=False means a task
+    # retry on a thread this same game created, where re-running these writes is the
+    # correct idempotent behaviour.
+    if in_thread and not created:
+        logger.warning("LFG thread %s already linked; refusing to adopt (race with "
+                       "another /lfg in this thread)", thread_id)
+        return
     # Resolve-or-create each player's Profile synchronously (display name is in the
     # embed line), so players.set attaches everyone — no reliance on Join-time tasks.
     if not players:
@@ -1096,7 +1292,10 @@ def strip_schedule_proposal_messages_task(proposal_ids, reason):
                  .filter(pk__in=list(proposal_ids or []))
                  .select_related("proposed_by", "match",
                                  "match__series__player_group")
-                 .prefetch_related("confirmed_by"))
+                 # rejected_by joined the embed when a "No" became a vote rather
+                 # than a termination. It is an M2M, so without it here the
+                 # closed-poll render costs an extra query per proposal.
+                 .prefetch_related("confirmed_by", "rejected_by"))
     for proposal in proposals:
         if not proposal.channel_id or not proposal.message_id:
             continue  # never posted (or the id never landed) — nothing to strip

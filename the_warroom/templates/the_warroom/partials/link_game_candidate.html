@@ -1,0 +1,60 @@
+{% load i18n static custom_filters %}
+{% comment %} One selectable game card in the link-game modal's picker grid. Context:
+game (efforts prefetched with player + faction), exact_roster.
+
+The player rows mirror series_effort_cells.html so a candidate reads the same way as
+the match cards behind the modal: faction icon with winner.png laid over the winner's.
+{% endcomment %}
+{% comment %} No h-100: the picker lays these out with flex-wrap, where items already
+stretch to the tallest in their row. height:100% against an auto-height flex line is
+redundant at best. {% endcomment %}
+<div class="card link-game-card" data-game-id="{{ game.id }}" role="button" tabindex="0">
+    {% comment %} Padding is set in the modal's stylesheet, not with a p-* utility:
+    the left/top values are tuned to clear the winner laurel's overflow. {% endcomment %}
+    <div class="card-body">
+        {% comment %} Date always; nickname only when the game has one. Deliberately not
+        Game.display_title -- its fallback is "<Tournament> Game", identical on every
+        card in a tournament and so useless for telling candidates apart. {% endcomment %}
+        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+            {% if game.nickname %}
+            <strong class="small text-truncate">{{ game.nickname }}</strong>
+            {% endif %}
+            <span class="text-muted small text-nowrap ms-auto">{{ game.date_posted|date:"M j, Y" }}</span>
+        </div>
+
+        {% if exact_roster or not game.final %}
+        <div class="mb-1">
+            {% if exact_roster %}<span class="badge bg-success">{% trans 'Roster match' %}</span>{% endif %}
+            {% if not game.final %}<span class="badge bg-secondary">{% trans 'Draft' %}</span>{% endif %}
+        </div>
+        {% endif %}
+
+        {% for effort in game.efforts.all %}
+        {% comment %} faction_id is required, not defensive: Effort.faction is nullable,
+        and cache_bust returns '' for an empty field -- which would render a broken
+        image. _attach_series_effort_grid filters the same way. {% endcomment %}
+        {% if effort.faction_id %}
+        <div class="effort-row d-flex align-items-center gap-2">
+            <div class="parent">
+                {% comment %} The laurel is deliberately lg- (40px) over a 20px base --
+                .image2's negative offsets let it spill up and left of the icon it
+                crowns. Not a size mismatch to "fix". {% endcomment %}
+                <img class="faction-icon image1"
+                     src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}"
+                     alt="{{ effort.faction.title }}" title="{{ effort.faction.title }}">
+                {% if effort.win %}
+                <img class="lg-faction-icon image2" src="{% static 'images/winner.png' %}" alt="{% trans 'Winner' %}">
+                {% endif %}
+            </div>
+            {% comment %} .name (not display_name) falls back discord -> "Anonymous" and
+            never yields blank; player itself is nullable, hence the default. {% endcomment %}
+            {% if effort.win %}
+            <strong class="small text-truncate">{{ effort.player.name|default:_('Unknown') }}</strong>
+            {% else %}
+            <span class="small text-truncate">{{ effort.player.name|default:_('Unknown') }}</span>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
