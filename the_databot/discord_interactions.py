@@ -436,7 +436,7 @@ def _handle_record_command(data):
     if not url:
         return _ephemeral("The site URL isn't configured, so I can't build a link.")
     return _ephemeral(
-        "Record a game on the Root Database:\n{url}")
+        f"Record a new game on the Root Database:\n{url}")
 
 
 def _handle_captain_command(data):
