@@ -2394,6 +2394,41 @@ def _handle_schedule_free(payload):
     })
 
 
+def _poll_proposer_seed(payload, owner, roster, kind):
+    """The opening `yes` list: the proposer already counted, or [].
+
+    They chose the time, so making them click Yes on their own poll is noise --
+    and on a two-player LFG thread it is the difference between one answer closing
+    the poll and two.
+
+    Only when they can actually vote in it. A bare channel's poll is open to
+    everyone present, so the proposer always counts; an LFG poll belongs to its
+    thread's players, so someone polling a thread they aren't in seeds nobody and
+    every player still has to answer -- the same rule _open_schedule_proposal
+    applies to a match roster.
+
+    The entry carries the raw snowflake as `id`, which is what _poll_state parses
+    back out of the rendered line and what _poll_pending_names matches against
+    Profile.discord_id, so the seeded Yes behaves exactly like a clicked one.
+
+    Not seeded when the proposer is the ONLY person a roster poll is waiting on.
+    That poll would open with nobody pending, and an embed poll only ever closes
+    on a click -- so it would sit open and complete forever with no answer left to
+    give. Leaving them unseeded keeps their own Yes as the click that closes it."""
+    if not owner:
+        return []
+    name = _lfg_member_display_name(payload)
+    if kind == "lfg" and roster:
+        me, status = _resolve_clicker(
+            roster, owner, _clicker_username(payload))
+        if status != CLICKER_MATCHED:
+            return []
+        if len(roster) == 1:
+            return []
+        name = me.display_name or name
+    return [{"id": str(owner), "name": name}]
+
+
 def _handle_schedule_poll_open(payload):
     """Poll: post the public time poll.
 
@@ -2419,9 +2454,15 @@ def _handle_schedule_poll_open(payload):
         return _ephemeral("Couldn't post that — run /schedule again.")
 
     roster, _thread = _poll_lfg_roster(payload) if kind == "lfg" else ([], None)
-    pending = [_roster_name(p) for p in roster] if roster else None
 
-    data = _schedule_poll_data(when, owner, yes=[], no=[], notify_ids=[],
+    # The proposer picked this time, so they are counted as a Yes without having
+    # to click their own poll -- matching what _open_schedule_proposal does for a
+    # match poll. Seeded BEFORE pending is computed so they don't appear in both
+    # columns, and so an LFG poll they're the last member of can still close.
+    yes = _poll_proposer_seed(payload, owner, roster, kind)
+    pending = _poll_pending_names(roster, yes, []) if roster else None
+
+    data = _schedule_poll_data(when, owner, yes=yes, no=[], notify_ids=[],
                                pending=pending, author=author, kind=kind)
     try:
         post_interaction_followup_task.apply_async((token, data), countdown=2)
@@ -4235,17 +4276,17 @@ def _pick_undrafted_line(thread):
     desync -- which is also why the no-draft case can't dump the whole faction
     list here.
 
-    Rendered exactly like a taken seat (emoji prefix, _pick_seat_detail suffix) so
-    the leftover reads as part of the board rather than a footnote, but with a
-    seatless prefix -- it belongs to no player and must not look like one."""
+    Rendered exactly like a taken seat's faction (emoji prefix, _pick_seat_detail
+    suffix) so the leftover reads as part of the board, but with no seat prefix
+    and a trailing "Undrafted" instead of a name -- it belongs to no player, and
+    a leading number or bullet would sit it in the seat column and read as one."""
     pick = undrafted_pick(thread)
     if pick is None:
         return ""
     emoji = faction_emoji_for(pick.faction.slug)
     mark = f"{emoji} {pick.faction.title}" if emoji else pick.faction.title
     mark += _pick_seat_detail(pick)
-    prefix = "-. " if thread.seating_set else "• "
-    return f"{prefix}Undrafted - {mark}"
+    return f"{mark} Undrafted"
 
 
 def _pick_panel_data(thread, seats, mode, owner, pool=None, notice=None, header=None):

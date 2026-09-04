@@ -27,6 +27,8 @@
 
 ### Bug Fixes
 - fixed login bug where user could get stuck updating guilds forever
+- Undrafted faction is listed as its own line after /pick
+- person who suggests a time is automatically marked as a Yes response in /schedule
 
 ## [1.13.4] - 2026-8-31 Bot Evolution
 
