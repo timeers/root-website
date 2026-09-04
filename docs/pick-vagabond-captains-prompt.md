@@ -10,7 +10,7 @@ below are from commit `a559283e` and may have drifted.
 
 ## Background you can rely on
 
-`/pick` lives entirely in `the_gatehouse/discord_interactions.py`, in the section starting
+`/pick` lives entirely in `the_databot/discord_interactions.py`, in the section starting
 at the `# ── /pick ──` banner (~line 2545). The relevant pieces:
 
 - `_pick_pool(thread)` (~2645) returns the pickable factions as
@@ -31,7 +31,7 @@ at the `# ── /pick ──` banner (~line 2545). The relevant pieces:
 ## Task 1 — Vagabond identity (do this first; it is a live data bug)
 
 All 12 vagabond variants share a single `Faction` row (see the note in
-`the_gatehouse/models.py` on `LFGDraftPick`, ~454-456). So when a player picks Vagabond in a
+`the_databot/models.py` on `LFGDraftPick`, ~454-456). So when a player picks Vagabond in a
 game with **no draft**, `_pick_pool` supplies `vagabond_slug=None` and the seat is saved with
 `seat.vagabond = None` — Ranger and Thief collapse into the same record.
 
@@ -42,7 +42,7 @@ a second string-select of Vagabonds instead of advancing the panel. On choice, w
 - Pool: `Vagabond.objects.filter(official=True, status=1).exclude(slug__isnull=True)`
   (9 rows today). Note `status=1` is an int against a CharField of string choices — Django
   coerces it, and this matches every other call site in the file.
-- Emoji: `vagabond_emoji_for(vagabond)` in `the_gatehouse/services/discordservice.py`
+- Emoji: `vagabond_emoji_for(vagabond)` in `the_databot/services/discordservice.py`
   (~1436), passed through `parse_emoji_object` for component form. Compare how
   `_pick_panel_data` uses `faction_emoji_object(slug)`.
 - **Skip the prompt entirely when the pool entry already carries a `vagabond_slug`** — that
@@ -56,7 +56,7 @@ a second string-select of Vagabonds instead of advancing the panel. On choice, w
 
 ## Task 2 — Knaves of the Deepwood captains
 
-`LFGSeat` (`the_gatehouse/models.py` ~481-519) has **no `captains` field**, so a seat cannot
+`LFGSeat` (`the_databot/models.py` ~481-519) has **no `captains` field**, so a seat cannot
 record captains at all. Only `LFGDraftPick.captains` exists (~467-468).
 
 The real game rule is **pick 3 of 4 offered**. Useful data fact: only **4** captain-capable
@@ -83,7 +83,7 @@ Steps:
      M2M `.set()` cannot run before the row exists and does not need the row lock.
 3. **Capture the captains.** Append `_lfg_item("Captain", c)` per chosen captain to the roll
    capture, exactly as `/draft` does at ~2292-2293. `ROLL_KIND_TO_BUCKET` in
-   `the_gatehouse/services/lfg_game.py` (~33) already maps `"Captain" → "captains"`, and
+   `the_databot/services/lfg_game.py` (~33) already maps `"Captain" → "captains"`, and
    `lfg_option_querysets` (~129) already has a `captains` bucket. Without the rolls, the
    record form's narrowing will not offer them.
 4. **Prefill the record form.** `seated_profiles` (`services/lfg_game.py` ~82-107) returns a
@@ -103,7 +103,7 @@ Steps:
    (FK) in `the_warroom/models.py` ~2366-2367, wired up at `views.py` ~1332-1333.
    Leave `discarded_captain` unset — `/pick` records the 3 taken; which of the 4 was
    discarded is derivable and not worth inferring here.
-5. **Admin.** `LFGSeatInline.readonly_fields` (`the_gatehouse/admin.py` ~69-74) currently
+5. **Admin.** `LFGSeatInline.readonly_fields` (`the_databot/admin.py` ~69-74) currently
    lists only `seat_number, profile, faction` — it already omits the existing `vagabond`
    field. Add both `vagabond` and `captains`. Note `filter_horizontal` does not work on a
    readonly M2M; prefer a small read-only display method, since these rows are bot-written.
