@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from the_gatehouse.models import Profile
 from the_gatehouse.utils import format_bulleted_list
-from the_databot.tasks import send_rich_discord_message_task, send_discord_message_task
+from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 
 from .models import Game, Tournament, Stage, Round, CompetitionStatus, EloSystem, EloRating, EloParticipant
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api

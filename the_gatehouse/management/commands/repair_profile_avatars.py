@@ -3,7 +3,7 @@ from django.core.management.base import BaseCommand
 from allauth.socialaccount.models import SocialAccount
 
 from the_gatehouse.models import Profile, DEFAULT_PROFILE_IMAGE
-from the_databot.services.discordservice import update_discord_avatar
+from the_gatehouse.services.discord_oauth import update_discord_avatar
 
 
 def _is_missing(profile):

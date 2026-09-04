@@ -600,7 +600,7 @@ class Post(models.Model):
             Post.objects.filter(pk=self.pk).update(designers_list=designers_list)
         # If the post is new and not in submittal status
         if new_post and self.status != StatusChoices.SUBMITTED:
-            from the_databot.tasks import send_rich_discord_message_task
+            from the_gatehouse.tasks import send_rich_discord_message_task
             fields = []
             fields.append({
                     'name': 'By:',

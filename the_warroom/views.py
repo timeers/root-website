@@ -60,10 +60,8 @@ from the_gatehouse.views import (player_required, admin_required,
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
-from the_databot.tasks import (
-    send_rich_discord_message_task, send_discord_message_task,
-    post_channel_message_task, create_match_threads_task,
-)
+from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
+from the_databot.tasks import post_channel_message_task, create_match_threads_task
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
 from the_warroom.services.channel_posts import post_to_tournament_channel
 from the_gatehouse.services.context_service import get_theme, get_thematic_images

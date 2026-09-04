@@ -146,7 +146,7 @@ class CloneForgedFactionTests(TestCase):
         self.assertEqual(step.content_box.sheet_id, copy.faction_sheet.pk)
 
     def test_discord_not_sent_during_clone(self):
-        with mock.patch('the_databot.tasks.send_rich_discord_message_task.delay') as delay:
+        with mock.patch('the_gatehouse.tasks.send_rich_discord_message_task.delay') as delay:
             clone_forged_faction(self.source)
         delay.assert_not_called()
 
