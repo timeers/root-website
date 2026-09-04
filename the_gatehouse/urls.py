@@ -20,10 +20,7 @@ from .views import (user_settings, player_page_view, dwd_profile_redirect,
                     manage_guilds, edit_guild, hx_save_lfg_role, hx_delete_lfg_role,
                     hx_save_tournament_channels, refresh_guild_discord_cache)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
-from .discord_interactions import discord_interactions
 urlpatterns = [
-    path('discord/interactions/', discord_interactions, name='discord-interactions'),
-
     # path("", list_view, name='home'),
     # path("home/", list_view),
     path('status/', status_check, name='status_check'),

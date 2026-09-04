@@ -60,7 +60,7 @@ from the_databot.services.time_parsing import (
 from the_databot.services.discordservice import (build_upcoming_embed,
                                                    build_lfg_help_embed, _LFG_LINK_RE)
 from the_databot.services import discordservice as ds
-from the_gatehouse import discord_interactions as di
+from the_databot import discord_interactions as di
 from the_gatehouse.templatetags.databot_filters import lfg_body
 
 class UpdatePostStatusTaskTest(TestCase):

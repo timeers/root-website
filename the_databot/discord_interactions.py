@@ -2796,7 +2796,10 @@ def _poll_closer_is_staff(payload):
 
     Embed-mode polls have no Match, so there is no can_schedule to consult --
     guild moderation is the only staff signal available here."""
-    from .views import can_moderate_guild
+    # Lazy + cross-app: the_gatehouse.views imports the_databot.tasks and
+    # discordservice at module scope, so a top-level import here would close
+    # the cycle.
+    from the_gatehouse.views import can_moderate_guild
 
     guild_id = payload.get("guild_id")
     if not guild_id:
@@ -3961,7 +3964,10 @@ def _thread_staff_override(profile, group, guild_id):
     first command creates one, so keying the can_schedule branch off the thread
     would refuse a group moderator's very first command -- the same trap the
     roster lookup avoids by resolving the group directly."""
-    from .views import can_moderate_guild
+    # Lazy + cross-app: the_gatehouse.views imports the_databot.tasks and
+    # discordservice at module scope, so a top-level import here would close
+    # the cycle.
+    from the_gatehouse.views import can_moderate_guild
 
     if guild_id:
         guild = DiscordGuild.objects.filter(guild_id=str(guild_id)).first()
