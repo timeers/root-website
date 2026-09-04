@@ -287,7 +287,7 @@ class FactionSheet(models.Model):
         super().save(*args, **kwargs)
         ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new and not clone_in_progress():
-            from the_databot.tasks import send_rich_discord_message_task
+            from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
             fields = [{'name': 'By:', 'value': str(self.faction.designer)}]
@@ -874,7 +874,7 @@ class FactionBack(models.Model):
         super().save(*args, **kwargs)
         ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new and not clone_in_progress():
-            from the_databot.tasks import send_rich_discord_message_task
+            from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
             fields = [{'name': 'By:', 'value': str(self.faction.designer)}]
@@ -958,7 +958,7 @@ class SetupCard(models.Model):
         super().save(*args, **kwargs)
         ForgedFaction.objects.filter(pk=self.faction_id).update(last_updated=timezone.now())
         if new and not clone_in_progress():
-            from the_databot.tasks import send_rich_discord_message_task
+            from the_gatehouse.tasks import send_rich_discord_message_task
             from django.urls import reverse
             url = reverse('forge-faction-detail', kwargs={'pk': self.faction.pk})
             fields = [

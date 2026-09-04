@@ -20,9 +20,9 @@ from kombu.exceptions import OperationalError
 
 from .models import Profile, ForegroundImage, BackgroundImage, Changelog
 from the_databot.models import BotBlacklist
-from the_databot.services.discordservice import get_discord_id, discord_refresh_capability
+from .services.discord_oauth import get_discord_id, discord_refresh_capability
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
-from the_databot.tasks import (send_discord_message_task, update_discord_avatar_task,
+from .tasks import (send_discord_message_task, update_discord_avatar_task,
                     refresh_user_guilds_task, refresh_user_guilds, GuildSyncResult)
 
 from the_keep.utils import resize_image_to_webp, delete_old_image, resize_image_in_place
