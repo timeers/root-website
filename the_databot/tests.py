@@ -1776,6 +1776,60 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
                            when=when, embed=first["embeds"][0])
         self.assertEqual(done["components"], [])
 
+    def test_a_unanimous_lfg_poll_is_titled_confirmed(self):
+        """The whole roster said yes, so the title must say so. It read
+        "Time not scheduled" while _poll_close_response hardcoded
+        scheduled=False, contradicting its own "Everyone confirmed" subtext."""
+        self._lfg_thread()   # players: self.player and self.outsider
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, kind="lfg",
+                            when=when)
+        done = self._click("sched_poll_ok", self.outsider.discord_id, kind="lfg",
+                           when=when, embed=first["embeds"][0])
+        self.assertEqual(done["embeds"][0]["title"], "✅ Time Confirmed")
+
+    def test_a_confirmed_lfg_poll_does_not_claim_to_be_scheduled(self):
+        """Agreement is not a booking: an embed poll has no Match to write to,
+        so the subtext stays the plain confirmation."""
+        self._lfg_thread()
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, kind="lfg",
+                            when=when)
+        done = self._click("sched_poll_ok", self.outsider.discord_id, kind="lfg",
+                           when=when, embed=first["embeds"][0])
+        description = done["embeds"][0]["description"]
+        self.assertIn("Everyone confirmed", description)
+        self.assertNotIn("Scheduled —", description)
+
+    def test_an_lfg_poll_with_a_no_is_still_not_scheduled(self):
+        """One decline and the roster did NOT agree, however the rest voted."""
+        self._lfg_thread()
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, kind="lfg",
+                            when=when)
+        done = self._click("sched_poll_no", self.outsider.discord_id, kind="lfg",
+                           when=when, embed=first["embeds"][0])
+        self.assertEqual(done["embeds"][0]["title"], "🗓 Time not scheduled")
+
+    def test_an_early_close_is_never_reported_as_confirmed(self):
+        """Unanimous so far is not unanimous: somebody stopped the poll before
+        the rest of the roster answered."""
+        self._lfg_thread()
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        first = self._click("sched_poll_ok", self.player.discord_id, kind="lfg",
+                            when=when)
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL, "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": self.player.discord_id,
+                                "username": "player"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_close", "lfg", self.player.discord_id, "g")},
+            "message": {"id": "m", "components": [],
+                        "embeds": [first["embeds"][0]]},
+        }
+        done = self._body(di._handle_schedule_poll_close(payload))["data"]
+        self.assertEqual(done["embeds"][0]["title"], "🗓 Poll closed")
+
     def test_responding_writes_nothing(self):
         self._lfg_thread()
         self._click("sched_poll_ok", self.player.discord_id, kind="lfg")

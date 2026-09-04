@@ -2261,7 +2261,7 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
 
     if closed:
         if scheduled:
-            title = "✅ Time confirmed"
+            title = "✅ Time Confirmed"
         elif closed_reason == "closed":
             title = "🗓 Poll closed"
         else:
@@ -2317,11 +2317,16 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
 
 
 def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind):
-    """The `-#` subtext explaining how a poll ended."""
+    """The `-#` subtext explaining how a poll ended.
+
+    `scheduled` means agreement, which only match mode can act on: it has a Match
+    to write the time to. An embed poll can be just as unanimous and still writes
+    nothing, so it keeps the plain "Everyone confirmed" below rather than
+    promising a booking that never happened."""
     if reason == "closed":
         who = f" by <@{closed_by}>" if closed_by else ""
         return f"-# Closed{who} before everyone responded."
-    if scheduled:
+    if scheduled and kind == "match":
         return "-# Scheduled — everyone confirmed."
     if no_entries:
         names = name_join([f"<@{e['id']}>" for e in no_entries])
@@ -2819,9 +2824,16 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
     `closed_by` always names whoever's click ended the poll, so they are excluded
     from the DM. It only reaches the RENDERER for an early close (reason
     "closed"), where "Closed by X" is the right note -- on an auto-close the last
-    voter did not close anything, the roster simply finished."""
+    voter did not close anything, the roster simply finished.
+
+    A roster that ran to completion with nobody declining is AGREED: the group
+    settled on the time. Embed modes still write nothing to the site -- there is
+    no Match behind them -- but the title reports the vote, which is the only
+    outcome these polls have. An early close is never agreement, however
+    unanimous the votes so far: somebody stopped it before the roster finished."""
+    agreed = reason != "closed" and not no and bool(yes)
     if notify_ids:
-        _notify_poll_closed(notify_ids, when, no, scheduled=False,
+        _notify_poll_closed(notify_ids, when, no, scheduled=agreed,
                             closed_by=closed_by, jump_url=jump_url)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -2830,7 +2842,7 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
             label=label, author=author, kind=kind, closed=True,
             closed_reason=reason,
             closed_by=closed_by if reason == "closed" else None,
-            scheduled=False),
+            scheduled=agreed),
     })
 
 
