@@ -25,7 +25,7 @@ from the_gatehouse.models import MessageChoices, UserNotification
 from the_gatehouse.utils import build_absolute_uri
 from the_keep.models import Faction, PostTranslation
 from the_keep.utils import delete_old_image
-from the_gatehouse.tasks import send_discord_message_task, send_rich_discord_message_task
+from the_databot.tasks import send_discord_message_task, send_rich_discord_message_task
 
 from .forms_publish import (
     ForgedFactionLinkForm,

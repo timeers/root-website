@@ -60,7 +60,7 @@ from the_gatehouse.views import (player_required, admin_required,
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
-from the_gatehouse.tasks import (
+from the_databot.tasks import (
     send_rich_discord_message_task, send_discord_message_task,
     post_channel_message_task, create_match_threads_task,
 )

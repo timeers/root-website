@@ -46,7 +46,7 @@ from the_databot.models import (
     BotBlacklist, GuildLFGRole, LFGThread, ScheduleProposal,
     LFGSeat, LFGRoll, LFGDraft,
 )
-from .tasks import (
+from the_databot.tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task,
     ensure_profile_from_discord, notify_lfg_task, notify_lfg_cancelled_task,
     notify_schedule_poll_task,

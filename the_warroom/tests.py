@@ -26,7 +26,7 @@ from the_warroom.services.box_score_import import (
 )
 from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
 from the_warroom.forms import GameCreateForm
-from the_gatehouse.tasks import create_match_threads_task
+from the_databot.tasks import create_match_threads_task
 from the_warroom.models import (
     CompetitionStatus, Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup,
     Round, Stage, StageParticipant, Tournament, TournamentPlayer,
@@ -1096,7 +1096,7 @@ class ResultsChannelAnnounceTests(TestCase):
         post_save.connect(handle_image_resize, sender=Profile)
 
     def _post(self, message):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         from the_warroom.services.channel_posts import post_to_tournament_channel
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT), \

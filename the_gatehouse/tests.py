@@ -47,7 +47,7 @@ from the_databot.services.lfg_game import (
     picked_factions_by_profile, captains_by_seat, undrafted_pick,
     lfg_option_querysets, FULL_CAPTAIN_COMPLEMENT,
 )
-from the_gatehouse.tasks import (
+from the_databot.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
     notify_lfg_cancelled_task, notify_schedule_poll_task,
 )
@@ -2496,7 +2496,7 @@ class LFGAdoptThreadTests(TestCase):
                            return_value="950000000000000002") as forum_thread, \
                 mock.patch("the_databot.services.discordservice.post_channel_message") as post, \
                 mock.patch("the_databot.services.discordservice.apply_thread_tag") as tag, \
-                mock.patch("the_gatehouse.tasks.link_lfg_message_task.apply_async"):
+                mock.patch("the_databot.tasks.link_lfg_message_task.apply_async"):
             create_lfg_thread_task(
                 thread_id, "msg", guild, role_id, "a game",
                 [{"id": "960000000000000001", "name": "Bob"},
@@ -2813,7 +2813,7 @@ class LFGHostRecordingTests(TestCase):
                         return_value=thread_id), \
                 mock.patch("the_databot.services.discordservice.create_forum_thread"), \
                 mock.patch("the_databot.services.discordservice.post_channel_message"), \
-                mock.patch("the_gatehouse.tasks.link_lfg_message_task.apply_async"):
+                mock.patch("the_databot.tasks.link_lfg_message_task.apply_async"):
             create_lfg_thread_task(
                 "chan", "msg", None, None, "a game",
                 [{"id": "840000000000000001", "name": "Bob"}], {}, **kwargs,
@@ -3238,7 +3238,7 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
 
     def _capture(self, fn):
         """Run fn with Discord reads stubbed, returning the posted content or None."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT), \
              mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
@@ -3296,7 +3296,7 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
         proposal = self._proposal(self.when)
         # The stubbed list belongs to the tournament's *current* guild and doesn't
         # contain the stored id, so the post is refused.
-        from the_gatehouse import tasks
+        from the_databot import tasks
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=[]), \
              mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
@@ -3369,7 +3369,7 @@ class TournamentChannelSecurityTests(_NoLoginSignalMixin, TestCase):
     # ---- Send-time verification -----------------------------------------------
 
     def _post(self, field='results_channel', text=None, forum=None):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         from the_warroom.services.channel_posts import post_to_tournament_channel
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT if text is None else text), \
@@ -3396,7 +3396,7 @@ class TournamentChannelSecurityTests(_NoLoginSignalMixin, TestCase):
     def test_fails_closed_when_discord_is_unreachable(self):
         """A None list means the fetch failed -> unverified -> refuse. This is the
         deliberate inverse of the settings form, which lets an outage through."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         from the_warroom.services.channel_posts import post_to_tournament_channel
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=None), \
@@ -8493,7 +8493,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
 
     def test_an_agreed_proposal_is_still_expired(self):
-        from the_gatehouse.tasks import cleanup_stale_schedule_proposals
+        from the_databot.tasks import cleanup_stale_schedule_proposals
         self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
         self.tournament.save(update_fields=["recording_access"])
         di._handle_schedule_proposal_confirm(self._payload())
@@ -9070,7 +9070,7 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
         self.assertEqual(reason, "website")
 
     def test_website_reason_has_its_own_message(self):
-        from the_gatehouse.tasks import _PROPOSAL_RETIRED_TEXT
+        from the_databot.tasks import _PROPOSAL_RETIRED_TEXT
         text = _PROPOSAL_RETIRED_TEXT["website"]
         self.assertIn("website", text.lower())
         self.assertNotEqual(text, _PROPOSAL_RETIRED_TEXT["cancelled"])
@@ -9292,7 +9292,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
             proposed_by=self.player, channel_id="555000111")
 
     def test_post_task_records_message_id(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         with mock.patch(
             "the_databot.services.discordservice.post_channel_message_full",
             return_value=(ds.THREAD_OK, "98765"),
@@ -9303,7 +9303,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self.proposal.message_id, "98765")
 
     def test_post_task_reraises_transient_failure(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         with mock.patch(
             "the_databot.services.discordservice.post_channel_message_full",
             return_value=(ds.THREAD_ERROR, None),
@@ -9312,7 +9312,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
                 tasks.post_schedule_proposal_task(self.proposal.pk, {"content": "x"})
 
     def test_post_task_skips_non_open_proposal(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self.proposal.status = ScheduleProposal.Status.SUPERSEDED
         self.proposal.save(update_fields=["status"])
         with mock.patch(
@@ -9324,7 +9324,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
     def test_strip_task_renders_the_new_closed_layout(self):
         """The sweep must not revert a poll to the pre-restyle design: it needs
         the author block and the ❌ column, not just "Had agreed"."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self.proposal.message_id = "98765"
         self.proposal.save(update_fields=["message_id"])
         self.proposal.confirmed_by.add(self.player)
@@ -9343,7 +9343,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
     def test_strip_task_does_not_n_plus_one_over_responses(self):
         """rejected_by is an M2M now, so it has to be prefetched alongside
         confirmed_by or a batch costs an extra query per proposal."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         pks = []
         for i in range(3):
             proposal = ScheduleProposal.objects.create(
@@ -9364,7 +9364,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
                 tasks.strip_schedule_proposal_messages_task(pks, "expired")
 
     def test_strip_task_skips_blank_message_id(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         with mock.patch(
             "the_databot.services.discordservice.edit_channel_message",
         ) as edit:
@@ -9375,7 +9375,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         """An out-of-band retirement (superseded here) keeps the same record a
         clicked one does -- otherwise the detail shown depended on which path
         happened to close the proposal."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self.proposal.message_id = "111"
         self.proposal.save(update_fields=["message_id"])
         with mock.patch(
@@ -9393,7 +9393,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.assertNotIn("Closed by", embed["description"])
 
     def test_strip_task_swallows_permanent_failure(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self.proposal.message_id = "111"
         self.proposal.save(update_fields=["message_id"])
         with mock.patch(
@@ -9403,7 +9403,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
             tasks.strip_schedule_proposal_messages_task([self.proposal.pk], "superseded")
 
     def test_strip_task_reraises_transient_failure(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self.proposal.message_id = "111"
         self.proposal.save(update_fields=["message_id"])
         with mock.patch(
@@ -9415,7 +9415,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
                     [self.proposal.pk], "superseded")
 
     def test_cleanup_retires_past_proposals(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self.proposal.proposed_time = timezone.now() - timedelta(hours=1)
         self.proposal.message_id = "111"
         self.proposal.save(update_fields=["proposed_time", "message_id"])
@@ -9609,7 +9609,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
 
     def test_budget_exhaustion_skips_the_cosmetic_display_name(self):
         """Group promotion gates access; the nickname can wait for the async task."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         clock = self._fake_clock()
 
@@ -9635,7 +9635,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
         name.assert_not_called()
 
     def test_exhausted_budget_before_first_call_is_transient(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         clock = self._fake_clock()
         clock.now = 99   # already past the deadline when we start
@@ -9651,7 +9651,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
 
     def test_no_budget_means_no_timeout_override(self):
         """The async task path must keep the historical per-call 5s defaults."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         with mock.patch('the_databot.services.discordservice.get_user_guilds',
                         return_value=[]) as get_guilds, \
@@ -9796,10 +9796,10 @@ class RefreshUserGuildsTaskTerminalTests(TestCase):
     def test_a_no_token_user_terminates_instead_of_retrying(self):
         """Headline regression: strand route #1. A permanent failure must not be routed
         through the transient-retry path, where a deploy could drop it forever."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         with mock.patch.object(tasks.refresh_user_guilds_task, 'retry') as retry, \
-             mock.patch('the_gatehouse.tasks.refresh_user_guilds',
+             mock.patch('the_databot.tasks.refresh_user_guilds',
                         return_value=tasks.GuildSyncResult.NO_TOKEN):
             tasks.refresh_user_guilds_task(self.user.id)
 
@@ -9812,9 +9812,9 @@ class RefreshUserGuildsTaskTerminalTests(TestCase):
         self.assertIsNone(self.profile.guilds_synced_at)
 
     def test_a_pending_retry_does_not_clear_the_flag(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
-        with mock.patch('the_gatehouse.tasks.refresh_user_guilds',
+        with mock.patch('the_databot.tasks.refresh_user_guilds',
                         return_value=tasks.GuildSyncResult.TRANSIENT):
             with self.assertRaises(Retry):
                 tasks.refresh_user_guilds_task(self.user.id)
@@ -9825,13 +9825,13 @@ class RefreshUserGuildsTaskTerminalTests(TestCase):
     def test_a_queued_retry_re_stamps_the_timestamp(self):
         """Otherwise the retry ladder (30+60+90s) races GUILDS_REFRESH_MAX_AGE and the
         flag can age out mid-flight, dropping the spinner while work is still queued."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         old = timezone.now() - timedelta(minutes=4)
         self.profile.guilds_refresh_started_at = old
         self.profile.save(update_fields=['guilds_refresh_started_at'])
 
-        with mock.patch('the_gatehouse.tasks.refresh_user_guilds',
+        with mock.patch('the_databot.tasks.refresh_user_guilds',
                         return_value=tasks.GuildSyncResult.TRANSIENT):
             with self.assertRaises(Retry):
                 tasks.refresh_user_guilds_task(self.user.id)
@@ -9841,14 +9841,14 @@ class RefreshUserGuildsTaskTerminalTests(TestCase):
         self.assertTrue(self.profile.guilds_refresh_in_progress)
 
     def test_exhausted_retries_clear_without_claiming_a_sync(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         task = tasks.refresh_user_guilds_task
         # Task.request is a read-only property backed by a stack; push_request is the
         # supported way to stage a request state for a direct (non-worker) call.
         task.push_request(retries=task.max_retries)
         self.addCleanup(task.pop_request)
-        with mock.patch('the_gatehouse.tasks.refresh_user_guilds',
+        with mock.patch('the_databot.tasks.refresh_user_guilds',
                         return_value=tasks.GuildSyncResult.TRANSIENT):
             task(self.user.id)
 
@@ -9858,9 +9858,9 @@ class RefreshUserGuildsTaskTerminalTests(TestCase):
         self.assertIsNone(self.profile.guilds_synced_at)
 
     def test_an_unexpected_error_is_terminal_and_clears(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
-        with mock.patch('the_gatehouse.tasks.refresh_user_guilds',
+        with mock.patch('the_databot.tasks.refresh_user_guilds',
                         side_effect=RuntimeError('boom')):
             tasks.refresh_user_guilds_task(self.user.id)
 
@@ -9869,7 +9869,7 @@ class RefreshUserGuildsTaskTerminalTests(TestCase):
 
     def test_a_profile_whose_user_cannot_be_loaded_is_cleared(self):
         """A bare return here would strand the flag with no task left to clear it."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         # The profile row still points at the user; the task just can't load it.
         with mock.patch('django.contrib.auth.models.UserManager.get_queryset',
@@ -9906,16 +9906,16 @@ class UnusableTokenReportTests(TestCase):
         self.addCleanup(cache.clear)
 
     def _refresh(self, capability):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         with mock.patch(
             'the_databot.services.discordservice.discord_refresh_capability',
             return_value=capability), \
-             mock.patch('the_gatehouse.tasks.send_discord_message_task') as send:
+             mock.patch('the_databot.tasks.send_discord_message_task') as send:
             result = tasks.refresh_user_guilds(self.user)
         return result, send
 
     def test_a_revoked_token_is_reported(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         result, send = self._refresh('no_token')
 
@@ -9925,7 +9925,7 @@ class UnusableTokenReportTests(TestCase):
 
     def test_an_admin_password_login_is_not_reported(self):
         """'no_account' is the ordinary ModelBackend login (Django admin), not a fault."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
 
         result, send = self._refresh('no_account')
 
@@ -9971,7 +9971,7 @@ class LoginFlagIsRaisedOnlyWhenNeededTests(TestCase):
         old code still enqueued a task that burned its whole 180s ladder finding out."""
         with mock.patch('the_gatehouse.signals.discord_refresh_capability',
                         return_value='no_account'), \
-             mock.patch('the_gatehouse.tasks.send_discord_message_task') as send:
+             mock.patch('the_databot.tasks.send_discord_message_task') as send:
             task = self._login()
 
         self.profile.refresh_from_db()
@@ -10436,7 +10436,7 @@ class LFGThreadCleanupTaskTests(TestCase):
 
     # ── policy ──
     def test_recorded_thread_past_the_grace_period_is_deleted(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self._thread("900000000000000001", 45,
                      status=LFGThread.Status.RECORDED)
         self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
@@ -10445,20 +10445,20 @@ class LFGThreadCleanupTaskTests(TestCase):
     def test_freshly_recorded_thread_survives(self):
         """/record's duplicate guard is `if thread.game_id` — deleting the row
         early makes the next /record offer a blank form."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self._thread("900000000000000002", 5,
                      status=LFGThread.Status.RECORDED)
         self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
         self.assertEqual(LFGThread.objects.count(), 1)
 
     def test_open_thread_inside_the_long_window_survives(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self._thread("900000000000000003", 90)
         self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
         self.assertEqual(LFGThread.objects.count(), 1)
 
     def test_abandoned_open_thread_is_deleted(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self._thread("900000000000000004", 200)
         self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
         self.assertFalse(LFGThread.objects.exists())
@@ -10466,7 +10466,7 @@ class LFGThreadCleanupTaskTests(TestCase):
     def test_save_progress_draft_game_is_not_treated_as_recorded(self):
         """game set but status OPEN is a game still being written. Keying the
         short window on game_id instead of status would delete it."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         game = Game.objects.create()
         self._thread("900000000000000005", 45, game=game,
                      status=LFGThread.Status.OPEN)
@@ -10475,7 +10475,7 @@ class LFGThreadCleanupTaskTests(TestCase):
 
     def test_series_threads_follow_the_same_idle_rule(self):
         """Tournament group threads get no exemption."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         designer = Profile.objects.create(discord="seriesdesigner",
                                           discord_id="960000000000000001")
         tournament = Tournament.objects.create(name="Cleanup Cup",
@@ -10489,18 +10489,18 @@ class LFGThreadCleanupTaskTests(TestCase):
         self.assertFalse(LFGThread.objects.exists())
 
     def test_cancelled_thread_uses_the_short_window(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self._thread("900000000000000007", 45,
                      status=LFGThread.Status.CANCELLED)
         self.assertEqual(tasks.cleanup_stale_lfg_threads(), 1)
 
     def test_nothing_to_delete_returns_zero(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self.assertEqual(tasks.cleanup_stale_lfg_threads(), 0)
 
     # ── cascade / survival ──
     def test_children_go_with_the_thread(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         thread = self._thread("900000000000000008", 200)
         designer = Profile.objects.create(discord="cascadedesigner",
                                           discord_id="960000000000000002")
@@ -10520,7 +10520,7 @@ class LFGThreadCleanupTaskTests(TestCase):
 
     def test_the_recorded_game_survives_its_thread(self):
         """LFGThread.game is SET_NULL, so only the scaffolding is discarded."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         game = Game.objects.create()
         self._thread("900000000000000009", 45, game=game,
                      status=LFGThread.Status.RECORDED)
@@ -10529,20 +10529,20 @@ class LFGThreadCleanupTaskTests(TestCase):
 
     # ── safety ──
     def test_dry_run_reports_without_deleting(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self._thread("900000000000000010", 200)
         self.assertEqual(tasks.cleanup_stale_lfg_threads(dry_run=True), 1)
         self.assertEqual(LFGThread.objects.count(), 1)
 
     def test_limit_caps_a_run(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         for i in range(5):
             self._thread(f"90000000000000002{i}", 200)
         self.assertEqual(tasks.cleanup_stale_lfg_threads(limit=2), 2)
         self.assertEqual(LFGThread.objects.count(), 3)
 
     def test_limit_takes_the_oldest_first(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         oldest = self._thread("900000000000000031", 400)
         self._thread("900000000000000032", 300)
         self._thread("900000000000000033", 200)
@@ -10551,7 +10551,7 @@ class LFGThreadCleanupTaskTests(TestCase):
         self.assertEqual(LFGThread.objects.count(), 2)
 
     def test_deletion_spans_multiple_chunks(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         for i in range(5):
             self._thread(f"90000000000000004{i}", 200)
         with mock.patch.object(tasks, "_LFG_DELETE_CHUNK", 2):
@@ -10559,7 +10559,7 @@ class LFGThreadCleanupTaskTests(TestCase):
         self.assertFalse(LFGThread.objects.exists())
 
     def test_the_two_windows_are_independent(self):
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self._thread("900000000000000051", 45,
                      status=LFGThread.Status.RECORDED)
         self._thread("900000000000000052", 45)
@@ -10618,7 +10618,7 @@ class LFGThreadLastActivityTests(TestCase):
 
     def test_capturing_a_roll_bumps_the_thread(self):
         """Rolls are children, so nothing else would touch the parent."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         designer = Profile.objects.create(discord="bumpdesigner",
                                           discord_id="960000000000000003")
         Faction.objects.create(title="Bump Birds", animal="Bird",
@@ -10662,11 +10662,11 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         returns (thread_id, retry_after, status) -- the status lets it tell a 400 (e.g. a
         forum that requires a tag) from a transient failure. Sleeps are patched out so
         pacing doesn't slow the suite."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         return_value = (thread_id, None, None)
         with mock.patch("the_databot.services.discordservice.get_guild_forum_channels",
                         return_value=self.FORUM if forum is None else forum), \
-             mock.patch("the_gatehouse.tasks.time.sleep") as self.sleep, \
+             mock.patch("the_databot.tasks.time.sleep") as self.sleep, \
              mock.patch("the_databot.services.discordservice.create_forum_thread_result",
                         **({"side_effect": side_effect} if side_effect
                            else {"return_value": return_value})) as create:
@@ -10734,7 +10734,7 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         create = self._run()
         self.assertEqual(create.call_count, 3)
         # One pause per call after the first -- never before the first.
-        from the_gatehouse import tasks
+        from the_databot import tasks
         self.assertEqual(
             self.sleep.call_args_list,
             [mock.call(tasks._THREAD_CREATE_INTERVAL)] * 2)
@@ -10753,7 +10753,7 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
 
     def test_a_long_retry_after_is_capped(self):
         """Discord can ask for hundreds of seconds; don't park the worker that long."""
-        from the_gatehouse import tasks
+        from the_databot import tasks
         create = self._run(side_effect=[(None, 900.0, 429), ("777010", None, None)])
         self.sleep.assert_any_call(tasks._THREAD_CREATE_MAX_BACKOFF)
         for call in self.sleep.call_args_list:

@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from .services.github_laws import sync_github_rules
 from the_gatehouse.models import Language, Website
-from the_gatehouse.tasks import send_discord_message_task
+from the_databot.tasks import send_discord_message_task
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)

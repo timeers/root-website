@@ -46,7 +46,7 @@ from the_gatehouse.views import (designer_required_class_based_view,
 from the_databot.services.discordservice import get_guild_link_config
 from the_gatehouse.utils import build_absolute_uri
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
-from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
+from the_databot.tasks import send_rich_discord_message_task, send_discord_message_task
 from .tasks import sync_rules_task
 from .models import (
     Post, Expansion,

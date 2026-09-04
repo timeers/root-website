@@ -14,7 +14,7 @@ from the_keep.models import Faction, Vagabond, Deck, Map, Landmark, Hireling, Pr
 from the_warroom.models import Game, Effort, PlatformChoices, Tournament, Round, Stage, CompetitionStatus
 from the_warroom.utils import clean_nickname
 
-from the_gatehouse.tasks import send_discord_message_task
+from the_databot.tasks import send_discord_message_task
 
 
 
