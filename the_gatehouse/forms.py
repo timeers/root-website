@@ -600,7 +600,7 @@ class GuildLFGRoleForm(forms.ModelForm):
         # Validate the tag against the forum's real tags (cached). Skip if Discord is
         # unreachable or the channel isn't a forum — don't hard-block a legitimate save.
         if channel_id:
-            from .services.discordservice import get_forum_channel_info
+            from the_databot.services.discordservice import get_forum_channel_info
             info = get_forum_channel_info(channel_id)
             if info is not None and info['is_forum']:
                 valid_ids = {t['id'] for t in info['tags']}
@@ -636,7 +636,7 @@ class TournamentGuildChannelsForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        from .services.discordservice import (
+        from the_databot.services.discordservice import (
             get_guild_text_channels, get_guild_forum_channels,
         )
 
@@ -676,7 +676,7 @@ class TournamentGuildChannelsForm(forms.ModelForm):
         # Skip when Discord is unreachable or the channel isn't a forum — don't
         # hard-block a legitimate save (an outage shouldn't lock the settings page).
         if forum_id:
-            from .services.discordservice import get_forum_channel_info
+            from the_databot.services.discordservice import get_forum_channel_info
             info = get_forum_channel_info(forum_id)
             if info is not None and info['is_forum']:
                 valid_ids = {t['id'] for t in info['tags']}

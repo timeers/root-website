@@ -21,7 +21,7 @@ import requests
 from django.core.management.base import BaseCommand
 
 from the_databot.services.discord_commands import all_command_definitions
-from the_gatehouse.services.discordservice import DISCORD_API, _bot_headers, config
+from the_databot.services.discordservice import DISCORD_API, _bot_headers, config
 
 
 class Command(BaseCommand):

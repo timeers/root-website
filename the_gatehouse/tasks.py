@@ -16,7 +16,7 @@ from .models import DiscordGuild, Profile, UserNotification, MessageChoices
 from the_databot.models import (BotUsage, GuildLFGRole, LFGThread, LFGRoll,
                                 LFGDraft, LFGDraftPick)
 
-from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, register_guild_commands, DM_ERROR
+from the_databot.services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, register_guild_commands, DM_ERROR
 from .services.context_service import get_daily_user_summary
 # lfg_game imports no models at module level (it defers them inside functions for
 # the circular-import reason documented there), so this is safe at import time.
@@ -277,7 +277,7 @@ def post_channel_message_task(channel_id, content):
     call blocks for up to 5s, which an interaction response can't afford).
     post_channel_message never raises, so surface a transient failure as one to
     trigger the retry."""
-    from .services.discordservice import post_channel_message, THREAD_ERROR
+    from the_databot.services.discordservice import post_channel_message, THREAD_ERROR
     if post_channel_message(channel_id, content) == THREAD_ERROR:
         raise RuntimeError(f"Transient failure posting message in channel {channel_id}")
 
@@ -374,7 +374,7 @@ def refresh_user_guilds(user, budget=None):
     """
     from django.db.models import Q
     from the_keep.models import Post
-    from .services.discordservice import (
+    from the_databot.services.discordservice import (
         get_user_guilds, update_user_guilds, derive_guild_membership,
         get_discord_display_name, discord_refresh_capability,
     )
@@ -687,7 +687,7 @@ def notify_lfg_task(notify_ids, joiner_name, description, jump_url, owner_id=Non
     gets a host-specific line (they can start the game); everyone else is told they'll
     be pinged in the thread. Raw-id DMs (subscribers may have no Profile/SocialAccount);
     Discord's 403 is swallowed per id."""
-    from .services.discordservice import send_dm_by_id
+    from the_databot.services.discordservice import send_dm_by_id
     game = f"*{description}*" if description else "your game"
     link = f" {jump_url}" if jump_url else ""
     for uid in notify_ids:
@@ -706,7 +706,7 @@ def notify_lfg_cancelled_task(notify_ids, host_name, description, jump_url=None)
     waiting on it. The host is excluded by the CALLER -- they're the one who
     cancelled. Raw-id DMs (subscribers may have no Profile/SocialAccount);
     Discord's 403 is swallowed per id. Mirrors notify_lfg_task."""
-    from .services.discordservice import send_dm_by_id
+    from the_databot.services.discordservice import send_dm_by_id
     game = f"*{description}*" if description else "the game"
     link = f" {jump_url}" if jump_url else ""
     # Fall back to "The host" rather than emitting an empty bold "** cancelled".
@@ -730,7 +730,7 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
     The time is re-rendered as a Discord timestamp from the epoch so each
     recipient reads it in their OWN timezone; a preformatted string would show
     the sender's."""
-    from .services.discordservice import send_dm_by_id
+    from the_databot.services.discordservice import send_dm_by_id
     from the_databot.services.time_parsing import format_discord_timestamp
 
     when = format_discord_timestamp(
@@ -770,7 +770,7 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
     """
     from the_warroom.models import Round, MatchSeries, Tournament
     from the_warroom.services.channel_posts import resolve_tournament_channel
-    from .services.discordservice import create_forum_thread_result
+    from the_databot.services.discordservice import create_forum_thread_result
     from the_databot.services.lfg_game import group_roster, link_group_thread
 
     round = Round.objects.filter(pk=round_id).select_related('stage').first()
@@ -905,7 +905,7 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
     `in_thread` means /lfg was run inside a thread, so no thread is created at all:
     that thread IS the game thread and is adopted as-is. Keyword-defaulted like
     `host_id`, so a task enqueued before this argument existed still deserializes."""
-    from .services.discordservice import (
+    from the_databot.services.discordservice import (
         create_message_thread, create_forum_thread, post_channel_message,
         apply_thread_tag,
     )
@@ -1060,7 +1060,7 @@ def link_lfg_message_task(channel_id, message_id, embed, thread_url):
 
     Unlike thread creation this edit is idempotent, so retrying is safe — but only
     for transient failures; a 403/404 is permanent and must not burn retries."""
-    from .services.discordservice import (
+    from the_databot.services.discordservice import (
         edit_channel_message, THREAD_OK, THREAD_BLOCKED, THREAD_ERROR,
     )
     embed = dict(embed or {})
@@ -1248,7 +1248,7 @@ def post_schedule_proposal_task(proposal_id, message_data):
     never post the message at all, stranding the proposal with no message_id --
     so nothing could later edit its buttons or sweep it."""
     from the_databot.models import ScheduleProposal
-    from .services.discordservice import (
+    from the_databot.services.discordservice import (
         post_channel_message_full, THREAD_OK, THREAD_ERROR,
     )
 
@@ -1280,7 +1280,7 @@ def strip_schedule_proposal_messages_task(proposal_ids, reason):
     skipped rather than retried. Only transient failures re-raise, and only after
     every id has been attempted — one dead message must not block the rest."""
     from the_databot.models import ScheduleProposal
-    from .services.discordservice import (
+    from the_databot.services.discordservice import (
         edit_channel_message, THREAD_ERROR,
     )
 

@@ -17,7 +17,7 @@ import time
 from django.core.management.base import BaseCommand
 
 from the_gatehouse.models import DiscordGuild
-from the_gatehouse.services.discordservice import register_guild_commands
+from the_databot.services.discordservice import register_guild_commands
 
 
 class Command(BaseCommand):

@@ -54,7 +54,7 @@ from .tasks import (
     post_channel_message_task, post_schedule_proposal_task,
     strip_schedule_proposal_messages_task,
 )
-from .services.discordservice import (
+from the_databot.services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_card_embed, build_law_embed, build_help_embed,
     build_lfg_help_embed, build_upcoming_embed,
