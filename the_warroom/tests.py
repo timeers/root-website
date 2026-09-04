@@ -1233,7 +1233,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_standalone_game_announces(self):
         """The case that never fired before: no match, no LFG thread, just a
         round that belongs to a tournament."""
-        url = reverse('record-game-v2')
+        url = reverse('record-game')
         resp, announce, _ = self._record_committed(url, self._payload())
         self.assertEqual(Game.objects.count(), 1)
         announce.assert_called_once()
@@ -1245,7 +1245,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_game_outside_a_tournament_does_not_announce(self):
         """A round with no tournament resolves to None and is skipped."""
         orphan = Round.objects.create(round_number=9, is_active=True)
-        url = reverse('record-game-v2')
+        url = reverse('record-game')
         _, announce, _ = self._record_committed(
             url, self._payload(round=orphan.pk))
         announce.assert_not_called()
@@ -1253,12 +1253,12 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_editing_a_final_game_does_not_repost(self):
         """The repost guard: `game_was_final` is read AFTER any rebinding, so a
         second submission against an already-final game stays silent."""
-        url = reverse('record-game-v2')
+        url = reverse('record-game')
         _, announce, _ = self._record_committed(url, self._payload())
         announce.assert_called_once()
 
         game = Game.objects.get()
-        edit_url = reverse('game-update-v2', kwargs={'id': game.id})
+        edit_url = reverse('game-update', kwargs={'id': game.id})
         efforts = list(game.efforts.order_by('seat'))
         edit_payload = self._payload(**{
             'form-INITIAL_FORMS': '2',
@@ -1282,7 +1282,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self._seat(series, self.profile, 1)
         self._seat(series, self.opponent, 2)
 
-        match_url = f"{reverse('record-game-v2')}?match={match.pk}"
+        match_url = f"{reverse('record-game')}?match={match.pk}"
         _, announce, _ = self._record_committed(match_url, self._payload(
             match_id=match.pk))
         announce.assert_called_once()
@@ -1316,7 +1316,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
                                           host=self.profile)
         thread.players.add(self.profile, self.opponent)
 
-        url = f"{reverse('record-game-v2')}?lfg={thread.pk}"
+        url = f"{reverse('record-game')}?lfg={thread.pk}"
         _, announce, thread_post = self._record_committed(
             url, self._payload(lfg_id=thread.pk))
 
@@ -1341,7 +1341,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self._seat(series, self.profile, 1)
         self._seat(series, self.opponent, 2)
 
-        url = f"{reverse('record-game-v2')}?match={match.pk}"
+        url = f"{reverse('record-game')}?match={match.pk}"
         _, announce, thread_post = self._record_committed(
             url, self._payload(match_id=match.pk))
 

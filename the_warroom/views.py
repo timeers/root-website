@@ -839,150 +839,10 @@ def game_detail_hx_view(request, id=None):
 
 
 
-@player_onboard_required
-def manage_game(request, id=None):
-    if id:
-        obj = get_object_or_404(Game, id=id)
-    else:
-        obj = Game()  # Create a new Game instance but do not save it yet
-    user = request.user
-
-    initial_game_status = obj.final
-
-    # For prepopulating the round
-    round_id = request.GET.get('series-round')  # Gets the ?series-round=123 value as a string
-    selected_round = None
-
-    if round_id:
-        try:
-            selected_round = Round.objects.get(id=round_id)
-        except Round.DoesNotExist:
-            selected_round = None 
-
-
-    if id:
-        if obj.final and not user.profile.admin:
-
-            messages.error(request, "Game cannot be edited.")
-            return redirect(obj.get_absolute_url())
-
-
-        elif not user.profile.admin and user.profile != obj.recorder:
-            messages.error(request, "You do not have permission to edit this game.")
-            return redirect(obj.get_absolute_url())
-
-
-    player_form = PlayerCreateForm()
-
-    # Default to 4 players
-    if id:  # Only check for existing efforts if updating an existing game
-        existing_efforts = obj.efforts.all()
-        existing_count = existing_efforts.count()
-    else:
-        existing_count = 0  # New game has no existing efforts
-
-    extra_forms = max(0, 4 - existing_count)
-
-    EffortFormset = modelformset_factory(Effort, form=EffortCreateForm, extra=extra_forms)
-    qs = obj.efforts.all() if id else Effort.objects.none()  # Only fetch existing efforts if updating
-    formset = EffortFormset(request.POST or None, queryset=qs)
-
-
-    # Pass the formset to the parent form by storing it in the parent form instance
-    # Allowing validation based on the total form
-    form = GameCreateForm(request.POST or None, instance=obj, user=user, effort_formset=formset, round=selected_round)
-    form_count = extra_forms + existing_count
-    context = {
-        'form': form,
-        'formset': formset,
-        'object': obj,
-        'form_count': form_count,
-        'player_form': player_form,
-    }
-
-
-    # Handle form submission
-    if request.method == 'POST':
-        if form.is_valid() and formset.is_valid():
-            parent = form.save(commit=False)
-            # Check if game is final
-            if request.POST.get('final') == 'False':
-                parent.final = False  # Save as draft
-            else:
-                parent.final = True  # Finalize the game
-                # send_discord_message_task.delay(f'{user} Recorded a Game')
-
-            if not id:
-                parent.recorder = request.user.profile  # Set the recorder
-            # parent.date_posted = timezone.now()
-            # print(parent.date_posted)
-            parent.save()  # Save the new or updated Game instance
-            form.save_m2m()
-            seat = 0
-            game_status = max(parent.map.status, parent.deck.status)
-            for landmark in parent.landmarks.all():
-                game_status = max(game_status, landmark.status)
-            for hireling in parent.hirelings.all():
-                game_status = max(game_status, hireling.status)
-            for tweak in parent.tweaks.all():
-                game_status = max(game_status, tweak.status)
-            # roster = []
-            for form in formset:
-                if form.cleaned_data.get('delete'):  # Check if the delete checkbox is checked
-                    # print('delete found')
-                    if form.instance.id:
-                        form.instance.delete()
-                    # formset.forms.remove(form)  # Delete the associated Effort instance
-                elif not form.cleaned_data.get('faction') and not form.cleaned_data.get('score') and not form.cleaned_data.get('player'):
-                    # print('empty found')
-                    if form.instance.id:
-                        form.instance.delete()
-                else:
-                    child = form.save(commit=False)
-                    if child.faction_id is not None:  # Only save if faction_id is present
-
-                        game_status = max(game_status, child.faction.status)
-                        if child.vagabond:
-                            game_status = max(game_status, child.vagabond.status)
-                        seat += 1
-                        # Save current status of faction. Might be useful somewhere.
-
-                        child.faction_status = child.faction.status
-
-                        child.game = parent  # Link the effort to the game
-                        child.seat = seat
-                        child.save()
-                    
-            parent.status = StatusChoices(game_status)
-            parent.save()
-            context['message'] = "Game Saved"
-
-
-            if parent.final:
-                fields = []
-                fields.append({
-                        'name': 'Recorder:',
-                        'value': user.profile.name
-                    })
-                if parent.nickname:
-                    game_title = parent.nickname
-                else:
-                    game_title = f"{parent.platform} Game"
-                if not initial_game_status and obj.final:
-                    send_rich_discord_message_task.delay(f'[{game_title}]({settings.SITE_URL}{parent.get_absolute_url()})', category='New Game', title=f'Game Recorded', fields=fields)
-
-
-            return redirect(parent.get_absolute_url())
-        else:
-            context['message'] = 'Game not Saved. Please correct errors below.'
-    if request.htmx:
-        return render(request, 'the_warroom/partials/forms.html', context)
-    
-    return render(request, 'the_warroom/record_game.html', context)
 
 
 # ────────────────────────────────────────────────────────────────
-# Game Form v2 — Dual-mode (match + standalone) with HTMX partials
+# Game Form — helpers (match mode, LFG mode and standalone)
 # ────────────────────────────────────────────────────────────────
 
 def _get_match_profiles(match):
@@ -1151,8 +1011,8 @@ def _match_thread_id(match):
 
 
 @player_onboard_required
-def manage_game_v2(request, id=None):
-    """Game recording form v2. Supports match mode (?match=<id>),
+def manage_game(request, id=None):
+    """Game recording form. Supports match mode (?match=<id>),
     LFG mode (?lfg=<id>) and standalone."""
     user = request.user
     match = None
@@ -1223,7 +1083,7 @@ def manage_game_v2(request, id=None):
         # rejects stale new-game-shaped payloads.
         if match.game_id:
             if request.method != 'POST':
-                return redirect('game-update-v2', id=match.game_id)
+                return redirect('game-update', id=match.game_id)
             obj = match.game
             id = obj.id
 
@@ -1244,7 +1104,7 @@ def manage_game_v2(request, id=None):
         # Game (OneToOne), so a second visit edits it rather than recording again.
         if lfgthread.game_id:
             if request.method != 'POST':
-                return redirect('game-update-v2', id=lfgthread.game_id)
+                return redirect('game-update', id=lfgthread.game_id)
             obj = lfgthread.game
             id = obj.id
 
@@ -1685,7 +1545,7 @@ def manage_game_v2(request, id=None):
                     posted_initial = 0
                 if posted_initial < existing_count:
                     messages.warning(request, "This match already has a game. Please review and edit it below.")
-                    return redirect('game-update-v2', id=match.game_id)
+                    return redirect('game-update', id=match.game_id)
 
             # Serialize concurrent submissions for the same match and prevent a
             # partially-saved game from being left behind on any error. Lock the
@@ -1700,7 +1560,7 @@ def manage_game_v2(request, id=None):
                     match_initial_status = match.status
                     if match.game_id and not id:
                         messages.warning(request, "This match already has a game. Please review and edit it below.")
-                        return redirect('game-update-v2', id=match.game_id)
+                        return redirect('game-update', id=match.game_id)
                 parent = form.save(commit=False)
 
                 # Set final status
@@ -1721,7 +1581,7 @@ def manage_game_v2(request, id=None):
 
                 parent.save()
                 form.save_m2m()
-                _vlog.warning(f"[manage_game_v2] parent.save+m2m: {_time.time()-_t0:.3f}s")
+                _vlog.warning(f"[manage_game] parent.save+m2m: {_time.time()-_t0:.3f}s")
 
                 # Process seat ordering
                 seat_order_str = request.POST.get('seat_order', '')
@@ -1775,11 +1635,11 @@ def manage_game_v2(request, id=None):
                         child.seat = seat_num
                         child.save()
                         child.captains.set(captains or [])
-                _vlog.warning(f"[manage_game_v2] after effort saves: {_time.time()-_t0:.3f}s")
+                _vlog.warning(f"[manage_game] after effort saves: {_time.time()-_t0:.3f}s")
 
                 parent.status = StatusChoices(game_status)
                 parent.save()
-                _vlog.warning(f"[manage_game_v2] after parent.save (status): {_time.time()-_t0:.3f}s")
+                _vlog.warning(f"[manage_game] after parent.save (status): {_time.time()-_t0:.3f}s")
 
                 # Match linkage
                 if match_mode and match:
@@ -1787,13 +1647,13 @@ def manage_game_v2(request, id=None):
                         match.game = parent
                     match.status = CompetitionStatus.COMPLETED if parent.final else CompetitionStatus.ACTIVE
                     match.save()
-                    _vlog.warning(f"[manage_game_v2] after match.save: {_time.time()-_t0:.3f}s")
+                    _vlog.warning(f"[manage_game] after match.save: {_time.time()-_t0:.3f}s")
 
                     # Trigger series/round completion logic
                     if parent.final:
                         from the_warroom.services.bracket import BracketService
                         BracketService.on_game_complete(match)
-                    _vlog.warning(f"[manage_game_v2] after on_game_complete: {_time.time()-_t0:.3f}s")
+                    _vlog.warning(f"[manage_game] after on_game_complete: {_time.time()-_t0:.3f}s")
 
                 # LFG thread linkage: the thread remembers its game (OneToOne, so a
                 # later visit edits it instead of recording a duplicate) and only
@@ -2078,7 +1938,7 @@ def manage_game_v2(request, id=None):
                     if score_mismatch or dominance_mismatch:
                         scorecard.final = False
                         scorecard.save(update_fields=['final'])
-                _vlog.warning(f"[manage_game_v2] after scorecard checks: {_time.time()-_t0:.3f}s")
+                _vlog.warning(f"[manage_game] after scorecard checks: {_time.time()-_t0:.3f}s")
 
                 # Discord notification
                 if parent.final:
@@ -2159,7 +2019,7 @@ def manage_game_v2(request, id=None):
                         transaction.on_commit(
                             lambda t=_tournament, msg=_res_msg:
                                 post_to_tournament_channel(t, 'results_channel', msg))
-                _vlog.warning(f"[manage_game_v2] total before redirect: {_time.time()-_t0:.3f}s")
+                _vlog.warning(f"[manage_game] total before redirect: {_time.time()-_t0:.3f}s")
 
                 return redirect(parent.get_absolute_url())
         else:
@@ -8308,7 +8168,7 @@ def _build_series_edit_context(tournament, stage, round):
 
     return {
         'edit_series_url': edit_url,
-        'record_game_url': reverse('record-game-v2'),
+        'record_game_url': reverse('record-game'),
         'series_data_json': json.dumps(series_map),
         'stage_participants_json': json.dumps(participants_list),
     }
@@ -8774,7 +8634,7 @@ def match_link_game(request, match_id):
     if get_view_as(request, tournament) not in (None, 'moderator'):
         raise PermissionDenied
 
-    # Same gate manage_game_v2 applies to recording: no games before the bracket is
+    # Same gate manage_game applies to recording: no games before the bracket is
     # settled. The matches page only renders cards under is_bracket_finalized anyway.
     if match.round.bracket_status != Round.BracketStatusChoices.FINALIZED:
         return JsonResponse(
@@ -8867,7 +8727,7 @@ def _match_do_link_game(request, match, tournament, data, series_index):
         # Lock the match row so two moderators (or a racing Record submit) can't
         # both claim it. Only the match is locked: match.game is where uniqueness
         # lives, and locking the game too would take locks in the opposite order
-        # from manage_game_v2.
+        # from manage_game.
         match = Match.objects.select_for_update().get(id=match.id)
         if match.game_id:
             return JsonResponse(
@@ -8918,7 +8778,7 @@ def _match_do_link_game(request, match, tournament, data, series_index):
             game.nickname = match.name[:50]
             game.save(update_fields=['nickname'])
 
-        # --- The link itself, mirroring manage_game_v2 ---
+        # --- The link itself, mirroring manage_game ---
         match.game = game
         match.status = (CompetitionStatus.COMPLETED if game.final
                         else CompetitionStatus.ACTIVE)

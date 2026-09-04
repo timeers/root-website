@@ -387,10 +387,10 @@ def _handle_record_command(data):
     thread = _lfg_thread_for_channel(channel_id)
     if thread and not thread.series_id:
         if thread.game_id:
-            url = _record_url(f"/game/{thread.game_id}/edit/v2/")
+            url = _record_url(f"/game/{thread.game_id}/edit/")
             lead = "This game is already recorded — edit it here:"
         else:
-            url = _record_url(f"/record/game/v2/?lfg={thread.id}")
+            url = _record_url(f"/record/game/?lfg={thread.id}")
             lead = "Record this game:"
         if not url:
             return _ephemeral("The site URL isn't configured, so I can't build a link.")
@@ -421,10 +421,10 @@ def _handle_record_command(data):
     match, _err = _match_for_thread(channel_id, guild_id, channel_name)
     if match:
         if match.game_id:
-            url = _record_url(f"/game/{match.game_id}/edit/v2/")
+            url = _record_url(f"/game/{match.game_id}/edit/")
             lead = "This match already has a game — edit it here:"
         else:
-            url = _record_url(f"/record/game/v2/?match={match.id}")
+            url = _record_url(f"/record/game/?match={match.id}")
             lead = "Record this game:"
         if not url:
             return _ephemeral("The site URL isn't configured, so I can't build a link.")
@@ -432,7 +432,7 @@ def _handle_record_command(data):
 
     # 3) Neither: hand over the standalone form rather than erroring — the user
     #    can still record a game, just without any prefill.
-    url = _record_url("/record/game/v2/")
+    url = _record_url("/record/game/")
     if not url:
         return _ephemeral("The site URL isn't configured, so I can't build a link.")
     return _ephemeral(

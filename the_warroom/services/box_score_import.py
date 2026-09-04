@@ -92,7 +92,7 @@ def normalize_turns(turns, *, label=None):
     detail, which the V2 grid has no columns for.
 
     Missing interior turns are backfilled with the previous cumulative value,
-    matching the server's Phase-1 backfill in manage_game_v2.
+    matching the server's Phase-1 backfill in manage_game.
     """
     notes = []
     if turns is None:
@@ -563,7 +563,7 @@ def resolve_import(participants, *, option_querysets, player_queryset,
 
         # Brazen demagogue rides on dominance only. The deck is NOT gated here:
         # it may not be chosen yet, and the view clears the field at save time
-        # unless the deck is Squires & Disciples (see manage_game_v2), so an
+        # unless the deck is Squires & Disciples (see manage_game), so an
         # invalid value can never be stored. The client stashes it until the
         # deck question is settled.
         if participant.get('brazen_demagogue'):

@@ -2401,7 +2401,7 @@ class Game(models.Model):
         return reverse("game-hx-detail", kwargs={"id": self.id})
     
     def get_edit_url(self):
-        return reverse("game-update-v2", kwargs={"id": self.id})
+        return reverse("game-update", kwargs={"id": self.id})
     
     def get_delete_url(self):
         return reverse("game-delete", kwargs={"id": self.id})

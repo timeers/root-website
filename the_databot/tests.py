@@ -10521,7 +10521,7 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         with override_settings(ALLOWED_HOSTS=["*"]):
             self.client.force_login(user)
             html = self.client.get(
-                f"/record/game/v2/?lfg={self.thread.id}").content.decode()
+                f"/record/game/?lfg={self.thread.id}").content.decode()
         self.assertNotIn("isn't playable here", html)
         # The box score reached the grid, and the seat fields were preselected.
         self.assertIn("grid-cell", html)
