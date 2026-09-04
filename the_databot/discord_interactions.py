@@ -3790,7 +3790,7 @@ def _handle_seating_command(data):
         })
 
     return _ephemeral(
-        "Use this in a game thread or a player group's thread to seat its players.")
+        "Use this in a LFG thread or a series' match thread to seat its players.")
 
 
 def _handle_draft_seat_no(payload):
@@ -4794,7 +4794,7 @@ def _handle_pick_command(data):
     thread = _pick_thread_for_channel(channel_id, channel_name, guild_id)
     if not thread:
         return _ephemeral(
-            "Use this in a game thread or a player group's thread to pick factions.")
+            "Use this in a LFG thread or a series' match thread to pick factions.")
 
     owner = data.get("_author_id")
     # One session at a time: a second panel would write to the same seats, so two
@@ -5662,7 +5662,7 @@ def _handle_adset_command(data):
     thread = _adset_thread(data)
     if not thread:
         return _ephemeral(
-            "Use this in a game thread or a player group's thread to set up a game.")
+            "Use this in a LFG thread or a series' match thread to set up a game.")
 
     owner = data.get("_author_id")
     seats = list(thread.seats.select_related("profile", "faction", "vagabond")

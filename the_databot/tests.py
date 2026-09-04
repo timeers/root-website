@@ -4385,7 +4385,7 @@ class SeatingCommandTests(TestCase):
     def test_outside_a_game_thread_explains_itself(self):
         self._roster(3)
         data = self._command("some-other-channel")
-        self.assertIn("game thread", data["content"])
+        self.assertIn("LFG thread", data["content"])
         self.assertNotIn("components", data)
 
     def test_roster_too_small_to_seat_is_refused(self):
@@ -4615,8 +4615,8 @@ class SeatingCommandPlayerGroupTests(TestCase):
 
     def test_unrelated_channel_explains_both_options(self):
         data = self._command("777777777777777777")
-        self.assertIn("game thread", data["content"])
-        self.assertIn("player group", data["content"])
+        self.assertIn("LFG thread", data["content"])
+        self.assertIn("match thread", data["content"])
 
     # ── title fallback + auto-linking ────────────────────────────────────────
     # /schedule could always find a group by thread title; /seating could not,
@@ -4674,7 +4674,7 @@ class SeatingCommandPlayerGroupTests(TestCase):
         twin = PlayerGroup.objects.create(
             round=other_round, group_number=1, name="Group A")
         data = self._command_in_unlinked_thread("Group A")
-        self.assertIn("game thread", data["content"])
+        self.assertIn("LFG thread", data["content"])
         self.group.refresh_from_db()
         twin.refresh_from_db()
         self.assertEqual(self.group.discord_thread, "")
@@ -4686,14 +4686,14 @@ class SeatingCommandPlayerGroupTests(TestCase):
         self._members(3)
         data = self._command_in_unlinked_thread(
             "Group A", channel_id="888777666555444333")
-        self.assertIn("game thread", data["content"])
+        self.assertIn("LFG thread", data["content"])
 
     def test_title_match_is_scoped_to_the_guild(self):
         self._members(3)
         self._unlink()
         other = DiscordGuild.objects.create(guild_id="999000111", name="Other")
         data = self._command_in_unlinked_thread("Group A", guild=other.guild_id)
-        self.assertIn("game thread", data["content"])
+        self.assertIn("LFG thread", data["content"])
         self.group.refresh_from_db()
         self.assertEqual(self.group.discord_thread, "")
 
@@ -5326,7 +5326,7 @@ class PickCommandTests(TestCase):
 
     def test_unrelated_channel_is_refused(self):
         data = self._command("777777777777777777")
-        self.assertIn("game thread", data["content"])
+        self.assertIn("LFG thread", data["content"])
 
     def test_a_pool_smaller_than_the_table_is_refused(self):
         Faction.objects.all().delete()
