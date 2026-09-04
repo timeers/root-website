@@ -64,21 +64,21 @@ from .services.discordservice import (
     get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
     edit_channel_message,
 )
-from .services.discord_commands import (
+from the_databot.services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD, HELP_CATEGORY_LFG,
 )
-from .services.time_parsing import (
+from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     valid_timezone, search_timezones,
     timezone_regions, zones_for_region, region_for_timezone,
     describe_timezone, format_utc_offset,
 )
-from .services.discord_components import (
+from the_databot.services.discord_components import (
     action_row, button, string_select, select_option,
     encode_custom_id, decode_custom_id, selected_values,
     RESPONSE_UPDATE_MESSAGE, STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
 )
-from .services.lfg_game import (
+from the_databot.services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
     group_roster, group_series_id, undrafted_pick,
     roster_name, name_list_value, FIELD_VALUE_MAX, match_label,

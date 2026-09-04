@@ -20,7 +20,7 @@ from the_gatehouse.models import (DiscordGuild, DiscordGuildJoinRequest,
                                   DEFAULT_PROFILE_IMAGE as _DEFAULT_PROFILE_IMAGE)
 # Safe at module level: time_parsing imports only stdlib + dateutil, nothing from
 # this module or the ORM.
-from .time_parsing import format_discord_timestamp
+from the_databot.services.time_parsing import format_discord_timestamp
 
 from django.urls import reverse
 from django.templatetags.static import static
@@ -529,7 +529,7 @@ def register_guild_commands(guild):
     """PUT this guild's enabled command set (always /help + whitelisted) to Discord's
     guild-scoped command endpoint. Returns True on success. Guild-scoped registration is
     ~instant (unlike global). Call on bot-add and whenever the whitelist changes."""
-    from .discord_commands import (commands_for_guild, help_command_for_guild,
+    from the_databot.services.discord_commands import (commands_for_guild, help_command_for_guild,
                                    lfg_command_for_roles)
     app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
     url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild.guild_id}/commands"
@@ -2459,7 +2459,7 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
     gets a link to that guild's command settings; everyone else (including in DMs) gets a
     link to add the bot to their own server.
     """
-    from the_gatehouse.services.discord_commands import grouped_commands
+    from the_databot.services.discord_commands import grouped_commands
 
     site_url = config.get("SITE_URL", "").rstrip("/")
 
@@ -2547,7 +2547,7 @@ def build_lfg_help_embed(enabled_names=None):
     Imported inside the function to avoid an import cycle (discord_commands imports
     models that pull in this package), the same as build_help_embed.
     """
-    from the_gatehouse.services.discord_commands import (LFG_HELP_INTRO,
+    from the_databot.services.discord_commands import (LFG_HELP_INTRO,
                                                          lfg_help_steps_for_guild)
 
     site_url = config.get("SITE_URL", "").rstrip("/")

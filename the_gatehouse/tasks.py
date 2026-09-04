@@ -20,7 +20,7 @@ from .services.discordservice import send_discord_message, send_rich_discord_mes
 from .services.context_service import get_daily_user_summary
 # lfg_game imports no models at module level (it defers them inside functions for
 # the circular-import reason documented there), so this is safe at import time.
-from .services.lfg_game import schedule_closed_embed, PROPOSAL_RETIRED_TEXT
+from the_databot.services.lfg_game import schedule_closed_embed, PROPOSAL_RETIRED_TEXT
 from .utils import format_bulleted_list
 
 import logging
@@ -731,7 +731,7 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
     recipient reads it in their OWN timezone; a preformatted string would show
     the sender's."""
     from .services.discordservice import send_dm_by_id
-    from .services.time_parsing import format_discord_timestamp
+    from the_databot.services.time_parsing import format_discord_timestamp
 
     when = format_discord_timestamp(
         datetime.fromtimestamp(int(when_ts), tz=dt_timezone.utc))
@@ -771,7 +771,7 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
     from the_warroom.models import Round, MatchSeries, Tournament
     from the_warroom.services.channel_posts import resolve_tournament_channel
     from .services.discordservice import create_forum_thread_result
-    from .services.lfg_game import group_roster, link_group_thread
+    from the_databot.services.lfg_game import group_roster, link_group_thread
 
     round = Round.objects.filter(pk=round_id).select_related('stage').first()
     tournament = Tournament.objects.filter(pk=tournament_id).select_related('guild').first()
@@ -1119,7 +1119,7 @@ def record_lfg_components_task(channel_id, items, source="", draft=None):
             # doesn't need one -- /schedule, /seating and /pick all link the thread
             # to the group on first use, so by the time captures matter the group
             # resolves by id anyway.
-            from .services.lfg_game import player_group_for_channel
+            from the_databot.services.lfg_game import player_group_for_channel
             group = player_group_for_channel(channel_id)
             series = getattr(group, "series", None) if group else None
             if not series:

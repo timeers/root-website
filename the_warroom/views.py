@@ -53,7 +53,7 @@ from the_keep.views import paginate_or_404
 
 from the_gatehouse.models import Profile, Language
 from the_databot.models import LFGThread
-from the_gatehouse.services.lfg_game import (
+from the_databot.services.lfg_game import (
     seated_profiles, lfg_option_querysets, picked_factions_by_profile,
     captains_by_seat, undrafted_pick, FULL_CAPTAIN_COMPLEMENT)
 from the_gatehouse.views import (player_required, admin_required, 

@@ -13,14 +13,14 @@ showing as duplicates in that server), clear the scope:
 
     python manage.py register_discord_commands --guild 123 --clear
 
-Command definitions live in the_gatehouse.services.discord_commands (shared with
+Command definitions live in the_databot.services.discord_commands (shared with
 the /help listing), so this command only handles the registration call.
 """
 import requests
 
 from django.core.management.base import BaseCommand
 
-from the_gatehouse.services.discord_commands import all_command_definitions
+from the_databot.services.discord_commands import all_command_definitions
 from the_gatehouse.services.discordservice import DISCORD_API, _bot_headers, config
 
 

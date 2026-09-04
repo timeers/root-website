@@ -16,7 +16,7 @@ from the_gatehouse.models import DiscordGuild, Profile
 from the_databot.models import (
     GuildLFGRole, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
 )
-from the_gatehouse.services.lfg_game import lfg_option_querysets
+from the_databot.services.lfg_game import lfg_option_querysets
 from the_keep.models import (
     Deck, Faction, Hireling, Landmark, Map, StatusChoices, Tweak, Vagabond,
 )

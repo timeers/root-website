@@ -7,7 +7,7 @@ import re
 register = template.Library()
 
 # The three inline-markup rules used by the shared LFG copy in
-# the_gatehouse/services/discord_commands.py. Discord renders all three natively, so the
+# the_databot/services/discord_commands.py. Discord renders all three natively, so the
 # embed sends the bodies as-is; this filter is the HTML half of that pair.
 _LINK_RE = re.compile(r"\[([^\]]+)\]\(([a-z0-9-]+)\)")
 _CODE_RE = re.compile(r"`([^`]+)`")

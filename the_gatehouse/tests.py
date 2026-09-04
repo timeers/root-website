@@ -40,9 +40,9 @@ from the_databot.models import (
 )
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
-from the_gatehouse.services import discord_commands as dc
+from the_databot.services import discord_commands as dc
 from the_gatehouse.services.discordservice import update_discord_avatar
-from the_gatehouse.services.lfg_game import (
+from the_databot.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
     picked_factions_by_profile, captains_by_seat, undrafted_pick,
     lfg_option_querysets, FULL_CAPTAIN_COMPLEMENT,
@@ -51,7 +51,7 @@ from the_gatehouse.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
     notify_lfg_cancelled_task, notify_schedule_poll_task,
 )
-from the_gatehouse.services.time_parsing import (
+from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     search_timezones, valid_timezone,
     TIMEZONE_REGIONS, timezone_regions, zones_for_region, timezone_label,
@@ -2978,7 +2978,7 @@ class LFGRoleModalViewTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(GuildLFGRole.objects.count(), 1)
 
     def test_add_button_disables_at_the_tag_limit(self):
-        from the_gatehouse.services.discord_commands import LFG_TAG_LIMIT
+        from the_databot.services.discord_commands import LFG_TAG_LIMIT
         for i in range(LFG_TAG_LIMIT):
             GuildLFGRole.objects.create(guild=self.guild, name="Role %d" % i,
                                         role_id=str(100000000000001000 + i))
@@ -4769,7 +4769,7 @@ class SeatingCommandPlayerGroupTests(TestCase):
 
     def test_linking_does_not_clobber_a_concurrent_link(self):
         """The write is a compare-and-swap on discord_thread=""."""
-        from the_gatehouse.services.lfg_game import link_group_thread
+        from the_databot.services.lfg_game import link_group_thread
         self._unlink()
         existing = "https://discord.com/channels/1/2"
         PlayerGroup.objects.filter(pk=self.group.pk).update(
@@ -9235,7 +9235,7 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
     def test_every_line_of_a_multiline_reason_is_subtext(self):
         """Discord's subtext marker applies per line, and "expired" carries an
         embedded newline whose second line would otherwise render full size."""
-        from the_gatehouse.services.lfg_game import schedule_closed_embed
+        from the_databot.services.lfg_game import schedule_closed_embed
         embed = schedule_closed_embed(self.proposal, "Proposal closed", "expired")
         tail = embed["description"].split("\n")[2:]
         self.assertTrue(tail)
