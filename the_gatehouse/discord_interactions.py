@@ -41,8 +41,9 @@ from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tw
 from the_warroom.models import (
     Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant, Effort,
 )
-from the_gatehouse.models import (
-    Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
+from the_gatehouse.models import Profile, DiscordGuild
+from the_databot.models import (
+    BotBlacklist, GuildLFGRole, LFGThread, ScheduleProposal,
     LFGSeat, LFGRoll, LFGDraft,
 )
 from .tasks import (

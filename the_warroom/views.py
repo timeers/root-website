@@ -51,7 +51,8 @@ from .utils import get_single_round, get_single_stage, build_scorecard_grid, bui
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 from the_keep.views import paginate_or_404
 
-from the_gatehouse.models import Profile, Language, LFGThread
+from the_gatehouse.models import Profile, Language
+from the_databot.models import LFGThread
 from the_gatehouse.services.lfg_game import (
     seated_profiles, lfg_option_querysets, picked_factions_by_profile,
     captains_by_seat, undrafted_pick, FULL_CAPTAIN_COMPLEMENT)

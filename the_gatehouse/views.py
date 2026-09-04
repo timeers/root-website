@@ -31,7 +31,8 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, GuildLFGRole
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday
+from the_databot.models import GuildLFGRole
 from .services.discordservice import (update_discord_avatar, get_discord_invite_info, get_user_guilds,
                                       get_guild_roles, get_guild_forum_channels, get_forum_channel_info,
                                       get_guild_text_channels, guild_channel_names,

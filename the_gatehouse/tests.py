@@ -31,9 +31,12 @@ from the_keep.models import (
     StatusChoices, Faction, Map, Deck, Vagabond, Language, Law, LawGroup,
 )
 from the_gatehouse.models import (
-    DiscordGuild, GuildLFGRole, LFGThread, Profile, ScheduleProposal,
-    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, DEFAULT_PROFILE_IMAGE,
+    DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
     UserNotification, MessageChoices, GUILDS_REFRESH_MAX_AGE,
+)
+from the_databot.models import (
+    GuildLFGRole, LFGThread, ScheduleProposal,
+    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat,
 )
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize

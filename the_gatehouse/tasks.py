@@ -12,9 +12,9 @@ from django.utils import timezone
 
 from the_keep.models import StatusChoices, Post, Faction, Vagabond, Deck, Map, Landmark, Hireling, Tweak
 from the_warroom.models import Game, Effort
-from .models import (BotUsage, DiscordGuild, GuildLFGRole, LFGThread, Profile,
-                     LFGRoll, LFGDraft, LFGDraftPick, UserNotification,
-                     MessageChoices)
+from .models import DiscordGuild, Profile, UserNotification, MessageChoices
+from the_databot.models import (BotUsage, GuildLFGRole, LFGThread, LFGRoll,
+                                LFGDraft, LFGDraftPick)
 
 from .services.discordservice import send_discord_message, send_rich_discord_message, send_discord_dm, sync_bot_guilds, post_interaction_followup, update_discord_avatar, register_guild_commands, DM_ERROR
 from .services.context_service import get_daily_user_summary
@@ -1247,7 +1247,7 @@ def post_schedule_proposal_task(proposal_id, message_data):
     runs, leaving the row AGREED and awaiting a moderator. Bailing on that would
     never post the message at all, stranding the proposal with no message_id --
     so nothing could later edit its buttons or sweep it."""
-    from .models import ScheduleProposal
+    from the_databot.models import ScheduleProposal
     from .services.discordservice import (
         post_channel_message_full, THREAD_OK, THREAD_ERROR,
     )
@@ -1279,7 +1279,7 @@ def strip_schedule_proposal_messages_task(proposal_ids, reason):
     confirmed, so a PERMANENT failure (message deleted, missing perms) is logged and
     skipped rather than retried. Only transient failures re-raise, and only after
     every id has been attempted — one dead message must not block the rest."""
-    from .models import ScheduleProposal
+    from the_databot.models import ScheduleProposal
     from .services.discordservice import (
         edit_channel_message, THREAD_ERROR,
     )
@@ -1321,7 +1321,7 @@ def cleanup_stale_schedule_proposals(max_age_days=14):
 
     Runs on a schedule created in Django admin (django_celery_beat) — this project
     uses DatabaseScheduler, so there is no beat_schedule in code to register it."""
-    from .models import ScheduleProposal
+    from the_databot.models import ScheduleProposal
 
     now = timezone.now()
     stale = ScheduleProposal.objects.filter(
