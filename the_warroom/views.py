@@ -5849,7 +5849,7 @@ def _tournament_channels_card_context(tournament, profile):
     them, from the Edit Guild page — so this card explains where announcements go and
     who to ask, without becoming a second edit surface.
     """
-    from the_gatehouse.services.discordservice import guild_channel_names
+    from the_databot.services.discordservice import guild_channel_names
     from the_gatehouse.views import can_moderate_guild
 
     guild = tournament.guild
@@ -8637,7 +8637,7 @@ def round_create_game_threads(request, tournament_slug, stage_slug, round_slug):
     # CONFIRMED requirement: a None info (Discord unreachable) falls through and lets the
     # task try, matching how the settings form treats an outage.
     if not tournament.game_threads_tag:
-        from the_gatehouse.services.discordservice import get_forum_channel_info
+        from the_databot.services.discordservice import get_forum_channel_info
         info = get_forum_channel_info(tournament.game_threads_channel)
         if info and info['is_forum'] and info['requires_tag']:
             return JsonResponse(

@@ -10,7 +10,7 @@ via the sync_bot_guilds_task Celery task.
 """
 from django.core.management.base import BaseCommand
 
-from the_gatehouse.services.discordservice import sync_bot_guilds
+from the_databot.services.discordservice import sync_bot_guilds
 
 
 class Command(BaseCommand):

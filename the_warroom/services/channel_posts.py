@@ -43,7 +43,7 @@ def resolve_tournament_channel(tournament, field):
     if not channel_id:
         return None
 
-    from the_gatehouse.services.discordservice import channel_belongs_to_guild
+    from the_databot.services.discordservice import channel_belongs_to_guild
     if not channel_belongs_to_guild(guild, channel_id,
                                     forum=_CHANNEL_FIELDS[field]):
         logger.warning(

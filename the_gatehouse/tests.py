@@ -41,7 +41,7 @@ from the_databot.models import (
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_databot.services import discord_commands as dc
-from the_gatehouse.services.discordservice import update_discord_avatar
+from the_databot.services.discordservice import update_discord_avatar
 from the_databot.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
     picked_factions_by_profile, captains_by_seat, undrafted_pick,
@@ -57,9 +57,9 @@ from the_databot.services.time_parsing import (
     TIMEZONE_REGIONS, timezone_regions, zones_for_region, timezone_label,
     region_for_timezone, describe_timezone, format_utc_offset,
 )
-from the_gatehouse.services.discordservice import (build_upcoming_embed,
+from the_databot.services.discordservice import (build_upcoming_embed,
                                                    build_lfg_help_embed, _LFG_LINK_RE)
-from the_gatehouse.services import discordservice as ds
+from the_databot.services import discordservice as ds
 from the_gatehouse import discord_interactions as di
 from the_gatehouse.templatetags.databot_filters import lfg_body
 
@@ -2308,10 +2308,10 @@ class LFGThreadNameTests(TestCase):
 
     def _create(self, description, embed):
         """Run create_lfg_thread_task far enough to capture the thread name."""
-        with mock.patch("the_gatehouse.services.discordservice.create_message_thread",
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
                         return_value=None) as create, \
-                mock.patch("the_gatehouse.services.discordservice.create_forum_thread"), \
-                mock.patch("the_gatehouse.services.discordservice.post_channel_message"):
+                mock.patch("the_databot.services.discordservice.create_forum_thread"), \
+                mock.patch("the_databot.services.discordservice.post_channel_message"):
             create_lfg_thread_task(
                 "chan", "msg", None, None, description,
                 [{"id": "1", "name": "Bob"}], embed,
@@ -2490,12 +2490,12 @@ class LFGAdoptThreadTests(TestCase):
     THREAD = "940000000000000001"
 
     def _run(self, in_thread=True, thread_id=THREAD, role_id=None, guild=None):
-        with mock.patch("the_gatehouse.services.discordservice.create_message_thread",
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
                         return_value="950000000000000001") as message_thread, \
-                mock.patch("the_gatehouse.services.discordservice.create_forum_thread",
+                mock.patch("the_databot.services.discordservice.create_forum_thread",
                            return_value="950000000000000002") as forum_thread, \
-                mock.patch("the_gatehouse.services.discordservice.post_channel_message") as post, \
-                mock.patch("the_gatehouse.services.discordservice.apply_thread_tag") as tag, \
+                mock.patch("the_databot.services.discordservice.post_channel_message") as post, \
+                mock.patch("the_databot.services.discordservice.apply_thread_tag") as tag, \
                 mock.patch("the_gatehouse.tasks.link_lfg_message_task.apply_async"):
             create_lfg_thread_task(
                 thread_id, "msg", guild, role_id, "a game",
@@ -2544,7 +2544,7 @@ class LFGCancelledDMTests(TestCase):
     """The cancellation DM itself."""
 
     def _send(self, host_name="Tim", description="a game", jump_url=None):
-        with mock.patch("the_gatehouse.services.discordservice.send_dm_by_id") as dm:
+        with mock.patch("the_databot.services.discordservice.send_dm_by_id") as dm:
             notify_lfg_cancelled_task(["111"], host_name, description, jump_url)
         return dm.call_args.kwargs["content"]
 
@@ -2809,10 +2809,10 @@ class LFGHostRecordingTests(TestCase):
 
     def _run_task(self, host_id=..., thread_id="770000000000000001"):
         kwargs = {} if host_id is ... else {"host_id": host_id}
-        with mock.patch("the_gatehouse.services.discordservice.create_message_thread",
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
                         return_value=thread_id), \
-                mock.patch("the_gatehouse.services.discordservice.create_forum_thread"), \
-                mock.patch("the_gatehouse.services.discordservice.post_channel_message"), \
+                mock.patch("the_databot.services.discordservice.create_forum_thread"), \
+                mock.patch("the_databot.services.discordservice.post_channel_message"), \
                 mock.patch("the_gatehouse.tasks.link_lfg_message_task.apply_async"):
             create_lfg_thread_task(
                 "chan", "msg", None, None, "a game",
@@ -3050,9 +3050,9 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         return [
             mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=text),
             mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=forum),
-            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+            mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                        return_value=text),
-            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+            mock.patch("the_databot.services.discordservice.get_guild_forum_channels",
                        return_value=forum),
         ]
 
@@ -3119,9 +3119,9 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         patches = [
             mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=None),
             mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=None),
-            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+            mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                        return_value=None),
-            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+            mock.patch("the_databot.services.discordservice.get_guild_forum_channels",
                        return_value=None),
         ]
         for p in patches:
@@ -3150,9 +3150,9 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         patches = [
             mock.patch("the_gatehouse.views.get_guild_text_channels", return_value=None),
             mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=self.FORUM),
-            mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+            mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                        return_value=None),
-            mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+            mock.patch("the_databot.services.discordservice.get_guild_forum_channels",
                        return_value=self.FORUM),
         ]
         for p in patches:
@@ -3239,7 +3239,7 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
     def _capture(self, fn):
         """Run fn with Discord reads stubbed, returning the posted content or None."""
         from the_gatehouse import tasks
-        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+        with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT), \
              mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
@@ -3297,7 +3297,7 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
         # The stubbed list belongs to the tournament's *current* guild and doesn't
         # contain the stored id, so the post is refused.
         from the_gatehouse import tasks
-        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+        with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=[]), \
              mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
@@ -3371,9 +3371,9 @@ class TournamentChannelSecurityTests(_NoLoginSignalMixin, TestCase):
     def _post(self, field='results_channel', text=None, forum=None):
         from the_gatehouse import tasks
         from the_warroom.services.channel_posts import post_to_tournament_channel
-        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+        with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT if text is None else text), \
-             mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+             mock.patch("the_databot.services.discordservice.get_guild_forum_channels",
                         return_value=self.FORUM if forum is None else forum), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
             sent = post_to_tournament_channel(self.tournament, field, "hi")
@@ -3398,7 +3398,7 @@ class TournamentChannelSecurityTests(_NoLoginSignalMixin, TestCase):
         deliberate inverse of the settings form, which lets an outage through."""
         from the_gatehouse import tasks
         from the_warroom.services.channel_posts import post_to_tournament_channel
-        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+        with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=None), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
             sent = post_to_tournament_channel(self.tournament, 'results_channel', "hi")
@@ -3454,7 +3454,7 @@ class RefreshGuildCacheTests(_NoLoginSignalMixin, TestCase):
         return reverse("guild-refresh-discord", args=[guild_id or self.guild.guild_id])
 
     def test_clears_every_guild_scoped_key(self):
-        from the_gatehouse.services.discordservice import refresh_guild_cache
+        from the_databot.services.discordservice import refresh_guild_cache
         gid = self.guild.guild_id
         for key in (f"bot_in_guild:{gid}", f"guild_roles:{gid}",
                     f"guild_role_perms:{gid}", f"guild_object:{gid}",
@@ -3469,7 +3469,7 @@ class RefreshGuildCacheTests(_NoLoginSignalMixin, TestCase):
     def test_clears_per_forum_tag_entries(self):
         """forum_channel_info is keyed by CHANNEL id, not guild id — clearing only the
         guild keys would leave newly-added forum tags stale."""
-        from the_gatehouse.services.discordservice import refresh_guild_cache
+        from the_databot.services.discordservice import refresh_guild_cache
         gid = self.guild.guild_id
         cache.set(f"guild_forum_channels:{gid}", [{"id": "555", "name": "f"}], 300)
         cache.set("forum_channel_info:555", {"is_forum": True, "tags": []}, 300)
@@ -3477,7 +3477,7 @@ class RefreshGuildCacheTests(_NoLoginSignalMixin, TestCase):
         self.assertIsNone(cache.get("forum_channel_info:555"))
 
     def test_leaves_another_guilds_cache_alone(self):
-        from the_gatehouse.services.discordservice import refresh_guild_cache
+        from the_databot.services.discordservice import refresh_guild_cache
         cache.set("guild_roles:999999", ["keep"], 300)
         refresh_guild_cache(self.guild.guild_id)
         self.assertEqual(cache.get("guild_roles:999999"), ["keep"])
@@ -7962,7 +7962,7 @@ class SchedulePollNotifyDMTests(TestCase):
 
     def _send(self, **kwargs):
         with mock.patch(
-            "the_gatehouse.services.discordservice.send_dm_by_id"
+            "the_databot.services.discordservice.send_dm_by_id"
         ) as dm:
             notify_schedule_poll_task(["111"], **kwargs)
         return dm.call_args.kwargs["content"]
@@ -9294,7 +9294,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
     def test_post_task_records_message_id(self):
         from the_gatehouse import tasks
         with mock.patch(
-            "the_gatehouse.services.discordservice.post_channel_message_full",
+            "the_databot.services.discordservice.post_channel_message_full",
             return_value=(ds.THREAD_OK, "98765"),
         ) as post:
             tasks.post_schedule_proposal_task(self.proposal.pk, {"content": "x"})
@@ -9305,7 +9305,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
     def test_post_task_reraises_transient_failure(self):
         from the_gatehouse import tasks
         with mock.patch(
-            "the_gatehouse.services.discordservice.post_channel_message_full",
+            "the_databot.services.discordservice.post_channel_message_full",
             return_value=(ds.THREAD_ERROR, None),
         ):
             with self.assertRaises(Exception):
@@ -9316,7 +9316,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.proposal.status = ScheduleProposal.Status.SUPERSEDED
         self.proposal.save(update_fields=["status"])
         with mock.patch(
-            "the_gatehouse.services.discordservice.post_channel_message_full",
+            "the_databot.services.discordservice.post_channel_message_full",
         ) as post:
             tasks.post_schedule_proposal_task(self.proposal.pk, {"content": "x"})
         post.assert_not_called()
@@ -9330,7 +9330,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.proposal.confirmed_by.add(self.player)
         self.proposal.rejected_by.add(self.teammate)
         with mock.patch(
-            "the_gatehouse.services.discordservice.edit_channel_message",
+            "the_databot.services.discordservice.edit_channel_message",
             return_value=ds.THREAD_OK,
         ) as edit:
             tasks.strip_schedule_proposal_messages_task([self.proposal.pk],
@@ -9355,7 +9355,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
             proposal.rejected_by.add(self.teammate)
             pks.append(proposal.pk)
         with mock.patch(
-            "the_gatehouse.services.discordservice.edit_channel_message",
+            "the_databot.services.discordservice.edit_channel_message",
             return_value=ds.THREAD_OK,
         ):
             # One for the proposals, one per prefetched M2M. Without the
@@ -9366,7 +9366,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
     def test_strip_task_skips_blank_message_id(self):
         from the_gatehouse import tasks
         with mock.patch(
-            "the_gatehouse.services.discordservice.edit_channel_message",
+            "the_databot.services.discordservice.edit_channel_message",
         ) as edit:
             tasks.strip_schedule_proposal_messages_task([self.proposal.pk], "superseded")
         edit.assert_not_called()
@@ -9379,7 +9379,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.proposal.message_id = "111"
         self.proposal.save(update_fields=["message_id"])
         with mock.patch(
-            "the_gatehouse.services.discordservice.edit_channel_message",
+            "the_databot.services.discordservice.edit_channel_message",
             return_value=ds.THREAD_OK,
         ) as edit:
             tasks.strip_schedule_proposal_messages_task(
@@ -9397,7 +9397,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.proposal.message_id = "111"
         self.proposal.save(update_fields=["message_id"])
         with mock.patch(
-            "the_gatehouse.services.discordservice.edit_channel_message",
+            "the_databot.services.discordservice.edit_channel_message",
             return_value=ds.THREAD_BLOCKED,
         ):
             tasks.strip_schedule_proposal_messages_task([self.proposal.pk], "superseded")
@@ -9407,7 +9407,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.proposal.message_id = "111"
         self.proposal.save(update_fields=["message_id"])
         with mock.patch(
-            "the_gatehouse.services.discordservice.edit_channel_message",
+            "the_databot.services.discordservice.edit_channel_message",
             return_value=ds.THREAD_ERROR,
         ):
             with self.assertRaises(Exception):
@@ -9490,20 +9490,20 @@ class InlineGuildSyncOnLoginTests(TestCase):
     def _patch_discord(self, guilds, display_name='Newbie'):
         """Patch the Discord boundary as imported inside refresh_user_guilds."""
         guilds_p = mock.patch(
-            'the_gatehouse.services.discordservice.get_user_guilds', return_value=guilds)
+            'the_databot.services.discordservice.get_user_guilds', return_value=guilds)
         name_p = mock.patch(
-            'the_gatehouse.services.discordservice.get_discord_display_name',
+            'the_databot.services.discordservice.get_discord_display_name',
             return_value=display_name)
         derive_p = mock.patch(
-            'the_gatehouse.services.discordservice.derive_guild_membership',
+            'the_databot.services.discordservice.derive_guild_membership',
             return_value=(bool(guilds), False, False))
         update_p = mock.patch(
-            'the_gatehouse.services.discordservice.update_user_guilds')
+            'the_databot.services.discordservice.update_user_guilds')
         # refresh_user_guilds imports the predicate INSIDE the function, so it resolves
         # on the discordservice module -- separate from the signals-level patch in setUp
         # that gates whether the flag is raised at all. Both are needed.
         cap_p = mock.patch(
-            'the_gatehouse.services.discordservice.discord_refresh_capability',
+            'the_databot.services.discordservice.discord_refresh_capability',
             return_value='ok')
         patches = (guilds_p, name_p, derive_p, update_p, cap_p)
         mocks = [p.start() for p in patches]
@@ -9558,7 +9558,7 @@ class InlineGuildSyncOnLoginTests(TestCase):
 
     def test_login_survives_discord_exception(self):
         """A Discord outage must never break login itself."""
-        with mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+        with mock.patch('the_databot.services.discordservice.get_user_guilds',
                         side_effect=RuntimeError('discord down')):
             task = self._login()
 
@@ -9592,7 +9592,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
         # These users have no SocialAccount, so the real predicate returns 'no_account'
         # and every refresh below would short-circuit to NO_TOKEN before any HTTP.
         cap_p = mock.patch(
-            'the_gatehouse.services.discordservice.discord_refresh_capability',
+            'the_databot.services.discordservice.discord_refresh_capability',
             return_value='ok')
         cap_p.start()
         self.addCleanup(cap_p.stop)
@@ -9618,12 +9618,12 @@ class RefreshUserGuildsBudgetTests(TestCase):
             return [{'id': 'ww-guild'}]
 
         with mock.patch.object(tasks.time, 'monotonic', clock), \
-             mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+             mock.patch('the_databot.services.discordservice.get_user_guilds',
                         side_effect=slow_guilds), \
-             mock.patch('the_gatehouse.services.discordservice.update_user_guilds'), \
-             mock.patch('the_gatehouse.services.discordservice.derive_guild_membership',
+             mock.patch('the_databot.services.discordservice.update_user_guilds'), \
+             mock.patch('the_databot.services.discordservice.derive_guild_membership',
                         return_value=(True, False, False)), \
-             mock.patch('the_gatehouse.services.discordservice.get_discord_display_name'
+             mock.patch('the_databot.services.discordservice.get_discord_display_name'
                         ) as name:
             ok = tasks.refresh_user_guilds(self.user, budget=6)
 
@@ -9641,7 +9641,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
         clock.now = 99   # already past the deadline when we start
 
         with mock.patch.object(tasks.time, 'monotonic', clock), \
-             mock.patch('the_gatehouse.services.discordservice.get_user_guilds'
+             mock.patch('the_databot.services.discordservice.get_user_guilds'
                         ) as get_guilds:
             ok = tasks.refresh_user_guilds(self.user, budget=-1)
 
@@ -9653,12 +9653,12 @@ class RefreshUserGuildsBudgetTests(TestCase):
         """The async task path must keep the historical per-call 5s defaults."""
         from the_gatehouse import tasks
 
-        with mock.patch('the_gatehouse.services.discordservice.get_user_guilds',
+        with mock.patch('the_databot.services.discordservice.get_user_guilds',
                         return_value=[]) as get_guilds, \
-             mock.patch('the_gatehouse.services.discordservice.update_user_guilds'), \
-             mock.patch('the_gatehouse.services.discordservice.derive_guild_membership',
+             mock.patch('the_databot.services.discordservice.update_user_guilds'), \
+             mock.patch('the_databot.services.discordservice.derive_guild_membership',
                         return_value=(False, False, False)), \
-             mock.patch('the_gatehouse.services.discordservice.get_discord_display_name',
+             mock.patch('the_databot.services.discordservice.get_discord_display_name',
                         return_value='x'):
             tasks.refresh_user_guilds(self.user)
 
@@ -9908,7 +9908,7 @@ class UnusableTokenReportTests(TestCase):
     def _refresh(self, capability):
         from the_gatehouse import tasks
         with mock.patch(
-            'the_gatehouse.services.discordservice.discord_refresh_capability',
+            'the_databot.services.discordservice.discord_refresh_capability',
             return_value=capability), \
              mock.patch('the_gatehouse.tasks.send_discord_message_task') as send:
             result = tasks.refresh_user_guilds(self.user)
@@ -10066,9 +10066,9 @@ class _AvatarTestMixin:
             'content': self._png_bytes(), 'status_code': status
         })()
         with mock.patch(
-            'the_gatehouse.services.discordservice.SocialAccount'
+            'the_databot.services.discordservice.SocialAccount'
         ) as social_mock, mock.patch(
-            'the_gatehouse.services.discordservice.requests.get',
+            'the_databot.services.discordservice.requests.get',
             return_value=response,
         ):
             social_mock.objects.filter.return_value.first.return_value = social
@@ -10664,10 +10664,10 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         pacing doesn't slow the suite."""
         from the_gatehouse import tasks
         return_value = (thread_id, None, None)
-        with mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+        with mock.patch("the_databot.services.discordservice.get_guild_forum_channels",
                         return_value=self.FORUM if forum is None else forum), \
              mock.patch("the_gatehouse.tasks.time.sleep") as self.sleep, \
-             mock.patch("the_gatehouse.services.discordservice.create_forum_thread_result",
+             mock.patch("the_databot.services.discordservice.create_forum_thread_result",
                         **({"side_effect": side_effect} if side_effect
                            else {"return_value": return_value})) as create:
             tasks.create_match_threads_task(
@@ -10854,11 +10854,11 @@ class CreateForumThreadResultTests(TestCase):
             resp.raise_for_status.side_effect = err
         else:
             resp.raise_for_status.return_value = None
-        return mock.patch("the_gatehouse.services.discordservice.requests.post",
+        return mock.patch("the_databot.services.discordservice.requests.post",
                           return_value=resp)
 
     def test_a_tag_becomes_applied_tags(self):
-        from the_gatehouse.services.discordservice import create_forum_thread_result
+        from the_databot.services.discordservice import create_forum_thread_result
         with self._post(json_body={"id": "77"}) as post:
             thread_id, retry_after, status = create_forum_thread_result(
                 self.CHANNEL, "Group A", content="hi", tag_id="55501")
@@ -10867,13 +10867,13 @@ class CreateForumThreadResultTests(TestCase):
         self.assertEqual(post.call_args.kwargs["json"]["applied_tags"], ["55501"])
 
     def test_no_tag_omits_applied_tags(self):
-        from the_gatehouse.services.discordservice import create_forum_thread_result
+        from the_databot.services.discordservice import create_forum_thread_result
         with self._post(json_body={"id": "77"}) as post:
             create_forum_thread_result(self.CHANNEL, "Group A", content="hi")
         self.assertNotIn("applied_tags", post.call_args.kwargs["json"])
 
     def test_a_400_reports_its_status(self):
-        from the_gatehouse.services.discordservice import create_forum_thread_result
+        from the_databot.services.discordservice import create_forum_thread_result
         with self._post(status=400, json_body={"code": 40067}):
             thread_id, retry_after, status = create_forum_thread_result(
                 self.CHANNEL, "Group A", content="hi")
@@ -10883,10 +10883,10 @@ class CreateForumThreadResultTests(TestCase):
 
     def test_a_failure_logs_discord_status_and_body(self):
         """str(e) alone hides the JSON error code naming the real cause."""
-        from the_gatehouse.services.discordservice import create_forum_thread_result
+        from the_databot.services.discordservice import create_forum_thread_result
         body = '{"message": "A tag is required...", "code": 40067}'
         with self._post(status=400, json_body={"code": 40067}, text=body):
-            with self.assertLogs("the_gatehouse.services.discordservice",
+            with self.assertLogs("the_databot.services.discordservice",
                                  level="ERROR") as logs:
                 create_forum_thread_result(self.CHANNEL, "Group A", content="hi")
         logged = "\n".join(logs.output)
@@ -10895,7 +10895,7 @@ class CreateForumThreadResultTests(TestCase):
 
     def test_the_detailed_wrapper_still_returns_a_pair(self):
         """rename_channel shares the (result, retry_after) shape; /lfg destructures it."""
-        from the_gatehouse.services.discordservice import create_forum_thread_detailed
+        from the_databot.services.discordservice import create_forum_thread_detailed
         with self._post(json_body={"id": "77"}):
             result = create_forum_thread_detailed(self.CHANNEL, "Group A", content="hi")
         self.assertEqual(result, ("77", None))
@@ -10924,11 +10924,11 @@ class TournamentGuildChannelsFormTagTests(TestCase):
         from the_gatehouse.forms import TournamentGuildChannelsForm
         finfo = ({"is_forum": True, "requires_tag": requires_tag, "tags": self.TAGS}
                  if info is self._UNSET else info)
-        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+        with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT), \
-             mock.patch("the_gatehouse.services.discordservice.get_guild_forum_channels",
+             mock.patch("the_databot.services.discordservice.get_guild_forum_channels",
                         return_value=self.FORUM), \
-             mock.patch("the_gatehouse.services.discordservice.get_forum_channel_info",
+             mock.patch("the_databot.services.discordservice.get_forum_channel_info",
                         return_value=finfo):
             form = TournamentGuildChannelsForm(
                 data, instance=self.tournament, guild=self.guild)

@@ -1098,7 +1098,7 @@ class ResultsChannelAnnounceTests(TestCase):
     def _post(self, message):
         from the_gatehouse import tasks
         from the_warroom.services.channel_posts import post_to_tournament_channel
-        with mock.patch("the_gatehouse.services.discordservice.get_guild_text_channels",
+        with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
             sent = post_to_tournament_channel(self.tournament, 'results_channel', message)

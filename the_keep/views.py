@@ -43,7 +43,7 @@ from the_gatehouse.models import Profile, Language, Website, DiscordGuild, Disco
 from the_gatehouse.views import (designer_required_class_based_view,
                                  player_required, player_required_class_based_view,
                                  player_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
-from the_gatehouse.services.discordservice import get_guild_link_config
+from the_databot.services.discordservice import get_guild_link_config
 from the_gatehouse.utils import build_absolute_uri
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task

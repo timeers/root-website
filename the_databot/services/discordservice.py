@@ -2445,7 +2445,7 @@ def build_upcoming_embed(match, series=None, player=None, summary=_UNSET):
 def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
     """Build a Discord embed listing the bot's commands, grouped by category.
 
-    Driven by the shared command definitions (the_gatehouse.services.
+    Driven by the shared command definitions (the_databot.services.
     discord_commands), so any command registered with Discord automatically
     appears here. Imported inside the function to avoid an import cycle
     (discord_commands imports models that pull in this package).

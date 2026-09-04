@@ -25,7 +25,7 @@ from .models import (Survey, SurveySection, SurveyResponse, Question, QuestionTe
                      Answer, RankedAnswer, RankedPostAnswer, TA_DAY_CODES, LikertScale,
                      GameComment, PostComment)
 
-from the_gatehouse.services.discordservice import send_new_survey_notification
+from the_databot.services.discordservice import send_new_survey_notification
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 from the_gatehouse.utils import build_absolute_uri, generate_name, NameConvention
 from the_gatehouse.tasks import send_discord_message_task
@@ -662,7 +662,7 @@ def survey_take_view(request, slug):
     # completing the join. The helper owns the "is there anything to verify?" check
     # (an APPROVED, not-yet-COMPLETED invite) and no-ops with no API call otherwise.
     if survey.guild:
-        from the_gatehouse.services.discordservice import reconcile_tentative_membership
+        from the_databot.services.discordservice import reconcile_tentative_membership
         reconciled = reconcile_tentative_membership(request.user, survey.guild)
         if reconciled is not None:        # helper actually ran the sync
             profile.refresh_from_db()     # guilds M2M change won't reflect in-memory
