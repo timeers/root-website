@@ -40,7 +40,7 @@ from the_databot.services.discordservice import (update_discord_avatar, get_disc
                                       bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
-from .tasks import send_rich_discord_message_task, send_discord_message_task, register_guild_commands_task
+from the_databot.tasks import send_rich_discord_message_task, send_discord_message_task, register_guild_commands_task
 
 logger = logging.getLogger(__name__)
 

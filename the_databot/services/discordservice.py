@@ -2757,7 +2757,7 @@ def send_new_survey_notification(*, profile, survey, type):
 
         author = profile.discord or profile.user.username if profile.user else "Unknown"
 
-        from the_gatehouse.tasks import send_rich_discord_message_task
+        from the_databot.tasks import send_rich_discord_message_task
 
         send_rich_discord_message_task.delay(
             message=survey.title,

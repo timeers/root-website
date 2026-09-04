@@ -1,6 +1,6 @@
 import re
 
-from the_gatehouse.tasks import send_discord_message_task
+from the_databot.tasks import send_discord_message_task
 
 from better_profanity import profanity
 profanity.load_censor_words()

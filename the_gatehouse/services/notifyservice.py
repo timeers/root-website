@@ -12,7 +12,7 @@ suppresses a deliverable DM.
 import json
 import logging
 
-from the_gatehouse.tasks import send_discord_dm_task
+from the_databot.tasks import send_discord_dm_task
 
 logger = logging.getLogger(__name__)
 

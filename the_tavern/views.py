@@ -28,7 +28,7 @@ from .models import (Survey, SurveySection, SurveyResponse, Question, QuestionTe
 from the_databot.services.discordservice import send_new_survey_notification
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 from the_gatehouse.utils import build_absolute_uri, generate_name, NameConvention
-from the_gatehouse.tasks import send_discord_message_task
+from the_databot.tasks import send_discord_message_task
 from the_gatehouse.views import player_required, player_onboard_required, admin_onboard_required
 from the_gatehouse.models import Profile, DiscordGuild
 
