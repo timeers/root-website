@@ -939,6 +939,28 @@ em, i {
   /* match the scroll container's vertical padding so the name rows line up
      with the icon-grid rows */
   padding: 6px 0;
+  /* allow this flex child to shrink so a long name can't widen the column and
+     squeeze the icon grid beside it */
+  min-width: 0;
+  max-width: 45%;
+}
+
+/* The name text is the ellipsis target. It needs min-width:0 because a flex
+   child defaults to min-width:auto, which refuses to shrink below its content
+   width and would defeat the clamp. white-space:nowrap comes from .effort-row. */
+.effort-names .effort-row > span,
+.effort-names .effort-row > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* the avatar must keep its size while the name beside it shrinks */
+.effort-names .effort-row > .parent,
+.effort-names .effort-row > img,
+.effort-names .effort-row > i {
+  flex-shrink: 0;
 }
 
 .effort-grid-scroll {
@@ -985,6 +1007,54 @@ em, i {
 }
 .group-card:hover {
   box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Series/match card grid, replacing the old `row g-3` + `col-md-6 col-lg-4`.
+   Columns come from the width actually available rather than fixed Bootstrap
+   breakpoints, so a wide display genuinely fits more cards instead of stopping
+   at three. 320px is the floor at which a card still shows the names column
+   plus a few faction icons before .effort-grid-scroll starts scrolling.
+
+   Card wrappers stay as direct children: series_edit_modal.html and
+   link_game_modal.html derive a series' "Match N" label from its DOM sibling
+   index here, so nothing else may be inserted into this grid. */
+.series-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem; /* same gutter as Bootstrap's g-3 */
+  align-items: stretch; /* keeps the equal row heights .card.h-100 gave us */
+}
+
+@media (max-width: 400px) {
+  /* below the 320px floor plus page padding, go single-column rather than
+     letting minmax() push the grid wider than the viewport */
+  .series-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Opt-in wide page for the card-grid pages. Bootstrap's .container caps at
+   1320px, which is the real reason those grids never grew; container-fluid plus
+   this cap lets them breathe without becoming unreadably wide on huge monitors.
+
+   The side padding keeps the framed feel of .container rather than running the
+   cards to the screen edge: it grows with the viewport (clamped between 1rem on
+   a phone and 4rem on a desktop) so narrow screens keep their usable width while
+   wide ones get real whitespace at the margins. */
+.wide-page {
+  max-width: 2200px;
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 4rem);
+}
+
+/* Single-line name clamp for cards whose rows are plain d-flex (the bracket,
+   schedule and bye/moderator rows). The matches card's names column has its own
+   rule above, scoped to .effort-names. */
+.player-name-clamp {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 /* Clickable Stage / Round sections on the bracket page.

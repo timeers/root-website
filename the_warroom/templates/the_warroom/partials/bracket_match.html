@@ -32,10 +32,10 @@
             {% for bye_winner in match.series.winners.all %}
             <div class="d-flex align-items-center gap-1 small">
                 {% if bye_winner.tournament_player.profile.image %}
-                <img src="{{ bye_winner.tournament_player.profile.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
+                <img src="{{ bye_winner.tournament_player.profile.image.url }}" alt="" class="rounded-circle flex-shrink-0" style="width:18px;height:18px;">
                 {% endif %}
-                <span>{{ bye_winner.tournament_player.profile.display_name }}</span>
-                <i class="bi bi-arrow-right-circle text-info ms-auto"></i>
+                <span class="player-name-clamp" title="{{ bye_winner.tournament_player.profile.display_name }}">{{ bye_winner.tournament_player.profile.display_name }}</span>
+                <i class="bi bi-arrow-right-circle text-info ms-auto flex-shrink-0"></i>
             </div>
             {% endfor %}
         {% elif match.game_id %}
@@ -47,11 +47,11 @@
         {% for effort in match.game.efforts.all %}
         <div class="d-flex align-items-center gap-1 small">
             {% if effort.player.image %}
-            <img src="{{ effort.player.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
+            <img src="{{ effort.player.image.url }}" alt="" class="rounded-circle flex-shrink-0" style="width:18px;height:18px;">
             {% endif %}
-            <span>{{ effort.player.display_name }}</span>
+            <span class="player-name-clamp" title="{{ effort.player.display_name }}">{{ effort.player.display_name }}</span>
             {% if effort.faction %}
-            <span class="ms-auto d-inline-block" title="{{ effort.faction.title }}">
+            <span class="ms-auto d-inline-block flex-shrink-0" title="{{ effort.faction.title }}">
                 <div class="parent">
                     <img class="faction-icon image1"
                          src="{{ effort.faction.small_icon|cache_bust:effort.faction.small_icon_version }}"
@@ -72,9 +72,9 @@
         {% with tp=seat.stage_participant.tournament_player %}
         <div class="d-flex align-items-center gap-1 small">
             {% if tp.profile.image %}
-            <img src="{{ tp.profile.image.url }}" alt="" class="rounded-circle" style="width:18px;height:18px;">
+            <img src="{{ tp.profile.image.url }}" alt="" class="rounded-circle flex-shrink-0" style="width:18px;height:18px;">
             {% endif %}
-            <span>{{ tp.profile.display_name }}</span>
+            <span class="player-name-clamp" title="{{ tp.profile.display_name }}">{{ tp.profile.display_name }}</span>
         </div>
         {% endwith %}
         {% empty %}

@@ -53,8 +53,11 @@
     <div class="card-body">
         {% if series.matchseat_set.all %}
         <div class="effort-layout d-flex align-items-stretch w-100">
-            {# Fixed names column (never scrolls) #}
-            <div class="effort-names flex-shrink-0">
+            {% comment %} Fixed names column (never scrolls). Deliberately not
+            flex-shrink-0: the max-width and ellipsis on .effort-names need this
+            column to be able to shrink, so a long name can't push the icon grid
+            out of the card. {% endcomment %}
+            <div class="effort-names">
                 {% for seat in series.matchseat_set.all %}
                 <div class="effort-row d-flex align-items-center gap-2">
                     <div class="parent">
@@ -68,9 +71,9 @@
                         {% endif %}
                     </div>
                     {% if series|is_series_winner:seat.stage_participant.tournament_player_id %}
-                    <strong>{{ seat.stage_participant.tournament_player.profile.display_name }}</strong>
+                    <strong title="{{ seat.stage_participant.tournament_player.profile.display_name }}">{{ seat.stage_participant.tournament_player.profile.display_name }}</strong>
                     {% else %}
-                    <span>{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
+                    <span title="{{ seat.stage_participant.tournament_player.profile.display_name }}">{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
                     {% endif %}
                 </div>
                 {% endfor %}
@@ -81,7 +84,7 @@
                     {% else %}
                     <i class="bi bi-person-circle"></i>
                     {% endif %}
-                    <span>{{ row.profile.display_name }}</span>
+                    <span title="{{ row.profile.display_name }}">{{ row.profile.display_name }}</span>
                 </div>
                 {% endfor %}
             </div>
@@ -107,8 +110,8 @@
             {% else %}
             <i class="bi bi-person-circle"></i>
             {% endif %}
-            <span>{{ bye_winner.tournament_player.profile.display_name }}</span>
-            <span class="badge bg-secondary ms-auto">{% trans 'Bye' %}</span>
+            <span class="player-name-clamp" title="{{ bye_winner.tournament_player.profile.display_name }}">{{ bye_winner.tournament_player.profile.display_name }}</span>
+            <span class="badge bg-secondary ms-auto flex-shrink-0">{% trans 'Bye' %}</span>
         </div>
         {% endfor %}
         {% else %}
@@ -191,7 +194,7 @@
             {% else %}
             <i class="bi bi-person-circle"></i>
             {% endif %}
-            <span>{{ mod.display_name }}</span>
+            <span class="player-name-clamp" title="{{ mod.display_name }}">{{ mod.display_name }}</span>
         </div>
         {% endif %}
         {% endwith %}

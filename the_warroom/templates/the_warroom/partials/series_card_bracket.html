@@ -32,11 +32,11 @@
             {% for seat in series.matchseat_set.all %}
             <li class="list-group-item d-flex align-items-center">
                 {% if seat.stage_participant.tournament_player.profile.image %}
-                <img src="{{ seat.stage_participant.tournament_player.profile.image.url }}" alt="" class="rounded-circle me-2" style="width: 24px; height: 24px;">
+                <img src="{{ seat.stage_participant.tournament_player.profile.image.url }}" alt="" class="rounded-circle me-2 flex-shrink-0" style="width: 24px; height: 24px;">
                 {% else %}
-                <i class="bi bi-person-circle me-2"></i>
+                <i class="bi bi-person-circle me-2 flex-shrink-0"></i>
                 {% endif %}
-                <span class="flex-grow-1">{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
+                <span class="flex-grow-1 player-name-clamp" title="{{ seat.stage_participant.tournament_player.profile.display_name }}">{{ seat.stage_participant.tournament_player.profile.display_name }}</span>
             </li>
             {% empty %}
             <li class="list-group-item text-muted text-center">

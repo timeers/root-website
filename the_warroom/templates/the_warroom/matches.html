@@ -8,6 +8,7 @@
 {% include 'the_warroom/partials/meta_tags.html' with meta_page_suffix=meta_page_suffix %}
 {% endblock meta %}
 
+{% block main_class %}container-fluid main-content wide-page{% endblock %}
 {% block main_width_class %}col-md-12{% endblock %}
 
 {% block content %}
@@ -36,14 +37,18 @@
     {% if not match_series and not create_series_url %}
     <p class="text-muted">{% trans 'No matches have been scheduled yet.' %}</p>
     {% endif %}
-    <div class="row g-3">
+    {% comment %} Fluid card grid -- the column count follows the available width.
+    These wrappers must stay direct children: the edit and link-game modals derive
+    a series' "Match N" label from its sibling index in this container.
+    {% endcomment %}
+    <div class="series-card-grid">
         {% for series in match_series %}
-        <div class="col-md-6 col-lg-4" id="series-card-{{ series.id }}" data-series-id="{{ series.id }}">
+        <div id="series-card-{{ series.id }}" data-series-id="{{ series.id }}">
             {% include 'the_warroom/partials/series_card_matches.html' with series_index=forloop.counter %}
         </div>
         {% endfor %}
         {% if can_manage and create_series_url %}
-        <div class="col-md-6 col-lg-4" id="addSeriesCard">
+        <div id="addSeriesCard">
             <div class="card h-100 group-card"
                  style="min-height: 120px; border-style: dashed !important; cursor: pointer;"
                  onclick="createNewSeries()">
@@ -107,7 +112,6 @@
 
             const grid = addCard.parentElement;
             const newCol = document.createElement('div');
-            newCol.className = 'col-md-6 col-lg-4';
             newCol.id = `series-card-${series.id}`;
             newCol.dataset.seriesId = series.id;
             newCol.innerHTML = `
