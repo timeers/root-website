@@ -11,6 +11,12 @@ Discord. Two places consume it:
 Add a new command by defining it here and adding it to COMMANDS (and, if it has
 behaviour, a handler in discord_interactions.py). Keeping definitions here means
 `/help` picks the command up automatically.
+
+The nine component lookups are SUBCOMMANDS of one /lookup command (see
+LOOKUP_SUBCOMMANDS) rather than nine top-level commands, so they take one slot in
+Discord's command picker. Each subcommand is still whitelisted individually --
+Discord only registers commands, so a guild's choices are honoured by varying
+/lookup's options (lookup_command_for_guild).
 """
 import copy
 import logging
@@ -20,12 +26,16 @@ from the_keep.models import CardTag
 logger = logging.getLogger(__name__)
 
 
-def _lookup_command(name, label):
-    """A /<name> command with a required, autocompleting 'name' option. Replies
-    with one embed (info card + large image)."""
+LOOKUP_COMMAND_NAME = "lookup"
+
+
+def _lookup_subcommand(name, label):
+    """A `/lookup <name>` SUB_COMMAND with a required, autocompleting 'name' option.
+    Replies with one embed (info card + large image)."""
     return {
         "name": name,
         "description": f"Look up a Root {label}",
+        "type": 1,  # SUB_COMMAND
         "options": [
             {
                 "name": "name",
@@ -36,6 +46,55 @@ def _lookup_command(name, label):
             },
         ],
     }
+
+
+# The nine lookups, collapsed under one /lookup command so they occupy a single slot
+# in Discord's command picker instead of nine. Order drives the /lookup options list,
+# the guild edit page's checkbox order and the "Lookups" /help group.
+#
+# These names are the WHITELIST KEYS, deliberately unchanged from the old top-level
+# command names (/faction, /map, ...), so an existing guild's enabled_commands stays
+# valid verbatim and needs no data migration.
+LOOKUP_SUBCOMMANDS = [_lookup_subcommand(n, l) for n, l in (
+    ("faction", "faction"),
+    ("clockwork", "clockwork faction"),
+    ("map", "map"),
+    ("deck", "deck"),
+    ("vagabond", "vagabond"),
+    ("captain", "knave captain"),
+    ("landmark", "landmark"),
+    ("hireling", "hireling"),
+    ("houserule", "house rule"),
+)]
+
+LOOKUP_SUBCOMMAND_NAMES = [s["name"] for s in LOOKUP_SUBCOMMANDS]
+
+# The base COMMANDS entry (registration template + the full /help listing) carries every
+# subcommand; the per-guild subset is built by lookup_command_for_guild.
+LOOKUP_COMMAND = {
+    "name": LOOKUP_COMMAND_NAME,
+    "description": "Look up a Root component by name",
+    "options": LOOKUP_SUBCOMMANDS,
+}
+
+
+def lookup_command_for_guild(enabled_names):
+    """The /lookup definition to register for a guild: one SUB_COMMAND per enabled
+    lookup. Returns None when the guild has none enabled, so /lookup isn't registered
+    there at all.
+
+    Discord registers COMMANDS, not subcommands, so a guild's per-lookup whitelist can
+    only be honoured by varying this command's options -- the same trick
+    lfg_command_for_roles uses to bake per-guild tag choices. Deep-copies the shared
+    module dicts so the caller never mutates a singleton. Nine subcommands is well under
+    Discord's 25-option cap, so no truncation is needed."""
+    enabled = set(enabled_names or ())
+    subs = [copy.deepcopy(s) for s in LOOKUP_SUBCOMMANDS if s["name"] in enabled]
+    if not subs:
+        return None
+    cmd = copy.deepcopy(LOOKUP_COMMAND)
+    cmd["options"] = subs
+    return cmd
 
 
 CARD_COMMAND = {
@@ -401,17 +460,19 @@ LFG_HELP_STEPS = [
         "body": "Once the game is started a thread will automatically be created and the players will "
         "be notified. Within the thread the players can use certain commands to help set up the game. "
         "All of these commands are optional, but can be helpful when recording the game. The commands are as follows:",
-        # LFG-specific blurbs: deliberately worded for what the command does *inside a
+        # (name, label, blurb). `name` is the whitelist key that lfg_help_steps_for_guild
+        # filters on; `label` is what to render after the slash, which for a lookup is
+        # "lookup map". Blurbs are deliberately worded for what the command does *inside a
         # game thread*, which differs from its general registration description.
         "commands": [
-            ("random",  "Roll a random map, deck, faction, etc."),
-            ("map",     "Specify map you're playing on."),
-            ("deck",    "Specify deck you're playing with."),
-            ("faction", "Note a faction that's in the game."),
-            ("seating", "Randomly seat the players without drafting factions."),
-            ("draft",   "Draft the factions that can be selected in this game."),
-            ("pick",    "Have each player pick factions from the draft or assign "
-                        "factions to each player."),
+            ("random",  "random",          "Roll a random map, deck, faction, etc."),
+            ("map",     "lookup map",      "Specify map you're playing on."),
+            ("deck",    "lookup deck",     "Specify deck you're playing with."),
+            ("faction", "lookup faction",  "Note a faction that's in the game."),
+            ("seating", "seating",         "Randomly seat the players without drafting factions."),
+            ("draft",   "draft",           "Draft the factions that can be selected in this game."),
+            ("pick",    "pick",            "Have each player pick factions from the draft or assign "
+                                           "factions to each player."),
         ],
     },
     {
@@ -436,15 +497,7 @@ LFG_HELP_STEPS = [
 # All command definitions registered with Discord.
 COMMANDS = [
     HELP_COMMAND,
-    _lookup_command("faction", "faction"),
-    _lookup_command("clockwork", "clockwork faction"),
-    _lookup_command("map", "map"),
-    _lookup_command("deck", "deck"),
-    _lookup_command("vagabond", "vagabond"),
-    _lookup_command("captain", "knave captain"),
-    _lookup_command("landmark", "landmark"),
-    _lookup_command("hireling", "hireling"),
-    _lookup_command("houserule", "house rule"),
+    LOOKUP_COMMAND,
     CARD_COMMAND,
     STATS_COMMAND,
     UPCOMING_COMMAND,
@@ -480,22 +533,46 @@ def all_command_definitions():
     return list(COMMANDS)
 
 
-# /help is always available in every guild and is never a whitelist toggle, so the
-# whitelistable set is every other command. Derived from COMMANDS so a new command
-# becomes toggleable automatically.
-WHITELISTABLE = [c["name"] for c in COMMANDS if c["name"] != "help"]
+# Neither of these is a whitelist toggle: /help is always available everywhere, and
+# /lookup has no meaning of its own -- its NINE SUBCOMMANDS are the toggles, keyed by
+# the same names the old top-level lookup commands used.
+_NON_WHITELISTABLE = {"help", LOOKUP_COMMAND_NAME}
+
+# Everything a guild moderator can switch on. Derived from COMMANDS (so a new command
+# becomes toggleable automatically) plus the lookup subcommands.
+WHITELISTABLE = ([c["name"] for c in COMMANDS if c["name"] not in _NON_WHITELISTABLE]
+                 + LOOKUP_SUBCOMMAND_NAMES)
 
 
 def whitelistable_commands():
-    """(name, description) for every command a guild moderator can toggle (all but /help)."""
-    return [(c["name"], c["description"]) for c in COMMANDS if c["name"] != "help"]
+    """(name, label, description) for every toggle a guild moderator can flip.
+
+    `name` is the stored whitelist key -- unchanged for the lookups, which is what lets
+    an existing enabled_commands list keep working. `label` is what to render after the
+    slash: identical to `name` for a top-level command, "lookup faction" for a lookup
+    subcommand, since that's what a user actually types."""
+    rows = [(c["name"], c["name"], c["description"]) for c in COMMANDS
+            if c["name"] not in _NON_WHITELISTABLE]
+    return rows + [(s["name"], f"{LOOKUP_COMMAND_NAME} {s['name']}", s["description"])
+                   for s in LOOKUP_SUBCOMMANDS]
 
 
 def commands_for_guild(enabled_names):
     """Definitions to register for a guild: always /help, plus each enabled, whitelistable
-    command. Ignores unknown/removed names so a stale whitelist never breaks registration."""
-    allowed = set(enabled_names) & set(WHITELISTABLE)
-    return [c for c in COMMANDS if c["name"] == "help" or c["name"] in allowed]
+    command, plus a /lookup carrying only this guild's enabled subcommands. Ignores
+    unknown/removed names so a stale whitelist never breaks registration.
+
+    Unlike the /help and /lfg per-guild variants (substituted in register_guild_commands),
+    /lookup is resolved HERE because it can be dropped entirely -- a guild with no lookups
+    enabled gets no /lookup at all, which substitute-in-place can't express."""
+    allowed = set(enabled_names or ()) & set(WHITELISTABLE)
+    out = [c for c in COMMANDS
+           if c["name"] == "help"
+           or (c["name"] != LOOKUP_COMMAND_NAME and c["name"] in allowed)]
+    lookup = lookup_command_for_guild(allowed)
+    if lookup:
+        out.append(lookup)
+    return out
 
 
 def lfg_help_steps_for_guild(enabled_names=None):
@@ -521,7 +598,7 @@ def lfg_help_steps_for_guild(enabled_names=None):
             continue
         chips = step.get("commands")
         if chips:
-            chips = [(name, blurb) for name, blurb in chips if name in enabled]
+            chips = [(name, label, blurb) for name, label, blurb in chips if name in enabled]
             if not chips:
                 continue
             step = {**step, "commands": chips}
@@ -530,22 +607,33 @@ def lfg_help_steps_for_guild(enabled_names=None):
 
 
 def grouped_commands():
-    """Yield (group_name, [(command_name, description), ...]) in display order.
+    """Yield (group_name, [(name, label, description), ...]) in display order.
 
-    Commands not listed in COMMAND_GROUPS are collected into a final "Other"
-    group so /help always reflects the full registered command set.
+    `name` is the whitelist key -- what enabled_commands stores and what build_help_embed
+    filters on. `label` is what to render after the slash: identical to `name` for a
+    top-level command, "lookup faction" for a lookup subcommand.
+
+    /lookup itself is skipped in favour of a row per subcommand: a bare `/lookup` row
+    would tell a reader nothing about which lookups their guild actually has. That is the
+    one deliberate exception to the "Other" catch-all below -- a new lookup SUBCOMMAND
+    missing from COMMAND_GROUPS still lands in "Other", so the safety net keeps working
+    for the case that matters.
     """
-    definitions = all_command_definitions()
-    descriptions = {c["name"]: c.get("description", "") for c in definitions}
+    rows_by_name = {c["name"]: (c["name"], c["name"], c.get("description", ""))
+                    for c in all_command_definitions()
+                    if c["name"] != LOOKUP_COMMAND_NAME}
+    rows_by_name.update({
+        s["name"]: (s["name"], f"{LOOKUP_COMMAND_NAME} {s['name']}", s.get("description", ""))
+        for s in LOOKUP_SUBCOMMANDS
+    })
 
     grouped_names = set()
     for group_name, names in COMMAND_GROUPS:
-        rows = [(n, descriptions[n]) for n in names if n in descriptions]
-        grouped_names.update(n for n, _ in rows)
+        rows = [rows_by_name[n] for n in names if n in rows_by_name]
+        grouped_names.update(r[0] for r in rows)
         if rows:
             yield group_name, rows
 
-    leftover = [(c["name"], descriptions[c["name"]])
-                for c in definitions if c["name"] not in grouped_names]
+    leftover = [row for name, row in rows_by_name.items() if name not in grouped_names]
     if leftover:
         yield "Other", leftover

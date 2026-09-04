@@ -92,7 +92,7 @@ def normalize_turns(turns, *, label=None):
     detail, which the V2 grid has no columns for.
 
     Missing interior turns are backfilled with the previous cumulative value,
-    matching the server's Phase-1 backfill in manage_game_v2.
+    matching the server's Phase-1 backfill in manage_game.
     """
     notes = []
     if turns is None:
@@ -274,7 +274,9 @@ def parse_box_score_json(raw_text):
 
 # Faction titles that gate a dependent field, mirroring EffortCreateForm.clean.
 VAGABOND_FACTION = 'Vagabond'
-COALITION_FACTION = 'Chameleander'
+# The form clears coalition_with only when the faction is NEITHER of these (its
+# check is nested inside the "not Vagabond" branch), so both keep a coalition.
+COALITION_FACTIONS = ('Vagabond', 'Chameleander')
 CAPTAINS_FACTION = 'Knaves of the Deepwood'
 LEADER_FACTION = 'Eyrie Dynasties'
 CAPTAIN_COUNT = 3
@@ -502,7 +504,7 @@ def resolve_import(participants, *, option_querysets, player_queryset,
                     % {'label': label})
 
         if participant.get('coalition'):
-            if faction_title == COALITION_FACTION:
+            if faction_title in COALITION_FACTIONS:
                 coalition = _resolve_slug(participant['coalition'], buckets.get('factions'),
                                           Faction, label=label, what=_('coalition'),
                                           result=result)
@@ -510,8 +512,8 @@ def resolve_import(participants, *, option_querysets, player_queryset,
                     fields['coalition_with'] = coalition.pk
             else:
                 result.skipped.append(
-                    _('%(label)s: a coalition only applies to %(faction)s.')
-                    % {'label': label, 'faction': COALITION_FACTION})
+                    _('%(label)s: a coalition only applies to %(factions)s.')
+                    % {'label': label, 'factions': ' or '.join(COALITION_FACTIONS)})
 
         if participant.get('starting_leader'):
             leader = participant['starting_leader']
@@ -563,7 +565,7 @@ def resolve_import(participants, *, option_querysets, player_queryset,
 
         # Brazen demagogue rides on dominance only. The deck is NOT gated here:
         # it may not be chosen yet, and the view clears the field at save time
-        # unless the deck is Squires & Disciples (see manage_game_v2), so an
+        # unless the deck is Squires & Disciples (see manage_game), so an
         # invalid value can never be stored. The client stashes it until the
         # deck question is settled.
         if participant.get('brazen_demagogue'):

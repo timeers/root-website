@@ -109,14 +109,18 @@
                     {% trans 'Choose which slash commands are available in this server. /help is always available.' %}
                 </p>
                 <div id="command-group">
-                    {% for name, desc in whitelist_options %}
+                    {% comment %} Options are (name, label, desc): `name` is the stored
+                    whitelist key and stays the checkbox value, while `label` is what the
+                    user types in Discord — "lookup faction" for a /lookup subcommand.
+                    {% endcomment %}
+                    {% for name, label, desc in whitelist_options %}
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox"
                                name="enabled_commands" value="{{ name }}"
                                id="cmd-{{ name }}"
                                {% if name in enabled_commands %}checked{% endif %}>
                         <label class="form-check-label" for="cmd-{{ name }}">
-                            <code>/{{ name }}</code> - {{ desc }}
+                            <code>/{{ label }}</code> - {{ desc }}
                         </label>
                     </div>
                     {% endfor %}

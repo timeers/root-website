@@ -85,7 +85,7 @@
           <h2 class="info-card-title">Try these first</h2>
           <div class="databot-flagship">
             <div class="databot-chip">
-              <code>/faction</code>
+              <code>/lookup faction</code>
               <span>Look up a Faction's board, Adset card, and .</span>
             </div>
             <div class="databot-chip">
@@ -113,9 +113,12 @@
           <div class="databot-cmd-group">
             <h5 class="databot-cmd-group-title">{{ group_name }}</h5>
             <ul class="databot-cmd-list">
-              {% for name, desc in rows %}
+              {% comment %} Rows are (name, label, desc) — render the label, which for a
+              /lookup subcommand is what you actually type ("lookup faction").
+              {% endcomment %}
+              {% for name, label, desc in rows %}
               <li>
-                <code>/{{ name }}</code>
+                <code>/{{ label }}</code>
                 <span>{{ desc }}</span>
               </li>
               {% endfor %}
@@ -147,9 +150,12 @@
                 <p>{{ step.body|lfg_body }}</p>
                 {% if step.commands %}
                 <div class="databot-lfg-cmds">
-                  {% for name, blurb in step.commands %}
+                  {% comment %} Chips are (name, label, blurb) — render the label, which
+                  for a lookup is "lookup map" rather than the bare whitelist key.
+                  {% endcomment %}
+                  {% for name, label, blurb in step.commands %}
                   <div class="databot-chip">
-                    <code>/{{ name }}</code>
+                    <code>/{{ label }}</code>
                     <span>{{ blurb }}</span>
                   </div>
                   {% endfor %}

@@ -9,11 +9,11 @@ otherwise, and unsigned requests must get a 401).
 Currently handles:
   PING (type 1)                        -> PONG (type 1)
   APPLICATION_COMMAND (type 2)         -> dispatches by command name (e.g.
-                                          /faction, /clockwork, /map, /deck,
-                                          /vagabond, /landmark, /hireling,
-                                          /houserule, /stats, /upcoming,
-                                          /schedule, /law, /card, /captain,
-                                          /draft, /random, /lfg, /help)
+                                          /lookup (whose subcommands cover
+                                          factions, maps, decks, vagabonds and
+                                          the rest), /stats, /upcoming,
+                                          /schedule, /law, /card, /draft,
+                                          /random, /lfg, /help)
   MESSAGE_COMPONENT (type 3)           -> button/select clicks, dispatched by the
                                           custom_id's leading action
   APPLICATION_COMMAND_AUTOCOMPLETE (4) -> live option suggestions (type 8)
@@ -209,6 +209,29 @@ def _get_option(data, name):
     return None
 
 
+def _subcommand(data):
+    """(name, options) of the SUB_COMMAND in a subcommand-style interaction, else
+    (None, []).
+
+    Discord nests a subcommand as a single type-1 option whose own `options` are the
+    user's arguments:
+
+        {"name": "lookup",
+         "options": [{"name": "faction", "type": 1,
+                      "options": [{"name": "name", "value": "Marquise"}]}]}
+
+    Matching on type == 1 rather than "the first option" keeps this correct if a
+    subcommand-style command ever gains a plain option, and it naturally ignores the
+    dispatcher's "_"-prefixed keys, which live at the top level of `data`, not in
+    options. A SUB_COMMAND_GROUP (type 2) is not used anywhere here and would return
+    (None, []), degrading to an "unknown" reply rather than a crash.
+    """
+    for opt in data.get("options") or ():
+        if opt.get("type") == 1:
+            return opt.get("name"), (opt.get("options") or [])
+    return None, []
+
+
 def _get_attachment(data, name):
     """The resolved attachment dict for an ATTACHMENT (type 11) option, or None.
 
@@ -245,9 +268,13 @@ def _lookup_embed(post, image_field=None):
 
 
 def _make_lookup_handler(label, queryset_factory):
-    """Build a slash-command handler that looks up a Post by title and replies
+    """Build a handler for one /lookup subcommand: look up a Post by title and reply
     with one embed (info card + large image). `queryset_factory` returns the base
-    queryset to search."""
+    queryset to search.
+
+    `data` arrives REWRITTEN by _handle_lookup_command so that data["name"] is the
+    SUBCOMMAND name and data["options"] are its arguments -- which is why the
+    _LFG_LOOKUP_KIND lookup below still works unchanged."""
     def handler(data):
         name = (_get_option(data, "name") or "").strip()
         if not name:
@@ -387,10 +414,10 @@ def _handle_record_command(data):
     thread = _lfg_thread_for_channel(channel_id)
     if thread and not thread.series_id:
         if thread.game_id:
-            url = _record_url(f"/game/{thread.game_id}/edit/v2/")
+            url = _record_url(f"/game/{thread.game_id}/edit/")
             lead = "This game is already recorded — edit it here:"
         else:
-            url = _record_url(f"/record/game/v2/?lfg={thread.id}")
+            url = _record_url(f"/record/game/?lfg={thread.id}")
             lead = "Record this game:"
         if not url:
             return _ephemeral("The site URL isn't configured, so I can't build a link.")
@@ -421,10 +448,10 @@ def _handle_record_command(data):
     match, _err = _match_for_thread(channel_id, guild_id, channel_name)
     if match:
         if match.game_id:
-            url = _record_url(f"/game/{match.game_id}/edit/v2/")
+            url = _record_url(f"/game/{match.game_id}/edit/")
             lead = "This match already has a game — edit it here:"
         else:
-            url = _record_url(f"/record/game/v2/?match={match.id}")
+            url = _record_url(f"/record/game/?match={match.id}")
             lead = "Record this game:"
         if not url:
             return _ephemeral("The site URL isn't configured, so I can't build a link.")
@@ -432,11 +459,11 @@ def _handle_record_command(data):
 
     # 3) Neither: hand over the standalone form rather than erroring — the user
     #    can still record a game, just without any prefill.
-    url = _record_url("/record/game/v2/")
+    url = _record_url("/record/game/")
     if not url:
         return _ephemeral("The site URL isn't configured, so I can't build a link.")
     return _ephemeral(
-        "Record a game on the Root Database:\n{url}")
+        f"Record a new game on the Root Database:\n{url}")
 
 
 def _handle_captain_command(data):
@@ -2261,7 +2288,7 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
 
     if closed:
         if scheduled:
-            title = "✅ Time confirmed"
+            title = "✅ Time Confirmed"
         elif closed_reason == "closed":
             title = "🗓 Poll closed"
         else:
@@ -2317,11 +2344,16 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
 
 
 def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind):
-    """The `-#` subtext explaining how a poll ended."""
+    """The `-#` subtext explaining how a poll ended.
+
+    `scheduled` means agreement, which only match mode can act on: it has a Match
+    to write the time to. An embed poll can be just as unanimous and still writes
+    nothing, so it keeps the plain "Everyone confirmed" below rather than
+    promising a booking that never happened."""
     if reason == "closed":
         who = f" by <@{closed_by}>" if closed_by else ""
         return f"-# Closed{who} before everyone responded."
-    if scheduled:
+    if scheduled and kind == "match":
         return "-# Scheduled — everyone confirmed."
     if no_entries:
         names = name_join([f"<@{e['id']}>" for e in no_entries])
@@ -2819,9 +2851,16 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
     `closed_by` always names whoever's click ended the poll, so they are excluded
     from the DM. It only reaches the RENDERER for an early close (reason
     "closed"), where "Closed by X" is the right note -- on an auto-close the last
-    voter did not close anything, the roster simply finished."""
+    voter did not close anything, the roster simply finished.
+
+    A roster that ran to completion with nobody declining is AGREED: the group
+    settled on the time. Embed modes still write nothing to the site -- there is
+    no Match behind them -- but the title reports the vote, which is the only
+    outcome these polls have. An early close is never agreement, however
+    unanimous the votes so far: somebody stopped it before the roster finished."""
+    agreed = reason != "closed" and not no and bool(yes)
     if notify_ids:
-        _notify_poll_closed(notify_ids, when, no, scheduled=False,
+        _notify_poll_closed(notify_ids, when, no, scheduled=agreed,
                             closed_by=closed_by, jump_url=jump_url)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -2830,7 +2869,7 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
             label=label, author=author, kind=kind, closed=True,
             closed_reason=reason,
             closed_by=closed_by if reason == "closed" else None,
-            scheduled=False),
+            scheduled=agreed),
     })
 
 
@@ -3790,7 +3829,7 @@ def _handle_seating_command(data):
         })
 
     return _ephemeral(
-        "Use this in a game thread or a player group's thread to seat its players.")
+        "Use this in a LFG thread or a series' match thread to seat its players.")
 
 
 def _handle_draft_seat_no(payload):
@@ -3878,15 +3917,25 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
 
 
 # Commands that write to the thread they're used in, so a non-player must not run
-# them where a roster exists. Everything else stays open: /help, /stats,
-# /upcoming, /law, /card and /captain only read; /lfg CREATES a game (there is no
-# roster to belong to yet); and /record only hands back a link the site re-checks
-# permissions on, so gating it would block a moderator fixing a mis-recorded game
-# without actually protecting anything. /rename keeps its own host-only rule.
+# them where a roster exists. Everything else stays open: /help, /stats, /upcoming,
+# /law and /card only read; /lfg CREATES a game (there is no roster to belong to
+# yet); and /record only hands back a link the site re-checks permissions on, so
+# gating it would block a moderator fixing a mis-recorded game without actually
+# protecting anything. /rename keeps its own host-only rule.
+#
+# Subcommands are keyed "<command> <subcommand>" -- the same composite key the
+# dispatcher builds -- so /lookup's nine can be guarded individually.
+#
+# Built from LOOKUP_QUERYSETS (defined far above) plus the literal "captain" rather
+# than from LOOKUP_SUBCOMMAND_HANDLERS, which isn't constructed until the bottom of
+# this module: deriving it from the handler registry would be a forward reference
+# that fails at import.
 ROSTER_GUARDED_COMMANDS = {
     "pick", "seating", "draft", "adset", "schedule", "random", "boxscore",
-    *LOOKUP_QUERYSETS,   # faction, clockwork, map, deck, vagabond, landmark,
-                         # hireling, houserule -- all capture into the roll log
+    # Every /lookup subcommand captures into the roll log, captain included -- its
+    # handler records kind "Captain". (An earlier revision of this comment described
+    # /captain as read-only and left it unguarded; that was wrong.)
+    *(f"lookup {n}" for n in (*LOOKUP_QUERYSETS, "captain")),
 }
 
 
@@ -4644,11 +4693,11 @@ def _pick_setup_reminder(thread):
     need to be told to choose one -- and stays silent when both are set, so the
     prompt isn't carrying a permanent notice nobody reads.
 
-    Deliberately names NO command. /map and /deck are per-guild (enabled_commands,
-    see _guild_allows), so naming them can point at commands this guild doesn't
-    have -- the same reason the too-few-players message avoids mentioning
-    /seating. It also isn't a requirement: a table can settle its map and deck
-    anywhere, and this only records what the bot happens to know.
+    Deliberately names NO command. /lookup map and /lookup deck are per-guild
+    (enabled_commands, see _guild_allows), so naming them can point at commands this
+    guild doesn't have -- the same reason the too-few-players message avoids
+    mentioning /seating. It also isn't a requirement: a table can settle its map and
+    deck anywhere, and this only records what the bot happens to know.
 
     `-#` is Discord's subtext: it renders small and grey, which is what keeps this
     a reminder rather than an error competing with the question above it."""
@@ -4794,7 +4843,7 @@ def _handle_pick_command(data):
     thread = _pick_thread_for_channel(channel_id, channel_name, guild_id)
     if not thread:
         return _ephemeral(
-            "Use this in a game thread or a player group's thread to pick factions.")
+            "Use this in a LFG thread or a series' match thread to pick factions.")
 
     owner = data.get("_author_id")
     # One session at a time: a second panel would write to the same seats, so two
@@ -5662,7 +5711,7 @@ def _handle_adset_command(data):
     thread = _adset_thread(data)
     if not thread:
         return _ephemeral(
-            "Use this in a game thread or a player group's thread to set up a game.")
+            "Use this in a LFG thread or a series' match thread to set up a game.")
 
     owner = data.get("_author_id")
     seats = list(thread.seats.select_related("profile", "faction", "vagabond")
@@ -7120,12 +7169,43 @@ def _handle_lfg_start(payload):
     })
 
 
-COMMAND_HANDLERS = {
+# The nine /lookup sub-handlers, keyed by SUBCOMMAND name. Eight are the generic
+# title lookup; captain is bespoke (the captain/Advanced profile with the flip-side
+# image), which is why it isn't in LOOKUP_QUERYSETS.
+LOOKUP_SUBCOMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
 }
+LOOKUP_SUBCOMMAND_HANDLERS["captain"] = _handle_captain_command
+
+
+def _handle_lookup_command(data):
+    """/lookup <sub> name:<title>. The nine sub-handlers are the SAME functions the
+    old top-level commands used; this only unwraps the payload for them.
+
+    The rewrite is what keeps those handlers untouched: a sub-handler reads its
+    argument with _get_option(data, "name") (which walks data["options"]), and
+    _make_lookup_handler reads data["name"] to find its _LFG_LOOKUP_KIND. Both still
+    hold once `data` is rewritten so `name` is the SUBCOMMAND and `options` are its
+    arguments. Do NOT "simplify" this by passing `data` straight through:
+    _LFG_LOOKUP_KIND would miss on "lookup" and every in-thread lookup would silently
+    stop recording into the roll log.
+
+    A shallow copy rather than mutating in place, so the dispatcher's error logging
+    still sees the interaction as Discord sent it. Everything it stashed ("_author",
+    "_channel_id", ...) and "resolved" carry over, since sub-handlers read those too.
+    """
+    sub, options = _subcommand(data)
+    handler = LOOKUP_SUBCOMMAND_HANDLERS.get(sub)
+    if not handler:
+        # A stale registration -- a subcommand removed in code but still live in a
+        # guild until its next sync -- lands here rather than raising.
+        return _ephemeral(f"Unknown lookup: {sub}")
+    return handler({**data, "name": sub, "options": options})
+
+
+COMMAND_HANDLERS = {"lookup": _handle_lookup_command}
 COMMAND_HANDLERS["stats"] = _handle_stats_command
-COMMAND_HANDLERS["captain"] = _handle_captain_command
 COMMAND_HANDLERS["card"] = _handle_card_command
 COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
@@ -7378,13 +7458,15 @@ def _ac_law_post(query, _data):
     return [{"name": title, "value": slug} for title, slug in rows]
 
 
-# Keyed by (command_name, focused_option_name) — the lookup commands all share
-# an option literally named "name", so the option name alone isn't enough.
+# Keyed by (command_key, focused_option_name), where command_key is the command name
+# for a plain command and "<command> <subcommand>" for a subcommand -- the same
+# composite key the dispatcher builds for the roster guard and usage recording. The
+# nine /lookup subcommands all share an option literally named "name", so the option
+# name alone isn't enough to tell them apart.
 AUTOCOMPLETE_HANDLERS = {
     ("stats", "player"): _ac_players,
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
-    ("captain", "name"): _ac_captains,
     ("card", "name"): _ac_card_name,
     ("card", "from"): _ac_card_from,
     ("upcoming", "series"): _ac_upcoming_series,
@@ -7394,7 +7476,9 @@ AUTOCOMPLETE_HANDLERS = {
     ("law", "post"): _ac_law_post,
 }
 for _name, _qs in LOOKUP_QUERYSETS.items():
-    AUTOCOMPLETE_HANDLERS[(_name, "name")] = _title_ac(_qs)
+    AUTOCOMPLETE_HANDLERS[(f"lookup {_name}", "name")] = _title_ac(_qs)
+# Captain suggests only captain-capable vagabonds, matching its bespoke handler.
+AUTOCOMPLETE_HANDLERS[("lookup captain", "name")] = _ac_captains
 
 
 @csrf_exempt
@@ -7429,10 +7513,18 @@ def discord_interactions(request):
         command_name = data.get("name")
         handler = COMMAND_HANDLERS.get(command_name)
         if handler:
+            # The key three registries agree on: the command name for a plain command,
+            # "<command> <subcommand>" for a subcommand-style one like /lookup. Built
+            # ONCE here so the roster guard, usage recording and (in the autocomplete
+            # branch) handler lookup can't drift apart.
+            sub_name, _sub_options = _subcommand(data)
+            key_name = f"{command_name} {sub_name}" if sub_name else command_name
             # Record usage (per guild/user/command) asynchronously — fire-and-forget
             # so the DB write never delays the 3s response. Only known top-level
-            # commands are counted (not buttons or autocomplete).
-            record_bot_usage_task.delay(guild_id, user_id, command_name)
+            # commands are counted (not buttons or autocomplete). Recorded per
+            # SUBCOMMAND ("lookup faction"), so the per-lookup counts stay as granular
+            # as they were when these were nine separate commands.
+            record_bot_usage_task.delay(guild_id, user_id, key_name)
             try:
                 # Stash the invoking user (from the top-level payload, not `data`)
                 # so handlers can build author-attributed embeds (_author) and
@@ -7469,7 +7561,7 @@ def discord_interactions(request):
                 # refused for anyone else. Enforced here rather than per handler
                 # so a new command can't quietly miss it -- and AFTER the stash
                 # above, which is where the helper's inputs come from.
-                if command_name in ROSTER_GUARDED_COMMANDS:
+                if key_name in ROSTER_GUARDED_COMMANDS:
                     refusal = _thread_actor_error(data)
                     if refusal is not None:
                         return refusal
@@ -7482,16 +7574,25 @@ def discord_interactions(request):
     if interaction_type == APPLICATION_COMMAND_AUTOCOMPLETE:
         data = payload.get("data", {})
         command_name = data.get("name")
-        focused = next((o for o in data.get("options", []) if o.get("focused")), None)
+        # A subcommand nests the focused option one level down, so unwrap before
+        # looking for it and key by "<command> <subcommand>" -- the same composite key
+        # the APPLICATION_COMMAND branch builds. Handlers get the REWRITTEN data (name
+        # = subcommand, options = its arguments) so a handler that reads a sibling
+        # option (as _ac_card_name does) works the same under a subcommand.
+        sub_name, sub_options = _subcommand(data)
+        options = sub_options if sub_name else (data.get("options") or [])
+        key_name = f"{command_name} {sub_name}" if sub_name else command_name
+        ac_data = {**data, "name": sub_name, "options": sub_options} if sub_name else data
+        focused = next((o for o in options if o.get("focused")), None)
         choices = []
         if focused:
-            handler = AUTOCOMPLETE_HANDLERS.get((command_name, focused["name"]))
+            handler = AUTOCOMPLETE_HANDLERS.get((key_name, focused["name"]))
             if handler:
                 try:
-                    choices = handler(focused.get("value", ""), data)
+                    choices = handler(focused.get("value", ""), ac_data)
                 except Exception:
                     logger.exception(
-                        "autocomplete error for /%s %s", command_name, focused.get("name")
+                        "autocomplete error for /%s %s", key_name, focused.get("name")
                     )
         return JsonResponse({
             "type": RESPONSE_AUTOCOMPLETE_RESULT,

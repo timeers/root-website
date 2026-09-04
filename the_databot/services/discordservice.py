@@ -521,8 +521,11 @@ def register_guild_commands(guild):
                                    lfg_command_for_roles)
     app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
     url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild.guild_id}/commands"
-    # commands_for_guild returns references to the shared module-level command dicts, so
-    # build a NEW list and substitute the per-guild variants of the two commands that have
+    # commands_for_guild returns references to the shared module-level command dicts
+    # (except /lookup, which it builds per guild itself -- that one is resolved there
+    # rather than substituted here because it can also be DROPPED entirely when a guild
+    # has no lookups enabled, which substitute-in-place can't express). So build a NEW
+    # list and substitute the per-guild variants of the two remaining commands that have
     # them. Both helpers deep-copy, so the shared singletons are never mutated:
     #   * /help — BASE vs the LFG variant with the `category` dropdown (always present, so
     #     no membership check needed).
@@ -1923,11 +1926,14 @@ def build_help_embed(enabled_names=None, guild_id=None, can_manage=False):
             return name == "help" or name in enabled
 
     fields = []
+    # Rows are (whitelist name, display label, description): a /lookup subcommand is
+    # filtered by its bare name ("faction") but rendered as what you type
+    # ("/lookup faction").
     for group_name, rows in grouped_commands():
-        shown = [(name, desc) for name, desc in rows if is_available(name)]
+        shown = [row for row in rows if is_available(row[0])]
         if not shown:
             continue
-        value = "\n".join(f"`/{name}` — {desc}" for name, desc in shown)
+        value = "\n".join(f"`/{label}` — {desc}" for _name, label, desc in shown)
         fields.append({"name": group_name, "value": value, "inline": False})
 
     embed = {
@@ -2012,8 +2018,10 @@ def build_lfg_help_embed(enabled_names=None):
         # The chips follow the body in the same field: that step's body ends in a colon
         # introducing them.
         if step.get("commands"):
+            # Chips are (whitelist name, display label, blurb) — render the label, which
+            # for a lookup is "lookup map" rather than the bare "map" it filters on.
             value += "\n" + "\n".join(
-                f"`/{name}` — {blurb}" for name, blurb in step["commands"]
+                f"`/{label}` — {blurb}" for _name, label, blurb in step["commands"]
             )
         fields.append({"name": f"{i}. {step['title']}", "value": value, "inline": False})
 
