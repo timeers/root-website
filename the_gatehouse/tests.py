@@ -5597,7 +5597,7 @@ class PickCommandTests(TestCase):
     def test_the_final_panel_names_the_undrafted_faction(self):
         self._draft_with(self.factions[0], self.factions[1], self.factions[2])
         content = self._finish_two()["content"]
-        self.assertIn(f"Undrafted - {self.factions[2].title}", content)
+        self.assertIn(f"{self.factions[2].title} Undrafted", content)
 
     def test_the_undrafted_row_sits_above_the_completion_line(self):
         """It's the last entry on the BOARD, not a note after the verdict."""
@@ -5628,7 +5628,7 @@ class PickCommandTests(TestCase):
             draft=draft, faction=self.factions[2], vagabond=vb, order=3)
 
         content = self._finish_two()["content"]
-        self.assertIn(f"Undrafted - {self.factions[2].title} ({vb.title})", content)
+        self.assertIn(f"{self.factions[2].title} ({vb.title}) Undrafted", content)
 
     # ── the roll capture, which must branch on thread type ──
     def test_an_lfg_thread_records_the_pick_in_the_roll_log(self):
@@ -7849,6 +7849,98 @@ class SchedulePollOpenTests(ScheduleFixtureMixin, TestCase):
         for field in enqueue.call_args.args[0][1]["embeds"][0]["fields"]:
             if field["name"].startswith(("✅", "❌", "⏳")):
                 self.assertTrue(field["inline"], field["name"])
+
+    # ── the proposer is counted as a Yes without clicking ──
+    def _yes_field(self, enqueue):
+        return next(f for f in enqueue.call_args.args[0][1]["embeds"][0]["fields"]
+                    if f["name"].startswith(di.POLL_YES_FIELD))
+
+    def test_a_bare_poll_opens_with_the_proposer_on_yes(self):
+        """They picked the time; asking them to vote for it is noise."""
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(self._payload("bare",
+                                                        channel="999000111"))
+        self.assertIn(f"<@{self.player.discord_id}>", self._yes_field(enqueue)["value"])
+
+    def test_the_seeded_yes_is_counted_in_the_column_label(self):
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(self._payload("bare",
+                                                        channel="999000111"))
+        self.assertIn("1", self._yes_field(enqueue)["name"])
+
+    def test_an_lfg_poll_seeds_the_proposer_and_drops_them_from_pending(self):
+        """The seed has to leave the Pending column too, or they'd read as both
+        answered and still owed."""
+        thread = LFGThread.objects.create(thread_id="777000112")
+        thread.players.set([self.player, self.teammate])
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(
+                self._payload("lfg", channel="777000112"))
+        fields = enqueue.call_args.args[0][1]["embeds"][0]["fields"]
+        pending = next(f for f in fields
+                       if f["name"].startswith(di.POLL_PENDING_FIELD))
+        self.assertIn(f"<@{self.player.discord_id}>", self._yes_field(enqueue)["value"])
+        self.assertNotIn(f"<@{self.player.discord_id}>", pending["value"])
+        self.assertIn(f"<@{self.teammate.discord_id}>", pending["value"])
+
+    def test_an_lfg_poll_seeds_nobody_for_a_non_player(self):
+        """The thread's poll belongs to its players. Someone polling a thread
+        they aren't in can't vote in it, so they can't be seeded into it."""
+        thread = LFGThread.objects.create(thread_id="777000113")
+        thread.players.set([self.teammate])
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(
+                self._payload("lfg", channel="777000113"))
+        self.assertEqual(self._yes_field(enqueue)["value"], "—")
+
+    def test_a_solo_lfg_poll_leaves_its_one_player_to_answer(self):
+        """Seeding here would open a poll with nobody pending -- and an embed poll
+        only closes on a click, so it would sit complete and open forever."""
+        thread = LFGThread.objects.create(thread_id="777000114")
+        thread.players.set([self.player])
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(
+                self._payload("lfg", channel="777000114"))
+        fields = enqueue.call_args.args[0][1]["embeds"][0]["fields"]
+        pending = next(f for f in fields
+                       if f["name"].startswith(di.POLL_PENDING_FIELD))
+        self.assertEqual(self._yes_field(enqueue)["value"], "—")
+        self.assertIn(f"<@{self.player.discord_id}>", pending["value"])
+
+    def test_the_seeded_yes_survives_a_round_trip_through_the_embed(self):
+        """Embed polls are stateless: the seeded entry has to parse back out of the
+        rendered field exactly like a clicked one, or the next click drops it."""
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(self._payload("bare",
+                                                        channel="999000111"))
+        embed = enqueue.call_args.args[0][1]["embeds"][0]
+        yes, no, _notify = di._poll_state(embed)
+        self.assertEqual([e["id"] for e in yes], [str(self.player.discord_id)])
+        self.assertEqual(no, [])
+
+    def test_the_proposer_switching_to_no_leaves_one_answer(self):
+        """The seeded Yes must MOVE, not duplicate -- the responder removes the
+        clicker from both columns first, and that has to find the seeded row."""
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_schedule_poll_open(self._payload("bare",
+                                                        channel="999000111"))
+        posted = enqueue.call_args.args[0][1]
+        payload = self._payload("bare", channel="999000111")
+        payload["message"] = {"id": "m", "embeds": posted["embeds"],
+                              "components": posted["components"]}
+        payload["data"]["custom_id"] = di.encode_custom_id(
+            "sched_poll_no", "bare", self.player.discord_id, "g")
+        body = json.loads(di._handle_schedule_poll_respond(payload).content)
+        yes, no, _notify = di._poll_state(body["data"]["embeds"][0])
+        self.assertEqual(yes, [])
+        self.assertEqual([e["id"] for e in no], [str(self.player.discord_id)])
 
     def test_the_poll_carries_the_invokers_author_block(self):
         with mock.patch.object(di.post_interaction_followup_task,
