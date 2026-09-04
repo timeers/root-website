@@ -3642,6 +3642,82 @@ class HelpCommandShapeTests(TestCase):
         self.assertNotIn("help", dc.WHITELISTABLE)
 
 
+class LookupCommandShapeTests(TestCase):
+    """The nine lookups are SUBCOMMANDS of one /lookup, but stay individually
+    whitelisted -- so /lookup's options are built per guild."""
+
+    def _subs(self, cmd):
+        return [o["name"] for o in cmd["options"]]
+
+    def test_no_lookups_enabled_means_no_lookup_command(self):
+        """Registering an option-less /lookup would offer a command that can do
+        nothing, so it's dropped entirely."""
+        self.assertIsNone(dc.lookup_command_for_guild([]))
+        self.assertIsNone(dc.lookup_command_for_guild(["stats", "record"]))
+
+    def test_only_the_enabled_subcommands_are_carried(self):
+        cmd = dc.lookup_command_for_guild(["faction", "map", "stats"])
+        self.assertEqual(cmd["name"], "lookup")
+        self.assertEqual(self._subs(cmd), ["faction", "map"])
+
+    def test_every_subcommand_is_a_sub_command_type(self):
+        """Type 1 is what makes Discord render these as `/lookup faction` rather
+        than as options of a single command."""
+        for opt in dc.lookup_command_for_guild(dc.LOOKUP_SUBCOMMAND_NAMES)["options"]:
+            with self.subTest(sub=opt["name"]):
+                self.assertEqual(opt["type"], 1)
+
+    def test_subcommand_order_follows_the_definition_not_the_caller(self):
+        """The whitelist arrives as an unordered set, so ordering must come from
+        LOOKUP_SUBCOMMANDS or the picker shuffles between registrations."""
+        cmd = dc.lookup_command_for_guild({"houserule", "faction", "map"})
+        self.assertEqual(self._subs(cmd), ["faction", "map", "houserule"])
+
+    def test_mutating_a_returned_definition_leaves_the_singleton_pristine(self):
+        cmd = dc.lookup_command_for_guild(["faction"])
+        cmd["options"].append({"name": "X"})
+        cmd["options"][0]["description"] = "mutated"
+        self.assertEqual(len(dc.LOOKUP_COMMAND["options"]), 9)
+        self.assertNotEqual(dc.LOOKUP_SUBCOMMANDS[0]["description"], "mutated")
+
+    def test_every_lookup_subcommand_is_whitelistable(self):
+        """Each stays an individual toggle -- and under its OLD top-level name, which
+        is what lets an existing guild's enabled_commands survive without a migration."""
+        for name in ("faction", "clockwork", "map", "deck", "vagabond",
+                     "captain", "landmark", "hireling", "houserule"):
+            with self.subTest(sub=name):
+                self.assertIn(name, dc.WHITELISTABLE)
+
+    def test_lookup_itself_is_never_whitelistable(self):
+        """It has no meaning of its own; its subcommands are the toggles."""
+        self.assertNotIn("lookup", dc.WHITELISTABLE)
+        self.assertNotIn("lookup", [n for n, _l, _d in dc.whitelistable_commands()])
+
+    def test_commands_for_guild_appends_the_per_guild_lookup(self):
+        names = [c["name"] for c in dc.commands_for_guild(["faction", "map", "record"])]
+        self.assertEqual(names, ["help", "record", "lookup"])
+        lookup = next(c for c in dc.commands_for_guild(["faction", "map"])
+                      if c["name"] == "lookup")
+        self.assertEqual(self._subs(lookup), ["faction", "map"])
+
+    def test_commands_for_guild_omits_lookup_when_none_enabled(self):
+        names = [c["name"] for c in dc.commands_for_guild(["record"])]
+        self.assertNotIn("lookup", names)
+
+    def test_help_lists_subcommands_by_what_you_type(self):
+        """/help shows `/lookup faction`, but still filters on the bare whitelist key."""
+        rows = {n: label for _g, rs in dc.grouped_commands() for n, label, _d in rs}
+        self.assertEqual(rows["faction"], "lookup faction")
+        self.assertEqual(rows["captain"], "lookup captain")
+        self.assertEqual(rows["card"], "card")
+        self.assertNotIn("lookup", rows)
+
+    def test_whitelist_labels_show_the_subcommand_form(self):
+        options = {n: label for n, label, _d in dc.whitelistable_commands()}
+        self.assertEqual(options["faction"], "lookup faction")
+        self.assertEqual(options["stats"], "stats")
+
+
 class LFGHelpContentTests(TestCase):
     """The LFG walkthrough is shared by the Databot page and /help category:LFG, so the
     copy has to stay renderable by both."""
@@ -3659,7 +3735,7 @@ class LFGHelpContentTests(TestCase):
 
     def test_every_referenced_command_exists(self):
         for step in dc.LFG_HELP_STEPS:
-            for name, _ in step.get("commands", []):
+            for name, _label, _blurb in step.get("commands", []):
                 with self.subTest(command=name):
                     self.assertIn(name, dc.WHITELISTABLE)
 
@@ -3700,7 +3776,7 @@ class LFGHelpContentTests(TestCase):
         self.assertEqual(len(steps), len(dc.LFG_HELP_STEPS))
 
         chip_step = next(s for s in steps if s.get("commands"))
-        self.assertEqual([name for name, _ in chip_step["commands"]], ["draft"])
+        self.assertEqual([name for name, _label, _blurb in chip_step["commands"]], ["draft"])
 
         value = self._field_for(build_lfg_help_embed(enabled), chip_step["title"])["value"]
         self.assertIn("`/draft`", value)
@@ -3787,8 +3863,10 @@ class LFGHelpContentTests(TestCase):
         step = next(s for s in dc.LFG_HELP_STEPS if s.get("commands"))
         value = self._field_for(build_lfg_help_embed(), step["title"])["value"]
         self.assertIn(step["body"].rstrip()[-20:], value)
-        for name, _ in step["commands"]:
-            self.assertIn(f"`/{name}`", value)
+        # Asserts on the LABEL, not the whitelist name: a lookup chip renders as
+        # "/lookup map" even though it filters on the bare "map".
+        for _name, label, _blurb in step["commands"]:
+            self.assertIn(f"`/{label}`", value)
 
 
 class HelpCommandHandlerTests(TestCase):
@@ -3887,6 +3965,20 @@ class RegisterGuildCommandsBodyTests(TestCase):
         self.assertIn("category", self._opts(body["help"]))
         self.assertIn("type", self._opts(body["lfg"]))
 
+    def test_lookup_carries_only_the_enabled_subcommands(self):
+        self.guild.enabled_commands = ["faction", "houserule", "stats"]
+        self.guild.save()
+        body = self._body()
+        self.assertEqual(self._opts(body["lookup"]), ["faction", "houserule"])
+        # The old top-level commands are gone: the PUT is a full overwrite, so this
+        # is what actually removes them from the guild's picker.
+        self.assertNotIn("faction", body)
+
+    def test_no_lookups_enabled_means_no_lookup_in_the_body(self):
+        self.guild.enabled_commands = ["stats"]
+        self.guild.save()
+        self.assertNotIn("lookup", self._body())
+
 
 class EditGuildCommandSyncTests(_NoLoginSignalMixin, TestCase):
     """The guild form re-registers commands only when the enabled set actually changed."""
@@ -3926,6 +4018,22 @@ class EditGuildCommandSyncTests(_NoLoginSignalMixin, TestCase):
         response, register = self._post([], register_ok=False)
         register.assert_called_once()
         self.assertTrue(any("didn't accept" in str(m) for m in response.context["messages"]))
+
+    def test_a_lookup_subcommand_round_trips_under_its_bare_name(self):
+        """The checkbox posts "faction", not "lookup faction" -- which is what lets an
+        existing guild's enabled_commands survive the move with no data migration."""
+        _, register = self._post(["faction"])
+        register.assert_called_once()
+        self.guild.refresh_from_db()
+        self.assertEqual(self.guild.enabled_commands, ["faction"])
+
+    def test_the_edit_page_offers_the_lookups_as_subcommand_labels(self):
+        with mock.patch("the_gatehouse.views.get_guild_roles", return_value=[]), \
+             mock.patch("the_gatehouse.views.get_guild_forum_channels", return_value=[]), \
+             mock.patch("the_gatehouse.views.get_forum_channel_info", return_value=None):
+            html = self.client.get(self.url).content.decode()
+        self.assertIn('value="faction"', html)     # stored key
+        self.assertIn("/lookup faction", html)     # what the moderator reads
 
 
 class DraftLFGSeatingTests(TestCase):
@@ -4433,7 +4541,7 @@ class SeatingCommandTests(TestCase):
 
     def test_grouped_under_games_not_other(self):
         """A command missing from COMMAND_GROUPS silently lands in "Other"."""
-        groups = {g: [n for n, _ in rows] for g, rows in dc.grouped_commands()}
+        groups = {g: [n for n, _label, _desc in rows] for g, rows in dc.grouped_commands()}
         self.assertIn("seating", groups.get("Games", []))
 
     def test_outside_a_game_thread_explains_itself(self):
@@ -7001,6 +7109,139 @@ class GuildAllowsTests(TestCase):
         self.assertTrue(di._guild_allows(None, "seating"))
 
 
+class LookupDispatchTests(TestCase):
+    """/lookup unwraps its subcommand and delegates to the SAME handlers the old
+    top-level commands used. Driven through the real view, since the unwrap, the
+    roster guard and usage recording all live in the dispatcher."""
+
+    GUILD_ID = "1093259831470735599"
+    THREAD_ID = "880000000000000001"
+
+    def setUp(self):
+        self.designer = Profile.objects.create(discord="lkdz", discord_id="900")
+        self.faction = Faction.objects.create(
+            title="Lookup Marquise", animal="Cat", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.map = Map.objects.create(
+            title="Lookup Autumn", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        self.captain = Vagabond.objects.create(
+            title="Lookup Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True, captain=True)
+        self.plain_vagabond = Vagabond.objects.create(
+            title="Lookup Tinker", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True, captain=False)
+
+    def _post(self, sub, value, channel_id=None, user_id="901", interaction_type=2,
+              focused=False):
+        option = {"name": "name", "value": value}
+        if focused:
+            option["focused"] = True
+        payload = {
+            "type": interaction_type,
+            "data": {"name": "lookup",
+                     "options": [{"name": sub, "type": 1, "options": [option]}]},
+            "guild_id": self.GUILD_ID,
+            "channel_id": channel_id or "555000111",
+            "channel": {"name": "a channel", "type": 0},
+            "member": {"user": {"id": user_id, "username": f"user{user_id}"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content)
+
+    def test_a_subcommand_reaches_the_generic_handler(self):
+        data = self._post("faction", "Lookup Marquise")["data"]
+        self.assertEqual(data["embeds"][0]["title"], "Lookup Marquise")
+
+    def test_captain_keeps_its_bespoke_handler(self):
+        """/lookup captain must not fall through to the generic vagabond lookup:
+        it renders the captain profile with the flip-side image."""
+        with mock.patch.object(di, "build_captain_embed",
+                               return_value={"title": "CAPTAIN EMBED"}) as build:
+            data = self._post("captain", "Lookup Ranger")["data"]
+        build.assert_called_once()
+        self.assertEqual(data["embeds"][0]["title"], "CAPTAIN EMBED")
+
+    def test_a_missing_match_is_reported_per_subcommand(self):
+        data = self._post("map", "No Such Map")["data"]
+        self.assertIn("No map found", data["content"])
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+
+    def test_an_unknown_subcommand_is_refused_not_raised(self):
+        """A subcommand removed in code can still be live in a guild until its next
+        sync, so it must answer rather than 500."""
+        data = self._post("nonesuch", "x")["data"]
+        self.assertIn("Unknown lookup", data["content"])
+
+    def test_usage_is_recorded_per_subcommand(self):
+        """Counts stay as granular as they were when these were nine commands."""
+        with mock.patch.object(di.record_bot_usage_task, "delay") as delay:
+            self._post("faction", "Lookup Marquise")
+        self.assertEqual(delay.call_args.args[2], "lookup faction")
+
+    def test_an_in_thread_lookup_still_captures_its_component(self):
+        """Regression for the data["name"] rewrite: the handler finds its
+        _LFG_LOOKUP_KIND off the SUBCOMMAND name. Pass `data` through unrewritten and
+        the kind lookup misses, silently ending roll-log capture."""
+        with mock.patch.object(di, "_capture_lfg_components") as capture:
+            self._post("map", "Lookup Autumn", channel_id=self.THREAD_ID)
+        capture.assert_called_once()
+        items = capture.call_args.args[1]
+        self.assertEqual(items[0]["kind"], "Map")
+
+    def test_captain_captures_as_captain(self):
+        with mock.patch.object(di, "_capture_lfg_components") as capture:
+            self._post("captain", "Lookup Ranger", channel_id=self.THREAD_ID)
+        self.assertEqual(capture.call_args.args[1][0]["kind"], "Captain")
+
+    # ── autocomplete ─────────────────────────────────────────────────────────
+    def _choices(self, sub, value):
+        return self._post(sub, value, interaction_type=4,
+                          focused=True)["data"]["choices"]
+
+    def test_a_nested_focused_option_still_autocompletes(self):
+        names = [c["name"] for c in self._choices("faction", "Marq")]
+        self.assertIn("Lookup Marquise", names)
+
+    def test_captain_autocomplete_offers_only_captains(self):
+        """Proves the unwrap picked _ac_captains and not the generic title lookup
+        over every vagabond."""
+        names = [c["name"] for c in self._choices("captain", "Lookup")]
+        self.assertIn("Lookup Ranger", names)
+        self.assertNotIn("Lookup Tinker", names)
+
+    def test_every_subcommand_has_an_autocomplete_handler(self):
+        for name in dc.LOOKUP_SUBCOMMAND_NAMES:
+            with self.subTest(sub=name):
+                self.assertIn((f"lookup {name}", "name"), di.AUTOCOMPLETE_HANDLERS)
+
+    def test_the_old_bare_keys_are_gone(self):
+        """A leftover ("faction", "name") would be dead weight that quietly shadows
+        nothing -- and hides the fact that the composite key is now the contract."""
+        for name in dc.LOOKUP_SUBCOMMAND_NAMES:
+            with self.subTest(sub=name):
+                self.assertNotIn((name, "name"), di.AUTOCOMPLETE_HANDLERS)
+
+    def test_plain_command_autocompletes_are_untouched(self):
+        for key in (("schedule", "timezone"), ("card", "name"), ("law", "law"),
+                    ("stats", "player")):
+            with self.subTest(key=key):
+                self.assertIn(key, di.AUTOCOMPLETE_HANDLERS)
+
+    def test_guarded_set_and_handlers_cover_the_same_subcommands(self):
+        """The two are built from different sources (LOOKUP_QUERYSETS + "captain" vs
+        the handler registry), so assert they can't drift apart."""
+        guarded = {n.split(" ", 1)[1] for n in di.ROSTER_GUARDED_COMMANDS
+                   if n.startswith("lookup ")}
+        self.assertEqual(guarded, set(di.LOOKUP_SUBCOMMAND_HANDLERS))
+        self.assertEqual(guarded, set(dc.LOOKUP_SUBCOMMAND_NAMES))
+
+
 class RosterGuardedCommandTests(TestCase):
     """A thread with a roster belongs to its players: commands that WRITE to it are
     refused for anyone else.
@@ -7033,6 +7274,14 @@ class RosterGuardedCommandTests(TestCase):
         self.thread.players.set(self.players)
 
     def _command(self, name, user_id, channel_id=None, options=None):
+        """Post an interaction for `name`.
+
+        A guarded name may be a composite "lookup faction", which Discord sends as the
+        /lookup command carrying a SUB_COMMAND option -- so build that shape rather than
+        a top-level command literally named "lookup faction", which no longer exists."""
+        if " " in name:
+            command, sub = name.split(" ", 1)
+            name, options = command, [{"name": sub, "type": 1, "options": options or []}]
         payload = {
             "type": 2,
             "data": {"name": name, "options": options or []},
@@ -7091,7 +7340,7 @@ class RosterGuardedCommandTests(TestCase):
 
     # ── no roster, no restriction ────────────────────────────────────────────
     def test_a_plain_channel_is_open_to_anyone(self):
-        data = self._command("faction", self.OUTSIDER, channel_id="555000999")
+        data = self._command("lookup faction", self.OUTSIDER, channel_id="555000999")
         self.assertFalse(self._refused(data))
 
     def test_a_thread_with_no_players_is_open(self):
@@ -7103,7 +7352,7 @@ class RosterGuardedCommandTests(TestCase):
         """ensure_profile_from_discord WRITES, so it must not run before a roster
         is established -- otherwise every lookup in any channel makes a row."""
         before = Profile.objects.count()
-        self._command("faction", self.OUTSIDER, channel_id="555000999")
+        self._command("lookup faction", self.OUTSIDER, channel_id="555000999")
         self.assertEqual(Profile.objects.count(), before)
 
     # ── commands that stay open ──────────────────────────────────────────────
@@ -7117,6 +7366,13 @@ class RosterGuardedCommandTests(TestCase):
         would block a moderator fixing a mis-recorded game without protecting
         anything."""
         self.assertNotIn("record", di.ROSTER_GUARDED_COMMANDS)
+
+    def test_captain_is_guarded_like_every_other_lookup(self):
+        """It WRITES (its handler records kind "Captain" into the roll log), so an
+        outsider must not run it in someone else's game thread. It was previously
+        left open on the mistaken basis that it only reads."""
+        self.assertIn("lookup captain", di.ROSTER_GUARDED_COMMANDS)
+        self.assertTrue(self._refused(self._command("lookup captain", self.OUTSIDER)))
 
     # ── tournament group threads use a different roster source ───────────────
     def _group_thread(self, thread_id="1303834523347456041"):

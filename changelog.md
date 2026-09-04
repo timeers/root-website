@@ -2,6 +2,9 @@
 
 ## [1.13.6] - 2026-9-4 API Investigation
 
+### Improvements
+- lookup commands condensed into subcommands of /lookup
+
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
 - fixed title on /schedule saying "Not Scheduled" when all players confirmed in LFG
