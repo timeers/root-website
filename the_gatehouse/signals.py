@@ -18,8 +18,9 @@ from django.db import transaction
 from django.utils import timezone
 from kombu.exceptions import OperationalError
 
-from .models import Profile, ForegroundImage, BackgroundImage, Changelog, BotBlacklist
-from .services.discordservice import get_discord_id, discord_refresh_capability
+from .models import Profile, ForegroundImage, BackgroundImage, Changelog
+from the_databot.models import BotBlacklist
+from .services.discord_oauth import get_discord_id, discord_refresh_capability
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
 from .tasks import (send_discord_message_task, update_discord_avatar_task,
                     refresh_user_guilds_task, refresh_user_guilds, GuildSyncResult)

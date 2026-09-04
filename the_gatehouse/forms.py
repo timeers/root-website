@@ -4,7 +4,8 @@ from django.apps import apps
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from django.core.exceptions import ValidationError
-from .models import Profile, Website, MessageChoices, Theme, BackgroundImage, ForegroundImage, Holiday, NOTIFY_COMPONENTS, DiscordGuild, GuildLFGRole
+from .models import Profile, Website, MessageChoices, Theme, BackgroundImage, ForegroundImage, Holiday, NOTIFY_COMPONENTS, DiscordGuild
+from the_databot.models import GuildLFGRole
 from django_recaptcha.fields import ReCaptchaField
 from django_recaptcha.widgets import ReCaptchaV2Checkbox
 from django.utils.translation import gettext_lazy as _
@@ -599,7 +600,7 @@ class GuildLFGRoleForm(forms.ModelForm):
         # Validate the tag against the forum's real tags (cached). Skip if Discord is
         # unreachable or the channel isn't a forum — don't hard-block a legitimate save.
         if channel_id:
-            from .services.discordservice import get_forum_channel_info
+            from the_databot.services.discordservice import get_forum_channel_info
             info = get_forum_channel_info(channel_id)
             if info is not None and info['is_forum']:
                 valid_ids = {t['id'] for t in info['tags']}
@@ -635,7 +636,7 @@ class TournamentGuildChannelsForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        from .services.discordservice import (
+        from the_databot.services.discordservice import (
             get_guild_text_channels, get_guild_forum_channels,
         )
 
@@ -675,7 +676,7 @@ class TournamentGuildChannelsForm(forms.ModelForm):
         # Skip when Discord is unreachable or the channel isn't a forum — don't
         # hard-block a legitimate save (an outage shouldn't lock the settings page).
         if forum_id:
-            from .services.discordservice import get_forum_channel_info
+            from the_databot.services.discordservice import get_forum_channel_info
             info = get_forum_channel_info(forum_id)
             if info is not None and info['is_forum']:
                 valid_ids = {t['id'] for t in info['tags']}

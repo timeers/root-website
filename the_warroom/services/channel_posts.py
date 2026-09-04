@@ -43,7 +43,7 @@ def resolve_tournament_channel(tournament, field):
     if not channel_id:
         return None
 
-    from the_gatehouse.services.discordservice import channel_belongs_to_guild
+    from the_databot.services.discordservice import channel_belongs_to_guild
     if not channel_belongs_to_guild(guild, channel_id,
                                     forum=_CHANNEL_FIELDS[field]):
         logger.warning(
@@ -65,6 +65,6 @@ def post_to_tournament_channel(tournament, field, content):
     channel_id = resolve_tournament_channel(tournament, field)
     if not channel_id:
         return False
-    from the_gatehouse.tasks import post_channel_message_task
+    from the_databot.tasks import post_channel_message_task
     post_channel_message_task.delay(channel_id, content)
     return True

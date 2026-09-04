@@ -41,11 +41,12 @@ from the_keep.models import Faction, Map, Deck, Vagabond, Landmark, Hireling, Tw
 from the_warroom.models import (
     Tournament, Match, CompetitionStatus, filtered_winrate, EloParticipant, Effort,
 )
-from the_gatehouse.models import (
-    Profile, BotBlacklist, DiscordGuild, GuildLFGRole, LFGThread, ScheduleProposal,
+from the_gatehouse.models import Profile, DiscordGuild
+from the_databot.models import (
+    BotBlacklist, GuildLFGRole, LFGThread, ScheduleProposal,
     LFGSeat, LFGRoll, LFGDraft,
 )
-from .tasks import (
+from the_databot.tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task,
     ensure_profile_from_discord, notify_lfg_task, notify_lfg_cancelled_task,
     notify_schedule_poll_task,
@@ -53,7 +54,7 @@ from .tasks import (
     post_channel_message_task, post_schedule_proposal_task,
     strip_schedule_proposal_messages_task,
 )
-from .services.discordservice import (
+from the_databot.services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_card_embed, build_law_embed, build_help_embed,
     build_lfg_help_embed, build_upcoming_embed,
@@ -63,21 +64,21 @@ from .services.discordservice import (
     get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
     edit_channel_message,
 )
-from .services.discord_commands import (
+from the_databot.services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD, HELP_CATEGORY_LFG,
 )
-from .services.time_parsing import (
+from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
     valid_timezone, search_timezones,
     timezone_regions, zones_for_region, region_for_timezone,
     describe_timezone, format_utc_offset,
 )
-from .services.discord_components import (
+from the_databot.services.discord_components import (
     action_row, button, string_select, select_option,
     encode_custom_id, decode_custom_id, selected_values,
     RESPONSE_UPDATE_MESSAGE, STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
 )
-from .services.lfg_game import (
+from the_databot.services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
     group_roster, group_series_id, undrafted_pick,
     roster_name, name_list_value, FIELD_VALUE_MAX, match_label,
@@ -2795,7 +2796,10 @@ def _poll_closer_is_staff(payload):
 
     Embed-mode polls have no Match, so there is no can_schedule to consult --
     guild moderation is the only staff signal available here."""
-    from .views import can_moderate_guild
+    # Lazy + cross-app: the_gatehouse.views imports the_databot.tasks and
+    # discordservice at module scope, so a top-level import here would close
+    # the cycle.
+    from the_gatehouse.views import can_moderate_guild
 
     guild_id = payload.get("guild_id")
     if not guild_id:
@@ -3960,7 +3964,10 @@ def _thread_staff_override(profile, group, guild_id):
     first command creates one, so keying the can_schedule branch off the thread
     would refuse a group moderator's very first command -- the same trap the
     roster lookup avoids by resolving the group directly."""
-    from .views import can_moderate_guild
+    # Lazy + cross-app: the_gatehouse.views imports the_databot.tasks and
+    # discordservice at module scope, so a top-level import here would close
+    # the cycle.
+    from the_gatehouse.views import can_moderate_guild
 
     if guild_id:
         guild = DiscordGuild.objects.filter(guild_id=str(guild_id)).first()

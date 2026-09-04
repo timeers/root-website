@@ -630,7 +630,7 @@ def schedule_closed_embed(proposal, title, reason, actor=None, label=None,
     Names render as mentions, which is safe: Discord only notifies from message
     `content`, never from inside an embed, so a closed message cannot ping anyone
     no matter who it lists."""
-    from .time_parsing import format_discord_timestamp
+    from the_databot.services.time_parsing import format_discord_timestamp
 
     if label is None:
         label = match_label(proposal.match)

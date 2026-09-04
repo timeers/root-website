@@ -22,7 +22,8 @@ A fan database website for the board game [Root](https://ledergames.com/products
 
 | App | Purpose |
 |---|---|
-| `the_gatehouse` | User profiles, site config, themes, Discord guild integration, notifications, analytics |
+| `the_gatehouse` | User profiles, site config, themes, guild membership, Discord OAuth login, webhook site notifications, analytics |
+| `the_databot` | The Discord bot — slash-command handlers, the interactions endpoint, bot API client, LFG/schedule models and tasks |
 | `the_keep` | Content repository — factions, maps, decks, hirelings, vagabonds, landmarks, rules/FAQs, PNP assets |
 | `the_warroom` | Games, Scorecards, Series/Tournamentsg |
 | `the_tavern` | Surveys |

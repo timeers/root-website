@@ -69,6 +69,9 @@ urlpatterns = [
     path('api/search-profiles/', search_profiles, name='search_profiles'),
     path('api/', include('the_warroom.api.urls')),
 
+    # Before the other unprefixed includes: /discord/interactions/ was the first
+    # entry in the_gatehouse.urls, so it won any resolution race. Keep that.
+    path('', include('the_databot.urls')),
     path('', include('the_keep.urls')),
     path('', include('the_gatehouse.urls')),
     path('', include('the_warroom.urls')),

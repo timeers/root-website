@@ -31,15 +31,18 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, GuildLFGRole
-from .services.discordservice import (update_discord_avatar, get_discord_invite_info, get_user_guilds,
-                                      get_guild_roles, get_guild_forum_channels, get_forum_channel_info,
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday
+from the_databot.models import GuildLFGRole
+from the_databot.services.discordservice import (get_guild_roles, get_guild_forum_channels,
+                                      get_forum_channel_info,
                                       get_guild_text_channels, guild_channel_names,
                                       refresh_guild_cache,
                                       bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
+from .services.discord_oauth import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
-from .tasks import send_rich_discord_message_task, send_discord_message_task, register_guild_commands_task
+from .tasks import send_rich_discord_message_task, send_discord_message_task
+from the_databot.tasks import register_guild_commands_task
 
 logger = logging.getLogger(__name__)
 
@@ -1634,7 +1637,7 @@ def databot_info(request):
     commands, and an 'Add to Server' invite. No login required — link unfurlers are
     anonymous, so gating this page would hide its Open Graph tags from Discord. The
     'Add to Server' CTAs point at databot_add, which is where the login gate lives."""
-    from .services.discord_commands import (grouped_commands, LFG_HELP_INTRO,
+    from the_databot.services.discord_commands import (grouped_commands, LFG_HELP_INTRO,
                                             LFG_HELP_STEPS)
 
     if request.user.is_authenticated:
@@ -1760,7 +1763,7 @@ def manage_guilds(request):
 
 @player_onboard_required
 def edit_guild(request, guild_id):
-    from .services.discord_commands import WHITELISTABLE, whitelistable_commands
+    from the_databot.services.discord_commands import WHITELISTABLE, whitelistable_commands
     profile = request.user.profile
     guild = DiscordGuild.objects.filter(guild_id=guild_id).first()
     if guild is None or not can_moderate_guild(profile, guild):
@@ -1852,7 +1855,7 @@ def edit_guild(request, guild_id):
 
 @login_required
 def hx_save_lfg_role(request, guild_id, pk=None):
-    from .services.discord_commands import LFG_TAG_LIMIT
+    from the_databot.services.discord_commands import LFG_TAG_LIMIT
     guild = get_object_or_404(DiscordGuild, guild_id=guild_id)
     if not can_moderate_guild(request.user.profile, guild):
         raise PermissionDenied()
@@ -1971,7 +1974,7 @@ def _lfg_add_controls_ctx(guild, field_ctx):
     Kept separate from _lfg_field_context (which is Discord-sourced dropdown data) because
     `at_limit` is a plain DB count. Used by every render of lfg_add_controls.html so the
     page-load, save and delete paths all agree."""
-    from .services.discord_commands import LFG_TAG_LIMIT
+    from the_databot.services.discord_commands import LFG_TAG_LIMIT
     return {'guild': guild,
             'no_roles_left': field_ctx['no_roles_left'],
             'at_limit': guild.lfg_roles.count() >= LFG_TAG_LIMIT,

@@ -51,18 +51,17 @@ from .utils import get_single_round, get_single_stage, build_scorecard_grid, bui
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 from the_keep.views import paginate_or_404
 
-from the_gatehouse.models import Profile, Language, LFGThread
-from the_gatehouse.services.lfg_game import (
+from the_gatehouse.models import Profile, Language
+from the_databot.models import LFGThread
+from the_databot.services.lfg_game import (
     seated_profiles, lfg_option_querysets, picked_factions_by_profile,
     captains_by_seat, undrafted_pick, FULL_CAPTAIN_COMPLEMENT)
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
-from the_gatehouse.tasks import (
-    send_rich_discord_message_task, send_discord_message_task,
-    post_channel_message_task, create_match_threads_task,
-)
+from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
+from the_databot.tasks import post_channel_message_task, create_match_threads_task
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
 from the_warroom.services.channel_posts import post_to_tournament_channel
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
@@ -2095,7 +2094,7 @@ def manage_game_v2(request, id=None):
                             category='New Game', title='Game Recorded', fields=fields
                         )
                         # DM opted-in players / component designers / tournament hosts
-                        from the_gatehouse.services.notifyservice import notify_game_recorded
+                        from the_databot.services.notifyservice import notify_game_recorded
                         notify_game_recorded(parent)
 
                     # Post the game link back into the LFG thread it came from, so
@@ -5848,7 +5847,7 @@ def _tournament_channels_card_context(tournament, profile):
     them, from the Edit Guild page — so this card explains where announcements go and
     who to ask, without becoming a second edit surface.
     """
-    from the_gatehouse.services.discordservice import guild_channel_names
+    from the_databot.services.discordservice import guild_channel_names
     from the_gatehouse.views import can_moderate_guild
 
     guild = tournament.guild
@@ -8454,9 +8453,9 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             group.save(update_fields=update_fields)
 
         # --- Match scheduled_time updates ---
-        # Imported here, not at module scope: the_gatehouse.discord_interactions
+        # Imported here, not at module scope: the_databot.discord_interactions
         # imports the_warroom.models, so a top-level import would be circular.
-        from the_gatehouse.discord_interactions import _cancel_open_proposals
+        from the_databot.discord_interactions import _cancel_open_proposals
 
         for match_data in data.get('matches', []):
             match_id = match_data.get('id')
@@ -8636,7 +8635,7 @@ def round_create_game_threads(request, tournament_slug, stage_slug, round_slug):
     # CONFIRMED requirement: a None info (Discord unreachable) falls through and lets the
     # task try, matching how the settings form treats an outage.
     if not tournament.game_threads_tag:
-        from the_gatehouse.services.discordservice import get_forum_channel_info
+        from the_databot.services.discordservice import get_forum_channel_info
         info = get_forum_channel_info(tournament.game_threads_channel)
         if info and info['is_forum'] and info['requires_tag']:
             return JsonResponse(
