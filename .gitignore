@@ -2,8 +2,6 @@
 .DS_Store
 
 project_env/
-blog/migrations/
-blog/__pycache__/
 the_gatehouse/migrations/
 the_gatehouse/__pycache__/
 the_keep/migrations/
