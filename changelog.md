@@ -24,6 +24,7 @@
 - /lfg does not claim a thread if the role specified belongs to a different forum channel (you can't create a forum specific game outside of that forum)
 - hid confusing survey choice to send results to tournament or first stage when tournament doesn't use stages
 - match pages now display more matches per line on wider screens
+- moved Databot to its own app in the repo
 
 ### Bug Fixes
 - fixed login bug where user could get stuck updating guilds forever
