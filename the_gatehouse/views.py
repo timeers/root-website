@@ -1757,7 +1757,10 @@ def databot_info(request):
 
     return render(request, 'the_gatehouse/databot_info.html', {
         'invite_url': invite_url,
-        'command_groups': list(grouped_commands()),  # [(group, [(name, desc), ...]), ...]
+        # collapse_parents: this page lists every command with no guild to filter
+        # against, so /lookup's nine near-identical subcommand rows are noise here.
+        # /help keeps them expanded -- there they say which lookups a server has.
+        'command_groups': list(grouped_commands(collapse_parents=True)),
         # Same copy /help category:LFG renders; bodies carry inline markup expanded by
         # the `lfg_body` filter.
         'lfg_intro': LFG_HELP_INTRO,

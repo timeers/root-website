@@ -353,6 +353,11 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'user': '1000/day',
+        # The box-score upload endpoint is authorized by a one-time token, not by
+        # a logged-in user, so UserRateThrottle does not cover it (it returns None
+        # for non-user requests, and no `anon` rate is configured). Without an
+        # explicit scope a token guesser would get unlimited attempts.
+        'boxscore_upload': '60/hour',
     },
 }
 

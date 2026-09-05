@@ -44,3 +44,25 @@ class ProfileApiKeyAuthentication(BaseAuthentication):
         if auth_header.startswith(f'{KEYWORD} '):
             return auth_header[len(KEYWORD) + 1:].strip()
         return None
+
+
+GAME_TOKEN_KEYWORD = 'Game-Token'
+
+
+def extract_game_token(request):
+    """The raw one-time upload token from the Authorization header, or None.
+
+    Header-only, for the same reason as the API key above: a query string is
+    written to web-server and proxy access logs, which would leak the credential
+    to anyone who can read them.
+
+    Deliberately NOT a DRF authentication class. Returning a (user, auth) pair
+    would make the token behave like a login -- request.user would become a real
+    account and every IsAuthenticated view would accept it. This token authorizes
+    exactly one action on exactly one thread, so the view resolves it itself and
+    the request stays anonymous.
+    """
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+    if auth_header.startswith(f'{GAME_TOKEN_KEYWORD} '):
+        return auth_header[len(GAME_TOKEN_KEYWORD) + 1:].strip()
+    return None

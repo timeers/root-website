@@ -4,15 +4,24 @@
 
 ### New Features
 - added ability to link SteamID to profile for future boxscore matching
+- Tabletop Simulator objects can now upload a box score straight to the site
+- /boxscore token gives you a one-time code to paste into the TTS uploader (expires in 30 minutes, works once, for that game only)
+- a TTS upload that doesn't match the game posts Confirm/Cancel in the thread, so problems get sorted in Discord instead of in TTS
+- any player in the game, the host, or a moderator can answer that prompt — not just whoever uploaded
+- Try Again button re-checks players after someone links their Steam account, so a missing player can be fixed without re-uploading
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
 - /boxscore now warns if data will be overwritten or if players can't be found
+- /boxscore is now /boxscore upload (adding a file works the same, the command just moved under a subcommand)
+- Databot page lists /lookup, /link and /boxscore as single commands instead of one row per subcommand
+- an unanswered box score prompt pings the players before it expires, then closes itself instead of leaving a dead button in the thread
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
 - fixed title on /schedule saying "Not Scheduled" when all players confirmed in LFG
 - Vagabond allowed to have coalition partner when importing boxscore json
+- Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 
 ## [1.13.5] - 2026-9-1 September Forever
 

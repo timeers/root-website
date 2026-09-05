@@ -137,6 +137,12 @@ PARENT_SUBCOMMAND_NAMES = [s["name"]
                            for _parent, subs in PARENT_COMMANDS.values()
                            for s in subs]
 
+# subcommand name -> its parent, so a display that collapses parents can map a
+# COMMAND_GROUPS entry ("faction") onto the row it should render ("lookup").
+_PARENT_OF = {s["name"]: parent_name
+              for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
+              for s in subs}
+
 
 CARD_COMMAND = {
     "name": "card",
@@ -342,17 +348,40 @@ ADSET_COMMAND = {
 # Like /seating and /pick it has no thread option: the game comes from the thread
 # it's run in. The description names the file type because Discord's picker will
 # happily attach anything and the refusal would otherwise be the first hint.
+BOXSCORE_COMMAND_NAME = "boxscore"
+
+# /boxscore gained subcommands when the Tabletop Simulator uploader arrived: the
+# object needs a token, and Discord does not let one command be both a plain
+# command and a parent. So the old bare `/boxscore <file>` is now
+# `/boxscore upload <file>` -- worth a changelog line, since regulars have muscle
+# memory for the old form.
+BOXSCORE_SUBCOMMANDS = [
+    {
+        "name": "upload",
+        "description": "Add a box score to this game from a JSON file",
+        "type": 1,  # SUB_COMMAND
+        "options": [
+            {
+                "name": "file",
+                "description": "The game's box score, as a .json file",
+                "type": 11,
+                "required": True,
+            }
+        ],
+    },
+    {
+        "name": "token",
+        "description": "Get a one-time token so the TTS object can upload this game",
+        "type": 1,  # SUB_COMMAND
+    },
+]
+
+BOXSCORE_SUBCOMMAND_NAMES = [s["name"] for s in BOXSCORE_SUBCOMMANDS]
+
 BOXSCORE_COMMAND = {
-    "name": "boxscore",
-    "description": "Add a box score to this game from a JSON file",
-    "options": [
-        {
-            "name": "file",
-            "description": "The game's box score, as a .json file",
-            "type": 11,
-            "required": True,
-        }
-    ],
+    "name": BOXSCORE_COMMAND_NAME,
+    "description": "Add a box score to this game",
+    "options": BOXSCORE_SUBCOMMANDS,
 }
 
 # Free text, no autocomplete — the title is whatever the host wants to call the
@@ -566,7 +595,7 @@ COMMAND_GROUPS = [
                  "captain", "landmark", "hireling", "houserule", "card"]),
     ("Stats", ["stats", "upcoming"]),
     ("Games", ["lfg", "adset", "seating", "pick", "schedule", "boxscore", "record", "rename"]),
-    ("Random", ["draft", "random"]),
+    ("Randomize", ["draft", "random"]),
     ("Account", ["steam"]),
 ]
 
@@ -651,19 +680,52 @@ def lfg_help_steps_for_guild(enabled_names=None):
     return kept
 
 
-def grouped_commands():
+def grouped_commands(collapse_parents=False):
     """Yield (group_name, [(name, label, description), ...]) in display order.
 
     `name` is the whitelist key -- what enabled_commands stores and what build_help_embed
     filters on. `label` is what to render after the slash: identical to `name` for a
     top-level command, "lookup faction" / "link steam" for a subcommand.
 
-    A PARENT command is skipped in favour of a row per subcommand: a bare `/lookup` row
-    would tell a reader nothing about which lookups their guild actually has. That is the
-    one deliberate exception to the "Other" catch-all below -- a new SUBCOMMAND missing
-    from COMMAND_GROUPS still lands in "Other", so the safety net keeps working for the
-    case that matters.
+    By DEFAULT a parent command is skipped in favour of a row per subcommand, because
+    /help filters every row against the guild's whitelist: lookups are enabled
+    individually, so a bare `/lookup` row could not say which ones this server actually
+    has. That is the one deliberate exception to the "Other" catch-all below -- a new
+    SUBCOMMAND missing from COMMAND_GROUPS still lands in "Other", so the safety net
+    keeps working for the case that matters.
+
+    `collapse_parents=True` yields ONE row per parent instead ("/lookup", "/link"),
+    which is what the public Databot page wants: it lists every command with no guild
+    context to filter against, so nine near-identical lookup rows are just noise. Never
+    pass it for /help, which would then be unable to show a server what it has.
     """
+    if collapse_parents:
+        rows_by_name = {}
+        for c in all_command_definitions():
+            rows_by_name[c["name"]] = (c["name"], c["name"], c.get("description", ""))
+        # A parent's row is keyed by the parent name, which is NOT a whitelist key --
+        # fine here because this variant is never filtered, and it keeps the parent out
+        # of the "Other" catch-all below via COMMAND_GROUPS.
+        grouped_names = set()
+        for group_name, names in COMMAND_GROUPS:
+            rows, seen = [], set()
+            for name in names:
+                # Map a subcommand's group entry ("faction") onto its parent, so the
+                # existing COMMAND_GROUPS ordering needs no duplicate bookkeeping.
+                parent = _PARENT_OF.get(name, name)
+                if parent in seen or parent not in rows_by_name:
+                    continue
+                seen.add(parent)
+                rows.append(rows_by_name[parent])
+            grouped_names.update(r[0] for r in rows)
+            if rows:
+                yield group_name, rows
+        leftover = [row for name, row in rows_by_name.items()
+                    if name not in grouped_names]
+        if leftover:
+            yield "Other", leftover
+        return
+
     rows_by_name = {c["name"]: (c["name"], c["name"], c.get("description", ""))
                     for c in all_command_definitions()
                     if c["name"] not in PARENT_COMMANDS}

@@ -1,4 +1,5 @@
 import json
+import re
 from unittest import mock, skipUnless
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
@@ -24,7 +25,7 @@ from the_gatehouse.models import (
 )
 from the_databot.models import (
     GuildLFGRole, LFGThread, ScheduleProposal,
-    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat,
+    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, BoxScoreUploadToken,
 )
 from the_gatehouse import views
 from the_gatehouse.services.steam_openid import read_link_token
@@ -38,6 +39,7 @@ from the_databot.services.lfg_game import (
 from the_databot.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
     notify_lfg_cancelled_task, notify_schedule_poll_task,
+    sweep_boxscore_upload_tokens,
 )
 from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -3712,6 +3714,39 @@ class LookupCommandShapeTests(TestCase):
         self.assertEqual(rows["captain"], "lookup captain")
         self.assertEqual(rows["card"], "card")
         self.assertNotIn("lookup", rows)
+
+    def test_the_databot_page_collapses_parents_to_one_row(self):
+        """The public page lists everything with no guild to filter against, so
+        nine near-identical /lookup rows are noise there."""
+        rows = {n: label for _g, rs in dc.grouped_commands(collapse_parents=True)
+                for n, label, _d in rs}
+        self.assertEqual(rows["lookup"], "lookup")
+        self.assertEqual(rows["link"], "link")
+        self.assertNotIn("faction", rows)      # subcommands are folded in
+        self.assertNotIn("steam", rows)
+        # Top-level commands are untouched.
+        self.assertEqual(rows["card"], "card")
+        self.assertEqual(rows["boxscore"], "boxscore")
+
+    def test_collapsing_keeps_the_group_ordering(self):
+        groups = dict((g, [l for _n, l, _d in rs])
+                      for g, rs in dc.grouped_commands(collapse_parents=True))
+        # /lookup sits where its subcommands did, between /law and /card.
+        self.assertEqual(groups["Lookups"], ["law", "lookup", "card"])
+        self.assertEqual(groups["Account"], ["link"])
+        self.assertNotIn("Other", groups)      # nothing fell through
+
+    def test_collapsing_is_opt_in_so_help_is_unaffected(self):
+        """/help filters each row against the guild's whitelist, and lookups are
+        enabled individually -- a bare /lookup row could not say which ones a
+        server actually has."""
+        expanded = [label for _g, rs in dc.grouped_commands()
+                    for _n, label, _d in rs]
+        self.assertIn("lookup faction", expanded)
+        self.assertIn("link steam", expanded)
+        collapsed = [label for _g, rs in dc.grouped_commands(collapse_parents=True)
+                     for _n, label, _d in rs]
+        self.assertLess(len(collapsed), len(expanded))
 
     def test_whitelist_labels_show_the_subcommand_form(self):
         options = {n: label for n, label, _d in dc.whitelistable_commands()}
@@ -10572,9 +10607,13 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         return json.loads(response.content)["data"]
 
     def _pending_key(self, content_data):
-        """The cache key from a gate message's buttons."""
+        """The prompt reference from a gate message's buttons.
+
+        Refs are "<backing>:<key>" (c = cache, t = token row), so keep both parts;
+        the trailing element is the owner/PICK_OPEN marker."""
         row = content_data["components"][0]["components"]
-        return row[0]["custom_id"].split(":")[1]
+        parts = row[0]["custom_id"].split(":")
+        return ":".join(parts[1:-1])
 
     def _run_confirmed(self, doc=None, **kw):
         """Run /boxscore and press through whatever gates it raises.
@@ -10585,7 +10624,11 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
             if not data.get("components"):
                 break
             key = self._pending_key(data)
-            action = data["components"][0]["components"][0]["custom_id"].split(":")[0]
+            # Take the LAST affirmative button: Gate 1 leads with Try Again, and
+            # this helper wants the "proceed anyway" path (Continue / Confirm).
+            row = data["components"][0]["components"]
+            actions = [b["custom_id"].split(":")[0] for b in row]
+            action = next(a for a in actions if a in ("boxscore_link", "boxscore_ok"))
             data = self._press(action, key)
         return data["content"]
 
@@ -10818,10 +10861,120 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
     def test_the_file_option_is_an_attachment(self):
         definition = next(c for c in dc.all_command_definitions()
                           if c["name"] == "boxscore")
-        option = definition["options"][0]
+        # /boxscore took subcommands when the TTS uploader arrived; the file now
+        # hangs off `upload`.
+        upload = next(o for o in definition["options"] if o["name"] == "upload")
+        self.assertEqual(upload["type"], 1)    # SUB_COMMAND
+        option = upload["options"][0]
         self.assertEqual(option["name"], "file")
         self.assertEqual(option["type"], 11)   # ATTACHMENT
         self.assertTrue(option["required"])
+
+    # ── Try Again ───────────────────────────────────────────────────────────
+
+    def test_try_again_resolves_a_player_who_has_since_linked(self):
+        """The headline case: Gate 1 says to run /link steam, they do, and the
+        seat fills in -- with no re-upload and no new token."""
+        doc = {"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player_steam_id": "76561197960265728",
+             "turns": [{"turn": 1, "score": 4}]},
+        ]}
+        data = self._run_data(doc)
+        self.assertIn("/link steam", data["content"])
+
+        # They link their Steam account...
+        self.bob.steam_id = "76561197960265728"
+        self.bob.save(update_fields=["steam_id"])
+
+        applied = self._press("boxscore_retry", self._pending_key(data))
+        self.assertEqual(applied.get("components"), [])
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk, self.bob.pk])
+
+    def test_try_again_is_repeatable_while_they_are_still_unlinked(self):
+        doc = {"participants": [
+            {"turn_order": 1, "player": "still-nobody",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        again = self._press("boxscore_retry", self._pending_key(data))
+        self.assertIn("still-nobody", again["content"])
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)   # nothing written
+
+    def test_try_again_picks_up_a_player_added_to_the_roster(self):
+        """The roster is RE-READ, not taken from the stored payload."""
+        stranger = Profile.objects.create(discord="bslate", discord_id="907",
+                                          display_name="Latecomer")
+        doc = {"participants": [
+            {"turn_order": 1, "player": stranger.slug,
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        self.thread.players.add(stranger)
+        result = self._press("boxscore_retry", self._pending_key(data))
+        self.assertEqual(result.get("components"), [])
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [stranger.pk])
+
+    def test_try_again_on_a_resolved_upload_refuses(self):
+        doc = {"participants": [
+            {"turn_order": 1, "player": "nobody-at-all",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        key = self._pending_key(data)
+        self._press("boxscore_no", key)
+        again = self._press("boxscore_retry", key)
+        self.assertIn("no longer waiting", again["content"])
+
+    def test_a_retry_that_resolves_lands_on_gate_two_when_seated(self):
+        """A resolved seat CHANGES profile_pk, which is exactly what
+        _boxscore_seats_differ compares -- so a comparison here is progress, not
+        a spurious refusal."""
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                               seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        doc = {"participants": [
+            {"turn_order": 1, "player_steam_id": "76561197960265728",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        self.bob.steam_id = "76561197960265728"
+        self.bob.save(update_fields=["steam_id"])
+
+        after = self._press("boxscore_retry", self._pending_key(data))
+        self.assertIn("From this box score", after["content"])
+        # And confirming from there still works -- the fingerprint was re-stamped.
+        applied = self._press("boxscore_ok", self._pending_key(after))
+        self.assertEqual(applied.get("components"), [])
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.bob.pk])
+
+    def test_the_raw_identifiers_are_stored_for_the_retry(self):
+        doc = {"participants": [
+            {"turn_order": 1, "player": "someone-unknown",
+             "player_steam_id": "76561198000000000",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        ref = self._pending_key(data)
+        pending = di._boxscore_load(ref)
+        seat = pending["seats"][0]
+        self.assertEqual(seat["player_slug"], "someone-unknown")
+        self.assertEqual(seat["player_steam_id"], "76561198000000000")
+
+    def test_the_whitelist_key_is_still_boxscore(self):
+        """Splitting into subcommands must not orphan every guild's stored
+        enabled_commands, which holds "boxscore"."""
+        self.assertIn("boxscore", dc.WHITELISTABLE)
+        self.assertNotIn("upload", dc.WHITELISTABLE)
+        self.assertNotIn("token", dc.WHITELISTABLE)
+        registered = dc.commands_for_guild(["boxscore"])
+        boxscore = next(c for c in registered if c["name"] == "boxscore")
+        self.assertEqual(sorted(o["name"] for o in boxscore["options"]),
+                         ["token", "upload"])
 
     # ── Steam id matching ───────────────────────────────────────────────────
 
@@ -10970,7 +11123,7 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertFalse(self.thread.turns_data)
         # A second press finds nothing left to apply.
         again = self._press("boxscore_ok", key)
-        self.assertIn("expired", again["content"])
+        self.assertIn("no longer waiting", again["content"])
 
     def test_a_reseat_between_prompt_and_confirm_is_refused(self):
         LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
@@ -11230,3 +11383,143 @@ class LinkCommandRegistrationTest(TestCase):
         labels = [label for _g, rows in dc.grouped_commands() for _n, label, _d in rows]
         self.assertIn("link steam", labels)
         self.assertNotIn("link", labels)
+
+
+class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
+    """/boxscore token: mint a one-time credential for the TTS uploader."""
+
+    THREAD_ID = "tokencmd-thread"
+    AUTHOR = "920000000000000001"
+
+    def setUp(self):
+        super().setUp()
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.player = Profile.objects.create(discord="tokplayer",
+                                             discord_id=self.AUTHOR)
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.thread.players.set([self.player])
+
+    def _run(self):
+        data = {
+            "name": "boxscore",
+            "options": [{"name": "token", "type": 1, "options": []}],
+            "_channel_id": self.THREAD_ID, "_channel_type": 11,
+            "_author_id": self.AUTHOR, "_author_username": "tokplayer",
+            "_author": {"name": "tokplayer"}, "_guild_id": None,
+        }
+        response = di._handle_boxscore_command(data)
+        return json.loads(response.content)["data"]
+
+    def test_it_mints_an_ephemeral_token(self):
+        data = self._run()
+        # The token is a capability: posting it in the thread would hand it to
+        # everyone who can read the channel.
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_only_the_hash_is_stored(self):
+        data = self._run()
+        token = BoxScoreUploadToken.objects.get()
+        raw = re.search(r"([A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4})",
+                        data["content"]).group(1)
+        self.assertEqual(token.token_hash, BoxScoreUploadToken.hash_token(raw))
+        self.assertNotIn(raw, token.token_hash)
+
+    def test_it_is_bound_to_this_thread(self):
+        self._run()
+        self.assertEqual(BoxScoreUploadToken.objects.get().thread_id,
+                         self.thread.pk)
+
+    def test_an_already_recorded_game_gets_no_token(self):
+        self.thread.game = Game.objects.create()
+        self.thread.save(update_fields=["game"])
+        data = self._run()
+        self.assertIn("already recorded", data["content"])
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 0)
+
+    def test_the_command_is_still_whitelisted_as_boxscore(self):
+        self.assertIn("boxscore", dc.WHITELISTABLE)
+        self.assertNotIn("token", dc.WHITELISTABLE)
+
+
+class BoxScoreUploadSweepTests(TestCase):
+    """sweep_boxscore_upload_tokens: remind, expire, prune.
+
+    The expiry pass matters as much as the ping -- without it a lapsed prompt
+    leaves a dead button in the thread inviting a click that can't work.
+    """
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.player = Profile.objects.create(discord="sweeper", discord_id="960")
+        self.thread = LFGThread.objects.create(thread_id="sweep-thread")
+        self.thread.players.set([self.player])
+
+    def _pending(self, prompt_in_minutes, **kw):
+        token, _raw = BoxScoreUploadToken.issue(self.thread, self.player)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING,
+            channel_id=self.thread.thread_id, message_id="msg-1",
+            payload={"seats": []},
+            prompt_expires_at=timezone.now() + timedelta(minutes=prompt_in_minutes),
+            **kw)
+        return BoxScoreUploadToken.objects.get(pk=token.pk)
+
+    def test_a_prompt_near_expiry_pings_the_roster_once(self):
+        token = self._pending(10)
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full",
+                        return_value=("ok", "m1")) as post:
+            sweep_boxscore_upload_tokens()
+            self.assertTrue(post.called)
+            # parse: ["users"] so it actually notifies -- the box-score summaries
+            # deliberately do the opposite.
+            self.assertEqual(post.call_args.kwargs["allowed_mentions"],
+                             {"parse": ["users"]})
+            self.assertIn(f"<@{self.player.discord_id}>",
+                          post.call_args.kwargs["content"])
+            post.reset_mock()
+            sweep_boxscore_upload_tokens()      # second run must not re-ping
+            self.assertFalse(post.called)
+        token.refresh_from_db()
+        self.assertIsNotNone(token.reminded_at)
+
+    def test_a_lapsed_prompt_is_expired_and_its_buttons_stripped(self):
+        token = self._pending(-5)
+        with mock.patch("the_databot.services.discordservice.edit_channel_message",
+                        return_value="ok") as edit:
+            sweep_boxscore_upload_tokens()
+        self.assertTrue(edit.called)
+        self.assertEqual(edit.call_args.kwargs["components"], [])
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.EXPIRED)
+        self.assertIsNone(token.payload)
+
+    def test_a_transient_discord_failure_leaves_it_for_the_next_sweep(self):
+        token = self._pending(-5)
+        with mock.patch("the_databot.services.discordservice.edit_channel_message",
+                        return_value="error"):
+            sweep_boxscore_upload_tokens()
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.PENDING)
+
+    def test_a_live_prompt_is_left_alone(self):
+        token = self._pending(300)
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full"), \
+                mock.patch("the_databot.services.discordservice.edit_channel_message"):
+            sweep_boxscore_upload_tokens()
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.PENDING)
+
+    def test_resolved_rows_are_pruned_but_live_ones_are_not(self):
+        old = self._pending(300)
+        BoxScoreUploadToken.objects.filter(pk=old.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED,
+            created_at=timezone.now() - timedelta(days=30))
+        live = self._pending(300)
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full"), \
+                mock.patch("the_databot.services.discordservice.edit_channel_message"):
+            sweep_boxscore_upload_tokens()
+        self.assertFalse(BoxScoreUploadToken.objects.filter(pk=old.pk).exists())
+        self.assertTrue(BoxScoreUploadToken.objects.filter(pk=live.pk).exists())

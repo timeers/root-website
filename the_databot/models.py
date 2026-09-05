@@ -14,6 +14,8 @@ dependency mutual. Imports flow one way: the_databot -> the_gatehouse.
 Note the "the_gatehouse.Profile" string references below are app-qualified on
 purpose -- a bare "Profile" would resolve against THIS app and silently break.
 """
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -434,6 +436,126 @@ class LFGSeat(models.Model):
     def __str__(self):
         who = self.profile.name if self.profile_id else "(removed player)"
         return f"Seat {self.seat_number}: {who}"
+
+
+class BoxScoreUploadToken(models.Model):
+    """A one-time credential letting an external client -- today, a Tabletop
+    Simulator object -- upload ONE box score to ONE game thread.
+
+    A TTS object CANNOT keep a secret: its Lua is plain text inside the save
+    file, readable by right-click > Scripting or by unpacking the workshop item,
+    and it runs entirely client-side. So nothing durable may be shipped inside
+    the object. Instead a player already authorized for the thread mints one of
+    these, pastes it in, and it dies on use.
+
+    Only the HASH is stored, never the token, the same rule Profile.api_key_hash
+    follows: a database leak must not yield usable credentials.
+
+    This row ALSO carries the pending upload between the web request that
+    received it and the Discord thread that resolves it (see `payload`). That
+    lives here rather than in the cache because the sweep task has to FIND
+    unanswered prompts, and Django's Redis backend exposes no key enumeration.
+    /boxscore upload keeps using the cache -- it has no token, and its prompt is
+    answered in seconds.
+    """
+
+    class Status(models.TextChoices):
+        ISSUED = "issued", "Issued"        # minted; not yet uploaded against
+        PENDING = "pending", "Pending"     # uploaded; a thread prompt awaits an answer
+        APPLIED = "applied", "Applied"
+        CANCELLED = "cancelled", "Cancelled"
+        EXPIRED = "expired", "Expired"
+
+    # Alphabet for the human-typed token: no 0/O/1/I/L, so a token read aloud or
+    # copied by eye can't land on the wrong character.
+    ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+    TOKEN_LENGTH = 12                      # ~59 bits; grouped 4-4-4 when shown
+    TOKEN_TTL = timedelta(minutes=30)      # how long a minted token may be pasted in
+    PROMPT_TTL = timedelta(hours=6)        # how long a posted prompt stays live
+
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    thread = models.ForeignKey(
+        LFGThread, on_delete=models.CASCADE, related_name="upload_tokens")
+    issued_by = models.ForeignKey(
+        "the_gatehouse.Profile", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="box_score_upload_tokens")
+    # THE source of truth for whether this token is spent. `used_at` is a
+    # timestamp for humans reading the admin -- never the thing a decision is
+    # made on, or the two drift into disagreeing.
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.ISSUED, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    # The staged upload awaiting a Confirm/Cancel in the thread, in the shape
+    # _boxscore_stash parks in the cache. JSON-serializable ids and slugs only,
+    # never model instances.
+    payload = models.JSONField(null=True, blank=True)
+    # Where the prompt was posted, so the sweep task can edit it.
+    channel_id = models.CharField(max_length=32, blank=True, default="")
+    message_id = models.CharField(max_length=32, blank=True, default="")
+    # When the posted prompt lapses. Separate from expires_at on purpose: the
+    # TOKEN dies quickly because it is a credential, but a prompt already posted
+    # may wait hours for whoever wanders back to the thread.
+    prompt_expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    reminded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status", "prompt_expires_at"])]
+
+    def __str__(self):
+        return f"BoxScoreUploadToken #{self.pk} ({self.get_status_display()})"
+
+    # ── minting / verifying ──
+
+    @staticmethod
+    def normalize(raw):
+        """Fold a typed token to its canonical form: upper-case, no separators.
+
+        Humans retype these from a Discord message into a TTS input box, so
+        accept the dashes we render and whatever case they use."""
+        if not raw:
+            return ""
+        return "".join(c for c in str(raw).upper() if c in BoxScoreUploadToken.ALPHABET)
+
+    @staticmethod
+    def hash_token(raw):
+        """SHA-256 of the NORMALIZED token. High-entropy random tokens don't need
+        a slow KDF -- same reasoning as Profile.hash_api_key."""
+        from the_gatehouse.models import Profile
+        return Profile.hash_api_key(BoxScoreUploadToken.normalize(raw))
+
+    @classmethod
+    def issue(cls, thread, profile):
+        """Mint a token for `thread`. Returns (instance, raw_token).
+
+        The raw token is returned exactly once and cannot be recovered -- only
+        its hash is stored -- so the caller must surface it immediately."""
+        import secrets
+        raw = "".join(secrets.choice(cls.ALPHABET) for _ in range(cls.TOKEN_LENGTH))
+        token = cls.objects.create(
+            token_hash=cls.hash_token(raw),
+            thread=thread,
+            issued_by=profile,
+            expires_at=timezone.now() + cls.TOKEN_TTL,
+        )
+        return token, raw
+
+    @staticmethod
+    def group(raw):
+        """XXXX-XXXX-XXXX for display. normalize() strips the dashes again on the
+        way back in, so what we render and what a user types both hash alike."""
+        return "-".join(raw[i:i + 4] for i in range(0, len(raw), 4))
+
+    @property
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    @property
+    def prompt_is_expired(self):
+        return bool(self.prompt_expires_at and timezone.now() >= self.prompt_expires_at)
 
 
 class ScheduleProposal(models.Model):

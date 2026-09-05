@@ -15,6 +15,7 @@ from django.urls import reverse
 from the_gatehouse.models import DiscordGuild, Profile
 from the_databot.models import (
     GuildLFGRole, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
+    BoxScoreUploadToken,
 )
 from the_databot.services.lfg_game import lfg_option_querysets
 from the_keep.models import (
@@ -2132,3 +2133,224 @@ class LFGThreadTurnsDataTests(TestCase):
         thread = LFGThread.objects.create(thread_id="t-empty")
         self.assertEqual(thread.turns_data, [])
         thread.clean()
+
+
+class BoxScoreUploadApiTests(TestCase):
+    """The Tabletop Simulator upload endpoint.
+
+    A TTS object cannot keep a secret, so it ships with no credential: a player
+    already authorized for the thread mints a one-time token and pastes it in.
+    These tests are mostly about what that token CANNOT do.
+    """
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.alice = Profile.objects.create(discord='ttsalice', discord_id='801',
+                                            display_name='Alice')
+        self.bob = Profile.objects.create(discord='ttsbob', discord_id='802',
+                                          display_name='Bob')
+        self.thread = LFGThread.objects.create(thread_id='tts-thread-1')
+        self.thread.players.set([self.alice, self.bob])
+
+    def _doc(self, **kw):
+        return {'participants': [
+            {'turn_order': 1, 'player': self.alice.slug,
+             'turns': [{'turn': 1, 'score': 3}]},
+            {'turn_order': 2, 'player': self.bob.slug,
+             'turns': [{'turn': 1, 'score': 5}]},
+        ], **kw}
+
+    def _post(self, doc, token_raw, raw_body=None):
+        body = raw_body if raw_body is not None else json.dumps(doc)
+        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            response = self.client.post(
+                reverse('api-boxscore-upload'), data=body,
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
+        return response, prompt
+
+    def _token(self):
+        return BoxScoreUploadToken.issue(self.thread, self.alice)
+
+    # ── the happy path ──
+
+    def test_a_clean_upload_applies_without_prompting(self):
+        _t, raw = self._token()
+        response, prompt = self._post(self._doc(), raw)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'applied')
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+        self.assertFalse(prompt.called)
+
+    def test_the_response_carries_a_printable_message_and_record_url(self):
+        _t, raw = self._token()
+        body = self._post(self._doc(), raw)[0].json()
+        self.assertTrue(body['message'])
+        self.assertIn('/record/game/?lfg=', body['record_url'])
+
+    def test_a_dashed_lowercase_token_is_accepted(self):
+        """Humans retype these; normalize() folds case and strips separators."""
+        _t, raw = self._token()
+        typed = BoxScoreUploadToken.group(raw).lower()
+        self.assertEqual(self._post(self._doc(), typed)[0].status_code, 200)
+
+    # ── what the token cannot do ──
+
+    def test_a_token_works_exactly_once(self):
+        _t, raw = self._token()
+        self._post(self._doc(), raw)
+        replay = self._post(self._doc(), raw)[0]
+        self.assertEqual(replay.status_code, 401)
+        self.assertEqual(replay.json()['error'], 'token_used')
+
+    def test_an_expired_token_is_refused(self):
+        from datetime import timedelta as td
+        from django.utils import timezone as dj_timezone
+        token, raw = self._token()
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            expires_at=dj_timezone.now() - td(minutes=1))
+        response = self._post(self._doc(), raw)[0]
+        self.assertEqual(response.json()['error'], 'token_expired')
+
+    def test_an_unknown_token_and_a_wrong_thread_are_indistinguishable(self):
+        """Otherwise the endpoint is an oracle for which threads and tokens
+        exist. Used/expired ARE distinguished -- those are states of a token the
+        holder legitimately had."""
+        other = LFGThread.objects.create(thread_id='tts-thread-2')
+        _t, other_raw = BoxScoreUploadToken.issue(other, self.alice)
+        unknown = self._post(self._doc(), 'AAAABBBBCCCC')[0]
+        self.assertEqual(unknown.json()['error'], 'invalid_token')
+        # A token for another thread resolves, but stages onto ITS thread -- it
+        # can never write to this one.
+        self._post(self._doc(), other_raw)
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)
+
+    def test_a_missing_header_is_refused(self):
+        response = self.client.post(
+            reverse('api-boxscore-upload'), data=json.dumps(self._doc()),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['error'], 'invalid_token')
+
+    def test_an_already_recorded_game_is_refused(self):
+        game = Game.objects.create()
+        self.thread.game = game
+        self.thread.save(update_fields=['game'])
+        _t, raw = self._token()
+        response = self._post(self._doc(), raw)[0]
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['error'], 'already_recorded')
+
+    # ── malformed input fails synchronously, so TTS can report it ──
+
+    def test_invalid_json_is_reported_to_the_client(self):
+        _t, raw = self._token()
+        response = self._post(None, raw, raw_body='not json at all')[0]
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_box_score')
+        self.assertTrue(response.json()['message'])
+
+    def test_a_file_with_no_participants_is_reported(self):
+        _t, raw = self._token()
+        response = self._post({'participants': []}, raw)[0]
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_absurd_participant_count_is_refused(self):
+        _t, raw = self._token()
+        doc = {'participants': [{'turn_order': i + 1} for i in range(40)]}
+        response = self._post(doc, raw)[0]
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_oversize_body_is_refused_before_parsing(self):
+        _t, raw = self._token()
+        response = self._post(None, raw, raw_body='x' * (300 * 1024))[0]
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()['error'], 'too_large')
+
+    # ── a mismatch continues in Discord ──
+
+    def test_a_mismatch_parks_the_payload_and_prompts_in_the_thread(self):
+        stranger = Profile.objects.create(discord='ttsstranger', discord_id='803')
+        token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': stranger.slug,
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        response, prompt = self._post(doc, raw)
+
+        self.assertEqual(response.json()['status'], 'pending_confirmation')
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)   # nothing written yet
+        self.assertTrue(prompt.called)
+
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.PENDING)
+        self.assertTrue(token.payload)
+        self.assertTrue(token.prompt_expires_at)
+
+    def test_the_response_never_names_players(self):
+        """import_box_score warns that a careless response leaks a roster; the
+        same applies here, so details live in the thread instead."""
+        stranger = Profile.objects.create(discord='ttssecret', discord_id='804',
+                                          display_name='Secret Person')
+        _t, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': stranger.slug,
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        body = json.dumps(self._post(doc, raw)[0].json())
+        self.assertNotIn('Secret Person', body)
+        self.assertNotIn(stranger.slug, body)
+        self.assertNotIn('Alice', body)
+
+    def test_a_hostile_label_is_bounded_before_it_is_stored(self):
+        """The label is RENDERED into a Discord message and the file is supplied
+        by an unauthenticated client -- unbounded, it could blow past Discord's
+        2000-char content limit or smuggle markdown into the comparison."""
+        token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': 'x' * 5000 + '@everyone `**',
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        self._post(doc, raw)
+        token.refresh_from_db()
+        label = token.payload['seats'][0]['label']
+        self.assertLessEqual(len(label), 32)
+        for char in '`*@':
+            self.assertNotIn(char, label)
+
+    def test_the_raw_identifiers_are_kept_for_a_retry(self):
+        """Try Again re-resolves from these after someone links their account."""
+        token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': 'nobody-here',
+             'player_steam_id': '76561197960265728',
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        self._post(doc, raw)
+        token.refresh_from_db()
+        seat = token.payload['seats'][0]
+        self.assertEqual(seat['player_slug'], 'nobody-here')
+        self.assertEqual(seat['player_steam_id'], '76561197960265728')
+
+    def test_a_match_threads_roster_is_never_touched(self):
+        """A series thread's roster lives in the bracket, not thread.players --
+        so an upload must not touch it. Driven through _boxscore_apply directly:
+        standing up a Round/Stage/Series here would test that wiring instead of
+        this rule."""
+        from the_databot import discord_interactions as di
+        stranger = Profile.objects.create(discord='ttsoutsider', discord_id='805')
+        before = set(self.thread.players.values_list('pk', flat=True))
+        pending = {
+            'entries': [], 'items': [], 'notes': [], 'component_titles': [],
+            'filename': 'tts', 'thread_pk': self.thread.pk,
+            'seats': [{'profile_pk': stranger.pk, 'label': 'Outsider',
+                       'faction_slug': None, 'vagabond_slug': None,
+                       'captain_slugs': [], 'discarded_slug': None}],
+        }
+        self.thread.series_id = 1     # truthy: the branch only checks series_id
+        with mock.patch.object(di, '_boxscore_reseat', return_value=[]):
+            di._boxscore_apply(self.thread, pending, self.thread.thread_id)
+        self.assertEqual(set(self.thread.players.values_list('pk', flat=True)),
+                         before)
