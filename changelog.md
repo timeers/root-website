@@ -1,12 +1,13 @@
 # Changelog
 
-## [1.13.6] - 2026-9-4 API Investigation
+## [1.13.6] - 2026-9-5 API Investigation
 
 ### New Features
 - added ability to link SteamID to profile for future boxscore matching
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
+- /boxscore now warns if data will be overwritten or if players can't be found
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url

@@ -23,6 +23,7 @@ import logging
 import math
 import random
 import re
+import secrets
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 import requests
@@ -6163,11 +6164,284 @@ _BOXSCORE_TIMEOUT = 2
 # Effort.DominanceChoices values, resolved once rather than per participant.
 _BOXSCORE_DOMINANCE_VALUES = frozenset(c.value for c in Effort.DominanceChoices)
 
+# Reconcile an uploaded box score against the thread's roster and seating, asking
+# the uploader to confirm before overwriting. Set False to restore the old
+# behaviour: resolve against every profile on the site, write seating only when
+# the thread has none, and never prompt. Steam-id matching is NOT gated by this --
+# it is better matching, not a restriction, and stays on either way.
+BOXSCORE_STRICT_PLAYERS = True
+
+# How long a pending /boxscore confirmation survives. The parsed file is parked in
+# the cache because a box score is a list and cannot ride in a custom_id (100-char
+# cap), and re-downloading on confirm would spend a network round trip inside
+# Discord's 3-second budget against a Discord CDN link that may have expired.
+_BOXSCORE_PENDING_TTL = 900  # 15 minutes
+
 
 def _boxscore_size_text(size):
     if size >= 1024 * 1024:
         return f"{size / (1024 * 1024):.1f} MB"
     return f"{max(1, round(size / 1024))} KB"
+
+
+def _boxscore_file_seats(participants, profiles):
+    """Per-seat dicts describing what the FILE says, in file order.
+
+    Everything is ids and slugs, never model instances: this is cached between
+    the prompt and the confirm button, the same rule the Celery tasks follow.
+
+    `label` is kept for every seat, not just unresolved ones, so the comparison
+    message can name a seat whose player resolved to nobody -- _pick_seat_lines
+    would otherwise render it "(removed player)", which is wrong for someone who
+    simply never linked an account.
+    """
+    from the_warroom.services.box_score_import import participant_label
+
+    seats = []
+    for participant, profile in zip(participants, profiles):
+        captains = participant.get("captains") or []
+        # A resolved seat shows the PROFILE's name, so both sides of the
+        # comparison read alike; only an unresolved one falls back to whatever
+        # the file said, which is all we have to identify it by.
+        if profile is not None:
+            label = profile.name
+        elif participant.get("player") or participant.get("player_steam_id"):
+            label = participant_label(participant)
+        else:
+            label = "(blank)"
+        seats.append({
+            "profile_pk": profile.pk if profile else None,
+            "label": label,
+            "faction_slug": participant.get("faction"),
+            "vagabond_slug": participant.get("vagabond"),
+            "captain_slugs": [c for c in captains if isinstance(c, str)],
+            "discarded_slug": participant.get("discarded_captain"),
+        })
+    return seats
+
+
+def _boxscore_current_seats(thread):
+    """The thread's CURRENT seating as the same per-seat dicts, or [] when unseated.
+
+    Mirrors _boxscore_file_seats so the two sides of the comparison are directly
+    comparable. Reads only seats that represent a real order: /pick can leave rows
+    with filler numbers and no seating, which seating_set is the only truthful
+    flag for.
+    """
+    if not (thread.seating_set or thread.seats.exists()):
+        return []
+    out = []
+    for seat in thread.seats.select_related(
+            "profile", "faction", "vagabond", "discarded_captain"
+    ).prefetch_related("captains"):
+        out.append({
+            "profile_pk": seat.profile_id,
+            "label": seat.profile.name if seat.profile_id else "(blank)",
+            "faction_slug": seat.faction.slug if seat.faction_id else None,
+            "vagabond_slug": seat.vagabond.slug if seat.vagabond_id else None,
+            "captain_slugs": sorted(c.slug for c in seat.captains.all()),
+            "discarded_slug": (seat.discarded_captain.slug
+                               if seat.discarded_captain_id else None),
+        })
+    return out
+
+
+def _boxscore_seats_differ(current, incoming):
+    """Whether the file disagrees with the current seating in any way that matters:
+    a different player set, a different ORDER, or a different faction pick.
+
+    Compared position by position, because seat order is exactly what this is for.
+    A thread with no seating never "differs" -- there is nothing to overwrite.
+    """
+    if not current:
+        return False
+    if len(current) != len(incoming):
+        return True
+    for now, new in zip(current, incoming):
+        if now["profile_pk"] != new["profile_pk"]:
+            return True
+        # A file that names no faction is not asserting a change -- /pick's value
+        # stands. Only a DIFFERENT faction counts as a disagreement.
+        if new["faction_slug"] and now["faction_slug"] != new["faction_slug"]:
+            return True
+        if new["vagabond_slug"] and now["vagabond_slug"] != new["vagabond_slug"]:
+            return True
+        if new["captain_slugs"] and now["captain_slugs"] != sorted(new["captain_slugs"]):
+            return True
+    return False
+
+
+def _boxscore_seat_fingerprint(thread):
+    """A stable signature of the thread's seating, stored with a pending upload so
+    the confirm handler can tell whether anything moved underneath it.
+
+    Seat PKs alone are NOT enough: a reseat deletes and recreates rows (new pks),
+    but /pick writes a faction onto an EXISTING row and leaves its pk untouched.
+    So the profile and faction ride along too.
+    """
+    return [[s.pk, s.profile_id, s.faction_id]
+            for s in thread.seats.all().order_by("seat_number")]
+
+
+def _boxscore_seat_lines(seats, header):
+    """Render one side of the comparison: "1. Name - <emoji> Faction".
+
+    Deliberately NOT _pick_seat_lines: that reads saved LFGSeat rows (the file
+    side has none), renders a profile-less seat as "(removed player)" (wrong for
+    an unlinked player), and only numbers seats when thread.seating_set is true
+    (the file side is always an order). Same shape, so the two read alike.
+    """
+    from the_keep.models import Faction, Vagabond
+
+    faction_slugs = {s["faction_slug"] for s in seats if s["faction_slug"]}
+    titles = {}
+    if faction_slugs:
+        titles = dict(Faction.objects.filter(slug__in=faction_slugs)
+                      .values_list("slug", "title"))
+    vagabond_slugs = {s["vagabond_slug"] for s in seats if s["vagabond_slug"]}
+    vagabond_titles = {}
+    if vagabond_slugs:
+        vagabond_titles = dict(Vagabond.objects.filter(slug__in=vagabond_slugs)
+                               .values_list("slug", "title"))
+
+    lines = [header]
+    for index, seat in enumerate(seats, 1):
+        who = seat["label"]
+        slug = seat["faction_slug"]
+        if slug:
+            emoji = faction_emoji_for(slug)
+            title = titles.get(slug, slug)
+            mark = f"{emoji} {title}" if emoji else title
+            vagabond = seat["vagabond_slug"]
+            if vagabond:
+                mark += f" ({vagabond_titles.get(vagabond, vagabond)})"
+            lines.append(f"{index}. {who} - {mark}")
+        else:
+            lines.append(f"{index}. {who}")
+    return lines
+
+
+def _boxscore_reseat(thread, seats):
+    """Replace the thread's seating from a box score, carrying each seat's faction
+    data FROM THE FILE.
+
+    A sibling of _persist_seating rather than a call to it: that one opens with
+    `locked.seats.all().delete()`, and the cascade takes faction, vagabond,
+    captains and discarded_captain with it -- which is precisely the data being
+    reconciled here. Same locking discipline (select_for_update serializes two
+    concurrent reseats against uniq_lfg_seat_per_thread) and the same rule that
+    seating_set is written in the transaction as the rows it describes.
+
+    Returns the created LFGSeat rows, seat 1 first.
+    """
+    from the_keep.models import Faction, Vagabond
+
+    faction_slugs = {s["faction_slug"] for s in seats if s["faction_slug"]}
+    factions = ({f.slug: f for f in Faction.objects.filter(slug__in=faction_slugs)}
+                if faction_slugs else {})
+
+    vagabond_slugs = {s["vagabond_slug"] for s in seats if s["vagabond_slug"]}
+    vagabond_slugs |= {s["discarded_slug"] for s in seats if s["discarded_slug"]}
+    for seat in seats:
+        vagabond_slugs |= set(seat["captain_slugs"])
+    vagabonds = ({v.slug: v for v in Vagabond.objects.filter(slug__in=vagabond_slugs)}
+                 if vagabond_slugs else {})
+
+    profile_pks = {s["profile_pk"] for s in seats if s["profile_pk"]}
+    profiles = ({p.pk: p for p in Profile.objects.filter(pk__in=profile_pks)}
+                if profile_pks else {})
+
+    with transaction.atomic():
+        locked = LFGThread.objects.select_for_update().filter(pk=thread.pk).first() or thread
+        locked.seats.all().delete()
+        rows = [
+            LFGSeat(
+                thread=locked,
+                profile=profiles.get(seat["profile_pk"]),
+                seat_number=index,
+                faction=factions.get(seat["faction_slug"]),
+                vagabond=vagabonds.get(seat["vagabond_slug"]),
+                # Assigned even when None -- an omitted value here would strand a
+                # discarded captain from a previous seating on this seat.
+                discarded_captain=vagabonds.get(seat["discarded_slug"]),
+            )
+            for index, seat in enumerate(seats, 1)
+        ]
+        created = LFGSeat.objects.bulk_create(rows)
+        if not locked.seating_set:
+            locked.seating_set = True
+        locked.save(update_fields=["seating_set"])
+        thread.seating_set = True  # keep the caller's instance in step
+
+    # M2M outside the lock, as /pick does: .set() writes a separate join table, so
+    # it neither needs the row lock nor can run before the rows exist.
+    for row, seat in zip(created, seats):
+        chosen = [vagabonds[s] for s in seat["captain_slugs"] if s in vagabonds]
+        if chosen:
+            row.captains.set(chosen)
+    return created
+
+
+def _boxscore_apply(thread, pending, channel_id):
+    """Write a (possibly confirmed) box score.
+
+    Returns (lines, notes) on success, or (None, None) when the built turns_data
+    fails validation -- the caller turns that into a user-facing refusal.
+
+    Shared by the immediate path and the confirm button so the two can't drift
+    about what an upload actually does.
+    """
+    from the_warroom.services.box_score_import import (
+        BoxScoreImportError, validate_participants,
+    )
+
+    entries = pending["entries"]
+    items = pending["items"]
+    seats = pending["seats"]
+    notes = list(pending["notes"])
+    lines = []
+
+    # Roster: LFG threads only. A tournament group thread's roster lives in
+    # PlayerGroup.tournament_players / MatchSeat, NOT thread.players -- writing
+    # here would silently change nothing, and rewriting a bracket from an
+    # uploaded file is not a box score's business.
+    #
+    # ADD, never .set(): thread membership is what _can_record_lfg gates the
+    # record form on, so replacing the roster with the file's players would lock
+    # out anyone who didn't play -- the moderator who uploaded the file, most
+    # obviously. A box score says who PLAYED, not who may record. The seating
+    # below is what actually reflects the file.
+    if not thread.series_id:
+        resolved = [s["profile_pk"] for s in seats if s["profile_pk"]]
+        if resolved:
+            thread.players.add(*Profile.objects.filter(pk__in=resolved))
+
+    if entries:
+        # clean() is not run by save(), and this model's own docstring says a
+        # caller writing turns_data directly should validate first.
+        try:
+            validate_participants(entries)
+        except BoxScoreImportError as exc:
+            logger.error("boxscore built an invalid turns_data: %s", exc)
+            return None, None
+        thread.turns_data = entries
+        thread.save(update_fields=["turns_data"])
+
+    if seats:
+        rows = _boxscore_reseat(thread, seats)
+        order = "  ".join(
+            f"{r.seat_number}. {r.profile.name if r.profile_id else '(blank)'}"
+            for r in rows)
+        lines.append(f"Seating: {order}")
+
+    # AFTER the writes, never inside a transaction with them: this is a Celery
+    # enqueue, and a worker picking the task up before a commit would read stale
+    # rows. Fire-and-forget by design -- a capture failure must not undo a saved
+    # box score.
+    if items:
+        _capture_lfg_components(channel_id, items, source="boxscore")
+
+    return lines, notes
 
 
 def _handle_boxscore_command(data):
@@ -6179,7 +6453,7 @@ def _handle_boxscore_command(data):
     """
     from the_warroom.services.box_score_import import (
         BoxScoreImportError, normalize_turns, parse_box_score_json,
-        validate_participants,
+        participant_label, resolve_participant_players,
     )
 
     channel_id = data.get("_channel_id")
@@ -6295,68 +6569,292 @@ def _handle_boxscore_command(data):
     if not entries and not items:
         return _ephemeral("There was nothing in that file I can use.")
 
-    # ── Seating: only when there isn't one. _persist_seating deletes every seat,
-    # and that cascade takes /pick's factions and captains with it.
-    seating_line = None
-    already_seated = thread.seating_set or thread.seats.exists()
-    if already_seated:
-        seating_line = f"Seating: left as it was ({thread.seats.count()} seats)."
+    # Seat by POSITION, not by raw turn_order: a stray "7" in a 2-player file
+    # would otherwise create seven seats.
+    raw_seats = [p.get("turn_order", p.get("seat")) for p in participants]
+    if [s for s in raw_seats if s is not None] != list(
+            range(1, len([s for s in raw_seats if s is not None]) + 1)):
+        notes.append("Seat numbers weren't 1-N, so I used the order they appear in.")
+
+    # ── Players. Resolved unconditionally, NOT inside an "is it seated yet"
+    # branch as this once was: an already-seated thread is exactly the case the
+    # comparison below exists for, and skipping resolution there would make the
+    # whole check a no-op.
+    roster, _group = _thread_roster(
+        thread, channel_id, data.get("_channel_name"), data.get("_guild_id"))
+    strict = BOXSCORE_STRICT_PLAYERS and bool(roster)
+
+    # A participant that names NOBODY is an anonymous seat, not a failed link:
+    # the file simply didn't say who sat there, so there is nothing to tell the
+    # uploader to go and link. Only a seat that names someone we can't find is a
+    # problem worth stopping for.
+    def _names_someone(participant):
+        return bool(participant.get("player") or participant.get("player_steam_id"))
+
+    if strict:
+        # Two passes so an unlinkable player (nothing to link to) can be told
+        # apart from an off-roster one (a real profile, just not in this game).
+        roster_qs = Profile.objects.filter(pk__in=[p.pk for p in roster])
+        profiles = resolve_participant_players(participants, roster_qs)
+        wider = resolve_participant_players(participants, Profile.objects.all())
+        # An off-roster player still IS a player -- seat them, and let the
+        # comparison below ask whether the roster should change.
+        profiles = [found or other for found, other in zip(profiles, wider)]
+        unlinkable = [participant_label(p)
+                      for p, found in zip(participants, wider)
+                      if not found and _names_someone(p)]
     else:
-        profiles, unmatched = [], []
-        for index, participant in enumerate(participants):
-            slug = participant.get("player")
-            profile = Profile.objects.filter(slug=slug).first() if slug else None
-            if slug and not profile:
-                unmatched.append(slug)
-            profiles.append(profile)
+        profiles = resolve_participant_players(participants, Profile.objects.all())
+        unlinkable = [participant_label(p)
+                      for p, found in zip(participants, profiles)
+                      if not found and _names_someone(p)]
 
-        # Seat by POSITION, not by raw turn_order: a stray "7" in a 2-player file
-        # would otherwise create seven seats.
-        raw_seats = [p.get("turn_order", p.get("seat")) for p in participants]
-        if [s for s in raw_seats if s is not None] != list(
-                range(1, len([s for s in raw_seats if s is not None]) + 1)):
-            notes.append("Seat numbers weren't 1-N, so I used the order they appear in.")
+    file_seats = _boxscore_file_seats(participants, profiles)
 
-        seats, _reseated = _persist_seating(thread, profiles, shuffle=False)
-        order = "  ".join(
-            f"{s.seat_number}. {s.profile.name if s.profile_id else '(blank)'}"
-            for s in seats)
-        seating_line = f"Seating: {order}"
-        if unmatched:
+    pending = {
+        "entries": entries, "items": items, "notes": notes, "seats": file_seats,
+        "thread_pk": thread.pk, "filename": filename,
+        "component_titles": component_titles,
+    }
+
+    if not strict:
+        # Legacy behaviour: seating only when there isn't one, and no prompting.
+        if thread.seating_set or thread.seats.exists():
+            pending["seats"] = []
+        if unlinkable:
             notes.append(
-                "Couldn't match players: " + ", ".join(f"`{s}`" for s in unmatched)
+                "Couldn't match players: " + ", ".join(f"`{s}`" for s in unlinkable)
                 + " — pick them on the form.")
+        return _boxscore_reply(thread, pending, channel_id)
 
-    if items:
-        _capture_lfg_components(channel_id, items, source="boxscore")
+    # ── Gate 1: players with no profile at all.
+    if unlinkable:
+        return _boxscore_gate_one(thread, pending, unlinkable, data.get("_author_id"))
 
-    if entries:
-        # clean() is not run by save(), and this model's own docstring says a
-        # caller writing turns_data directly should validate first.
-        try:
-            validate_participants(entries)
-        except BoxScoreImportError as exc:
-            logger.error("boxscore built an invalid turns_data: %s", exc)
-            return _ephemeral("That box score couldn't be saved — check the file and try again.")
-        thread.turns_data = entries
-        thread.save(update_fields=["turns_data"])
+    # ── Gate 2: the file disagrees with what the thread already knows -- either
+    # its seating, or (on a thread with no seating yet) its roster. The roster
+    # check matters on its own: an unseated thread has nothing to compare
+    # positionally, but a file naming someone who isn't in this game is still
+    # something to confirm rather than act on silently.
+    current = _boxscore_current_seats(thread)
+    seated = [p for p in profiles if p is not None]
+    roster_pks = {p.pk for p in roster}
+    off_roster = [p for p in seated if p.pk not in roster_pks]
+    if _boxscore_seats_differ(current, file_seats):
+        return _boxscore_gate_two(thread, pending, current, data.get("_author_id"))
+    if not current and off_roster:
+        # No seating to compare positionally, but the file names someone who
+        # isn't in this game -- worth confirming rather than acting on silently.
+        roster_side = [{"profile_pk": p.pk, "label": p.name, "faction_slug": None,
+                        "vagabond_slug": None, "captain_slugs": [],
+                        "discarded_slug": None} for p in roster]
+        return _boxscore_gate_two(thread, pending, roster_side,
+                                  data.get("_author_id"),
+                                  current_header="**Players in this thread**")
 
-    turn_count = max(
-        (len(e.get("turns") or []) for e in entries), default=0)
+    return _boxscore_reply(thread, pending, channel_id)
+
+
+def _boxscore_stash(thread, pending):
+    """Park a pending upload in the cache and return its key.
+
+    The parsed file cannot ride in a custom_id (100-char cap, and a box score is
+    a list), and re-downloading on confirm would spend a network round trip
+    inside Discord's 3-second budget against a CDN link that may have expired.
+    """
+    key = secrets.token_urlsafe(8)
+    payload = dict(pending)
+    payload["fingerprint"] = _boxscore_seat_fingerprint(thread)
+    cache.set(f"boxscore:pending:{key}", payload, _BOXSCORE_PENDING_TTL)
+    return key
+
+
+def _boxscore_gate_one(thread, pending, unlinkable, owner):
+    """Players in the file that match no profile at all."""
+    key = _boxscore_stash(thread, pending)
+    names = ", ".join(f"`{n}`" for n in unlinkable)
+    plural = "players aren't" if len(unlinkable) > 1 else "player isn't"
     lines = [
-        f"Box score added from `{filename}` — {len(entries)} seats, {turn_count} turns."
-        if entries else f"Read `{filename}`."
+        f"{len(unlinkable)} {plural} linked to a profile:",
+        names,
+        "",
+        "Ask them to run `/link steam` to link their Steam account, then upload "
+        "again — or continue and leave those seats blank.",
     ]
-    if seating_line:
-        lines.append(seating_line)
-    if component_titles:
-        lines.append("Map/Deck: " + " · ".join(component_titles))
-    lines.extend(notes)
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {
+            "content": "\n".join(lines),
+            "flags": EPHEMERAL,
+            "components": [action_row(
+                button("Continue", encode_custom_id("boxscore_link", key, owner),
+                       style=STYLE_PRIMARY),
+                button("Cancel", encode_custom_id("boxscore_no", key, owner),
+                       style=STYLE_SECONDARY),
+            )],
+        },
+    })
+
+
+def _boxscore_gate_two(thread, pending, current, owner, current_header="**Current**"):
+    """The file disagrees with the seating (or, on an unseated thread, the roster)
+    already recorded: show both sides and ask."""
+    key = _boxscore_stash(thread, pending)
+    lines = _boxscore_seat_lines(current, current_header)
+    lines += [""] + _boxscore_seat_lines(pending["seats"], "**From this box score**")
+    lines += ["", "This will replace the seating and faction picks for this game."]
+    if thread.series_id:
+        # A group thread's roster is the bracket's, not thread.players -- say so
+        # rather than implying an upload can change who is in the tournament.
+        lines.append("-# The tournament roster itself won't change.")
+    else:
+        # Players are ADDED, never removed: thread membership gates the record
+        # form, so nobody is dropped out of their own game by an upload.
+        lines.append("-# Anyone new in the file is added to the thread; "
+                     "nobody is removed.")
+    if thread.game_id:
+        lines.append("-# This game is already recorded — this won't change the "
+                     "saved game.")
+    lines.append("Continue?")
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {
-            "content": "\n".join(line for line in lines if line),
+            "content": "\n".join(lines),
+            "flags": EPHEMERAL,
+            "components": [action_row(
+                button("Confirm", encode_custom_id("boxscore_ok", key, owner),
+                       style=STYLE_DANGER),
+                button("Cancel", encode_custom_id("boxscore_no", key, owner),
+                       style=STYLE_SECONDARY),
+            )],
+        },
+    })
+
+
+def _boxscore_pending_for_click(payload):
+    """(pending, thread, key) for a boxscore button, or (None, None, None) after
+    the caller should return the error this puts in `_boxscore_click_error`.
+
+    The button is a SECOND request, so nothing from the prompt is trusted: the
+    cache entry may have expired, and the seating may have moved underneath it.
+    """
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    key = args[0] if args else None
+    pending = cache.get(f"boxscore:pending:{key}") if key else None
+    if not pending:
+        return None, None, None
+    thread = LFGThread.objects.filter(pk=pending["thread_pk"]).first()
+    if thread is None:
+        return None, None, key
+    return pending, thread, key
+
+
+def _handle_boxscore_link(payload):
+    """Continue past Gate 1. Re-runs the comparison rather than assuming a second
+    prompt is needed: a file whose only problem was an unlinkable player, and
+    whose remaining seats agree, applies straight away."""
+    pending, thread, key = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That confirmation expired — run `/boxscore` again.")
+    if thread is None:
+        cache.delete(f"boxscore:pending:{key}")
+        return _ephemeral("That thread is gone — run `/boxscore` again.")
+
+    current = _boxscore_current_seats(thread)
+    if _boxscore_seats_differ(current, pending["seats"]):
+        owner = decode_custom_id(payload["data"]["custom_id"])[1][-1]
+        cache.delete(f"boxscore:pending:{key}")
+        return _boxscore_gate_two(thread, pending, current, owner)
+
+    return _boxscore_commit(payload, pending, thread, key)
+
+
+def _handle_boxscore_confirm(payload):
+    """Confirm Gate 2: overwrite the seating with what the file says."""
+    pending, thread, key = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That confirmation expired — run `/boxscore` again.")
+    if thread is None:
+        cache.delete(f"boxscore:pending:{key}")
+        return _ephemeral("That thread is gone — run `/boxscore` again.")
+    return _boxscore_commit(payload, pending, thread, key)
+
+
+def _boxscore_commit(payload, pending, thread, key):
+    """Apply a confirmed upload, refusing if the seating moved since the prompt."""
+    # Seat pks alone would miss /pick writing a faction onto an existing row, so
+    # the fingerprint carries (pk, profile, faction) per seat.
+    if _boxscore_seat_fingerprint(thread) != pending.get("fingerprint"):
+        cache.delete(f"boxscore:pending:{key}")
+        return _ephemeral(
+            "The seating changed while that was waiting — run `/boxscore` again "
+            "to see the new comparison.")
+
+    channel_id = payload.get("channel_id") or (payload.get("channel") or {}).get("id")
+    lines, notes = _boxscore_apply(thread, pending, channel_id)
+    cache.delete(f"boxscore:pending:{key}")
+    if lines is None:
+        return _ephemeral(
+            "That box score couldn't be saved — check the file and try again.")
+
+    entries = pending["entries"]
+    turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
+    out = [
+        f"Box score added from `{pending['filename']}` — "
+        f"{len(entries)} seats, {turn_count} turns."
+        if entries else f"Read `{pending['filename']}`."
+    ]
+    out.extend(lines)
+    if pending["component_titles"]:
+        out.append("Map/Deck: " + " · ".join(pending["component_titles"]))
+    out.extend(notes)
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {
+            "content": "\n".join(line for line in out if line),
+            "components": [],
+            "allowed_mentions": {"parse": []},
+        },
+    })
+
+
+def _handle_boxscore_cancel(payload):
+    """Discard a pending upload, dropping its cache entry rather than waiting for
+    the TTL."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    if args:
+        cache.delete(f"boxscore:pending:{args[0]}")
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": "Box score discarded.", "components": []},
+    })
+
+
+def _boxscore_reply(thread, pending, channel_id):
+    """Apply a pending box score and build the public summary."""
+    lines, notes = _boxscore_apply(thread, pending, channel_id)
+    if lines is None:
+        return _ephemeral(
+            "That box score couldn't be saved — check the file and try again.")
+
+    entries = pending["entries"]
+    filename = pending["filename"]
+    turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
+    out = [
+        f"Box score added from `{filename}` — {len(entries)} seats, {turn_count} turns."
+        if entries else f"Read `{filename}`."
+    ]
+    out.extend(lines)
+    if pending["component_titles"]:
+        out.append("Map/Deck: " + " · ".join(pending["component_titles"]))
+    out.extend(notes)
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {
+            "content": "\n".join(line for line in out if line),
             # Naming a player must not ping them, same as /seating.
             "allowed_mentions": {"parse": []},
         },
@@ -7277,6 +7775,12 @@ COMMAND_HANDLERS["lfg"] = _handle_lfg_command
 
 # Component (button/select) handlers, keyed by the custom_id's action prefix.
 COMPONENT_HANDLERS = {
+    # /boxscore's confirmation gates. All three end in the uploader's snowflake,
+    # so the dispatcher owner-locks them: the person who ran the command is the
+    # one who knows whether the file is right.
+    "boxscore_link": _handle_boxscore_link,
+    "boxscore_ok": _handle_boxscore_confirm,
+    "boxscore_no": _handle_boxscore_cancel,
     "draft_select": _handle_draft_select,
     "draft_build": _handle_draft_build,
     "draft_cancel": _handle_draft_cancel,

@@ -1917,6 +1917,61 @@ class BoxScoreImportResolveTests(TestCase):
                                players=Profile.objects.none())
         self.assertIn('not available for this game', result.skipped[0])
 
+    # ── Steam id matching ───────────────────────────────────────────────────
+
+    def test_a_steam_id_resolves_the_player(self):
+        self.player.steam_id = '76561197960265728'
+        self.player.save(update_fields=['steam_id'])
+        result = self._resolve(
+            [{'turn_order': 1, 'player_steam_id': self.player.steam_id}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+        self.assertEqual(result.skipped, [])
+
+    def test_a_verified_steam_id_beats_a_slug_naming_someone_else(self):
+        """The Steam id was proven through Steam's OpenID endpoint; the slug is
+        just a name the exporter wrote down."""
+        other = Profile.objects.create(discord='bsother', display_name='Other')
+        self.player.steam_id = '76561197960265728'
+        self.player.save(update_fields=['steam_id'])
+        result = self._resolve([{'turn_order': 1,
+                                 'player_steam_id': self.player.steam_id,
+                                 'player': other.slug}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+
+    def test_an_unknown_steam_id_falls_back_to_the_slug(self):
+        result = self._resolve([{'turn_order': 1,
+                                 'player_steam_id': '76561190000000000',
+                                 'player': self.player.slug}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+
+    def test_a_high_range_steam_id_is_matched(self):
+        """Regression: a "7656119" prefix match would reject real accounts."""
+        self.player.steam_id = '76561200107749376'
+        self.player.save(update_fields=['steam_id'])
+        result = self._resolve(
+            [{'turn_order': 1, 'player_steam_id': self.player.steam_id}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+
+    def test_a_steam_id_outside_the_roster_does_not_resolve(self):
+        self.player.steam_id = '76561197960265728'
+        self.player.save(update_fields=['steam_id'])
+        result = self._resolve(
+            [{'turn_order': 1, 'player_steam_id': self.player.steam_id}],
+            players=Profile.objects.none())
+        # A seat that resolved nothing yields no seat entry at all, so the skip
+        # message is the whole signal -- and it must say what actually failed.
+        self.assertIn('Steam account', result.skipped[0])
+        self.assertFalse(any('player' in s['fields'] for s in result.seats))
+
+    def test_the_old_format_still_resolves_exactly_as_before(self):
+        """No player_steam_id anywhere -- the regression guard for every export
+        written before the exporter learned to emit one."""
+        result = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
+                                 'player': self.player.slug}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+        self.assertEqual(result.seats[0]['fields']['faction'], self.marquise.pk)
+        self.assertEqual(result.skipped, [])
+
     def test_tournament_score_above_zero_marks_a_sub_30_win(self):
         # Without this a dominance/coalition/timed win would import with no
         # winner: the form only auto-checks Win at 30+.

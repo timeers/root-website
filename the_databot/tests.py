@@ -10551,7 +10551,43 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         with mock.patch.object(di.requests, "get", getter), \
                 mock.patch.object(di.record_lfg_components_task, "delay", delay):
             response = di._handle_boxscore_command(data)
-        return json.loads(response.content)["data"]["content"], getter, delay
+        self._last_data = json.loads(response.content)["data"]
+        return self._last_data.get("content", ""), getter, delay
+
+    def _run_data(self, doc=None, **kw):
+        """As _run, but hands back the whole response `data` (components included)."""
+        self._run(doc, **kw)
+        return self._last_data
+
+    def _press(self, action, key, author=None):
+        """Click one of /boxscore's confirmation buttons."""
+        payload = {
+            "data": {"custom_id": f"{action}:{key}:{author or self.AUTHOR}"},
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": author or self.AUTHOR}},
+        }
+        delay = mock.Mock()
+        with mock.patch.object(di.record_lfg_components_task, "delay", delay):
+            response = di.COMPONENT_HANDLERS[action](payload)
+        return json.loads(response.content)["data"]
+
+    def _pending_key(self, content_data):
+        """The cache key from a gate message's buttons."""
+        row = content_data["components"][0]["components"]
+        return row[0]["custom_id"].split(":")[1]
+
+    def _run_confirmed(self, doc=None, **kw):
+        """Run /boxscore and press through whatever gates it raises.
+
+        Returns the content of the final (applied) message."""
+        data = self._run_data(doc, **kw)
+        for _ in range(2):  # at most Gate 1 then Gate 2
+            if not data.get("components"):
+                break
+            key = self._pending_key(data)
+            action = data["components"][0]["components"][0]["custom_id"].split(":")[0]
+            data = self._press(action, key)
+        return data["content"]
 
     def _doc(self, **kw):
         doc = {"participants": [
@@ -10613,7 +10649,9 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     # ── never destroy what another command wrote ──
 
-    def test_an_existing_seating_is_left_alone(self):
+    def test_an_existing_seating_is_not_overwritten_without_confirmation(self):
+        """A file that disagrees with the seating now PROMPTS rather than either
+        silently ignoring the file or silently reseating the table."""
         seat = LFGSeat.objects.create(thread=self.thread, profile=self.alice,
                                       seat_number=1, faction=self.faction)
         self.thread.seating_set = True
@@ -10623,13 +10661,12 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.thread.refresh_from_db()
         seat.refresh_from_db()
 
-        # _persist_seating would have deleted this row and its faction with it.
+        # Nothing written yet: the row, its faction, and turns_data are untouched.
         self.assertEqual(self.thread.seats.count(), 1)
         self.assertEqual(seat.faction_id, self.faction.pk)
         self.assertEqual(seat.profile_id, self.alice.pk)
-        self.assertIn("left as it was", content)
-        # The box score still saves.
-        self.assertTrue(self.thread.turns_data)
+        self.assertFalse(self.thread.turns_data)
+        self.assertIn("From this box score", content)
 
     def test_seats_left_by_pick_also_block_a_reseat(self):
         # /pick can leave seat rows with filler numbers and seating_set False.
@@ -10641,18 +10678,25 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     # ── unresolvable players ──
 
-    def test_unmatched_players_still_get_a_seat_but_a_blank_one(self):
-        content, _, _ = self._run({"participants": [
+    def test_unmatched_players_are_named_then_seated_blank_on_continue(self):
+        doc = {"participants": [
             {"turn_order": 1, "player": self.alice.slug,
              "turns": [{"turn": 1, "score": 2}]},
             {"turn_order": 2, "player": "nobody-with-this-slug",
              "turns": [{"turn": 1, "score": 4}]},
-        ]})
+        ]}
+        # Gate 1 names them and writes nothing yet.
+        data = self._run_data(doc)
+        self.assertIn("nobody-with-this-slug", data["content"])
+        self.assertIn("/link steam", data["content"])
+        self.assertEqual(self.thread.seats.count(), 0)
+
+        # Continuing seats them, leaving the unresolved seat blank.
+        self._press("boxscore_link", self._pending_key(data))
         self.thread.refresh_from_db()
         self.assertEqual(
             [(s.seat_number, s.profile_id) for s in self.thread.seats.all()],
             [(1, self.alice.pk), (2, None)])
-        self.assertIn("nobody-with-this-slug", content)
 
     def test_a_file_with_no_players_still_sets_the_seat_count_and_order(self):
         self._run({"participants": [
@@ -10752,8 +10796,12 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     def test_a_second_run_replaces_turns_data_rather_than_appending(self):
         self._run(self._doc())
-        self._run({"participants": [
-            {"turn_order": 1, "turns": [{"turn": 1, "score": 99}]}]})
+        # The first run seated the table, so a DIFFERENT second file now needs
+        # confirming; drive it through the gate rather than asserting the old
+        # write-blindly behaviour.
+        self._run_confirmed({"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 99}]}]})
         self.thread.refresh_from_db()
         self.assertEqual(len(self.thread.turns_data), 1)
         self.assertEqual(self.thread.turns_data[0]["turns"][0]["score"], 99)
@@ -10774,6 +10822,244 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(option["name"], "file")
         self.assertEqual(option["type"], 11)   # ATTACHMENT
         self.assertTrue(option["required"])
+
+    # ── Steam id matching ───────────────────────────────────────────────────
+
+    def test_a_steam_id_matches_the_player(self):
+        self.alice.steam_id = "76561197960265728"
+        self.alice.save(update_fields=["steam_id"])
+        self._run({"participants": [
+            {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+             "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
+
+    def test_a_verified_steam_id_beats_a_slug_naming_someone_else(self):
+        """The Steam id was PROVEN through Steam's OpenID endpoint; the slug is
+        just a name the exporter wrote down."""
+        self.alice.steam_id = "76561197960265728"
+        self.alice.save(update_fields=["steam_id"])
+        self._run({"participants": [
+            {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+             "player": self.bob.slug, "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
+
+    def test_an_unknown_steam_id_falls_back_to_the_slug(self):
+        self._run({"participants": [
+            {"turn_order": 1, "player_steam_id": "76561190000000000",
+             "player": self.alice.slug, "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
+
+    def test_a_high_range_steam_id_is_matched(self):
+        """Regression: a "7656119" prefix match would reject real accounts."""
+        self.alice.steam_id = "76561200107749376"
+        self.alice.save(update_fields=["steam_id"])
+        self._run({"participants": [
+            {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+             "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
+
+    # ── the confirmation gates ──────────────────────────────────────────────
+
+    def test_a_matching_file_applies_with_no_prompt(self):
+        data = self._run_data(self._doc())
+        self.assertNotIn("components", data)
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+
+    def test_an_offroster_player_is_a_gate_two_not_a_link_prompt(self):
+        """They HAVE a profile, so telling them to run /link steam would be wrong
+        advice -- it's a roster disagreement."""
+        stranger = Profile.objects.create(discord="bsstranger", discord_id="909",
+                                          display_name="Stranger")
+        data = self._run_data({"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player": stranger.slug,
+             "turns": [{"turn": 1, "score": 4}]},
+        ]})
+        self.assertNotIn("/link steam", data["content"])
+        self.assertIn("From this box score", data["content"])
+        # Confirming seats them and ADDS them to the thread.
+        self._press("boxscore_ok", self._pending_key(data))
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk, stranger.pk])
+        self.assertIn(stranger, self.thread.players.all())
+
+    def test_gate_one_then_apply_when_nothing_else_differs(self):
+        """Gate 1 continuing does NOT imply Gate 2: an otherwise-agreeing file
+        applies straight away."""
+        data = self._run_data({"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player": "who-even-is-this",
+             "turns": [{"turn": 1, "score": 4}]},
+        ]})
+        self.assertIn("/link steam", data["content"])
+        applied = self._press("boxscore_link", self._pending_key(data))
+        self.assertEqual(applied["components"], [])
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+
+    def test_a_reorder_carries_each_players_faction_with_them(self):
+        other = Faction.objects.create(
+            title="BS Faction Two", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                               seat_number=1, faction=self.faction)
+        LFGSeat.objects.create(thread=self.thread, profile=self.bob,
+                               seat_number=2, faction=other)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        # The file swaps them, each keeping their own faction.
+        data = self._run_data({"participants": [
+            {"turn_order": 1, "player": self.bob.slug, "faction": other.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player": self.alice.slug, "faction": self.faction.slug,
+             "turns": [{"turn": 1, "score": 4}]},
+        ]})
+        self.assertIn("From this box score", data["content"])
+        self._press("boxscore_ok", self._pending_key(data))
+
+        self.thread.refresh_from_db()
+        self.assertEqual(
+            [(s.seat_number, s.profile_id, s.faction_id)
+             for s in self.thread.seats.all()],
+            [(1, self.bob.pk, other.pk), (2, self.alice.pk, self.faction.pk)])
+
+    def test_a_reorder_preserves_vagabond_and_captains_from_the_file(self):
+        """_persist_seating would have cascaded these away -- the reason /boxscore
+        needs its own reseat."""
+        vagabond = Vagabond.objects.create(
+            title="BS Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        data = self._run_data({"participants": [
+            {"turn_order": 1, "player": self.bob.slug, "faction": self.faction.slug,
+             "vagabond": vagabond.slug, "turns": [{"turn": 1, "score": 2}]}]})
+        self._press("boxscore_ok", self._pending_key(data))
+
+        self.thread.refresh_from_db()
+        seat = self.thread.seats.get()
+        self.assertEqual(seat.profile_id, self.bob.pk)
+        self.assertEqual(seat.vagabond_id, vagabond.pk)
+
+    def test_cancel_writes_nothing_and_drops_the_pending_entry(self):
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        data = self._run_data(self._doc())
+        key = self._pending_key(data)
+        cancelled = self._press("boxscore_no", key)
+        self.assertIn("discarded", cancelled["content"])
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)
+        # A second press finds nothing left to apply.
+        again = self._press("boxscore_ok", key)
+        self.assertIn("expired", again["content"])
+
+    def test_a_reseat_between_prompt_and_confirm_is_refused(self):
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        data = self._run_data(self._doc())
+
+        # Somebody runs /seating in the meantime.
+        di._persist_seating(self.thread, [self.bob, self.alice], shuffle=False)
+
+        refused = self._press("boxscore_ok", self._pending_key(data))
+        self.assertIn("changed", refused["content"])
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)
+
+    def test_a_pick_between_prompt_and_confirm_is_also_refused(self):
+        """Seat pks are UNCHANGED when /pick writes a faction onto an existing
+        row, so a pk-only fingerprint would miss this."""
+        seat = LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                                      seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        data = self._run_data(self._doc())
+
+        seat.faction = self.faction
+        seat.save(update_fields=["faction"])
+
+        refused = self._press("boxscore_ok", self._pending_key(data))
+        self.assertIn("changed", refused["content"])
+
+    def test_a_group_threads_roster_is_never_rewritten(self):
+        """A tournament group thread's roster lives in PlayerGroup.tournament_players
+        / MatchSeat, NOT thread.players -- so an upload must not touch it. Driven
+        through _boxscore_apply directly: standing up a full bracket here would
+        test Round/Stage/Series wiring rather than this rule."""
+        stranger = Profile.objects.create(discord="bsoutsider", discord_id="908")
+        before = set(self.thread.players.values_list("pk", flat=True))
+        pending = {
+            "entries": [], "items": [], "notes": [], "component_titles": [],
+            "filename": "game.json", "thread_pk": self.thread.pk,
+            "seats": [{"profile_pk": stranger.pk, "label": "Stranger",
+                       "faction_slug": None, "vagabond_slug": None,
+                       "captain_slugs": [], "discarded_slug": None}],
+        }
+
+        # An LFG thread ADDS the new player...
+        di._boxscore_apply(self.thread, pending, self.THREAD_ID)
+        self.assertIn(stranger, self.thread.players.all())
+
+        # ...but a series-linked thread leaves the roster completely alone.
+        self.thread.players.set(before)
+        self.thread.series_id = 1  # truthy: the branch only checks series_id
+        di._boxscore_apply(self.thread, pending, self.THREAD_ID)
+        self.assertEqual(set(self.thread.players.values_list("pk", flat=True)), before)
+
+    def test_the_uploader_is_the_only_one_who_can_confirm(self):
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        data = self._run_data(self._doc())
+        row = data["components"][0]["components"]
+        # The owner-lock is the dispatcher's, keyed on the trailing snowflake.
+        self.assertTrue(row[0]["custom_id"].endswith(f":{self.AUTHOR}"))
+
+    def test_strict_off_restores_the_old_behaviour(self):
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        with mock.patch.object(di, "BOXSCORE_STRICT_PLAYERS", False):
+            data = self._run_data(self._doc())
+
+        self.assertNotIn("components", data)
+        self.thread.refresh_from_db()
+        # Seating left alone, box score still saved -- exactly as before.
+        self.assertEqual(self.thread.seats.count(), 1)
+        self.assertTrue(self.thread.turns_data)
+
+    def test_steam_matching_still_applies_with_strict_off(self):
+        """The flag gates the PROMPTS, not the resolution order."""
+        self.alice.steam_id = "76561197960265728"
+        self.alice.save(update_fields=["steam_id"])
+        with mock.patch.object(di, "BOXSCORE_STRICT_PLAYERS", False):
+            self._run({"participants": [
+                {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+                 "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
 
     def test_a_guild_must_opt_in_before_it_registers(self):
         # enabled_commands defaults to empty, so shipping the command is not
@@ -10800,8 +11086,21 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         recorder.save()
         self.thread.players.add(recorder)
 
-        self._run(self._doc(board_map=self.map.slug, deck=self.deck.slug),
-                  run_capture=True)
+        # Adding the recorder makes the roster larger than the file, so this now
+        # goes through the confirmation gate; the capture still has to run.
+        data = self._run_data(self._doc(board_map=self.map.slug, deck=self.deck.slug),
+                              run_capture=True)
+        if data.get("components"):
+            with mock.patch.object(
+                    di.record_lfg_components_task, "delay",
+                    mock.Mock(side_effect=lambda *a, **k: record_lfg_components_task(*a, **k))):
+                payload = {
+                    "data": {"custom_id":
+                             f"boxscore_ok:{self._pending_key(data)}:{self.AUTHOR}"},
+                    "channel_id": self.THREAD_ID,
+                    "member": {"user": {"id": self.AUTHOR}},
+                }
+                di.COMPONENT_HANDLERS["boxscore_ok"](payload)
         self.thread.refresh_from_db()
 
         # The capture wrote BOTH the typed FK and the roll rows.

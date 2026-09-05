@@ -327,6 +327,78 @@ class ImportResult:
         }
 
 
+def resolve_participant_player(participant, player_queryset):
+    """The Profile for one participant, or None.
+
+    Order is deliberate: ``player_steam_id`` is a VERIFIED identity -- the user
+    proved it through Steam's OpenID endpoint -- while ``player`` is just a name
+    the exporter wrote down. So the Steam id wins. This mirrors
+    ensure_profile_from_discord, where the verified discord_id likewise outranks
+    the handle.
+
+    Both lookups are scoped to `player_queryset` (the roster this game may draw
+    from), so neither key can pull in someone who isn't playing.
+
+    Per-participant, for the website importer where each seat is resolved on its
+    own. /boxscore uses resolve_participant_players instead -- see its docstring.
+    """
+    steam_id = participant.get('player_steam_id')
+    if steam_id:
+        # steam_id is unique=True, so this matches at most one profile.
+        found = player_queryset.filter(steam_id=str(steam_id)).first()
+        if found is not None:
+            return found
+
+    slug = participant.get('player')
+    if slug and isinstance(slug, str):
+        return player_queryset.filter(slug=slug).first()
+    return None
+
+
+def resolve_participant_players(participants, player_queryset):
+    """[Profile|None, ...] aligned with `participants`, in two queries.
+
+    Same precedence and scoping as resolve_participant_player, batched: /boxscore
+    runs inside Discord's 3-second interaction budget and has already spent up to
+    2s downloading the attachment, so resolving a 6-seat file one .first() at a
+    time would add a dozen round trips it cannot afford.
+    """
+    steam_ids = {str(p['player_steam_id']) for p in participants
+                 if p.get('player_steam_id')}
+    slugs = {p['player'] for p in participants
+             if isinstance(p.get('player'), str) and p.get('player')}
+
+    by_steam, by_slug = {}, {}
+    if steam_ids:
+        by_steam = {p.steam_id: p
+                    for p in player_queryset.filter(steam_id__in=steam_ids)}
+    if slugs:
+        by_slug = {p.slug: p for p in player_queryset.filter(slug__in=slugs)}
+
+    out = []
+    for participant in participants:
+        steam_id = participant.get('player_steam_id')
+        found = by_steam.get(str(steam_id)) if steam_id else None
+        if found is None:
+            slug = participant.get('player')
+            found = by_slug.get(slug) if isinstance(slug, str) else None
+        out.append(found)
+    return out
+
+
+def participant_label(participant):
+    """What to call a participant in a message: its slug, else its Steam id.
+
+    Used where a participant resolved to no Profile at all -- there is no name to
+    show, so echo back whatever the file actually said.
+    """
+    slug = participant.get('player')
+    if isinstance(slug, str) and slug:
+        return slug
+    steam_id = participant.get('player_steam_id')
+    return str(steam_id) if steam_id else '?'
+
+
 def _resolve_slug(slug, queryset, model, *, label, what, result, is_player=False):
     """Find one object by slug within `queryset` (the allowed set).
 
@@ -478,14 +550,23 @@ def resolve_import(participants, *, option_querysets, player_queryset,
         if faction is not None:
             fields['faction'] = faction.pk
 
-        player = None
-        player_slug = participant.get('player')
-        if player_slug:
-            player = _resolve_slug(player_slug, player_queryset, Profile,
-                                   label=label, what=_('player'), result=result,
-                                   is_player=True)
-            if player is not None:
-                fields['player'] = player.pk
+        # Steam id first, then the slug (see resolve_participant_player). On a
+        # miss fall through to _resolve_slug purely for its MESSAGE: it is the
+        # one that knows how to say "not available for this game" vs "no player
+        # matching", which the import modal's skipped list shows.
+        player = resolve_participant_player(participant, player_queryset)
+        if player is not None:
+            fields['player'] = player.pk
+        elif participant.get('player'):
+            _resolve_slug(participant['player'], player_queryset, Profile,
+                          label=label, what=_('player'), result=result,
+                          is_player=True)
+        elif participant.get('player_steam_id'):
+            # Nothing for _resolve_slug to report -- the file identified this
+            # seat only by a Steam id, and no profile on this roster claims it.
+            result.skipped.append(
+                _('%(label)s: no player on this roster has that Steam account.')
+                % {'label': label})
 
         faction_title = faction.title if faction is not None else None
 
