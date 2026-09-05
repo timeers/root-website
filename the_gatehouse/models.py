@@ -533,6 +533,18 @@ class Profile(models.Model):
     stable_notify = models.JSONField(default=list, blank=True)
     new_notify = models.JSONField(default=list, blank=True)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
+    # Verified SteamID64, proven through Steam's OpenID endpoint -- never typed in by
+    # hand, so the only writer is steam_link_callback. unique=True because this is an
+    # IDENTITY: two profiles claiming one Steam account means a Tabletop Simulator box
+    # score can't say which player it was. The unique constraint also supplies the index
+    # the reverse lookup (steam_id -> Profile) needs.
+    #
+    # PRIVATE: shown only to its owner on the settings page. Unlike `dwd` this is
+    # deliberately NOT rendered on the public profile page or in any serializer -- a
+    # SteamID64 is a permanent handle to a real person's Steam account.
+    steam_id = models.CharField(
+        max_length=17, blank=True, null=True, unique=True,
+        help_text="User's verified SteamID64, used to match Tabletop Simulator players.")
     # Cached leaderboard inputs (coalition formula), maintained by
     # calculate_and_cache_winrate via Effort/Game signals. Let the default
     # /leaderboard/ board be a plain indexed query with no aggregation.
@@ -574,6 +586,15 @@ class Profile(models.Model):
         self.api_key_created = timezone.now()
         self.save(update_fields=['api_key_hash', 'api_key_created'])
         return raw_key
+
+    @property
+    def steam_profile_url(self):
+        """Public Steam community URL for a linked account, or None.
+
+        The /profiles/<id> form works for every account; the vanity /id/<name> form
+        only exists if the user set one, and we deliberately don't fetch it (that
+        needs a Steam Web API key)."""
+        return f"https://steamcommunity.com/profiles/{self.steam_id}" if self.steam_id else None
 
     @property
     def name(self):

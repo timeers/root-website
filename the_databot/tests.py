@@ -27,6 +27,7 @@ from the_databot.models import (
     LFGRoll, LFGDraft, LFGDraftPick, LFGSeat,
 )
 from the_gatehouse import views
+from the_gatehouse.services.steam_openid import read_link_token
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_databot.services import discord_commands as dc
 from the_databot.services.lfg_game import (
@@ -10167,6 +10168,36 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("<@91>", content)
         self.assertNotIn("None", content)
 
+    def test_an_unlinked_player_is_named_rather_than_dropped(self):
+        """They can't be pinged, but omitting them made the roster look short and
+        left them unsure whether they were even in the match."""
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.unlinked)
+        self.group.tournament_players.add(tp)
+        content = self._run().call_args.kwargs["content"]
+        self.assertIn("p2", content)
+        self.assertIn("<@91>", content)   # the linked player still pings
+
+    def test_an_unlinked_player_shows_display_name_and_discord(self):
+        """Same "Display Name (discord)" the record-game player dropdowns use."""
+        self.unlinked.display_name = "King Luigi"
+        self.unlinked.save()
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.unlinked)
+        self.group.tournament_players.add(tp)
+        content = self._run().call_args.kwargs["content"]
+        self.assertIn("King Luigi (p2)", content)
+
+    def test_a_display_name_matching_discord_is_not_doubled(self):
+        self.unlinked.display_name = "p2"
+        self.unlinked.save()
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.unlinked)
+        self.group.tournament_players.add(tp)
+        content = self._run().call_args.kwargs["content"]
+        self.assertIn("p2", content)
+        self.assertNotIn("p2 (p2)", content)
+
     def test_a_failed_creation_writes_no_url_and_reports_it(self):
         create = self._run(thread_id=None)
         create.assert_called_once()
@@ -10323,6 +10354,16 @@ class CreateForumThreadResultTests(TestCase):
         with self._post(json_body={"id": "77"}) as post:
             create_forum_thread_result(self.CHANNEL, "Group A", content="hi")
         self.assertNotIn("applied_tags", post.call_args.kwargs["json"])
+
+    def test_the_starter_message_only_resolves_user_mentions(self):
+        """It carries player NAMES for anyone unlinked, and a display name is
+        user-controlled -- an "@everyone" in one must not ping the server."""
+        from the_databot.services.discordservice import create_forum_thread_result
+        with self._post(json_body={"id": "77"}) as post:
+            create_forum_thread_result(self.CHANNEL, "Group A",
+                                       content="<@91> @everyone hi")
+        message = post.call_args.kwargs["json"]["message"]
+        self.assertEqual(message["allowed_mentions"], {"parse": ["users"]})
 
     def test_a_400_reports_its_status(self):
         from the_databot.services.discordservice import create_forum_thread_result
@@ -10782,3 +10823,111 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         # The box score reached the grid, and the seat fields were preselected.
         self.assertIn("grid-cell", html)
         self.assertIn("Fox", html)
+
+
+class LinkSteamCommandTest(TestCase):
+    """/link steam hands back a private, expiring link and creates the profile if the
+    Discord user has never used the site."""
+
+    DISCORD_ID = "830000000000000042"
+    SITE = "https://www.therootdatabase.com"
+
+    def _invoke(self, discord_id=None, username="newplayer", sub="steam"):
+        data = {
+            "name": "link",
+            "options": [{"name": sub, "type": 1, "options": []}],
+            "_author_id": discord_id or self.DISCORD_ID,
+            "_author_username": username,
+            "_author": {"name": username},
+        }
+        with mock.patch.dict(di.config, {"SITE_URL": self.SITE}):
+            return di._handle_link_command(data)
+
+    def _content(self, response):
+        return json.loads(response.content)["data"]
+
+    def test_creates_a_profile_for_an_unknown_discord_user(self):
+        self.assertFalse(Profile.objects.filter(discord_id=self.DISCORD_ID).exists())
+        self._invoke()
+        self.assertTrue(Profile.objects.filter(discord_id=self.DISCORD_ID).exists())
+
+    def test_reply_is_ephemeral_and_carries_the_token_link(self):
+        data = self._content(self._invoke())
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertIn(f"{self.SITE}/settings/steam/link/?t=", data["content"])
+
+    def test_the_link_token_names_the_invoking_profile(self):
+        data = self._content(self._invoke())
+        token = data["content"].split("?t=")[1].split()[0]
+        profile = Profile.objects.get(discord_id=self.DISCORD_ID)
+        self.assertEqual(read_link_token(token), profile.pk)
+
+    def test_reuses_an_existing_profile(self):
+        existing = Profile.objects.create(discord="known", discord_id=self.DISCORD_ID)
+        self._invoke(username="known")
+        self.assertEqual(Profile.objects.filter(discord_id=self.DISCORD_ID).count(), 1)
+        data = self._content(self._invoke(username="known"))
+        token = data["content"].split("?t=")[1].split()[0]
+        self.assertEqual(read_link_token(token), existing.pk)
+
+    def test_already_linked_profile_is_told_so_without_a_token(self):
+        Profile.objects.create(discord="linked", discord_id=self.DISCORD_ID,
+                               steam_id="76561197960265728")
+        data = self._content(self._invoke(username="linked"))
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertNotIn("?t=", data["content"])
+        self.assertIn("already", data["content"].lower())
+
+    def test_missing_site_url_is_reported(self):
+        data = {
+            "name": "link",
+            "options": [{"name": "steam", "type": 1, "options": []}],
+            "_author_id": self.DISCORD_ID, "_author_username": "x",
+            "_author": {"name": "x"},
+        }
+        with mock.patch.dict(di.config, {"SITE_URL": ""}):
+            payload = self._content(di._handle_link_command(data))
+        self.assertNotIn("?t=", payload["content"])
+
+    def test_unknown_subcommand_does_not_raise(self):
+        payload = self._content(self._invoke(sub="myspace"))
+        self.assertIn("Unknown link target", payload["content"])
+
+
+class LinkCommandRegistrationTest(TestCase):
+    """/link is a parent command whose subcommands are the whitelist toggles, exactly
+    like /lookup -- and the shared PARENT_COMMANDS machinery must not have changed
+    /lookup's behaviour."""
+
+    def _names(self, cmds):
+        return sorted(c["name"] for c in cmds)
+
+    def test_link_is_not_itself_whitelistable(self):
+        self.assertNotIn("link", dc.WHITELISTABLE)
+        self.assertIn("steam", dc.WHITELISTABLE)
+
+    def test_no_link_command_when_steam_is_disabled(self):
+        self.assertNotIn("link", self._names(dc.commands_for_guild(["record", "faction"])))
+
+    def test_link_registered_when_steam_is_enabled(self):
+        cmds = dc.commands_for_guild(["steam"])
+        self.assertIn("link", self._names(cmds))
+        link = next(c for c in cmds if c["name"] == "link")
+        self.assertEqual([o["name"] for o in link["options"]], ["steam"])
+
+    def test_lookup_still_works_after_the_parent_refactor(self):
+        cmds = dc.commands_for_guild(["faction", "map", "steam"])
+        lookup = next(c for c in cmds if c["name"] == "lookup")
+        self.assertEqual(sorted(o["name"] for o in lookup["options"]), ["faction", "map"])
+        self.assertIsNone(dc.lookup_command_for_guild([]))
+
+    def test_subcommands_are_deep_copied(self):
+        """Building a per-guild variant must never mutate the module singletons."""
+        cmd = dc.parent_command_for_guild("link", ["steam"])
+        cmd["options"][0]["description"] = "mutated"
+        self.assertNotEqual(dc.LINK_SUBCOMMANDS[0]["description"], "mutated")
+
+    def test_steam_is_grouped_for_help(self):
+        labels = [label for _g, rows in dc.grouped_commands() for _n, label, _d in rows]
+        self.assertIn("link steam", labels)
+        self.assertNotIn("link", labels)

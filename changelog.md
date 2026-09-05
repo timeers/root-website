@@ -2,6 +2,9 @@
 
 ## [1.13.6] - 2026-9-4 API Investigation
 
+### New Features
+- added ability to link SteamID to profile for future boxscore matching
+
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
 

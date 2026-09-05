@@ -359,9 +359,13 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
 
         roster = group_roster(group, series_id=series.id)
         # discord_id is the snowflake; Profile.discord is a legacy username and must
-        # never be mentioned with. Players who never linked Discord are simply not
-        # pinged -- that shouldn't block the thread for everyone else.
-        pings = " ".join(f"<@{p.discord_id}>" for p in roster if p.discord_id)
+        # never be mentioned with. A player who never linked Discord can't be pinged,
+        # but must still be NAMED -- dropping them made the roster look short and left
+        # them wondering whether they were in the match. str(profile) is the same
+        # "Display Name (discord)" the record-game player dropdowns use, collapsing to
+        # one name when the two match.
+        mentions = [f"<@{p.discord_id}>" if p.discord_id else str(p) for p in roster]
+        pings = " ".join(mentions)
         title = group.name or f"Group {group.group_number}"
         content = (f"{pings} your match is ready!".strip() if pings
                    else "Your match is ready!")

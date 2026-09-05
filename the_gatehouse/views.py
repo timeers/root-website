@@ -39,6 +39,7 @@ from the_databot.services.discordservice import (get_guild_roles, get_guild_foru
                                       refresh_guild_cache,
                                       bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
 from .services.discord_oauth import update_discord_avatar, get_discord_invite_info, get_user_guilds
+from .services.steam_openid import build_redirect_url, read_link_token, verify_response
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
 from .tasks import send_rich_discord_message_task, send_discord_message_task
@@ -163,6 +164,109 @@ def generate_api_key(request):
     # Non-JS fallback: stash the key for a one-time display, then redirect (PRG).
     request.session['new_api_key'] = raw_key
     messages.success(request, _('A new API key has been generated. Copy it now — it will not be shown again.'))
+    return redirect('user-settings')
+
+
+# ── Steam account linking ────────────────────────────────────────────────────
+# Attaches a verified SteamID64 to a Profile so Tabletop Simulator box scores can be
+# matched to site profiles by id rather than by display name. Entered either from the
+# settings page (logged in) or from the bot's /link steam (a signed token, possibly
+# logged out) -- see the_gatehouse.services.steam_openid.
+
+STEAM_LINK_SESSION_KEY = 'steam_link_profile_pk'
+
+
+def _steam_return_urls():
+    """(return_to, realm) for the OpenID handshake, from the ONE canonical host.
+
+    Deliberately not build_absolute_uri(): that reads request.get_host(), and
+    ALLOWED_HOSTS accepts both therootdatabase.com and www.therootdatabase.com. Steam
+    pins the user's saved approval to the realm and requires return_to to sit under it,
+    so a host-derived value would yield two different realms depending on which URL the
+    visitor typed. settings.SITE_URL exists precisely for links that must not depend on
+    the Host header, and the bot builds its /link steam URL from the same value.
+    """
+    site = (settings.SITE_URL or '').rstrip('/')
+    return f"{site}{reverse('steam-link-callback')}", f"{site}/"
+
+
+def steam_link_start(request):
+    """Begin the Steam handshake for the profile this visitor may link.
+
+    NOT @login_required, on purpose: the ?t= token path is what lets someone who ran
+    /link steam in Discord -- and may have no site login at all -- complete the flow.
+    """
+    profile = None
+
+    token = request.GET.get('t')
+    if token:
+        profile_pk = read_link_token(token)
+        if profile_pk is None:
+            messages.error(request, _('That Steam link has expired. Run /link steam again to get a new one.'))
+            return redirect('databot-info')
+        profile = Profile.objects.filter(pk=profile_pk).first()
+        if profile is None:
+            messages.error(request, _('That Steam link is no longer valid. Run /link steam again to get a new one.'))
+            return redirect('databot-info')
+    elif request.user.is_authenticated:
+        profile = request.user.profile
+    else:
+        return redirect(settings.LOGIN_URL)
+
+    # The session -- not a query parameter -- is what the callback trusts. Writing it
+    # also gives an anonymous visitor a session cookie, which survives Steam's
+    # top-level GET redirect back under SameSite=Lax.
+    request.session[STEAM_LINK_SESSION_KEY] = profile.pk
+
+    return_to, realm = _steam_return_urls()
+    return redirect(build_redirect_url(return_to, realm))
+
+
+def steam_link_callback(request):
+    """Where Steam sends the user back. Verifies the claim, then stores the id."""
+    profile_pk = request.session.pop(STEAM_LINK_SESSION_KEY, None)
+    landing = 'user-settings' if request.user.is_authenticated else 'databot-info'
+
+    if profile_pk is None:
+        messages.error(request, _('That Steam link expired before it could be completed. Please try again.'))
+        return redirect(landing)
+
+    profile = Profile.objects.filter(pk=profile_pk).first()
+    if profile is None:
+        messages.error(request, _('Could not find the profile to link. Please try again.'))
+        return redirect(landing)
+
+    # Everything in request.GET is attacker-supplied until Steam confirms it.
+    steam_id = verify_response(request.GET)
+    if not steam_id:
+        messages.error(request, _('Could not verify your Steam account. Please try again.'))
+        return redirect(landing)
+
+    # steam_id is unique: check before writing so a duplicate is a message rather than
+    # an IntegrityError. Mirrors the discord_id conflict branch in signals.py.
+    clash = Profile.objects.filter(steam_id=steam_id).exclude(pk=profile.pk).exists()
+    if clash:
+        logger.warning("Steam id already linked to another profile (attempted for profile %s)", profile.pk)
+        messages.error(request, _('That Steam account is already linked to another profile.'))
+        return redirect(landing)
+
+    # update_fields is required, not an optimisation: a bare save() re-derives
+    # display_name and runs the avatar-deletion branch in Profile.save().
+    profile.steam_id = steam_id
+    profile.save(update_fields=['steam_id'])
+
+    messages.success(request, _('Your Steam account is now linked!'))
+    return redirect(landing)
+
+
+@login_required
+@require_POST
+def steam_unlink(request):
+    profile = request.user.profile
+    if profile.steam_id:
+        profile.steam_id = None
+        profile.save(update_fields=['steam_id'])
+        messages.success(request, _('Your Steam account has been unlinked.'))
     return redirect('user-settings')
 
 

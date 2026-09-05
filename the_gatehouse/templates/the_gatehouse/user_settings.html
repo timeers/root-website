@@ -179,6 +179,47 @@
             </div>
           </div>
         </div>
+
+        {# Steam. The SteamID64 is shown ONLY here, to its owner -- deliberately not on
+           the public profile page (which does show DWD) and not in any serializer. #}
+        <div class="col-lg-6">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-steam me-2"></i>{% trans 'Steam' %}</h2>
+
+              <p class="text-secondary">
+                {% trans 'Link your Steam account so your Tabletop Simulator games can be matched to your profile.' %}
+              </p>
+
+              {% if user.profile.steam_id %}
+                <div class="alert alert-secondary">
+                  {% trans 'Steam account linked.' %}<br>
+                  <a href="{{ user.profile.steam_profile_url }}" target="_blank" rel="noopener">
+                    {{ user.profile.steam_id }} <i class="bi bi-box-arrow-up-right"></i>
+                  </a>
+                  <br><span class="text-muted">{% trans 'Only you can see this.' %}</span>
+                </div>
+                <div class="d-flex gap-2 mb-3 justify-content-center">
+                  <form action="{% url 'steam-unlink' %}" method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="databot-btn databot-btn-outline btn-sm">
+                      <i class="bi bi-x-circle me-2"></i> {% trans 'Unlink Steam Account' %}
+                    </button>
+                  </form>
+                </div>
+              {% else %}
+                <div class="alert alert-secondary">
+                  {% trans 'You have not linked a Steam account yet.' %}
+                </div>
+                <div class="d-flex gap-2 mb-3 justify-content-center">
+                  <a href="{% url 'steam-link-start' %}" class="databot-btn databot-btn-primary btn-sm">
+                    <i class="bi bi-steam me-2"></i> {% trans 'Link Steam Account' %}
+                  </a>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- How to use: API modal (top-level so it isn't clipped by the .info-card) -->

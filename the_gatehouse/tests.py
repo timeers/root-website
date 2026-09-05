@@ -9,6 +9,9 @@ import tempfile
 from datetime import timedelta
 from unittest import mock
 
+from urllib.parse import quote
+
+import requests
 from PIL import Image
 from celery.exceptions import Retry
 from django.contrib.auth import login as auth_login
@@ -33,6 +36,8 @@ from the_gatehouse.models import (DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler
 from the_gatehouse.services.discord_oauth import update_discord_avatar
+from the_gatehouse.services.steam_openid import (make_link_token, read_link_token,
+                                                 verify_response)
 from the_gatehouse.tasks import update_post_status
 
 
@@ -896,3 +901,237 @@ class RepairProfileAvatarsCommandTests(_AvatarTestMixin, TestCase):
         )
 
 
+
+
+# ── Steam account linking ────────────────────────────────────────────────────
+
+STEAM_ID = "76561197960265728"
+# Outside the "7656119" prefix: an individual SteamID64 is
+# (1<<56)|(1<<52)|(1<<32)|account_id, so it crosses into 765612... as account ids
+# grow, and Steam already issues these.
+STEAM_ID_HIGH = "76561200107749376"
+
+
+def _steam_callback_params(steam_id=STEAM_ID):
+    """A well-formed Steam OpenID callback query string. Signature values are
+    arbitrary here -- what makes a claim trustworthy is the check_authentication
+    round trip, which every test below controls explicitly."""
+    return {
+        "openid.mode": "id_res",
+        "openid.claimed_id": f"https://steamcommunity.com/openid/id/{steam_id}",
+        "openid.identity": f"https://steamcommunity.com/openid/id/{steam_id}",
+        "openid.sig": "not-checked-locally",
+        "openid.signed": "signed,op_endpoint,claimed_id,identity",
+    }
+
+
+def _mock_steam_verify(is_valid=True):
+    """Patch the outbound check_authentication POST."""
+    body = "ns:http://specs.openid.net/auth/2.0\nis_valid:%s\n" % ("true" if is_valid else "false")
+    response = mock.Mock(text=body)
+    response.raise_for_status = mock.Mock()
+    return mock.patch("the_gatehouse.services.steam_openid.requests.post",
+                      return_value=response)
+
+
+class SteamOpenIDVerifyTest(TestCase):
+    """verify_response is the security boundary: request.GET is attacker-supplied
+    until Steam confirms it."""
+
+    def test_valid_response_returns_steam_id(self):
+        with _mock_steam_verify(True):
+            self.assertEqual(verify_response(_steam_callback_params()), STEAM_ID)
+
+    def test_high_range_steam_id_is_accepted(self):
+        """Regression: a "7656119" prefix match would reject real accounts."""
+        with _mock_steam_verify(True):
+            self.assertEqual(
+                verify_response(_steam_callback_params(STEAM_ID_HIGH)), STEAM_ID_HIGH)
+
+    def test_forged_claim_is_rejected_when_steam_says_invalid(self):
+        with _mock_steam_verify(False):
+            self.assertIsNone(verify_response(_steam_callback_params()))
+
+    def test_lookalike_host_is_rejected(self):
+        params = _steam_callback_params()
+        params["openid.claimed_id"] = (
+            f"https://steamcommunity.com.evil.tld/openid/id/{STEAM_ID}")
+        with _mock_steam_verify(True):
+            self.assertIsNone(verify_response(params))
+
+    def test_network_error_returns_none(self):
+        with mock.patch("the_gatehouse.services.steam_openid.requests.post",
+                        side_effect=requests.RequestException("boom")):
+            self.assertIsNone(verify_response(_steam_callback_params()))
+
+    def test_junk_query_makes_no_outbound_request(self):
+        with mock.patch("the_gatehouse.services.steam_openid.requests.post") as post:
+            self.assertIsNone(verify_response({}))
+            self.assertIsNone(verify_response({"openid.mode": "cancel"}))
+            self.assertIsNone(verify_response({"openid.mode": "id_res"}))
+            self.assertFalse(post.called)
+
+
+class SteamLinkTokenTest(TestCase):
+    def test_round_trip(self):
+        self.assertEqual(read_link_token(make_link_token(7)), 7)
+
+    def test_tampered_token_is_rejected(self):
+        token = make_link_token(7)
+        self.assertIsNone(read_link_token(token[:-4] + "aaaa"))
+
+    def test_garbage_and_empty_are_rejected(self):
+        self.assertIsNone(read_link_token("nonsense"))
+        self.assertIsNone(read_link_token(None))
+        self.assertIsNone(read_link_token(""))
+
+    def test_expired_token_is_rejected(self):
+        token = make_link_token(7)
+        with mock.patch("the_gatehouse.services.steam_openid.STEAM_LINK_MAX_AGE", -1):
+            self.assertIsNone(read_link_token(token))
+
+
+class SteamLinkFlowTest(_NoLoginSignalMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username="steamer", password="pw")
+        self.profile = self.user.profile
+        self.profile.discord = "steamer"
+        self.profile.save()
+
+    def _start_session(self, profile=None):
+        """Put a profile pk in the session the way steam_link_start does."""
+        session = self.client.session
+        session[views.STEAM_LINK_SESSION_KEY] = (profile or self.profile).pk
+        session.save()
+
+    def _reload(self):
+        return Profile.objects.get(pk=self.profile.pk)
+
+    # -- start --------------------------------------------------------------
+
+    def test_start_redirects_logged_in_user_to_steam(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("steam-link-start"))
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith(
+            "https://steamcommunity.com/openid/login?"))
+        self.assertEqual(self.client.session[views.STEAM_LINK_SESSION_KEY],
+                         self.profile.pk)
+
+    def test_start_anonymous_without_token_goes_to_login(self):
+        response = self.client.get(reverse("steam-link-start"))
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("steamcommunity.com", response["Location"])
+
+    def test_start_with_valid_token_works_while_logged_out(self):
+        """The whole point of the bot hand-off: no site login required."""
+        token = make_link_token(self.profile.pk)
+        response = self.client.get(reverse("steam-link-start"), {"t": token})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith(
+            "https://steamcommunity.com/openid/login?"))
+        self.assertEqual(self.client.session[views.STEAM_LINK_SESSION_KEY],
+                         self.profile.pk)
+
+    def test_start_with_expired_token_does_not_reach_steam(self):
+        token = make_link_token(self.profile.pk)
+        with mock.patch("the_gatehouse.services.steam_openid.STEAM_LINK_MAX_AGE", -1):
+            response = self.client.get(reverse("steam-link-start"), {"t": token})
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("steamcommunity.com", response["Location"])
+        self.assertNotIn(views.STEAM_LINK_SESSION_KEY, self.client.session)
+
+    def test_start_uses_canonical_site_url_not_request_host(self):
+        """realm/return_to must not follow the Host header, or Steam re-prompts."""
+        self.client.force_login(self.user)
+        with override_settings(SITE_URL="https://www.therootdatabase.com"):
+            response = self.client.get(reverse("steam-link-start"),
+                                       HTTP_HOST="therootdatabase.com")
+        self.assertIn(quote("https://www.therootdatabase.com/", safe=""),
+                      response["Location"])
+
+    # -- callback -----------------------------------------------------------
+
+    def test_callback_stores_verified_steam_id(self):
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(True):
+            response = self.client.get(reverse("steam-link-callback"),
+                                       _steam_callback_params())
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._reload().steam_id, STEAM_ID)
+
+    def test_callback_ignores_forged_claim(self):
+        """Someone hand-crafting the callback URL must not be able to claim an id."""
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(False):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertIsNone(self._reload().steam_id)
+
+    def test_callback_without_session_writes_nothing(self):
+        self.client.force_login(self.user)
+        with _mock_steam_verify(True):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertIsNone(self._reload().steam_id)
+
+    def test_callback_does_not_steal_an_id_linked_elsewhere(self):
+        other = Profile.objects.create(discord="other", steam_id=STEAM_ID)
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(True):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertIsNone(self._reload().steam_id)
+        self.assertEqual(Profile.objects.get(pk=other.pk).steam_id, STEAM_ID)
+
+    def test_callback_relinking_same_id_to_same_profile_is_fine(self):
+        self.profile.steam_id = STEAM_ID
+        self.profile.save(update_fields=["steam_id"])
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(True):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertEqual(self._reload().steam_id, STEAM_ID)
+
+    def test_anonymous_callback_lands_somewhere_public(self):
+        """A logged-out user finishing the bot flow must not be bounced to login."""
+        self._start_session()
+        with _mock_steam_verify(True):
+            response = self.client.get(reverse("steam-link-callback"),
+                                       _steam_callback_params())
+        self.assertEqual(self._reload().steam_id, STEAM_ID)
+        followed = self.client.get(response["Location"])
+        self.assertEqual(followed.status_code, 200)
+
+    def test_callback_does_not_clobber_display_name(self):
+        """save(update_fields=...) keeps Profile.save's display_name branch away."""
+        self.profile.display_name = "Keep Me"
+        self.profile.save()
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(True):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertEqual(self._reload().display_name, "Keep Me")
+
+    # -- unlink -------------------------------------------------------------
+
+    def test_unlink_clears_on_post(self):
+        self.profile.steam_id = STEAM_ID
+        self.profile.save(update_fields=["steam_id"])
+        self.client.force_login(self.user)
+        self.client.post(reverse("steam-unlink"))
+        self.assertIsNone(self._reload().steam_id)
+
+    def test_unlink_rejects_get(self):
+        self.profile.steam_id = STEAM_ID
+        self.profile.save(update_fields=["steam_id"])
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("steam-unlink"))
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(self._reload().steam_id, STEAM_ID)
+
+    def test_unlink_requires_login(self):
+        response = self.client.post(reverse("steam-unlink"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("login", response["Location"])

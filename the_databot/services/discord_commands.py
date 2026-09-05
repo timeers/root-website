@@ -78,23 +78,64 @@ LOOKUP_COMMAND = {
 }
 
 
-def lookup_command_for_guild(enabled_names):
-    """The /lookup definition to register for a guild: one SUB_COMMAND per enabled
-    lookup. Returns None when the guild has none enabled, so /lookup isn't registered
-    there at all.
+def parent_command_for_guild(parent_name, enabled_names):
+    """The definition of a parent command to register for a guild: one SUB_COMMAND per
+    enabled subcommand. Returns None when the guild has none enabled, so the parent
+    isn't registered there at all.
 
-    Discord registers COMMANDS, not subcommands, so a guild's per-lookup whitelist can
-    only be honoured by varying this command's options -- the same trick
+    Discord registers COMMANDS, not subcommands, so a guild's per-subcommand whitelist
+    can only be honoured by varying the parent's options -- the same trick
     lfg_command_for_roles uses to bake per-guild tag choices. Deep-copies the shared
-    module dicts so the caller never mutates a singleton. Nine subcommands is well under
+    module dicts so the caller never mutates a singleton. Both parents are well under
     Discord's 25-option cap, so no truncation is needed."""
+    parent, subcommands = PARENT_COMMANDS[parent_name]
     enabled = set(enabled_names or ())
-    subs = [copy.deepcopy(s) for s in LOOKUP_SUBCOMMANDS if s["name"] in enabled]
+    subs = [copy.deepcopy(s) for s in subcommands if s["name"] in enabled]
     if not subs:
         return None
-    cmd = copy.deepcopy(LOOKUP_COMMAND)
+    cmd = copy.deepcopy(parent)
     cmd["options"] = subs
     return cmd
+
+
+def lookup_command_for_guild(enabled_names):
+    """The /lookup definition for a guild. Thin alias kept for existing callers."""
+    return parent_command_for_guild(LOOKUP_COMMAND_NAME, enabled_names)
+
+
+LINK_COMMAND_NAME = "link"
+
+# Account linking, built as a parent + subcommands like /lookup so future providers
+# (/link dwd, ...) cost a subcommand rather than another top-level slot.
+LINK_SUBCOMMANDS = [
+    {
+        "name": "steam",
+        "description": "Link your Steam account to your Root Database profile",
+        "type": 1,  # SUB_COMMAND
+    },
+]
+
+LINK_SUBCOMMAND_NAMES = [s["name"] for s in LINK_SUBCOMMANDS]
+
+LINK_COMMAND = {
+    "name": LINK_COMMAND_NAME,
+    "description": "Link an external account to your profile",
+    "options": LINK_SUBCOMMANDS,
+}
+
+
+# Every parent command whose SUBCOMMANDS -- not the parent itself -- are the whitelist
+# toggles. Registering this here means the five whitelist functions below stay generic:
+# adding a third parent is one entry, not five new branches.
+PARENT_COMMANDS = {
+    LOOKUP_COMMAND_NAME: (LOOKUP_COMMAND, LOOKUP_SUBCOMMANDS),
+    LINK_COMMAND_NAME: (LINK_COMMAND, LINK_SUBCOMMANDS),
+}
+
+# Flat list of every subcommand name across all parents -- these are the whitelist keys.
+PARENT_SUBCOMMAND_NAMES = [s["name"]
+                           for _parent, subs in PARENT_COMMANDS.values()
+                           for s in subs]
 
 
 CARD_COMMAND = {
@@ -512,6 +553,7 @@ COMMANDS = [
     RENAME_COMMAND,
     RANDOM_COMMAND,
     LFG_COMMAND,
+    LINK_COMMAND,
 ]
 
 
@@ -525,6 +567,7 @@ COMMAND_GROUPS = [
     ("Stats", ["stats", "upcoming"]),
     ("Games", ["lfg", "adset", "seating", "pick", "schedule", "boxscore", "record", "rename"]),
     ("Random", ["draft", "random"]),
+    ("Account", ["steam"]),
 ]
 
 
@@ -533,15 +576,15 @@ def all_command_definitions():
     return list(COMMANDS)
 
 
-# Neither of these is a whitelist toggle: /help is always available everywhere, and
-# /lookup has no meaning of its own -- its NINE SUBCOMMANDS are the toggles, keyed by
-# the same names the old top-level lookup commands used.
-_NON_WHITELISTABLE = {"help", LOOKUP_COMMAND_NAME}
+# None of these is a whitelist toggle: /help is always available everywhere, and a
+# PARENT command (/lookup, /link) has no meaning of its own -- its SUBCOMMANDS are the
+# toggles, keyed for the lookups by the same names the old top-level commands used.
+_NON_WHITELISTABLE = {"help", *PARENT_COMMANDS}
 
 # Everything a guild moderator can switch on. Derived from COMMANDS (so a new command
-# becomes toggleable automatically) plus the lookup subcommands.
+# becomes toggleable automatically) plus every parent's subcommands.
 WHITELISTABLE = ([c["name"] for c in COMMANDS if c["name"] not in _NON_WHITELISTABLE]
-                 + LOOKUP_SUBCOMMAND_NAMES)
+                 + PARENT_SUBCOMMAND_NAMES)
 
 
 def whitelistable_commands():
@@ -549,29 +592,31 @@ def whitelistable_commands():
 
     `name` is the stored whitelist key -- unchanged for the lookups, which is what lets
     an existing enabled_commands list keep working. `label` is what to render after the
-    slash: identical to `name` for a top-level command, "lookup faction" for a lookup
-    subcommand, since that's what a user actually types."""
+    slash: identical to `name` for a top-level command, "lookup faction" / "link steam"
+    for a subcommand, since that's what a user actually types."""
     rows = [(c["name"], c["name"], c["description"]) for c in COMMANDS
             if c["name"] not in _NON_WHITELISTABLE]
-    return rows + [(s["name"], f"{LOOKUP_COMMAND_NAME} {s['name']}", s["description"])
-                   for s in LOOKUP_SUBCOMMANDS]
+    return rows + [(s["name"], f"{parent_name} {s['name']}", s["description"])
+                   for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
+                   for s in subs]
 
 
 def commands_for_guild(enabled_names):
     """Definitions to register for a guild: always /help, plus each enabled, whitelistable
-    command, plus a /lookup carrying only this guild's enabled subcommands. Ignores
-    unknown/removed names so a stale whitelist never breaks registration.
+    command, plus each PARENT command carrying only this guild's enabled subcommands.
+    Ignores unknown/removed names so a stale whitelist never breaks registration.
 
     Unlike the /help and /lfg per-guild variants (substituted in register_guild_commands),
-    /lookup is resolved HERE because it can be dropped entirely -- a guild with no lookups
-    enabled gets no /lookup at all, which substitute-in-place can't express."""
+    the parents are resolved HERE because they can be dropped entirely -- a guild with no
+    lookups enabled gets no /lookup at all, which substitute-in-place can't express."""
     allowed = set(enabled_names or ()) & set(WHITELISTABLE)
     out = [c for c in COMMANDS
            if c["name"] == "help"
-           or (c["name"] != LOOKUP_COMMAND_NAME and c["name"] in allowed)]
-    lookup = lookup_command_for_guild(allowed)
-    if lookup:
-        out.append(lookup)
+           or (c["name"] not in PARENT_COMMANDS and c["name"] in allowed)]
+    for parent_name in PARENT_COMMANDS:
+        parent = parent_command_for_guild(parent_name, allowed)
+        if parent:
+            out.append(parent)
     return out
 
 
@@ -611,20 +656,21 @@ def grouped_commands():
 
     `name` is the whitelist key -- what enabled_commands stores and what build_help_embed
     filters on. `label` is what to render after the slash: identical to `name` for a
-    top-level command, "lookup faction" for a lookup subcommand.
+    top-level command, "lookup faction" / "link steam" for a subcommand.
 
-    /lookup itself is skipped in favour of a row per subcommand: a bare `/lookup` row
+    A PARENT command is skipped in favour of a row per subcommand: a bare `/lookup` row
     would tell a reader nothing about which lookups their guild actually has. That is the
-    one deliberate exception to the "Other" catch-all below -- a new lookup SUBCOMMAND
-    missing from COMMAND_GROUPS still lands in "Other", so the safety net keeps working
-    for the case that matters.
+    one deliberate exception to the "Other" catch-all below -- a new SUBCOMMAND missing
+    from COMMAND_GROUPS still lands in "Other", so the safety net keeps working for the
+    case that matters.
     """
     rows_by_name = {c["name"]: (c["name"], c["name"], c.get("description", ""))
                     for c in all_command_definitions()
-                    if c["name"] != LOOKUP_COMMAND_NAME}
+                    if c["name"] not in PARENT_COMMANDS}
     rows_by_name.update({
-        s["name"]: (s["name"], f"{LOOKUP_COMMAND_NAME} {s['name']}", s.get("description", ""))
-        for s in LOOKUP_SUBCOMMANDS
+        s["name"]: (s["name"], f"{parent_name} {s['name']}", s.get("description", ""))
+        for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
+        for s in subs
     })
 
     grouped_names = set()

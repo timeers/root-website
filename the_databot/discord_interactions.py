@@ -7204,7 +7204,60 @@ def _handle_lookup_command(data):
     return handler({**data, "name": sub, "options": options})
 
 
+def _handle_link_steam_command(data):
+    """/link steam: hand back a private, expiring link that attaches a verified
+    SteamID64 to this user's profile.
+
+    Creates the profile if this Discord user has never used the site -- that is the
+    point of the command, so a TTS player can be matched to a profile without first
+    going through a website login."""
+    from the_gatehouse.services.steam_openid import make_link_token
+
+    # Same call shape as _schedule_profile: ensure_profile_from_discord matches the
+    # VERIFIED discord_id first and only claims an unlinked profile by username, so a
+    # handle can never be used to take over someone else's account.
+    discord_id = data.get("_author_id")
+    if not discord_id:
+        return _ephemeral("I couldn't identify your Discord account. Please try again.")
+    profile = ensure_profile_from_discord(
+        discord_id, data.get("_author_username"), (data.get("_author") or {}).get("name"))
+    if not profile:
+        return _ephemeral("I couldn't find or create your profile. Please try again.")
+
+    site = (config.get("SITE_URL") or "").rstrip("/")
+    if not site:
+        return _ephemeral("The site URL isn't configured, so I can't build a link.")
+
+    if profile.steam_id:
+        return _ephemeral(
+            "Your profile already has a Steam account linked.\n"
+            f"Manage it here: {site}/settings/")
+
+    # The token is a capability, so this reply MUST stay ephemeral.
+    url = f"{site}/settings/steam/link/?t={make_link_token(profile.pk)}"
+    return _ephemeral(
+        "Link your Steam account so your Tabletop Simulator games can be matched "
+        f"to your profile:\n{url}\n\n-# This link is just for you and expires in 15 minutes.")
+
+
+LINK_SUBCOMMAND_HANDLERS = {"steam": _handle_link_steam_command}
+
+
+def _handle_link_command(data):
+    """/link <sub>. Unwraps the subcommand payload the same way _handle_lookup_command
+    does -- see its docstring for why this rewrites `data` rather than passing it
+    through."""
+    sub, options = _subcommand(data)
+    handler = LINK_SUBCOMMAND_HANDLERS.get(sub)
+    if not handler:
+        # A stale registration -- removed in code but still live in a guild until its
+        # next sync -- lands here rather than raising.
+        return _ephemeral(f"Unknown link target: {sub}")
+    return handler({**data, "name": sub, "options": options})
+
+
 COMMAND_HANDLERS = {"lookup": _handle_lookup_command}
+COMMAND_HANDLERS["link"] = _handle_link_command
 COMMAND_HANDLERS["stats"] = _handle_stats_command
 COMMAND_HANDLERS["card"] = _handle_card_command
 COMMAND_HANDLERS["law"] = _handle_law_command
