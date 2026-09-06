@@ -3,7 +3,7 @@
 {% block title %}{% trans 'Availability' %} | {% endblock %}
 
 {% block content %}
-<div class="container py-5">
+<div class="container py-2">
   <div class="row justify-content-center">
     <div class="col-lg-9">
 
@@ -165,93 +165,21 @@
 
 {% block styles %}
 <style>
-  /* .databot-btn is 14px/30px padding at 16px text, and btn-sm doesn't shrink it
-     (that's a Bootstrap class; these are custom). At full size "Clear all" wraps
-     to its own line next to the heading on a phone, so scope a smaller variant
-     here rather than altering the shared button used across the site. */
-  /* Two classes, so this beats `.databot-btn-outline`'s own `padding: 12px 28px`
-     regardless of stylesheet order. */
-  .databot-btn.avail-btn-compact {
-    padding: 7px 14px;
-    font-size: 0.8rem;
-    border-radius: 8px;
-    border-width: 1px;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  /* Horizontal scroll container: the grid must never force the PAGE to scroll
-     sideways on a phone. */
-  .availability-scroll {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .availability-grid {
-    display: grid;
-    /* hour label + 7 days. `auto` lets the label column shrink to its text rather
-       than reserving a fixed width -- the cells carry the time too, so this column
-       only needs to anchor the row. The day columns get the leftover space. */
-    grid-template-columns: auto repeat(7, minmax(3.2rem, 1fr));
-    gap: 3px;
-    min-width: 28rem;
-    user-select: none;
-    touch-action: pan-y;
-  }
-
-  .avail-corner {
-    /* Spacer above the hour labels. */
-  }
+  /* Grid layout, cells and the compact button live in main.css (shared with the
+     read-only /availability/compare view). Only the EDITOR's own affordances --
+     the selected state, hover and focus rings, and the pointer cursor -- stay
+     here, so the read-only grid can reuse the layout without inheriting them. */
 
   .avail-day-header,
-  .avail-hour-label {
-    background: transparent;
-    border: none;
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: #6c757d;
-    padding: 2px;
+  .avail-hour-label,
+  .avail-cell {
     cursor: pointer;
-    border-radius: 6px;
   }
 
   .avail-day-header:hover,
   .avail-hour-label:hover {
     background: #eef0f2;
     color: #2c2f33;
-  }
-
-  .avail-hour-label {
-    text-align: right;
-    /* Padding counts toward an `auto` column's width, so keep it tight. */
-    padding: 2px 6px 2px 2px;
-    font-weight: 500;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .avail-cell {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 1.85rem;
-    border: 1px solid #dfe2e5;
-    border-radius: 4px;
-    background: #f8f9fa;
-    padding: 0;
-    cursor: pointer;
-    transition: background-color 90ms linear, color 90ms linear;
-    /* The label repeats across the row, so it stays quiet until the cell is on --
-       it's an orientation aid, not the thing being read. */
-    font-size: 0.66rem;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-    white-space: nowrap;
-    color: #adb5bd;
-  }
-
-  .cell-time {
-    pointer-events: none;  /* clicks and drags must hit the cell, never the label */
   }
 
   .avail-cell:hover {
@@ -272,18 +200,6 @@
   .avail-hour-label:focus-visible {
     outline: 2px solid #0d6efd;
     outline-offset: 1px;
-  }
-
-  @media (max-width: 576px) {
-    /* "12am" needs about 2.9rem to stay legible, so the grid scrolls sideways
-       inside .availability-scroll rather than shrinking text below readability. */
-    .availability-grid {
-      grid-template-columns: auto repeat(7, minmax(2.9rem, 1fr));
-      min-width: 23rem;
-    }
-    .avail-hour-label { font-size: 0.66rem; padding-right: 4px; }
-    .avail-day-header { font-size: 0.7rem; }
-    .avail-cell { min-height: 1.7rem; font-size: 0.6rem; }
   }
 </style>
 {% endblock styles %}
@@ -363,49 +279,60 @@
     }
   }
 
-  // One delegated listener per event rather than 168 x N -- the grid is 168 cells
-  // and per-cell listeners are needless work on every render.
-  grid.addEventListener('mousedown', function (e) {
+  // POINTER EVENTS, not mouse + touch.
+  //
+  // Mouse, touch and stylus all arrive here as one event type, so there is
+  // exactly ONE code path that toggles a cell. The previous mouse-plus-touch
+  // arrangement is what made tapping unreliable: a tap fires touchstart AND a
+  // compatibility mousedown AND a synthesized click, so the same cell could be
+  // toggled two or three times and land back where it started. Chrome's device
+  // emulator sends that full sequence, which is why it looked random there.
+  //
+  // Delegated (one listener, not 168) and guarded with a pointerId so a second
+  // finger can't hijack an in-progress drag.
+  var activePointer = null;
+
+  grid.addEventListener('pointerdown', function (e) {
+    if (!e.isPrimary) { return; }          // ignore extra fingers
     var cell = e.target.closest('.avail-cell');
     if (!cell) { return; }
+    activePointer = e.pointerId;
+    // Keeps the drag alive if the finger leaves the grid, and stops the browser
+    // turning the gesture into a scroll or a text selection mid-paint.
+    if (grid.setPointerCapture) {
+      try { grid.setPointerCapture(e.pointerId); } catch (err) { /* not fatal */ }
+    }
     e.preventDefault();
     beginPaint(cell);
   });
 
-  grid.addEventListener('mouseover', function (e) {
-    var cell = e.target.closest('.avail-cell');
-    if (cell) { continuePaint(cell); }
-  });
-
-  document.addEventListener('mouseup', function () { painting = false; });
-
-  // Touch: touchmove reports the START element, so hit-test the live coordinates.
-  grid.addEventListener('touchstart', function (e) {
-    var cell = e.target.closest('.avail-cell');
-    if (!cell) { return; }
-    beginPaint(cell);
-  }, { passive: true });
-
-  grid.addEventListener('touchmove', function (e) {
-    if (!painting) { return; }
-    var touch = e.touches[0];
-    var el = document.elementFromPoint(touch.clientX, touch.clientY);
-    // closest(), not classList: each cell contains a time <span>, so the topmost
-    // element under the finger can be that child rather than the cell itself.
+  grid.addEventListener('pointermove', function (e) {
+    if (!painting || e.pointerId !== activePointer) { return; }
+    // With pointer capture every move retargets to the grid, so hit-test the live
+    // coordinates to find the cell actually under the pointer.
+    var el = document.elementFromPoint(e.clientX, e.clientY);
     var cell = el && el.closest ? el.closest('.avail-cell') : null;
     if (cell) {
       e.preventDefault();
       continuePaint(cell);
     }
-  }, { passive: false });
+  });
 
-  document.addEventListener('touchend', function () { painting = false; });
+  function endPaint(e) {
+    if (e && e.pointerId !== activePointer) { return; }
+    painting = false;
+    activePointer = null;
+  }
+  grid.addEventListener('pointerup', endPaint);
+  grid.addEventListener('pointercancel', endPaint);
+  document.addEventListener('pointerup', endPaint);
 
-  // Keyboard: cells are real buttons, so Enter/Space fire click. Only handle the
-  // clicks a drag did not already account for.
+  // pointerdown already toggled the cell, so the click that follows must not do
+  // it again. Only a KEYBOARD activation (Enter/Space on the button, which fires
+  // click with no preceding pointerdown) still needs handling here.
   grid.addEventListener('click', function (e) {
     var cell = e.target.closest('.avail-cell');
-    if (!cell || e.detail !== 0) { return; }  // detail 0 == keyboard activation
+    if (!cell || e.detail !== 0) { return; }
     setSelected(cell, !isSelected(cell));
     updateCount();
   });

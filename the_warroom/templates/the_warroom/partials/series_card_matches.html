@@ -32,6 +32,17 @@
             </a>
             {% endif %}
             {% endif %}
+            {# Only when someone in this series actually has availability, so the button never leads to an empty grid. #}
+            {% if series.has_availability %}
+            {% if can_manage or series.id in is_participant_series %}
+            <a href="{% url 'availability-compare' %}?series={{ series.id }}"
+               class="btn btn-sm btn-outline-secondary p-0 px-1"
+               data-bs-toggle="tooltip" title="{% trans 'Player Availability' %}"
+               onclick="event.stopPropagation()">
+                <i class="bi bi-calendar-week"></i>
+            </a>
+            {% endif %}
+            {% endif %}
             {% if can_manage and not series.is_bye %}
                 <button class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openSeriesEditModal({{ series.id }})" title="{% trans 'Edit' %}">
                     <i class="bi bi-gear-wide-connected"></i>

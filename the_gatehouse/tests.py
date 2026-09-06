@@ -37,7 +37,9 @@ from the_gatehouse.models import (DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
                                   general_schedule_for, schedule_for)
 from the_gatehouse.services.availability import (local_to_utc_hours, utc_to_local_hours,
                                                  hours_to_bitmask, overlap_count,
-                                                 format_hour_12, hour_labels)
+                                                 format_hour_12, hour_labels,
+                                                 availability_matrix, overlap_summary,
+                                                 heat_bucket, reachable_buckets)
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler
 from the_gatehouse.services.discord_oauth import update_discord_avatar
@@ -1499,3 +1501,70 @@ class AvailabilityTournamentSelectorTests(_NoLoginSignalMixin, TestCase):
             'action': 'save',
         })
         self.assertIn(f'tournament={self.tournament.slug}', response['Location'])
+
+
+class AvailabilityMatrixTests(TestCase):
+    """The comparison page's pure data functions."""
+
+    HOURS = {1: [10, 11, 12, 13], 2: [11, 12, 13, 14], 3: [12, 13]}
+
+    def test_matrix_maps_each_hour_to_who_is_free(self):
+        matrix = availability_matrix(self.HOURS)
+        self.assertEqual(sorted(matrix[12]), [1, 2, 3])
+        self.assertEqual(matrix[10], [1])
+        self.assertEqual(matrix[14], [2])
+
+    def test_matrix_omits_hours_nobody_has(self):
+        matrix = availability_matrix(self.HOURS)
+        self.assertNotIn(9, matrix)
+        self.assertNotIn(99, matrix)
+
+    def test_matrix_of_nothing_is_empty(self):
+        self.assertEqual(availability_matrix({}), {})
+        self.assertEqual(availability_matrix({1: []}), {})
+
+    def test_overlap_summary_on_a_known_fixture(self):
+        summary = overlap_summary(self.HOURS)
+        self.assertEqual(summary['overlap_hours'], [12, 13])
+        self.assertEqual(summary['total'], 2)
+        self.assertEqual(summary['best_block'], 2)
+        self.assertEqual(summary['days'], 1)
+
+    def test_overlap_summary_with_no_shared_hours(self):
+        summary = overlap_summary({1: [10], 2: [20]})
+        self.assertEqual(summary['overlap_hours'], [])
+        self.assertEqual(summary['total'], 0)
+
+    def test_overlap_summary_of_nothing(self):
+        self.assertEqual(overlap_summary({})['total'], 0)
+
+    def test_overlap_summary_wraps_the_week_boundary(self):
+        """Sunday 23:00 + Monday 00:00 is one 2-hour block, not two."""
+        sunday_23, monday_0 = 6 * 24 + 23, 0
+        summary = overlap_summary({1: [sunday_23, monday_0], 2: [sunday_23, monday_0]})
+        self.assertEqual(summary['best_block'], 2)
+
+    def test_heat_bucket_is_keyed_on_players_missing(self):
+        self.assertEqual(heat_bucket(4, 4), 'heat-0')   # everyone free
+        self.assertEqual(heat_bucket(3, 4), 'heat-1')
+        self.assertEqual(heat_bucket(2, 4), 'heat-2')
+        self.assertEqual(heat_bucket(1, 4), 'heat-3')
+
+    def test_heat_bucket_collapses_far_misses(self):
+        self.assertEqual(heat_bucket(1, 5), 'heat-far')
+        self.assertEqual(heat_bucket(2, 9), 'heat-far')
+
+    def test_hour_nobody_is_free_gets_no_bucket(self):
+        """An empty cell is not the same as a grey one."""
+        self.assertIsNone(heat_bucket(0, 4))
+
+    def test_reachable_buckets_truncate_for_small_groups(self):
+        """A group of 3 can never be missing 4, so the legend must not claim it."""
+        self.assertEqual(reachable_buckets(2), ['heat-0', 'heat-1'])
+        self.assertEqual(reachable_buckets(3), ['heat-0', 'heat-1', 'heat-2'])
+        self.assertEqual(reachable_buckets(4), ['heat-0', 'heat-1', 'heat-2', 'heat-3'])
+        self.assertEqual(
+            reachable_buckets(6),
+            ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-far'],
+        )
+        self.assertEqual(reachable_buckets(0), [])

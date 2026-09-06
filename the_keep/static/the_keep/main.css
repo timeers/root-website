@@ -5363,3 +5363,97 @@ body.forge-modal-open { overflow: hidden; }
   line-height: 1.3;
 }
 
+
+
+  /* ── Weekly availability grid ──
+     Shared by the /availability editor and the /availability/compare read-only
+     view. Editor-only states (.is-selected, drag handling) stay on that page. */
+  .databot-btn.avail-btn-compact {
+    /* Two classes so this beats .databot-btn-outline's own padding regardless of
+       source order. btn-sm is Bootstrap and does not shrink .databot-btn. */
+    padding: 7px 14px;
+    font-size: 0.8rem;
+    border-radius: 8px;
+    border-width: 1px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* The grid must never force the PAGE to scroll sideways on a phone. */
+  .availability-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .availability-grid {
+    display: grid;
+    /* hour label + 7 days. `auto` shrinks the label column to its text rather
+       than reserving a fixed width; the day columns take the rest. */
+    grid-template-columns: auto repeat(7, minmax(3.2rem, 1fr));
+    gap: 3px;
+    min-width: 28rem;
+    user-select: none;
+    /* pan-y keeps the page scrollable by dragging the grid's gaps and labels. */
+    touch-action: pan-y;
+  }
+
+  /* The cells themselves take `none`: with pan-y the browser claims any vertical
+     finger movement for scrolling and fires pointercancel, which killed the paint
+     mid-drag and made a tap register only sometimes. Scrolling still works from
+     the labels, the gaps, and everywhere else on the page. */
+  .availability-grid .avail-cell {
+    touch-action: none;
+  }
+
+  .avail-day-header,
+  .avail-hour-label {
+    background: transparent;
+    border: none;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #6c757d;
+    padding: 2px;
+    border-radius: 6px;
+  }
+
+  .avail-hour-label {
+    text-align: right;
+    /* Padding counts toward an `auto` column's width, so keep it tight. */
+    padding: 2px 6px 2px 2px;
+    font-weight: 500;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .avail-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.85rem;
+    border: 1px solid #dfe2e5;
+    border-radius: 4px;
+    background: #f8f9fa;
+    padding: 0;
+    transition: background-color 90ms linear, color 90ms linear;
+    font-size: 0.66rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    white-space: nowrap;
+    color: #adb5bd;
+  }
+
+  .cell-time {
+    pointer-events: none;  /* clicks and drags must hit the cell, never the label */
+  }
+
+  @media (max-width: 576px) {
+    /* "12am" needs about 2.9rem to stay legible, so the grid scrolls sideways
+       rather than shrinking text below readability. */
+    .availability-grid {
+      grid-template-columns: auto repeat(7, minmax(2.9rem, 1fr));
+      min-width: 23rem;
+    }
+    .avail-hour-label { font-size: 0.66rem; padding-right: 4px; }
+    .avail-day-header { font-size: 0.7rem; }
+    .avail-cell { min-height: 1.7rem; font-size: 0.6rem; }
+  }

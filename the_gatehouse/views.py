@@ -31,7 +31,7 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm, PlayerScheduleForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for, schedules_for
 from the_databot.models import GuildLFGRole
 from the_databot.services.discordservice import (get_guild_roles, get_guild_forum_channels,
                                       get_forum_channel_info,
@@ -270,6 +270,134 @@ def availability_settings(request):
         'hours': hour_labels(),
     }
     return render(request, 'the_gatehouse/availability.html', context)
+
+
+@login_required
+def availability_compare(request):
+    """Compare several players' weekly availability on one grid.
+
+    Driven by a SET OF PROFILES rather than by a match, which is what makes it
+    reusable: `?players=<slug>,<slug>` is the general form and `?series=<id>` is a
+    convenience that resolves one match series' seats. A future "pick some
+    players" page is this same view with a different way of filling ?players=.
+
+    Keyed on the SERIES, not the match: seats hang off MatchSeries, and a series
+    can hold several matches that all share one roster.
+    """
+    from .services.availability import (utc_to_local_hours, overlap_summary,
+                                        reachable_buckets, DAY_LABELS, hour_labels)
+    from the_databot.services.time_parsing import valid_timezone
+
+    viewer = request.user.profile
+    series = None
+    tournament = None
+    back_url = None
+    title = _('Player Availability')
+
+    series_id = (request.GET.get('series') or '').strip()
+    player_slugs = [s for s in (request.GET.get('players') or '').split(',') if s.strip()]
+
+    if series_id:
+        from the_warroom.models import MatchSeries, MatchSeat
+        # The id comes off the query string, so a non-numeric value must 404
+        # rather than blowing up in the ORM with a ValueError.
+        if not series_id.isdigit():
+            raise Http404("No such match series.")
+        series = get_object_or_404(
+            MatchSeries.objects.select_related('round__stage__tournament', 'player_group'),
+            pk=series_id,
+        )
+        tournament = series.round.stage.tournament
+
+        # Seated in this series, or able to manage the tournament. Same test the
+        # card's Discord-thread button uses.
+        seated = MatchSeat.objects.filter(
+            series=series,
+            stage_participant__tournament_player__profile=viewer,
+        ).exists()
+        if not (seated or tournament.has_permission(viewer)):
+            raise PermissionDenied(
+                "Only the players in this match and its organizers can see availability."
+            )
+
+        profiles = list(
+            Profile.objects.filter(
+                tournament_participations__stage_participations__matchseat__series=series
+            ).distinct()
+        )
+        back_url = series.round.get_matches_url()
+        title = (series.player_group.name if series.player_group_id
+                 else _('Match')) or _('Match')
+    else:
+        # The general form. Restricted to players the viewer shares a tournament
+        # with -- the same circle the series form allows, generalised. This is the
+        # filter a future player picker will build its list from.
+        from the_warroom.models import TournamentPlayer
+        my_tournaments = TournamentPlayer.objects.filter(
+            profile=viewer
+        ).values_list('tournament_id', flat=True)
+        profiles = list(
+            Profile.objects.filter(
+                slug__in=player_slugs,
+                tournament_participations__tournament_id__in=my_tournaments,
+            ).distinct()
+        )
+
+    # Resolve availability, then draw it in the VIEWER's timezone so every player
+    # is on one comparable clock.
+    tz_name = viewer.timezone if valid_timezone(viewer.timezone) else None
+    schedules = schedules_for([p.id for p in profiles], tournament)
+
+    players = []
+    hours_by_profile = {}
+    for profile in profiles:
+        local = utc_to_local_hours(schedules.get(profile.id, []), tz_name)
+        hours_by_profile[profile.id] = local
+        players.append({
+            'profile': profile,
+            'hours': local,
+            'hour_count': len(local),
+            'is_viewer': profile.id == viewer.id,
+        })
+    # Players with availability first: the ones who can't contribute shouldn't
+    # push the useful rows down the list.
+    players.sort(key=lambda p: (-p['hour_count'], (p['profile'].display_name or '').lower()))
+
+    with_hours = {pid: hrs for pid, hrs in hours_by_profile.items() if hrs}
+
+    # Where the viewer goes to fix their own availability: their tournament
+    # schedule if this tournament asked them for one, else the general page.
+    edit_url = None
+    if any(p['is_viewer'] for p in players):
+        edit_url = reverse('availability')
+        if tournament and PlayerSchedule.objects.filter(
+            profile=viewer, tournament=tournament
+        ).exists():
+            edit_url = f'{edit_url}?tournament={tournament.slug}'
+
+    context = {
+        'players': players,
+        'player_count': len(players),
+        'has_any_availability': bool(with_hours),
+        # The grid recomputes client-side as players are toggled, so it gets the
+        # raw per-player hours rather than a pre-baked matrix. Keys are strings
+        # because that is what they become in JSON.
+        'player_hours_json': {str(pid): hrs for pid, hrs in hours_by_profile.items()},
+        'player_names_json': {
+            str(p['profile'].id): p['profile'].display_name or '' for p in players
+        },
+        'summary': overlap_summary(with_hours),
+        'legend_buckets': reachable_buckets(len(with_hours)),
+        'series': series,
+        'tournament': tournament,
+        'back_url': back_url,
+        'title': title,
+        'edit_url': edit_url,
+        'timezone_name': tz_name or 'UTC',
+        'days': DAY_LABELS,
+        'hours': hour_labels(),
+    }
+    return render(request, 'the_gatehouse/availability_compare.html', context)
 
 
 @login_required

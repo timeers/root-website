@@ -175,3 +175,91 @@ def hour_labels():
     """
     return [(hour, format_hour_12(hour, compact=True), format_hour_12(hour))
             for hour in range(HOURS_PER_DAY)]
+
+
+# ── Comparing several players ────────────────────────────────────────────────
+# The comparison page's data model. Everything below works on a plain
+# {profile_id: hours} mapping so it serves any set of players -- one match's
+# seats today, an arbitrary hand-picked set later.
+
+# How many players can be missing before the exact count stops being useful.
+# Past this the cell is just "far off", so it gets one flat bucket.
+HEAT_BUCKETS = 4
+
+
+def availability_matrix(hours_by_profile):
+    """{profile_id: hours} -> {hour_of_week: [profile_id, ...]}.
+
+    For each hour of the week, who is free then. The count is len() of the entry
+    and full overlap is len() == number of players, so the heatmap, the summary
+    and the tooltips all read off this one structure.
+
+    Hours nobody has are absent rather than mapped to [] -- an empty cell and a
+    cell where everyone is busy are the same thing to the renderer.
+    """
+    matrix = {}
+    for profile_id, hours in (hours_by_profile or {}).items():
+        for hour in hours or ():
+            matrix.setdefault(hour, []).append(profile_id)
+    return matrix
+
+
+def heat_bucket(free_count, total_count):
+    """Which colour band an hour falls in, keyed on how many players are MISSING.
+
+    0 missing -> 'heat-0' (everyone free), then one band per missing player up to
+    HEAT_BUCKETS-1, and 'heat-far' beyond that. Returns None when nobody is free,
+    which the renderer draws as an empty cell rather than a colour.
+
+    Keyed on missing rather than free so the colour answers "how close is this to
+    working?" -- which is the question the page exists to answer.
+    """
+    if not free_count:
+        return None
+    missing = total_count - free_count
+    if missing >= HEAT_BUCKETS:
+        return 'heat-far'
+    return f'heat-{missing}'
+
+
+def reachable_buckets(total_count):
+    """The bucket names a group of this size can actually produce.
+
+    A group of 3 can never be missing 4, so a static legend would advertise bands
+    that cannot occur. The legend is built from this instead.
+    """
+    if not total_count:
+        return []
+    names = []
+    for missing in range(min(total_count, HEAT_BUCKETS)):
+        names.append(f'heat-{missing}')
+    if total_count > HEAT_BUCKETS:
+        names.append('heat-far')
+    return names
+
+
+def overlap_summary(hours_by_profile):
+    """Headline stats for a set of players: hours where ALL of them are free.
+
+    Returns {'overlap_hours': sorted list, 'total': int, 'best_block': int,
+    'days': int} -- the line above the grid.
+
+    The two grouping helpers are imported lazily: the_warroom.models imports
+    Profile from the_gatehouse at module level, so importing the_warroom up here
+    would close the loop. They also require real SETS (they do `hours | {...}`
+    and raise TypeError on a list), while schedules_for() hands back lists.
+    """
+    from the_warroom.services.grouping import (calculate_best_consecutive,
+                                               calculate_days_with_overlap)
+
+    sets = [set(hours) for hours in (hours_by_profile or {}).values() if hours]
+    if not sets:
+        return {'overlap_hours': [], 'total': 0, 'best_block': 0, 'days': 0}
+
+    overlap = set.intersection(*sets)
+    return {
+        'overlap_hours': sorted(overlap),
+        'total': len(overlap),
+        'best_block': calculate_best_consecutive(overlap),
+        'days': calculate_days_with_overlap(overlap),
+    }

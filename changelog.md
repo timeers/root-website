@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.6] - 2026-9-5 API Investigation
+## [1.13.6] - 2026-9-5 Box Score API & Availability
 
 ### New Features
 - added ability to link SteamID to profile for future boxscore matching
@@ -15,6 +15,7 @@
 - tournament grouping now uses the availability from your profile, so players added by hand can be grouped without taking a survey
 - answering an availability survey saves your availability for that tournament, and you can go back and change it any time
 - if you set availability for a specific tournament it is used for that tournament, otherwise your general availability is used
+- calendar button on a match opens a page showing every player's availability side by side, so you can find a time that works
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
@@ -31,6 +32,8 @@
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 - the group availability calendar button now shows up on the matches pages, where it never appeared before
 - submitting a survey response no longer overwrites other players' availability
+- tapping an hour on the availability page now reliably toggles it on phones instead of sometimes doing nothing
+- the availability calendar button no longer disappears from a match after you edit it
 
 ## [1.13.5] - 2026-9-1 September Forever
 

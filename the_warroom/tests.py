@@ -2375,6 +2375,13 @@ class _AvailabilityFixtureMixin:
     C_HOURS = [12, 13]
 
     def setUp(self):
+        # force_login fires user_logged_in, whose handler builds absolute URIs and
+        # enqueues Discord work that a bare test request can't support.
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
         super().setUp()
         self.tournament = Tournament.objects.create(
             name="Availability Tournament", is_active=True
@@ -2700,3 +2707,216 @@ class SurveyAvailabilityWriteTests(_AvailabilityFixtureMixin, TestCase):
             profile=tp.profile, tournament=self.tournament
         )
         self.assertEqual(unchanged.available_hours, self.C_HOURS)
+
+
+class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
+    """/availability/compare/ -- the per-match availability grid and its access rule."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('availability-compare')
+
+    def _series_with(self, *tournament_players):
+        """A MatchSeries seating these players, as the matches page would have."""
+        series = MatchSeries.objects.create(round=self.round)
+        for i, tp in enumerate(tournament_players, start=1):
+            participant = StageParticipant.objects.get(
+                stage=self.stage, tournament_player=tp
+            )
+            MatchSeat.objects.create(
+                series=series, stage_participant=participant, seat_number=i
+            )
+        return series
+
+    def _login(self, tp):
+        self.client.force_login(tp.profile.user)
+
+    def test_seated_player_can_view(self):
+        a = self._player("cmp_a", hours=self.A_HOURS)
+        b = self._player("cmp_b", hours=self.B_HOURS)
+        series = self._series_with(a, b)
+
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 2)
+
+    def test_tournament_moderator_can_view(self):
+        a = self._player("mod_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+
+        mod = self._player("the_mod", hours=self.B_HOURS)
+        self.tournament.moderators.add(mod.profile)
+
+        self._login(mod)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+
+    def test_unrelated_logged_in_user_is_forbidden(self):
+        """Availability is only for the people it concerns."""
+        a = self._player("priv_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+
+        outsider = User.objects.create_user(username="outsider", password="x")
+        Profile.objects.filter(user=outsider).first() or Profile.objects.create(
+            user=outsider, discord="outsider", display_name="outsider"
+        )
+        self.client.force_login(outsider)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 403)
+
+    def test_anonymous_is_redirected_to_login(self):
+        a = self._player("anon_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('login', response['Location'])
+
+    def test_hours_are_shown_in_the_viewers_timezone(self):
+        a = self._player("tz_a", hours=[10, 11])
+        series = self._series_with(a)
+        a.profile.timezone = 'America/New_York'   # UTC-5 in January
+        a.profile.save(update_fields=['timezone'])
+
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        # 10:00/11:00 UTC -> 05:00/06:00 in New York.
+        self.assertEqual(response.context['players'][0]['hours'], [5, 6])
+
+    def test_tournament_schedule_wins_over_general(self):
+        a = self._player("ovr_a", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        series = self._series_with(a)
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.context['players'][0]['hours'], self.C_HOURS)
+
+    def test_series_with_no_seats_renders_a_message(self):
+        viewer = self._player("empty_mod", hours=self.A_HOURS)
+        self.tournament.moderators.add(viewer.profile)
+        series = MatchSeries.objects.create(round=self.round)
+
+        self._login(viewer)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 0)
+
+    def test_seated_players_without_availability_render_a_message(self):
+        a = self._player("noavail_a")
+        b = self._player("noavail_b")
+        series = self._series_with(a, b)
+
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 2)
+        self.assertFalse(response.context['has_any_availability'])
+
+    def test_edit_button_points_at_the_right_schedule(self):
+        # Only a general schedule -> the general page.
+        a = self._player("edit_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.context['edit_url'], reverse('availability'))
+
+        # A tournament schedule exists -> that tournament's page.
+        PlayerSchedule.objects.create(
+            profile=a.profile, tournament=self.tournament, available_hours=self.C_HOURS
+        )
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertIn(f'tournament={self.tournament.slug}', response.context['edit_url'])
+
+    def test_no_edit_button_for_a_viewer_who_is_not_playing(self):
+        a = self._player("noedit_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+        mod = self._player("noedit_mod", hours=self.B_HOURS)
+        self.tournament.moderators.add(mod.profile)
+
+        self._login(mod)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertIsNone(response.context['edit_url'])
+
+    def test_malformed_series_id_is_a_404_not_a_crash(self):
+        """The id comes off the query string, so it must not reach the ORM raw."""
+        viewer = self._player("bad_id", hours=self.A_HOURS)
+        self._login(viewer)
+        self.assertEqual(self.client.get(self.url, {'series': 'abc'}).status_code, 404)
+        self.assertEqual(self.client.get(self.url, {'series': '999999'}).status_code, 404)
+
+    def test_players_form_compares_arbitrary_players(self):
+        """The reusable path a future player picker will use."""
+        a = self._player("gen_a", hours=self.A_HOURS)
+        b = self._player("gen_b", hours=self.B_HOURS)
+        self._login(a)
+        response = self.client.get(
+            self.url, {'players': f'{a.profile.slug},{b.profile.slug}'}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 2)
+
+    def test_players_form_excludes_players_you_share_no_tournament_with(self):
+        a = self._player("share_a", hours=self.A_HOURS)
+        stranger_user = User.objects.create_user(username="stranger", password="x")
+        stranger = Profile.objects.filter(user=stranger_user).first() or Profile.objects.create(
+            user=stranger_user, discord="stranger", display_name="stranger"
+        )
+        PlayerSchedule.objects.create(
+            profile=stranger, tournament=None, available_hours=self.A_HOURS
+        )
+
+        self._login(a)
+        response = self.client.get(
+            self.url, {'players': f'{a.profile.slug},{stranger.slug}'}
+        )
+        names = [p['profile'].id for p in response.context['players']]
+        self.assertIn(a.profile_id, names)
+        self.assertNotIn(stranger.id, names)
+
+
+class MatchesPageAvailabilityButtonTests(_AvailabilityFixtureMixin, TestCase):
+    """The card button appears only where it leads somewhere useful."""
+
+    def _series_with(self, *tournament_players):
+        series = MatchSeries.objects.create(round=self.round)
+        for i, tp in enumerate(tournament_players, start=1):
+            participant = StageParticipant.objects.get(
+                stage=self.stage, tournament_player=tp
+            )
+            MatchSeat.objects.create(
+                series=series, stage_participant=participant, seat_number=i
+            )
+        return series
+
+    def test_flag_is_true_when_a_seated_player_has_availability(self):
+        series = self._series_with(
+            self._player("btn_a", hours=self.A_HOURS), self._player("btn_b")
+        )
+        from the_warroom.views import _attach_series_availability
+        _attach_series_availability([series], self.tournament)
+        self.assertTrue(series.has_availability)
+
+    def test_flag_is_false_when_nobody_has_availability(self):
+        series = self._series_with(self._player("btn_c"), self._player("btn_d"))
+        from the_warroom.views import _attach_series_availability
+        _attach_series_availability([series], self.tournament)
+        self.assertFalse(series.has_availability)
+
+    def test_flag_is_false_for_a_series_with_no_seats(self):
+        series = MatchSeries.objects.create(round=self.round)
+        from the_warroom.views import _attach_series_availability
+        _attach_series_availability([series], self.tournament)
+        self.assertFalse(series.has_availability)
+
+    def test_resolves_every_series_in_two_queries(self):
+        """One bulk lookup for the page, not one per series."""
+        all_series = [
+            self._series_with(self._player(f"bulk_{i}", hours=self.A_HOURS))
+            for i in range(5)
+        ]
+        from the_warroom.views import _attach_series_availability
+        with CaptureQueriesContext(connection) as ctx:
+            _attach_series_availability(all_series, self.tournament)
+        schedule_queries = [
+            q for q in ctx.captured_queries if 'playerschedule' in q['sql'].lower()
+        ]
+        self.assertEqual(len(schedule_queries), 2)

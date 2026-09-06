@@ -6357,6 +6357,8 @@ def _stage_matches_context(request, tournament, stage):
         for series in match_series:
             _attach_series_effort_grid(series)
 
+        _attach_series_availability(match_series, tournament)
+
         recordable_match_ids, is_participant_series = _recordable_match_ids(
             round, request.user, tournament, view_as=get_view_as(request, tournament)
         )
@@ -6620,6 +6622,34 @@ def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
     return render(request, 'the_warroom/round_details.html', context)
 
 
+def _attach_series_availability(match_series, tournament):
+    """Flag each series whose seated players have any availability between them.
+
+    Drives the card's availability button: without this it would offer a link to
+    an empty grid. One bulk schedules_for() across every series on the page --
+    resolving per series would be N+1 across a whole bracket.
+
+    Relies on `matchseat_set__stage_participant__tournament_player__profile`
+    already being prefetched by the caller, so the seat walk costs no queries.
+    """
+    seats_by_series = {}
+    profile_ids = set()
+    for series in match_series:
+        ids = [
+            seat.stage_participant.tournament_player.profile_id
+            for seat in series.matchseat_set.all()
+        ]
+        seats_by_series[series.id] = ids
+        profile_ids.update(ids)
+
+    schedules = schedules_for(profile_ids, tournament) if profile_ids else {}
+
+    for series in match_series:
+        series.has_availability = any(
+            schedules.get(pid) for pid in seats_by_series.get(series.id, ())
+        )
+
+
 def _attach_series_effort_grid(series):
     """Attach per-player faction-icon data to a prefetched MatchSeries.
 
@@ -6703,6 +6733,8 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
 
     for series in match_series:
         _attach_series_effort_grid(series)
+
+    _attach_series_availability(match_series, tournament)
 
     recordable_match_ids, is_participant_series = _recordable_match_ids(
         round, request.user, tournament, view_as=get_view_as(request, tournament)
@@ -8266,6 +8298,9 @@ def _render_series_matches_card(request, series, round, tournament, series_index
         'matchseat_set__stage_participant__tournament_player__profile',
     ).get(pk=series.pk)
     _attach_series_effort_grid(series_fresh)
+    # Without this the availability button vanishes from the swapped-in card:
+    # has_availability would be undefined and the template's {% if %} fails closed.
+    _attach_series_availability([series_fresh], tournament)
 
     # view_as is passed so the swapped-in card agrees with what a full page load
     # would render for this viewer.
