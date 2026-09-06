@@ -11523,3 +11523,115 @@ class BoxScoreUploadSweepTests(TestCase):
             sweep_boxscore_upload_tokens()
         self.assertFalse(BoxScoreUploadToken.objects.filter(pk=old.pk).exists())
         self.assertTrue(BoxScoreUploadToken.objects.filter(pk=live.pk).exists())
+
+
+class BoxScoreRosterGuardTests(TestCase):
+    """/boxscore's subcommands are gated by the thread's roster.
+
+    Regression tests for a guard that silently stopped firing: ROSTER_GUARDED_COMMANDS
+    lists "boxscore" bare, but once the command grew subcommands the dispatcher began
+    building the key "boxscore upload", which matched nothing. The token is a
+    credential and the upload overwrites a recorded game, so both must be refused for
+    someone who isn't on the roster.
+
+    These go through the real HTTP dispatcher on purpose. Calling
+    _handle_boxscore_command directly -- as the other /boxscore tests do -- skips the
+    guard entirely, which is exactly why the bug survived.
+    """
+
+    THREAD_ID = "guard-thread-1"
+    PLAYER_ID = "930000000000000001"
+    OUTSIDER_ID = "930000000000000002"
+    HOST_ID = "930000000000000003"
+
+    def setUp(self):
+        super().setUp()
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+
+        self.player = Profile.objects.create(discord="guardplayer",
+                                             discord_id=self.PLAYER_ID)
+        self.host = Profile.objects.create(discord="guardhost",
+                                           discord_id=self.HOST_ID)
+        self.outsider = Profile.objects.create(discord="guardoutsider",
+                                               discord_id=self.OUTSIDER_ID)
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID,
+                                               host=self.host)
+        self.thread.players.set([self.player])
+
+    def _post(self, sub, user_id, *, options=None, channel_id=None):
+        """Run /boxscore <sub> through the dispatcher as `user_id`."""
+        payload = {
+            "type": di.APPLICATION_COMMAND,
+            "data": {
+                "name": "boxscore",
+                "options": [{"name": sub, "type": 1,
+                             "options": options or []}],
+            },
+            "guild_id": None,
+            "channel_id": channel_id or self.THREAD_ID,
+            "channel": {"name": "a game thread", "type": 11},
+            "member": {"user": {"id": user_id, "username": f"user{user_id}"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True), \
+                mock.patch.object(di.record_bot_usage_task, "delay"):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content).get("data", {})
+
+    # ── refusals ────────────────────────────────────────────────────────────
+
+    def test_token_is_refused_for_someone_off_the_roster(self):
+        """The sharpest case: a token is a credential for writing to this game."""
+        data = self._post("token", self.OUTSIDER_ID)
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertNotIn("-", data.get("content", "").replace("game's", ""))
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 0)
+
+    def test_upload_is_refused_for_someone_off_the_roster(self):
+        data = self._post(
+            "upload", self.OUTSIDER_ID,
+            options=[{"name": "file", "type": 11, "value": "att-1"}])
+        # Turned away before the handler could ask for the attachment.
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertNotIn("Attach a JSON file", data.get("content", ""))
+
+    # ── who must still get through ──────────────────────────────────────────
+
+    def test_a_roster_player_still_gets_a_token(self):
+        self._post("token", self.PLAYER_ID)
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_the_thread_host_still_gets_a_token(self):
+        self._post("token", self.HOST_ID)
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_a_thread_with_no_roster_is_not_guarded(self):
+        """No roster, no restriction -- these commands are how a table gets set up."""
+        LFGThread.objects.create(thread_id="guard-thread-empty")
+        self._post("token", self.OUTSIDER_ID, channel_id="guard-thread-empty")
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    # ── the fix must not over-guard ─────────────────────────────────────────
+
+    def test_matching_the_parent_does_not_change_lookup(self):
+        """/lookup is guarded per-subcommand, and `lookup` is not a bare entry --
+        so checking the parent name must not alter its behaviour."""
+        guard = di.ROSTER_GUARDED_COMMANDS
+        self.assertNotIn("lookup", guard)
+        for sub in ("faction", "map", "captain"):
+            self.assertIn(f"lookup {sub}", guard)
+
+    def test_every_guard_entry_matches_a_real_command(self):
+        """A guard entry that matches no reachable key is dead -- which is the bug
+        this class exists for. Catches the next one at the source."""
+        reachable = set()
+        for cmd in dc.all_command_definitions():
+            name = cmd["name"]
+            subs = [o["name"] for o in cmd.get("options", []) if o.get("type") == 1]
+            reachable.update(f"{name} {s}" for s in subs)
+            reachable.add(name)
+        dead = di.ROSTER_GUARDED_COMMANDS - reachable
+        self.assertEqual(dead, set(), f"guard entries matching no command: {dead}")

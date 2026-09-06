@@ -3924,8 +3924,13 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
 # gating it would block a moderator fixing a mis-recorded game without actually
 # protecting anything. /rename keeps its own host-only rule.
 #
-# Subcommands are keyed "<command> <subcommand>" -- the same composite key the
-# dispatcher builds -- so /lookup's nine can be guarded individually.
+# Two forms are accepted, and they mean different things:
+#   "command"             -- guards the command AND every subcommand it has
+#   "command subcommand"  -- guards just that one, so siblings can differ
+# /lookup's nine are listed individually; /boxscore is listed bare because all of
+# its subcommands write to the thread. The dispatcher checks both forms, which it
+# must: a parent's key is always "<parent> <sub>", so a bare entry matched nothing
+# on its own and /boxscore silently lost its guard when it grew subcommands.
 #
 # Built from LOOKUP_QUERYSETS (defined far above) plus the literal "captain" rather
 # than from LOOKUP_SUBCOMMAND_HANDLERS, which isn't constructed until the bottom of
@@ -8612,7 +8617,14 @@ def discord_interactions(request):
                 # refused for anyone else. Enforced here rather than per handler
                 # so a new command can't quietly miss it -- and AFTER the stash
                 # above, which is where the helper's inputs come from.
-                if key_name in ROSTER_GUARDED_COMMANDS:
+                #
+                # `command_name` is checked as well as `key_name` because a parent
+                # command's key is always "<parent> <sub>", so a bare entry could
+                # never match on its own. /boxscore was listed bare and silently
+                # lost its guard the moment it grew subcommands; matching the
+                # parent covers every subcommand and stops that recurring.
+                if (key_name in ROSTER_GUARDED_COMMANDS
+                        or command_name in ROSTER_GUARDED_COMMANDS):
                     refusal = _thread_actor_error(data)
                     if refusal is not None:
                         return refusal
