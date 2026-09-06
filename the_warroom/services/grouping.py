@@ -14,6 +14,7 @@ from the_warroom.models import (
     Stage,
     StageParticipant,
 )
+from the_gatehouse.models import schedules_for
 from the_gatehouse.utils import generate_name, NameConvention
 
 
@@ -520,7 +521,7 @@ class GroupingService:
         ).values_list('tournament_player_id', flat=True)
         return TournamentPlayer.objects.filter(
             id__in=active_tp_ids
-        ).select_related('profile', 'survey_response')
+        ).select_related('profile')
 
     @classmethod
     def _recalculate_stage_stats(cls, stage, round):
@@ -559,13 +560,20 @@ class GroupingService:
         if not active_players.exists():
             return
 
-        # Build availability map
+        # Build availability map. Resolved in bulk: a player's tournament-specific
+        # schedule if they set one, else their general one.
+        schedules = schedules_for(
+            [tp.profile_id for tp in active_players], stage.tournament
+        )
+
         availability_map = {}
         tp_map = {}  # profile_id -> TournamentPlayer
 
         for tp in active_players:
-            hours = set(tp.availability_hours) if tp.availability_hours else set()
-            availability_map[tp.profile_id] = hours
+            # Players with no availability are deliberately kept here with an empty
+            # set (unlike create_groups_from_ungrouped, which drops them) so they
+            # still appear as ungrouped rather than vanishing from the round.
+            availability_map[tp.profile_id] = set(schedules.get(tp.profile_id, ()))
             tp_map[tp.profile_id] = tp
 
         # For availability-based grouping - use cascading hours: 5 → 4 → 3
@@ -678,7 +686,8 @@ class GroupingService:
                 if tp:
                     group.tournament_players.add(tp)
 
-            group.recalculate_overlap()
+            # Reuse the roster mapping resolved above rather than re-querying per group.
+            group.recalculate_overlap(schedules=schedules)
 
         # Calculate best fit for ungrouped players
         cls.calculate_best_fit_groups(stage, round)
@@ -974,6 +983,12 @@ class GroupingService:
         if not ungrouped.exists():
             return
 
+        # Resolve every candidate's availability once, outside the group loop --
+        # otherwise this re-queries per group.
+        schedules = schedules_for(
+            [tp.profile_id for tp in ungrouped], stage.tournament
+        )
+
         # For each group, find the ungrouped players with best overlap
         for group in groups:
             if not group.overlap_hours:
@@ -983,10 +998,10 @@ class GroupingService:
             scored_players = []
 
             for tp in ungrouped:
-                if not tp.availability_hours:
+                player_hours = schedules.get(tp.profile_id)
+                if not player_hours:
                     continue
-                player_hours = set(tp.availability_hours)
-                overlap = player_hours & group_hours
+                overlap = set(player_hours) & group_hours
                 overlap_count = len(overlap)
                 if overlap_count > 0:
                     scored_players.append((tp, overlap_count))
@@ -1065,11 +1080,16 @@ class GroupingService:
         updated_count = 0
         synced_profile_ids = set()
 
+        # NOTE: this method deliberately does NOT write availability. It runs over
+        # EVERY accepted response on every call (including from another player's
+        # submission), so writing availability here would rewrite every player's
+        # schedule from their old response -- destroying edits they made themselves.
+        # A respondent's schedule is written once, by their own submission, in
+        # the_tavern.views.
         for response in accepted_responses:
             profile = response.profile
 
             is_waitlist = threshold and response.response_position > threshold
-            availability = sorted(list(response.get_combined_availability_hours()))
 
             # Waitlist position = existing max + relative position within this survey's waitlist
             waitlist_pos = (existing_max_waitlist + (response.response_position - threshold)) if is_waitlist else None
@@ -1080,7 +1100,6 @@ class GroupingService:
                 defaults={
                     'survey_response': response,
                     'status': TournamentPlayer.StatusChoices.WAITLIST if is_waitlist else TournamentPlayer.StatusChoices.REGISTERED,
-                    'availability_hours': availability,
                     'waitlist_position': waitlist_pos,
                 }
             )
@@ -1090,11 +1109,11 @@ class GroupingService:
             if created:
                 created_count += 1
             else:
-                # Update availability hours and survey response reference
-                # But don't overwrite a manually-set waitlist or eliminated status
-                tp.availability_hours = availability
+                # Point at the latest response, but don't overwrite a manually-set
+                # waitlist or eliminated status. Availability is not touched here --
+                # see the note above the loop.
                 tp.survey_response = response
-                tp.save(update_fields=['availability_hours', 'survey_response'])
+                tp.save(update_fields=['survey_response'])
                 updated_count += 1
 
         # If the survey is tied to a specific stage, add REGISTERED respondents to it.
@@ -1146,12 +1165,20 @@ class GroupingService:
             return
 
         # Build availability map from ungrouped players
+        schedules = schedules_for(
+            [tp.profile_id for tp in ungrouped], stage.tournament
+        )
+
         availability_map = {}
         tp_map = {}
 
         for tp in ungrouped:
-            if tp.availability_hours:
-                availability_map[tp.profile_id] = set(tp.availability_hours)
+            hours = schedules.get(tp.profile_id)
+            # Unlike generate_availability_groups, players with no availability are
+            # EXCLUDED here -- this path only forms groups out of players it can
+            # actually schedule together.
+            if hours:
+                availability_map[tp.profile_id] = set(hours)
                 tp_map[tp.profile_id] = tp
 
         if not availability_map:
@@ -1204,7 +1231,8 @@ class GroupingService:
                 if tp:
                     group.tournament_players.add(tp)
 
-            group.recalculate_overlap()
+            # Reuse the roster mapping resolved above rather than re-querying per group.
+            group.recalculate_overlap(schedules=schedules)
 
         cls.calculate_best_fit_groups(stage, round)
         cls._recalculate_stage_stats(stage, round)

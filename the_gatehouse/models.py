@@ -1353,9 +1353,9 @@ class PlayerSchedule(models.Model):
     """A player's recurring weekly availability, stored in UTC.
 
     `available_hours` holds hour-of-week integers 0-167 where Monday 00:00 UTC = 0
-    and Sunday 23:00 UTC = 167 -- the same encoding as
-    TournamentPlayer.availability_hours, so a schedule set-intersects with
-    survey-derived availability directly with no conversion step.
+    and Sunday 23:00 UTC = 167 -- the same encoding the survey answer path and the
+    grouping overlap math use, so schedules set-intersect directly with no
+    conversion step. This is the single source of truth for player availability.
 
     `tournament` NULL means this is the player's GENERAL availability, the one the
     /availability page edits. A row WITH a tournament is that player's availability
@@ -1436,3 +1436,41 @@ def schedule_for(profile, tournament=None):
     return PlayerSchedule.objects.filter(
         profile=profile, tournament=None
     ).first()
+
+
+def schedules_for(profile_ids, tournament=None):
+    """{profile_id: [utc hours]} for many players, in a fixed two queries.
+
+    Same precedence as schedule_for(): a tournament row WITH hours wins, otherwise
+    the general one. The bulk form exists because every consumer (grouping, overlap,
+    the roster JSON) loops over a whole roster, where per-profile lookups are N+1.
+
+    Profiles with no availability are ABSENT from the mapping rather than mapped to
+    []. Callers differ on what "no availability" means -- generate_availability_groups
+    feeds such players in as an empty set while create_groups_from_ungrouped drops
+    them -- so the distinction is left to them (see .get(pid, ...) at each call site).
+    """
+    profile_ids = list(profile_ids)
+    if not profile_ids:
+        return {}
+
+    # General rows first, then let the tournament-specific ones overwrite: a
+    # tournament row with hours is the more specific answer.
+    resolved = {
+        pid: hours
+        for pid, hours in PlayerSchedule.objects.filter(
+            profile_id__in=profile_ids, tournament=None
+        ).values_list('profile_id', 'available_hours')
+        if hours
+    }
+
+    if tournament is not None:
+        for pid, hours in PlayerSchedule.objects.filter(
+            profile_id__in=profile_ids, tournament=tournament
+        ).values_list('profile_id', 'available_hours'):
+            # `if hours` mirrors schedule_for()'s `and specific.available_hours`:
+            # an empty tournament row must not mask a real general one.
+            if hours:
+                resolved[pid] = hours
+
+    return resolved

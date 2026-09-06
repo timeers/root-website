@@ -70,7 +70,7 @@
                         {% endif %}
                         <!-- Members List -->
                         <ul class="list-group list-group-flush group-members {% if editable %}sortable-group{% endif %}" data-group-id="{{ group.id }}">
-                            {% for sp in group.tournament_players.all %}
+                            {% for sp in group.members %}
                             <li class="list-group-item d-flex align-items-center player-item" data-player-id="{{ sp.id }}" data-source="group">
                                 {% if editable %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
                                 {% if sp.profile.image %}
@@ -79,8 +79,8 @@
                                 <i class="bi bi-person-circle me-2"></i>
                                 {% endif %}
                                 <span class="flex-grow-1">{{ sp.profile.display_name }}</span>
-                                {% if sp.availability_hours %}
-                                <small class="text-muted me-1">{{ sp.availability_hours|length }}h</small>
+                                {% if sp.resolved_hours %}
+                                <small class="text-muted me-1">{{ sp.resolved_hours|length }}h</small>
                                 <button class="btn btn-sm btn-link p-0 text-muted" onclick="openPlayerCalendarModal({{ sp.id }})" title="{% trans 'View availability' %}">
                                     <i class="bi bi-calendar-week"></i>
                                 </button>
@@ -145,11 +145,11 @@ _groupCalendarData[{{ group.id }}] = {
     overlap_hours: {{ group.overlap_hours|default:"[]"|safe }}
 };
 {% endif %}
-{% for sp in group.tournament_players.all %}
-{% if sp.availability_hours %}
+{% for sp in group.members %}
+{% if sp.resolved_hours %}
 _playerCalendarData[{{ sp.id }}] = {
     name: "{{ sp.profile.display_name|escapejs }}",
-    hours: {{ sp.availability_hours|safe }}
+    hours: {{ sp.resolved_hours|safe }}
 };
 {% endif %}
 {% endfor %}

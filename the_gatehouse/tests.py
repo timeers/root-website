@@ -1419,3 +1419,83 @@ class AvailabilityViewTests(_NoLoginSignalMixin, TestCase):
         response = self.client.get(reverse('user-settings'))
         self.assertEqual(response.context['availability_hours_count'], 3)
         self.assertContains(response, reverse('availability'))
+
+
+class AvailabilityTournamentSelectorTests(_NoLoginSignalMixin, TestCase):
+    """/availability can edit tournament-specific schedules, not just the general one."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Tournament
+        self.user = User.objects.create_user(username='selector', password='pw')
+        self.profile = self.user.profile
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+        self.tournament = Tournament.objects.create(name='Selector Cup', is_active=True)
+
+    def _tournament_schedule(self, hours):
+        return PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, available_hours=hours
+        )
+
+    def test_no_selector_without_a_tournament_schedule(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context['tournament_schedules']), [])
+        self.assertIsNone(response.context['editing_tournament'])
+
+    def test_selector_lists_tournaments_the_player_has_a_schedule_for(self):
+        self._tournament_schedule([10, 11])
+        response = self.client.get(self.url)
+        self.assertEqual(len(response.context['tournament_schedules']), 1)
+        self.assertContains(response, 'Selector Cup')
+
+    def test_can_edit_a_tournament_schedule(self):
+        schedule = self._tournament_schedule([10])
+        self.profile.timezone = 'UTC'
+        self.profile.save(update_fields=['timezone'])
+
+        response = self.client.get(f'{self.url}?tournament={self.tournament.slug}')
+        self.assertEqual(response.context['editing_tournament'], self.tournament)
+        self.assertEqual(response.context['selected_hours'], [10])
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '20,21',
+            'schedule_target': self.tournament.slug,
+            'action': 'save',
+        })
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.available_hours, [20, 21])
+
+    def test_editing_a_tournament_leaves_the_general_schedule_alone(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2]
+        general.save(update_fields=['available_hours'])
+        self._tournament_schedule([10])
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '20',
+            'schedule_target': self.tournament.slug,
+            'action': 'save',
+        })
+        general.refresh_from_db()
+        self.assertEqual(general.available_hours, [1, 2])
+
+    def test_tournament_without_a_schedule_is_rejected(self):
+        """The guard against offering availability where it means nothing."""
+        from the_warroom.models import Tournament
+        other = Tournament.objects.create(name='Not Mine', is_active=True)
+        response = self.client.get(f'{self.url}?tournament={other.slug}')
+        self.assertEqual(response.status_code, 404)
+
+    def test_save_returns_to_the_same_schedule(self):
+        self._tournament_schedule([10])
+        response = self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '20',
+            'schedule_target': self.tournament.slug,
+            'action': 'save',
+        })
+        self.assertIn(f'tournament={self.tournament.slug}', response['Location'])

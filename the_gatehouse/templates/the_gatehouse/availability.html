@@ -15,8 +15,36 @@
           <p class="text-secondary mb-0">
             {% trans 'Mark the hours you are usually free to play. Click a cell to toggle it, or use the day and hour labels to toggle a whole column or row.' %}
           </p>
+
+          {# Only shown when the player has tournament-specific availability, which only happens when a tournament asked them for it. #}
+          {% if tournament_schedules %}
+            <hr>
+            <h6 class="fw-bold">{% trans 'Which schedule' %}</h6>
+            <p class="text-secondary small">
+              {% trans 'Your general availability applies everywhere. A tournament with its own schedule uses that instead.' %}
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+              <a href="{% url 'availability' %}"
+                 class="databot-btn {% if not editing_tournament %}databot-btn-primary{% else %}databot-btn-outline{% endif %} avail-btn-compact">
+                {% trans 'General' %}
+              </a>
+              {% for ps in tournament_schedules %}
+                <a href="{% url 'availability' %}?tournament={{ ps.tournament.slug|default:ps.pk }}"
+                   class="databot-btn {% if editing_tournament and editing_tournament.pk == ps.tournament.pk %}databot-btn-primary{% else %}databot-btn-outline{% endif %} avail-btn-compact">
+                  {{ ps.tournament.name }}
+                </a>
+              {% endfor %}
+            </div>
+          {% endif %}
         </div>
       </div>
+
+      {% if editing_tournament %}
+        <div class="alert alert-secondary">
+          <i class="bi bi-info-circle me-1"></i>
+          {% blocktrans with name=editing_tournament.name %}You are editing your availability for {{ name }}. It overrides your general availability for that tournament only.{% endblocktrans %}
+        </div>
+      {% endif %}
 
       <form method="POST" id="availability-form">
         {% csrf_token %}
@@ -26,6 +54,9 @@
         {# The zone those hours are expressed in. Switching the picker changes `timezone` but NOT this, which is how the server knows to re-label the same instants instead of moving them. #}
         <input type="hidden" name="drawn_timezone" id="id_drawn_timezone"
                value="{{ timezone_name|default_if_none:'' }}">
+        {# Which schedule this grid edits ('' = general). Rides through the timezone round-trip so the re-render can't switch rows underneath the user. #}
+        <input type="hidden" name="schedule_target" id="id_schedule_target"
+               value="{{ schedule_target }}">
         <input type="hidden" name="action" id="id_action" value="save">
 
         <div class="info-card mb-4">

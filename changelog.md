@@ -12,6 +12,9 @@
 - set your weekly availability on your profile settings page
 - availability grid lets you click to mark the hours you are free, and click a day or hour label to toggle a whole column or row
 - times are shown in your own timezone, which you can change on the page and is saved to your profile
+- tournament grouping now uses the availability from your profile, so players added by hand can be grouped without taking a survey
+- answering an availability survey saves your availability for that tournament, and you can go back and change it any time
+- if you set availability for a specific tournament it is used for that tournament, otherwise your general availability is used
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
@@ -19,12 +22,15 @@
 - /boxscore is now /boxscore upload (adding a file works the same, the command just moved under a subcommand)
 - Databot page lists /lookup, /link and /boxscore as single commands instead of one row per subcommand
 - an unanswered box score prompt pings the players before it expires, then closes itself instead of leaving a dead button in the thread
+- editing your availability now affects grouping right away instead of waiting for the survey to be synced again
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
 - fixed title on /schedule saying "Not Scheduled" when all players confirmed in LFG
 - Vagabond allowed to have coalition partner when importing boxscore json
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
+- the group availability calendar button now shows up on the matches pages, where it never appeared before
+- submitting a survey response no longer overwrites other players' availability
 
 ## [1.13.5] - 2026-9-1 September Forever
 

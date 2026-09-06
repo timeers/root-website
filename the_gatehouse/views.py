@@ -164,15 +164,45 @@ def availability_settings(request):
     service. Nothing here does offset arithmetic; see services/availability.py for
     why that distinction matters.
 
-    Only ever touches the GENERAL (tournament=None) schedule. Tournament-scoped
-    schedules exist in the same table but are not editable from this page.
+    Edits the player's GENERAL (tournament=None) schedule by default. `?tournament=`
+    switches to a tournament-specific one, but only for tournaments the player
+    already has a schedule for -- a row exists only because that tournament asked
+    for availability, so this never offers the option where it means nothing.
     """
     from .services.availability import (local_to_utc_hours, utc_to_local_hours,
                                         DAY_LABELS, hour_labels)
     from the_databot.services.time_parsing import describe_timezone, valid_timezone
 
     profile = request.user.profile
-    schedule = general_schedule_for(profile)
+
+    # Tournament schedules the player actually has. Also the selector's options.
+    tournament_schedules = list(
+        PlayerSchedule.objects.filter(profile=profile)
+        .exclude(tournament=None)
+        .select_related('tournament')
+        .order_by('tournament__name')
+    )
+
+    # The target rides in the form as well as the query string: the "show times in
+    # this zone" round-trip is a POST, and must not silently switch which row is
+    # being edited.
+    requested = (request.POST.get('schedule_target')
+                 or request.GET.get('tournament') or '').strip()
+    schedule = None
+    if requested:
+        for candidate in tournament_schedules:
+            # Slug is unique but nullable, so fall back to the pk rather than
+            # locking a player out of their own data.
+            if requested in (candidate.tournament.slug, str(candidate.pk)):
+                schedule = candidate
+                break
+        if schedule is None:
+            # Not a tournament this player has availability for.
+            raise Http404("No availability for that tournament.")
+    if schedule is None:
+        schedule = general_schedule_for(profile)
+
+    schedule_target = (schedule.tournament.slug or str(schedule.pk)) if schedule.tournament_id else ''
 
     # No profile timezone yet -> the grid renders in UTC and the template's JS
     # pre-selects the browser's zone in the picker. The first save persists it.
@@ -208,7 +238,10 @@ def availability_settings(request):
                 profile.save(update_fields=['timezone'])
 
             if not only_changing_timezone:
-                return redirect('availability')
+                # Stay on whichever schedule they were editing.
+                url = reverse('availability')
+                return redirect(f'{url}?tournament={schedule_target}'
+                                if schedule_target else url)
 
             # Re-label the SAME instants in the new zone. Availability is absolute:
             # switching what timezone you view it in must not change when you are
@@ -229,6 +262,10 @@ def availability_settings(request):
         'timezone_name': tz_name,
         'timezone_display': describe_timezone(tz_name) if tz_name else '',
         'days': DAY_LABELS,
+        # The selector: only rendered when the player has a tournament schedule.
+        'tournament_schedules': tournament_schedules,
+        'schedule_target': schedule_target,
+        'editing_tournament': schedule.tournament if schedule.tournament_id else None,
         # (hour, '9a', '9:00 AM') per row -- see services.availability.hour_labels.
         'hours': hour_labels(),
     }

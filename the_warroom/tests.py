@@ -12,7 +12,9 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from the_gatehouse.models import DiscordGuild, Profile
+from the_gatehouse.models import (
+    DiscordGuild, Profile, PlayerSchedule, schedules_for,
+)
 from the_databot.models import (
     GuildLFGRole, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
     BoxScoreUploadToken,
@@ -28,6 +30,7 @@ from the_warroom.services.box_score_import import (
 from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
 from the_warroom.forms import GameCreateForm
 from the_databot.tasks import create_match_threads_task
+from the_warroom.services.grouping import GroupingService
 from the_warroom.models import (
     CompetitionStatus, Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup,
     Round, Stage, StageParticipant, Tournament, TournamentPlayer,
@@ -2354,3 +2357,346 @@ class BoxScoreUploadApiTests(TestCase):
             di._boxscore_apply(self.thread, pending, self.thread.thread_id)
         self.assertEqual(set(self.thread.players.values_list('pk', flat=True)),
                          before)
+
+
+class _AvailabilityFixtureMixin:
+    """A tournament, stage, round, and a roster with hand-picked availability.
+
+    Hours are chosen so every overlap below is arithmetic you can check by eye:
+        A = {10, 11, 12, 13}
+        B = {11, 12, 13, 14}
+        C = {12, 13}
+        D = no schedule at all
+    -> intersection of A/B/C = {12, 13}; union = {10..14}
+    """
+
+    A_HOURS = [10, 11, 12, 13]
+    B_HOURS = [11, 12, 13, 14]
+    C_HOURS = [12, 13]
+
+    def setUp(self):
+        super().setUp()
+        self.tournament = Tournament.objects.create(
+            name="Availability Tournament", is_active=True
+        )
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1, is_active=True,
+            grouping_type=Stage.GroupingTypeChoices.AVAILABILITY,
+        )
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1, is_active=True
+        )
+
+    def _player(self, name, hours=None, tournament_hours=None):
+        """A TournamentPlayer, optionally with a general and/or tournament schedule."""
+        user = User.objects.create_user(username=name, password="x")
+        profile = Profile.objects.filter(user=user).first() or Profile.objects.create(
+            user=user, discord=name, display_name=name
+        )
+        if hours is not None:
+            PlayerSchedule.objects.create(
+                profile=profile, tournament=None, available_hours=hours
+            )
+        if tournament_hours is not None:
+            PlayerSchedule.objects.create(
+                profile=profile, tournament=self.tournament,
+                available_hours=tournament_hours,
+            )
+        tp = TournamentPlayer.objects.create(
+            tournament=self.tournament, profile=profile,
+            status=TournamentPlayer.StatusChoices.REGISTERED,
+        )
+        StageParticipant.objects.create(
+            stage=self.stage, tournament_player=tp,
+            status=StageParticipant.ParticipantStatus.ACTIVE,
+        )
+        return tp
+
+    def _group_with(self, *tournament_players):
+        group = PlayerGroup.objects.create(round=self.round, group_number=1)
+        for tp in tournament_players:
+            group.tournament_players.add(tp)
+        return group
+
+
+class SchedulesForTests(_AvailabilityFixtureMixin, TestCase):
+    """The bulk resolver and its tournament -> general precedence."""
+
+    def test_prefers_tournament_schedule_over_general(self):
+        tp = self._player("pref", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        resolved = schedules_for([tp.profile_id], self.tournament)
+        self.assertEqual(resolved[tp.profile_id], self.C_HOURS)
+
+    def test_falls_back_to_general_schedule(self):
+        """The core of the request: a general schedule counts for a tournament."""
+        tp = self._player("gen", hours=self.A_HOURS)
+        resolved = schedules_for([tp.profile_id], self.tournament)
+        self.assertEqual(resolved[tp.profile_id], self.A_HOURS)
+
+    def test_empty_tournament_row_does_not_mask_general(self):
+        """Mirrors schedule_for()'s `and specific.available_hours` condition."""
+        tp = self._player("empty", hours=self.A_HOURS, tournament_hours=[])
+        resolved = schedules_for([tp.profile_id], self.tournament)
+        self.assertEqual(resolved[tp.profile_id], self.A_HOURS)
+
+    def test_omits_players_with_no_schedule(self):
+        tp = self._player("none")
+        resolved = schedules_for([tp.profile_id], self.tournament)
+        self.assertNotIn(tp.profile_id, resolved)
+
+    def test_empty_input_returns_empty_mapping(self):
+        self.assertEqual(schedules_for([], self.tournament), {})
+
+    def test_resolves_a_roster_in_two_queries(self):
+        """The whole reason this helper exists -- per-profile lookups were N+1."""
+        tps = [self._player(f"bulk{i}", hours=self.A_HOURS) for i in range(20)]
+        profile_ids = [tp.profile_id for tp in tps]
+        with CaptureQueriesContext(connection) as ctx:
+            resolved = schedules_for(profile_ids, self.tournament)
+        self.assertEqual(len(resolved), 20)
+        self.assertEqual(len(ctx.captured_queries), 2)
+
+
+class RecalculateOverlapTests(_AvailabilityFixtureMixin, TestCase):
+    """PlayerGroup overlap, now sourced from schedules."""
+
+    def test_computes_known_intersection(self):
+        group = self._group_with(
+            self._player("a", hours=self.A_HOURS),
+            self._player("b", hours=self.B_HOURS),
+            self._player("c", hours=self.C_HOURS),
+        )
+        group.recalculate_overlap()
+        group.refresh_from_db()
+
+        self.assertEqual(group.overlap_hours, [12, 13])
+        self.assertEqual(group.all_hours, [10, 11, 12, 13, 14])
+        self.assertEqual(group.total_overlap_hours, 2)
+        self.assertEqual(group.best_consecutive_block, 2)
+        self.assertEqual(group.days_with_overlap, [0])
+
+    def test_general_schedule_player_counts_toward_overlap(self):
+        """Previously a player without a survey contributed nothing at all."""
+        group = self._group_with(
+            self._player("g1", hours=self.A_HOURS),
+            self._player("g2", hours=self.B_HOURS),
+        )
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [11, 12, 13])
+
+    def test_tournament_schedule_overrides_general(self):
+        group = self._group_with(
+            self._player("o1", hours=self.A_HOURS),
+            # General says A, but this tournament says C -> C must win.
+            self._player("o2", hours=self.A_HOURS, tournament_hours=self.C_HOURS),
+        )
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, self.C_HOURS)
+
+    def test_group_without_schedules_clears_metrics(self):
+        group = self._group_with(self._player("n1"), self._player("n2"))
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [])
+        self.assertEqual(group.total_overlap_hours, 0)
+
+    def test_edited_schedule_takes_effect_without_resync(self):
+        """Schedules are read live, so the old staleness class is gone."""
+        p1 = self._player("e1", hours=self.A_HOURS)
+        group = self._group_with(p1, self._player("e2", hours=self.A_HOURS))
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, self.A_HOURS)
+
+        schedule = PlayerSchedule.objects.get(profile=p1.profile, tournament=None)
+        schedule.available_hours = self.C_HOURS
+        schedule.save(update_fields=['available_hours'])
+
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, self.C_HOURS)
+
+    def test_accepts_a_prefetched_mapping(self):
+        """Loop callers pass the roster mapping in rather than re-querying."""
+        p1 = self._player("pf1", hours=self.A_HOURS)
+        p2 = self._player("pf2", hours=self.B_HOURS)
+        group = self._group_with(p1, p2)
+        schedules = schedules_for([p1.profile_id, p2.profile_id], self.tournament)
+
+        with CaptureQueriesContext(connection) as ctx:
+            group.recalculate_overlap(schedules=schedules)
+        # The members query and the save, but no schedule lookup.
+        self.assertLessEqual(len(ctx.captured_queries), 4)
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [11, 12, 13])
+
+
+class GroupingFromSchedulesTests(_AvailabilityFixtureMixin, TestCase):
+    """The grouping service reads availability from schedules."""
+
+    def test_generates_groups_from_general_schedules(self):
+        """A roster that never answered a survey can now be grouped at all."""
+        # get_min_players() defaults to 4, so a smaller roster forms no group.
+        for i in range(4):
+            self._player(f"grp{i}", hours=self.A_HOURS)
+
+        GroupingService.generate_availability_groups(self.stage, self.round)
+
+        groups = list(self.round.player_groups.all())
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].tournament_players.count(), 4)
+        self.assertEqual(groups[0].overlap_hours, self.A_HOURS)
+
+    def test_players_without_availability_are_left_ungrouped(self):
+        for i in range(4):
+            self._player(f"has{i}", hours=self.A_HOURS)
+        no_hours = self._player("without")
+
+        GroupingService.generate_availability_groups(self.stage, self.round)
+
+        grouped_ids = set(
+            TournamentPlayer.objects.filter(player_groups__round=self.round)
+            .values_list('id', flat=True)
+        )
+        self.assertNotIn(no_hours.id, grouped_ids)
+
+    def test_manually_added_player_with_general_schedule_is_grouped(self):
+        """The headline behaviour change: no survey response required."""
+        for i in range(3):
+            self._player(f"seed{i}", hours=self.A_HOURS)
+
+        user = User.objects.create_user(username="manual", password="x")
+        profile = Profile.objects.filter(user=user).first() or Profile.objects.create(
+            user=user, discord="manual", display_name="manual"
+        )
+        PlayerSchedule.objects.create(
+            profile=profile, tournament=None, available_hours=self.A_HOURS
+        )
+        # add_player() returns None and fans the player out to active stages itself.
+        self.tournament.add_player(profile)
+        tp = TournamentPlayer.objects.get(tournament=self.tournament, profile=profile)
+
+        GroupingService.generate_availability_groups(self.stage, self.round)
+
+        grouped_ids = set(
+            TournamentPlayer.objects.filter(player_groups__round=self.round)
+            .values_list('id', flat=True)
+        )
+        self.assertIn(tp.id, grouped_ids)
+
+
+class SurveyAvailabilityWriteTests(_AvailabilityFixtureMixin, TestCase):
+    """Availability is written by the respondent's own submission.
+
+    It used to be written by the grouping sync, which runs over EVERY accepted
+    response on every call -- so one player submitting rewrote everyone else's
+    hours from their older responses. These pin the new, per-player behaviour.
+    """
+
+    def _response_stub(self, profile, hours):
+        """A stand-in for a SurveyResponse with availability answers."""
+        stub = mock.Mock()
+        stub.pk = 1
+        stub.profile_id = profile.id
+        stub.get_combined_availability_hours.return_value = set(hours)
+        return stub
+
+    def _survey_stub(self, series_id):
+        survey = mock.Mock()
+        survey.series_id = series_id
+        return survey
+
+    def test_submission_creates_tournament_schedule(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("sub")
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(tp.profile, self.A_HOURS),
+        )
+        schedule = PlayerSchedule.objects.get(
+            profile=tp.profile, tournament=self.tournament
+        )
+        self.assertEqual(schedule.available_hours, self.A_HOURS)
+
+    def test_resubmitting_updates_the_same_row(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("resub")
+        survey = self._survey_stub(self.tournament.id)
+        _save_response_availability(survey, self._response_stub(tp.profile, self.A_HOURS))
+        _save_response_availability(survey, self._response_stub(tp.profile, self.C_HOURS))
+
+        rows = PlayerSchedule.objects.filter(
+            profile=tp.profile, tournament=self.tournament
+        )
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.first().available_hours, self.C_HOURS)
+
+    def test_submission_does_not_touch_another_players_schedule(self):
+        """The bug the move exists to prevent."""
+        from the_tavern.views import _save_response_availability
+
+        player_a = self._player("writer")
+        player_b = self._player("bystander", tournament_hours=self.C_HOURS)
+
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(player_a.profile, self.A_HOURS),
+        )
+
+        untouched = PlayerSchedule.objects.get(
+            profile=player_b.profile, tournament=self.tournament
+        )
+        self.assertEqual(untouched.available_hours, self.C_HOURS)
+
+    def test_survey_without_a_tournament_writes_nothing(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("standalone")
+        _save_response_availability(
+            self._survey_stub(None),
+            self._response_stub(tp.profile, self.A_HOURS),
+        )
+        self.assertFalse(PlayerSchedule.objects.filter(profile=tp.profile).exists())
+
+    def test_response_without_availability_writes_nothing(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("noanswers")
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(tp.profile, []),
+        )
+        self.assertFalse(PlayerSchedule.objects.filter(profile=tp.profile).exists())
+
+    def test_submission_never_writes_a_general_schedule(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("nogeneral")
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(tp.profile, self.A_HOURS),
+        )
+        self.assertFalse(
+            PlayerSchedule.objects.filter(profile=tp.profile, tournament=None).exists()
+        )
+
+    def test_grouping_sync_no_longer_writes_availability(self):
+        """sync_survey_responses_to_tournament still enrols, but writes no hours."""
+        tp = self._player("syncme", tournament_hours=self.C_HOURS)
+
+        survey = mock.Mock()
+        survey.responses.filter.return_value.select_related.return_value.order_by.return_value = []
+        survey.has_waitlist = False
+        survey.waitlist_threshold = None
+        survey.stage_id = None
+
+        GroupingService.sync_survey_responses_to_tournament(self.tournament, survey)
+
+        unchanged = PlayerSchedule.objects.get(
+            profile=tp.profile, tournament=self.tournament
+        )
+        self.assertEqual(unchanged.available_hours, self.C_HOURS)

@@ -708,6 +708,12 @@ class PlayerScheduleForm(forms.Form):
     # instead of just relabelling it.
     drawn_timezone = forms.CharField(required=False, widget=forms.HiddenInput)
 
+    # Which schedule is being edited: '' for the general one, otherwise a
+    # tournament slug. Carried through the timezone round-trip so re-rendering
+    # can't silently move the edit to a different row. The view validates it
+    # against the schedules this player actually has.
+    schedule_target = forms.CharField(required=False, widget=forms.HiddenInput)
+
     timezone = forms.ChoiceField(
         label=_('Timezone'),
         help_text=_("Times on this page are shown in this timezone. Saving also "

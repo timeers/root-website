@@ -3,8 +3,8 @@ Converting weekly availability between a player's local time and UTC.
 
 Availability is stored as "hour-of-week" integers 0-167, where Monday 00:00 UTC is
 0 and Sunday 23:00 UTC is 167 (hour_of_week = weekday * 24 + hour). That encoding is
-shared with TournamentPlayer.availability_hours and the survey answer path, so any
-two players' availability can be compared with plain set algebra.
+shared with the survey answer path, so any two players' availability can be compared
+with plain set algebra.
 
 Kept free of Django-request concerns so it can be unit-tested directly.
 

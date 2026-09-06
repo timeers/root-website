@@ -1,5 +1,6 @@
 import csv
 import json
+import logging
 
 from datetime import datetime
 
@@ -30,7 +31,7 @@ from the_gatehouse.services.context_service import get_theme, get_thematic_image
 from the_gatehouse.utils import build_absolute_uri, generate_name, NameConvention
 from the_gatehouse.tasks import send_discord_message_task
 from the_gatehouse.views import player_required, player_onboard_required, admin_onboard_required
-from the_gatehouse.models import Profile, DiscordGuild
+from the_gatehouse.models import Profile, DiscordGuild, PlayerSchedule
 
 from the_warroom.models import Tournament, Round, Game, TournamentPlayer, PlayerGroup, Stage
 from the_warroom.services.grouping import GroupingService
@@ -42,6 +43,9 @@ from the_keep.utils import user_can_edit
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
 
+logger = logging.getLogger(__name__)
+
+
 def _get_survey_status_note(survey):
     if not survey.is_active:
         return " The survey is currently closed."
@@ -52,6 +56,38 @@ def _get_survey_status_note(survey):
         formatted = survey.end_date.strftime('%b %d, %Y')
         return f" The survey closed on {formatted}."
     return " The survey is now active."
+
+
+def _save_response_availability(survey, survey_response):
+    """Store this respondent's availability as their schedule for the tournament.
+
+    Scoped to ONE profile on purpose. The grouping sync runs over every accepted
+    response on every call, so writing availability there meant one player's
+    submission rewrote everybody else's hours from their older responses --
+    silently discarding edits players had made themselves. Writing here, from the
+    submission that produced the answers, makes that impossible.
+
+    A survey with no linked tournament writes nothing: those answers have no
+    tournament to belong to, and a one-off poll must not overwrite the player's
+    standing general availability.
+    """
+    if not survey.series_id or not survey_response.profile_id:
+        return
+    try:
+        hours = sorted(survey_response.get_combined_availability_hours())
+        if not hours:
+            return
+        PlayerSchedule.objects.update_or_create(
+            profile_id=survey_response.profile_id,
+            tournament_id=survey.series_id,
+            defaults={'available_hours': hours},
+        )
+    except Exception:
+        # Never block a submission over this, same as the enrollment block below.
+        logger.exception(
+            "Could not save availability for response %s", survey_response.pk
+        )
+
 
 @login_required
 def game_comment_sent(request, pk):
@@ -904,6 +940,7 @@ def survey_take_view(request, slug):
             messages.success(request, _('Thank you for completing the survey!'))
             # Calculate the quiz score if needed
             survey_response.calculate_score()
+            _save_response_availability(survey, survey_response)
             # Auto-enroll respondents into the linked tournament if enabled.
             # Wrapped so an enrollment failure never blocks the respondent's submission.
             if survey.auto_enroll and survey.series_id:
@@ -1255,6 +1292,8 @@ def survey_user_response_edit_view(request, slug, response_id):
 
             # Re-calculate the quiz score if needed
             user_response.calculate_score()
+            # Editing a response IS the player restating their availability.
+            _save_response_availability(survey, user_response)
 
             # Redirect to results if allowed
             if survey.show_results_to_respondents:
