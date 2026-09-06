@@ -3478,9 +3478,16 @@ def dismiss_global_message(request):
 
 
 @login_required
-@require_POST
 def dismiss_notification(request, notification_id):
-    """Dismiss a user notification."""
+    """Dismiss a user notification.
+
+    POST is the fetch path used by the X button. GET is deliberately allowed so
+    the "View" link can dismiss server-side and redirect, instead of firing a
+    fetch and racing the navigation that tears it down -- that race is why
+    dismissals were intermittently lost. A GET that clears one of the
+    requester's own notifications is not a meaningful CSRF target, and
+    get_object_or_404 below scopes it to the owner regardless of method.
+    """
     from .models import UserNotification
 
     notification = get_object_or_404(UserNotification, id=notification_id, profile=request.user.profile)
@@ -3489,6 +3496,14 @@ def dismiss_notification(request, notification_id):
     # Return JSON for AJAX requests
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return JsonResponse({'success': True})
+
+    # ?next= carries the notification's related_url. It is stored on the model
+    # and may be absolute, so it must be validated or it becomes an open redirect.
+    next_url = request.GET.get('next') or request.POST.get('next')
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(next_url)
 
     # Redirect back for regular requests
     return redirect(request.META.get('HTTP_REFERER', '/'))

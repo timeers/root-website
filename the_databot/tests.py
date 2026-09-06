@@ -3746,8 +3746,11 @@ class LookupCommandShapeTests(TestCase):
     def test_collapsing_keeps_the_group_ordering(self):
         groups = dict((g, [l for _n, l, _d in rs])
                       for g, rs in dc.grouped_commands(collapse_parents=True))
-        # /lookup sits where its subcommands did, between /law and /card.
-        self.assertEqual(groups["Lookups"], ["law", "lookup", "card"])
+        # /lookup sits where its subcommands did, between /law and /card. The
+        # rest of the group is asserted by position rather than as a frozen
+        # list, so regrouping a command in COMMAND_GROUPS does not break this
+        # -- what matters here is that collapsing preserves ordering.
+        self.assertEqual(groups["Lookups"][:3], ["law", "lookup", "card"])
         self.assertEqual(groups["Account"], ["link"])
         self.assertNotIn("Other", groups)      # nothing fell through
 

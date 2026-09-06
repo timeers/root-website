@@ -25,7 +25,7 @@ from django.core.management import call_command
 from django.db import transaction
 from django.http import HttpResponse
 from django.template import Context, Template
-from django.test import TestCase, RequestFactory, override_settings
+from django.test import Client, TestCase, RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from kombu.exceptions import OperationalError as KombuOperationalError
@@ -1639,3 +1639,118 @@ class AvailabilityCompareLFGTests(_NoLoginSignalMixin, TestCase):
     def test_a_missing_thread_is_a_404(self):
         response = self._get(self.members[0], lfg=999999)
         self.assertEqual(response.status_code, 404)
+
+
+class DismissNotificationTests(_NoLoginSignalMixin, TestCase):
+    """Dismissals were silently failing, leaving is_dismissed False so the
+    notification returned on the next page load.
+
+    Two independent causes, both covered here:
+      1. The base template never rendered {% csrf_token %}, so no csrftoken
+         cookie existed for the X button's fetch to read -> 403.
+      2. The View link fired a fetch from onclick and navigated immediately,
+         so the request raced the page teardown.
+    """
+
+    def setUp(self):
+        from the_gatehouse.models import UserNotification
+
+        super().setUp()
+        self.user = User.objects.create_user(username='notified', password='pw')
+        self.other = User.objects.create_user(username='stranger', password='pw')
+        self.notification = UserNotification.objects.create(
+            profile=self.user.profile,
+            message='Your match is scheduled.',
+            related_url='/battlefield/',
+        )
+        self.url = reverse('dismiss-notification', args=[self.notification.id])
+
+    def _refresh(self):
+        self.notification.refresh_from_db()
+        return self.notification
+
+    def test_posting_dismisses_the_notification(self):
+        """The X button's fetch path."""
+        self.client.force_login(self.user)
+        response = self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self._refresh().is_dismissed)
+        self.assertIsNotNone(self.notification.dismissed_at)
+
+    def test_the_base_template_sets_a_csrf_cookie(self):
+        """Regression test for bug 1. Without {% csrf_token %} in the base
+        template Django has no reason to set the cookie, getCookie() returns
+        null, and the dismissal 403s. This failed before the fix."""
+        self.client.force_login(self.user)
+        response = self.client.get('/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('csrftoken', response.cookies)
+
+    def test_a_missing_csrf_token_is_rejected(self):
+        """Pins that CSRF is genuinely enforced, so the fix above is doing real
+        work rather than papering over a disabled check."""
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        response = client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(self._refresh().is_dismissed)
+
+    def test_get_with_next_dismisses_and_redirects(self):
+        """The View link's path: no fetch, nothing to race."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.url, {'next': '/battlefield/'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], '/battlefield/')
+        self.assertTrue(self._refresh().is_dismissed)
+
+    def test_an_offsite_next_is_refused(self):
+        """related_url is stored on the model and may be absolute, so an
+        unvalidated next would be an open redirect."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.url, {'next': 'https://evil.example.com/'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn('evil.example.com', response['Location'])
+        self.assertTrue(self._refresh().is_dismissed)
+
+    def test_another_users_notification_is_404(self):
+        """Owner scoping must hold on the newly-allowed GET path too."""
+        self.client.force_login(self.other)
+        response = self.client.get(self.url, {'next': '/battlefield/'})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(self._refresh().is_dismissed)
+
+    def test_dismissing_twice_is_harmless(self):
+        """A double-click or a retry must not error."""
+        self.client.force_login(self.user)
+        self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        response = self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self._refresh().is_dismissed)
+
+    def test_a_dismissed_notification_stops_being_shown(self):
+        """The point of all of it: it actually stops appearing.
+
+        Asserts against the same is_dismissed=False filter active_user_data()
+        feeds the alert stack from, rather than rendering a page -- the context
+        processor wraps its whole body in `except Exception` and falls back to a
+        stub context, so a missing fixture there would mask this assertion
+        instead of failing it."""
+        from the_gatehouse.models import UserNotification
+
+        def shown():
+            return list(UserNotification.objects.filter(
+                profile=self.user.profile, is_dismissed=False))
+
+        self.assertIn(self.notification, shown())
+
+        self.client.force_login(self.user)
+        self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertNotIn(self.notification, shown())
