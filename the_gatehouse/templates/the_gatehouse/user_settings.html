@@ -180,8 +180,7 @@
           </div>
         </div>
 
-        {# Steam. The SteamID64 is shown ONLY here, to its owner -- deliberately not on
-           the public profile page (which does show DWD) and not in any serializer. #}
+        {# Steam. The SteamID64 is shown ONLY here, to its owner -- deliberately not on the public profile page (which does show DWD) and not in any serializer. #}
         <div class="col-lg-6">
           <div class="info-card h-100">
             <div class="info-card-body">
@@ -217,6 +216,38 @@
                   </a>
                 </div>
               {% endif %}
+            </div>
+          </div>
+        </div>
+
+        {# Availability. Stored in UTC so players in different timezones can be compared; edited in the player's own timezone on the /availability page. #}
+        <div class="col-lg-6">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-calendar-week me-2"></i>{% trans 'Availability' %}</h2>
+
+              <p class="text-secondary">
+                {% trans 'Record the hours you are usually free to play so you can be matched with players who share your schedule.' %}
+              </p>
+
+              {% if availability_hours_count %}
+                <div class="alert alert-secondary">
+                  {% blocktrans count counter=availability_hours_count %}{{ counter }} hour selected.{% plural %}{{ counter }} hours selected.{% endblocktrans %}
+                  {% if availability_timezone %}
+                    <br><span class="text-muted">{{ availability_timezone }}</span>
+                  {% endif %}
+                </div>
+              {% else %}
+                <div class="alert alert-secondary">
+                  {% trans 'You have not set your availability yet.' %}
+                </div>
+              {% endif %}
+
+              <div class="d-flex gap-2 mb-3 justify-content-center">
+                <a href="{% url 'availability' %}" class="databot-btn databot-btn-primary btn-sm">
+                  <i class="bi bi-calendar-week me-2"></i> {% trans 'Update Availability' %}
+                </a>
+              </div>
             </div>
           </div>
         </div>

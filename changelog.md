@@ -9,6 +9,9 @@
 - a TTS upload that doesn't match the game posts Confirm/Cancel in the thread, so problems get sorted in Discord instead of in TTS
 - any player in the game, the host, or a moderator can answer that prompt — not just whoever uploaded
 - Try Again button re-checks players after someone links their Steam account, so a missing player can be fixed without re-uploading
+- set your weekly availability on your profile settings page
+- availability grid lets you click to mark the hours you are free, and click a day or hour label to toggle a whole column or row
+- times are shown in your own timezone, which you can change on the page and is saved to your profile
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup

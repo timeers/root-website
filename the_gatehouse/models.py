@@ -1347,3 +1347,92 @@ class UserNotification(models.Model):
 def get_default_ta_days():
     """Returns default enabled days for TIME_AVAILABILITY questions (all 7 days)"""
     return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+
+
+class PlayerSchedule(models.Model):
+    """A player's recurring weekly availability, stored in UTC.
+
+    `available_hours` holds hour-of-week integers 0-167 where Monday 00:00 UTC = 0
+    and Sunday 23:00 UTC = 167 -- the same encoding as
+    TournamentPlayer.availability_hours, so a schedule set-intersects with
+    survey-derived availability directly with no conversion step.
+
+    `tournament` NULL means this is the player's GENERAL availability, the one the
+    /availability page edits. A row WITH a tournament is that player's availability
+    for that event specifically, and takes precedence over the general one (see
+    schedule_for). Keeping both in one table means every consumer reads availability
+    the same way whatever its scope.
+
+    UTC is the storage contract: two players in different zones are only comparable
+    if both sides normalize. The zone the user actually picked lives on
+    Profile.timezone, which is what lets us render the grid back in their local time
+    and keep it correct across a DST change -- a stored numeric offset cannot.
+    """
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='schedules')
+    # Lazy string reference: this module must never import the_warroom at module
+    # level. the_warroom.models imports Profile from here at import time, so a
+    # concrete import would close the loop and break startup.
+    tournament = models.ForeignKey(
+        'the_warroom.Tournament', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='player_schedules',
+        help_text="NULL = the player's general availability."
+    )
+    available_hours = models.JSONField(
+        default=list,
+        help_text="UTC hour-of-week integers (0-167), Monday 00:00 UTC = 0."
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # NOTE: this does NOT enforce one general schedule per profile -- SQLite and
+        # Postgres both treat NULLs as distinct in a unique index, so
+        # (profile, NULL) can be inserted twice. general_schedule_for() is the
+        # enforcement point; never create a tournament=None row any other way.
+        unique_together = ('profile', 'tournament')
+        ordering = ['profile', 'tournament']
+        verbose_name = 'Player Schedule'
+        verbose_name_plural = 'Player Schedules'
+
+    def __str__(self):
+        # tournament_id, not tournament: testing the FK object would fetch the row.
+        scope = self.tournament.name if self.tournament_id else 'General'
+        return f"{self.profile.name} - {scope} - {len(self.available_hours)} hours"
+
+    def as_bitmask(self):
+        """This schedule as a 168-bit int, for fast overlap math.
+
+        Bit N set means hour-of-week N is available. Overlap between two players is
+        then `mask_a & mask_b`, which matters because pairwise matching is O(n^2).
+        """
+        mask = 0
+        for hour in self.available_hours:
+            mask |= 1 << hour
+        return mask
+
+
+def general_schedule_for(profile):
+    """The player's general (non-tournament) schedule, created on first use.
+
+    The ONLY sanctioned way to make a tournament=None row -- unique_together cannot
+    enforce that uniqueness because the column is NULL (see PlayerSchedule.Meta).
+    """
+    schedule, _created = PlayerSchedule.objects.get_or_create(
+        profile=profile, tournament=None
+    )
+    return schedule
+
+
+def schedule_for(profile, tournament=None):
+    """That player's tournament-specific schedule if they set one, else their general one.
+
+    Returns None when the player has recorded no availability at all.
+    """
+    if tournament is not None:
+        specific = PlayerSchedule.objects.filter(
+            profile=profile, tournament=tournament
+        ).first()
+        if specific and specific.available_hours:
+            return specific
+    return PlayerSchedule.objects.filter(
+        profile=profile, tournament=None
+    ).first()

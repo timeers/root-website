@@ -1,0 +1,457 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{% trans 'Availability' %} | {% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h1 class="info-card-title">
+            <i class="bi bi-calendar-week me-2"></i>{% trans 'Your Availability' %}
+          </h1>
+          <p class="text-secondary mb-0">
+            {% trans 'Mark the hours you are usually free to play. Click a cell to toggle it, or use the day and hour labels to toggle a whole column or row.' %}
+          </p>
+        </div>
+      </div>
+
+      <form method="POST" id="availability-form">
+        {% csrf_token %}
+        {# The grid writes the selected LOCAL hour-of-week values here on submit. #}
+        <input type="hidden" name="available_hours" id="id_available_hours"
+               value="{% for h in selected_hours %}{{ h }}{% if not forloop.last %},{% endif %}{% endfor %}">
+        {# The zone those hours are expressed in. Switching the picker changes `timezone` but NOT this, which is how the server knows to re-label the same instants instead of moving them. #}
+        <input type="hidden" name="drawn_timezone" id="id_drawn_timezone"
+               value="{{ timezone_name|default_if_none:'' }}">
+        <input type="hidden" name="action" id="id_action" value="save">
+
+        <div class="info-card mb-4">
+          <div class="info-card-body">
+            <h2 class="info-card-title h5">
+              <i class="bi bi-globe2 me-2"></i>{% trans 'Timezone' %}
+            </h2>
+
+            {% if form.timezone.errors %}
+              <div class="alert alert-danger">{{ form.timezone.errors }}</div>
+            {% endif %}
+
+            <div class="row g-2 align-items-center">
+              <div class="col-md-8">
+                <select name="timezone" id="id_timezone" class="form-select">
+                  {% for group_label, options in form.fields.timezone.choices %}
+                    <optgroup label="{{ group_label }}">
+                      {% for value, label in options %}
+                        <option value="{{ value }}"
+                          {% if value == timezone_name %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </optgroup>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-4">
+                <button type="button" id="apply-timezone"
+                        class="databot-btn databot-btn-outline btn-sm w-100">
+                  <i class="bi bi-arrow-repeat me-2"></i>{% trans 'Show times in this zone' %}
+                </button>
+              </div>
+            </div>
+
+            <p class="text-muted small mt-2 mb-0" id="timezone-hint">
+              {% if timezone_display %}
+                {% blocktrans %}Times below are shown in {{ timezone_display }}.{% endblocktrans %}
+              {% else %}
+                <span class="detected-note">{% trans 'Using the timezone detected from your browser.' %}</span>
+              {% endif %}
+              {% trans 'Saving also updates the timezone for your profile.' %}
+            </p>
+
+            {# A :30/:45 zone cannot line up with whole UTC hours; say so rather than letting the rounding skew someone's availability silently. #}
+            <p class="text-muted small mt-2 mb-0 d-none" id="halfhour-note">
+              <i class="bi bi-info-circle me-1"></i>
+              {% trans 'Your timezone is offset by a partial hour, so each selection is stored to the hour that contains it.' %}
+            </p>
+          </div>
+        </div>
+
+        <div class="info-card mb-4">
+          <div class="info-card-body">
+            <div class="d-flex justify-content-between align-items-start mb-3 gap-2">
+              <div>
+                <h2 class="info-card-title h5 mb-1">
+                  <i class="bi bi-clock me-2"></i>{% trans 'Weekly Availability' %}
+                </h2>
+                <span class="badge text-bg-secondary" id="hour-count"></span>
+              </div>
+              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="clear-grid">
+                <i class="bi bi-x-circle me-1"></i><span class="d-sm-none">{% trans 'Clear' %}</span><span class="d-none d-sm-inline">{% trans 'Clear all' %}</span>
+              </button>
+            </div>
+
+            <div class="availability-scroll">
+              <div class="availability-grid" id="availability-grid">
+                <div class="avail-corner"></div>
+                {% for day in days %}
+                  <button type="button" class="avail-day-header" data-day="{{ forloop.counter0 }}"
+                          title="{% trans 'Toggle this day' %}">{{ day|slice:":3" }}</button>
+                {% endfor %}
+
+                {% for hour, short_label, long_label in hours %}
+                  <button type="button" class="avail-hour-label" data-hour="{{ hour }}"
+                          title="{{ long_label }} — {% trans 'toggle this hour across the week' %}">
+                    <span class="hour-text">{{ short_label }}</span>
+                  </button>
+                  {% for day in days %}
+                    {# data-how (the LOCAL hour-of-week) is derived in JS from these two, since a template can't compute day*24+hour. #}
+                    <button type="button" class="avail-cell"
+                            data-day="{{ forloop.counter0 }}"
+                            data-hour="{{ hour }}"
+                            aria-pressed="false"
+                            aria-label="{{ day }} {{ long_label }}"><span class="cell-time">{{ short_label }}</span></button>
+                  {% endfor %}
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 justify-content-center mb-3">
+          <a href="{% url 'user-settings' %}" class="databot-btn databot-btn-outline btn-sm">
+            {% trans 'Back to Settings' %}
+          </a>
+          <button type="submit" class="databot-btn databot-btn-primary btn-sm">
+            <i class="bi bi-check2 me-2"></i>{% trans 'Save Availability' %}
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block styles %}
+<style>
+  /* .databot-btn is 14px/30px padding at 16px text, and btn-sm doesn't shrink it
+     (that's a Bootstrap class; these are custom). At full size "Clear all" wraps
+     to its own line next to the heading on a phone, so scope a smaller variant
+     here rather than altering the shared button used across the site. */
+  /* Two classes, so this beats `.databot-btn-outline`'s own `padding: 12px 28px`
+     regardless of stylesheet order. */
+  .databot-btn.avail-btn-compact {
+    padding: 7px 14px;
+    font-size: 0.8rem;
+    border-radius: 8px;
+    border-width: 1px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Horizontal scroll container: the grid must never force the PAGE to scroll
+     sideways on a phone. */
+  .availability-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .availability-grid {
+    display: grid;
+    /* hour label + 7 days. `auto` lets the label column shrink to its text rather
+       than reserving a fixed width -- the cells carry the time too, so this column
+       only needs to anchor the row. The day columns get the leftover space. */
+    grid-template-columns: auto repeat(7, minmax(3.2rem, 1fr));
+    gap: 3px;
+    min-width: 28rem;
+    user-select: none;
+    touch-action: pan-y;
+  }
+
+  .avail-corner {
+    /* Spacer above the hour labels. */
+  }
+
+  .avail-day-header,
+  .avail-hour-label {
+    background: transparent;
+    border: none;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #6c757d;
+    padding: 2px;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+
+  .avail-day-header:hover,
+  .avail-hour-label:hover {
+    background: #eef0f2;
+    color: #2c2f33;
+  }
+
+  .avail-hour-label {
+    text-align: right;
+    /* Padding counts toward an `auto` column's width, so keep it tight. */
+    padding: 2px 6px 2px 2px;
+    font-weight: 500;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .avail-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.85rem;
+    border: 1px solid #dfe2e5;
+    border-radius: 4px;
+    background: #f8f9fa;
+    padding: 0;
+    cursor: pointer;
+    transition: background-color 90ms linear, color 90ms linear;
+    /* The label repeats across the row, so it stays quiet until the cell is on --
+       it's an orientation aid, not the thing being read. */
+    font-size: 0.66rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    white-space: nowrap;
+    color: #adb5bd;
+  }
+
+  .cell-time {
+    pointer-events: none;  /* clicks and drags must hit the cell, never the label */
+  }
+
+  .avail-cell:hover {
+    border-color: #0d6efd;
+    color: #6c757d;
+  }
+
+  /* Selected state matches the survey grid's checked colour so the two features
+     read as one system. */
+  .avail-cell.is-selected {
+    background: #0d6efd;
+    border-color: #0d6efd;
+    color: #fff;
+  }
+
+  .avail-cell:focus-visible,
+  .avail-day-header:focus-visible,
+  .avail-hour-label:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 1px;
+  }
+
+  @media (max-width: 576px) {
+    /* "12am" needs about 2.9rem to stay legible, so the grid scrolls sideways
+       inside .availability-scroll rather than shrinking text below readability. */
+    .availability-grid {
+      grid-template-columns: auto repeat(7, minmax(2.9rem, 1fr));
+      min-width: 23rem;
+    }
+    .avail-hour-label { font-size: 0.66rem; padding-right: 4px; }
+    .avail-day-header { font-size: 0.7rem; }
+    .avail-cell { min-height: 1.7rem; font-size: 0.6rem; }
+  }
+</style>
+{% endblock styles %}
+
+{% block scripts %}
+{{ timezone_name|json_script:"saved-timezone" }}
+<script>
+(function () {
+  var grid = document.getElementById('availability-grid');
+  if (!grid) { return; }
+
+  var hiddenField = document.getElementById('id_available_hours');
+  var actionField = document.getElementById('id_action');
+  var tzSelect = document.getElementById('id_timezone');
+  var countBadge = document.getElementById('hour-count');
+  var form = document.getElementById('availability-form');
+
+  // ---- Cell indexing -------------------------------------------------------
+  // Template loops can't compute day*24+hour, so each cell's real hour-of-week is
+  // assigned here from its data-day / data-hour pair.
+  var cells = Array.prototype.slice.call(grid.querySelectorAll('.avail-cell'));
+  cells.forEach(function (cell) {
+    var day = parseInt(cell.dataset.day, 10);
+    var hour = parseInt(cell.dataset.hour, 10);
+    cell.dataset.how = String(day * 24 + hour);
+  });
+
+  var byHow = {};
+  cells.forEach(function (cell) { byHow[cell.dataset.how] = cell; });
+
+  // ---- Initial selection ---------------------------------------------------
+  function initialSelection() {
+    var raw = (hiddenField.value || '').trim();
+    if (!raw) { return; }
+    raw.split(',').forEach(function (part) {
+      var cell = byHow[part.trim()];
+      if (cell) { setSelected(cell, true); }
+    });
+  }
+
+  function setSelected(cell, on) {
+    cell.classList.toggle('is-selected', on);
+    cell.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+
+  function isSelected(cell) { return cell.classList.contains('is-selected'); }
+
+  function updateCount() {
+    var n = grid.querySelectorAll('.avail-cell.is-selected').length;
+    countBadge.textContent = n + ' {% trans "hours selected" %}';
+  }
+
+  function serialize() {
+    var hours = cells.filter(isSelected).map(function (c) { return c.dataset.how; });
+    hiddenField.value = hours.join(',');
+    return hours;
+  }
+
+  // ---- Painting ------------------------------------------------------------
+  // Drag to paint: the first cell's CURRENT state decides whether the drag is
+  // selecting or clearing, so a drag started on a lit cell erases.
+  var painting = false;
+  var paintTo = true;
+
+  function beginPaint(cell) {
+    painting = true;
+    paintTo = !isSelected(cell);
+    setSelected(cell, paintTo);
+    updateCount();
+  }
+
+  function continuePaint(cell) {
+    if (!painting) { return; }
+    if (isSelected(cell) !== paintTo) {
+      setSelected(cell, paintTo);
+      updateCount();
+    }
+  }
+
+  // One delegated listener per event rather than 168 x N -- the grid is 168 cells
+  // and per-cell listeners are needless work on every render.
+  grid.addEventListener('mousedown', function (e) {
+    var cell = e.target.closest('.avail-cell');
+    if (!cell) { return; }
+    e.preventDefault();
+    beginPaint(cell);
+  });
+
+  grid.addEventListener('mouseover', function (e) {
+    var cell = e.target.closest('.avail-cell');
+    if (cell) { continuePaint(cell); }
+  });
+
+  document.addEventListener('mouseup', function () { painting = false; });
+
+  // Touch: touchmove reports the START element, so hit-test the live coordinates.
+  grid.addEventListener('touchstart', function (e) {
+    var cell = e.target.closest('.avail-cell');
+    if (!cell) { return; }
+    beginPaint(cell);
+  }, { passive: true });
+
+  grid.addEventListener('touchmove', function (e) {
+    if (!painting) { return; }
+    var touch = e.touches[0];
+    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    // closest(), not classList: each cell contains a time <span>, so the topmost
+    // element under the finger can be that child rather than the cell itself.
+    var cell = el && el.closest ? el.closest('.avail-cell') : null;
+    if (cell) {
+      e.preventDefault();
+      continuePaint(cell);
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchend', function () { painting = false; });
+
+  // Keyboard: cells are real buttons, so Enter/Space fire click. Only handle the
+  // clicks a drag did not already account for.
+  grid.addEventListener('click', function (e) {
+    var cell = e.target.closest('.avail-cell');
+    if (!cell || e.detail !== 0) { return; }  // detail 0 == keyboard activation
+    setSelected(cell, !isSelected(cell));
+    updateCount();
+  });
+
+  // ---- Row / column toggles (the accessible path to bulk selection) --------
+  grid.addEventListener('click', function (e) {
+    var dayBtn = e.target.closest('.avail-day-header');
+    if (dayBtn) {
+      var day = parseInt(dayBtn.dataset.day, 10);
+      var col = cells.filter(function (c) { return parseInt(c.dataset.day, 10) === day; });
+      var turnOn = !col.every(isSelected);
+      col.forEach(function (c) { setSelected(c, turnOn); });
+      updateCount();
+      return;
+    }
+    var hourBtn = e.target.closest('.avail-hour-label');
+    if (hourBtn) {
+      var hour = parseInt(hourBtn.dataset.hour, 10);
+      var row = cells.filter(function (c) { return parseInt(c.dataset.hour, 10) === hour; });
+      var on = !row.every(isSelected);
+      row.forEach(function (c) { setSelected(c, on); });
+      updateCount();
+    }
+  });
+
+  document.getElementById('clear-grid').addEventListener('click', function () {
+    cells.forEach(function (c) { setSelected(c, false); });
+    updateCount();
+  });
+
+  // ---- Timezone ------------------------------------------------------------
+  // With no saved profile timezone, fall back to whatever the browser reports.
+  // json_script escapes the value safely rather than interpolating it into JS.
+  var savedTz = JSON.parse(document.getElementById('saved-timezone').textContent);
+  var drawnField = document.getElementById('id_drawn_timezone');
+  if (!savedTz) {
+    try {
+      var browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (browserTz) {
+        var match = Array.prototype.find.call(tzSelect.options, function (o) {
+          return o.value === browserTz;
+        });
+        if (match) {
+          tzSelect.value = browserTz;
+          // The server rendered in UTC but the picker now says the browser zone,
+          // so that is the zone the user is actually painting in. Without this the
+          // first save would be interpreted as UTC and land an offset off.
+          drawnField.value = browserTz;
+        }
+      }
+    } catch (err) { /* Intl unavailable -- the server default stands. */ }
+  }
+
+  function flagPartialHourZone() {
+    var note = document.getElementById('halfhour-note');
+    if (!note) { return; }
+    try {
+      // getTimezoneOffset is in minutes; a non-multiple of 60 is a :30/:45 zone.
+      var offset = new Date().getTimezoneOffset();
+      note.classList.toggle('d-none', offset % 60 === 0);
+    } catch (err) { /* leave hidden */ }
+  }
+
+  // Changing the zone re-renders server-side: the local<->UTC mapping needs
+  // ZoneInfo's DST rules, which the browser cannot reproduce with a fixed offset.
+  // The pending selection rides along so unsaved painting is not lost.
+  document.getElementById('apply-timezone').addEventListener('click', function () {
+    serialize();
+    actionField.value = 'change_timezone';
+    form.submit();
+  });
+
+  form.addEventListener('submit', function () { serialize(); });
+
+  initialSelection();
+  updateCount();
+  flagPartialHourZone();
+})();
+</script>
+{% endblock scripts %}

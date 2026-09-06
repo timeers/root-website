@@ -687,3 +687,88 @@ class TournamentGuildChannelsForm(forms.ModelForm):
                     self.add_error('game_threads_tag',
                                    'This forum requires a tag — please choose one.')
         return cleaned
+
+
+class PlayerScheduleForm(forms.Form):
+    """The /availability page: a weekly grid plus the timezone it was drawn in.
+
+    A plain Form, not a ModelForm: the grid is 168 hand-rolled toggles rather than
+    model fields, and the hours arrive in the user's LOCAL time -- the view converts
+    them to UTC before they touch PlayerSchedule.available_hours.
+    """
+    # Hidden because the visible control is the grid itself. The JS serializes the
+    # selected cells into this field on submit.
+    available_hours = forms.CharField(
+        required=False, widget=forms.HiddenInput,
+        help_text="Comma-separated local hour-of-week integers (0-167).")
+
+    # The zone the grid was RENDERED in, which is what available_hours means.
+    # Without it, switching the picker would silently reinterpret the painted
+    # cells as belonging to the new zone -- moving the user's actual availability
+    # instead of just relabelling it.
+    drawn_timezone = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    timezone = forms.ChoiceField(
+        label=_('Timezone'),
+        help_text=_("Times on this page are shown in this timezone. Saving also "
+                    "updates the timezone used by the Discord bot."))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Grouped <optgroup> choices, built from the same curated region list the
+        # Discord /schedule picker uses so the two can't drift apart.
+        from the_databot.services.time_parsing import timezone_regions, describe_timezone
+        groups = []
+        for region in timezone_regions():
+            options = [(zone, describe_timezone(zone) or label)
+                       for zone, label in region['zones']]
+            groups.append((region['label'], options))
+        self.fields['timezone'].choices = groups
+
+    def clean_timezone(self):
+        """Reject anything that isn't a real IANA zone.
+
+        ChoiceField already constrains this to the curated list, but the value is
+        persisted to Profile.timezone and read back by the bot, so it is validated
+        against ZoneInfo rather than trusted.
+        """
+        from the_databot.services.time_parsing import valid_timezone
+        tz_name = self.cleaned_data.get('timezone')
+        if not valid_timezone(tz_name):
+            raise ValidationError(_("That isn't a timezone we recognize."))
+        return tz_name
+
+    def clean_drawn_timezone(self):
+        """Blank out an unrecognized value rather than failing the submission.
+
+        This field is machine-written and only decides how to REINTERPRET the
+        painted cells; the view falls back to the submitted timezone when it is
+        empty. Rejecting the whole form over it would lose the user's grid.
+        """
+        from the_databot.services.time_parsing import valid_timezone
+        drawn = self.cleaned_data.get('drawn_timezone')
+        return drawn if valid_timezone(drawn) else ''
+
+    def clean_available_hours(self):
+        """Parse the hidden field into a deduped, sorted list of local hour-of-week ints.
+
+        Anything out of range or non-numeric is dropped rather than raising: the
+        field is machine-written, so a malformed entry means a client bug, and
+        silently ignoring it is friendlier than losing the whole submission. An
+        empty grid is legitimate -- it means "I have no availability".
+        """
+        raw = (self.cleaned_data.get('available_hours') or '').strip()
+        if not raw:
+            return []
+        hours = set()
+        for chunk in raw.split(','):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                value = int(chunk)
+            except ValueError:
+                continue
+            if 0 <= value < 168:
+                hours.add(value)
+        return sorted(hours)

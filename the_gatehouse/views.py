@@ -30,8 +30,8 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
                                  effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm, PlayerScheduleForm
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for
 from the_databot.models import GuildLFGRole
 from the_databot.services.discordservice import (get_guild_roles, get_guild_forum_channels,
                                       get_forum_channel_info,
@@ -103,9 +103,18 @@ def user_settings(request):
         # u_form = UserUpdateForm(instance=request.user)
         p_form = ProfileUpdateForm(instance=request.user.profile)
 
+    # profile.schedules is a reverse MANAGER (a player can have tournament-scoped
+    # schedules too), so the template can't reach the general one on its own.
+    from the_databot.services.time_parsing import describe_timezone
+    general_schedule = PlayerSchedule.objects.filter(
+        profile=request.user.profile, tournament=None
+    ).first()
+
     context = {
         # 'u_form': u_form,
         'p_form': p_form,
+        'availability_hours_count': len(general_schedule.available_hours) if general_schedule else 0,
+        'availability_timezone': describe_timezone(request.user.profile.timezone),
         'has_api_key': bool(request.user.profile.api_key_hash),
         'api_key_created': request.user.profile.api_key_created,
         # Raw key is shown exactly once, right after generation; read-and-clear so a page
@@ -144,6 +153,86 @@ def discord_notification_settings(request):
         ],
     }
     return render(request, 'the_gatehouse/discord_notifications.html', context)
+
+
+@login_required
+def availability_settings(request):
+    """The /availability weekly grid.
+
+    Availability is stored in UTC but drawn, and edited, in the player's own
+    timezone -- so every hour crosses this view twice through the conversion
+    service. Nothing here does offset arithmetic; see services/availability.py for
+    why that distinction matters.
+
+    Only ever touches the GENERAL (tournament=None) schedule. Tournament-scoped
+    schedules exist in the same table but are not editable from this page.
+    """
+    from .services.availability import (local_to_utc_hours, utc_to_local_hours,
+                                        DAY_LABELS, hour_labels)
+    from the_databot.services.time_parsing import describe_timezone, valid_timezone
+
+    profile = request.user.profile
+    schedule = general_schedule_for(profile)
+
+    # No profile timezone yet -> the grid renders in UTC and the template's JS
+    # pre-selects the browser's zone in the picker. The first save persists it.
+    tz_name = profile.timezone if valid_timezone(profile.timezone) else None
+    selected = None
+
+    if request.method == 'POST':
+        form = PlayerScheduleForm(request.POST)
+        if form.is_valid():
+            tz_name = form.cleaned_data['timezone']
+            local_hours = form.cleaned_data['available_hours']
+            # The zone the grid was DRAWN in, which is what those local hours mean.
+            # It differs from tz_name exactly when the user is switching zones.
+            drawn_tz = form.cleaned_data['drawn_timezone'] or tz_name
+            # "Show times in this zone" re-renders under a new timezone instead of
+            # saving: the local->UTC mapping needs ZoneInfo's DST rules, which the
+            # browser can't reproduce from a fixed offset.
+            only_changing_timezone = request.POST.get('action') == 'change_timezone'
+
+            # Interpret the painted cells in the zone they were painted in -- not
+            # the newly chosen one -- so the absolute moments are preserved.
+            utc_hours = local_to_utc_hours(local_hours, drawn_tz)
+
+            if not only_changing_timezone:
+                schedule.available_hours = utc_hours
+                schedule.save(update_fields=['available_hours', 'updated_at'])
+                messages.success(request, _('Availability updated!'))
+
+            if profile.timezone != tz_name:
+                profile.timezone = tz_name
+                # update_fields is required: a bare save() re-derives display_name
+                # and can delete the profile's existing avatar.
+                profile.save(update_fields=['timezone'])
+
+            if not only_changing_timezone:
+                return redirect('availability')
+
+            # Re-label the SAME instants in the new zone. Availability is absolute:
+            # switching what timezone you view it in must not change when you are
+            # free, so the lit cells shift rows instead of staying put.
+            messages.info(request, _('Times are now shown in your new timezone.'))
+            selected = utc_to_local_hours(utc_hours, tz_name)
+    else:
+        form = PlayerScheduleForm(initial={'timezone': tz_name or 'UTC'})
+
+    if selected is None:
+        # Draw the stored UTC hours back in the user's local time.
+        selected = utc_to_local_hours(schedule.available_hours, tz_name)
+
+    context = {
+        'form': form,
+        'schedule': schedule,
+        'selected_hours': selected,
+        'timezone_name': tz_name,
+        'timezone_display': describe_timezone(tz_name) if tz_name else '',
+        'days': DAY_LABELS,
+        # (hour, '9a', '9:00 AM') per row -- see services.availability.hour_labels.
+        'hours': hour_labels(),
+    }
+    return render(request, 'the_gatehouse/availability.html', context)
 
 
 @login_required

@@ -6,7 +6,8 @@ the_databot/tests.py alongside the code they exercise.
 import io
 import shutil
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 from unittest import mock
 
 from urllib.parse import quote
@@ -32,7 +33,11 @@ from kombu.exceptions import OperationalError as KombuOperationalError
 from the_keep.models import Faction, StatusChoices
 from the_warroom.models import Game, Effort
 from the_gatehouse.models import (DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
-                                  GUILDS_REFRESH_MAX_AGE)
+                                  GUILDS_REFRESH_MAX_AGE, PlayerSchedule,
+                                  general_schedule_for, schedule_for)
+from the_gatehouse.services.availability import (local_to_utc_hours, utc_to_local_hours,
+                                                 hours_to_bitmask, overlap_count,
+                                                 format_hour_12, hour_labels)
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler
 from the_gatehouse.services.discord_oauth import update_discord_avatar
@@ -1135,3 +1140,282 @@ class SteamLinkFlowTest(_NoLoginSignalMixin, TestCase):
         response = self.client.post(reverse("steam-unlink"))
         self.assertEqual(response.status_code, 302)
         self.assertIn("login", response["Location"])
+
+
+class AvailabilityConversionTests(TestCase):
+    """Local <-> UTC hour-of-week conversion.
+
+    These exercise the reasons the availability code uses ZoneInfo instead of a
+    stored numeric offset: DST, sub-hour zones, and week wraparound.
+    """
+
+    def test_local_hour_converts_to_utc(self):
+        # Monday 09:00 in New York (EST, UTC-5) is Monday 14:00 UTC.
+        self.assertEqual(local_to_utc_hours([9], 'America/New_York'), [14])
+
+    def test_round_trip_is_identity_for_whole_hour_zones(self):
+        for tz_name in ('America/New_York', 'Europe/Berlin', 'Asia/Tokyo', 'UTC'):
+            with self.subTest(tz=tz_name):
+                original = [9, 10, 11, 38, 39, 167]
+                utc = local_to_utc_hours(original, tz_name)
+                self.assertEqual(utc_to_local_hours(utc, tz_name), original)
+
+    def test_dst_zone_differs_between_january_and_july(self):
+        """The regression a fixed numeric offset cannot catch.
+
+        New York is UTC-5 in January and UTC-4 in July, so the same wall-clock hour
+        maps to different UTC hours. A stored offset would apply one of them all
+        year; ZoneInfo applies the one that actually holds at that moment.
+        """
+        january = datetime(2024, 1, 1, 9, tzinfo=ZoneInfo('America/New_York'))
+        july = datetime(2024, 7, 1, 9, tzinfo=ZoneInfo('America/New_York'))
+        self.assertNotEqual(
+            january.astimezone(dt_timezone.utc).hour,
+            july.astimezone(dt_timezone.utc).hour,
+        )
+
+    def test_wraps_forward_across_the_week_boundary(self):
+        # Sunday 23:00 in New York (UTC-5) is Monday 04:00 UTC -> hour 4, not 171.
+        sunday_23 = 6 * 24 + 23
+        self.assertEqual(local_to_utc_hours([sunday_23], 'America/New_York'), [4])
+
+    def test_wraps_backward_across_the_week_boundary(self):
+        # Monday 00:00 in Tokyo (UTC+9) is Sunday 15:00 UTC -> hour 159, not -9.
+        self.assertEqual(local_to_utc_hours([0], 'Asia/Tokyo'), [159])
+
+    def test_half_hour_zone_rounds_down_to_the_containing_hour(self):
+        # Kolkata is UTC+5:30, so Monday 09:00 local is 03:30 UTC -> hour 3.
+        self.assertEqual(local_to_utc_hours([9], 'Asia/Kolkata'), [3])
+
+    def test_unknown_timezone_falls_back_to_utc(self):
+        self.assertEqual(local_to_utc_hours([9], 'Not/AZone'), [9])
+        self.assertEqual(local_to_utc_hours([9], None), [9])
+
+    def test_out_of_range_and_junk_values_are_dropped(self):
+        self.assertEqual(local_to_utc_hours([999, -4, 'x', None, 5], 'UTC'), [5])
+
+    def test_bitmask_overlap_counts_shared_hours(self):
+        self.assertEqual(
+            overlap_count(hours_to_bitmask([1, 2, 3, 4]), hours_to_bitmask([3, 4, 5])),
+            2,
+        )
+
+    def test_bitmask_matches_set_intersection(self):
+        a, b = [0, 5, 23, 100, 167], [5, 23, 99, 167]
+        self.assertEqual(
+            overlap_count(hours_to_bitmask(a), hours_to_bitmask(b)),
+            len(set(a) & set(b)),
+        )
+
+    def test_twelve_hour_labels_handle_midnight_and_noon(self):
+        """The off-by-one trap: hour 0 is 12 AM and hour 12 is 12 PM, not 0."""
+        self.assertEqual(format_hour_12(0), '12:00 AM')
+        self.assertEqual(format_hour_12(12), '12:00 PM')
+        self.assertEqual(format_hour_12(11), '11:00 AM')
+        self.assertEqual(format_hour_12(13), '1:00 PM')
+        self.assertEqual(format_hour_12(23), '11:00 PM')
+
+    def test_compact_hour_labels_keep_am_pm(self):
+        self.assertEqual(format_hour_12(0, compact=True), '12am')
+        self.assertEqual(format_hour_12(9, compact=True), '9am')
+        self.assertEqual(format_hour_12(12, compact=True), '12pm')
+        self.assertEqual(format_hour_12(23, compact=True), '11pm')
+
+    def test_hour_labels_covers_the_whole_day(self):
+        labels = hour_labels()
+        self.assertEqual(len(labels), 24)
+        self.assertEqual(labels[0], (0, '12am', '12:00 AM'))
+        self.assertEqual(labels[12], (12, '12pm', '12:00 PM'))
+        self.assertEqual(labels[23], (23, '11pm', '11:00 PM'))
+
+
+class PlayerScheduleModelTests(TestCase):
+    """The schedule model, its accessors, and the NULL-uniqueness gap."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='scheduler', password='pw')
+        self.profile = self.user.profile
+
+    def test_general_schedule_accessor_is_idempotent(self):
+        """unique_together cannot enforce this -- NULL is distinct from NULL in a
+        unique index -- so the accessor is the only thing preventing duplicates."""
+        first = general_schedule_for(self.profile)
+        second = general_schedule_for(self.profile)
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(
+            PlayerSchedule.objects.filter(profile=self.profile, tournament=None).count(),
+            1,
+        )
+
+    def test_as_bitmask_sets_a_bit_per_hour(self):
+        schedule = general_schedule_for(self.profile)
+        schedule.available_hours = [0, 3, 167]
+        mask = schedule.as_bitmask()
+        self.assertTrue(mask & (1 << 0))
+        self.assertTrue(mask & (1 << 3))
+        self.assertTrue(mask & (1 << 167))
+        self.assertFalse(mask & (1 << 1))
+
+    def test_schedule_for_falls_back_to_the_general_schedule(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        self.assertEqual(schedule_for(self.profile).pk, general.pk)
+
+
+class AvailabilityViewTests(_NoLoginSignalMixin, TestCase):
+    """The /availability page: rendering, saving, and the Profile.save() trap."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='gridder', password='pw')
+        self.profile = self.user.profile
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+
+    def test_requires_login(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('login', response['Location'])
+
+    def test_renders_the_grid(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'the_gatehouse/availability.html')
+
+    def test_post_saves_utc_hours_and_updates_profile_timezone(self):
+        response = self.client.post(self.url, {
+            'timezone': 'America/New_York',
+            'available_hours': '9,10',
+            'action': 'save',
+        })
+        self.assertRedirects(response, self.url)
+
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        # 09:00 and 10:00 EST -> 14:00 and 15:00 UTC.
+        self.assertEqual(schedule.available_hours, [14, 15])
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/New_York')
+
+    def test_saved_hours_render_back_in_local_time(self):
+        schedule = general_schedule_for(self.profile)
+        schedule.available_hours = [14, 15]
+        schedule.save(update_fields=['available_hours'])
+        self.profile.timezone = 'America/New_York'
+        self.profile.save(update_fields=['timezone'])
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['selected_hours'], [9, 10])
+
+    def test_invalid_timezone_is_rejected(self):
+        response = self.client.post(self.url, {
+            'timezone': 'Not/AZone',
+            'available_hours': '9',
+            'action': 'save',
+        })
+        self.assertEqual(response.status_code, 200)  # redisplayed, not saved
+        self.profile.refresh_from_db()
+        self.assertIsNone(self.profile.timezone)
+        self.assertFalse(
+            PlayerSchedule.objects.filter(profile=self.profile)
+            .exclude(available_hours=[]).exists()
+        )
+
+    def test_empty_grid_clears_availability(self):
+        schedule = general_schedule_for(self.profile)
+        schedule.available_hours = [1, 2, 3]
+        schedule.save(update_fields=['available_hours'])
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'available_hours': '', 'action': 'save',
+        })
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.available_hours, [])
+
+    def test_saving_does_not_delete_the_profile_avatar(self):
+        """Profile.save() deletes the stored avatar unless update_fields excludes
+        'image'. Every writer of profile.timezone must pass update_fields; this
+        locks that in."""
+        self.profile.image = 'profile_pics/real_avatar.png'
+        self.profile.save(update_fields=['image'])
+
+        self.client.post(self.url, {
+            'timezone': 'Europe/Berlin', 'available_hours': '9', 'action': 'save',
+        })
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.image.name, 'profile_pics/real_avatar.png')
+
+    def test_timezone_change_keeps_unsaved_selection_and_does_not_save_hours(self):
+        """Re-rendering under a new zone must not silently discard painted cells,
+        and must not commit them either."""
+        response = self.client.post(self.url, {
+            'timezone': 'Asia/Tokyo',
+            'drawn_timezone': 'UTC',
+            'available_hours': '9,10',
+            'action': 'change_timezone',
+        })
+        self.assertEqual(response.status_code, 200)
+        # Same instants, relabelled: 09:00/10:00 UTC is 18:00/19:00 in Tokyo.
+        self.assertEqual(response.context['selected_hours'], [18, 19])
+
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        self.assertEqual(schedule.available_hours, [])
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Asia/Tokyo')
+
+    def test_changing_timezone_moves_the_selection_not_the_hours(self):
+        """Availability is ABSOLUTE. Viewing it in another zone relabels the same
+        instants, so the lit rows shift -- 12am in UTC-7 must not stay lit at 12am
+        once the grid is redrawn in UTC-8."""
+        response = self.client.post(self.url, {
+            'timezone': 'America/Anchorage',      # UTC-9 in January
+            'drawn_timezone': 'America/Los_Angeles',  # UTC-8 in January
+            'available_hours': '0',               # Monday 12am Pacific
+            'action': 'change_timezone',
+        })
+        self.assertEqual(response.status_code, 200)
+        # Monday 00:00 Pacific is 08:00 UTC, which is 23:00 Sunday in Anchorage.
+        self.assertNotIn(0, response.context['selected_hours'])
+        self.assertEqual(response.context['selected_hours'], [6 * 24 + 23])
+
+    def test_saving_interprets_hours_in_the_zone_they_were_drawn_in(self):
+        """The picker may differ from the zone the grid was rendered in; the hours
+        mean what they meant when painted."""
+        self.client.post(self.url, {
+            'timezone': 'Asia/Tokyo',
+            'drawn_timezone': 'America/New_York',
+            'available_hours': '9',
+            'action': 'save',
+        })
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        # 09:00 New York -> 14:00 UTC, NOT 09:00 Tokyo -> 00:00 UTC.
+        self.assertEqual(schedule.available_hours, [14])
+
+    def test_unknown_drawn_timezone_falls_back_to_the_submitted_one(self):
+        """A junk hidden field must not reject the form and lose the grid."""
+        response = self.client.post(self.url, {
+            'timezone': 'UTC',
+            'drawn_timezone': 'Not/AZone',
+            'available_hours': '5',
+            'action': 'save',
+        })
+        self.assertRedirects(response, self.url)
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        self.assertEqual(schedule.available_hours, [5])
+
+    def test_settings_page_shows_the_availability_card(self):
+        # The settings cards (API key, Steam, Availability) sit behind
+        # {% if user.profile.player %}, so the card only renders for a player.
+        self.profile.group = Profile.GroupChoices.PLAYER
+        schedule = general_schedule_for(self.profile)
+        schedule.available_hours = [1, 2, 3]
+        schedule.save(update_fields=['available_hours'])
+        self.profile.save(update_fields=['group'])
+
+        response = self.client.get(reverse('user-settings'))
+        self.assertEqual(response.context['availability_hours_count'], 3)
+        self.assertContains(response, reverse('availability'))
