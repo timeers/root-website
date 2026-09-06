@@ -199,22 +199,57 @@ UPCOMING_COMMAND = {
 }
 
 
+# /schedule took subcommands so that clearing a time is something you can FIND.
+# It used to be spelled "run /schedule with no time", which nothing advertised.
+# Discord does not let one command be both a plain command and a parent, so the
+# old bare `/schedule <time>` is now `/schedule set <time>` -- worth a changelog
+# line, since regulars have muscle memory for the old form.
+SCHEDULE_SUBCOMMANDS = [
+    {
+        "name": "set",
+        "description": "Set the scheduled time for this thread's match",
+        "type": 1,  # SUB_COMMAND
+        "options": [
+            # Required now. It was optional only to carry the "no time means
+            # clear" trick, which `clear` replaces.
+            {"name": "time",
+             "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste',
+             "type": 3, "required": True},
+            # Rarely needed: the handler asks for a timezone with a region/city
+            # picker when it doesn't have one. This option stays because that
+            # picker is a curated ~76 zones, and it's the only way to reach any
+            # of the others.
+            #
+            # NOTE its autocomplete is keyed ("schedule set", "timezone") -- the
+            # dispatcher builds that key as "<parent> <sub>", so the bare
+            # "schedule" key would silently return no choices.
+            {"name": "timezone",
+             "description": "Override your saved timezone (otherwise I'll just ask)",
+             "type": 3, "required": False, "autocomplete": True},
+        ],
+    },
+    {
+        "name": "clear",
+        "description": "Remove the scheduled time for this thread's match",
+        "type": 1,  # SUB_COMMAND
+    },
+]
+
+SCHEDULE_SUBCOMMAND_NAMES = [s["name"] for s in SCHEDULE_SUBCOMMANDS]
+
 SCHEDULE_COMMAND = {
     "name": "schedule",
-    "description": "Suggest or clear the scheduled time for this thread's match",
-    "options": [
-        # Optional so that omitting it means "clear the current time" (the handler
-        # asks for confirmation first, and errors when there's nothing to clear).
-        {"name": "time",
-         "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste — leave empty to clear',
-         "type": 3, "required": False},
-        # Rarely needed: the handler asks for a timezone with a region/city picker
-        # when it doesn't have one. This option stays because that picker is a
-        # curated ~76 zones, and it's the only way to reach any of the others.
-        {"name": "timezone",
-         "description": "Override your saved timezone (otherwise I'll just ask)",
-         "type": 3, "required": False, "autocomplete": True},
-    ],
+    "description": "Set or clear the scheduled time for this thread's match",
+    "options": SCHEDULE_SUBCOMMANDS,
+}
+
+
+# Read-only and match-free, unlike /schedule: it reports when the thread's PLAYERS
+# are free, which works just as well in a plain /lfg thread that has no Match at
+# all. That is why it is its own command rather than a /schedule subcommand.
+AVAILABILITY_COMMAND = {
+    "name": "availability",
+    "description": "Compare when this game's players are free",
 }
 
 
@@ -572,6 +607,7 @@ COMMANDS = [
     STATS_COMMAND,
     UPCOMING_COMMAND,
     SCHEDULE_COMMAND,
+    AVAILABILITY_COMMAND,
     RECORD_COMMAND,
     LAW_COMMAND,
     DRAFT_COMMAND,
@@ -592,9 +628,10 @@ COMMANDS = [
 COMMAND_GROUPS = [
     ("General", ["help"]),
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
-                 "captain", "landmark", "hireling", "houserule", "card"]),
-    ("Stats", ["stats", "upcoming"]),
-    ("Games", ["lfg", "adset", "seating", "pick", "schedule", "boxscore", "record", "rename"]),
+                 "captain", "landmark", "hireling", "houserule", "card", "stats"]),
+    ("Organization", ["availability", "schedule", "upcoming"]),
+    ("Games", ["lfg", "adset", "seating", "pick",
+               "boxscore", "record", "rename"]),
     ("Randomize", ["draft", "random"]),
     ("Account", ["steam"]),
 ]

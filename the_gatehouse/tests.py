@@ -1568,3 +1568,74 @@ class AvailabilityMatrixTests(TestCase):
             ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-far'],
         )
         self.assertEqual(reachable_buckets(0), [])
+
+
+class AvailabilityCompareLFGTests(_NoLoginSignalMixin, TestCase):
+    """The compare page can compare an LFG thread's roster, and REFUSES by
+    rendering rather than 403-ing."""
+
+    def setUp(self):
+        super().setUp()
+        from the_databot.models import LFGThread
+        self.url = reverse('availability-compare')
+
+        self.members = []
+        for i in range(3):
+            user = User.objects.create_user(username=f'lfgp{i}', password='pw')
+            profile = user.profile
+            profile.timezone = 'UTC'
+            profile.save(update_fields=['timezone'])
+            PlayerSchedule.objects.create(
+                profile=profile, tournament=None, available_hours=[10, 11, 12])
+            self.members.append(profile)
+
+        self.thread = LFGThread.objects.create(thread_id='cmp-thread-1',
+                                               host=self.members[0])
+        self.thread.players.set(self.members)
+
+        outsider = User.objects.create_user(username='lfgout', password='pw')
+        self.outsider = outsider.profile
+
+    def _get(self, profile, **params):
+        self.client.force_login(profile.user)
+        return self.client.get(self.url, params)
+
+    def test_a_roster_member_sees_the_comparison(self):
+        response = self._get(self.members[1], lfg=self.thread.pk)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['can_view'])
+        self.assertEqual(response.context['player_count'], 3)
+
+    def test_the_host_sees_the_comparison(self):
+        response = self._get(self.members[0], lfg=self.thread.pk)
+        self.assertTrue(response.context['can_view'])
+
+    def test_an_outsider_gets_an_explanation_not_a_403(self):
+        response = self._get(self.outsider, lfg=self.thread.pk)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+
+    def test_a_refusal_leaks_no_player_data(self):
+        """The whole point of rendering instead of raising: it must not become a
+        way to read the roster."""
+        response = self._get(self.outsider, lfg=self.thread.pk)
+        self.assertEqual(response.context['player_count'], 0)
+        body = response.content.decode()
+        for member in self.members:
+            self.assertNotIn(member.display_name or member.discord, body)
+
+    def test_an_empty_roster_is_not_public(self):
+        """_thread_actor_error fails OPEN on an empty roster, which is right in
+        Discord and wrong on the web."""
+        from the_databot.models import LFGThread
+        empty = LFGThread.objects.create(thread_id='cmp-thread-empty')
+        response = self._get(self.outsider, lfg=empty.pk)
+        self.assertFalse(response.context['can_view'])
+
+    def test_a_non_numeric_lfg_id_is_a_404(self):
+        response = self._get(self.members[0], lfg='nope')
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_missing_thread_is_a_404(self):
+        response = self._get(self.members[0], lfg=999999)
+        self.assertEqual(response.status_code, 404)

@@ -217,7 +217,7 @@ def availability_settings(request):
             # The zone the grid was DRAWN in, which is what those local hours mean.
             # It differs from tz_name exactly when the user is switching zones.
             drawn_tz = form.cleaned_data['drawn_timezone'] or tz_name
-            # "Show times in this zone" re-renders under a new timezone instead of
+            # "Update timezone" re-renders under a new timezone instead of
             # saving: the local->UTC mapping needs ZoneInfo's DST rules, which the
             # browser can't reproduce from a fixed offset.
             only_changing_timezone = request.POST.get('action') == 'change_timezone'
@@ -272,6 +272,28 @@ def availability_settings(request):
     return render(request, 'the_gatehouse/availability.html', context)
 
 
+def _can_view_lfg_availability(profile, thread):
+    """Whether `profile` may see an LFG thread's availability.
+
+    The three tiers _thread_actor_error uses in Discord -- roster member, the
+    thread's host, or a guild moderator -- with one deliberate difference: it
+    FAILS OPEN on an empty roster ("no roster, nothing to protect", correct where
+    those commands are how a table gets set up). On a web page that would make an
+    empty thread's availability readable by anyone, so this fails closed and the
+    caller renders the "no players" state instead.
+
+    `guild` and `host` are both nullable (SET_NULL, and host is NULL on threads
+    predating the field), so each tier is guarded rather than assumed.
+    """
+    if thread.players.filter(pk=profile.pk).exists():
+        return True
+    if thread.host_id and thread.host_id == profile.pk:
+        return True
+    if thread.guild_id and can_moderate_guild(profile, thread.guild):
+        return True
+    return False
+
+
 @login_required
 def availability_compare(request):
     """Compare several players' weekly availability on one grid.
@@ -295,9 +317,41 @@ def availability_compare(request):
     title = _('Player Availability')
 
     series_id = (request.GET.get('series') or '').strip()
+    lfg_id = (request.GET.get('lfg') or '').strip()
     player_slugs = [s for s in (request.GET.get('players') or '').split(',') if s.strip()]
 
-    if series_id:
+    # A refusal RENDERS rather than 403s, so someone following a link from Discord
+    # is told who may open it instead of hitting a wall. Nothing about the players
+    # is resolved when it is False -- names and hour counts must not leak into a
+    # page the viewer isn't allowed to see.
+    can_view = True
+    denied_message = None
+    profiles = None          # None = no branch has resolved a roster yet
+
+    if lfg_id:
+        from the_databot.models import LFGThread
+        if not lfg_id.isdigit():
+            raise Http404("No such game thread.")
+        thread = get_object_or_404(
+            LFGThread.objects.select_related('guild', 'series'), pk=lfg_id)
+        # A series-linked thread is a tournament group thread: its roster lives in
+        # the player group, NOT in thread.players. Hand it to the series branch so
+        # the permission rules stay in one place.
+        if thread.series_id:
+            series_id = str(thread.series_id)
+        else:
+            title = thread.description or _('Game Thread')
+            if _can_view_lfg_availability(viewer, thread):
+                profiles = list(thread.players.all())
+            else:
+                can_view = False
+                denied_message = _(
+                    "Only the players in this game and its moderators can see "
+                    "this availability."
+                )
+                profiles = []
+
+    if series_id and profiles is None:
         from the_warroom.models import MatchSeries, MatchSeat
         # The id comes off the query string, so a non-numeric value must 404
         # rather than blowing up in the ORM with a ValueError.
@@ -316,19 +370,22 @@ def availability_compare(request):
             stage_participant__tournament_player__profile=viewer,
         ).exists()
         if not (seated or tournament.has_permission(viewer)):
-            raise PermissionDenied(
-                "Only the players in this match and its organizers can see availability."
+            can_view = False
+            denied_message = _(
+                "Only the players in this match and its organizers can see "
+                "this availability."
             )
-
-        profiles = list(
-            Profile.objects.filter(
-                tournament_participations__stage_participations__matchseat__series=series
-            ).distinct()
-        )
+            profiles = []
+        else:
+            profiles = list(
+                Profile.objects.filter(
+                    tournament_participations__stage_participations__matchseat__series=series
+                ).distinct()
+            )
         back_url = series.round.get_matches_url()
         title = (series.player_group.name if series.player_group_id
                  else _('Match')) or _('Match')
-    else:
+    elif profiles is None:
         # The general form. Restricted to players the viewer shares a tournament
         # with -- the same circle the series form allows, generalised. This is the
         # filter a future player picker will build its list from.
@@ -393,6 +450,10 @@ def availability_compare(request):
         'back_url': back_url,
         'title': title,
         'edit_url': edit_url,
+        # False renders an explanation instead of the grid. The player lists above
+        # are empty in that case, so nothing about them reaches the template.
+        'can_view': can_view,
+        'denied_message': denied_message,
         'timezone_name': tz_name or 'UTC',
         'days': DAY_LABELS,
         'hours': hour_labels(),

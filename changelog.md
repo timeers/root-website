@@ -16,6 +16,8 @@
 - answering an availability survey saves your availability for that tournament, and you can go back and change it any time
 - if you set availability for a specific tournament it is used for that tournament, otherwise your general availability is used
 - calendar button on a match opens a page showing every player's availability side by side, so you can find a time that works
+- new /availability command posts a link comparing when this game's players are free — works in an /lfg thread, no tournament needed
+- /schedule clear removes the scheduled time, and asks which game you mean when a series has more than one scheduled
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
@@ -24,6 +26,8 @@
 - Databot page lists /lookup, /link and /boxscore as single commands instead of one row per subcommand
 - an unanswered box score prompt pings the players before it expires, then closes itself instead of leaving a dead button in the thread
 - editing your availability now affects grouping right away instead of waiting for the survey to be synced again
+- /schedule is now /schedule set (setting a time works the same, the command just moved under a subcommand). Clearing a time is its own /schedule clear instead of running /schedule with the time left blank
+- opening a player availability link you can't view now explains who can see it, instead of showing a permission error page
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url

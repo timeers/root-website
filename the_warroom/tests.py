@@ -2752,8 +2752,10 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         response = self.client.get(self.url, {'series': series.id})
         self.assertEqual(response.status_code, 200)
 
-    def test_unrelated_logged_in_user_is_forbidden(self):
-        """Availability is only for the people it concerns."""
+    def test_unrelated_logged_in_user_is_told_who_may_view(self):
+        """Availability is only for the people it concerns -- but the page now
+        RENDERS the refusal instead of 403-ing, so someone following a link from
+        Discord is told who may open it. It must still resolve no player data."""
         a = self._player("priv_a", hours=self.A_HOURS)
         series = self._series_with(a)
 
@@ -2763,7 +2765,10 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         )
         self.client.force_login(outsider)
         response = self.client.get(self.url, {'series': series.id})
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+        self.assertEqual(response.context['player_count'], 0)
+        self.assertNotIn(a.profile.display_name, response.content.decode())
 
     def test_anonymous_is_redirected_to_login(self):
         a = self._player("anon_a", hours=self.A_HOURS)

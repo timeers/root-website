@@ -394,6 +394,39 @@ def _record_url(path):
     return f"{site}{path}" if site else None
 
 
+def _handle_availability_command(data):
+    """/availability: link to the availability comparison for this game's players.
+
+    Read-only and match-free, which is why it is its own command rather than a
+    /schedule subcommand: a plain /lfg thread has no Match at all, and its players
+    still want to see where their free hours overlap.
+
+    A SERIES-linked thread is a tournament group thread, so it uses ?series= and
+    inherits that page's roster and permission rules; a plain thread uses ?lfg=.
+    Chosen on thread.series_id rather than _thread_roster, which can WRITE a group
+    link as a side effect."""
+    channel_id = data.get("_channel_id")
+
+    thread = _lfg_thread_for_channel(channel_id)
+    if thread is None:
+        return _ephemeral(
+            "Run this inside your game's thread to compare player availability.")
+
+    if thread.series_id:
+        path = f"/availability/compare/?series={thread.series_id}"
+    else:
+        path = f"/availability/compare/?lfg={thread.pk}"
+
+    url = _record_url(path)
+    if not url:
+        return _ephemeral("I can't build that link right now — try again later.")
+
+    return _ephemeral(
+        f"Compare when this game's players are free:\n{url}\n"
+        "-# Only the players in this game (and moderators) can open it."
+    )
+
+
 def _handle_record_command(data):
     """/record: hand back a link to record this game's result, picking the form's
     mode from the channel the command was used in.
@@ -707,21 +740,22 @@ def _schedulable_matches(guild_id):
     )
 
 
-def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unscheduled"):
-    """The Match to schedule for this thread. Returns (match, error) where `error`
-    is a user-facing message.
+def _matches_for_thread(channel_id, guild_id, channel_name=None):
+    """EVERY schedulable match of this thread's series. Returns (matches, error),
+    matches ordered by match_number, error a user-facing message.
+
+    Split out of _match_for_thread so /schedule clear can offer a choice when
+    several games are scheduled -- that needs the whole list, and the lookup below
+    (thread-id match, title fallback, the same-name ambiguity error, and the
+    link_group_thread write) is not worth reimplementing a second time.
 
     Primary key is the thread id inside PlayerGroup.discord_thread. Falls back to
     the thread's title matched against the player group's name (the name shown
     everywhere in the UI; MatchSeries.name is usually blank), but ONLY for groups
     with no thread URL saved — a linked group is reachable by its id alone, so a
-    same-named thread can't hijack it.
-
-    `prefer` picks which match of a multi-game series to act on: "unscheduled"
-    (setting a time) takes the first game still missing one; "scheduled"
-    (clearing) takes the LAST game that has one."""
+    same-named thread can't hijack it."""
     if not guild_id or not channel_id or not str(channel_id).isdigit():
-        return None, "This command only works inside a server."
+        return [], "This command only works inside a server."
 
     base = _schedulable_matches(guild_id)
 
@@ -735,7 +769,7 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
     if not matches:
         title = _normalize_title(channel_name)
         if not title:
-            return None, (
+            return [], (
                 "I couldn't find a tournament match linked to this thread. A "
                 "moderator can link it on the series edit page (set the group's "
                 "Discord thread), then try again."
@@ -757,7 +791,7 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
         if len(groups) > 1:
             # Group names are unique per round, not per tournament, so a title can
             # legitimately match several groups. Don't guess.
-            return None, (
+            return [], (
                 f'Several player groups are named "{channel_name}", so I can\'t tell '
                 "which match this thread is for. A moderator can link this thread to "
                 "the group on the series edit page."
@@ -771,11 +805,27 @@ def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unschedul
             link_group_thread(matches[0].series.player_group, guild_id, channel_id)
 
     if not matches:
-        return None, (
+        return [], (
             "I couldn't find a tournament match linked to this thread. A moderator "
             "can link it on the series edit page (set the group's Discord thread), "
             "then try again."
         )
+
+    return matches, None
+
+
+def _match_for_thread(channel_id, guild_id, channel_name=None, prefer="unscheduled"):
+    """The single Match to act on for this thread. Returns (match, error).
+
+    A thin `prefer` policy over _matches_for_thread: which game of a multi-game
+    series to pick when the caller only wants one.
+
+    `prefer` picks which match of a multi-game series to act on: "unscheduled"
+    (setting a time) takes the first game still missing one; "scheduled"
+    (clearing) takes the LAST game that has one."""
+    matches, error = _matches_for_thread(channel_id, guild_id, channel_name)
+    if error:
+        return None, error
 
     # `matches` is ordered by match_number, so [0] is the earliest game of a
     # series and [-1] the latest.
@@ -1095,6 +1145,57 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
         "flags": EPHEMERAL,
         "allowed_mentions": {"parse": []},
         "components": [action_row(*buttons)],
+    }
+
+
+def _schedule_pick_label(match, tz_name):
+    """One dropdown row: "Game 2 — Sat Mar 15, 8:00 PM".
+
+    A select option's label is PLAIN TEXT -- Discord renders `<t:...>` markup in
+    message content, not here -- so the time is formatted server-side in the
+    user's own zone (falling back to UTC), rather than handed over as a timestamp
+    the client would show verbatim.
+
+    match_label() is deliberately not used: it returns the player GROUP's name,
+    which is identical for every match in a series, so every row would read the
+    same."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    when = match.scheduled_time
+    try:
+        when = when.astimezone(ZoneInfo(tz_name)) if tz_name else when
+    except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError):
+        pass  # unknown zone: show UTC rather than refusing to render the row
+    number = match.match_number or "?"
+    # %-d/%-I are POSIX; this project runs on Linux and macOS.
+    return f"Game {number} — {when.strftime('%a %b %-d, %-I:%M %p')}"
+
+
+def _schedule_clear_pick_data(matches, owner, profile=None):
+    """Ask WHICH scheduled game to clear, when a series has more than one.
+
+    Only reached with 2+ scheduled matches; a single one goes straight to
+    _schedule_clear_data so the common case keeps its one-click flow. Choosing a
+    row re-renders THIS message as that match's clear confirmation, so the
+    destructive step still has its own explicit button."""
+    tz_name = getattr(profile, "timezone", None)
+    options = [
+        select_option(_schedule_pick_label(m, tz_name), str(m.id))
+        for m in matches
+    ]
+    return {
+        "content": "\n".join([
+            f"**{_match_label(matches[0])}** has more than one scheduled game.",
+            "Which time should I remove?",
+        ]),
+        "flags": EPHEMERAL,
+        "components": [
+            action_row(string_select(
+                encode_custom_id("schedule_clear_pick", owner),
+                options, placeholder="Pick a game")),
+            action_row(button("Cancel", encode_custom_id("schedule_cancel", owner),
+                              style=STYLE_SECONDARY)),
+        ],
     }
 
 
@@ -1543,32 +1644,127 @@ def _finalize_proposal(proposal, actor=None):
 
 
 def _handle_schedule_command(data):
-    """/schedule: set — or, with no `time`, clear — the scheduled time of the match
-    belonging to this thread. Replies ephemerally with a confirm prompt; nothing is
-    written until the user clicks."""
-    guild_id = data.get("_guild_id")
-    channel_id = data.get("_channel_id")
-    author_id = data.get("_author_id")
+    """/schedule <sub>. Routes to the subcommand handlers.
 
-    if not guild_id:
-        return _ephemeral("This command only works inside a server.")
-    if not author_id:
-        return _ephemeral("User not found, try again.")
+    `set` keeps the original behaviour and reads its options through the same
+    _get_option path, which walks data["options"] -- so the payload is rewritten
+    exactly as _handle_boxscore_command does it."""
+    sub, options = _subcommand(data)
+    if sub is None:
+        # A stale registration from before /schedule took subcommands. Fall
+        # through to `set`, which still treats a missing time as a clear.
+        return _handle_schedule_set_command(data)
+    handler = SCHEDULE_SUBCOMMAND_HANDLERS.get(sub)
+    if handler:
+        return handler({**data, "name": sub, "options": options})
+    if sub != "set":
+        return _ephemeral(f"Unknown schedule command: {sub}")
+    # explicit=True: this really is `set`, so a missing time is a user error
+    # rather than the legacy "blank means clear".
+    return _handle_schedule_set_command(
+        {**data, "name": sub, "options": options}, explicit=True)
+
+
+def _schedule_context(data):
+    """(profile, error) shared by the set and clear subcommands.
+
+    Both need a server, an author and a Profile before they can do anything;
+    neither should half-answer without one."""
+    if not data.get("_guild_id"):
+        return None, _ephemeral("This command only works inside a server.")
+    if not data.get("_author_id"):
+        return None, _ephemeral("User not found, try again.")
 
     # Get-or-create rather than a strict lookup: every path here wants to remember
     # the user's timezone, including someone suggesting a time in a thread that
     # isn't linked to anything. A brand-new Profile simply fails can_schedule below,
     # which is the honest answer anyway.
-    profile = _schedule_profile(author_id, data.get("_author_username"),
+    profile = _schedule_profile(data.get("_author_id"), data.get("_author_username"),
                                 data.get("_author"))
     if not profile:
-        return _ephemeral("User not found, try again.")
+        return None, _ephemeral("User not found, try again.")
+    return profile, None
 
-    # No time given = clear the existing one. That flips which match of a
-    # multi-game series we want: the last one that HAS a time, not the first
-    # one missing it.
+
+def _handle_schedule_clear_command(data):
+    """/schedule clear: remove the scheduled time of this thread's match.
+
+    Nothing is written here -- the reply is a confirm prompt, and with several
+    games scheduled it first asks WHICH one. That question used to be answered by
+    a guess (the last scheduled match), which could clear the wrong game of a
+    best-of-N without saying so."""
+    guild_id = data.get("_guild_id")
+    channel_id = data.get("_channel_id")
+    author_id = data.get("_author_id")
+
+    profile, error = _schedule_context(data)
+    if error:
+        return error
+
+    matches, lookup_error = _matches_for_thread(
+        channel_id, guild_id, data.get("_channel_name"))
+    if lookup_error:
+        # No match to clear. The unlinked handler says so in its own words.
+        return _handle_schedule_unlinked(data, profile, "", True)
+
+    # Permission is checked against the series (every match shares one), before
+    # the prompt, so an unauthorized user gets the error rather than a picker
+    # they can't act on.
+    if not matches[0].can_schedule(profile):
+        return _ephemeral(
+            "You're not able to schedule this game. If you think you should be, "
+            "contact the series admin."
+        )
+
+    scheduled = [m for m in matches if m.scheduled_time is not None]
+    if not scheduled:
+        return _ephemeral(
+            f"**{_match_label(matches[0])}** doesn't have a scheduled time to "
+            "remove. Use `/schedule set` to add one."
+        )
+
+    if len(scheduled) > 1:
+        # Several games have times, so let the user say which rather than guessing.
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _schedule_clear_pick_data(scheduled, author_id, profile),
+        })
+
+    # No timezone needed to clear, so this path works even for a profile that
+    # has never set one.
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": _schedule_clear_data(scheduled[0], author_id),
+    })
+
+
+def _handle_schedule_set_command(data, explicit=False):
+    """/schedule set: set the scheduled time of the match belonging to this thread.
+
+    Replies ephemerally with a confirm prompt; nothing is written until the user
+    clicks.
+
+    `explicit` says the user actually typed `set`, which decides what a MISSING
+    time means. Typed -> a user error pointing at /schedule clear. Reached through
+    the stale-registration shim (a bare /schedule, no subcommand) -> the legacy
+    "blank means clear", which is what that form has always done. It cannot be
+    re-derived here: the router already rewrote data["options"] to the
+    subcommand's own options, so _subcommand() would now return None."""
+    guild_id = data.get("_guild_id")
+    channel_id = data.get("_channel_id")
+    author_id = data.get("_author_id")
+
+    profile, error = _schedule_context(data)
+    if error:
+        return error
+
     time_text = (_get_option(data, "time") or "").strip()
     clearing = not time_text
+    if clearing and explicit:
+        return _ephemeral(
+            "Give me a `time` to schedule, or use `/schedule clear` to remove the "
+            "current one."
+        )
 
     match, error = _match_for_thread(
         channel_id, guild_id, data.get("_channel_name"),
@@ -1649,6 +1845,11 @@ def _handle_schedule_command(data):
                                        pending_confirmers=pending,
                                        already_proposed=already_proposed),
     })
+
+
+# `set` is not here: it stays the fallthrough in _handle_schedule_command so a
+# stale registration (bare /schedule, no subcommand) still reaches it.
+SCHEDULE_SUBCOMMAND_HANDLERS = {"clear": _handle_schedule_clear_command}
 
 
 def _handle_schedule_unlinked(data, profile, time_text, clearing):
@@ -2164,6 +2365,34 @@ def _handle_schedule_proposal_set(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _schedule_finalized_data(proposal, match),
+    })
+
+
+def _handle_schedule_clear_pick(payload):
+    """A game was chosen from the clear picker: show that match's confirmation.
+
+    The select echoes its own values, so the chosen id is read straight off the
+    payload -- selected_values() is only for recovering state on a BUTTON press.
+    Writes nothing; the red Clear Time button on the next screen still does that,
+    and re-authorizes when it runs."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [owner]
+    owner = args[0] if args else ""
+
+    chosen = (payload.get("data", {}).get("values") or [None])[0]
+    if not chosen or not str(chosen).isdigit():
+        return _ephemeral("That menu is out of date: run /schedule clear again.")
+
+    match = _schedulable_matches(payload.get("guild_id")).filter(pk=chosen).first()
+    if not match:
+        return _ephemeral(
+            "That match can no longer be changed: it may have been played or removed."
+        )
+    if match.scheduled_time is None:
+        return _ephemeral("That match no longer has a scheduled time.")
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_clear_data(match, owner),
     })
 
 
@@ -3938,6 +4167,9 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
 # that fails at import.
 ROSTER_GUARDED_COMMANDS = {
     "pick", "seating", "draft", "adset", "schedule", "random", "boxscore",
+    # Reveals when specific players are free. A new top-level command
+    # inherits nothing, so it is listed in its own right.
+    "availability",
     # Every /lookup subcommand captures into the roll log, captain included -- its
     # handler records kind "Captain". (An earlier revision of this comment described
     # /captain as read-only and left it unguarded; that was wrong.)
@@ -8260,6 +8492,7 @@ COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["schedule"] = _handle_schedule_command
+COMMAND_HANDLERS["availability"] = _handle_availability_command
 COMMAND_HANDLERS["record"] = _handle_record_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
 COMMAND_HANDLERS["seating"] = _handle_seating_command
@@ -8327,6 +8560,7 @@ COMPONENT_HANDLERS = {
     "random_cancel": _handle_random_cancel,
     "random_roll": _handle_random_roll,
     "schedule_confirm": _handle_schedule_confirm,
+    "schedule_clear_pick": _handle_schedule_clear_pick,
     "schedule_clear_confirm": _handle_schedule_clear_confirm,
     "schedule_cancel": _handle_schedule_cancel,
     # Public proposal buttons. Their custom_ids end in "g" (not a snowflake) so the
@@ -8527,7 +8761,9 @@ AUTOCOMPLETE_HANDLERS = {
     ("card", "from"): _ac_card_from,
     ("upcoming", "series"): _ac_upcoming_series,
     ("upcoming", "player"): _ac_upcoming_player,
-    ("schedule", "timezone"): _ac_schedule_timezone,
+    # "schedule set", not "schedule": the dispatcher keys autocomplete by the
+    # composite "<parent> <sub>", so a bare key silently returns no choices.
+    ("schedule set", "timezone"): _ac_schedule_timezone,
     ("law", "law"): _ac_law,
     ("law", "post"): _ac_law_post,
 }

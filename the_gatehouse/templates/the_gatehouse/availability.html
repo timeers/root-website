@@ -13,7 +13,7 @@
             <i class="bi bi-calendar-week me-2"></i>{% trans 'Your Availability' %}
           </h1>
           <p class="text-secondary mb-0">
-            {% trans 'Mark the hours you are usually free to play. Click a cell to toggle it, or use the day and hour labels to toggle a whole column or row.' %}
+            {% trans 'Mark the hours you are usually free to start a game (remember that TTS games can often take 4 hours to play). Click a cell to toggle it, or use the day and hour labels to toggle a whole column or row.' %}
           </p>
 
           {# Only shown when the player has tournament-specific availability, which only happens when a tournament asked them for it. #}
@@ -70,7 +70,7 @@
             {% endif %}
 
             <div class="row g-2 align-items-center">
-              <div class="col-md-8">
+              <div class="col-md-7">
                 <select name="timezone" id="id_timezone" class="form-select">
                   {% for group_label, options in form.fields.timezone.choices %}
                     <optgroup label="{{ group_label }}">
@@ -82,10 +82,10 @@
                   {% endfor %}
                 </select>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-5">
                 <button type="button" id="apply-timezone"
                         class="databot-btn databot-btn-outline btn-sm w-100">
-                  <i class="bi bi-arrow-repeat me-2"></i>{% trans 'Show times in this zone' %}
+                  <i class="bi bi-arrow-repeat me-2"></i>{% trans 'Update timezone' %}
                 </button>
               </div>
             </div>

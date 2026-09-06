@@ -1354,15 +1354,30 @@ class ScheduleCommandShapeTests(TestCase):
     """The `timezone` option is the only route to a zone the picker doesn't
     curate — guard it against a well-meaning cleanup."""
 
-    def test_schedule_offers_time_and_timezone(self):
+    def test_schedule_offers_set_and_clear(self):
         names = [o["name"] for o in dc.SCHEDULE_COMMAND["options"]]
+        self.assertEqual(names, ["set", "clear"])
+        for option in dc.SCHEDULE_COMMAND["options"]:
+            self.assertEqual(option["type"], 1)   # SUB_COMMAND
+
+    def test_set_carries_time_and_timezone(self):
+        setsub = next(o for o in dc.SCHEDULE_COMMAND["options"]
+                      if o["name"] == "set")
+        names = [o["name"] for o in setsub["options"]]
         self.assertEqual(names, ["time", "timezone"])
+        # `time` is required now: "leave it blank to clear" is what `clear` replaced.
+        time_option = next(o for o in setsub["options"] if o["name"] == "time")
+        self.assertTrue(time_option["required"])
 
     def test_timezone_option_still_autocompletes(self):
-        option = next(o for o in dc.SCHEDULE_COMMAND["options"]
-                      if o["name"] == "timezone")
+        setsub = next(o for o in dc.SCHEDULE_COMMAND["options"]
+                      if o["name"] == "set")
+        option = next(o for o in setsub["options"] if o["name"] == "timezone")
         self.assertTrue(option["autocomplete"])
-        self.assertIn(("schedule", "timezone"), di.AUTOCOMPLETE_HANDLERS)
+        # The dispatcher keys autocomplete by "<parent> <sub>". Registering the
+        # bare "schedule" would return no choices at all, silently.
+        self.assertIn(("schedule set", "timezone"), di.AUTOCOMPLETE_HANDLERS)
+        self.assertNotIn(("schedule", "timezone"), di.AUTOCOMPLETE_HANDLERS)
 
     def test_timezone_components_are_registered(self):
         for action in ("schedule_tz_region", "schedule_tz_zone",
@@ -7264,10 +7279,18 @@ class LookupDispatchTests(TestCase):
                 self.assertNotIn((name, "name"), di.AUTOCOMPLETE_HANDLERS)
 
     def test_plain_command_autocompletes_are_untouched(self):
-        for key in (("schedule", "timezone"), ("card", "name"), ("law", "law"),
-                    ("stats", "player")):
+        # /schedule is deliberately absent: it took subcommands, so its key moved
+        # to the composite ("schedule set", "timezone") -- see
+        # ScheduleCommandShapeTests, which pins that.
+        for key in (("card", "name"), ("law", "law"), ("stats", "player"),
+                    ("upcoming", "series")):
             with self.subTest(key=key):
                 self.assertIn(key, di.AUTOCOMPLETE_HANDLERS)
+
+    def test_a_subcommand_autocomplete_uses_the_composite_key(self):
+        """The dispatcher builds "<parent> <sub>", so a parent that grows
+        subcommands must move its key or silently return no choices."""
+        self.assertIn(("schedule set", "timezone"), di.AUTOCOMPLETE_HANDLERS)
 
     def test_guarded_set_and_handlers_cover_the_same_subcommands(self):
         """The two are built from different sources (LOOKUP_QUERYSETS + "captain" vs
@@ -11635,3 +11658,224 @@ class BoxScoreRosterGuardTests(TestCase):
             reachable.add(name)
         dead = di.ROSTER_GUARDED_COMMANDS - reachable
         self.assertEqual(dead, set(), f"guard entries matching no command: {dead}")
+
+
+class ScheduleClearPickerTests(ScheduleFixtureMixin, TestCase):
+    """With several games scheduled, /schedule clear ASKS which one.
+
+    It used to guess -- `prefer="scheduled"` took the last scheduled match -- so a
+    best-of-N could lose the wrong game's time with nothing said about it.
+    """
+
+    def setUp(self):
+        self.build()
+        self.thread_id = "555000111"
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+
+    def _extra_match(self, number, scheduled=None):
+        match = Match.objects.create(
+            round=self.round, series=self.series, match_number=number)
+        if scheduled is not None:
+            match.scheduled_time = scheduled
+            match.save(update_fields=["scheduled_time"])
+        return match
+
+    def _data(self, author=None):
+        return {
+            "name": "schedule",
+            "options": [{"name": "clear", "type": 1, "options": []}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": self.thread_id,
+            "_channel_name": None,
+            "_author_id": author or self.player.discord_id,
+            "_author_username": "player",
+        }
+
+    def _body(self, response):
+        return json.loads(response.content)
+
+    def _run(self, author=None):
+        return self._body(di._handle_schedule_command(self._data(author)))["data"]
+
+    # ── one scheduled match: unchanged ──────────────────────────────────────
+
+    def test_a_single_scheduled_match_goes_straight_to_the_confirm(self):
+        """The common case must not gain a click -- most series have one game."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        data = self._run()
+        self.assertIn("Remove the scheduled time", data["content"])
+        row = data["components"][0]["components"]
+        self.assertEqual(row[0]["type"], 2)   # BUTTON, not a select
+
+    def test_nothing_scheduled_still_errors(self):
+        data = self._run()
+        self.assertIn("doesn't have a scheduled time", data["content"])
+        self.assertNotIn("components", data)
+
+    # ── several scheduled: the picker ───────────────────────────────────────
+
+    def test_two_scheduled_matches_offer_a_picker(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        self._extra_match(2, self.when + timedelta(days=1))
+
+        data = self._run()
+        self.assertIn("more than one scheduled game", data["content"])
+        select = data["components"][0]["components"][0]
+        self.assertEqual(select["type"], 3)   # STRING_SELECT
+        self.assertEqual(len(select["options"]), 2)
+
+    def test_the_picker_lists_only_scheduled_matches(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        scheduled = self._extra_match(2, self.when + timedelta(days=1))
+        unscheduled = self._extra_match(3)
+
+        select = self._run()["components"][0]["components"][0]
+        values = {o["value"] for o in select["options"]}
+        self.assertEqual(values, {str(self.match.id), str(scheduled.id)})
+        self.assertNotIn(str(unscheduled.id), values)
+
+    def test_option_labels_are_distinct(self):
+        """match_label() returns the player GROUP's name, identical for every match
+        in a series -- using it would render every row the same."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        self._extra_match(2, self.when + timedelta(days=1))
+
+        select = self._run()["components"][0]["components"][0]
+        labels = [o["label"] for o in select["options"]]
+        self.assertEqual(len(labels), len(set(labels)))
+
+    def test_picking_a_match_confirms_that_one_not_the_last(self):
+        """The bug this fixes: the old guess always took the LAST scheduled game."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        later = self._extra_match(2, self.when + timedelta(days=1))
+
+        payload = {
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "schedule_clear_pick", self.player.discord_id),
+                "values": [str(self.match.id)],   # the EARLIER game
+            },
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": self.player.discord_id}},
+        }
+        data = self._body(di._handle_schedule_clear_pick(payload))["data"]
+        self.assertIn("Remove the scheduled time", data["content"])
+
+        # The confirm button carries the chosen match, not the later one.
+        confirm = data["components"][0]["components"][0]
+        _action, args = di.decode_custom_id(confirm["custom_id"])
+        self.assertEqual(args[0], str(self.match.id))
+        self.assertNotEqual(args[0], str(later.id))
+
+    def test_the_picker_writes_nothing(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        self._extra_match(2, self.when + timedelta(days=1))
+        self._run()
+        self.match.refresh_from_db()
+        self.assertIsNotNone(self.match.scheduled_time)
+
+    def test_the_picker_is_owner_locked(self):
+        """The owner rides LAST in the custom_id, which is what the dispatcher's
+        generic lock reads."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        self._extra_match(2, self.when + timedelta(days=1))
+        select = self._run()["components"][0]["components"][0]
+        _action, args = di.decode_custom_id(select["custom_id"])
+        self.assertEqual(args[-1], self.player.discord_id)
+
+    def test_the_component_is_registered(self):
+        self.assertIn("schedule_clear_pick", di.COMPONENT_HANDLERS)
+
+
+class ScheduleSetSubcommandTests(ScheduleFixtureMixin, TestCase):
+    """/schedule set, and the shim that keeps a stale bare /schedule working."""
+
+    def setUp(self):
+        self.build()
+        self.thread_id = "555000111"
+
+    def _data(self, options, sub="set"):
+        payload = {
+            "name": "schedule",
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": self.thread_id,
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        payload["options"] = ([{"name": sub, "type": 1, "options": options}]
+                              if sub else options)
+        return payload
+
+    def test_set_without_a_time_points_at_clear(self):
+        """`time` is required on the subcommand, so this is only reachable by a
+        malformed payload -- it must not silently mean "clear"."""
+        body = json.loads(di._handle_schedule_command(self._data([])).content)
+        self.assertIn("/schedule clear", body["data"]["content"])
+
+    def test_a_bare_schedule_still_works_via_the_shim(self):
+        """A client on the pre-subcommand registration sends no type-1 wrapper."""
+        data = self._data([{"name": "time", "type": 3, "value": "4pm"}], sub=None)
+        response = di._handle_schedule_command(data)
+        body = json.loads(response.content)
+        # Reaches the set path rather than "Unknown schedule command".
+        self.assertNotIn("Unknown schedule command", body["data"]["content"])
+
+    def test_an_unknown_subcommand_is_reported(self):
+        data = self._data([], sub="bogus")
+        body = json.loads(di._handle_schedule_command(data).content)
+        self.assertIn("Unknown schedule command", body["data"]["content"])
+
+
+class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
+    """/availability hands back a link to the comparison page."""
+
+    def setUp(self):
+        self.build()
+        self.thread_id = "555000111"
+
+    def _run(self, channel_id=None):
+        data = {
+            "name": "availability",
+            "options": [],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": channel_id or self.thread_id,
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        return json.loads(di._handle_availability_command(data).content)["data"]
+
+    def test_a_plain_lfg_thread_links_by_lfg_id(self):
+        thread = LFGThread.objects.create(thread_id=self.thread_id)
+        thread.players.add(self.player)
+        data = self._run()
+        self.assertIn(f"lfg={thread.pk}", data["content"])
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+
+    def test_a_series_thread_links_by_series_id(self):
+        """A tournament group thread's roster lives in the player group, so it uses
+        the series form and inherits that page's rules."""
+        thread = LFGThread.objects.create(thread_id=self.thread_id,
+                                          series=self.series)
+        data = self._run()
+        self.assertIn(f"series={self.series.id}", data["content"])
+        self.assertNotIn("lfg=", data["content"])
+
+    def test_outside_a_thread_says_where_to_run_it(self):
+        data = self._run(channel_id="not-a-thread")
+        self.assertIn("inside your game's thread", data["content"])
+
+    def test_the_command_is_registered_and_guarded(self):
+        names = [c["name"] for c in dc.all_command_definitions()]
+        self.assertIn("availability", names)
+        self.assertIn("availability", di.COMMAND_HANDLERS)
+        # It reveals when specific players are free.
+        self.assertIn("availability", di.ROSTER_GUARDED_COMMANDS)
