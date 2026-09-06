@@ -1,0 +1,50 @@
+{% load i18n %}
+{% comment %}
+A 7x24 weekly availability grid, shared by the /availability settings page and
+WEEKLY_AVAILABILITY survey questions. Lives at the project level because both
+the_gatehouse and the_tavern include it -- putting it in either app's template
+dir would make the dependency direction arbitrary.
+
+The behaviour comes from the_keep/static/the_keep/availability_grid.js, which
+auto-initialises anything with .js-availability-grid. Everything it needs is
+carried on the grid element itself, so several grids can sit on one page.
+
+Parameters:
+  grid_id        unique DOM id for this grid (required when there are several)
+  field_id       id of the hidden input the selection serializes into
+  count_id       optional id of a badge showing how many hours are selected
+  clear_id       optional id of a "clear all" button
+  days           DAY_LABELS from the_gatehouse.services.availability
+  hours          hour_labels() -> (hour, short_label, long_label) triples
+  editable       adds the editor affordances (hover, cursor, selected colour)
+
+Cells carry data-day/data-hour; the JS derives data-how (LOCAL hour-of-week)
+from them, since a template cannot compute day*24+hour.
+{% endcomment %}
+<div class="availability-scroll">
+  <div class="availability-grid js-availability-grid{% if editable %} availability-grid--editable{% endif %}"
+       id="{{ grid_id|default:'availability-grid' }}"
+       {% if field_id %}data-field-id="{{ field_id }}"{% endif %}
+       {% if count_id %}data-count-id="{{ count_id }}"{% endif %}
+       {% if clear_id %}data-clear-id="{{ clear_id }}"{% endif %}>
+    <div class="avail-corner"></div>
+    {% for day in days %}
+      <button type="button" class="avail-day-header" data-day="{{ forloop.counter0 }}"
+              title="{% trans 'Toggle this day' %}">{{ day|slice:":3" }}</button>
+    {% endfor %}
+
+    {% for hour, short_label, long_label in hours %}
+      <button type="button" class="avail-hour-label" data-hour="{{ hour }}"
+              title="{{ long_label }} — {% trans 'toggle this hour across the week' %}">
+        <span class="hour-text">{{ short_label }}</span>
+      </button>
+      {% for day in days %}
+        <button type="button" class="avail-cell"
+                data-day="{{ forloop.counter0 }}"
+                data-hour="{{ hour }}"
+                aria-pressed="false"
+                aria-label="{{ day }} {{ long_label }}"><span class="cell-time">{{ short_label }}</span></button>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</div>

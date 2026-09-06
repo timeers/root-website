@@ -2612,9 +2612,12 @@ class SurveyAvailabilityWriteTests(_AvailabilityFixtureMixin, TestCase):
         stub.get_combined_availability_hours.return_value = set(hours)
         return stub
 
-    def _survey_stub(self, series_id):
+    def _survey_stub(self, series_id, has_availability=True):
         survey = mock.Mock()
         survey.series_id = series_id
+        # Explicit, not left to Mock's truthy default: this is the gate that
+        # decides whether a submission may write a PlayerSchedule at all.
+        survey.has_availability_questions.return_value = has_availability
         return survey
 
     def test_submission_creates_tournament_schedule(self):
@@ -2671,15 +2674,37 @@ class SurveyAvailabilityWriteTests(_AvailabilityFixtureMixin, TestCase):
         )
         self.assertFalse(PlayerSchedule.objects.filter(profile=tp.profile).exists())
 
-    def test_response_without_availability_writes_nothing(self):
+    def test_a_survey_that_never_asked_writes_nothing(self):
+        """The guard moved from "no hours" to "the survey has no availability
+        questions". It runs on EVERY submission for a series survey, so an
+        unrelated poll must not be able to clear what the player set on
+        /availability -- but a deliberately-empty availability answer must be
+        able to (see test_an_empty_answer_clears_the_schedule)."""
         from the_tavern.views import _save_response_availability
 
         tp = self._player("noanswers")
         _save_response_availability(
-            self._survey_stub(self.tournament.id),
+            self._survey_stub(self.tournament.id, has_availability=False),
             self._response_stub(tp.profile, []),
         )
         self.assertFalse(PlayerSchedule.objects.filter(profile=tp.profile).exists())
+
+    def test_an_empty_answer_clears_the_schedule(self):
+        """"Free at no hour" is an answer, and has to be recordable."""
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("clearing")
+        PlayerSchedule.objects.create(
+            profile=tp.profile, tournament=self.tournament,
+            available_hours=list(self.A_HOURS))
+
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(tp.profile, []),
+        )
+        schedule = PlayerSchedule.objects.get(
+            profile=tp.profile, tournament=self.tournament)
+        self.assertEqual(schedule.available_hours, [])
 
     def test_submission_never_writes_a_general_schedule(self):
         from the_tavern.views import _save_response_availability

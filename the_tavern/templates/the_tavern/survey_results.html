@@ -158,6 +158,32 @@
                         {% endif %}
                     {% endfor %}
 
+                {% elif question_data.question.question_type == 'WA' %}
+                    {# Weekly Availability - a heat map of how many are free per hour. Shown in UTC on purpose: results go to a moderator, and drawing it per-viewer would make two moderators comparing notes see different grids. #}
+                    <p class="text-muted small mb-2">
+                        <i class="bi bi-clock"></i>
+                        {% blocktrans with n=question_data.wa_total %}{{ n }} responses — times shown in UTC.{% endblocktrans %}
+                    </p>
+                    <div class="availability-scroll">
+                        <div class="availability-grid">
+                            <div class="avail-corner"></div>
+                            {% for day in question_data.wa_days %}
+                                <div class="avail-day-header">{{ day|slice:":3" }}</div>
+                            {% endfor %}
+                            {% for row in question_data.wa_rows %}
+                                <div class="avail-hour-label" title="{{ row.title }}">
+                                    <span class="hour-text">{{ row.label }}</span>
+                                </div>
+                                {% for cell in row.cells %}
+                                    <div class="avail-cell compare-cell {{ cell.bucket }}"
+                                         title="{{ cell.label }} — {{ cell.count }}">
+                                        <span class="cell-time">{{ cell.count }}</span>
+                                    </div>
+                                {% endfor %}
+                            {% endfor %}
+                        </div>
+                    </div>
+
                 {% elif question_data.question.question_type == 'LK' %}
                     {# Scale - show average and distribution #}
                     {% if question_data.average %}

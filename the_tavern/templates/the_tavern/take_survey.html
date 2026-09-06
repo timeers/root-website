@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags i18n survey_filters custom_filters %}
+{% load static crispy_forms_tags i18n survey_filters custom_filters %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
 {% block meta %}
@@ -32,6 +32,10 @@
     <form method="POST">
         {% csrf_token %}
         <input type="hidden" name="timezone_offset_hours" id="id_timezone_offset_hours" value="">
+        {% comment %} The IANA zone, which is what availability answers are actually
+        converted with. The numeric offset above describes one instant and cannot
+        survive a DST boundary; this can. {% endcomment %}
+        <input type="hidden" name="timezone_name" id="id_timezone_name" value="">
 
         {% for section_data in sections_data %}
         <div class="survey-section" data-section-index="{{ forloop.counter0 }}"
@@ -196,6 +200,35 @@
                             {% if question.required %}
                                 <div class="invalid-feedback" id="day_error_{{ question.id }}" style="display: none;">
                                     {% trans 'Please select at least one day.' %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                    {% elif question.question_type == 'WA' %}
+                    {# Weekly Availability: the same 7x24 grid as /availability #}
+                        <div class="mt-3">
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-check2-square"></i>
+                                {% trans 'Click or drag to mark every hour you are free. Times are shown in your own timezone.' %}
+                            </p>
+                            <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                                <span class="badge text-bg-secondary" id="wa_count_{{ question.id }}"
+                                      data-label="{% trans 'hours selected' %}"></span>
+                                <button type="button" class="databot-btn databot-btn-outline avail-btn-compact"
+                                        id="wa_clear_{{ question.id }}">
+                                    <i class="bi bi-x-circle me-1"></i>{% trans 'Clear' %}
+                                </button>
+                            </div>
+                            {% comment %} The hidden inputs the grid JS writes into. The
+                            timezone one tells the server what the painted LOCAL hours
+                            mean; it is filled in by the script below. {% endcomment %}
+                            {{ form|get_question_field:question.id }}
+                            <input type="hidden" name="question_{{ question.id }}_timezone"
+                                   id="wa_tz_{{ question.id }}" class="js-wa-timezone">
+                            {% include 'partials/availability_grid.html' with grid_id=question.wa_grid_id field_id=question.wa_field_id count_id=question.wa_count_id clear_id=question.wa_clear_id editable=True %}
+                            {% if question.required %}
+                                <div class="invalid-feedback" id="wa_error_{{ question.id }}" style="display: none;">
+                                    {% trans 'Please select at least one hour.' %}
                                 </div>
                             {% endif %}
                         </div>
@@ -508,6 +541,24 @@
 {% endblock styles %}
 
 {% block scripts %}
+{% comment %} Paint/drag for WEEKLY_AVAILABILITY grids. Shared with the
+/availability page; auto-initialises every .js-availability-grid, so several WA
+questions on one page each get their own independent grid. {% endcomment %}
+<script src="{% static 'the_keep/availability_grid.js' %}"></script>
+<script>
+// Tell the server which timezone each WA grid was PAINTED in. The local hours it
+// posts are meaningless without this, and the server (not the browser) does the
+// local->UTC conversion because that needs ZoneInfo's DST rules.
+document.addEventListener('DOMContentLoaded', function () {
+    var zone = 'UTC';
+    try {
+        zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch (err) { /* server falls back to the profile zone, then UTC */ }
+    document.querySelectorAll('.js-wa-timezone').forEach(function (field) {
+        if (!field.value) { field.value = zone; }
+    });
+});
+</script>
 <script>
 // ============================================
 // "Other" option toggle functions (MC/MS)
@@ -732,6 +783,17 @@ document.addEventListener('DOMContentLoaded', function() {
         timezoneInput.value = timezoneOffsetHours;
     }
 
+    // The zone NAME, posted alongside the offset. Set here rather than in the
+    // Time Availability loop below so it is sent even when the survey has no TA
+    // question -- the server also uses it to fill a blank profile timezone.
+    const timezoneNameInput = document.getElementById('id_timezone_name');
+    if (timezoneNameInput) {
+        try {
+            timezoneNameInput.value =
+                Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+        } catch (err) { /* server falls back to the profile zone, then the offset */ }
+    }
+
     // Time Availability: Detect timezone and convert hours
     const timeAvailabilityGrids = document.querySelectorAll('.time-availability-grid');
 
@@ -749,7 +811,10 @@ document.addEventListener('DOMContentLoaded', function() {
             tzNameSpan.textContent = `Times shown in ${timezoneName} (UTC${offsetSign}${timezoneOffsetHours})`;
         }
 
-        // Convert all time slots to local time
+        // Relabel each slot in local time. DISPLAY ONLY -- the checkbox value is
+        // still the choice whose text is the UTC hour, so the server stores that
+        // UTC hour as-is. It must NOT convert again: doing so applied the offset
+        // twice and recorded a UTC-7 player's midnight as 2pm.
         const timeSlots = grid.querySelectorAll('.time-slot-item');
         timeSlots.forEach(slot => {
             const utcHour = parseInt(slot.dataset.utcHour);

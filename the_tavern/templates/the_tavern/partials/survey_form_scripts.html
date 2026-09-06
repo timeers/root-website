@@ -453,6 +453,7 @@ const questionTypes = {
     'RK': 'Ranking',
     'TA': 'Time Availability',
     'DY': 'Day Availability',
+    'WA': 'Weekly Availability',
     'DA': 'Date',
     'TI': 'Time',
     'DT': 'Date & Time',
@@ -1129,6 +1130,17 @@ function handleTypeChange(questionId, existingData = null) {
             <div class="alert alert-info">
                 <i class="bi bi-calendar"></i> <strong>Day Availability Question</strong><br>
                 <small>This question type automatically creates 7 day slots (Monday-Sunday).</small>
+            </div>
+        `;
+    } else if (type === 'WA') {
+        // Weekly Availability - a 7x24 grid, no per-question config to collect
+        optionsContainer.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-calendar-week"></i> <strong>Weekly Availability Question</strong><br>
+                <small>Respondents mark every hour of a standard week they are free, on a
+                7&times;24 grid shown in their own timezone. On a Series survey this sets the
+                player's schedule directly, and replaces any Time or Day Availability
+                questions in the same survey.</small>
             </div>
         `;
     } else if (type === 'YN') {

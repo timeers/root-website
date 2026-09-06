@@ -114,37 +114,17 @@
                 <h2 class="info-card-title h5 mb-1">
                   <i class="bi bi-clock me-2"></i>{% trans 'Weekly Availability' %}
                 </h2>
-                <span class="badge text-bg-secondary" id="hour-count"></span>
+                {% comment %} data-label carries the translated noun into the shared
+                grid JS, which is a static file and so cannot use {% trans %}. {% endcomment %}
+                <span class="badge text-bg-secondary" id="hour-count"
+                      data-label="{% trans 'hours selected' %}"></span>
               </div>
               <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="clear-grid">
                 <i class="bi bi-x-circle me-1"></i><span class="d-sm-none">{% trans 'Clear' %}</span><span class="d-none d-sm-inline">{% trans 'Clear all' %}</span>
               </button>
             </div>
 
-            <div class="availability-scroll">
-              <div class="availability-grid" id="availability-grid">
-                <div class="avail-corner"></div>
-                {% for day in days %}
-                  <button type="button" class="avail-day-header" data-day="{{ forloop.counter0 }}"
-                          title="{% trans 'Toggle this day' %}">{{ day|slice:":3" }}</button>
-                {% endfor %}
-
-                {% for hour, short_label, long_label in hours %}
-                  <button type="button" class="avail-hour-label" data-hour="{{ hour }}"
-                          title="{{ long_label }} — {% trans 'toggle this hour across the week' %}">
-                    <span class="hour-text">{{ short_label }}</span>
-                  </button>
-                  {% for day in days %}
-                    {# data-how (the LOCAL hour-of-week) is derived in JS from these two, since a template can't compute day*24+hour. #}
-                    <button type="button" class="avail-cell"
-                            data-day="{{ forloop.counter0 }}"
-                            data-hour="{{ hour }}"
-                            aria-pressed="false"
-                            aria-label="{{ day }} {{ long_label }}"><span class="cell-time">{{ short_label }}</span></button>
-                  {% endfor %}
-                {% endfor %}
-              </div>
-            </div>
+            {% include 'partials/availability_grid.html' with grid_id='availability-grid' field_id='id_available_hours' count_id='hour-count' clear_id='clear-grid' editable=True %}
           </div>
         </div>
 
@@ -163,49 +143,17 @@
 </div>
 {% endblock content %}
 
-{% block styles %}
-<style>
-  /* Grid layout, cells and the compact button live in main.css (shared with the
-     read-only /availability/compare view). Only the EDITOR's own affordances --
-     the selected state, hover and focus rings, and the pointer cursor -- stay
-     here, so the read-only grid can reuse the layout without inheriting them. */
-
-  .avail-day-header,
-  .avail-hour-label,
-  .avail-cell {
-    cursor: pointer;
-  }
-
-  .avail-day-header:hover,
-  .avail-hour-label:hover {
-    background: #eef0f2;
-    color: #2c2f33;
-  }
-
-  .avail-cell:hover {
-    border-color: #0d6efd;
-    color: #6c757d;
-  }
-
-  /* Selected state matches the survey grid's checked colour so the two features
-     read as one system. */
-  .avail-cell.is-selected {
-    background: #0d6efd;
-    border-color: #0d6efd;
-    color: #fff;
-  }
-
-  .avail-cell:focus-visible,
-  .avail-day-header:focus-visible,
-  .avail-hour-label:focus-visible {
-    outline: 2px solid #0d6efd;
-    outline-offset: 1px;
-  }
-</style>
-{% endblock styles %}
+{% comment %} The grid's layout AND its editor affordances now both live in
+main.css -- the latter behind .availability-grid--editable, which the shared
+partial applies when passed editable=True. Nothing page-specific is left. {% endcomment %}
 
 {% block scripts %}
 {{ timezone_name|json_script:"saved-timezone" }}
+{% comment %} Paint/drag behaviour is shared with WEEKLY_AVAILABILITY survey
+questions and lives in availability_grid.js, which auto-initialises the grid.
+Only this page's own concerns stay here: the timezone picker and form submit.
+{% endcomment %}
+<script src="{% static 'the_keep/availability_grid.js' %}"></script>
 <script>
 (function () {
   var grid = document.getElementById('availability-grid');
@@ -214,154 +162,18 @@
   var hiddenField = document.getElementById('id_available_hours');
   var actionField = document.getElementById('id_action');
   var tzSelect = document.getElementById('id_timezone');
-  var countBadge = document.getElementById('hour-count');
   var form = document.getElementById('availability-form');
 
-  // ---- Cell indexing -------------------------------------------------------
-  // Template loops can't compute day*24+hour, so each cell's real hour-of-week is
-  // assigned here from its data-day / data-hour pair.
-  var cells = Array.prototype.slice.call(grid.querySelectorAll('.avail-cell'));
-  cells.forEach(function (cell) {
-    var day = parseInt(cell.dataset.day, 10);
-    var hour = parseInt(cell.dataset.hour, 10);
-    cell.dataset.how = String(day * 24 + hour);
-  });
-
-  var byHow = {};
-  cells.forEach(function (cell) { byHow[cell.dataset.how] = cell; });
-
-  // ---- Initial selection ---------------------------------------------------
-  function initialSelection() {
-    var raw = (hiddenField.value || '').trim();
-    if (!raw) { return; }
-    raw.split(',').forEach(function (part) {
-      var cell = byHow[part.trim()];
-      if (cell) { setSelected(cell, true); }
-    });
-  }
-
-  function setSelected(cell, on) {
-    cell.classList.toggle('is-selected', on);
-    cell.setAttribute('aria-pressed', on ? 'true' : 'false');
-  }
-
-  function isSelected(cell) { return cell.classList.contains('is-selected'); }
-
-  function updateCount() {
-    var n = grid.querySelectorAll('.avail-cell.is-selected').length;
-    countBadge.textContent = n + ' {% trans "hours selected" %}';
-  }
-
+  // Mirror of the shared module's serializer. The grid writes the hidden field on
+  // every change, so this only has to force a final flush before a submit that
+  // the module cannot see coming.
   function serialize() {
-    var hours = cells.filter(isSelected).map(function (c) { return c.dataset.how; });
+    var hours = [];
+    grid.querySelectorAll('.avail-cell.is-selected').forEach(function (c) {
+      hours.push(c.dataset.how);
+    });
     hiddenField.value = hours.join(',');
-    return hours;
   }
-
-  // ---- Painting ------------------------------------------------------------
-  // Drag to paint: the first cell's CURRENT state decides whether the drag is
-  // selecting or clearing, so a drag started on a lit cell erases.
-  var painting = false;
-  var paintTo = true;
-
-  function beginPaint(cell) {
-    painting = true;
-    paintTo = !isSelected(cell);
-    setSelected(cell, paintTo);
-    updateCount();
-  }
-
-  function continuePaint(cell) {
-    if (!painting) { return; }
-    if (isSelected(cell) !== paintTo) {
-      setSelected(cell, paintTo);
-      updateCount();
-    }
-  }
-
-  // POINTER EVENTS, not mouse + touch.
-  //
-  // Mouse, touch and stylus all arrive here as one event type, so there is
-  // exactly ONE code path that toggles a cell. The previous mouse-plus-touch
-  // arrangement is what made tapping unreliable: a tap fires touchstart AND a
-  // compatibility mousedown AND a synthesized click, so the same cell could be
-  // toggled two or three times and land back where it started. Chrome's device
-  // emulator sends that full sequence, which is why it looked random there.
-  //
-  // Delegated (one listener, not 168) and guarded with a pointerId so a second
-  // finger can't hijack an in-progress drag.
-  var activePointer = null;
-
-  grid.addEventListener('pointerdown', function (e) {
-    if (!e.isPrimary) { return; }          // ignore extra fingers
-    var cell = e.target.closest('.avail-cell');
-    if (!cell) { return; }
-    activePointer = e.pointerId;
-    // Keeps the drag alive if the finger leaves the grid, and stops the browser
-    // turning the gesture into a scroll or a text selection mid-paint.
-    if (grid.setPointerCapture) {
-      try { grid.setPointerCapture(e.pointerId); } catch (err) { /* not fatal */ }
-    }
-    e.preventDefault();
-    beginPaint(cell);
-  });
-
-  grid.addEventListener('pointermove', function (e) {
-    if (!painting || e.pointerId !== activePointer) { return; }
-    // With pointer capture every move retargets to the grid, so hit-test the live
-    // coordinates to find the cell actually under the pointer.
-    var el = document.elementFromPoint(e.clientX, e.clientY);
-    var cell = el && el.closest ? el.closest('.avail-cell') : null;
-    if (cell) {
-      e.preventDefault();
-      continuePaint(cell);
-    }
-  });
-
-  function endPaint(e) {
-    if (e && e.pointerId !== activePointer) { return; }
-    painting = false;
-    activePointer = null;
-  }
-  grid.addEventListener('pointerup', endPaint);
-  grid.addEventListener('pointercancel', endPaint);
-  document.addEventListener('pointerup', endPaint);
-
-  // pointerdown already toggled the cell, so the click that follows must not do
-  // it again. Only a KEYBOARD activation (Enter/Space on the button, which fires
-  // click with no preceding pointerdown) still needs handling here.
-  grid.addEventListener('click', function (e) {
-    var cell = e.target.closest('.avail-cell');
-    if (!cell || e.detail !== 0) { return; }
-    setSelected(cell, !isSelected(cell));
-    updateCount();
-  });
-
-  // ---- Row / column toggles (the accessible path to bulk selection) --------
-  grid.addEventListener('click', function (e) {
-    var dayBtn = e.target.closest('.avail-day-header');
-    if (dayBtn) {
-      var day = parseInt(dayBtn.dataset.day, 10);
-      var col = cells.filter(function (c) { return parseInt(c.dataset.day, 10) === day; });
-      var turnOn = !col.every(isSelected);
-      col.forEach(function (c) { setSelected(c, turnOn); });
-      updateCount();
-      return;
-    }
-    var hourBtn = e.target.closest('.avail-hour-label');
-    if (hourBtn) {
-      var hour = parseInt(hourBtn.dataset.hour, 10);
-      var row = cells.filter(function (c) { return parseInt(c.dataset.hour, 10) === hour; });
-      var on = !row.every(isSelected);
-      row.forEach(function (c) { setSelected(c, on); });
-      updateCount();
-    }
-  });
-
-  document.getElementById('clear-grid').addEventListener('click', function () {
-    cells.forEach(function (c) { setSelected(c, false); });
-    updateCount();
-  });
 
   // ---- Timezone ------------------------------------------------------------
   // With no saved profile timezone, fall back to whatever the browser reports.
@@ -407,8 +219,6 @@
 
   form.addEventListener('submit', function () { serialize(); });
 
-  initialSelection();
-  updateCount();
   flagPartialHourZone();
 })();
 </script>

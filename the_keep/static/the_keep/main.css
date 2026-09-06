@@ -5446,6 +5446,43 @@ body.forge-modal-open { overflow: hidden; }
     pointer-events: none;  /* clicks and drags must hit the cell, never the label */
   }
 
+  /* EDITOR affordances, opt-in via --editable. The layout above is shared with
+     the read-only /availability/compare grid, which must NOT get a pointer
+     cursor, hover feedback or a selected colour -- nothing there is clickable.
+     Kept here rather than in a page's style block so every editable grid (the
+     /availability page, a WEEKLY_AVAILABILITY survey question) looks alike. */
+  .availability-grid--editable .avail-day-header,
+  .availability-grid--editable .avail-hour-label,
+  .availability-grid--editable .avail-cell {
+    cursor: pointer;
+  }
+
+  .availability-grid--editable .avail-day-header:hover,
+  .availability-grid--editable .avail-hour-label:hover {
+    background: #eef0f2;
+    color: #2c2f33;
+  }
+
+  .availability-grid--editable .avail-cell:hover {
+    border-color: #0d6efd;
+    color: #6c757d;
+  }
+
+  /* Selected state matches the survey grid's checked colour so the two features
+     read as one system. */
+  .availability-grid--editable .avail-cell.is-selected {
+    background: #0d6efd;
+    border-color: #0d6efd;
+    color: #fff;
+  }
+
+  .availability-grid--editable .avail-cell:focus-visible,
+  .availability-grid--editable .avail-day-header:focus-visible,
+  .availability-grid--editable .avail-hour-label:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 1px;
+  }
+
   @media (max-width: 576px) {
     /* "12am" needs about 2.9rem to stay legible, so the grid scrolls sideways
        rather than shrinking text below readability. */

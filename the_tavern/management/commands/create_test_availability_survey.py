@@ -28,6 +28,13 @@ class Command(BaseCommand):
             help='Waitlist threshold (responses after this are on waitlist, default: 10)'
         )
         parser.add_argument(
+            '--weekly',
+            action='store_true',
+            help=('Use one WEEKLY_AVAILABILITY question instead of the '
+                  'TIME + DAY pair. WA overrides TA/DY, so the two cannot be '
+                  'mixed in one fixture and still exercise both paths.')
+        )
+        parser.add_argument(
             '--title',
             type=str,
             default='Test Availability Survey',
@@ -36,6 +43,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         num_responses = options['responses']
+        weekly = options['weekly']
         waitlist_threshold = options['waitlist']
         title = options['title']
 
@@ -54,36 +62,50 @@ class Command(BaseCommand):
         )
         self.stdout.write(self.style.SUCCESS(f"Created survey: {survey.title} (ID: {survey.id})"))
 
-        # Create a TIME_AVAILABILITY question
-        ta_question = Question.objects.create(
-            survey=survey,
-            text="What hours are you available to play? (Select all that apply)",
-            question_type=Question.QuestionType.TIME_AVAILABILITY,
-            order=1,
-            required=True,
-            ta_enabled_days=['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
-        )
-        # Create UTC hour choices (0-23)
-        ta_question.create_utc_hour_choices()
-        self.stdout.write(f"  Created TIME_AVAILABILITY question with 24 hour choices")
+        wa_question = None
+        ta_question = None
+        da_question = None
+        if weekly:
+            wa_question = Question.objects.create(
+                survey=survey,
+                text="When are you available to play?",
+                question_type=Question.QuestionType.WEEKLY_AVAILABILITY,
+                order=1,
+                required=True,
+            )
+            self.stdout.write("  Created WEEKLY_AVAILABILITY question (no choices)")
 
-        # Create a DAY_AVAILABILITY question
-        da_question = Question.objects.create(
-            survey=survey,
-            text="Which days are you available?",
-            question_type=Question.QuestionType.DAY_AVAILABILITY,
-            order=2,
-            required=True,
-        )
-        da_question.create_day_choices()
-        self.stdout.write(f"  Created DAY_AVAILABILITY question with 7 day choices")
+        if not weekly:
+            # Create a TIME_AVAILABILITY question
+            ta_question = Question.objects.create(
+                survey=survey,
+                text="What hours are you available to play? (Select all that apply)",
+                question_type=Question.QuestionType.TIME_AVAILABILITY,
+                order=1,
+                required=True,
+                ta_enabled_days=['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+            )
+            # Create UTC hour choices (0-23)
+            ta_question.create_utc_hour_choices()
+            self.stdout.write("  Created TIME_AVAILABILITY question with 24 hour choices")
+
+            # Create a DAY_AVAILABILITY question
+            da_question = Question.objects.create(
+                survey=survey,
+                text="Which days are you available?",
+                question_type=Question.QuestionType.DAY_AVAILABILITY,
+                order=2,
+                required=True,
+            )
+            da_question.create_day_choices()
+            self.stdout.write("  Created DAY_AVAILABILITY question with 7 day choices")
 
         # Get or create test profiles
         profiles = self._get_or_create_test_profiles(num_responses)
 
         # Get choices for questions
-        hour_choices = list(ta_question.choices.all().order_by('order'))
-        day_choices = list(da_question.choices.all().order_by('order'))
+        hour_choices = list(ta_question.choices.all().order_by('order')) if ta_question else []
+        day_choices = list(da_question.choices.all().order_by('order')) if da_question else []
 
         # Create responses with varied availability patterns
         availability_patterns = self._generate_availability_patterns(num_responses)
@@ -99,23 +121,38 @@ class Command(BaseCommand):
                 timezone_offset_hours=Decimal(str(timezone_offset)),
             )
 
-            # Create TIME_AVAILABILITY answer
-            ta_answer = Answer.objects.create(
-                response=response,
-                question=ta_question,
-            )
-            # Select hours based on pattern
-            selected_hours = [hour_choices[h] for h in pattern['hours']]
-            ta_answer.selected_choices.set(selected_hours)
+            if weekly:
+                # WEEKLY_AVAILABILITY stores UTC hour-of-week ints directly --
+                # the same pattern crossed into a grid, so the grouping algorithm
+                # sees equivalent overlap either way.
+                hours = sorted({
+                    day * 24 + hour
+                    for day in pattern['days']
+                    for hour in pattern['hours']
+                })
+                Answer.objects.create(
+                    response=response,
+                    question=wa_question,
+                    availability_hours=hours,
+                )
+            else:
+                # Create TIME_AVAILABILITY answer
+                ta_answer = Answer.objects.create(
+                    response=response,
+                    question=ta_question,
+                )
+                # Select hours based on pattern
+                selected_hours = [hour_choices[h] for h in pattern['hours']]
+                ta_answer.selected_choices.set(selected_hours)
 
-            # Create DAY_AVAILABILITY answer
-            da_answer = Answer.objects.create(
-                response=response,
-                question=da_question,
-            )
-            # Select days based on pattern
-            selected_days = [day_choices[d] for d in pattern['days']]
-            da_answer.selected_choices.set(selected_days)
+                # Create DAY_AVAILABILITY answer
+                da_answer = Answer.objects.create(
+                    response=response,
+                    question=da_question,
+                )
+                # Select days based on pattern
+                selected_days = [day_choices[d] for d in pattern['days']]
+                da_answer.selected_choices.set(selected_days)
 
             is_waitlist = response_position > waitlist_threshold
             status = "(waitlist)" if is_waitlist else ""

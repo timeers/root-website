@@ -152,6 +152,17 @@
                                 {% endif %}
                             </div>
 
+                        {% elif answer.question.question_type == 'WA' %}
+                        {# Weekly Availability: the stored hours as per-day ranges. A read-only 7x24 grid would need days/hours in context on every path that renders this page; the run summary says the same thing in a line. #}
+                            <div class="mt-2">
+                                <p class="mb-2"><small class="text-muted">{% trans 'Available hours' %}:</small></p>
+                                {% if answer.availability_hours %}
+                                    <span class="badge bg-primary">{{ answer.get_weekly_availability_display }}</span>
+                                {% else %}
+                                    <em class="text-muted">{% trans 'No hours selected' %}</em>
+                                {% endif %}
+                            </div>
+
                         {# Open Ended #}
                         {% elif answer.question.question_type == 'OE' %}
                             <div class="mt-2">
