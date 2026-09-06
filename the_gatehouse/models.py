@@ -545,6 +545,9 @@ class Profile(models.Model):
     steam_id = models.CharField(
         max_length=17, blank=True, null=True, unique=True,
         help_text="User's verified SteamID64, used to match Tabletop Simulator players.")
+    assumed_steam_id = models.CharField(
+        max_length=17, blank=True, null=True, unique=True,
+        help_text="User's assumed SteamID64, added from confirmed boxscore uploads, used to match Tabletop Simulator players.")
     # Cached leaderboard inputs (coalition formula), maintained by
     # calculate_and_cache_winrate via Effort/Game signals. Let the default
     # /leaderboard/ board be a plain indexed query with no aggregation.

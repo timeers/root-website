@@ -330,22 +330,39 @@ class ImportResult:
 def resolve_participant_player(participant, player_queryset):
     """The Profile for one participant, or None.
 
-    Order is deliberate: ``player_steam_id`` is a VERIFIED identity -- the user
-    proved it through Steam's OpenID endpoint -- while ``player`` is just a name
-    the exporter wrote down. So the Steam id wins. This mirrors
-    ensure_profile_from_discord, where the verified discord_id likewise outranks
-    the handle.
+    Three tiers, in descending order of how much the identity can be trusted:
 
-    Both lookups are scoped to `player_queryset` (the roster this game may draw
-    from), so neither key can pull in someone who isn't playing.
+      1. ``steam_id``         -- VERIFIED: proved through Steam's OpenID endpoint.
+      2. ``assumed_steam_id`` -- ASSUMED: a human picked this player out of the
+         roster at Gate 0 on an earlier upload. Not proof, but a deliberate
+         answer about a specific Steam account, so it beats a name.
+      3. ``player`` -> slug   -- just a name the exporter wrote down. The slug is
+         DERIVED from the Discord name, so this is a name match wearing an id's
+         clothing: case-sensitive, blind to renames, and ambiguous when two
+         handles slugify alike. Last resort, kept only because a hand-authored
+         file may carry no Steam id at all.
+
+    This mirrors ensure_profile_from_discord, where the verified discord_id
+    likewise outranks the handle.
+
+    A verified id ALWAYS beats an assumed one, including across profiles: tier 1
+    is exhausted before tier 2 is consulted, so if A has steam_id=X and B has
+    assumed_steam_id=X, X resolves to A. B's row is then unreachable rather than
+    wrong -- which is why nothing needs to forbid it.
+
+    All lookups are scoped to `player_queryset` (the roster this game may draw
+    from), so no key can pull in someone who isn't playing.
 
     Per-participant, for the website importer where each seat is resolved on its
     own. /boxscore uses resolve_participant_players instead -- see its docstring.
     """
     steam_id = participant.get('player_steam_id')
     if steam_id:
-        # steam_id is unique=True, so this matches at most one profile.
+        # Both columns are unique=True, so each matches at most one profile.
         found = player_queryset.filter(steam_id=str(steam_id)).first()
+        if found is not None:
+            return found
+        found = player_queryset.filter(assumed_steam_id=str(steam_id)).first()
         if found is not None:
             return found
 
@@ -356,29 +373,38 @@ def resolve_participant_player(participant, player_queryset):
 
 
 def resolve_participant_players(participants, player_queryset):
-    """[Profile|None, ...] aligned with `participants`, in two queries.
+    """[Profile|None, ...] aligned with `participants`, in three queries.
 
     Same precedence and scoping as resolve_participant_player, batched: /boxscore
     runs inside Discord's 3-second interaction budget and has already spent up to
     2s downloading the attachment, so resolving a 6-seat file one .first() at a
-    time would add a dozen round trips it cannot afford.
+    time would add a dozen round trips it cannot afford. One query per tier
+    (verified, assumed, slug) keeps that guarantee as the tiers grow.
     """
     steam_ids = {str(p['player_steam_id']) for p in participants
                  if p.get('player_steam_id')}
     slugs = {p['player'] for p in participants
              if isinstance(p.get('player'), str) and p.get('player')}
 
-    by_steam, by_slug = {}, {}
+    by_steam, by_assumed, by_slug = {}, {}, {}
     if steam_ids:
         by_steam = {p.steam_id: p
                     for p in player_queryset.filter(steam_id__in=steam_ids)}
+        by_assumed = {p.assumed_steam_id: p for p
+                      in player_queryset.filter(assumed_steam_id__in=steam_ids)}
     if slugs:
         by_slug = {p.slug: p for p in player_queryset.filter(slug__in=slugs)}
 
     out = []
     for participant in participants:
         steam_id = participant.get('player_steam_id')
-        found = by_steam.get(str(steam_id)) if steam_id else None
+        found = None
+        if steam_id:
+            steam_id = str(steam_id)
+            # by_steam FIRST for the same key: that ordering is the whole
+            # guarantee that a verified id beats an assumed one, including when
+            # they sit on different profiles. Do not collapse these lookups.
+            found = by_steam.get(steam_id) or by_assumed.get(steam_id)
         if found is None:
             slug = participant.get('player')
             found = by_slug.get(slug) if isinstance(slug, str) else None
@@ -397,6 +423,77 @@ def participant_label(participant):
         return slug
     steam_id = participant.get('player_steam_id')
     return str(steam_id) if steam_id else '?'
+
+
+def is_plausible_steam_id(value):
+    """Whether `value` could be a SteamID64: exactly 17 digits.
+
+    Not cosmetic. A file-supplied player_steam_id is cleaned to 100 characters
+    before it gets here, while Profile.assumed_steam_id is max_length=17.
+    SQLite silently stores an over-long value, so dev and the test suite would
+    never notice -- but production is PostgreSQL, which raises DataError and
+    would turn a malformed box score into an unhandled 500 inside a Discord
+    interaction. Check the width here rather than trusting the column.
+    """
+    if value is None:
+        return False
+    text = str(value).strip()
+    return len(text) == 17 and text.isdigit()
+
+
+def assign_assumed_steam_ids(pairs):
+    """Persist box-score Steam ids onto profiles as ASSUMED identities.
+
+    `pairs` is [(profile_pk, steam_id), ...]; returns the number saved.
+
+    NEVER writes `steam_id`. An assumed id is a human's answer at a dropdown; a
+    verified one was proved through Steam's OpenID endpoint. Letting the former
+    overwrite the latter would undermine the identity the resolver is built on.
+
+    Deliberately thin. Two cases that look like they need guarding do not:
+
+      * an id that ANOTHER profile has verified -- resolution consults steam_id
+        before assumed_steam_id, so the verified profile still wins and the row
+        written here is merely unreachable (see resolve_participant_player).
+      * a target that is itself already verified -- Gate 0 excludes verified
+        profiles from its dropdown, so one can never be chosen.
+
+    What does need handling is uniqueness: assumed_steam_id is unique=True, so
+    pointing an id at a new profile without releasing the old holder raises
+    IntegrityError. Both writes share one transaction, since a failure between
+    them would leave the id owned by nobody.
+    """
+    from django.db import transaction
+    from the_gatehouse.models import Profile
+
+    clean = [(pk, str(sid).strip()) for pk, sid in pairs
+             if pk and is_plausible_steam_id(sid)]
+    if not clean:
+        return 0
+
+    # A profile picked for two seats, or one id aimed at two profiles, is a
+    # mis-click rather than an intent -- and would breach uniqueness anyway.
+    by_pk, seen_ids = {}, set()
+    for pk, sid in clean:
+        if pk in by_pk or sid in seen_ids:
+            continue
+        by_pk[pk] = sid
+        seen_ids.add(sid)
+
+    with transaction.atomic():
+        # Release the id from whoever holds it now, or the write below trips the
+        # unique constraint. .update() correctly bypasses Profile.save().
+        Profile.objects.filter(assumed_steam_id__in=seen_ids).exclude(
+            pk__in=by_pk).update(assumed_steam_id=None)
+
+        saved = 0
+        for profile in Profile.objects.filter(pk__in=by_pk):
+            profile.assumed_steam_id = by_pk[profile.pk]
+            # update_fields is mandatory, not an optimisation: Profile.save()
+            # re-derives display_name and runs an avatar-deletion branch.
+            profile.save(update_fields=['assumed_steam_id'])
+            saved += 1
+    return saved
 
 
 def _resolve_slug(slug, queryset, model, *, label, what, result, is_player=False):

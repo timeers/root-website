@@ -10632,12 +10632,41 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
             response = di.COMPONENT_HANDLERS[action](payload)
         return json.loads(response.content)["data"]
 
+    def _pick(self, key, seat_index, value, author=None):
+        """Choose from one of Gate 0's dropdowns.
+
+        A select's custom_id carries the seat index BEFORE the owner, so this
+        cannot go through _press."""
+        payload = {
+            "data": {
+                "custom_id": (f"boxscore_g0_pick:{key}:{seat_index}:"
+                              f"{author or self.AUTHOR}"),
+                "values": [str(value)],
+            },
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": author or self.AUTHOR}},
+        }
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+            response = di.COMPONENT_HANDLERS["boxscore_g0_pick"](payload)
+        return json.loads(response.content)["data"]
+
+    def _selects(self, data):
+        """The string-select rows of a gate message."""
+        return [r["components"][0] for r in data.get("components", [])
+                if r["components"][0].get("type") == 3]
+
     def _pending_key(self, content_data):
         """The prompt reference from a gate message's buttons.
 
         Refs are "<backing>:<key>" (c = cache, t = token row), so keep both parts;
-        the trailing element is the owner/PICK_OPEN marker."""
-        row = content_data["components"][0]["components"]
+        the trailing element is the owner/PICK_OPEN marker.
+
+        Reads the BUTTON row rather than components[0]: Gate 0 leads with select
+        rows, and a select's custom_id carries an extra seat index before the
+        owner, so slicing a select would silently yield a malformed ref."""
+        rows = content_data["components"]
+        row = next((r["components"] for r in rows
+                    if r["components"][0].get("type") == 2), rows[0]["components"])
         parts = row[0]["custom_id"].split(":")
         return ":".join(parts[1:-1])
 
@@ -10646,15 +10675,21 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
         Returns the content of the final (applied) message."""
         data = self._run_data(doc, **kw)
-        for _ in range(2):  # at most Gate 1 then Gate 2
+        for _ in range(3):  # at most Gate 0, then Gate 1, then Gate 2
             if not data.get("components"):
                 break
             key = self._pending_key(data)
-            # Take the LAST affirmative button: Gate 1 leads with Try Again, and
-            # this helper wants the "proceed anyway" path (Continue / Confirm).
-            row = data["components"][0]["components"]
+            # Take the affirmative "proceed anyway" button. Gate 0 leads with
+            # Save & Continue and Gate 1 with Try Again, neither of which is what
+            # this helper wants -- it presses past every gate without answering.
+            rows = data["components"]
+            row = next((r["components"] for r in rows
+                        if r["components"][0].get("type") == 2),
+                       rows[0]["components"])
             actions = [b["custom_id"].split(":")[0] for b in row]
-            action = next(a for a in actions if a in ("boxscore_link", "boxscore_ok"))
+            action = next(a for a in actions
+                          if a in ("boxscore_g0_skip", "boxscore_link",
+                                   "boxscore_ok"))
             data = self._press(action, key)
         return data["content"]
 
@@ -11301,6 +11336,189 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         # The box score reached the grid, and the seat fields were preselected.
         self.assertIn("grid-cell", html)
         self.assertIn("Fox", html)
+
+
+class BoxScoreGateZeroTests(BoxScoreCommandTests):
+    """Gate 0: identify players the file names but nobody can match, and REMEMBER
+    them, so the next upload seats them without asking again.
+
+    Inherits BoxScoreCommandTests for its fixtures and click helpers."""
+
+    STEAM_A = "76561198000000123"
+    STEAM_B = "76561198000000124"
+
+    def _doc_unknown(self, *names_and_ids):
+        """A file whose first seat is Alice and whose rest are strangers."""
+        participants = [{"turn_order": 1, "player": self.alice.slug,
+                         "turns": [{"turn": 1, "score": 2}]}]
+        for i, (name, steam_id) in enumerate(names_and_ids, start=2):
+            participants.append({"turn_order": i, "player": name,
+                                 "player_steam_id": steam_id,
+                                 "turns": [{"turn": 1, "score": 4}]})
+        return {"participants": participants}
+
+    # ── what it asks ────────────────────────────────────────────────────────
+
+    def test_it_offers_one_dropdown_per_unidentified_player(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        selects = self._selects(data)
+        self.assertEqual(len(selects), 1)
+        # Named by what the FILE said, not by the Steam id.
+        self.assertIn("MysteryGuest", data["content"])
+        self.assertNotIn(self.STEAM_A, data["content"])
+
+    def test_the_dropdown_lists_roster_players_by_display_name(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        labels = [o["label"] for o in self._selects(data)[0]["options"]]
+        self.assertIn("Bob", labels)          # display_name, not slug
+        self.assertIn("— skip —", labels)
+        # Alice already holds seat 1, and one person cannot hold two seats.
+        self.assertNotIn("Alice", labels)
+
+    def test_a_seat_with_no_steam_id_is_left_to_gate_one(self):
+        """Nothing to persist, so asking would collect a useless answer."""
+        doc = {"participants": [
+            {"turn_order": 1, "player": "nobody-at-all",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        self.assertEqual(self._selects(data), [])
+        self.assertIn("/link steam", data["content"])
+
+    def test_a_seat_with_no_name_is_left_to_gate_one(self):
+        """The only label left would be the raw SteamID64 -- which asks the
+        reader to identify someone by the very id we want to attach a name to,
+        and would publish it to the channel on the TTS path."""
+        doc = {"participants": [
+            {"turn_order": 1, "player_steam_id": self.STEAM_A,
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        self.assertEqual(self._selects(data), [])
+        self.assertIn("/link steam", data["content"])
+
+    def test_a_malformed_steam_id_is_left_to_gate_one(self):
+        """Too long for the column: PostgreSQL would raise DataError on save."""
+        data = self._run_data(self._doc_unknown(("MysteryGuest", "7" * 40)))
+        self.assertEqual(self._selects(data), [])
+
+    def test_it_is_skipped_when_no_roster_player_is_free(self):
+        doc = self._doc_unknown(("MysteryGuest", self.STEAM_A))
+        self.bob.steam_id = "76561198000000999"
+        self.bob.save(update_fields=["steam_id"])
+        data = self._run_data(doc)
+        # Bob is verified, so there is nobody left to offer.
+        self.assertEqual(self._selects(data), [])
+
+    # ── answering it ────────────────────────────────────────────────────────
+
+    def test_picking_and_saving_remembers_the_player(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        key = self._pending_key(data)
+        self._pick(key, 1, self.bob.pk)
+        self._press("boxscore_g0_ok", key)
+
+        self.bob.refresh_from_db()
+        self.assertEqual(self.bob.assumed_steam_id, self.STEAM_A)
+        self.assertIsNone(self.bob.steam_id)      # NEVER the verified field
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk, self.bob.pk])
+
+    def test_a_later_upload_matches_with_no_gate_zero(self):
+        """The whole point: identify once, and it sticks."""
+        doc = self._doc_unknown(("MysteryGuest", self.STEAM_A))
+        key = self._pending_key(self._run_data(doc))
+        self._pick(key, 1, self.bob.pk)
+        self._press("boxscore_g0_ok", key)
+
+        again = self._run_data(doc)
+        self.assertEqual(self._selects(again), [])
+        self.assertFalse(again.get("components"))
+        self.assertIn("Bob", again["content"])
+
+    def test_skipping_remembers_nothing_and_moves_on(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        after = self._press("boxscore_g0_skip", self._pending_key(data))
+
+        self.bob.refresh_from_db()
+        self.assertIsNone(self.bob.assumed_steam_id)
+        self.assertIn("/link steam", after["content"])   # Gate 1 took over
+
+    def test_the_skip_option_leaves_a_player_unmatched(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        key = self._pending_key(data)
+        self._pick(key, 1, self.bob.pk)
+        self._pick(key, 1, di._BOXSCORE_GATE_ZERO_SKIP)   # changed their mind
+        self._press("boxscore_g0_ok", key)
+
+        self.bob.refresh_from_db()
+        self.assertIsNone(self.bob.assumed_steam_id)
+
+    def test_gate_zero_does_not_fire_again_after_being_answered(self):
+        """Skip leaves the seats untouched, so without the done-flag this would
+        ask the same question forever."""
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        after = self._press("boxscore_g0_skip", self._pending_key(data))
+        self.assertEqual(self._selects(after), [])
+
+    def test_choosing_someone_releases_them_from_another_seat(self):
+        data = self._run_data(self._doc_unknown(("One", self.STEAM_A),
+                                                ("Two", self.STEAM_B)))
+        key = self._pending_key(data)
+        self._pick(key, 1, self.bob.pk)
+        self._pick(key, 2, self.bob.pk)       # same person, other seat
+        self._press("boxscore_g0_ok", key)
+
+        self.bob.refresh_from_db()
+        # Held once, for the seat chosen last -- never twice.
+        self.assertEqual(self.bob.assumed_steam_id, self.STEAM_B)
+
+    def test_a_pick_is_shown_as_the_current_answer(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        after = self._pick(self._pending_key(data), 1, self.bob.pk)
+        defaults = [o["label"] for o in self._selects(after)[0]["options"]
+                    if o.get("default")]
+        self.assertEqual(defaults, ["Bob"])
+
+    # ── shape ───────────────────────────────────────────────────────────────
+
+    def test_it_never_exceeds_discords_five_action_rows(self):
+        extras = [Profile.objects.create(discord=f"bsx{i}", discord_id=f"96{i}",
+                                         display_name=f"Extra{i}")
+                  for i in range(6)]
+        self.thread.players.add(*extras)
+        unknowns = [(f"Guest{i}", f"765611980000001{i:02d}") for i in range(6)]
+        data = self._run_data(self._doc_unknown(*unknowns))
+
+        self.assertLessEqual(len(data["components"]), 5)
+        self.assertEqual(len(self._selects(data)),
+                         di._BOXSCORE_GATE_ZERO_PER_PAGE)
+        actions = [b["custom_id"].split(":")[0]
+                   for b in data["components"][-1]["components"]]
+        self.assertIn("boxscore_g0_page", actions)      # a Next button exists
+
+    def test_a_pick_survives_turning_the_page(self):
+        """Why Gate 0 keeps state in the payload rather than in the message: a
+        pick made on page 1 is simply not present in page 2's components."""
+        extras = [Profile.objects.create(discord=f"bsy{i}", discord_id=f"97{i}",
+                                         display_name=f"Other{i}")
+                  for i in range(6)]
+        self.thread.players.add(*extras)
+        unknowns = [(f"Guest{i}", f"765611980000002{i:02d}") for i in range(6)]
+        data = self._run_data(self._doc_unknown(*unknowns))
+        key = self._pending_key(data)
+
+        self._pick(key, 1, self.bob.pk)
+        self._press("boxscore_g0_page", key + ":1")     # to page 2 and back
+        back = self._press("boxscore_g0_page", key + ":0")
+        defaults = [o["label"] for o in self._selects(back)[0]["options"]
+                    if o.get("default")]
+        self.assertEqual(defaults, ["Bob"])
+
+    def test_its_buttons_are_owner_locked_on_the_ephemeral_path(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        for row in data["components"]:
+            for comp in row["components"]:
+                self.assertTrue(comp["custom_id"].endswith(f":{self.AUTHOR}"))
 
 
 class LinkSteamCommandTest(TestCase):

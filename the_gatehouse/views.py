@@ -12,7 +12,7 @@ from django.core.cache import cache
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Count, Q, Count, Avg, F
 from django.http import JsonResponse, Http404, HttpResponseBadRequest, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -565,10 +565,22 @@ def steam_link_callback(request):
         messages.error(request, _('That Steam account is already linked to another profile.'))
         return redirect(landing)
 
-    # update_fields is required, not an optimisation: a bare save() re-derives
-    # display_name and runs the avatar-deletion branch in Profile.save().
-    profile.steam_id = steam_id
-    profile.save(update_fields=['steam_id'])
+    # Verifying settles this id, so retire every guess about it: the one on this
+    # profile is now redundant, and one on ANY other profile is a wrong guess
+    # that resolution would never reach again (verified outranks assumed). Left
+    # behind it is invisible stale data that will mislead the next reader.
+    with transaction.atomic():
+        Profile.objects.filter(assumed_steam_id=steam_id).exclude(
+            pk=profile.pk).update(assumed_steam_id=None)
+
+        # update_fields is required, not an optimisation: a bare save() re-derives
+        # display_name and runs the avatar-deletion branch in Profile.save().
+        profile.steam_id = steam_id
+        if profile.assumed_steam_id == steam_id:
+            profile.assumed_steam_id = None
+            profile.save(update_fields=['steam_id', 'assumed_steam_id'])
+        else:
+            profile.save(update_fields=['steam_id'])
 
     messages.success(request, _('Your Steam account is now linked!'))
     return redirect(landing)

@@ -18,6 +18,7 @@
 - calendar button on a match opens a page showing every player's availability side by side, so you can find a time that works
 - new /availability command posts a link comparing when this game's players are free — works in an /lfg thread, no tournament needed
 - /schedule clear removes the scheduled time, and asks which game you mean when a series has more than one scheduled
+- a box score naming a new player now asks who they are, with a dropdown of the players in the game
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
@@ -28,6 +29,8 @@
 - editing your availability now affects grouping right away instead of waiting for the survey to be synced again
 - /schedule is now /schedule set (setting a time works the same, the command just moved under a subcommand). Clearing a time is its own /schedule clear instead of running /schedule with the time left blank
 - opening a player availability link you can't view now explains who can see it, instead of showing a permission error page
+- box scores now match players by Steam account before falling back to their name, so a renamed Discord account no longer breaks matching — and two players with similar names can't be mixed up
+- linking your Steam account clears any earlier guess about that account, including one saved against someone else's profile
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url

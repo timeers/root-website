@@ -6833,17 +6833,14 @@ def boxscore_upload_from_api(thread, raw, token):
     site = (config.get("SITE_URL") or "").rstrip("/")
     record_url = f"{site}/record/game/?lfg={thread.id}" if site else None
 
-    unlinkable = _boxscore_unlinkable(pending)
-    current = _boxscore_current_seats(thread)
-    roster_pks = {p.pk for p in roster}
-    off_roster = [s for s in pending["seats"]
-                  if s["profile_pk"] and s["profile_pk"] not in roster_pks]
-    needs_confirming = bool(
-        unlinkable
-        or _boxscore_seats_differ(current, pending["seats"])
-        or (not current and off_roster))
+    # The same decision the interaction paths make -- asked once, here, rather
+    # than restated as a boolean plus an if/elif chain that could disagree with
+    # it. The prompt is posted into the thread, so its buttons end in PICK_OPEN
+    # and are answerable by any roster player rather than one invoker.
+    body = _boxscore_decide(thread, pending, roster, PICK_OPEN,
+                            lambda: f"t:{token.pk}")
 
-    if not needs_confirming:
+    if body is None:
         lines, applied_notes = _boxscore_apply(thread, pending, thread.thread_id)
         BoxScoreUploadToken.objects.filter(pk=token.pk).update(
             status=BoxScoreUploadToken.Status.APPLIED, payload=None)
@@ -6871,21 +6868,6 @@ def boxscore_upload_from_api(thread, raw, token):
     BoxScoreUploadToken.objects.filter(pk=token.pk).update(
         payload=pending, channel_id=thread.thread_id,
         prompt_expires_at=timezone.now() + BoxScoreUploadToken.PROMPT_TTL)
-
-    ref = f"t:{token.pk}"
-    if unlinkable:
-        body = _boxscore_gate_one_body(thread, pending, unlinkable, PICK_OPEN,
-                                       ref=ref)
-    elif _boxscore_seats_differ(current, pending["seats"]):
-        body = _boxscore_gate_two_body(thread, pending, current, PICK_OPEN,
-                                       ref=ref)
-    else:
-        roster_side = [{"profile_pk": p.pk, "label": p.name, "faction_slug": None,
-                        "vagabond_slug": None, "captain_slugs": [],
-                        "discarded_slug": None} for p in roster]
-        body = _boxscore_gate_two_body(
-            thread, pending, roster_side, PICK_OPEN,
-            current_header="**Players in this thread**", ref=ref)
 
     body["content"] = ("**Box score uploaded from Tabletop Simulator**\n"
                        + body["content"])
@@ -7095,6 +7077,42 @@ def _handle_boxscore_upload_command(data):
     return _boxscore_next_step(thread, pending, channel_id, data.get("_author_id"))
 
 
+def _boxscore_gate_zero_needed(pending, roster):
+    """([(index, seat)], [Profile]) -- the seats Gate 0 can ask about, and the
+    roster players still free to be assigned to one.
+
+    A seat qualifies only when it has NO profile, a usable SteamID64, AND a name
+    from the file. An unmatched seat with no id has nothing to persist, and one
+    with a malformed id has nothing safe to persist, so asking about either
+    would collect an answer the save step must throw away.
+
+    The name requirement is about what the question would look like. Without a
+    `player` field the only label left is the raw SteamID64 -- so the prompt
+    would read "Who is 76561197960265728?", which asks the reader to identify
+    someone by the very id we are trying to attach a name to, and publishes that
+    id to the channel on the TTS path. Gate 1 covers these seats instead.
+
+    Candidates exclude anyone already seated in this game -- one person cannot
+    hold two seats -- and anyone with a VERIFIED steam_id, whose identity is
+    already settled. That second exclusion is load-bearing: it is the reason
+    assign_assumed_steam_ids needs no "already verified" guard of its own.
+    """
+    from the_warroom.services.box_score_import import is_plausible_steam_id
+
+    seats = [(i, s) for i, s in enumerate(pending["seats"])
+             if s["profile_pk"] is None
+             and is_plausible_steam_id(s.get("player_steam_id"))
+             and s.get("player_slug")]
+    if not seats:
+        return [], []
+
+    taken = {s["profile_pk"] for s in pending["seats"] if s["profile_pk"]}
+    candidates = sorted(
+        (p for p in roster if p.pk not in taken and not p.steam_id),
+        key=lambda p: (p.name.lower(), p.pk))
+    return seats, candidates
+
+
 def _boxscore_unlinkable(pending):
     """Labels of seats that name someone but resolved to no profile.
 
@@ -7138,34 +7156,47 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     return roster
 
 
-def _boxscore_next_step(thread, pending, channel_id, owner, roster=None,
-                        channel_name=None, guild_id=None, save=None, ref=None):
-    """Decide what a staged upload needs next: Gate 1, Gate 2, or apply it.
+def _boxscore_decide(thread, pending, roster, owner, ref):
+    """The gate a staged upload still needs as a BODY, or None to apply it.
 
-    THE single decision point, shared by the command, Continue and Try Again.
-    It was once inline at the bottom of _handle_boxscore_command, reading locals
-    (participants, profiles, roster, file_seats) that a button click does not
-    have -- which is why the old Continue handler could only re-check the seating
-    and silently skipped the off-roster case. Everything here comes from the
-    thread plus the stored payload, so all three paths agree by construction.
+    THE decision, in one place. Both entry points ask this same question and
+    differ only in how they deliver the answer: /boxscore upload wraps the body
+    in an ephemeral JsonResponse, a Tabletop Simulator upload posts it into the
+    thread. That split is why the gates were written as _body functions.
 
-    `save` persists a mutated payload (a cache re-set or a row save); it is
-    called only when the payload actually changed.
+    Keeping the conditions here is not tidiness. boxscore_upload_from_api used
+    to restate them -- once as a `needs_confirming` boolean and again as the
+    if/elif chain that chose a body -- so two expressions of the same logic
+    could drift apart, and the two paths already diverged once before (see the
+    note on the old Continue handler below).
+
+    `ref` is a CALLABLE returning the stored payload's reference, not the
+    reference itself: a file needing no gate is applied and never clicked, so
+    the payload must not be parked until a gate actually renders.
     """
+    # Gate 0: somebody in the file is unidentified but COULD be named from the
+    # roster. Ask before Gate 1, because an answer here can empty Gate 1's list
+    # outright. gate_zero_done is what stops it re-firing: Skip leaves the seats
+    # untouched, so without the flag it would ask again forever.
+    if not pending.get("gate_zero_done"):
+        seats, candidates = _boxscore_gate_zero_needed(pending, roster)
+        if seats and candidates:
+            return _boxscore_gate_zero_body(thread, pending, roster, owner,
+                                            page=0, ref=ref())
+
+    # Gate 1: named somebody nobody can identify at all.
     unlinkable = _boxscore_unlinkable(pending)
     if unlinkable:
-        return _boxscore_gate_one(thread, pending, unlinkable, owner, save=save)
+        return _boxscore_gate_one_body(thread, pending, unlinkable, owner,
+                                       ref=ref())
 
-    if roster is None:
-        roster, _group = _thread_roster(thread, channel_id, channel_name, guild_id)
-
-    # The file disagrees with what the thread already knows -- either its seating,
-    # or (on a thread with no seating yet) its roster. The roster check matters on
-    # its own: an unseated thread has nothing to compare positionally, but a file
-    # naming someone who isn't in this game is still worth confirming.
+    # Gate 2: the file disagrees with what the thread already knows -- either its
+    # seating, or (on a thread with no seating yet) its roster. The roster check
+    # matters on its own: an unseated thread has nothing to compare positionally,
+    # but a file naming someone who isn't in this game is still worth confirming.
     current = _boxscore_current_seats(thread)
     if _boxscore_seats_differ(current, pending["seats"]):
-        return _boxscore_gate_two(thread, pending, current, owner, save=save)
+        return _boxscore_gate_two_body(thread, pending, current, owner, ref=ref())
 
     roster_pks = {p.pk for p in roster}
     off_roster = [s for s in pending["seats"]
@@ -7174,9 +7205,47 @@ def _boxscore_next_step(thread, pending, channel_id, owner, roster=None,
         roster_side = [{"profile_pk": p.pk, "label": p.name, "faction_slug": None,
                         "vagabond_slug": None, "captain_slugs": [],
                         "discarded_slug": None} for p in roster]
-        return _boxscore_gate_two(thread, pending, roster_side, owner,
-                                  current_header="**Players in this thread**",
-                                  save=save)
+        return _boxscore_gate_two_body(thread, pending, roster_side, owner,
+                                       current_header="**Players in this thread**",
+                                       ref=ref())
+    return None
+
+
+def _boxscore_next_step(thread, pending, channel_id, owner, roster=None,
+                        channel_name=None, guild_id=None, save=None, ref=None):
+    """Decide what a staged upload needs next: a gate, or apply it.
+
+    THE single entry point for the interaction paths, shared by the command,
+    Continue and Try Again. It was once inline at the bottom of
+    _handle_boxscore_command, reading locals (participants, profiles, roster,
+    file_seats) that a button click does not have -- which is why the old
+    Continue handler could only re-check the seating and silently skipped the
+    off-roster case. Everything here comes from the thread plus the stored
+    payload, so all three paths agree by construction.
+
+    `save` persists a mutated payload (a cache re-set or a row save); it is
+    called only when the payload actually changed.
+    """
+    if roster is None:
+        roster, _group = _thread_roster(thread, channel_id, channel_name, guild_id)
+
+    # Stash LAZILY: a file that needs no gate is applied and never clicked, so
+    # eagerly parking a payload would leave an orphan entry per clean upload.
+    # The gates' buttons carry the ref, so it is created only if one renders.
+    stashed = []
+
+    def prompt_ref():
+        if not stashed:
+            stashed.append(ref or (save() if save else
+                                   _boxscore_stash(thread, pending)))
+        return stashed[0]
+
+    body = _boxscore_decide(thread, pending, roster, owner, prompt_ref)
+    if body is not None:
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": {**body, "flags": EPHEMERAL},
+        })
 
     if ref:
         # Reached from a BUTTON: edit the prompt in place and drop the stored
@@ -7231,6 +7300,78 @@ def _boxscore_stash(thread, pending):
     cache.set(f"boxscore:pending:{key}", payload, _BOXSCORE_PENDING_TTL)
     # "c:" tags the backing so a click can tell a cache key from a token row pk.
     return f"c:{key}"
+
+
+_BOXSCORE_GATE_ZERO_PER_PAGE = 4   # 4 selects + 1 button row = Discord's 5-row cap
+_BOXSCORE_GATE_ZERO_SKIP = "0"     # sentinel option value; a pk is never 0
+
+
+def _boxscore_gate_zero_body(thread, pending, roster, owner, page=0, ref=None):
+    """Gate 0's {content, components}: one dropdown per unidentified player.
+
+    The BODY, not a response -- same reason as _boxscore_gate_one_body: this is
+    an ephemeral reply for /boxscore upload and a posted message for a TTS
+    upload.
+
+    STATE LIVES IN THE PAYLOAD, not in the message's own option state. Do NOT
+    reach for selected_values() here, however much the /random panel looks like
+    the precedent: Gate 0 paginates, so a pick made on page 1 is simply absent
+    from page 2's message and would read back as unanswered. Options are
+    rendered default=True only so the dropdown DISPLAYS the current answer.
+    """
+    ref = ref or _boxscore_stash(thread, pending)
+    seats, candidates = _boxscore_gate_zero_needed(pending, roster)
+    picks = pending.get("gate_zero") or {}
+
+    pages = max(1, (len(seats) + _BOXSCORE_GATE_ZERO_PER_PAGE - 1)
+                // _BOXSCORE_GATE_ZERO_PER_PAGE)
+    page = max(0, min(page, pages - 1))
+    start = page * _BOXSCORE_GATE_ZERO_PER_PAGE
+    shown = seats[start:start + _BOXSCORE_GATE_ZERO_PER_PAGE]
+
+    rows = []
+    for index, seat in shown:
+        chosen = str(picks.get(str(index)) or "")
+        options = [select_option("— skip —", _BOXSCORE_GATE_ZERO_SKIP,
+                                 default=not chosen)]
+        options += [select_option(p.name, str(p.pk), default=str(p.pk) == chosen)
+                    for p in candidates]
+        rows.append(action_row(string_select(
+            encode_custom_id("boxscore_g0_pick", ref, index, owner),
+            options, placeholder=f"Who is {seat['label']}?"[:100],
+            min_values=1, max_values=1)))
+
+    buttons = [button("Save & Continue",
+                      encode_custom_id("boxscore_g0_ok", ref, owner),
+                      style=STYLE_PRIMARY)]
+    if pages > 1:
+        buttons.append(button(
+            "Next", encode_custom_id("boxscore_g0_page", ref,
+                                     (page + 1) % pages, owner),
+            style=STYLE_SECONDARY))
+    buttons.append(button("Skip", encode_custom_id("boxscore_g0_skip", ref, owner),
+                          style=STYLE_SECONDARY))
+    buttons.append(button("Cancel", encode_custom_id("boxscore_no", ref, owner),
+                          style=STYLE_SECONDARY))
+    rows.append(action_row(*buttons))
+
+    plural = "players aren't" if len(seats) > 1 else "player isn't"
+    lines = [
+        f"{len(seats)} {plural} linked to a profile yet:",
+        ", ".join(f"`{s['label']}`" for _i, s in seats),
+        "",
+        "Pick who each one is and I'll remember them for next time — or skip "
+        "and carry on.",
+    ]
+    if pages > 1:
+        lines.append(f"*Page {page + 1} of {pages}.*")
+    if len(candidates) > 25:
+        lines.append("*Only the first 25 players are listed.*")
+    return {
+        "content": "\n".join(lines),
+        "components": rows,
+        "allowed_mentions": {"parse": []},
+    }
 
 
 def _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=None):
@@ -7426,6 +7567,125 @@ def _boxscore_click_owner(payload, thread):
         "Only the players in this game — or a moderator — can answer this.")
 
 
+def _boxscore_gate_zero_rerender(payload, pending, thread, ref, page):
+    """Re-draw the Gate 0 prompt in place at `page`."""
+    roster, _group = _thread_roster(thread, thread.thread_id)
+    body = _boxscore_gate_zero_body(thread, pending, roster,
+                                    _boxscore_owner_arg(payload),
+                                    page=page, ref=ref)
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": body})
+
+
+def _handle_boxscore_gate_zero_pick(payload):
+    """A Gate 0 dropdown changed: record the choice and re-draw the prompt.
+
+    The choice goes into the PAYLOAD rather than being left to the message's
+    own option state, because Gate 0 paginates -- see _boxscore_gate_zero_body.
+
+    Re-drawing is required, not cosmetic: picking someone removes them from
+    every other seat's dropdown.
+    """
+    pending, thread, ref = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That box score is no longer waiting — upload it again.")
+    _who, error = _boxscore_click_owner(payload, thread)
+    if error:
+        return error
+
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    index = args[2] if len(args) >= 4 else None
+    chosen = (payload["data"].get("values") or [None])[0]
+
+    # Keys are STRINGS: the TTS path round-trips this payload through a
+    # JSONField, which would coerce int keys anyway -- so the cache path and the
+    # token path must agree on the string form from the start.
+    picks = pending.setdefault("gate_zero", {})
+    if index is not None:
+        if chosen in (None, _BOXSCORE_GATE_ZERO_SKIP):
+            picks.pop(index, None)
+        else:
+            # One person cannot hold two seats, so claiming someone releases
+            # them from whichever seat had them before.
+            for key, pk in list(picks.items()):
+                if str(pk) == chosen and key != index:
+                    picks.pop(key)
+            picks[index] = int(chosen)
+    _boxscore_save(ref, thread, pending)
+
+    seats, _cands = _boxscore_gate_zero_needed(pending, [])
+    order = [str(i) for i, _s in seats]
+    position = order.index(index) if index in order else 0
+    return _boxscore_gate_zero_rerender(
+        payload, pending, thread, ref, position // _BOXSCORE_GATE_ZERO_PER_PAGE)
+
+
+def _handle_boxscore_gate_zero_page(payload):
+    """Turn to another page of Gate 0's dropdowns. No state change."""
+    pending, thread, ref = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That box score is no longer waiting — upload it again.")
+    _who, error = _boxscore_click_owner(payload, thread)
+    if error:
+        return error
+
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    page = int(args[2]) if len(args) >= 4 and args[2].isdigit() else 0
+    return _boxscore_gate_zero_rerender(payload, pending, thread, ref, page)
+
+
+def _handle_boxscore_gate_zero_save(payload):
+    """Save & Continue on Gate 0: remember the picks, then carry on.
+
+    Writes assumed_steam_id ONLY. A dropdown answer is a human's guess; a
+    verified id was proved through Steam's OpenID endpoint, and letting the
+    former overwrite the latter would break the identity the resolver rests on.
+
+    Re-resolves rather than writing profile_pk straight into the seats, so the
+    saved ids and the seating agree by construction -- the same reason Try Again
+    re-resolves instead of patching seats by hand.
+    """
+    from the_warroom.services.box_score_import import assign_assumed_steam_ids
+
+    pending, thread, ref = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That box score is no longer waiting — upload it again.")
+    _who, error = _boxscore_click_owner(payload, thread)
+    if error:
+        return error
+
+    seats = pending["seats"]
+    pairs = [(pk, seats[int(i)].get("player_steam_id"))
+             for i, pk in (pending.get("gate_zero") or {}).items()
+             if i.isdigit() and int(i) < len(seats)]
+    if pairs:
+        assign_assumed_steam_ids(pairs)
+
+    roster = _boxscore_reresolve(thread, pending, thread.thread_id)
+    pending["gate_zero_done"] = True
+    _boxscore_save(ref, thread, pending)
+    return _boxscore_next_step(
+        thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
+        roster=roster, save=lambda: ref, ref=ref)
+
+
+def _handle_boxscore_gate_zero_skip(payload):
+    """Skip Gate 0: identify nobody, remember nothing, move on to Gate 1."""
+    pending, thread, ref = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That box score is no longer waiting — upload it again.")
+    _who, error = _boxscore_click_owner(payload, thread)
+    if error:
+        return error
+
+    # The flag is what stops Gate 0 re-firing: skipping leaves the seats exactly
+    # as they were, so the next pass would ask the same question forever.
+    pending["gate_zero_done"] = True
+    _boxscore_save(ref, thread, pending)
+    return _boxscore_next_step(
+        thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
+        save=lambda: ref, ref=ref)
+
+
 def _handle_boxscore_retry(payload):
     """Try Again on Gate 1: re-resolve against the CURRENT database.
 
@@ -7462,7 +7722,9 @@ def _handle_boxscore_link(payload):
         return error
 
     # Continue means "accept the blanks", so drop the labels that would send this
-    # straight back to Gate 1.
+    # straight back to Gate 1. This clears Gate 0's candidacy test too, which
+    # keys off the same player_steam_id -- so "accept the blanks" holds for both
+    # gates rather than bouncing between them.
     for seat in pending["seats"]:
         if seat["profile_pk"] is None:
             seat["player_slug"] = None
@@ -8509,6 +8771,10 @@ COMPONENT_HANDLERS = {
     # /boxscore's confirmation gates. All three end in the uploader's snowflake,
     # so the dispatcher owner-locks them: the person who ran the command is the
     # one who knows whether the file is right.
+    "boxscore_g0_pick": _handle_boxscore_gate_zero_pick,
+    "boxscore_g0_page": _handle_boxscore_gate_zero_page,
+    "boxscore_g0_ok": _handle_boxscore_gate_zero_save,
+    "boxscore_g0_skip": _handle_boxscore_gate_zero_skip,
     "boxscore_retry": _handle_boxscore_retry,
     "boxscore_link": _handle_boxscore_link,
     "boxscore_ok": _handle_boxscore_confirm,

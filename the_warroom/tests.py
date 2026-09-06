@@ -24,7 +24,9 @@ from the_keep.models import (
     Deck, Faction, Hireling, Landmark, Map, StatusChoices, Tweak, Vagabond,
 )
 from the_warroom.services.box_score_import import (
-    BoxScoreImportError, normalize_turns, parse_box_score_json, resolve_import,
+    BoxScoreImportError, assign_assumed_steam_ids, is_plausible_steam_id,
+    normalize_turns, parse_box_score_json, resolve_import,
+    resolve_participant_player, resolve_participant_players,
     validate_participants,
 )
 from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
@@ -2925,3 +2927,131 @@ class MatchesPageAvailabilityButtonTests(_AvailabilityFixtureMixin, TestCase):
             q for q in ctx.captured_queries if 'playerschedule' in q['sql'].lower()
         ]
         self.assertEqual(len(schedule_queries), 2)
+
+
+class ParticipantResolutionTests(TestCase):
+    """Three tiers of identity, in descending order of trust: a VERIFIED steam
+    id, an ASSUMED one (a human's answer at Gate 0), then the slug -- which is
+    derived from the Discord name and so is a name match in an id's clothing."""
+
+    STEAM = "76561198000000201"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.alice = Profile.objects.create(discord="resalice", discord_id="801")
+        self.bob = Profile.objects.create(discord="resbob", discord_id="802")
+
+    def _both(self, participant, queryset=None):
+        """(single, batched) results -- the two resolvers must never disagree."""
+        qs = queryset if queryset is not None else Profile.objects.all()
+        return (resolve_participant_player(participant, qs),
+                resolve_participant_players([participant], qs)[0])
+
+    def test_an_assumed_id_matches_when_nothing_is_verified(self):
+        self.bob.assumed_steam_id = self.STEAM
+        self.bob.save(update_fields=["assumed_steam_id"])
+        single, batched = self._both({"player_steam_id": self.STEAM})
+        self.assertEqual(single, self.bob)
+        self.assertEqual(batched, self.bob)
+
+    def test_a_verified_id_beats_another_profiles_assumed_id(self):
+        """The invariant the whole design rests on. Because resolution exhausts
+        the verified tier first, an assumed id that duplicates a verified one is
+        unreachable rather than wrong -- which is why assign_assumed_steam_ids
+        needs no guard against writing one. Reorder the tiers and that stops
+        being true."""
+        self.alice.steam_id = self.STEAM
+        self.alice.save(update_fields=["steam_id"])
+        self.bob.assumed_steam_id = self.STEAM
+        self.bob.save(update_fields=["assumed_steam_id"])
+
+        single, batched = self._both({"player_steam_id": self.STEAM})
+        self.assertEqual(single, self.alice)
+        self.assertEqual(batched, self.alice)
+
+    def test_an_assumed_id_beats_a_slug(self):
+        """A deliberate answer about a Steam account outranks a name."""
+        self.bob.assumed_steam_id = self.STEAM
+        self.bob.save(update_fields=["assumed_steam_id"])
+        single, batched = self._both(
+            {"player": self.alice.slug, "player_steam_id": self.STEAM})
+        self.assertEqual(single, self.bob)
+        self.assertEqual(batched, self.bob)
+
+    def test_the_slug_still_matches_when_no_steam_id_does(self):
+        """Kept as a last resort: a hand-authored file may carry no id at all."""
+        single, batched = self._both({"player": self.alice.slug})
+        self.assertEqual(single, self.alice)
+        self.assertEqual(batched, self.alice)
+
+    def test_an_assumed_id_outside_the_queryset_is_not_pulled_in(self):
+        """Scoping still holds for the new tier: someone who isn't playing
+        cannot be seated by it."""
+        self.bob.assumed_steam_id = self.STEAM
+        self.bob.save(update_fields=["assumed_steam_id"])
+        only_alice = Profile.objects.filter(pk=self.alice.pk)
+        single, batched = self._both({"player_steam_id": self.STEAM},
+                                     queryset=only_alice)
+        self.assertIsNone(single)
+        self.assertIsNone(batched)
+
+
+class AssumedSteamIdWriteTests(TestCase):
+    """Persisting a Gate 0 answer. Writes assumed_steam_id, never steam_id."""
+
+    STEAM = "76561198000000301"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.alice = Profile.objects.create(discord="wralice", discord_id="811")
+        self.bob = Profile.objects.create(discord="wrbob", discord_id="812")
+
+    def test_it_writes_the_assumed_field_and_not_the_verified_one(self):
+        self.assertEqual(assign_assumed_steam_ids([(self.alice.pk, self.STEAM)]), 1)
+        self.alice.refresh_from_db()
+        self.assertEqual(self.alice.assumed_steam_id, self.STEAM)
+        self.assertIsNone(self.alice.steam_id)
+
+    def test_reassigning_an_id_releases_the_previous_holder(self):
+        """assumed_steam_id is unique=True, so without the release this raises
+        IntegrityError -- inside a Discord interaction, where an unhandled
+        exception is a 500 rather than a message."""
+        assign_assumed_steam_ids([(self.alice.pk, self.STEAM)])
+        assign_assumed_steam_ids([(self.bob.pk, self.STEAM)])
+
+        self.alice.refresh_from_db()
+        self.bob.refresh_from_db()
+        self.assertIsNone(self.alice.assumed_steam_id)
+        self.assertEqual(self.bob.assumed_steam_id, self.STEAM)
+
+    def test_an_over_long_id_is_refused(self):
+        """player_steam_id is cleaned to 100 chars but the column holds 17.
+        SQLite stores the overflow silently, so this asserts the REJECTION --
+        production is PostgreSQL, which would raise DataError instead."""
+        self.assertFalse(is_plausible_steam_id("7" * 40))
+        self.assertEqual(assign_assumed_steam_ids([(self.alice.pk, "7" * 40)]), 0)
+        self.alice.refresh_from_db()
+        self.assertIsNone(self.alice.assumed_steam_id)
+
+    def test_a_non_numeric_id_is_refused(self):
+        self.assertFalse(is_plausible_steam_id("abcdefghijklmnopq"))
+        self.assertEqual(
+            assign_assumed_steam_ids([(self.alice.pk, "abcdefghijklmnopq")]), 0)
+
+    def test_one_id_cannot_land_on_two_profiles(self):
+        """A mis-click, and a uniqueness breach if it went through."""
+        assign_assumed_steam_ids([(self.alice.pk, self.STEAM),
+                                  (self.bob.pk, self.STEAM)])
+        holders = Profile.objects.filter(assumed_steam_id=self.STEAM).count()
+        self.assertEqual(holders, 1)
+
+    def test_it_saves_with_update_fields(self):
+        """Not an optimisation: a bare save() re-derives display_name and runs
+        Profile.save()'s avatar-deletion branch."""
+        with mock.patch.object(Profile, "save", autospec=True) as saved:
+            assign_assumed_steam_ids([(self.alice.pk, self.STEAM)])
+        self.assertTrue(saved.called)
+        self.assertEqual(saved.call_args.kwargs.get("update_fields"),
+                         ["assumed_steam_id"])
