@@ -294,7 +294,6 @@ def _can_view_lfg_availability(profile, thread):
     return False
 
 
-@login_required
 def availability_compare(request):
     """Compare several players' weekly availability on one grid.
 
@@ -305,12 +304,19 @@ def availability_compare(request):
 
     Keyed on the SERIES, not the match: seats hang off MatchSeries, and a series
     can hold several matches that all share one roster.
+
+    Deliberately NOT @login_required: the link is handed out in Discord, so an
+    anonymous visitor is shown who may open the page and a login button back to
+    it, rather than being bounced through OAuth with no idea what they followed.
     """
     from .services.availability import (utc_to_local_hours, overlap_summary,
                                         reachable_buckets, DAY_LABELS, hour_labels)
     from the_databot.services.time_parsing import valid_timezone
 
-    viewer = request.user.profile
+    # None for an anonymous visitor. Every permission test below treats that as
+    # "not permitted" rather than short-circuiting, because the branches also
+    # resolve the page title and roster that the link preview needs.
+    viewer = request.user.profile if request.user.is_authenticated else None
     series = None
     tournament = None
     back_url = None
@@ -321,9 +327,16 @@ def availability_compare(request):
     player_slugs = [s for s in (request.GET.get('players') or '').split(',') if s.strip()]
 
     # A refusal RENDERS rather than 403s, so someone following a link from Discord
-    # is told who may open it instead of hitting a wall. Nothing about the players
-    # is resolved when it is False -- names and hour counts must not leak into a
-    # page the viewer isn't allowed to see.
+    # is told who may open it instead of hitting a wall.
+    #
+    # What a refused viewer may see is split deliberately:
+    #   * player NAMES resolve either way, so a link pasted into Discord unfurls
+    #     with who is being compared. The cost is that anyone holding the URL can
+    #     read the roster -- accepted, since an unfurler has no session and would
+    #     otherwise preview every link as this very refusal.
+    #   * AVAILABILITY HOURS never resolve when can_view is False. schedules_for
+    #     stays behind the gate below. When people are free is the sensitive part;
+    #     who is in a match is not.
     can_view = True
     denied_message = None
     profiles = None          # None = no branch has resolved a roster yet
@@ -341,15 +354,13 @@ def availability_compare(request):
             series_id = str(thread.series_id)
         else:
             title = thread.description or _('Game Thread')
-            if _can_view_lfg_availability(viewer, thread):
-                profiles = list(thread.players.all())
-            else:
+            profiles = list(thread.players.all())
+            if not (viewer and _can_view_lfg_availability(viewer, thread)):
                 can_view = False
                 denied_message = _(
                     "Only the players in this game and its moderators can see "
                     "this availability."
                 )
-                profiles = []
 
     if series_id and profiles is None:
         from the_warroom.models import MatchSeries, MatchSeat
@@ -364,24 +375,22 @@ def availability_compare(request):
         tournament = series.round.stage.tournament
 
         # Seated in this series, or able to manage the tournament. Same test the
-        # card's Discord-thread button uses.
-        seated = MatchSeat.objects.filter(
+        # card's Discord-thread button uses. An anonymous visitor is neither.
+        seated = viewer is not None and MatchSeat.objects.filter(
             series=series,
             stage_participant__tournament_player__profile=viewer,
         ).exists()
-        if not (seated or tournament.has_permission(viewer)):
+        if not (seated or (viewer and tournament.has_permission(viewer))):
             can_view = False
             denied_message = _(
                 "Only the players in this match and its organizers can see "
                 "this availability."
             )
-            profiles = []
-        else:
-            profiles = list(
-                Profile.objects.filter(
-                    tournament_participations__stage_participations__matchseat__series=series
-                ).distinct()
-            )
+        profiles = list(
+            Profile.objects.filter(
+                tournament_participations__stage_participations__matchseat__series=series
+            ).distinct()
+        )
         back_url = series.round.get_matches_url()
         title = (series.player_group.name if series.player_group_id
                  else _('Match')) or _('Match')
@@ -389,32 +398,46 @@ def availability_compare(request):
         # The general form. Restricted to players the viewer shares a tournament
         # with -- the same circle the series form allows, generalised. This is the
         # filter a future player picker will build its list from.
-        from the_warroom.models import TournamentPlayer
-        my_tournaments = TournamentPlayer.objects.filter(
-            profile=viewer
-        ).values_list('tournament_id', flat=True)
-        profiles = list(
-            Profile.objects.filter(
-                slug__in=player_slugs,
-                tournament_participations__tournament_id__in=my_tournaments,
-            ).distinct()
-        )
+        #
+        # Scoped to the VIEWER's tournaments, so it means nothing anonymously:
+        # there is no circle to draw from, and no roster to name in the preview.
+        if viewer is None:
+            can_view = False
+            denied_message = _("Log in to see this availability.")
+            profiles = []
+        else:
+            from the_warroom.models import TournamentPlayer
+            my_tournaments = TournamentPlayer.objects.filter(
+                profile=viewer
+            ).values_list('tournament_id', flat=True)
+            profiles = list(
+                Profile.objects.filter(
+                    slug__in=player_slugs,
+                    tournament_participations__tournament_id__in=my_tournaments,
+                ).distinct()
+            )
 
     # Resolve availability, then draw it in the VIEWER's timezone so every player
-    # is on one comparable clock.
-    tz_name = viewer.timezone if valid_timezone(viewer.timezone) else None
-    schedules = schedules_for([p.id for p in profiles], tournament)
+    # is on one comparable clock. An anonymous visitor has no timezone, so UTC.
+    tz_name = (viewer.timezone
+               if viewer and valid_timezone(viewer.timezone) else None)
+    # The gate: hours are fetched ONLY for a viewer allowed to see them. Names
+    # above are resolved either way (see the note where can_view is declared).
+    schedules = (schedules_for([p.id for p in profiles], tournament)
+                 if can_view else {})
 
+    # `players` drives the GRID, so it stays empty for a refused viewer even
+    # though `profiles` is populated for the preview description.
     players = []
     hours_by_profile = {}
-    for profile in profiles:
+    for profile in (profiles if can_view else []):
         local = utc_to_local_hours(schedules.get(profile.id, []), tz_name)
         hours_by_profile[profile.id] = local
         players.append({
             'profile': profile,
             'hours': local,
             'hour_count': len(local),
-            'is_viewer': profile.id == viewer.id,
+            'is_viewer': viewer is not None and profile.id == viewer.id,
         })
     # Players with availability first: the ones who can't contribute shouldn't
     # push the useful rows down the list.
@@ -431,6 +454,22 @@ def availability_compare(request):
             profile=viewer, tournament=tournament
         ).exists():
             edit_url = f'{edit_url}?tournament={tournament.slug}'
+
+    # Link-preview text. Built from `profiles` rather than `players` so it still
+    # names people on a refused page -- an unfurler has no session, so keying it
+    # on can_view would make every shared link preview as the refusal notice.
+    from the_keep.utils import clean_meta_description
+    names = [p.name for p in profiles]
+    if names:
+        if len(names) > 1:
+            joined = '%s and %s' % (', '.join(names[:-1]), names[-1])
+        else:
+            joined = names[0]
+        meta_description = clean_meta_description(
+            _('Comparing the weekly availability of %(players)s.')
+            % {'players': joined})
+    else:
+        meta_description = _('Compare when players are free to play.')
 
     context = {
         'players': players,
@@ -454,6 +493,7 @@ def availability_compare(request):
         # are empty in that case, so nothing about them reaches the template.
         'can_view': can_view,
         'denied_message': denied_message,
+        'meta_description': meta_description,
         'timezone_name': tz_name or 'UTC',
         'days': DAY_LABELS,
         'hours': hour_labels(),

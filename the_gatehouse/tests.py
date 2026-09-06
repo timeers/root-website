@@ -1615,14 +1615,24 @@ class AvailabilityCompareLFGTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context['can_view'])
 
-    def test_a_refusal_leaks_no_player_data(self):
-        """The whole point of rendering instead of raising: it must not become a
-        way to read the roster."""
+    def test_a_refusal_leaks_no_availability(self):
+        """Rendering instead of raising must not become a way to read when people
+        are FREE. Names are a deliberate exception -- they go in the link preview
+        so a URL pasted into Discord unfurls as something useful -- but the hours
+        behind them stay gated."""
         response = self._get(self.outsider, lfg=self.thread.pk)
         self.assertEqual(response.context['player_count'], 0)
-        body = response.content.decode()
+        self.assertEqual(response.context['players'], [])
+        self.assertEqual(response.context['player_hours_json'], {})
+        self.assertFalse(response.context['has_any_availability'])
+
+    def test_a_refusal_still_names_the_players_for_the_link_preview(self):
+        """The cost of that exception, pinned so it stays a decision rather than
+        a drift: anyone holding the URL can read the roster."""
+        response = self._get(self.outsider, lfg=self.thread.pk)
+        description = response.context['meta_description']
         for member in self.members:
-            self.assertNotIn(member.display_name or member.discord, body)
+            self.assertIn(member.name, description)
 
     def test_an_empty_roster_is_not_public(self):
         """_thread_actor_error fails OPEN on an empty roster, which is right in
@@ -1639,6 +1649,54 @@ class AvailabilityCompareLFGTests(_NoLoginSignalMixin, TestCase):
     def test_a_missing_thread_is_a_404(self):
         response = self._get(self.members[0], lfg=999999)
         self.assertEqual(response.status_code, 404)
+
+    # ── logged out ──────────────────────────────────────────────────────────
+
+    def test_a_logged_out_visitor_gets_the_page_not_a_redirect(self):
+        """The link is handed out in Discord, so bouncing an anonymous visitor
+        through OAuth tells them nothing about what they followed."""
+        response = self.client.get(self.url, {'lfg': self.thread.pk})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+
+    def test_a_logged_out_visitor_is_offered_a_login_back_to_this_page(self):
+        response = self.client.get(self.url, {'lfg': self.thread.pk})
+        body = response.content.decode()
+        self.assertIn('Log in with Discord', body)
+        # The return trip must survive the QUERY STRING: the ? and = are encoded
+        # so they stay part of `next` instead of terminating it. (Django's
+        # urlencode filter leaves / alone, which is harmless here.)
+        self.assertIn(f'next=/availability/compare/%3Flfg%3D{self.thread.pk}', body)
+
+    def test_a_logged_in_but_refused_viewer_is_not_told_to_log_in(self):
+        """They already are. Only the logged-out branch gets the button."""
+        response = self._get(self.outsider, lfg=self.thread.pk)
+        self.assertNotIn('Log in with Discord', response.content.decode())
+
+    def test_a_logged_out_visitor_sees_no_availability(self):
+        response = self.client.get(self.url, {'lfg': self.thread.pk})
+        self.assertEqual(response.context['player_count'], 0)
+        self.assertEqual(response.context['player_hours_json'], {})
+
+    def test_the_link_preview_names_the_players_anonymously(self):
+        """The unfurler has no session, so this is the ONLY case that matters
+        for a preview -- if it keyed on can_view every shared link would preview
+        as the refusal notice."""
+        response = self.client.get(self.url, {'lfg': self.thread.pk})
+        body = response.content.decode()
+        self.assertIn('og:description', body)
+        for member in self.members:
+            self.assertIn(member.name, response.context['meta_description'])
+
+    def test_a_players_link_previews_generically_when_logged_out(self):
+        """?players= scopes to tournaments the VIEWER shares, so it resolves
+        nobody without a session -- there is no roster to name."""
+        slugs = ','.join(p.slug for p in self.members)
+        response = self.client.get(self.url, {'players': slugs})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+        for member in self.members:
+            self.assertNotIn(member.name, response.context['meta_description'])
 
 
 class DismissNotificationTests(_NoLoginSignalMixin, TestCase):

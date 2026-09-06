@@ -2757,7 +2757,7 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
     def test_unrelated_logged_in_user_is_told_who_may_view(self):
         """Availability is only for the people it concerns -- but the page now
         RENDERS the refusal instead of 403-ing, so someone following a link from
-        Discord is told who may open it. It must still resolve no player data."""
+        Discord is told who may open it. It must still resolve no HOURS."""
         a = self._player("priv_a", hours=self.A_HOURS)
         series = self._series_with(a)
 
@@ -2770,14 +2770,24 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context['can_view'])
         self.assertEqual(response.context['player_count'], 0)
-        self.assertNotIn(a.profile.display_name, response.content.decode())
+        # No AVAILABILITY. Names are a deliberate exception -- they go in the
+        # link preview so a URL pasted into Discord unfurls usefully.
+        self.assertEqual(response.context['player_hours_json'], {})
 
-    def test_anonymous_is_redirected_to_login(self):
+    def test_anonymous_gets_the_page_and_a_way_back_to_it(self):
+        """Was a redirect. The link is handed out in Discord, so bouncing an
+        anonymous visitor through OAuth told them nothing about what they had
+        followed -- now they are shown who may open it, and a login that
+        returns them here."""
         a = self._player("anon_a", hours=self.A_HOURS)
         series = self._series_with(a)
         response = self.client.get(self.url, {'series': series.id})
-        self.assertEqual(response.status_code, 302)
-        self.assertIn('login', response['Location'])
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+        self.assertEqual(response.context['player_hours_json'], {})
+        body = response.content.decode()
+        self.assertIn('Log in with Discord', body)
+        self.assertIn(f'next=/availability/compare/%3Fseries%3D{series.id}', body)
 
     def test_hours_are_shown_in_the_viewers_timezone(self):
         a = self._player("tz_a", hours=[10, 11])

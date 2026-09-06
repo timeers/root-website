@@ -2,6 +2,22 @@
 {% load static i18n %}
 {% block title %}{% trans 'Player Availability' %} | {% endblock %}
 
+{% comment %} The link is handed out in Discord, so it needs to unfurl as
+something better than a bare URL. noindex is for SEARCH crawlers only --
+Discord and Slack read the og: tags and ignore it, so the preview is unaffected.
+The page is permission-gated and its content varies per query string, so there
+is nothing worth indexing. {% endcomment %}
+{% block meta %}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ title }}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+<meta name="robots" content="noindex">
+{% endblock meta %}
+
 {% block content %}
 <div class="container py-4">
   <div class="row justify-content-center">
@@ -31,9 +47,13 @@
           <h1 class="info-card-title mb-1">
             <i class="bi bi-calendar-week me-2"></i>{{ title }}
           </h1>
-          <p class="text-secondary mb-0">
-            {% blocktrans %}Times are shown in your timezone ({{ timezone_name }}).{% endblocktrans %}
-          </p>
+          {% comment %} Only meaningful to someone who HAS a timezone -- a
+          logged-out visitor would be told UTC is "your timezone". {% endcomment %}
+          {% if user.is_authenticated %}
+            <p class="text-secondary mb-0">
+              {% blocktrans %}Times are shown in your timezone ({{ timezone_name }}).{% endblocktrans %}
+            </p>
+          {% endif %}
         </div>
       </div>
 
@@ -44,6 +64,20 @@
               <i class="bi bi-lock me-1"></i>
               {{ denied_message }}
             </div>
+            {% comment %} Only for the logged OUT -- telling someone who is
+            already signed in to sign in explains nothing. urlencode is required:
+            this page's URL carries a query string (?series=123), and an
+            unencoded & would truncate the return trip. {% endcomment %}
+            {% if not user.is_authenticated %}
+              {% comment %} .databot-btn is inline-flex, so it centres against a
+              text-center block rather than needing margin auto. {% endcomment %}
+              <div class="text-center mt-3">
+                <a href="{% url 'discord_login' %}?next={{ request.get_full_path|urlencode }}"
+                   class="databot-btn databot-btn-primary">
+                  <i class="bi bi-discord me-1"></i>{% trans 'Log in with Discord' %}
+                </a>
+              </div>
+            {% endif %}
           </div>
         </div>
       {% elif not players %}
