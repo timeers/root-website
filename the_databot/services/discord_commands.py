@@ -78,6 +78,22 @@ LOOKUP_COMMAND = {
 }
 
 
+def subcommand_key(sub):
+    """The whitelist key for a subcommand definition.
+
+    Defaults to the subcommand's own name, which is what the lookups use --
+    "faction", "map" and the rest were top-level commands before the /lookup
+    split, so keeping their names as keys let every stored enabled_commands
+    survive it untouched.
+
+    A subcommand whose name is generic supplies `whitelist_key` instead:
+    /boxscore's "upload" and "token" were never commands in their own right,
+    and bare "token" in a stored list says nothing about which command it
+    belongs to -- nor would it survive another command gaining a "token" sub.
+    """
+    return sub.get("whitelist_key") or sub["name"]
+
+
 def parent_command_for_guild(parent_name, enabled_names):
     """The definition of a parent command to register for a guild: one SUB_COMMAND per
     enabled subcommand. Returns None when the guild has none enabled, so the parent
@@ -90,10 +106,14 @@ def parent_command_for_guild(parent_name, enabled_names):
     Discord's 25-option cap, so no truncation is needed."""
     parent, subcommands = PARENT_COMMANDS[parent_name]
     enabled = set(enabled_names or ())
-    subs = [copy.deepcopy(s) for s in subcommands if s["name"] in enabled]
+    subs = [copy.deepcopy(s) for s in subcommands
+            if subcommand_key(s) in enabled]
     if not subs:
         return None
     cmd = copy.deepcopy(parent)
+    # Strip the key: it is ours, and Discord rejects unknown fields.
+    for sub in subs:
+        sub.pop("whitelist_key", None)
     cmd["options"] = subs
     return cmd
 
@@ -122,26 +142,6 @@ LINK_COMMAND = {
     "description": "Link an external account to your profile",
     "options": LINK_SUBCOMMANDS,
 }
-
-
-# Every parent command whose SUBCOMMANDS -- not the parent itself -- are the whitelist
-# toggles. Registering this here means the five whitelist functions below stay generic:
-# adding a third parent is one entry, not five new branches.
-PARENT_COMMANDS = {
-    LOOKUP_COMMAND_NAME: (LOOKUP_COMMAND, LOOKUP_SUBCOMMANDS),
-    LINK_COMMAND_NAME: (LINK_COMMAND, LINK_SUBCOMMANDS),
-}
-
-# Flat list of every subcommand name across all parents -- these are the whitelist keys.
-PARENT_SUBCOMMAND_NAMES = [s["name"]
-                           for _parent, subs in PARENT_COMMANDS.values()
-                           for s in subs]
-
-# subcommand name -> its parent, so a display that collapses parents can map a
-# COMMAND_GROUPS entry ("faction") onto the row it should render ("lookup").
-_PARENT_OF = {s["name"]: parent_name
-              for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
-              for s in subs}
 
 
 CARD_COMMAND = {
@@ -393,6 +393,10 @@ BOXSCORE_COMMAND_NAME = "boxscore"
 BOXSCORE_SUBCOMMANDS = [
     {
         "name": "upload",
+        # Bare "upload"/"token" would be opaque in a stored whitelist and could
+        # collide with a future command's own subcommands, so these carry
+        # explicit keys (see subcommand_key).
+        "whitelist_key": "boxscore_upload",
         "description": "Add a box score to this game from a JSON file",
         "type": 1,  # SUB_COMMAND
         "options": [
@@ -406,6 +410,7 @@ BOXSCORE_SUBCOMMANDS = [
     },
     {
         "name": "token",
+        "whitelist_key": "boxscore_token",
         "description": "Get a one-time token so the TTS object can upload this game",
         "type": 1,  # SUB_COMMAND
     },
@@ -418,6 +423,31 @@ BOXSCORE_COMMAND = {
     "description": "Add a box score to this game",
     "options": BOXSCORE_SUBCOMMANDS,
 }
+
+
+# Every parent command whose SUBCOMMANDS -- not the parent itself -- are the whitelist
+# toggles. Registering this here means the five whitelist functions below stay generic:
+# adding a third parent is one entry, not five new branches.
+PARENT_COMMANDS = {
+    LOOKUP_COMMAND_NAME: (LOOKUP_COMMAND, LOOKUP_SUBCOMMANDS),
+    LINK_COMMAND_NAME: (LINK_COMMAND, LINK_SUBCOMMANDS),
+    BOXSCORE_COMMAND_NAME: (BOXSCORE_COMMAND, BOXSCORE_SUBCOMMANDS),
+}
+
+# Flat list of every subcommand's WHITELIST KEY across all parents. Keyed by
+# subcommand_key, not by name: /boxscore's subs carry explicit keys because bare
+# "upload"/"token" would be meaningless in a stored enabled_commands list.
+PARENT_SUBCOMMAND_NAMES = [subcommand_key(s)
+                           for _parent, subs in PARENT_COMMANDS.values()
+                           for s in subs]
+
+# whitelist key -> its parent, so a display that collapses parents can map a
+# COMMAND_GROUPS entry ("faction") onto the row it should render ("lookup").
+_PARENT_OF = {subcommand_key(s): parent_name
+              for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
+              for s in subs}
+
+
 
 # Free text, no autocomplete — the title is whatever the host wants to call the
 # game. Only the host of the /lfg that made the thread may use it.
@@ -631,7 +661,7 @@ COMMAND_GROUPS = [
                  "captain", "landmark", "hireling", "houserule", "card", "stats"]),
     ("Organization", ["availability", "schedule", "upcoming"]),
     ("Games", ["lfg", "adset", "seating", "pick",
-               "boxscore", "record", "rename"]),
+               "boxscore_upload", "boxscore_token", "record", "rename"]),
     ("Randomize", ["draft", "random"]),
     ("Account", ["steam"]),
 ]
@@ -776,7 +806,8 @@ def grouped_commands(collapse_parents=False):
                     for c in all_command_definitions()
                     if c["name"] not in PARENT_COMMANDS}
     rows_by_name.update({
-        s["name"]: (s["name"], f"{parent_name} {s['name']}", s.get("description", ""))
+        subcommand_key(s): (subcommand_key(s), f"{parent_name} {s['name']}",
+                            s.get("description", ""))
         for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
         for s in subs
     })

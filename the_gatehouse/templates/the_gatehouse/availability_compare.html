@@ -122,7 +122,12 @@ is nothing worth indexing. {% endcomment %}
 
               <ul class="list-unstyled mb-0" id="player-list">
                 {% for p in players %}
-                  <li class="d-flex align-items-center gap-2 py-1">
+                  {% comment %} data-player-id is the handle the grid's hover /
+                  click highlight reaches these rows by. The only other
+                  per-player id is on the checkbox, which would mean walking up
+                  to the row on every cell. {% endcomment %}
+                  <li class="player-row d-flex align-items-center gap-2 py-1 mb-1"
+                      data-player-id="{{ p.profile.id }}">
                     <input class="form-check-input mt-0 player-toggle" type="checkbox"
                            id="player-{{ p.profile.id }}" value="{{ p.profile.id }}"
                            {% if p.hour_count %}checked{% else %}disabled{% endif %}>
@@ -175,11 +180,17 @@ is nothing worth indexing. {% endcomment %}
                   {% for hour, short_label, long_label in hours %}
                     <div class="avail-hour-label"><span class="hour-text">{{ short_label }}</span></div>
                     {% for day in days %}
-                      {# Read-only: divs, not buttons -- nothing here is clickable. #}
+                      {% comment %} Read-only: divs, not buttons -- nothing here
+                      changes the schedule. They ARE tappable, which is how a
+                      phone reaches the detail a hover tooltip never shows.
+
+                      data-bs-title is filled in by render(), not here: the text
+                      names who is free and so changes whenever a player is
+                      toggled. {% endcomment %}
                       <div class="avail-cell compare-cell"
                            data-day="{{ forloop.counter0 }}"
                            data-hour="{{ hour }}"
-                           data-label="{{ day }} {{ long_label }}"></div>
+                           data-label="{{ day }} {{ long_label }}"><span class="cell-time">{{ short_label }}</span></div>
                     {% endfor %}
                   {% endfor %}
                 </div>
@@ -204,12 +215,16 @@ is nothing worth indexing. {% endcomment %}
      how a phone gets at the detail a `title` tooltip only shows on hover. */
   .compare-grid .avail-cell {
     cursor: pointer;
-    color: transparent;      /* the per-cell time label is noise here */
+    /* Every cell shows its own time. The heat backgrounds below are drawn at
+       50% so one dark colour stays readable on all five bands -- at that
+       opacity each sits over the page's light ground as a pastel, which beats
+       maintaining a per-band text colour that has to be re-tuned whenever the
+       palette moves. */
+    color: #212529;
     background: #f8f9fa;
   }
   .compare-grid .avail-cell:hover {
     border-color: #495057;
-    color: transparent;
   }
 
   /* The tapped cell, so it is obvious which one the detail line describes. */
@@ -237,12 +252,20 @@ is nothing worth indexing. {% endcomment %}
   .heat-far { background: #adb5bd; border-color: #939ba2; }
 
   /* The grid cell's own background rule is equally specific and comes first, so
-     the ramp needs to win on the cells explicitly. */
-  .compare-grid .avail-cell.heat-0   { background: #198754; }
-  .compare-grid .avail-cell.heat-1   { background: #ffc107; }
-  .compare-grid .avail-cell.heat-2   { background: #fd7e14; }
-  .compare-grid .avail-cell.heat-3   { background: #dc3545; }
-  .compare-grid .avail-cell.heat-far { background: #adb5bd; }
+     the ramp needs to win on the cells explicitly.
+
+     Drawn at 50% ONLY here, on the cells: the bare .heat-* rules above are
+     shared with the legend swatches, and fading those would wash out the key
+     that explains the ramp. The cells are translucent so the per-cell time
+     stays legible on top of them. */
+  .compare-grid .avail-cell.heat-0   { background: rgba(25, 135, 84, 0.5); }
+  .compare-grid .avail-cell.heat-1   { background: rgba(255, 193, 7, 0.5); }
+  .compare-grid .avail-cell.heat-2   { background: rgba(253, 126, 20, 0.5); }
+  .compare-grid .avail-cell.heat-3   { background: rgba(220, 53, 69, 0.5); }
+  /* Kept nearer full strength: at 50% this grey lands almost on top of the
+     empty-cell #f8f9fa, and "nobody is free" has to read as different from
+     "no data". */
+  .compare-grid .avail-cell.heat-far { background: rgba(173, 181, 189, 0.75); }
 
   /* "Everyone is free" is the answer people come for, so it does not rely on hue
      alone -- red/green colour blindness is common. */
@@ -259,6 +282,26 @@ is nothing worth indexing. {% endcomment %}
     font-size: 0.75rem;
     color: #6c757d;
   }
+  /* Who is free at the cell under the pointer (or the pinned one). The row is
+     the whole answer -- checkbox, avatar, name and hours -- so the box wraps
+     all of it rather than tinting the name alone. */
+  .player-row {
+    border-radius: 6px;
+    padding-left: 4px;
+    padding-right: 4px;
+    transition: background-color 90ms linear;
+  }
+  .player-row.is-free {
+    background: rgba(25, 135, 84, 0.5);
+  }
+
+  /* describeCell builds a two-line string. A native title renders the newline;
+     a Bootstrap tooltip inserts via textContent, where HTML would collapse it
+     to a space. pre-line keeps the break WITHOUT switching to html:true --
+     that second line interpolates player display names, which are user data
+     and must not become markup. */
+  .tooltip-inner { white-space: pre-line; }
+
   .heat-legend-item { display: flex; align-items: center; gap: 4px; }
   .heat-legend-swatch {
     width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
@@ -293,6 +336,7 @@ is nothing worth indexing. {% endcomment %}
   var legend = document.getElementById('heat-legend');
   var summary = document.getElementById('summary-line');
   var detail = document.getElementById('cell-detail');
+  var playerRows = Array.prototype.slice.call(document.querySelectorAll('.player-row'));
   var focusedCell = null;
 
   // hour-of-week -> every player free then, regardless of what is checked. Built
@@ -345,7 +389,19 @@ is nothing worth indexing. {% endcomment %}
       if (bucket) { cell.classList.add(bucket); }
       if (total && who.length === total) { overlapHours.push(parseInt(cell.dataset.how, 10)); }
 
-      cell.title = describeCell(cell, who, total);
+      // data-bs-title, not title: the delegated Bootstrap tooltip reads this at
+      // SHOW time, so it picks up the new names after a toggle. A per-element
+      // instance would cache the text at construction and go stale here.
+      //
+      // Dropped entirely when players are selected but none is free: that
+      // tooltip only repeats what the colour already says, and popping one up
+      // over every dead cell makes the grid noisier to scan. With no players
+      // selected the text is just the day and hour, which is still worth having.
+      if (total && !who.length) {
+        cell.removeAttribute('data-bs-title');
+      } else {
+        cell.setAttribute('data-bs-title', describeCell(cell, who, total));
+      }
     });
 
     renderLegend(total);
@@ -371,15 +427,33 @@ is nothing worth indexing. {% endcomment %}
     return cell.dataset.label + '\n' + count + ': ' + names;
   }
 
-  function showDetail(cell) {
+  function freeAtCell(cell) {
+    // The SELECTED players free at this cell. Shared by the detail line and the
+    // player-row highlight so the two can never disagree about who is free.
     var ids = checkedIds();
-    var free = (PLAYER_HOURS_BY_HOUR[cell.dataset.how] || []).filter(function (id) {
+    return (PLAYER_HOURS_BY_HOUR[cell.dataset.how] || []).filter(function (id) {
       return ids.indexOf(id) !== -1;
     });
+  }
+
+  function highlightPlayers(cell) {
+    // `cell` null clears. Ids arrive as JSON object keys, so they are strings --
+    // the dataset value is too, which is why this compares without coercion.
+    var free = cell ? freeAtCell(cell) : [];
+    playerRows.forEach(function (row) {
+      row.classList.toggle('is-free',
+                           free.indexOf(row.dataset.playerId) !== -1);
+    });
+  }
+
+  function showDetail(cell) {
+    var ids = checkedIds();
+    var free = freeAtCell(cell);
 
     cells.forEach(function (c) { c.classList.remove('is-focused'); });
     cell.classList.add('is-focused');
     focusedCell = cell;
+    highlightPlayers(cell);
 
     var everyone = ids.length && free.length === ids.length;
     detail.innerHTML =
@@ -458,11 +532,37 @@ is nothing worth indexing. {% endcomment %}
   });
 
   // One delegated listener rather than 168. Works for touch as well as mouse,
-  // which is the point -- the `title` tooltip never appears on a phone.
+  // which is the point -- a hover tooltip never appears on a phone.
   grid.addEventListener('click', function (e) {
     var cell = e.target.closest('.compare-cell');
     if (cell) { showDetail(cell); }
   });
+
+  // Hover PREVIEWS who is free; the click above PINS it. The two events are
+  // deliberately asymmetric: mouseover bubbles, so one listener catches every
+  // cell the pointer enters, while mouseleave does NOT bubble and so fires once
+  // on leaving the grid. mouseout would instead fire on every cell-to-cell move
+  // and make the highlight flicker.
+  grid.addEventListener('mouseover', function (e) {
+    var cell = e.target.closest('.compare-cell');
+    if (cell) { highlightPlayers(cell); }
+  });
+  grid.addEventListener('mouseleave', function () {
+    // Back to whatever the last click pinned, or nothing.
+    highlightPlayers(focusedCell);
+  });
+
+  // ONE tooltip for the whole grid, delegated. Per-element instances would each
+  // cache their text at construction, so every cell would go stale the moment a
+  // player was toggled -- render() rewrites data-bs-title, and only the
+  // delegated form re-reads it when the tooltip is shown.
+  if (window.bootstrap && bootstrap.Tooltip) {
+    new bootstrap.Tooltip(grid, {
+      selector: '.compare-cell[data-bs-title]',
+      placement: 'top',
+      trigger: 'hover',
+    });
+  }
 
   render();
 })();

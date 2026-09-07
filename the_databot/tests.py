@@ -3794,12 +3794,12 @@ class LookupCommandShapeTests(TestCase):
     def test_a_command_missing_from_the_groups_is_still_listed(self):
         """grouped_commands' "Other" catch-all is what keeps a newly added
         command toggleable before anyone files it into COMMAND_GROUPS."""
-        trimmed = [(group, [n for n in names if n != "boxscore"])
+        trimmed = [(group, [n for n in names if n != "record"])
                    for group, names in dc.COMMAND_GROUPS]
         with mock.patch.object(dc, "COMMAND_GROUPS", trimmed):
             names = [n for n, _l, _d in dc.whitelistable_commands()]
 
-        self.assertIn("boxscore", names)
+        self.assertIn("record", names)
 
 
 class LFGHelpContentTests(TestCase):
@@ -11056,16 +11056,36 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(seat["player_slug"], "someone-unknown")
         self.assertEqual(seat["player_steam_id"], "76561198000000000")
 
-    def test_the_whitelist_key_is_still_boxscore(self):
-        """Splitting into subcommands must not orphan every guild's stored
-        enabled_commands, which holds "boxscore"."""
-        self.assertIn("boxscore", dc.WHITELISTABLE)
+    def test_the_subcommands_are_whitelisted_separately(self):
+        """/boxscore upload and /boxscore token are independent toggles, so a
+        guild can take the TTS token flow without the file upload or vice versa.
+
+        The keys are PREFIXED: bare "upload"/"token" would say nothing in a
+        stored enabled_commands list and would collide the moment another
+        command gained a subcommand of the same name."""
+        self.assertIn("boxscore_upload", dc.WHITELISTABLE)
+        self.assertIn("boxscore_token", dc.WHITELISTABLE)
         self.assertNotIn("upload", dc.WHITELISTABLE)
         self.assertNotIn("token", dc.WHITELISTABLE)
-        registered = dc.commands_for_guild(["boxscore"])
+
+        registered = dc.commands_for_guild(["boxscore_upload", "boxscore_token"])
         boxscore = next(c for c in registered if c["name"] == "boxscore")
         self.assertEqual(sorted(o["name"] for o in boxscore["options"]),
                          ["token", "upload"])
+        # Discord rejects unknown fields, so our own key must not be sent.
+        self.assertFalse(any("whitelist_key" in o for o in boxscore["options"]))
+
+    def test_one_subcommand_can_be_enabled_without_the_other(self):
+        registered = dc.commands_for_guild(["boxscore_token"])
+        boxscore = next(c for c in registered if c["name"] == "boxscore")
+        self.assertEqual([o["name"] for o in boxscore["options"]], ["token"])
+
+    def test_the_old_boxscore_key_no_longer_registers_anything(self):
+        """Deliberate, and the reason this needs a changelog line: a guild whose
+        stored whitelist still says "boxscore" loses the command until a
+        moderator ticks the new boxes. No migration was wanted."""
+        registered = dc.commands_for_guild(["boxscore"])
+        self.assertNotIn("boxscore", [c["name"] for c in registered])
 
     # ── Steam id matching ───────────────────────────────────────────────────
 
@@ -11311,7 +11331,8 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertNotIn(
             "boxscore", [c["name"] for c in dc.commands_for_guild([])])
         self.assertIn(
-            "boxscore", [c["name"] for c in dc.commands_for_guild(["boxscore"])])
+            "boxscore",
+            [c["name"] for c in dc.commands_for_guild(["boxscore_upload"])])
 
     # ── the round trip that motivates the whole design ──
 
@@ -11712,9 +11733,11 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("already recorded", data["content"])
         self.assertEqual(BoxScoreUploadToken.objects.count(), 0)
 
-    def test_the_command_is_still_whitelisted_as_boxscore(self):
-        self.assertIn("boxscore", dc.WHITELISTABLE)
+    def test_the_token_subcommand_has_its_own_toggle(self):
+        """A guild can offer the TTS token flow without the file upload."""
+        self.assertIn("boxscore_token", dc.WHITELISTABLE)
         self.assertNotIn("token", dc.WHITELISTABLE)
+        self.assertNotIn("boxscore", dc.WHITELISTABLE)
 
 
 class BoxScoreUploadSweepTests(TestCase):
@@ -12092,13 +12115,13 @@ class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
         self.build()
         self.thread_id = "555000111"
 
-    def _run(self, channel_id=None):
+    def _run(self, channel_id=None, channel_name=None):
         data = {
             "name": "availability",
             "options": [],
             "_guild_id": self.guild.guild_id,
             "_channel_id": channel_id or self.thread_id,
-            "_channel_name": None,
+            "_channel_name": channel_name,
             "_author_id": self.player.discord_id,
             "_author_username": "player",
         }
@@ -12130,6 +12153,58 @@ class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("availability", di.COMMAND_HANDLERS)
         # It reveals when specific players are free.
         self.assertIn("availability", di.ROSTER_GUARDED_COMMANDS)
+
+    # ── thread matching, mirroring /seating ─────────────────────────────────
+
+    def test_an_untouched_group_thread_is_found_by_its_id(self):
+        """A group thread only gets an LFGThread row once /pick or /seating runs
+        in it. Before that this command answered "run this inside your game's
+        thread" while standing in exactly such a thread."""
+        self.assertFalse(LFGThread.objects.filter(thread_id=self.thread_id).exists())
+
+        data = self._run()
+
+        self.assertIn(f"series={self.series.id}", data["content"])
+        self.assertNotIn("lfg=", data["content"])
+
+    def test_an_untouched_group_thread_is_found_by_its_title(self):
+        """The title fallback /seating uses, which also LINKS the thread."""
+        self.group.discord_thread = ""
+        self.group.save(update_fields=["discord_thread"])
+
+        data = self._run(channel_id="4242424242", channel_name=self.group.name)
+
+        self.assertIn(f"series={self.series.id}", data["content"])
+        self.group.refresh_from_db()
+        self.assertIn("4242424242", self.group.discord_thread)
+
+    def test_a_group_thread_without_a_series_is_not_treated_as_lfg(self):
+        """An LFGThread row with neither players nor series is a group thread
+        touched before its MatchSeries existed. Keying on series_id alone sent it
+        to ?lfg= with an EMPTY roster, which the compare page refuses to show
+        anyone -- a dead end inside a real tournament thread."""
+        LFGThread.objects.create(thread_id=self.thread_id)   # no players, no series
+
+        data = self._run()
+
+        self.assertIn(f"series={self.series.id}", data["content"])
+        self.assertNotIn("lfg=", data["content"])
+
+    def test_a_plain_lfg_thread_still_wins_over_the_group_lookup(self):
+        """An LFG game sharing a channel id with a group must stay an LFG game:
+        its own players are the roster, not the group's."""
+        thread = LFGThread.objects.create(thread_id=self.thread_id)
+        thread.players.add(self.player)
+
+        data = self._run()
+
+        self.assertIn(f"lfg={thread.pk}", data["content"])
+        self.assertNotIn("series=", data["content"])
+
+    def test_a_channel_with_no_game_at_all_still_says_where_to_run_it(self):
+        data = self._run(channel_id="9090909090", channel_name="random chat")
+
+        self.assertIn("inside your game's thread", data["content"])
 
 
 class UpcomingScopeTests(ScheduleFixtureMixin, TestCase):

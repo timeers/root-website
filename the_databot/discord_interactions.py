@@ -401,21 +401,39 @@ def _handle_availability_command(data):
     /schedule subcommand: a plain /lfg thread has no Match at all, and its players
     still want to see where their free hours overlap.
 
-    A SERIES-linked thread is a tournament group thread, so it uses ?series= and
-    inherits that page's roster and permission rules; a plain thread uses ?lfg=.
-    Chosen on thread.series_id rather than _thread_roster, which can WRITE a group
-    link as a side effect."""
+    A tournament group thread uses ?series= and inherits that page's roster and
+    permission rules; a plain /lfg thread uses ?lfg=.
+
+    Resolution mirrors /seating, and for the same two reasons:
+
+    * An LFG thread is the one with its OWN players. `series_id` alone can't
+      tell the two apart -- a group thread touched before its MatchSeries
+      existed has a row with neither, and treating that as an LFG game linked
+      to an EMPTY roster, which the compare page then refuses to show anyone.
+    * A group thread only gets an LFGThread row once /pick or /seating runs in
+      it, so an untouched one has no row at all. Falling back to
+      player_group_for_channel is what lets this command work there -- it used
+      to answer "run this inside your game's thread" while standing in exactly
+      such a thread."""
     channel_id = data.get("_channel_id")
 
     thread = _lfg_thread_for_channel(channel_id)
-    if thread is None:
-        return _ephemeral(
-            "Run this inside your game's thread to compare player availability.")
-
-    if thread.series_id:
-        path = f"/availability/compare/?series={thread.series_id}"
-    else:
+    if thread and not thread.series_id and thread.players.exists():
         path = f"/availability/compare/?lfg={thread.pk}"
+    else:
+        series_id = thread.series_id if thread else None
+        if not series_id:
+            # Resolving by TITLE links the thread to its group as a side effect.
+            # Accepted here as /seating and /record accept it: the link is right
+            # whoever triggered it, and refusing it would leave this command
+            # broken in precisely the threads nobody has linked yet.
+            group = player_group_for_channel(
+                channel_id, data.get("_channel_name"), data.get("_guild_id"))
+            series_id = group_series_id(group) if group else None
+        if not series_id:
+            return _ephemeral(
+                "Run this inside your game's thread to compare player availability.")
+        path = f"/availability/compare/?series={series_id}"
 
     url = _record_url(path)
     if not url:
@@ -6996,7 +7014,7 @@ def _handle_boxscore_token_command(data):
         data.get("_author_id"), data.get("_author_username"),
         (data.get("_author") or {}).get("name"))
 
-    site = (config.get("SITE_URL") or "").rstrip("/")
+    # site = (config.get("SITE_URL") or "").rstrip("/")
     _token, raw = BoxScoreUploadToken.issue(thread, profile)
     minutes = int(BoxScoreUploadToken.TOKEN_TTL.total_seconds() // 60)
 
@@ -7004,10 +7022,10 @@ def _handle_boxscore_token_command(data):
         "Paste this into the Tabletop Simulator uploader:",
         f"```\n{BoxScoreUploadToken.group(raw)}\n```",
         f"-# One upload, this game only, expires in {minutes} minutes. "
-        "Anyone who sees it can upload for this game, so don't post it.",
+        "Anyone who sees it can upload the box score for this game, so don't post it.",
     ]
-    if site:
-        lines.append(f"-# The object uploads to {site}/api/boxscore/upload/")
+    # if site:
+    #     lines.append(f"-# The object uploads to {site}/api/boxscore/upload/")
     # MUST stay ephemeral: the token is a capability, and posting it in the
     # thread would hand it to everyone who can read the channel.
     return _ephemeral("\n".join(lines))
@@ -8811,7 +8829,7 @@ def _handle_link_steam_command(data):
     # The token is a capability, so this reply MUST stay ephemeral.
     url = f"{site}/settings/steam/link/?t={make_link_token(profile.pk)}"
     return _ephemeral(
-        "Link your Steam account so your Tabletop Simulator games can be matched "
+        "Link your Steam account so your Tabletop Simulator games can be easily matched "
         f"to your profile:\n{url}\n\n-# This link is just for you and expires in 15 minutes.")
 
 
