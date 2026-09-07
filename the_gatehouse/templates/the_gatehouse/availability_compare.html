@@ -39,7 +39,7 @@ is nothing worth indexing. {% endcomment %}
               {% endif %}
               {% if edit_url %}
                 <a href="{{ edit_url }}" class="databot-btn databot-btn-primary avail-btn-compact ms-auto">
-                  <i class="bi bi-pencil me-1"></i>{% trans 'Edit Availability' %}
+                  <i class="bi bi-pencil me-1"></i>{% trans 'My Availability' %}
                 </a>
               {% endif %}
             </div>
@@ -106,10 +106,37 @@ is nothing worth indexing. {% endcomment %}
       {% else %}
 
       <div class="row g-3">
+
+
+
+
+
         {# Player list: beside the grid when there's room, above it when there isn't. #}
         <div class="col-lg-4">
+
+
+
+
           <div class="info-card h-100">
             <div class="info-card-body">
+
+
+
+              <div id="summary-line" class="mb-2"></div>
+
+              {# Legend is rebuilt on every toggle: a group of 3 can never be "missing 4", so the reachable bands change with the selection. #}
+              <div class="heat-legend mb-2" id="heat-legend"></div>
+
+              {% comment %} Tap/click detail. The cells carry a `title`, but that
+              is mouse-only -- a phone never shows it. This panel is the same
+              information in a form touch users can actually reach.
+              {% endcomment %}
+              <div class="cell-detail" id="cell-detail">
+                <span class="text-muted">{% trans 'Tap a time to see who is free.' %}</span>
+              </div>
+
+
+
               <div class="d-flex justify-content-between align-items-center flex-wrap mb-2 gap-2">
                 <h2 class="info-card-title h6 mb-0">
                   {% blocktrans count counter=player_count %}{{ counter }} Player{% plural %}{{ counter }} Players{% endblocktrans %}
@@ -149,6 +176,13 @@ is nothing worth indexing. {% endcomment %}
                   </li>
                 {% endfor %}
               </ul>
+
+
+
+
+
+
+
             </div>
           </div>
         </div>
@@ -157,18 +191,6 @@ is nothing worth indexing. {% endcomment %}
           <div class="info-card h-100">
             <div class="info-card-body">
 
-              <div id="summary-line" class="mb-2"></div>
-
-              {# Legend is rebuilt on every toggle: a group of 3 can never be "missing 4", so the reachable bands change with the selection. #}
-              <div class="heat-legend mb-2" id="heat-legend"></div>
-
-              {% comment %} Tap/click detail. The cells carry a `title`, but that
-              is mouse-only -- a phone never shows it. This panel is the same
-              information in a form touch users can actually reach.
-              {% endcomment %}
-              <div class="cell-detail mb-3" id="cell-detail">
-                <span class="text-muted">{% trans 'Tap a time to see who is free.' %}</span>
-              </div>
 
               <div class="availability-scroll">
                 <div class="availability-grid compare-grid" id="compare-grid">

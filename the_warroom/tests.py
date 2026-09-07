@@ -1355,6 +1355,83 @@ class ResultsChannelViewAnnounceTests(TestCase):
         thread_post.delay.assert_called_once()
 
 
+class MatchModeSeatOrderTests(ResultsChannelViewAnnounceTests):
+    """Row order in match mode.
+
+    MatchSeat.seat_number is nullable and in practice just the order players were
+    ADDED to the match. When the linked group thread holds a real seating -- set
+    by /seating, /adset or a box score -- that is the order the game was played
+    in, so it drives the form instead.
+    """
+
+    def _thread_for(self, series, order, seating_set=True):
+        """A group thread seating `order` (a list of profiles) 1..N."""
+        thread = LFGThread.objects.create(
+            thread_id=f"seatorder-{series.pk}", series=series,
+            seating_set=seating_set)
+        for i, profile in enumerate(order, 1):
+            LFGSeat.objects.create(thread=thread, profile=profile, seat_number=i)
+        return thread
+
+    def _rows(self, match):
+        """The player pk pre-filled into each formset row, in row order."""
+        response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
+        return [f.initial.get('player') for f in response.context['formset'].forms]
+
+    def _match_with(self, seat_order):
+        series = MatchSeries.objects.create(round=self.round)
+        match = Match.objects.create(round=self.round, series=series)
+        for i, profile in enumerate(seat_order, 1):
+            self._seat(series, profile, i)
+        return match, series
+
+    def test_the_thread_seating_drives_the_row_order(self):
+        match, series = self._match_with([self.profile, self.opponent])
+        # The thread says the opposite order.
+        self._thread_for(series, [self.opponent, self.profile])
+        self.assertEqual(self._rows(match), [self.opponent.pk, self.profile.pk])
+
+    def test_match_seat_order_stands_when_the_seating_is_filler(self):
+        """seating_set False means /pick assigned factions without seating, so
+        those seat numbers assert nothing and must not reorder anything."""
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.opponent, self.profile], seating_set=False)
+        self.assertEqual(self._rows(match), [self.profile.pk, self.opponent.pk])
+
+    def test_match_seat_order_stands_with_no_thread(self):
+        match, _series = self._match_with([self.profile, self.opponent])
+        self.assertEqual(self._rows(match), [self.profile.pk, self.opponent.pk])
+
+    def test_a_player_the_thread_does_not_seat_keeps_their_place_at_the_end(self):
+        """MatchSeat stays authoritative for WHO plays: someone absent from the
+        box score still gets a row, just after the seated ones."""
+        third = Profile.objects.create(discord='thirdp', discord_id='9903')
+        match, series = self._match_with([self.profile, self.opponent, third])
+        self._thread_for(series, [self.opponent, self.profile])
+        self.assertEqual(self._rows(match),
+                         [self.opponent.pk, self.profile.pk, third.pk])
+
+    def test_an_extra_seat_in_the_thread_gets_its_own_row(self):
+        """A box score can seat more players than the bracket knows about. The
+        row exists so the faction and score are visible; its player cannot be
+        chosen, because the dropdown is restricted to match participants."""
+        stranger = Profile.objects.create(discord='stranger5', discord_id='9905')
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent, stranger])
+        rows = self._rows(match)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[:2], [self.profile.pk, self.opponent.pk])
+        self.assertIsNone(rows[2])
+
+    def test_the_extra_row_cannot_offer_the_off_roster_player(self):
+        stranger = Profile.objects.create(discord='stranger6', discord_id='9906')
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent, stranger])
+        response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
+        choices = response.context['formset'].forms[2].fields['player'].queryset
+        self.assertNotIn(stranger.pk, [p.pk for p in choices])
+
+
 class MatchLinkGameTests(TestCase):
     """The moderator-only 'link an existing game to a scheduled match' endpoint.
 
@@ -1831,6 +1908,58 @@ class BoxScoreImportNormalizeTests(TestCase):
             validate_participants([{'turn_order': 1}, {'turn_order': 1}])
 
 
+class SeatNumberingValidationTests(TestCase):
+    """Every participant must carry turn_order, and the values must be exactly
+    1..N. Seat order is taken from turn_order, so a file that disagrees with
+    itself has to say what it means rather than being seated by array position."""
+
+    def _parse(self, seats):
+        return parse_box_score_json(json.dumps({'participants': seats}))
+
+    def test_a_clean_run_is_accepted(self):
+        self._parse([{'turn_order': 1}, {'turn_order': 2}, {'turn_order': 3}])
+
+    def test_the_array_order_does_not_have_to_match(self):
+        """The whole point: [2, 1, 3] is valid and gets reordered downstream."""
+        self._parse([{'turn_order': 2}, {'turn_order': 1}, {'turn_order': 3}])
+
+    def test_the_seat_alias_is_accepted(self):
+        self._parse([{'seat': 1}, {'seat': 2}])
+
+    def test_a_duplicate_is_rejected_by_number(self):
+        with self.assertRaises(BoxScoreImportError) as caught:
+            self._parse([{'turn_order': 1}, {'turn_order': 1}])
+        self.assertIn('share turn_order 1', str(caught.exception))
+
+    def test_a_gap_is_rejected_and_names_the_missing_seat(self):
+        with self.assertRaises(BoxScoreImportError) as caught:
+            self._parse([{'turn_order': 1}, {'turn_order': 2}, {'turn_order': 4}])
+        self.assertIn('turn_order 3 is missing', str(caught.exception))
+
+    def test_a_participant_missing_turn_order_is_rejected_by_position(self):
+        with self.assertRaises(BoxScoreImportError) as caught:
+            self._parse([{'turn_order': 1}, {'turn_order': 2}, {}])
+        self.assertIn('Participant 3', str(caught.exception))
+
+    def test_a_file_with_no_turn_order_at_all_is_rejected(self):
+        with self.assertRaises(BoxScoreImportError):
+            self._parse([{'player': 'a'}, {'player': 'b'}])
+
+    def test_n_is_the_file_count_not_a_roster_size(self):
+        """This runs in the parser with no roster in scope. Five participants
+        numbered 1-5 are internally consistent, whatever the game seats -- the
+        seating gates reconcile that, not this check."""
+        self._parse([{'turn_order': i} for i in range(1, 6)])
+
+    def test_stored_turns_data_with_a_gap_is_still_valid(self):
+        """THE reason this is not folded into validate_participants: decompose
+        drops a participant with no turns and no dominance, so a real 4-player
+        game can persist 3 entries. LFGThread.clean() runs the OTHER validator on
+        that stored data and must keep accepting it."""
+        validate_participants([{'turn_order': 1}, {'turn_order': 2},
+                               {'turn_order': 4}])
+
+
 class BoxScoreImportParseTests(TestCase):
     def test_a_bare_participants_list_is_accepted(self):
         # So a thread's stored turns_data can be pasted in directly.
@@ -2158,11 +2287,19 @@ class BoxScoreUploadApiTests(TestCase):
         self.thread = LFGThread.objects.create(thread_id='tts-thread-1')
         self.thread.players.set([self.alice, self.bob])
 
+    # Every participant carries a Steam id: the API path requires one, since the
+    # TTS object identifies players by Steam account and a seat without one can't
+    # be resolved by Gate 0 either.
+    ALICE_STEAM = '76561198000000001'
+    BOB_STEAM = '76561198000000002'
+
     def _doc(self, **kw):
         return {'participants': [
             {'turn_order': 1, 'player': self.alice.slug,
+             'player_steam_id': self.ALICE_STEAM,
              'turns': [{'turn': 1, 'score': 3}]},
             {'turn_order': 2, 'player': self.bob.slug,
+             'player_steam_id': self.BOB_STEAM,
              'turns': [{'turn': 1, 'score': 5}]},
         ], **kw}
 
@@ -2277,6 +2414,171 @@ class BoxScoreUploadApiTests(TestCase):
         self.assertEqual(response.status_code, 413)
         self.assertEqual(response.json()['error'], 'too_large')
 
+    # ── turn_order drives the seating ──
+
+    def test_seats_follow_turn_order_not_array_order(self):
+        """The bug this fixes: seats were numbered by array position while
+        turns_data was keyed by turn_order, so the two disagreed silently."""
+        token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 2, 'player': self.alice.slug,
+             'player_steam_id': self.ALICE_STEAM,
+             'turns': [{'turn': 1, 'score': 3}]},
+            {'turn_order': 1, 'player': self.bob.slug,
+             'player_steam_id': self.BOB_STEAM,
+             'turns': [{'turn': 1, 'score': 5}]},
+        ]}
+        self._post(doc, raw)
+        self.thread.refresh_from_db()
+        seated = [(s.seat_number, s.profile_id)
+                  for s in self.thread.seats.order_by('seat_number')]
+        # Bob said seat 1 despite being second in the array.
+        self.assertEqual(seated, [(1, self.bob.pk), (2, self.alice.pk)])
+
+    def test_a_seat_number_gap_is_refused_before_anything_is_written(self):
+        token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': self.alice.slug,
+             'player_steam_id': self.ALICE_STEAM,
+             'turns': [{'turn': 1, 'score': 3}]},
+            {'turn_order': 3, 'player': self.bob.slug,
+             'player_steam_id': self.BOB_STEAM,
+             'turns': [{'turn': 1, 'score': 5}]},
+        ]}
+        response, _ = self._post(doc, raw)
+        self.assertEqual(response.status_code, 400)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.seats.count(), 0)
+        self.assertFalse(self.thread.turns_data)
+
+    # ── Steam ids: required HERE, not in the shared parser ──
+
+    def test_a_seat_without_a_steam_id_is_refused(self):
+        token, raw = self._token()
+        doc = self._doc()
+        del doc['participants'][1]['player_steam_id']
+        response, _ = self._post(doc, raw)
+        self.assertEqual(response.status_code, 400)
+        # `error` is the machine code; `message` is what TTS prints at the table.
+        self.assertEqual(response.json()['error'], 'invalid_box_score')
+        self.assertIn('Steam ID', response.json()['message'])
+
+    def test_a_malformed_steam_id_is_refused(self):
+        token, raw = self._token()
+        doc = self._doc()
+        doc['participants'][0]['player_steam_id'] = '123'
+        response, _ = self._post(doc, raw)
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_same_file_still_parses_for_the_other_entry_points(self):
+        """The requirement is TTS-only. The site's own game export carries slugs
+        and no Steam ids, and the record-form import modal reads that export, so
+        the shared parser must keep accepting it."""
+        doc = self._doc()
+        for participant in doc['participants']:
+            del participant['player_steam_id']
+        payload = parse_box_score_json(json.dumps(doc))
+        self.assertEqual(len(payload['participants']), 2)
+
+    # ── correcting a mistaken upload ──
+
+    def test_a_second_upload_replaces_the_seating_entirely(self):
+        """A file with one player too many can be undone by uploading the right
+        one: the reseat deletes every prior seat rather than merging, so the
+        stray seat goes. This is what makes keeping an over-sized file safe."""
+        stranger = Profile.objects.create(discord='ttsextra', discord_id='804')
+        self.thread.players.add(stranger)
+        _token, raw = self._token()
+        big = {'participants': [
+            {'turn_order': 1, 'player': self.alice.slug,
+             'player_steam_id': self.ALICE_STEAM,
+             'turns': [{'turn': 1, 'score': 3}]},
+            {'turn_order': 2, 'player': self.bob.slug,
+             'player_steam_id': self.BOB_STEAM,
+             'turns': [{'turn': 1, 'score': 5}]},
+            {'turn_order': 3, 'player': stranger.slug,
+             'player_steam_id': '76561198000000003',
+             'turns': [{'turn': 1, 'score': 7}]},
+        ]}
+        self._post(big, raw)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.seats.count(), 3)
+
+        # The corrected file disagrees with what is now seated, so it is PARKED
+        # for confirmation rather than applied silently -- a seat count changing
+        # under you is exactly what Gate 2 exists to show.
+        token2, raw2 = self._token()
+        response, prompt = self._post(self._doc(), raw2)
+        self.assertEqual(response.json()['status'], 'pending_confirmation')
+        prompt.assert_called_once()
+        token2.refresh_from_db()
+        self.assertEqual(len(token2.payload['seats']), 2)
+
+        # Confirming applies it, and the reseat clears the stray third seat
+        # rather than merging into it.
+        from the_databot.discord_interactions import _boxscore_apply
+        _boxscore_apply(self.thread, token2.payload, self.thread.thread_id)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.seats.count(), 2)
+        self.assertEqual(len(self.thread.turns_data), 2)
+        self.assertNotIn(stranger.pk,
+                         [s.profile_id for s in self.thread.seats.all()])
+
+    # ── the completion summary ──
+
+    def test_the_summary_names_factions_and_scores_per_seat(self):
+        """It used to be a bare "1. Name  2. Name", which told you LESS than the
+        confirm prompt you had just approved. Same renderer both sides now."""
+        token, raw = self._token()
+        doc = self._doc()
+        doc['participants'][0]['faction'] = 'marquise-de-cat'
+        with mock.patch(
+                'the_databot.discord_interactions.post_channel_message_task.delay'
+        ) as posted, \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            self.client.post(
+                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {raw}')
+        summary = posted.call_args[0][1] if posted.call_args else ''
+        self.assertIn('Seating:', summary)
+        self.assertIn('1. Alice', summary)
+        # The faction TITLE when the asset exists, else the slug -- this test DB
+        # has no Faction rows, so the slug is the correct fallback here. Either
+        # way the seat now carries its faction, which the old summary dropped.
+        self.assertIn('marquise-de-cat', summary)
+        # Final score from the last turn cell, keyed by turn_order.
+        self.assertIn('(3)', summary)
+        self.assertIn('2. Bob', summary)
+        self.assertIn('(5)', summary)
+
+    def test_the_summary_scores_follow_turn_order_not_array_order(self):
+        """The score keys are turn_order; the rendered seat numbers are 1..N by
+        position. Those agree only because participants are sorted first -- if
+        that ever stops, every score lands on the wrong player."""
+        _token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 2, 'player': self.bob.slug,
+             'player_steam_id': self.BOB_STEAM,
+             'turns': [{'turn': 1, 'score': 9}]},
+            {'turn_order': 1, 'player': self.alice.slug,
+             'player_steam_id': self.ALICE_STEAM,
+             'turns': [{'turn': 1, 'score': 4}]},
+        ]}
+        with mock.patch(
+                'the_databot.discord_interactions.post_channel_message_task.delay'
+        ) as posted, \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            self.client.post(
+                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {raw}')
+        summary = posted.call_args[0][1] if posted.call_args else ''
+        self.assertIn('1. Alice (4)', summary)
+        self.assertIn('2. Bob (9)', summary)
+
     # ── a mismatch continues in Discord ──
 
     def test_a_mismatch_parks_the_payload_and_prompts_in_the_thread(self):
@@ -2284,6 +2586,7 @@ class BoxScoreUploadApiTests(TestCase):
         token, raw = self._token()
         doc = {'participants': [
             {'turn_order': 1, 'player': stranger.slug,
+             'player_steam_id': self.ALICE_STEAM,
              'turns': [{'turn': 1, 'score': 3}]}]}
         response, prompt = self._post(doc, raw)
 
@@ -2318,6 +2621,7 @@ class BoxScoreUploadApiTests(TestCase):
         token, raw = self._token()
         doc = {'participants': [
             {'turn_order': 1, 'player': 'x' * 5000 + '@everyone `**',
+             'player_steam_id': self.ALICE_STEAM,
              'turns': [{'turn': 1, 'score': 3}]}]}
         self._post(doc, raw)
         token.refresh_from_db()

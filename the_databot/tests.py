@@ -10928,15 +10928,18 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual([s.profile_id for s in self.thread.seats.all()],
                          [None, None, None])
 
-    def test_sparse_seat_numbers_do_not_create_extra_seats(self):
+    def test_sparse_seat_numbers_are_refused(self):
+        """A stray 7 in a 2-player file used to be seated by POSITION with a
+        warning, which quietly disagreed with turns_data (keyed by turn_order).
+        Seat order now comes from turn_order, so the file has to say what it
+        means: 1..N or nothing."""
         content, _, _ = self._run({"participants": [
             {"turn_order": 1, "turns": [{"turn": 1, "score": 1}]},
             {"turn_order": 7, "turns": [{"turn": 1, "score": 2}]},
         ]})
         self.thread.refresh_from_db()
-        # Seated by position: a stray 7 must not mean seven seats.
-        self.assertEqual(self.thread.seats.count(), 2)
-        self.assertIn("1-N", content)
+        self.assertEqual(self.thread.seats.count(), 0)
+        self.assertIn("turn_order 2 is missing", content)
 
     # ── file-level refusals ──
 
@@ -11557,6 +11560,34 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         self.assertIsNone(self.bob.steam_id)      # NEVER the verified field
         self.thread.refresh_from_db()
         self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk, self.bob.pk])
+
+    def test_the_answer_follows_the_seat_when_turn_order_is_shuffled(self):
+        """THE risky interaction: Gate 0 identifies seats by their INDEX into
+        pending["seats"], and seats are now ordered by turn_order rather than
+        array position. If the two ever disagree, a dropdown answer -- and the
+        assumed_steam_id it writes -- lands on the wrong person, silently and
+        durably. Here the mystery player is FIRST in the array but seat 2."""
+        doc = {"participants": [
+            {"turn_order": 2, "player": "MysteryGuest",
+             "player_steam_id": self.STEAM_A,
+             "turns": [{"turn": 1, "score": 4}]},
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+        ]}
+        data = self._run_data(doc)
+        key = self._pending_key(data)
+        # Index 1 == seat 2 == the mystery player, despite being array index 0.
+        self._pick(key, 1, self.bob.pk)
+        self._press("boxscore_g0_ok", key + ":0")
+
+        self.bob.refresh_from_db()
+        self.assertEqual(self.bob.assumed_steam_id, self.STEAM_A)
+        self.thread.refresh_from_db()
+        # Alice keeps seat 1 (her turn_order), Bob lands in seat 2 -- NOT the
+        # array order, which would have put Bob first.
+        self.assertEqual([s.profile_id for s in
+                          self.thread.seats.order_by("seat_number")],
                          [self.alice.pk, self.bob.pk])
 
     def test_a_later_upload_matches_with_no_gate_zero(self):

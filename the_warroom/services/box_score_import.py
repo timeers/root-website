@@ -231,6 +231,57 @@ def validate_participants(participants):
     return participants
 
 
+def validate_seat_numbering(participants):
+    """Every participant must carry turn_order, and the values must be exactly
+    1..N. Raises BoxScoreImportError naming the specific problem.
+
+    Deliberately SEPARATE from validate_participants, which is also called by
+    LFGThread.clean() on stored turns_data. A stored box score legitimately has
+    gaps: the decompose step drops any participant with no turns and no dominance,
+    so a real 4-player game can persist 3 entries. Folding this rule in there
+    would start rejecting rows already in the database.
+
+    This one runs at the FILE boundary instead, where the numbering is still the
+    exporter's own claim about the table rather than something we derived.
+
+    N is the count of participants in the FILE, not the roster size -- this is an
+    internal-consistency check with no roster in scope. A 5-participant file
+    numbered 1-5 is valid for a 4-person game; reconciling that is the seating
+    gates' job, not this function's.
+
+    Without it, a file whose turn_order disagrees with its array order was seated
+    by POSITION and silently mis-ordered, while its scores were keyed by
+    turn_order -- so the two disagreed with no way to tell which was meant.
+    """
+    if not participants:
+        return participants
+
+    seats = []
+    for index, participant in enumerate(participants):
+        raw = participant.get('turn_order', participant.get('seat'))
+        if raw is None:
+            raise BoxScoreImportError(
+                _('Participant %(n)s has no turn_order. Every player needs one '
+                  'so the seats can be put in order.') % {'n': index + 1})
+        seats.append(_as_int(raw, _('turn_order'),
+                             _('Participant %(n)s') % {'n': index + 1}))
+
+    expected = set(range(1, len(seats) + 1))
+    actual = set(seats)
+    if len(actual) != len(seats):
+        duplicated = sorted({s for s in seats if seats.count(s) > 1})
+        raise BoxScoreImportError(
+            _('Two participants share turn_order %(n)s.')
+            % {'n': duplicated[0]})
+    if actual != expected:
+        missing = sorted(expected - actual)
+        raise BoxScoreImportError(
+            _('This box score has %(count)s players, so their turn_order should '
+              'be 1 to %(count)s. turn_order %(n)s is missing.')
+            % {'count': len(seats), 'n': missing[0]})
+    return participants
+
+
 def parse_box_score_json(raw_text):
     """Uploaded file text -> validated payload dict.
 
@@ -262,6 +313,7 @@ def parse_box_score_json(raw_text):
         raise BoxScoreImportError(_('The file has no "participants" list.'))
 
     validate_participants(payload.get('participants'))
+    validate_seat_numbering(payload.get('participants'))
     return payload
 
 
