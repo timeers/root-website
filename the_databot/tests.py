@@ -10660,7 +10660,13 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         delay = mock.Mock()
         with mock.patch.object(di.record_lfg_components_task, "delay", delay):
             response = di.COMPONENT_HANDLERS[action](payload)
-        return json.loads(response.content)["data"]
+        parsed = json.loads(response.content)
+        # Stashed so a test can assert the RESPONSE TYPE: type 7 edits the
+        # message the button was on, type 4 posts a new one. Nothing pinned that
+        # distinction before, which is how the thread prompt came to be left
+        # behind with live buttons.
+        self._last_response_type = parsed["type"]
+        return parsed["data"]
 
     def _pick(self, key, seat_index, value, author=None):
         """Choose from one of Gate 0's dropdowns.
@@ -10692,13 +10698,14 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         the trailing element is the owner/PICK_OPEN marker.
 
         Reads the BUTTON row rather than components[0]: Gate 0 leads with select
-        rows, and a select's custom_id carries an extra seat index before the
-        owner, so slicing a select would silently yield a malformed ref."""
+        rows. Takes exactly the two ref parts rather than "everything but the
+        ends" -- Gate 0's buttons and selects both carry extra args (a page
+        index, a seat index) between the ref and the owner."""
         rows = content_data["components"]
         row = next((r["components"] for r in rows
                     if r["components"][0].get("type") == 2), rows[0]["components"])
         parts = row[0]["custom_id"].split(":")
-        return ":".join(parts[1:-1])
+        return ":".join(parts[1:3])
 
     def _run_confirmed(self, doc=None, **kw):
         """Run /boxscore and press through whatever gates it raises.
@@ -10822,7 +10829,7 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         # Gate 1 names them and writes nothing yet.
         data = self._run_data(doc)
         self.assertIn("nobody-with-this-slug", data["content"])
-        self.assertIn("/link steam", data["content"])
+        self.assertIn("linked their Steam account", data["content"])
         self.assertEqual(self.thread.seats.count(), 0)
 
         # Continuing seats them, leaving the unresolved seat blank.
@@ -10973,7 +10980,7 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
              "turns": [{"turn": 1, "score": 4}]},
         ]}
         data = self._run_data(doc)
-        self.assertIn("/link steam", data["content"])
+        self.assertIn("linked their Steam account", data["content"])
 
         # They link their Steam account...
         self.bob.steam_id = "76561197960265728"
@@ -11167,7 +11174,7 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
             {"turn_order": 2, "player": "who-even-is-this",
              "turns": [{"turn": 1, "score": 4}]},
         ]})
-        self.assertIn("/link steam", data["content"])
+        self.assertIn("linked their Steam account", data["content"])
         applied = self._press("boxscore_link", self._pending_key(data))
         self.assertEqual(applied["components"], [])
         self.thread.refresh_from_db()
@@ -11433,7 +11440,7 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
              "turns": [{"turn": 1, "score": 2}]}]}
         data = self._run_data(doc)
         self.assertEqual(self._selects(data), [])
-        self.assertIn("/link steam", data["content"])
+        self.assertIn("linked their Steam account", data["content"])
 
     def test_a_seat_with_no_name_is_left_to_gate_one(self):
         """The only label left would be the raw SteamID64 -- which asks the
@@ -11444,7 +11451,7 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
              "turns": [{"turn": 1, "score": 2}]}]}
         data = self._run_data(doc)
         self.assertEqual(self._selects(data), [])
-        self.assertIn("/link steam", data["content"])
+        self.assertIn("linked their Steam account", data["content"])
 
     def test_a_malformed_steam_id_is_left_to_gate_one(self):
         """Too long for the column: PostgreSQL would raise DataError on save."""
@@ -11465,7 +11472,7 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
         key = self._pending_key(data)
         self._pick(key, 1, self.bob.pk)
-        self._press("boxscore_g0_ok", key)
+        self._press("boxscore_g0_ok", key + ":0")
 
         self.bob.refresh_from_db()
         self.assertEqual(self.bob.assumed_steam_id, self.STEAM_A)
@@ -11479,36 +11486,38 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         doc = self._doc_unknown(("MysteryGuest", self.STEAM_A))
         key = self._pending_key(self._run_data(doc))
         self._pick(key, 1, self.bob.pk)
-        self._press("boxscore_g0_ok", key)
+        self._press("boxscore_g0_ok", key + ":0")
 
         again = self._run_data(doc)
         self.assertEqual(self._selects(again), [])
         self.assertFalse(again.get("components"))
         self.assertIn("Bob", again["content"])
 
-    def test_skipping_remembers_nothing_and_moves_on(self):
+    def test_answering_nothing_remembers_nothing_and_moves_on(self):
+        """Save & Continue with every dropdown left alone is how you decline --
+        there is no separate Skip button any more, because it did exactly this."""
         data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
-        after = self._press("boxscore_g0_skip", self._pending_key(data))
+        after = self._press("boxscore_g0_ok", self._pending_key(data) + ":0")
 
         self.bob.refresh_from_db()
         self.assertIsNone(self.bob.assumed_steam_id)
-        self.assertIn("/link steam", after["content"])   # Gate 1 took over
+        self.assertIn("linked their Steam account", after["content"])
 
     def test_the_skip_option_leaves_a_player_unmatched(self):
         data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
         key = self._pending_key(data)
         self._pick(key, 1, self.bob.pk)
         self._pick(key, 1, di._BOXSCORE_GATE_ZERO_SKIP)   # changed their mind
-        self._press("boxscore_g0_ok", key)
+        self._press("boxscore_g0_ok", key + ":0")
 
         self.bob.refresh_from_db()
         self.assertIsNone(self.bob.assumed_steam_id)
 
     def test_gate_zero_does_not_fire_again_after_being_answered(self):
-        """Skip leaves the seats untouched, so without the done-flag this would
-        ask the same question forever."""
+        """Answering nothing leaves the seats untouched, so without the
+        done-flag this would ask the same question forever."""
         data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
-        after = self._press("boxscore_g0_skip", self._pending_key(data))
+        after = self._press("boxscore_g0_ok", self._pending_key(data) + ":0")
         self.assertEqual(self._selects(after), [])
 
     def test_choosing_someone_releases_them_from_another_seat(self):
@@ -11517,7 +11526,7 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         key = self._pending_key(data)
         self._pick(key, 1, self.bob.pk)
         self._pick(key, 2, self.bob.pk)       # same person, other seat
-        self._press("boxscore_g0_ok", key)
+        self._press("boxscore_g0_ok", key + ":0")
 
         self.bob.refresh_from_db()
         # Held once, for the seat chosen last -- never twice.
@@ -11543,13 +11552,15 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         self.assertLessEqual(len(data["components"]), 5)
         self.assertEqual(len(self._selects(data)),
                          di._BOXSCORE_GATE_ZERO_PER_PAGE)
-        actions = [b["custom_id"].split(":")[0]
-                   for b in data["components"][-1]["components"]]
-        self.assertIn("boxscore_g0_page", actions)      # a Next button exists
+        # One forward button, labelled for where it goes. There is no separate
+        # paging or Skip button any more.
+        buttons = data["components"][-1]["components"]
+        self.assertEqual([b["label"] for b in buttons],
+                         ["Save & Next Players", "Cancel"])
 
-    def test_a_pick_survives_turning_the_page(self):
-        """Why Gate 0 keeps state in the payload rather than in the message: a
-        pick made on page 1 is simply not present in page 2's components."""
+    def test_saving_page_one_shows_page_two_instead_of_ending_the_gate(self):
+        """The bug this replaced: Save & Continue used to advance straight to
+        Gate 1, silently skipping every player past the first page."""
         extras = [Profile.objects.create(discord=f"bsy{i}", discord_id=f"97{i}",
                                          display_name=f"Other{i}")
                   for i in range(6)]
@@ -11559,11 +11570,97 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         key = self._pending_key(data)
 
         self._pick(key, 1, self.bob.pk)
-        self._press("boxscore_g0_page", key + ":1")     # to page 2 and back
-        back = self._press("boxscore_g0_page", key + ":0")
-        defaults = [o["label"] for o in self._selects(back)[0]["options"]
-                    if o.get("default")]
-        self.assertEqual(defaults, ["Bob"])
+        page2 = self._press("boxscore_g0_ok", key + ":0")
+
+        # Still Gate 0, now showing the remaining players -- and the last page,
+        # so the button says where it goes next.
+        self.assertTrue(self._selects(page2))
+        self.assertEqual(page2["components"][-1]["components"][0]["label"],
+                         "Save & Continue")
+        # The page-1 pick was saved on the way through.
+        self.bob.refresh_from_db()
+        self.assertIsNotNone(self.bob.assumed_steam_id)
+
+    # ── who may answer ──────────────────────────────────────────────────────
+
+    def _press_open(self, ref, author):
+        """Click Cancel on a PICK_OPEN prompt -- the shape a TTS upload posts.
+
+        Not _press: that appends the clicker's snowflake as the last arg, which
+        makes the custom_id owner-LOCKED. An owner-locked id short-circuits
+        _boxscore_click_owner ("the dispatcher already authorized this"), so the
+        roster check under test would never run.
+        """
+        payload = {
+            "data": {"custom_id": f"boxscore_no:{ref}:{di.PICK_OPEN}"},
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": author, "username": f"u{author}"}},
+        }
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+            response = di.COMPONENT_HANDLERS["boxscore_no"](payload)
+        return json.loads(response.content)["data"]
+
+    def _empty_thread_prompt(self):
+        """A token-backed prompt on a thread with NO roster.
+
+        Built directly rather than through an upload: with no roster there are
+        no Gate 0 candidates, so no prompt would render.
+        """
+        from the_databot.models import BoxScoreUploadToken
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        pending = di._boxscore_load(self._pending_key(data))
+        self.thread.players.clear()
+        token, _raw = BoxScoreUploadToken.issue(self.thread, self.alice)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING, payload=pending)
+        return f"t:{token.pk}"
+
+    def test_a_stranger_cannot_answer_a_prompt_on_an_empty_thread(self):
+        """The guard used to return early on an empty roster -- "nothing to
+        protect" -- which let anyone in the channel confirm someone's upload."""
+        ref = self._empty_thread_prompt()
+
+        refused = self._press_open(ref, "999888777")
+
+        self.assertIn("Only the players in this game", refused["content"])
+
+    def test_the_thread_host_can_answer_an_empty_thread_prompt(self):
+        """Failing closed must not strand the upload: someone accountable can
+        still resolve it."""
+        self.thread.host = self.alice
+        self.thread.save(update_fields=["host"])
+        ref = self._empty_thread_prompt()
+
+        answered = self._press_open(ref, self.alice.discord_id)
+
+        self.assertNotIn("Only the players in this game", answered["content"])
+
+    # ── the prompt resolves itself ──────────────────────────────────────────
+
+    def test_advancing_a_gate_edits_the_prompt_instead_of_posting_a_new_one(self):
+        """THE regression test. A click that moves Gate 0 -> Gate 1 used to
+        return a fresh ephemeral, leaving the public thread prompt behind with
+        its old buttons still live -- two prompts for one upload."""
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        self._press("boxscore_g0_ok", self._pending_key(data) + ":0")
+
+        self.assertEqual(self._last_response_type, di.RESPONSE_UPDATE_MESSAGE)
+
+    def test_a_failed_apply_clears_the_buttons(self):
+        """A failure discards the payload, so leaving the buttons live would
+        make the next click answer "no longer waiting" rather than saying what
+        went wrong."""
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        key = self._pending_key(data)
+        after = self._press("boxscore_g0_ok", key + ":0")
+        key = self._pending_key(after)
+
+        with mock.patch.object(di, "_boxscore_apply", return_value=(None, [])):
+            failed = self._press("boxscore_link", key)
+
+        self.assertEqual(self._last_response_type, di.RESPONSE_UPDATE_MESSAGE)
+        self.assertEqual(failed["components"], [])
+        self.assertIn("couldn't be saved", failed["content"])
 
     def test_its_buttons_are_owner_locked_on_the_ephemeral_path(self):
         data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
@@ -11763,6 +11860,43 @@ class BoxScoreUploadSweepTests(TestCase):
             prompt_expires_at=timezone.now() + timedelta(minutes=prompt_in_minutes),
             **kw)
         return BoxScoreUploadToken.objects.get(pk=token.pk)
+
+    def test_the_post_task_records_the_message_id(self):
+        """The sweep can only strip a prompt's buttons if it knows which message
+        to edit. Every other test here PRESETS message_id, so nothing covered
+        the write that puts it there -- if it regressed, prompts would silently
+        keep their buttons forever and the suite would stay green."""
+        from the_databot import tasks
+        token, _raw = BoxScoreUploadToken.issue(self.thread, self.player)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING,
+            channel_id=self.thread.thread_id)
+
+        with mock.patch(
+            "the_databot.services.discordservice.post_channel_message_full",
+            return_value=("ok", "98765"),
+        ) as post:
+            tasks.post_boxscore_prompt_task(token.pk, {"content": "x"})
+
+        post.assert_called_once()
+        token.refresh_from_db()
+        self.assertEqual(token.message_id, "98765")
+
+    def test_the_post_task_reraises_a_transient_failure(self):
+        """Celery must retry a network blip rather than leaving a token PENDING
+        with no prompt and no message id -- unanswerable and unsweepable."""
+        from the_databot import tasks
+        token, _raw = BoxScoreUploadToken.issue(self.thread, self.player)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING,
+            channel_id=self.thread.thread_id)
+
+        with mock.patch(
+            "the_databot.services.discordservice.post_channel_message_full",
+            return_value=("error", None),
+        ):
+            with self.assertRaises(Exception):
+                tasks.post_boxscore_prompt_task(token.pk, {"content": "x"})
 
     def test_a_prompt_near_expiry_pings_the_roster_once(self):
         token = self._pending(10)

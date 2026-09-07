@@ -32,6 +32,8 @@
 - box scores now match players by Steam account before falling back to their name, so a renamed Discord account no longer breaks matching — and two players with similar names can't be mixed up
 - linking your Steam account clears any earlier guess about that account, including one saved against someone else's profile
 - /upcoming now shows the next game for the thread or guild it's used in if no arguments are provided
+- a box score confirmation now updates the message you're looking at as you answer it, instead of leaving the old buttons behind and posting a new prompt
+- box score prompts say who they're waiting on more clearly, and only suggest /link steam on servers where that command is turned on, otherwise they point at your settings page
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
@@ -47,6 +49,9 @@
 - bug where availability questions were not converting correctly from survey response to player schedule 
 - /boxscore subcommands can now be whitelisted separately
 - /availability now properly matches to non lfg thread
+- box scores now match player names regardless of capitalisation, so a file naming "MrMirz" finds the same player as "mrmirz"
+- fixed a box score with more than four unmatched players silently skipping everyone past the first page
+- someone who isn't in the game can no longer answer a box score prompt on a thread whose players haven't been set yet
 
 ## [1.13.5] - 2026-9-1 September Forever
 
