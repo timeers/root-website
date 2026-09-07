@@ -45,6 +45,8 @@
 - /boxscore upload and /boxscore token are again limited to the players in the game, its host and moderators — since /boxscore gained subcommands anyone in the thread could use them
 - move notification dismissal bug fixes (hopefully it's reliable now)
 - bug where availability questions were not converting correctly from survey response to player schedule 
+- /boxscore subcommands can now be whitelisted separately
+- /availability now properly matches to non lfg thread
 
 ## [1.13.5] - 2026-9-1 September Forever
 
