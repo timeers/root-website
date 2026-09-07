@@ -7105,13 +7105,14 @@ def _handle_boxscore_token_command(data):
 
     # site = (config.get("SITE_URL") or "").rstrip("/")
     _token, raw = BoxScoreUploadToken.issue(thread, profile)
-    minutes = int(BoxScoreUploadToken.TOKEN_TTL.total_seconds() // 60)
+    hours = int(BoxScoreUploadToken.TOKEN_TTL.total_seconds() // 3600)
 
     lines = [
         "Paste this into the Tabletop Simulator uploader:",
         f"```\n{BoxScoreUploadToken.group(raw)}\n```",
-        f"-# One upload, this game only, expires in {minutes} minutes. "
+        f"-# This token works for this game only and expires in {hours} hours. "
         "Anyone who sees it can upload the box score for this game, so don't post it.",
+        "If you need a new token you can rerun `/boxscore token` at any time.",
     ]
     # if site:
     #     lines.append(f"-# The object uploads to {site}/api/boxscore/upload/")

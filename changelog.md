@@ -5,7 +5,7 @@
 ### New Features
 - added ability to link SteamID to profile for future boxscore matching
 - Tabletop Simulator objects can now upload a box score straight to the site
-- /boxscore token gives you a one-time code to paste into the TTS uploader (expires in 30 minutes, works once, for that game only)
+- /boxscore token gives you a one-time code to paste into the TTS uploader (expires in 6 hours, works once, for that game only)
 - a TTS upload that doesn't match the game posts Confirm/Cancel in the thread, so problems get sorted in Discord instead of in TTS
 - any player in the game, the host, or a moderator can answer that prompt — not just whoever uploaded
 - Try Again button re-checks players after someone links their Steam account, so a missing player can be fixed without re-uploading
