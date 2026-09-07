@@ -1,7 +1,9 @@
+import colorsys
 import shutil
 import tempfile
 from unittest import mock
 
+from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
@@ -13,6 +15,18 @@ from .models import (
 )
 from .services.clone import clone_forged_faction
 from .services.clone_flag import clone_in_progress
+from . import pdf_engine
+from .pdf_cache import fingerprint_back
+from .pdf_engine import (
+    BACK_BG_SCREEN_OPACITY, BACK_INK_MAX_DARKEN_RATIO, BACK_INK_MIN_CONTRAST,
+    _contrast_ratio, _ink_for_wash, _mix_hex,
+)
+
+
+def _rgb01(hex_color):
+    """Hex -> (r, g, b) floats, for the hue/saturation assertions below."""
+    h = hex_color.lstrip('#')
+    return tuple(int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
 
 
 # Smallest valid PNG (1x1) so ImageField validation passes.
@@ -160,3 +174,125 @@ class CloneForgedFactionTests(TestCase):
             with self.assertRaises(RuntimeError):
                 clone_forged_faction(self.source)
         self.assertFalse(clone_in_progress())
+
+
+class AdaptiveInkTests(TestCase):
+    """The FactionBack draws its content straight onto a background that is the
+    faction color lightened by a 70% white screen -- there are no opaque panels.
+    A pale faction therefore paints near-invisible bars and shapes, so the ink is
+    darkened just enough to stay visible. See _ink_for_wash in pdf_engine."""
+
+    WASH = BACK_BG_SCREEN_OPACITY
+    TARGET = BACK_INK_MIN_CONTRAST
+
+    def setUp(self):
+        user = User.objects.create_user(username='inker', password='pw')
+        self.profile = user.profile
+
+    def _ink(self, color):
+        return _ink_for_wash(color, self.WASH, self.TARGET)
+
+    def _ground(self, color):
+        return _mix_hex('#FFFFFF', self.WASH, color)
+
+    # ── _mix_hex ──
+    def test_mixing_is_a_plain_composite(self):
+        self.assertEqual(_mix_hex('#000000', 0.5, '#FFFFFF'), '#808080')
+        self.assertEqual(_mix_hex('#FFFFFF', 0.0, '#123456'), '#123456')
+        self.assertEqual(_mix_hex('#FFFFFF', 1.0, '#123456'), '#FFFFFF')
+
+    def test_mixing_accepts_shorthand_hex(self):
+        """_relative_luminance expands 3-digit hex, and a faction color is
+        free text from the designer, so this must not raise."""
+        self.assertEqual(_mix_hex('#FFF', 0.0, '#abc'), '#AABBCC')
+
+    def test_mixing_returns_none_on_junk_rather_than_raising(self):
+        """Matches _relative_luminance's contract: a bad color must not take
+        down a render."""
+        self.assertIsNone(_mix_hex('#FFFFFF', 0.5, 'not-a-color'))
+
+    # ── the guarantee that matters most ──
+    def test_a_legible_color_is_returned_completely_unchanged(self):
+        """Most factions must render bit-identically, so the SAME string comes
+        back -- not an equivalent re-rendering of it."""
+        for color in ('#4667b3', '#c22424', '#ff0000', '#1402d9', '#000000'):
+            with self.subTest(color=color):
+                self.assertIs(self._ink(color), color)
+
+    def test_a_color_just_above_the_target_is_untouched(self):
+        """#c3d3c0 sits at 1.38 against its own washed ground, just above the
+        1.3 target. It is the case that pins the threshold: this page was judged
+        to already look fine, and the target was chosen so it stays that way."""
+        self.assertGreater(_contrast_ratio('#c3d3c0', self._ground('#c3d3c0')),
+                           self.TARGET)
+        self.assertIs(self._ink('#c3d3c0'), '#c3d3c0')
+
+    # ── darkening ──
+    def test_a_washed_out_color_is_darkened_until_it_clears_the_target(self):
+        """#eaebeb is a near-white grey at 1.13 -- effectively invisible."""
+        ink = self._ink('#eaebeb')
+        self.assertNotEqual(ink, '#eaebeb')
+        self.assertGreaterEqual(
+            _contrast_ratio(ink, self._ground('#eaebeb')), self.TARGET)
+
+    def test_darkening_is_minimal_not_merely_sufficient(self):
+        """Backing the result off must drop it below the target, proving the
+        search returns the SMALLEST qualifying darkening rather than any one."""
+        color = '#eaebeb'
+        ground = self._ground(color)
+        ink = self._ink(color)
+        # Recover k, then confirm a slightly smaller one fails.
+        k = 1 - (int(ink.lstrip('#')[0:2], 16) / int(color.lstrip('#')[0:2], 16))
+        weaker = _mix_hex('#000000', max(k - 0.02, 0.0), color)
+        self.assertLess(_contrast_ratio(weaker, ground), self.TARGET)
+
+    def test_darkening_preserves_hue_and_saturation(self):
+        """Mixing toward black is multiplicative, so a pale faction still reads
+        as its own color -- just deeper -- rather than being recolored."""
+        color = '#c9e265'
+        ink = self._ink(color)
+        self.assertNotEqual(ink, color)
+        h1, s1, _ = colorsys.rgb_to_hsv(*_rgb01(color))
+        h2, s2, _ = colorsys.rgb_to_hsv(*_rgb01(ink))
+        self.assertAlmostEqual(h1, h2, places=2)
+        self.assertAlmostEqual(s1, s2, places=2)
+
+    def test_it_never_darkens_past_the_cap(self):
+        for color in ('#FFFFFF', '#eaebeb', '#fffedd', '#c9e265'):
+            with self.subTest(color=color):
+                ink = self._ink(color)
+                floor = _mix_hex('#000000', BACK_INK_MAX_DARKEN_RATIO, color)
+                # Never darker than the cap allows, on every channel.
+                for i in (0, 2, 4):
+                    self.assertGreaterEqual(int(ink.lstrip('#')[i:i + 2], 16),
+                                            int(floor.lstrip('#')[i:i + 2], 16))
+
+    def test_every_color_that_needs_help_actually_reaches_the_target(self):
+        """Swept coarsely across the cube: nothing may fall short, or a faction
+        would silently keep an invisible bar."""
+        for r in range(0, 256, 51):
+            for g in range(0, 256, 51):
+                for b in range(0, 256, 51):
+                    color = '#%02X%02X%02X' % (r, g, b)
+                    ink = self._ink(color)
+                    self.assertGreaterEqual(
+                        _contrast_ratio(ink, self._ground(color)),
+                        self.TARGET - 0.01, msg=color)
+
+    # ── the switch ──
+    def test_the_flag_disables_darkening_entirely(self):
+        with mock.patch.object(pdf_engine, 'BACK_INK_DARKEN_ENABLED', False):
+            self.assertIs(self._ink('#eaebeb'), '#eaebeb')
+
+    def test_the_flag_changes_the_cache_fingerprint(self):
+        """Both the PDF cache and the stored WebP preview key off
+        fingerprint_back. Without the flag in the payload, toggling it would
+        serve the other mode's output and the switch would look broken."""
+        faction = ForgedFaction.objects.create(
+            faction_name='Ink Flag', color='#eaebeb', designer=self.profile)
+        back = FactionBack.objects.create(faction=faction)
+        on = fingerprint_back(back)
+        with mock.patch.object(pdf_engine, 'BACK_INK_DARKEN_ENABLED', False):
+            off = fingerprint_back(back)
+        self.assertNotEqual(on, off)
+

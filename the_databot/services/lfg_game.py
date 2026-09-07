@@ -503,7 +503,8 @@ PROPOSAL_RETIRED_TEXT = {
 }
 
 
-def proposal_reason_line(reason, actor=None, actors=None):
+def proposal_reason_line(reason, actor=None, actors=None, yes_count=None,
+                         total=None):
     """The one line saying WHY a proposal closed.
 
     `actor` is named only when a person actually decided it. An EXPIRED proposal
@@ -526,10 +527,14 @@ def proposal_reason_line(reason, actor=None, actors=None):
             return "A player rejected this time."
         return f"Rejected by {roster_name(actor, nudge=False)}."
     if reason == "closed":
+        # The count replaces "before everyone responded". No no-roster branch
+        # here: this line only ever renders from a ScheduleProposal, whose
+        # `match` is non-null, so a roster always exists.
+        tally = (f" — {yes_count} of {total} confirmed"
+                 if yes_count is not None and total else "")
         if actor is None:
-            return "This poll was closed before everyone responded."
-        return (f"Closed by {roster_name(actor, nudge=False)} before everyone "
-                "responded.")
+            return f"This poll was closed{tally}."
+        return f"Closed by {roster_name(actor, nudge=False)}{tally}."
     if actor is not None and reason == "unschedulable":
         return (f"Closed by {roster_name(actor, nudge=False)} — "
                 "this match can no longer be scheduled.")
@@ -656,7 +661,22 @@ def schedule_closed_embed(proposal, title, reason, actor=None, label=None,
     # Prefixed PER LINE: Discord's subtext marker applies to one line only, and
     # some reasons ("expired") carry an embedded newline, whose second line would
     # otherwise render full size.
-    reason_text = proposal_reason_line(reason, actor, actors=declined)
+    # Only "closed" renders a count, and resolving the roster costs a query that
+    # no prefetch on the caller's side covers -- the strip task edits a whole
+    # batch of proposals in one loop, so an unconditional lookup here would be an
+    # N+1 (guarded by test_strip_task_does_not_n_plus_one_over_responses). Every
+    # other reason skips it.
+    #
+    # Same derivation as discord_interactions._match_roster, a two-line wrapper
+    # over group_roster -- imported from here -- so the closed note counts against
+    # exactly the roster the poll asked.
+    total = None
+    if reason == "closed":
+        group = (proposal.match.series.player_group
+                 if proposal.match.series_id else None)
+        total = len(group_roster(group, proposal.match.series_id))
+    reason_text = proposal_reason_line(
+        reason, actor, actors=declined, yes_count=len(agreed), total=total)
     lines.extend(f"-# {line}" for line in reason_text.split("\n"))
 
     embed = {"title": title, "description": "\n".join(lines)}

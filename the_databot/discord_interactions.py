@@ -1966,15 +1966,24 @@ def _handle_schedule_unlinked(data, profile, time_text, clearing):
     channel_id = data.get("_channel_id")
     author_id = data.get("_author_id")
 
+    # Resolved before the clearing branch: the two situations that reach here --
+    # a plain channel and a thread with no match -- need different answers, and
+    # only the thread lookup can tell them apart.
+    thread = _lfg_thread_for_channel(channel_id)
+
     if clearing:
-        # There is no stored time to remove, so "clear" has nothing to act on. Say
-        # what to do instead rather than reporting a missing match.
+        # There is no stored time to remove, so "clear" has nothing to act on.
+        # Say what to do instead rather than reporting a missing match.
+        if thread is None:
+            return _ephemeral(
+                "This command must be used in a thread with a scheduled game to "
+                "clear that scheduled time."
+            )
         return _ephemeral(
             "This thread isn't linked to a match, so there's no scheduled time to "
-            "clear. Give me a `time` and I'll suggest one for this thread instead."
+            "clear. Use `/schedule set` to propose a time."
         )
 
-    thread = _lfg_thread_for_channel(channel_id)
     kind = "lfg" if thread else "bare"
 
     tz_option = (_get_option(data, "timezone") or "").strip()
@@ -2664,7 +2673,8 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
         embed["fields"] = fields
 
     if closed:
-        note = _poll_closed_note(closed_reason, closed_by, no, scheduled, kind)
+        note = _poll_closed_note(closed_reason, closed_by, no, scheduled, kind,
+                                 yes_count=len(yes), pending=pending)
         if note:
             embed["description"] += f"\n\n{note}"
 
@@ -2676,7 +2686,8 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
     return data
 
 
-def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind):
+def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind,
+                      yes_count=0, pending=None):
     """The `-#` subtext explaining how a poll ended.
 
     `scheduled` means agreement, which only match mode can act on: it has a Match
@@ -2685,7 +2696,17 @@ def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind):
     promising a booking that never happened."""
     if reason == "closed":
         who = f" by <@{closed_by}>" if closed_by else ""
-        return f"-# Closed{who} before everyone responded."
+        # The count replaces the old "before everyone responded": it says the
+        # same thing precisely, and works whether or not a roster exists.
+        #
+        # `pending is None`, NOT `not pending` -- the three states differ. None
+        # means no roster to compare against (a bare channel), while [] means a
+        # roster that fully answered. Conflating them would drop the denominator
+        # from a poll that has one.
+        if pending is None:
+            return f"-# Closed{who} — {yes_count} confirmed."
+        total = yes_count + len(pending) + len(no_entries)
+        return f"-# Closed{who} — {yes_count} of {total} confirmed."
     if scheduled and kind == "match":
         return "-# Scheduled — everyone confirmed."
     if no_entries:
@@ -2953,10 +2974,14 @@ def _handle_match_poll_close(payload):
              resolved_at=timezone.now())
     proposal.refresh_from_db()
     if notify_ids:
+        # A match poll always HAS a roster, so the DM always carries a
+        # denominator -- unlike an embed poll in a bare channel.
         _notify_poll_closed(notify_ids, proposal.proposed_time, [],
                             scheduled=False,
                             closed_by=str(_interaction_user_id(payload)),
-                            jump_url=_lfg_jump_url(payload))
+                            jump_url=_lfg_jump_url(payload),
+                            yes_count=proposal.confirmed_by.count(),
+                            total=len(_match_roster(match)))
     embed = schedule_closed_embed(
         proposal, "🗓 Poll closed", "closed", actor=clicker,
         label=_match_label(match), author=_poll_author_from_payload(payload))
@@ -2996,14 +3021,24 @@ def _poll_field_lookup(embed, base_name):
 
 
 def _poll_state(embed):
-    """(yes, no, notify_ids) read out of a poll embed."""
+    """(yes, no, notify_ids, pending) read out of a poll embed.
+
+    `pending` follows the same tri-state as everywhere else: a list for a poll
+    with a roster, None for one without. The FIELD's absence is the signal --
+    _schedule_poll_data omits it entirely when pending is None, so a bare
+    channel's poll has no column to find. An empty list would mean a roster that
+    fully answered, which is why this cannot collapse to a falsy check.
+    """
     def entries(base):
         return _poll_entries(_poll_field_lookup(embed, base))
 
     notify_field = _poll_field_lookup(embed, POLL_NOTIFY_FIELD)
     notify_ids = (_LFG_MENTION_RE.findall(notify_field.get("value", ""))
                   if notify_field else [])
-    return entries(POLL_YES_FIELD), entries(POLL_NO_FIELD), notify_ids
+    pending_field = _poll_field_lookup(embed, POLL_PENDING_FIELD)
+    pending = entries(POLL_PENDING_FIELD) if pending_field else None
+    return (entries(POLL_YES_FIELD), entries(POLL_NO_FIELD), notify_ids,
+            pending)
 
 
 def _poll_embed_meta(embed):
@@ -3076,7 +3111,9 @@ def _handle_schedule_poll_respond(payload):
             return _ephemeral("Only the players in this thread can respond to that.")
         display = me.display_name or display
 
-    yes, no, notify_ids = _poll_state(embed)
+    # `pending` is discarded here: this path recomputes it from the live
+    # roster below, which is authoritative over the echoed embed.
+    yes, no, notify_ids, _pending = _poll_state(embed)
 
     if action == "sched_poll_notify":
         if clicker_id in notify_ids:
@@ -3112,7 +3149,8 @@ def _handle_schedule_poll_respond(payload):
         # the rendered note stays the everyone-answered one, not "closed by".
         return _poll_close_response(
             when, proposer_id, yes, no, notify_ids, label, author, kind,
-            reason=None, closed_by=clicker_id, jump_url=_lfg_jump_url(payload))
+            reason=None, closed_by=clicker_id, pending=pending,
+            jump_url=_lfg_jump_url(payload))
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -3149,10 +3187,10 @@ def _handle_schedule_poll_close(payload):
     if proposer_id and clicker_id != proposer_id and not _poll_closer_is_staff(payload):
         return _ephemeral("Only the person who started this poll can close it.")
 
-    yes, no, notify_ids = _poll_state(embed)
+    yes, no, notify_ids, pending = _poll_state(embed)
     return _poll_close_response(
         when, proposer_id, yes, no, notify_ids, label, author, kind,
-        reason="closed", closed_by=clicker_id,
+        reason="closed", closed_by=clicker_id, pending=pending,
         jump_url=_lfg_jump_url(payload))
 
 
@@ -3178,7 +3216,7 @@ def _poll_closer_is_staff(payload):
 
 
 def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
-                         kind, *, reason, closed_by, jump_url=None):
+                         kind, *, reason, closed_by, jump_url=None, pending=None):
     """Render the closed poll and DM the subscribers. Embed modes write nothing.
 
     `closed_by` always names whoever's click ended the poll, so they are excluded
@@ -3193,12 +3231,17 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
     unanimous the votes so far: somebody stopped it before the roster finished."""
     agreed = reason != "closed" and not no and bool(yes)
     if notify_ids:
-        _notify_poll_closed(notify_ids, when, no, scheduled=agreed,
-                            closed_by=closed_by, jump_url=jump_url)
+        _notify_poll_closed(
+            notify_ids, when, no, scheduled=agreed, closed_by=closed_by,
+            jump_url=jump_url, yes_count=len(yes),
+            # None when there is no roster, so the DM omits the denominator --
+            # the same tri-state the footer reads.
+            total=(len(yes) + len(pending) + len(no)
+                   if pending is not None else None))
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _schedule_poll_data(
-            when, proposer_id, yes=yes, no=no, notify_ids=[], pending=None,
+            when, proposer_id, yes=yes, no=no, notify_ids=[], pending=pending,
             label=label, author=author, kind=kind, closed=True,
             closed_reason=reason,
             closed_by=closed_by if reason == "closed" else None,
@@ -3219,7 +3262,7 @@ def _notify_poll_yes(notify_ids, actor_id, actor_name, when, yes_count, total,
 
 
 def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=None,
-                        jump_url=None):
+                        jump_url=None, yes_count=0, total=None):
     """DM the subscribers the final result.
 
     `closed_by` is whoever's click ENDED the poll -- the person who pressed Close,
@@ -3236,7 +3279,7 @@ def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=No
     notify_schedule_poll_task.delay(
         targets, "closed", int(when.timestamp()),
         declined=[e["name"] for e in no_entries], scheduled=scheduled,
-        jump_url=jump_url)
+        jump_url=jump_url, yes_count=yes_count, total=total)
 
 
 def _handle_schedule_cancel(payload):
@@ -6727,8 +6770,12 @@ def _boxscore_seat_fingerprint(thread):
             for s in thread.seats.all().order_by("seat_number")]
 
 
-def _boxscore_seat_lines(seats, header):
+def _boxscore_seat_lines(seats, header, numbered=True):
     """Render one side of the comparison: "1. Name - <emoji> Faction".
+
+    `numbered=False` for a list with no seat order -- the thread's roster, shown
+    when no seating exists yet. Numbering it would assert an order that isn't
+    real; the file side is always ordered and stays numbered.
 
     Deliberately NOT _pick_seat_lines: that reads saved LFGSeat rows (the file
     side has none), renders a profile-less seat as "(removed player)" (wrong for
@@ -6752,6 +6799,7 @@ def _boxscore_seat_lines(seats, header):
     for index, seat in enumerate(seats, 1):
         who = seat["label"]
         slug = seat["faction_slug"]
+        prefix = f"{index}. " if numbered else ""
         if slug:
             emoji = faction_emoji_for(slug)
             title = titles.get(slug, slug)
@@ -6759,9 +6807,9 @@ def _boxscore_seat_lines(seats, header):
             vagabond = seat["vagabond_slug"]
             if vagabond:
                 mark += f" ({vagabond_titles.get(vagabond, vagabond)})"
-            lines.append(f"{index}. {who} - {mark}")
+            lines.append(f"{prefix}{who} - {mark}")
         else:
-            lines.append(f"{index}. {who}")
+            lines.append(f"{prefix}{who}")
     return lines
 
 
@@ -7291,7 +7339,7 @@ def _boxscore_decide(thread, pending, roster, owner, ref):
     unlinkable = _boxscore_unlinkable(pending)
     if unlinkable:
         return _boxscore_gate_one_body(thread, pending, unlinkable, owner,
-                                       ref=ref())
+                                       ref=ref(), guild_id=_thread_guild_id(thread))
 
     # Gate 2: the file disagrees with what the thread already knows -- either its
     # seating, or (on a thread with no seating yet) its roster. The roster check
@@ -7309,8 +7357,7 @@ def _boxscore_decide(thread, pending, roster, owner, ref):
                         "vagabond_slug": None, "captain_slugs": [],
                         "discarded_slug": None} for p in roster]
         return _boxscore_gate_two_body(thread, pending, roster_side, owner,
-                                       current_header="**Players in this thread**",
-                                       ref=ref())
+                                       numbered=False, ref=ref())
     return None
 
 
@@ -7345,6 +7392,12 @@ def _boxscore_next_step(thread, pending, channel_id, owner, roster=None,
 
     body = _boxscore_decide(thread, pending, roster, owner, prompt_ref)
     if body is not None:
+        if ref:
+            # Reached from a BUTTON, so edit the prompt into the next gate
+            # rather than posting a fresh one. Returning a new ephemeral here
+            # left the public thread prompt behind with its old buttons live --
+            # a second prompt for the same upload, and a stale one.
+            return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": body})
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
             "data": {**body, "flags": EPHEMERAL},
@@ -7357,6 +7410,23 @@ def _boxscore_next_step(thread, pending, channel_id, owner, roster=None,
     return _boxscore_reply(thread, pending, channel_id)
 
 
+def _boxscore_resolved(text):
+    """Terminal edit: replace the prompt with `text` and take its buttons away.
+
+    Used where the payload has just been discarded. An ephemeral reply would
+    leave the public prompt behind still showing live buttons over a dead
+    upload, so the next click answers "no longer waiting" rather than saying
+    what actually happened.
+
+    components MUST be sent explicitly: an edit only replaces the keys it
+    carries, so omitting it leaves the buttons exactly where they were.
+    """
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": text, "components": []},
+    })
+
+
 def _boxscore_apply_in_place(thread, pending, channel_id, ref):
     """Apply a staged upload and REPLACE the prompt message with the result."""
     from the_databot.models import BoxScoreUploadToken
@@ -7364,7 +7434,7 @@ def _boxscore_apply_in_place(thread, pending, channel_id, ref):
     lines, notes = _boxscore_apply(thread, pending, channel_id)
     if lines is None:
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
-        return _ephemeral(
+        return _boxscore_resolved(
             "That box score couldn't be saved — check the file and try again.")
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
@@ -7444,27 +7514,32 @@ def _boxscore_gate_zero_body(thread, pending, roster, owner, page=0, ref=None):
             options, placeholder=f"Who is {seat['label']}?"[:100],
             min_values=1, max_values=1)))
 
-    buttons = [button("Save & Continue",
-                      encode_custom_id("boxscore_g0_ok", ref, owner),
-                      style=STYLE_PRIMARY)]
-    if pages > 1:
-        buttons.append(button(
-            "Next", encode_custom_id("boxscore_g0_page", ref,
-                                     (page + 1) % pages, owner),
-            style=STYLE_SECONDARY))
-    buttons.append(button("Skip", encode_custom_id("boxscore_g0_skip", ref, owner),
-                          style=STYLE_SECONDARY))
-    buttons.append(button("Cancel", encode_custom_id("boxscore_no", ref, owner),
-                          style=STYLE_SECONDARY))
-    rows.append(action_row(*buttons))
+    # ONE forward button, whose label says where it goes. Paging used to be a
+    # separate "Next" and there was also a "Skip", and both were wrong: Skip did
+    # exactly what Save & Continue does with nothing selected, and Save &
+    # Continue ENDED the gate -- so on page 1 of 2 it saved four answers and
+    # silently skipped the other four players. Now it always saves, then either
+    # shows the next page or advances.
+    #
+    # The page index rides in the custom_id so the handler knows which page it
+    # was pressed on without re-deriving it.
+    more = page + 1 < pages
+    rows.append(action_row(
+        button("Save & Next Players" if more else "Save & Continue",
+               encode_custom_id("boxscore_g0_ok", ref, page, owner),
+               style=STYLE_PRIMARY),
+        # Cancel is the only early exit, and it abandons the whole upload.
+        # Declining ONE player is what the "skip" option in each select is for.
+        button("Cancel", encode_custom_id("boxscore_no", ref, owner),
+               style=STYLE_SECONDARY),
+    ))
 
     plural = "players aren't" if len(seats) > 1 else "player isn't"
     lines = [
         f"{len(seats)} {plural} linked to a profile yet:",
         ", ".join(f"`{s['label']}`" for _i, s in seats),
         "",
-        "Pick who each one is and I'll remember them for next time — or skip "
-        "and carry on.",
+        "Match players to their Steam name, or skip.",
     ]
     if pages > 1:
         lines.append(f"*Page {page + 1} of {pages}.*")
@@ -7477,7 +7552,18 @@ def _boxscore_gate_zero_body(thread, pending, roster, owner, page=0, ref=None):
     }
 
 
-def _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=None):
+def _thread_guild_id(thread):
+    """The guild snowflake for a thread, or None.
+
+    LFGThread.guild is nullable, so this can legitimately answer None -- callers
+    must treat that as "unknown", not as "no whitelist".
+    """
+    guild = getattr(thread, "guild", None)
+    return getattr(guild, "guild_id", None) if guild else None
+
+
+def _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=None,
+                            guild_id=None):
     """Gate 1's {content, components}: players in the file that match no profile.
 
     The BODY, not a response -- the caller wraps it, so the same prompt can be an
@@ -7486,12 +7572,23 @@ def _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=None):
     ref = ref or _boxscore_stash(thread, pending)
     names = ", ".join(f"`{n}`" for n in unlinkable)
     plural = "players aren't" if len(unlinkable) > 1 else "player isn't"
+
+    # Only advertise /link steam where that command actually exists. The SITE is
+    # the default because it works wherever the bot does -- and because
+    # _guild_allows(None, ...) answers True ("no whitelist to consult"), which
+    # would otherwise recommend a command on a guild-less thread.
+    if guild_id and _guild_allows(guild_id, "steam"):
+        how = "with the `/link steam` command"
+    else:
+        settings_url = _record_url("/settings/")
+        how = f"at {settings_url}" if settings_url else "on the site"
+
     lines = [
         f"{len(unlinkable)} {plural} linked to a profile:",
         names,
         "",
-        "Ask them to run `/link steam` to link their Steam account, then press "
-        "**Try Again** — or continue and leave those seats blank.",
+        f"Press **Try Again** once they have linked their Steam account {how} "
+        "— or continue and leave those seats blank.",
     ]
     return {
         "content": "\n".join(lines),
@@ -7511,7 +7608,8 @@ def _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=None):
 def _boxscore_gate_one(thread, pending, unlinkable, owner, save=None):
     """Gate 1 as an ephemeral interaction reply."""
     ref = save() if save else _boxscore_stash(thread, pending)
-    body = _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=ref)
+    body = _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=ref,
+                                   guild_id=_thread_guild_id(thread))
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {**body, "flags": EPHEMERAL},
@@ -7519,11 +7617,15 @@ def _boxscore_gate_one(thread, pending, unlinkable, owner, save=None):
 
 
 def _boxscore_gate_two_body(thread, pending, current, owner,
-                            current_header="**Current**", ref=None):
+                            numbered=True, ref=None):
     """Gate 2's {content, components}: the before/after comparison. See
     _boxscore_gate_one_body for why this returns a body rather than a response."""
     ref = ref or _boxscore_stash(thread, pending)
-    lines = _boxscore_seat_lines(current, current_header)
+    # One header for both branches; `numbered` carries what the two different
+    # headers used to. Unnumbered means "this is who is in the thread", with no
+    # seat order to imply -- keeping both a header AND a flag would be two
+    # parameters describing one thing, which is how they drift apart.
+    lines = _boxscore_seat_lines(current, "**Current Roster**", numbered=numbered)
     lines += [""] + _boxscore_seat_lines(pending["seats"], "**From this box score**")
     lines += ["", "This will replace the seating and faction picks for this game."]
     if thread.series_id:
@@ -7552,11 +7654,11 @@ def _boxscore_gate_two_body(thread, pending, current, owner,
 
 
 def _boxscore_gate_two(thread, pending, current, owner,
-                       current_header="**Current**", save=None):
+                       numbered=True, save=None):
     """Gate 2 as an ephemeral interaction reply."""
     ref = save() if save else _boxscore_stash(thread, pending)
     body = _boxscore_gate_two_body(thread, pending, current, owner,
-                                   current_header=current_header, ref=ref)
+                                   numbered=numbered, ref=ref)
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {**body, "flags": EPHEMERAL},
@@ -7648,9 +7750,13 @@ def _boxscore_click_owner(payload, thread):
         return None, None
 
     roster, group = _thread_roster(thread, thread.thread_id)
-    if not roster:
-        return None, None                      # no roster, nothing to protect
 
+    # An empty roster used to return (None, None) -- "nothing to protect" --
+    # which let ANY user in the channel confirm or cancel someone's box score.
+    # It falls through to the host/staff check below instead, so the prompt stays
+    # answerable by someone accountable without being open to a passer-by. The
+    # same call on the web (_can_view_lfg_availability) fails closed for exactly
+    # this reason.
     discord_id = _interaction_user_id(payload)
     me, status = _resolve_clicker(roster, discord_id, _clicker_username(payload))
     if status == CLICKER_MATCHED:
@@ -7664,7 +7770,7 @@ def _boxscore_click_owner(payload, thread):
     if profile:
         if thread.host_id == profile.pk:
             return profile, None
-        if _thread_staff_override(profile, group, None):
+        if _thread_staff_override(profile, group, _thread_guild_id(thread)):
             return profile, None
     return None, _ephemeral(
         "Only the players in this game — or a moderator — can answer this.")
@@ -7722,20 +7828,6 @@ def _handle_boxscore_gate_zero_pick(payload):
         payload, pending, thread, ref, position // _BOXSCORE_GATE_ZERO_PER_PAGE)
 
 
-def _handle_boxscore_gate_zero_page(payload):
-    """Turn to another page of Gate 0's dropdowns. No state change."""
-    pending, thread, ref = _boxscore_pending_for_click(payload)
-    if not pending:
-        return _ephemeral("That box score is no longer waiting — upload it again.")
-    _who, error = _boxscore_click_owner(payload, thread)
-    if error:
-        return error
-
-    _action, args = decode_custom_id(payload["data"]["custom_id"])
-    page = int(args[2]) if len(args) >= 4 and args[2].isdigit() else 0
-    return _boxscore_gate_zero_rerender(payload, pending, thread, ref, page)
-
-
 def _handle_boxscore_gate_zero_save(payload):
     """Save & Continue on Gate 0: remember the picks, then carry on.
 
@@ -7764,29 +7856,22 @@ def _handle_boxscore_gate_zero_save(payload):
         assign_assumed_steam_ids(pairs)
 
     roster = _boxscore_reresolve(thread, pending, thread.thread_id)
+
+    # More players still to ask about? Save what was picked and show them,
+    # rather than ending the gate -- this button used to advance regardless,
+    # which silently skipped everyone past the first page.
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    page = int(args[2]) if len(args) >= 4 and args[2].isdigit() else 0
+    seats, candidates = _boxscore_gate_zero_needed(pending, roster)
+    if seats and candidates and (page + 1) * _BOXSCORE_GATE_ZERO_PER_PAGE < len(seats):
+        _boxscore_save(ref, thread, pending)
+        return _boxscore_gate_zero_rerender(payload, pending, thread, ref, page + 1)
+
     pending["gate_zero_done"] = True
     _boxscore_save(ref, thread, pending)
     return _boxscore_next_step(
         thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
         roster=roster, save=lambda: ref, ref=ref)
-
-
-def _handle_boxscore_gate_zero_skip(payload):
-    """Skip Gate 0: identify nobody, remember nothing, move on to Gate 1."""
-    pending, thread, ref = _boxscore_pending_for_click(payload)
-    if not pending:
-        return _ephemeral("That box score is no longer waiting — upload it again.")
-    _who, error = _boxscore_click_owner(payload, thread)
-    if error:
-        return error
-
-    # The flag is what stops Gate 0 re-firing: skipping leaves the seats exactly
-    # as they were, so the next pass would ask the same question forever.
-    pending["gate_zero_done"] = True
-    _boxscore_save(ref, thread, pending)
-    return _boxscore_next_step(
-        thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
-        save=lambda: ref, ref=ref)
 
 
 def _handle_boxscore_retry(payload):
@@ -7867,7 +7952,7 @@ def _boxscore_commit(payload, pending, thread, ref):
     # the fingerprint carries (pk, profile, faction) per seat.
     if _boxscore_seat_fingerprint(thread) != pending.get("fingerprint"):
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
-        return _ephemeral(
+        return _boxscore_resolved(
             "The seating changed while that was waiting — upload the box score "
             "again to see the new comparison.")
 
@@ -7875,7 +7960,7 @@ def _boxscore_commit(payload, pending, thread, ref):
     lines, notes = _boxscore_apply(thread, pending, channel_id)
     if lines is None:
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
-        return _ephemeral(
+        return _boxscore_resolved(
             "That box score couldn't be saved — check the file and try again.")
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
@@ -8875,9 +8960,7 @@ COMPONENT_HANDLERS = {
     # so the dispatcher owner-locks them: the person who ran the command is the
     # one who knows whether the file is right.
     "boxscore_g0_pick": _handle_boxscore_gate_zero_pick,
-    "boxscore_g0_page": _handle_boxscore_gate_zero_page,
     "boxscore_g0_ok": _handle_boxscore_gate_zero_save,
-    "boxscore_g0_skip": _handle_boxscore_gate_zero_skip,
     "boxscore_retry": _handle_boxscore_retry,
     "boxscore_link": _handle_boxscore_link,
     "boxscore_ok": _handle_boxscore_confirm,

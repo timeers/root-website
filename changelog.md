@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.6] - 2026-9-6 Box Score API & Availability
+## [1.13.6] - 2026-9-7 Box Score API & Availability
 
 ### New Features
 - added ability to link SteamID to profile for future boxscore matching
@@ -32,21 +32,33 @@
 - box scores now match players by Steam account before falling back to their name, so a renamed Discord account no longer breaks matching — and two players with similar names can't be mixed up
 - linking your Steam account clears any earlier guess about that account, including one saved against someone else's profile
 - /upcoming now shows the next game for the thread or guild it's used in if no arguments are provided
+- a box score confirmation now updates the message you're looking at as you answer it, instead of leaving the old buttons behind and posting a new prompt
+- box score prompts say who they're waiting on more clearly, and only suggest /link steam on servers where that command is turned on, otherwise they point at your settings page
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
 - fixed title on /schedule saying "Not Scheduled" when all players confirmed in LFG
+- /schedule clear in a plain text channel now says the command needs a thread, instead of talking about a thread that isn't there
+- /schedule clear in a thread with no game now points at /schedule set, instead of an option that no longer exists
+- closing a schedule poll now says how many confirmed ("Closed by @Name — 3 of 5 confirmed") instead of claiming it closed before everyone responded, which wasn't true in a channel with no roster to answer
+- faction sheet backs with a very pale faction colour no longer render near-invisible attribute bars and piece shapes. The colour is deepened to BACK_INK_MIN_CONTRAST, just enough to show against the lightened background, and any faction that already reads clearly is untouched
 - Vagabond allowed to have coalition partner when importing boxscore json
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 - the group availability calendar button now shows up on the matches pages, where it never appeared before
 - submitting a survey response no longer overwrites other players' availability
 - tapping an hour on the availability page now reliably toggles it on phones instead of sometimes doing nothing
+- availability grids can now be scrolled sideways on a phone, so the later days in the week are visible. On mobile a tap toggles and a swipe scrolls, while click-and-drag still works with a computer
+- the availability comparison and survey results grids could not be scrolled on mobile
+- answering a weekly availability question in a survey now actually saves the hours you picked
 - the availability calendar button no longer disappears from a match after you edit it
 - /boxscore upload and /boxscore token are again limited to the players in the game, its host and moderators — since /boxscore gained subcommands anyone in the thread could use them
 - move notification dismissal bug fixes (hopefully it's reliable now)
 - bug where availability questions were not converting correctly from survey response to player schedule 
 - /boxscore subcommands can now be whitelisted separately
 - /availability now properly matches to non lfg thread
+- box scores now match player names regardless of capitalisation, so a file naming "MrMirz" finds the same player as "mrmirz"
+- fixed a box score with more than four unmatched players silently skipping everyone past the first page
+- someone who isn't in the game can no longer answer a box score prompt on a thread whose players haven't been set yet
 
 ## [1.13.5] - 2026-9-1 September Forever
 

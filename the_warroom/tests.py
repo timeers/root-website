@@ -2976,6 +2976,9 @@ class ParticipantResolutionTests(TestCase):
         self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord="resalice", discord_id="801")
         self.bob = Profile.objects.create(discord="resbob", discord_id="802")
+        # Slugs are always lowercase; the box score may not be.
+        self.wyvern = Profile.objects.create(discord="wyvernelement",
+                                             discord_id="803")
 
     def _both(self, participant, queryset=None):
         """(single, batched) results -- the two resolvers must never disagree."""
@@ -3017,6 +3020,27 @@ class ParticipantResolutionTests(TestCase):
     def test_the_slug_still_matches_when_no_steam_id_does(self):
         """Kept as a last resort: a hand-authored file may carry no id at all."""
         single, batched = self._both({"player": self.alice.slug})
+        self.assertEqual(single, self.alice)
+        self.assertEqual(batched, self.alice)
+
+    def test_a_slug_matches_regardless_of_case(self):
+        """A box score carries whatever the exporter typed, while every stored
+        slug is lowercase -- so "WyvernElement" used to miss "wyvernelement"
+        entirely and the player was reported as unmatched."""
+        for sent in ("wyvernelement", "WyvernElement", "WYVERNELEMENT"):
+            with self.subTest(sent=sent):
+                single, batched = self._both({"player": sent})
+                self.assertEqual(single, self.wyvern)
+                self.assertEqual(batched, self.wyvern)
+
+    def test_a_verified_id_still_beats_a_case_insensitive_slug(self):
+        """Loosening the slug tier must not let it overtake a real identity."""
+        self.alice.steam_id = self.STEAM
+        self.alice.save(update_fields=["steam_id"])
+
+        single, batched = self._both(
+            {"player": "WyvernElement", "player_steam_id": self.STEAM})
+
         self.assertEqual(single, self.alice)
         self.assertEqual(batched, self.alice)
 

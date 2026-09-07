@@ -470,7 +470,7 @@ class BoxScoreUploadToken(models.Model):
     # copied by eye can't land on the wrong character.
     ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
     TOKEN_LENGTH = 12                      # ~59 bits; grouped 4-4-4 when shown
-    TOKEN_TTL = timedelta(minutes=30)      # how long a minted token may be pasted in
+    TOKEN_TTL = timedelta(hours=6)      # how long a minted token may be pasted in
     PROMPT_TTL = timedelta(hours=6)        # how long a posted prompt stays live
 
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)

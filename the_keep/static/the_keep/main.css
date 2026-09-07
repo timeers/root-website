@@ -5395,17 +5395,27 @@ body.forge-modal-open { overflow: hidden; }
     gap: 2px;
     min-width: 28rem;
     user-select: none;
-    /* pan-y keeps the page scrollable by dragging the grid's gaps and labels. */
-    touch-action: pan-y;
   }
 
-  /* The cells themselves take `none`: with pan-y the browser claims any vertical
-     finger movement for scrolling and fires pointercancel, which killed the paint
-     mid-drag and made a tap register only sometimes. Scrolling still works from
-     the labels, the gaps, and everywhere else on the page. */
-  .availability-grid .avail-cell {
-    touch-action: none;
+  /* Only the EDITABLE grid constrains touch at all, and it allows BOTH axes:
+     vertical scrolls the page, horizontal scrolls .availability-scroll -- which
+     is the whole point on a phone, since the grid is deliberately wider than the
+     viewport. The old `pan-y` here handed every horizontal gesture to JS, so the
+     right-hand days could not be reached at all.
+
+     Read-only grids (compare, survey results, survey preview) get no
+     touch-action: they share these class names but have no gesture to protect,
+     so anything but the browser default is pure loss for them. */
+  .availability-grid--editable {
+    touch-action: pan-x pan-y;
   }
+
+  /* Deliberately NO touch-action on .avail-cell. It used to be `none` so a touch
+     drag-paint could survive the browser claiming the gesture -- but the cells
+     ARE the grid's whole surface, so that made it unscrollable, and the selector
+     was unscoped so it leaked onto the read-only grids too. Touch no longer
+     paints: availability_grid.js gates painting on pointerType and a tap toggles
+     one cell on click, so there is no gesture left to protect. */
 
   .avail-day-header,
   .avail-hour-label {

@@ -368,7 +368,10 @@ def resolve_participant_player(participant, player_queryset):
 
     slug = participant.get('player')
     if slug and isinstance(slug, str):
-        return player_queryset.filter(slug=slug).first()
+        # iexact, not exact: slugs are always lowercase (slugify lowercases),
+        # while a box score carries whatever the exporter wrote -- so a file
+        # naming "WyvernElement" missed the profile slugged "wyvernelement".
+        return player_queryset.filter(slug__iexact=slug).first()
     return None
 
 
@@ -393,7 +396,14 @@ def resolve_participant_players(participants, player_queryset):
         by_assumed = {p.assumed_steam_id: p for p
                       in player_queryset.filter(assumed_steam_id__in=steam_ids)}
     if slugs:
-        by_slug = {p.slug: p for p in player_queryset.filter(slug__in=slugs)}
+        # Case-insensitive, matching resolve_participant_player's iexact. Django
+        # has no __iin, so lowercase BOTH sides instead of an OR chain: every
+        # stored slug is already lowercase (slugify lowercases, and 0 of 1814
+        # profile slugs contain uppercase), so this is equivalent in one query.
+        # A slug set by hand could break that equivalence -- ParticipantResolutionTests
+        # runs every case through both resolvers and would catch the divergence.
+        by_slug = {p.slug.lower(): p for p
+                   in player_queryset.filter(slug__in={s.lower() for s in slugs})}
 
     out = []
     for participant in participants:
@@ -407,7 +417,7 @@ def resolve_participant_players(participants, player_queryset):
             found = by_steam.get(steam_id) or by_assumed.get(steam_id)
         if found is None:
             slug = participant.get('player')
-            found = by_slug.get(slug) if isinstance(slug, str) else None
+            found = by_slug.get(slug.lower()) if isinstance(slug, str) else None
         out.append(found)
     return out
 
@@ -510,11 +520,16 @@ def _resolve_slug(slug, queryset, model, *, label, what, result, is_player=False
             _('%(label)s: %(what)s must be a slug.') % {'label': label, 'what': what})
         return None
 
-    found = queryset.filter(slug=slug).first()
+    # Case-insensitive for PLAYERS only. A player slug comes from whatever the
+    # exporter typed, so "WyvernElement" must find "wyvernelement". Asset slugs
+    # (factions, maps) come from the site's own vocabulary and are matched
+    # exactly, so a typo stays a reported skip rather than silently resolving.
+    lookup = {'slug__iexact' if is_player else 'slug': slug}
+    found = queryset.filter(**lookup).first()
     if found is not None:
         return found
 
-    exists = model is not None and model.objects.filter(slug=slug).exists()
+    exists = model is not None and model.objects.filter(**lookup).exists()
     if exists and is_player:
         # A player isn't "unplayable" -- they're just not on this roster.
         result.skipped.append(

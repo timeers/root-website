@@ -798,6 +798,23 @@ BACK_X_MARGIN = 0.7 * inch             # left/right page margin for the FactionB
 BACK_TOP_MARGIN = 0.75 * inch             # top page margin for the FactionBack
 BACK_BOTTOM_MARGIN = 0.15 * inch         # bottom page margin for the FactionBack
 BACK_BG_SCREEN_OPACITY = 0.70            # white screen opacity applied over the background to lighten it
+# Master switch for adaptive ink on the FactionBack -- set to False to restore the
+# previous behaviour exactly (elements drawn in the raw faction color). Handled in
+# one place, inside _ink_for_wash, so no draw site needs to know about it.
+BACK_INK_DARKEN_ENABLED = True
+# Contrast an element must reach against the washed background before it is left
+# alone. Deliberately NOT the WCAG 3:1 floor for large graphical objects: this is
+# a decorative wash rather than body text, and 3.0 forced a far heavier change
+# than the pages needed -- it turned a pale sage green into a medium grey-green.
+# 1.3 was chosen by eye against real pages: it leaves a faction already reading at
+# 1.38 untouched and lifts only the genuinely washed-out ones. Naming mirrors
+# ATTR_WHITE_TEXT_MIN_CONTRAST above.
+BACK_INK_MIN_CONTRAST = 1.3
+# Ceiling on how far the ink may be mixed toward black, as a 0-1 fraction (hence
+# _RATIO, cf. COLOR_BAR_W_RATIO -- unlike the _MAX_W/_MAX_H constants, which are
+# hard caps in inches). Pure insurance: the worst case across a 4,096-color sweep
+# needs only 0.116, so this never binds at the current target.
+BACK_INK_MAX_DARKEN_RATIO = 0.60
 BACK_COLUMN_GAP = 0.25 * inch
 LEFT_COL_W_RATIO = 0.48
 
@@ -3239,6 +3256,70 @@ def _contrast_ratio(hex_a, hex_b):
 def _is_color_legible_on(fg_hex, bg_hex, min_ratio=1.9):
     """True if fg_hex has sufficient contrast against bg_hex."""
     return _contrast_ratio(fg_hex, bg_hex) >= min_ratio
+
+
+def _mix_hex(fg_hex, alpha, bg_hex):
+    """Composite fg_hex at `alpha` over bg_hex, as hex. Returns None on parse
+    failure, matching _relative_luminance rather than raising into a render.
+
+    Accepts 3-digit shorthand on both sides, since _relative_luminance does and
+    a faction color is free-text from the designer."""
+    def channels(hex_color):
+        h = (hex_color or '').lstrip('#')
+        if len(h) == 3:
+            h = ''.join(ch * 2 for ch in h)
+        try:
+            return [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+        except (ValueError, IndexError):
+            return None
+
+    fg, bg = channels(fg_hex), channels(bg_hex)
+    if fg is None or bg is None:
+        return None
+    a = min(max(alpha, 0.0), 1.0)
+    return '#%02X%02X%02X' % tuple(
+        round(f * a + b * (1 - a)) for f, b in zip(fg, bg))
+
+
+def _ink_for_wash(color_hex, wash_alpha, target, max_darken_ratio=0.60):
+    """The color to DRAW an element in, so it stays visible against a background
+    that is `color_hex` lightened by a white screen at `wash_alpha`.
+
+    The FactionBack draws its content straight onto that washed background with no
+    opaque panel behind it, so an element painted in the raw faction color sits on
+    a ground made of that same color -- the wash is the only thing separating
+    them. A pale faction therefore renders near-invisible shapes and bars.
+
+    Returns `color_hex` UNCHANGED when it already clears `target`, so a faction
+    that reads fine is bit-identical to before. Otherwise mixes it toward black by
+    the SMALLEST amount that clears the target.
+
+    Mixing toward black is multiplicative, so hue and saturation are preserved and
+    only value drops: a pale faction still reads as its own color, just deeper.
+
+    Found by bisection because contrast is monotonic in the mix fraction here.
+    Runs once per render, so exactness is free -- a coarse linear scan would
+    overshoot the minimum for no benefit."""
+    if not BACK_INK_DARKEN_ENABLED:
+        return color_hex
+    ground = _mix_hex('#FFFFFF', wash_alpha, color_hex)
+    if ground is None:  # unparseable — leave it alone rather than guess
+        return color_hex
+    if _is_color_legible_on(color_hex, ground, target):
+        return color_hex
+
+    lo, hi = 0.0, max_darken_ratio
+    if not _is_color_legible_on(_mix_hex('#000000', hi, color_hex), ground, target):
+        # Cap binds. Insurance only: the worst case over a 4,096-color sweep needs
+        # 0.116 at the current target, far short of the 0.60 ceiling.
+        return _mix_hex('#000000', hi, color_hex)
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        if _is_color_legible_on(_mix_hex('#000000', mid, color_hex), ground, target):
+            hi = mid
+        else:
+            lo = mid
+    return _mix_hex('#000000', hi, color_hex)
 
 
 def _pick_legible_on(primary_hex, secondary_hex, bg_hex, min_ratio=1.9, fallback='#000000'):
@@ -7043,6 +7124,16 @@ class FactionBackLayoutEngine:
         self.faction = faction_back.faction
         self.color_hex = self.faction.color or '#5B4A8A'
         self.faction_color = HexColor(self.color_hex)
+        # What to DRAW faction-colored elements in. This page has no opaque panels:
+        # everything sits directly on the white-screened background, which is made
+        # of this same color, so a pale faction would paint near-invisible shapes.
+        # Equals color_hex for any faction that already reads well, so most
+        # factions render bit-identically. Computed once -- it is pure and the
+        # inputs never change during a render.
+        self.ink_hex = _ink_for_wash(
+            self.color_hex, BACK_BG_SCREEN_OPACITY, BACK_INK_MIN_CONTRAST,
+            BACK_INK_MAX_DARKEN_RATIO)
+        self.ink_color = HexColor(self.ink_hex)
         self._lang_code = _lang_code_for(self.faction)
 
         pieces = self._resolve_pieces(self.faction)
@@ -7069,7 +7160,7 @@ class FactionBackLayoutEngine:
         if os.path.exists(MEEPLE_SVG):
             try:
                 self._warrior_fallback_svg = self._load_colored_svg(
-                    MEEPLE_SVG, self.color_hex
+                    MEEPLE_SVG, self.ink_hex
                 )
             except Exception:
                 self._warrior_fallback_svg = None
@@ -7589,7 +7680,7 @@ class FactionBackLayoutEngine:
             icon_x = start_x
             icon_y = mid_y - draw_h / 2
             c.saveState()
-            c.setFillColor(self.faction_color)
+            c.setFillColor(self.ink_color)
             c.setFillAlpha(1.0)
             if shape_fallback == 'building':
                 s = draw_w
@@ -7693,7 +7784,7 @@ class FactionBackLayoutEngine:
             min_fill_w = text_w + ATTR_BAR_LEVEL_TEXT_X_PAD * 2
             fill_w = min(max(fill_w, min_fill_w), bar_w)
         if fill_w > 0:
-            c.setFillColor(self.faction_color)
+            c.setFillColor(self.ink_color)
             c.rect(bar_x, bar_y, fill_w, ATTR_BAR_H, stroke=0, fill=1)
 
         # Level text inside bar — white when legible on faction color, else black.
@@ -7701,7 +7792,10 @@ class FactionBackLayoutEngine:
         if level_label:
             if value == 'N':
                 text_color = ATTR_BAR_LEVEL_N_TEXT_COLOR
-            elif _is_white_text_legible(self.color_hex, ATTR_WHITE_TEXT_MIN_CONTRAST):
+            # Judged against ink_hex, not color_hex: the label is drawn INSIDE the
+            # bar, so it has to contrast with the color that fill is actually
+            # painted in. Equal to color_hex whenever the ink wasn't darkened.
+            elif _is_white_text_legible(self.ink_hex, ATTR_WHITE_TEXT_MIN_CONTRAST):
                 text_color = ATTR_BAR_LEVEL_TEXT_COLOR_LIGHT
             else:
                 text_color = ATTR_BAR_LEVEL_TEXT_COLOR_DARK
@@ -7771,7 +7865,7 @@ class FactionBackLayoutEngine:
             renderPDF.draw(marker, c, marker_x, marker_y)
         else:
             c.saveState()
-            c.setFillColor(self.faction_color)
+            c.setFillColor(self.ink_color)
             c.circle(marker_x + marker_w / 2, para_mid_y, marker_w / 2, stroke=0, fill=1)
             c.setFont('Baskerville-Bold', marker_h * 0.6)
             c.setFillColorRGB(1, 1, 1)
