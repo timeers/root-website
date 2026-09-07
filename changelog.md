@@ -46,6 +46,9 @@
 - the group availability calendar button now shows up on the matches pages, where it never appeared before
 - submitting a survey response no longer overwrites other players' availability
 - tapping an hour on the availability page now reliably toggles it on phones instead of sometimes doing nothing
+- availability grids can now be scrolled sideways on a phone, so the later days in the week are visible. On mobile a tap toggles and a swipe scrolls, while click-and-drag still works with a computer
+- the availability comparison and survey results grids could not be scrolled on mobile
+- answering a weekly availability question in a survey now actually saves the hours you picked
 - the availability calendar button no longer disappears from a match after you edit it
 - /boxscore upload and /boxscore token are again limited to the players in the game, its host and moderators — since /boxscore gained subcommands anyone in the thread could use them
 - move notification dismissal bug fixes (hopefully it's reliable now)

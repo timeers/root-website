@@ -1286,6 +1286,15 @@ class AvailabilityViewTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'the_gatehouse/availability.html')
 
+    def test_the_grid_is_marked_editable(self):
+        """`availability-grid--editable` is what scopes `touch-action` in
+        main.css to the grids that actually drag-paint. The read-only grids
+        (compare, survey results) share every other class name, so without this
+        marker they inherit a touch constraint they have no gesture for -- which
+        is what stopped them scrolling on a phone."""
+        response = self.client.get(self.url)
+        self.assertContains(response, 'availability-grid--editable')
+
     def test_post_saves_utc_hours_and_updates_profile_timezone(self):
         response = self.client.post(self.url, {
             'timezone': 'America/New_York',
@@ -1599,6 +1608,15 @@ class AvailabilityCompareLFGTests(_NoLoginSignalMixin, TestCase):
     def _get(self, profile, **params):
         self.client.force_login(profile.user)
         return self.client.get(self.url, params)
+
+    def test_the_compare_grid_is_not_marked_editable(self):
+        """This grid only pins a detail panel -- it has no drag-paint. The
+        `--editable` marker is what carries `touch-action` in main.css, and a
+        touch constraint here is pure loss: it stopped the grid scrolling
+        sideways on a phone, so the right-hand days were unreachable."""
+        response = self._get(self.members[1], lfg=self.thread.pk)
+        self.assertContains(response, 'availability-grid')
+        self.assertNotContains(response, 'availability-grid--editable')
 
     def test_a_roster_member_sees_the_comparison(self):
         response = self._get(self.members[1], lfg=self.thread.pk)
