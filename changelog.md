@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.6] - 2026-9-5 Box Score API & Availability
+## [1.13.6] - 2026-9-6 Box Score API & Availability
 
 ### New Features
 - added ability to link SteamID to profile for future boxscore matching
