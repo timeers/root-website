@@ -23,7 +23,7 @@ is nothing worth indexing. {% endcomment %}
   <div class="row justify-content-center">
     <div class="col-lg-11">
 
-      <div class="info-card mb-4">
+      <div class="info-card mb-3">
         <div class="info-card-body">
           {% comment %} Back on the left, edit pushed right by ms-auto. The row
           WRAPS because .avail-btn-compact is nowrap + flex-shrink:0 -- together
@@ -122,6 +122,8 @@ is nothing worth indexing. {% endcomment %}
 
 
 
+              <h2 class="info-card-title h6 mb-2">{% trans 'Legend' %}</h2>
+
               <div id="summary-line" class="mb-2"></div>
 
               {# Legend is rebuilt on every toggle: a group of 3 can never be "missing 4", so the reachable bands change with the selection. #}
@@ -135,7 +137,7 @@ is nothing worth indexing. {% endcomment %}
                 <span class="text-muted">{% trans 'Tap a time to see who is free.' %}</span>
               </div>
 
-
+              <hr class="card-section-divider">
 
               <div class="d-flex justify-content-between align-items-center flex-wrap mb-2 gap-2">
                 <h2 class="info-card-title h6 mb-0">
@@ -303,6 +305,16 @@ is nothing worth indexing. {% endcomment %}
     gap: 10px;
     font-size: 0.75rem;
     color: #6c757d;
+  }
+  /* Divides the legend block from the player list inside the same card. Takes
+     the card's OWN border colour rather than Bootstrap's default hr (a black
+     rule at 25% opacity), which reads heavier than the card edge it sits
+     inside. */
+  .card-section-divider {
+    border: 0;
+    border-top: 1px solid #e3e5e8;
+    opacity: 1;
+    margin: 14px 0;
   }
   /* Who is free at the cell under the pointer (or the pinned one). The row is
      the whole answer -- checkbox, avatar, name and hours -- so the box wraps
