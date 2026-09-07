@@ -5390,7 +5390,9 @@ body.forge-modal-open { overflow: hidden; }
     /* hour label + 7 days. `auto` shrinks the label column to its text rather
        than reserving a fixed width; the day columns take the rest. */
     grid-template-columns: auto repeat(7, minmax(3.2rem, 1fr));
-    gap: 3px;
+    /* 2px, not 3: with the cells down to ~1rem the gap was about 15% of the
+       grid's total height. Still wide enough to read as separate cells. */
+    gap: 2px;
     min-width: 28rem;
     user-select: none;
     /* pan-y keeps the page scrollable by dragging the grid's gaps and labels. */
@@ -5409,7 +5411,10 @@ body.forge-modal-open { overflow: hidden; }
   .avail-hour-label {
     background: transparent;
     border: none;
-    font-size: 0.78rem;
+    /* Kept a step ABOVE the cells (0.58rem) so the axes still read as headings,
+       but brought down with them -- at the old 0.78rem the labels dwarfed the
+       cells they label. */
+    font-size: 0.68rem;
     font-weight: 700;
     color: #6c757d;
     padding: 2px;
@@ -5429,13 +5434,21 @@ body.forge-modal-open { overflow: hidden; }
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 1.85rem;
+    /* Roughly HALF the original 1.85rem, in two passes: the compare grid shows
+       a time in every cell, and a denser grid fits more of the week on screen.
+       Leaves ~0.45rem around the label, which is centred with no padding. */
+    min-height: 1.04rem;
     border: 1px solid #dfe2e5;
     border-radius: 4px;
     background: #f8f9fa;
     padding: 0;
     transition: background-color 90ms linear, color 90ms linear;
-    font-size: 0.66rem;
+    /* ~9.3px. Deliberately NOT shrunk in proportion with the height: below
+       about 9px the label stops being legible, and mobile browsers enforce a
+       minimum font size that would override it -- growing the row back rather
+       than shrinking it. Width is not the constraint; "12am" needs ~1.3rem
+       against a 2.9rem column. */
+    font-size: 0.58rem;
     font-variant-numeric: tabular-nums;
     line-height: 1;
     white-space: nowrap;
@@ -5490,7 +5503,7 @@ body.forge-modal-open { overflow: hidden; }
       grid-template-columns: auto repeat(7, minmax(2.9rem, 1fr));
       min-width: 23rem;
     }
-    .avail-hour-label { font-size: 0.66rem; padding-right: 4px; }
-    .avail-day-header { font-size: 0.7rem; }
-    .avail-cell { min-height: 1.7rem; font-size: 0.6rem; }
+    .avail-hour-label { font-size: 0.62rem; padding-right: 4px; }
+    .avail-day-header { font-size: 0.64rem; }
+    .avail-cell { min-height: 0.95rem; font-size: 0.56rem; }
   }
