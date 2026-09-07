@@ -191,7 +191,7 @@ STATS_COMMAND = {
 
 UPCOMING_COMMAND = {
     "name": "upcoming",
-    "description": "Show the next scheduled match for a player or event",
+    "description": "Show the next scheduled match for a player, thread or event",
     "options": [
         {"name": "series", "description": "Filter to a series / tournament", "type": 3, "required": False, "autocomplete": True},
         {"name": "player", "description": "Filter to a player", "type": 3, "required": False, "autocomplete": True},

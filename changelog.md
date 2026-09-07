@@ -31,6 +31,7 @@
 - opening a player availability link you can't view now explains who can see it, instead of showing a permission error page
 - box scores now match players by Steam account before falling back to their name, so a renamed Discord account no longer breaks matching — and two players with similar names can't be mixed up
 - linking your Steam account clears any earlier guess about that account, including one saved against someone else's profile
+- /upcoming now shows the next game for the thread or guild it's used in if no arguments are provided
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url

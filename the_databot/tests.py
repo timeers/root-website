@@ -12130,3 +12130,205 @@ class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("availability", di.COMMAND_HANDLERS)
         # It reveals when specific players are free.
         self.assertIn("availability", di.ROSTER_GUARDED_COMMANDS)
+
+
+class UpcomingScopeTests(ScheduleFixtureMixin, TestCase):
+    """/upcoming with no options narrows to where it was run.
+
+    Searching every tournament in the database answered a question nobody asked:
+    a match from an unrelated server, inside a thread about a specific game.
+    """
+
+    THREAD_ID = "555000111"
+
+    def setUp(self):
+        self.build()
+        self.soon = timezone.now() + timedelta(hours=1)
+        self.later = timezone.now() + timedelta(hours=5)
+
+    def _decoy(self, when, guild=None, name="Decoy Tournament"):
+        """A scheduled match in ANOTHER tournament, optionally another guild.
+        Scheduled EARLIER than ours, so an unscoped search would return it."""
+        tournament = Tournament.objects.create(
+            name=name, guild=guild, designer=self.designer)
+        stage = Stage.objects.create(tournament=tournament, name="S", order=1)
+        rnd = Round.objects.create(stage=stage, round_number=1)
+        group = PlayerGroup.objects.create(round=rnd, group_number=1, name="Decoy Group")
+        series = MatchSeries.objects.create(
+            round=rnd, player_group=group, number_of_games=1)
+        return Match.objects.create(
+            round=rnd, series=series, scheduled_time=when)
+
+    def _run(self, channel_id=None, channel_name="a thread", channel_type=11,
+             guild_id=None, options=None):
+        payload = {
+            "type": 2,
+            "data": {"name": "upcoming", "options": options or []},
+            "guild_id": guild_id if guild_id is not None else self.guild.guild_id,
+            "channel_id": channel_id if channel_id is not None else self.THREAD_ID,
+            "channel": {"name": channel_name, "type": channel_type},
+            "member": {"user": {"id": "77", "username": "asker"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True), \
+             mock.patch.object(di.record_bot_usage_task, "delay", mock.Mock()):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content)["data"]
+
+    def _description(self, data):
+        return (data.get("embeds") or [{}])[0].get("description", "")
+
+    def _title(self, data):
+        return (data.get("embeds") or [{}])[0].get("title", "")
+
+    # ── in a thread ─────────────────────────────────────────────────────────
+
+    def test_a_group_thread_reports_its_own_series(self):
+        """The headline case. The decoy is scheduled EARLIER, so an unscoped
+        search would return it instead."""
+        self.match.scheduled_time = self.later
+        self.match.save(update_fields=["scheduled_time"])
+        self._decoy(self.soon)
+
+        data = self._run()
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for this thread")
+        # The decoy is sooner, so an unscoped search would have picked it.
+        self.assertNotIn("Decoy", self._title(data))
+        self.assertEqual(self._title(data), self.match.name)
+
+    def test_a_group_thread_with_nothing_scheduled_says_so(self):
+        self._decoy(self.soon)
+
+        data = self._run()
+
+        self.assertEqual(data["content"],
+                         "There are no scheduled matches for this thread.")
+        self.assertNotIn("embeds", data)
+
+    def test_a_plain_lfg_thread_has_no_schedule_to_report(self):
+        """A pick-up game has no Match behind it, so there is nothing to show --
+        and it must not fall back to a global result."""
+        lfg = LFGThread.objects.create(thread_id="999888777")
+        lfg.players.set([self.player])
+        self._decoy(self.soon)
+
+        data = self._run(channel_id="999888777")
+
+        self.assertEqual(data["content"],
+                         "There are no scheduled matches for this thread.")
+
+    def test_a_group_thread_without_a_series_is_not_mistaken_for_lfg(self):
+        """An LFGThread row with no series AND no players is a group thread that
+        /pick or /seating touched before its MatchSeries existed. Testing
+        `series_id` alone would answer "no scheduled matches for this thread"
+        inside a real tournament thread."""
+        LFGThread.objects.create(thread_id=self.THREAD_ID)   # no players, no series
+        self.match.scheduled_time = self.soon
+        self.match.save(update_fields=["scheduled_time"])
+
+        data = self._run()
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for this thread")
+
+    def test_an_unlinked_thread_resolves_by_title_and_links_it(self):
+        """Title fallback, matching /seating. The link is a deliberate side
+        effect: without it the command stays useless in unlinked threads."""
+        self.group.discord_thread = ""
+        self.group.save(update_fields=["discord_thread"])
+        self.match.scheduled_time = self.soon
+        self.match.save(update_fields=["scheduled_time"])
+
+        data = self._run(channel_id="4040404040", channel_name=self.group.name)
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for this thread")
+        self.group.refresh_from_db()
+        self.assertIn("4040404040", self.group.discord_thread)
+
+    # ── in a plain channel ──────────────────────────────────────────────────
+
+    def test_a_channel_reports_its_own_guild(self):
+        other_guild = DiscordGuild.objects.create(
+            guild_id="900200", name="Other Guild")
+        self.match.scheduled_time = self.later
+        self.match.save(update_fields=["scheduled_time"])
+        self._decoy(self.soon, guild=other_guild)
+
+        data = self._run(channel_id="123123123", channel_type=0)
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for Sched Guild")
+
+    def test_a_channel_with_nothing_scheduled_names_the_guild(self):
+        other_guild = DiscordGuild.objects.create(
+            guild_id="900200", name="Other Guild")
+        self._decoy(self.soon, guild=other_guild)
+
+        data = self._run(channel_id="123123123", channel_type=0)
+
+        self.assertEqual(data["content"],
+                         "There are no scheduled matches for Sched Guild.")
+
+    def test_the_guild_name_prefers_the_live_discord_name(self):
+        self.guild.actual_name = "My Root Guild"
+        self.guild.save(update_fields=["actual_name"])
+        self.match.scheduled_time = self.soon
+        self.match.save(update_fields=["scheduled_time"])
+
+        data = self._run(channel_id="123123123", channel_type=0)
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for My Root Guild")
+
+    def test_a_guild_with_no_tournaments_still_gets_a_global_answer(self):
+        """Narrow only when it narrows something -- otherwise a server that runs
+        no tournaments gets a dead end where it used to get an answer."""
+        bare = DiscordGuild.objects.create(guild_id="900300", name="Bare Guild")
+        self._decoy(self.soon, guild=self.guild)
+
+        data = self._run(channel_id="123123123", channel_type=0,
+                         guild_id=bare.guild_id)
+
+        self.assertEqual(self._description(data), "The next scheduled game")
+
+    def test_a_guild_with_no_site_record_gets_a_global_answer(self):
+        self._decoy(self.soon, guild=self.guild)
+
+        data = self._run(channel_id="123123123", channel_type=0,
+                         guild_id="900999")
+
+        self.assertEqual(self._description(data), "The next scheduled game")
+
+    # ── explicit options override the channel ───────────────────────────────
+
+    def test_an_explicit_series_overrides_the_thread(self):
+        other_guild = DiscordGuild.objects.create(
+            guild_id="900200", name="Other Guild")
+        decoy = self._decoy(self.soon, guild=other_guild)
+        self.match.scheduled_time = self.later
+        self.match.save(update_fields=["scheduled_time"])
+        wanted = decoy.round.stage.tournament
+
+        data = self._run(options=[{"name": "series", "type": 3,
+                                   "value": wanted.slug}])
+
+        # The builder's own filter wording, not the thread's.
+        self.assertEqual(self._description(data),
+                         f"The next scheduled {wanted.name} game")
+
+    def test_a_match_with_a_recorded_game_is_still_reported(self):
+        """_schedulable_matches drops those; /upcoming deliberately does not."""
+        from the_warroom.models import Game
+        self.match.scheduled_time = self.soon
+        self.match.game = Game.objects.create(recorder=self.player)
+        self.match.save(update_fields=["scheduled_time", "game"])
+
+        data = self._run()
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for this thread")

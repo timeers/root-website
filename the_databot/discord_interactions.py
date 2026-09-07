@@ -618,10 +618,56 @@ def _handle_stats_command(data):
     })
 
 
+def _upcoming_thread_series_id(data):
+    """The MatchSeries this channel is a thread for, or None.
+
+    Mirrors /seating's resolution, including its disambiguation. A tournament
+    group thread ALSO gets an LFGThread (it captures rolls the same way), so
+    `series_id` alone can't tell the two apart: a group whose MatchSeries isn't
+    set yet leaves it NULL and would look exactly like a pick-up game. The
+    LFG thread is the one with its OWN players -- only /lfg ever fills that.
+
+    Returns None for a plain LFG thread as well as for a plain channel; the
+    caller distinguishes them, because an LFG game has no schedule to report
+    while a channel should fall back to the guild.
+    """
+    channel_id = data.get("_channel_id")
+    if not channel_id:
+        return None
+
+    # Resolving by TITLE links the thread to its group as a side effect
+    # (player_group_for_channel -> link_group_thread). Accepted here for the
+    # same reason /seating and /record accept it: the link is correct whoever
+    # triggered it, and refusing it would make /upcoming silently useless in
+    # exactly the threads nobody has linked yet.
+    group = player_group_for_channel(
+        channel_id, data.get("_channel_name"), data.get("_guild_id"))
+    return group_series_id(group) if group else None
+
+
+def _upcoming_is_lfg_thread(data):
+    """Whether this channel is a pick-up game thread with no tournament behind it.
+
+    `players.exists()` is the test, not `series_id` -- see
+    _upcoming_thread_series_id for why the latter can't stand alone.
+    """
+    thread = _lfg_thread_for_channel(data.get("_channel_id"))
+    return bool(thread and not thread.series_id and thread.players.exists())
+
+
 def _handle_upcoming_command(data):
     """/upcoming: the next scheduled match, optionally filtered to a series and/or
-    a player. With no series, searches across all tournaments. Replies publicly
-    with an embed linking to the matches page."""
+    a player. Replies publicly with an embed linking to the matches page.
+
+    With NO options the search narrows to wherever the command was used: a
+    thread reports its own series, and a plain channel reports that server's
+    tournaments. Searching globally from inside a game thread answered a
+    question nobody asked -- a match from an unrelated tournament, in a thread
+    about a specific game.
+
+    An explicit series= or player= overrides the channel entirely; asking about
+    another tournament from inside a thread is a deliberate act.
+    """
     series_slug = _get_option(data, "series")
     player_slug = _get_option(data, "player")
 
@@ -650,6 +696,42 @@ def _handle_upcoming_command(data):
             series__matchseat__stage_participant__tournament_player__profile=player
         )
 
+    # Channel scope, only when the user narrowed nothing themselves.
+    #
+    # `summary` stays None meaning "not set by us" -- it is passed to
+    # build_upcoming_embed only when non-None, because that builder distinguishes
+    # its own _UNSET default (use the /upcoming wording) from an explicit None
+    # (drop the description). This module has a SEPARATE _UNSET sentinel for
+    # /draft, and handing that one over would fail the builder's identity check.
+    summary = None
+    empty_message = "No upcoming matches found."
+    if not series_slug and not player_slug:
+        if _upcoming_is_lfg_thread(data):
+            # A pick-up game has no Match behind it, so there is no schedule to
+            # report -- scheduling lives only on Match.scheduled_time.
+            return _ephemeral("There are no scheduled matches for this thread.")
+
+        series_id = _upcoming_thread_series_id(data)
+        if series_id:
+            matches = matches.filter(series_id=series_id)
+            summary = "The next scheduled match for this thread"
+            empty_message = "There are no scheduled matches for this thread."
+        else:
+            guild_id = data.get("_guild_id")
+            guild = (DiscordGuild.objects.filter(guild_id=str(guild_id)).first()
+                     if guild_id else None)
+            # Narrow ONLY when it narrows something. A server that runs no
+            # tournaments would otherwise get a dead end where it used to get
+            # an answer, so the guild filter is skipped entirely for those.
+            if guild and Tournament.objects.filter(guild=guild).exists():
+                name = guild.guild_name()
+                matches = matches.filter(
+                    Q(round__stage__tournament__guild=guild)
+                    | Q(round__tournament__guild=guild),
+                )
+                summary = f"The next scheduled match for {name}"
+                empty_message = f"There are no scheduled matches for {name}."
+
     match = (
         matches.select_related(
             "round", "round__stage", "round__stage__tournament",
@@ -659,11 +741,14 @@ def _handle_upcoming_command(data):
         .first()
     )
     if not match:
-        return _ephemeral("No upcoming matches found.")
+        return _ephemeral(empty_message)
 
+    embed_kwargs = {"series": tournament, "player": player}
+    if summary is not None:
+        embed_kwargs["summary"] = summary
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {"embeds": [build_upcoming_embed(match, series=tournament, player=player)]},
+        "data": {"embeds": [build_upcoming_embed(match, **embed_kwargs)]},
     })
 
 
