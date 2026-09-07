@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.6] - 2026-9-6 Box Score API & Availability
+## [1.13.6] - 2026-9-7 Box Score API & Availability
 
 ### New Features
 - added ability to link SteamID to profile for future boxscore matching
@@ -41,6 +41,7 @@
 - /schedule clear in a plain text channel now says the command needs a thread, instead of talking about a thread that isn't there
 - /schedule clear in a thread with no game now points at /schedule set, instead of an option that no longer exists
 - closing a schedule poll now says how many confirmed ("Closed by @Name — 3 of 5 confirmed") instead of claiming it closed before everyone responded, which wasn't true in a channel with no roster to answer
+- faction sheet backs with a very pale faction colour no longer render near-invisible attribute bars and piece shapes. The colour is deepened to BACK_INK_MIN_CONTRAST, just enough to show against the lightened background, and any faction that already reads clearly is untouched
 - Vagabond allowed to have coalition partner when importing boxscore json
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 - the group availability calendar button now shows up on the matches pages, where it never appeared before

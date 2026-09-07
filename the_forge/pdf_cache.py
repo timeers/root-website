@@ -6,7 +6,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.forms.models import model_to_dict
 
 
-CACHE_PREFIX = 'forge_pdf:v8'
+CACHE_PREFIX = 'forge_pdf:v9'
 PDF_CACHE_TTL = 60 * 60 * 24
 PDF_CACHE_MAX_BYTES = 25 * 1024 * 1024
 
@@ -229,11 +229,21 @@ def _scale_payload(scale):
 
 
 def _back_payload(back):
+    # Imported here rather than at module level to keep this module free of
+    # pdf_engine (fonts, SVG machinery) for callers that only need a fingerprint.
+    from the_forge.pdf_engine import BACK_INK_DARKEN_ENABLED
+
     return {
         'faction': _faction_payload_for_render(back.faction),
         'back': _serialize_instance(back),
         'pieces': _serialize_qs(back.faction.pieces.all(), order_by=('pk',)),
         'setup_steps': _serialize_qs(back.setup_steps.all(), order_by=('number', 'pk')),
+        # A RENDERING-BEHAVIOUR input, not model data. Without it, flipping
+        # BACK_INK_DARKEN_ENABLED leaves the key unchanged, so both the PDF cache
+        # and the stored WebP preview keep serving the other mode's output and the
+        # switch looks broken. Including it also means each mode caches
+        # separately, so toggling back and forth needs no flush.
+        'ink_darken': BACK_INK_DARKEN_ENABLED,
     }
 
 
