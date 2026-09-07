@@ -3771,6 +3771,36 @@ class LookupCommandShapeTests(TestCase):
         self.assertEqual(options["faction"], "lookup faction")
         self.assertEqual(options["stats"], "stats")
 
+    def test_the_whitelist_covers_every_toggle_exactly_once(self):
+        """The guild settings page renders straight from this, so a name that
+        falls out here becomes impossible to switch on."""
+        names = [n for n, _l, _d in dc.whitelistable_commands()]
+
+        self.assertEqual(sorted(names), sorted(dc.WHITELISTABLE))
+        self.assertEqual(len(names), len(set(names)))
+        self.assertNotIn("help", names)          # always on, never a toggle
+
+    def test_the_whitelist_is_ordered_by_command_groups(self):
+        """Same order as /help, rather than the order definitions happen to sit
+        in COMMANDS -- which put `lookup faction` nowhere near the lookups."""
+        names = [n for n, _l, _d in dc.whitelistable_commands()]
+        expected = [n for _g, rows in dc.grouped_commands()
+                    for n, _l, _d in rows if n != "help"]
+
+        self.assertEqual(names, expected)
+        # Lookups arrive together, before the Games group.
+        self.assertLess(names.index("houserule"), names.index("lfg"))
+
+    def test_a_command_missing_from_the_groups_is_still_listed(self):
+        """grouped_commands' "Other" catch-all is what keeps a newly added
+        command toggleable before anyone files it into COMMAND_GROUPS."""
+        trimmed = [(group, [n for n in names if n != "boxscore"])
+                   for group, names in dc.COMMAND_GROUPS]
+        with mock.patch.object(dc, "COMMAND_GROUPS", trimmed):
+            names = [n for n, _l, _d in dc.whitelistable_commands()]
+
+        self.assertIn("boxscore", names)
+
 
 class LFGHelpContentTests(TestCase):
     """The LFG walkthrough is shared by the Databot page and /help category:LFG, so the

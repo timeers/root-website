@@ -659,12 +659,21 @@ def whitelistable_commands():
     `name` is the stored whitelist key -- unchanged for the lookups, which is what lets
     an existing enabled_commands list keep working. `label` is what to render after the
     slash: identical to `name` for a top-level command, "lookup faction" / "link steam"
-    for a subcommand, since that's what a user actually types."""
-    rows = [(c["name"], c["name"], c["description"]) for c in COMMANDS
-            if c["name"] not in _NON_WHITELISTABLE]
-    return rows + [(s["name"], f"{parent_name} {s['name']}", s["description"])
-                   for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
-                   for s in subs]
+    for a subcommand, since that's what a user actually types.
+
+    Ordered by COMMAND_GROUPS, so the guild settings page lists commands the same way
+    /help does. It used to be declaration order in COMMANDS with every subcommand
+    appended after, which put /lookup faction nowhere near the other lookups and moved
+    rows around whenever a definition was inserted.
+
+    Flattened rather than grouped: the caller renders one checkbox list, and
+    grouped_commands() is already the single place the ordering lives -- including the
+    "Other" catch-all that keeps a command missing from COMMAND_GROUPS visible instead
+    of silently unlistable.
+    """
+    return [row for _group, rows in grouped_commands()
+            for row in rows
+            if row[0] not in _NON_WHITELISTABLE]
 
 
 def commands_for_guild(enabled_names):

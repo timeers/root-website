@@ -1241,6 +1241,7 @@ def survey_user_response_edit_view(request, slug, response_id):
                     'is_editing': is_editing,
                     'sections_data': edit_sections,
                     'question_numbers': edit_qnums,
+                    **_availability_grid_labels(),
                 })
 
             # Validate rules agreement for registration surveys
@@ -1261,6 +1262,7 @@ def survey_user_response_edit_view(request, slug, response_id):
                         'visible_questions': survey.questions.filter(is_hidden=False),
                         'sections_data': edit_sections,
                         'question_numbers': edit_qnums,
+                        **_availability_grid_labels(),
                     })
 
             # Update timezone offset if provided
@@ -1472,6 +1474,7 @@ def survey_user_response_edit_view(request, slug, response_id):
         'visible_questions': visible_questions,
         'sections_data': sections_data,
         'question_numbers': question_numbers,
+        **_availability_grid_labels(),
     }
     return render(request, 'the_tavern/take_survey.html', context)
 

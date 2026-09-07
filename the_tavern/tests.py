@@ -588,3 +588,64 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
 
         response = SurveyResponse.objects.get(survey=self.survey)
         self.assertEqual(response.timezone_name, 'America/Denver')
+
+
+class WeeklyAvailabilityGridRenderTests(_SurveyTestBase):
+    """The grid partial loops over `days` and `hours`, so a view that renders
+    take_survey.html without them produces an EMPTY BOX and no error anywhere.
+
+    take_survey.html is rendered from six places across two views; three of them
+    were missed the first time and the edit page showed no grid at all.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.survey = self._survey(allow_edit_responses=True)
+        self.question = self._wa_question(self.survey)
+        self.client.force_login(self.user)
+
+    def _existing_response(self, hours):
+        response = SurveyResponse.objects.create(
+            survey=self.survey, profile=self.profile, timezone_name='UTC')
+        Answer.objects.create(response=response, question=self.question,
+                              availability_hours=hours)
+        return response
+
+    def test_the_take_page_renders_a_full_grid(self):
+        response = self.client.get(
+            reverse('survey-take', kwargs={'slug': self.survey.slug}))
+
+        self.assertEqual(response.content.decode().count('avail-cell'), 168)
+
+    def test_the_edit_page_renders_a_full_grid(self):
+        """The reported bug: this page showed no grid to select from."""
+        existing = self._existing_response([10, 11])
+        response = self.client.get(reverse(
+            'survey-edit-response',
+            kwargs={'slug': self.survey.slug, 'response_id': existing.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.decode().count('avail-cell'), 168)
+
+    def test_the_edit_page_prefills_the_saved_hours(self):
+        """Stored UTC has to come back as the LOCAL hours the grid paints."""
+        existing = self._existing_response([10, 11])
+        response = self.client.get(reverse(
+            'survey-edit-response',
+            kwargs={'slug': self.survey.slug, 'response_id': existing.pk}))
+
+        self.assertIn('10,11', response.content.decode())
+
+    def test_every_take_survey_render_supplies_the_grid_labels(self):
+        """Guards the whole class of bug rather than the one page: any context
+        built for this template must carry days and hours."""
+        for page in (
+            self.client.get(reverse('survey-take',
+                                    kwargs={'slug': self.survey.slug})),
+            self.client.get(reverse(
+                'survey-edit-response',
+                kwargs={'slug': self.survey.slug,
+                        'response_id': self._existing_response([5]).pk})),
+        ):
+            self.assertEqual(len(page.context['days']), 7)
+            self.assertEqual(len(page.context['hours']), 24)
