@@ -38,6 +38,9 @@
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
 - fixed title on /schedule saying "Not Scheduled" when all players confirmed in LFG
+- /schedule clear in a plain text channel now says the command needs a thread, instead of talking about a thread that isn't there
+- /schedule clear in a thread with no game now points at /schedule set, instead of an option that no longer exists
+- closing a schedule poll now says how many confirmed ("Closed by @Name — 3 of 5 confirmed") instead of claiming it closed before everyone responded, which wasn't true in a channel with no roster to answer
 - Vagabond allowed to have coalition partner when importing boxscore json
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 - the group availability calendar button now shows up on the matches pages, where it never appeared before

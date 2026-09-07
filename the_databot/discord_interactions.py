@@ -1966,15 +1966,24 @@ def _handle_schedule_unlinked(data, profile, time_text, clearing):
     channel_id = data.get("_channel_id")
     author_id = data.get("_author_id")
 
+    # Resolved before the clearing branch: the two situations that reach here --
+    # a plain channel and a thread with no match -- need different answers, and
+    # only the thread lookup can tell them apart.
+    thread = _lfg_thread_for_channel(channel_id)
+
     if clearing:
-        # There is no stored time to remove, so "clear" has nothing to act on. Say
-        # what to do instead rather than reporting a missing match.
+        # There is no stored time to remove, so "clear" has nothing to act on.
+        # Say what to do instead rather than reporting a missing match.
+        if thread is None:
+            return _ephemeral(
+                "This command must be used in a thread with a scheduled game to "
+                "clear that scheduled time."
+            )
         return _ephemeral(
             "This thread isn't linked to a match, so there's no scheduled time to "
-            "clear. Give me a `time` and I'll suggest one for this thread instead."
+            "clear. Use `/schedule set` to propose a time."
         )
 
-    thread = _lfg_thread_for_channel(channel_id)
     kind = "lfg" if thread else "bare"
 
     tz_option = (_get_option(data, "timezone") or "").strip()
@@ -2664,7 +2673,8 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
         embed["fields"] = fields
 
     if closed:
-        note = _poll_closed_note(closed_reason, closed_by, no, scheduled, kind)
+        note = _poll_closed_note(closed_reason, closed_by, no, scheduled, kind,
+                                 yes_count=len(yes), pending=pending)
         if note:
             embed["description"] += f"\n\n{note}"
 
@@ -2676,7 +2686,8 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
     return data
 
 
-def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind):
+def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind,
+                      yes_count=0, pending=None):
     """The `-#` subtext explaining how a poll ended.
 
     `scheduled` means agreement, which only match mode can act on: it has a Match
@@ -2685,7 +2696,17 @@ def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind):
     promising a booking that never happened."""
     if reason == "closed":
         who = f" by <@{closed_by}>" if closed_by else ""
-        return f"-# Closed{who} before everyone responded."
+        # The count replaces the old "before everyone responded": it says the
+        # same thing precisely, and works whether or not a roster exists.
+        #
+        # `pending is None`, NOT `not pending` -- the three states differ. None
+        # means no roster to compare against (a bare channel), while [] means a
+        # roster that fully answered. Conflating them would drop the denominator
+        # from a poll that has one.
+        if pending is None:
+            return f"-# Closed{who} — {yes_count} confirmed."
+        total = yes_count + len(pending) + len(no_entries)
+        return f"-# Closed{who} — {yes_count} of {total} confirmed."
     if scheduled and kind == "match":
         return "-# Scheduled — everyone confirmed."
     if no_entries:
@@ -2953,10 +2974,14 @@ def _handle_match_poll_close(payload):
              resolved_at=timezone.now())
     proposal.refresh_from_db()
     if notify_ids:
+        # A match poll always HAS a roster, so the DM always carries a
+        # denominator -- unlike an embed poll in a bare channel.
         _notify_poll_closed(notify_ids, proposal.proposed_time, [],
                             scheduled=False,
                             closed_by=str(_interaction_user_id(payload)),
-                            jump_url=_lfg_jump_url(payload))
+                            jump_url=_lfg_jump_url(payload),
+                            yes_count=proposal.confirmed_by.count(),
+                            total=len(_match_roster(match)))
     embed = schedule_closed_embed(
         proposal, "🗓 Poll closed", "closed", actor=clicker,
         label=_match_label(match), author=_poll_author_from_payload(payload))
@@ -2996,14 +3021,24 @@ def _poll_field_lookup(embed, base_name):
 
 
 def _poll_state(embed):
-    """(yes, no, notify_ids) read out of a poll embed."""
+    """(yes, no, notify_ids, pending) read out of a poll embed.
+
+    `pending` follows the same tri-state as everywhere else: a list for a poll
+    with a roster, None for one without. The FIELD's absence is the signal --
+    _schedule_poll_data omits it entirely when pending is None, so a bare
+    channel's poll has no column to find. An empty list would mean a roster that
+    fully answered, which is why this cannot collapse to a falsy check.
+    """
     def entries(base):
         return _poll_entries(_poll_field_lookup(embed, base))
 
     notify_field = _poll_field_lookup(embed, POLL_NOTIFY_FIELD)
     notify_ids = (_LFG_MENTION_RE.findall(notify_field.get("value", ""))
                   if notify_field else [])
-    return entries(POLL_YES_FIELD), entries(POLL_NO_FIELD), notify_ids
+    pending_field = _poll_field_lookup(embed, POLL_PENDING_FIELD)
+    pending = entries(POLL_PENDING_FIELD) if pending_field else None
+    return (entries(POLL_YES_FIELD), entries(POLL_NO_FIELD), notify_ids,
+            pending)
 
 
 def _poll_embed_meta(embed):
@@ -3076,7 +3111,9 @@ def _handle_schedule_poll_respond(payload):
             return _ephemeral("Only the players in this thread can respond to that.")
         display = me.display_name or display
 
-    yes, no, notify_ids = _poll_state(embed)
+    # `pending` is discarded here: this path recomputes it from the live
+    # roster below, which is authoritative over the echoed embed.
+    yes, no, notify_ids, _pending = _poll_state(embed)
 
     if action == "sched_poll_notify":
         if clicker_id in notify_ids:
@@ -3112,7 +3149,8 @@ def _handle_schedule_poll_respond(payload):
         # the rendered note stays the everyone-answered one, not "closed by".
         return _poll_close_response(
             when, proposer_id, yes, no, notify_ids, label, author, kind,
-            reason=None, closed_by=clicker_id, jump_url=_lfg_jump_url(payload))
+            reason=None, closed_by=clicker_id, pending=pending,
+            jump_url=_lfg_jump_url(payload))
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -3149,10 +3187,10 @@ def _handle_schedule_poll_close(payload):
     if proposer_id and clicker_id != proposer_id and not _poll_closer_is_staff(payload):
         return _ephemeral("Only the person who started this poll can close it.")
 
-    yes, no, notify_ids = _poll_state(embed)
+    yes, no, notify_ids, pending = _poll_state(embed)
     return _poll_close_response(
         when, proposer_id, yes, no, notify_ids, label, author, kind,
-        reason="closed", closed_by=clicker_id,
+        reason="closed", closed_by=clicker_id, pending=pending,
         jump_url=_lfg_jump_url(payload))
 
 
@@ -3178,7 +3216,7 @@ def _poll_closer_is_staff(payload):
 
 
 def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
-                         kind, *, reason, closed_by, jump_url=None):
+                         kind, *, reason, closed_by, jump_url=None, pending=None):
     """Render the closed poll and DM the subscribers. Embed modes write nothing.
 
     `closed_by` always names whoever's click ended the poll, so they are excluded
@@ -3193,12 +3231,17 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
     unanimous the votes so far: somebody stopped it before the roster finished."""
     agreed = reason != "closed" and not no and bool(yes)
     if notify_ids:
-        _notify_poll_closed(notify_ids, when, no, scheduled=agreed,
-                            closed_by=closed_by, jump_url=jump_url)
+        _notify_poll_closed(
+            notify_ids, when, no, scheduled=agreed, closed_by=closed_by,
+            jump_url=jump_url, yes_count=len(yes),
+            # None when there is no roster, so the DM omits the denominator --
+            # the same tri-state the footer reads.
+            total=(len(yes) + len(pending) + len(no)
+                   if pending is not None else None))
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _schedule_poll_data(
-            when, proposer_id, yes=yes, no=no, notify_ids=[], pending=None,
+            when, proposer_id, yes=yes, no=no, notify_ids=[], pending=pending,
             label=label, author=author, kind=kind, closed=True,
             closed_reason=reason,
             closed_by=closed_by if reason == "closed" else None,
@@ -3219,7 +3262,7 @@ def _notify_poll_yes(notify_ids, actor_id, actor_name, when, yes_count, total,
 
 
 def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=None,
-                        jump_url=None):
+                        jump_url=None, yes_count=0, total=None):
     """DM the subscribers the final result.
 
     `closed_by` is whoever's click ENDED the poll -- the person who pressed Close,
@@ -3236,7 +3279,7 @@ def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=No
     notify_schedule_poll_task.delay(
         targets, "closed", int(when.timestamp()),
         declined=[e["name"] for e in no_entries], scheduled=scheduled,
-        jump_url=jump_url)
+        jump_url=jump_url, yes_count=yes_count, total=total)
 
 
 def _handle_schedule_cancel(payload):

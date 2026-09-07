@@ -1454,13 +1454,14 @@ class ScheduleClearHandlerTests(ScheduleFixtureMixin, TestCase):
         body = self._body(di._handle_schedule_command(self._data()))
         self.assertIn("Remove the scheduled time", body["data"]["content"])
 
-    def test_clearing_without_a_match_says_there_is_nothing_to_clear(self):
-        """Nothing is stored for an unlinked thread, so "clear" has nothing to act
-        on. Say what to do instead rather than reporting a missing match."""
+    def test_clearing_in_a_plain_channel_says_to_use_a_thread(self):
+        """A plain text channel is not a thread, so the old wording was wrong
+        twice: it named a thread that does not exist, and offered to suggest a
+        time "for this thread"."""
         body = self._body(di._handle_schedule_command(self._data(channel="123123123")))
         content = body["data"]["content"]
-        self.assertIn("isn't linked to a match", content)
-        self.assertIn("`time`", content)
+        self.assertIn("must be used in a thread", content)
+        self.assertNotIn("this thread", content.lower())
         self.assertNotIn("couldn't find", content.lower())
         self.assertEqual(body["data"].get("flags"), di.EPHEMERAL)
 
@@ -1523,11 +1524,24 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(self.match.scheduled_time)
 
     # ── clearing ──
-    def test_clearing_is_refused_with_guidance(self):
+    def test_clearing_in_a_plain_channel_says_to_use_a_thread(self):
+        """No LFGThread row -- so this is a text channel, not an unlinked thread,
+        and the two need different answers."""
+        data = self._body(di._handle_schedule_command(self._data(time=None)))["data"]
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertIn("must be used in a thread", data["content"])
+        self.assertNotIn("couldn't find", data["content"].lower())
+
+    def test_clearing_in_an_unlinked_thread_points_at_schedule_set(self):
+        """Here there IS a thread, just no match on it. The old text pointed at a
+        bare `time` option, which no longer exists now that setting a time is
+        `/schedule set`."""
+        self._lfg_thread()
         data = self._body(di._handle_schedule_command(self._data(time=None)))["data"]
         self.assertEqual(data.get("flags"), di.EPHEMERAL)
         self.assertIn("isn't linked to a match", data["content"])
-        self.assertNotIn("couldn't find", data["content"].lower())
+        self.assertIn("`/schedule set`", data["content"])
+        self.assertNotIn("must be used in a thread", data["content"])
 
     # ── the public post ──
     def _confirm(self, kind="bare", when=None):
@@ -1625,6 +1639,48 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
             if field["name"] == base or field["name"].startswith(f"{base} ("):
                 return field["value"]
         return None
+
+    # ── the closed-poll footer ──
+    def _closed_note(self, pending, yes_count, kind="bare"):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        yes = [{"name": f"p{i}", "id": str(i)} for i in range(yes_count)]
+        data = di._schedule_poll_data(
+            when, self.player.discord_id, yes=yes, no=[], notify_ids=[],
+            pending=pending, kind=kind, closed=True, closed_reason="closed",
+            closed_by=self.player.discord_id)
+        return data["embeds"][0]["description"]
+
+    def test_a_closed_poll_without_a_roster_omits_the_denominator(self):
+        """Nobody was ever expected to answer, so the old "before everyone
+        responded" described a shortfall that could not exist."""
+        note = self._closed_note(pending=None, yes_count=3)
+        self.assertIn("3 confirmed", note)
+        self.assertNotIn(" of ", note)
+        self.assertNotIn("before everyone responded", note)
+
+    def test_a_closed_poll_with_a_roster_shows_the_denominator(self):
+        note = self._closed_note(pending=["a", "b"], yes_count=3)
+        self.assertIn("3 of 5 confirmed", note)
+        self.assertNotIn("before everyone responded", note)
+
+    def test_an_lfg_thread_with_no_players_takes_the_no_roster_wording(self):
+        """The case kind == "bare" would miss, and the reason the signal is
+        `pending is None`: an LFG thread with an empty roster is kind == "lfg"
+        but still has nobody to count against."""
+        note = self._closed_note(pending=None, yes_count=1, kind="lfg")
+        self.assertIn("1 confirmed", note)
+        self.assertNotIn(" of ", note)
+
+    def test_a_fully_answered_roster_is_not_mistaken_for_no_roster(self):
+        """`pending == []` means everyone answered; `None` means there was nobody
+        to ask. `not pending` would conflate them and drop the denominator from a
+        completed roster."""
+        note = self._closed_note(pending=[], yes_count=2)
+        self.assertIn("2 of 2 confirmed", note)
+
+    def test_the_closer_is_named(self):
+        note = self._closed_note(pending=["a"], yes_count=1)
+        self.assertIn(f"Closed by <@{self.player.discord_id}>", note)
 
     def test_a_thread_player_can_vote_yes(self):
         self._lfg_thread()
@@ -8261,7 +8317,7 @@ class SchedulePollOpenTests(ScheduleFixtureMixin, TestCase):
             di._handle_schedule_poll_open(self._payload("bare",
                                                         channel="999000111"))
         embed = enqueue.call_args.args[0][1]["embeds"][0]
-        yes, no, _notify = di._poll_state(embed)
+        yes, no, _notify, _pending = di._poll_state(embed)
         self.assertEqual([e["id"] for e in yes], [str(self.player.discord_id)])
         self.assertEqual(no, [])
 
@@ -8279,7 +8335,7 @@ class SchedulePollOpenTests(ScheduleFixtureMixin, TestCase):
         payload["data"]["custom_id"] = di.encode_custom_id(
             "sched_poll_no", "bare", self.player.discord_id, "g")
         body = json.loads(di._handle_schedule_poll_respond(payload).content)
-        yes, no, _notify = di._poll_state(body["data"]["embeds"][0])
+        yes, no, _notify, _pending = di._poll_state(body["data"]["embeds"][0])
         self.assertEqual(yes, [])
         self.assertEqual([e["id"] for e in no], [str(self.player.discord_id)])
 
@@ -8332,9 +8388,18 @@ class SchedulePollNotifyDMTests(TestCase):
         self.assertIn("**Ben** couldn't make it", content)
         self.assertIn("no time was scheduled", content)
 
-    def test_an_early_close_says_it_ended_early(self):
-        content = self._send(event="closed", when_ts=self.WHEN)
-        self.assertIn("before everyone responded", content)
+    def test_an_early_close_reports_the_count(self):
+        """"before everyone responded" was wrong wherever no roster existed --
+        nobody was ever expected to answer. The count says the same thing and
+        reads correctly either way."""
+        content = self._send(event="closed", when_ts=self.WHEN, yes_count=3)
+        self.assertIn("closed with 3 confirmed", content)
+        self.assertNotIn("before everyone responded", content)
+
+    def test_an_early_close_with_a_roster_shows_the_denominator(self):
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             yes_count=3, total=5)
+        self.assertIn("closed with 3 of 5 confirmed", content)
 
 
 class ScheduleWriteRuleTests(ScheduleFixtureMixin, TestCase):
@@ -9579,6 +9644,19 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         self.assertTrue(tail)
         for line in tail:
             self.assertTrue(line.startswith("-# "), line)
+
+    def test_a_closed_lfg_note_counts_confirmations(self):
+        """A ScheduleProposal always has a match, so this note always has a
+        roster and always carries a denominator -- unlike an embed poll in a
+        bare channel, which may have nobody to count against."""
+        from the_databot.services.lfg_game import schedule_closed_embed
+        from the_databot.discord_interactions import _match_roster
+        self.proposal.confirmed_by.set([self.player])
+        total = len(_match_roster(self.proposal.match))
+        embed = schedule_closed_embed(
+            self.proposal, "Proposal closed", "closed", actor=self.player)
+        self.assertIn(f"1 of {total} confirmed", embed["description"])
+        self.assertNotIn("before everyone responded", embed["description"])
 
     def test_field_value_truncates_at_discord_cap(self):
         """An over-long field makes Discord reject the whole edit — which would

@@ -290,8 +290,13 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
                        f"no time was scheduled. Run `/schedule` to propose "
                        f"another.{link}")
         else:
-            content = (f"The poll for {when} closed before everyone "
-                       f"responded.{link}")
+            # The count replaces "before everyone responded" -- it says the same
+            # thing precisely, and reads correctly whether or not a roster
+            # exists. total=None means there was nobody to compare against, the
+            # same convention the "yes" branch above uses.
+            tally = (f"{yes_count} of {total} confirmed" if total
+                     else f"{yes_count} confirmed")
+            content = f"The poll for {when} closed with {tally}.{link}"
 
     for uid in notify_ids:
         send_dm_by_id(uid, content=content)
