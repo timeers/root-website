@@ -2967,31 +2967,41 @@ class PlayerGroup(models.Model):
         """Return count of players in this group."""
         return self.tournament_players.count()
 
-    def recalculate_overlap(self):
+    def recalculate_overlap(self, schedules=None):
         """
-        Recalculate overlap metrics based on current members' availability_hours.
+        Recalculate overlap metrics from the members' PlayerSchedules.
         Should be called after adding/removing members.
         Only meaningful for availability-based grouping.
+
+        `schedules` is an optional {profile_id: hours} mapping from
+        schedules_for(). This method is called inside loops over many groups, so
+        callers that already resolved a roster should pass it in rather than
+        letting every group re-query.
         """
+        from the_gatehouse.models import schedules_for
+
         if self.round.stage.grouping_type != Stage.GroupingTypeChoices.AVAILABILITY:
             self._clear_overlap_metrics()
             return
 
-        grouped_players = self.tournament_players.all().select_related('survey_response')
+        grouped_players = self.tournament_players.all()
 
         if not grouped_players.exists():
             self._clear_overlap_metrics()
             return
 
-        # Collect availability for each member
+        if schedules is None:
+            schedules = schedules_for(
+                [p.profile_id for p in grouped_players], self.round.stage.tournament
+            )
+
+        # Collect availability for each member. Read live from the schedule, so an
+        # edit is reflected without any re-sync.
         availability_sets = []
         for player in grouped_players:
-            if player.availability_hours:
-                availability_sets.append(set(player.availability_hours))
-            elif player.survey_response:
-                hours = player.survey_response.get_combined_availability_hours()
-                if hours:
-                    availability_sets.append(hours)
+            hours = schedules.get(player.profile_id)
+            if hours:
+                availability_sets.append(set(hours))
 
         if not availability_sets:
             self._clear_overlap_metrics()
@@ -3083,10 +3093,11 @@ class TournamentPlayer(models.Model):
         choices=StatusChoices.choices,
         default=StatusChoices.REGISTERED
     )
-    availability_hours = models.JSONField(
-        default=list,
-        help_text="This player's available hours (0-167)"
-    )
+    # Availability is NOT stored here. It lives on the_gatehouse.PlayerSchedule,
+    # resolved per player as "their schedule for this tournament, else their general
+    # one" -- see schedules_for(). That way a player who sets availability on their
+    # profile counts even if they never answered a survey, and an edit takes effect
+    # without any re-sync.
 
     waitlist_position = models.PositiveIntegerField(null=True, blank=True)
 

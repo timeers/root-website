@@ -6,9 +6,13 @@ the_databot/tests.py alongside the code they exercise.
 import io
 import shutil
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 from unittest import mock
 
+from urllib.parse import quote
+
+import requests
 from PIL import Image
 from celery.exceptions import Retry
 from django.contrib.auth import login as auth_login
@@ -21,7 +25,7 @@ from django.core.management import call_command
 from django.db import transaction
 from django.http import HttpResponse
 from django.template import Context, Template
-from django.test import TestCase, RequestFactory, override_settings
+from django.test import Client, TestCase, RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from kombu.exceptions import OperationalError as KombuOperationalError
@@ -29,10 +33,18 @@ from kombu.exceptions import OperationalError as KombuOperationalError
 from the_keep.models import Faction, StatusChoices
 from the_warroom.models import Game, Effort
 from the_gatehouse.models import (DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
-                                  GUILDS_REFRESH_MAX_AGE)
+                                  GUILDS_REFRESH_MAX_AGE, PlayerSchedule,
+                                  general_schedule_for, schedule_for)
+from the_gatehouse.services.availability import (local_to_utc_hours, utc_to_local_hours,
+                                                 hours_to_bitmask, overlap_count,
+                                                 format_hour_12, hour_labels,
+                                                 availability_matrix, overlap_summary,
+                                                 heat_bucket, reachable_buckets)
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler
 from the_gatehouse.services.discord_oauth import update_discord_avatar
+from the_gatehouse.services.steam_openid import (make_link_token, read_link_token,
+                                                 verify_response)
 from the_gatehouse.tasks import update_post_status
 
 
@@ -896,3 +908,907 @@ class RepairProfileAvatarsCommandTests(_AvatarTestMixin, TestCase):
         )
 
 
+
+
+# ── Steam account linking ────────────────────────────────────────────────────
+
+STEAM_ID = "76561197960265728"
+# Outside the "7656119" prefix: an individual SteamID64 is
+# (1<<56)|(1<<52)|(1<<32)|account_id, so it crosses into 765612... as account ids
+# grow, and Steam already issues these.
+STEAM_ID_HIGH = "76561200107749376"
+
+
+def _steam_callback_params(steam_id=STEAM_ID):
+    """A well-formed Steam OpenID callback query string. Signature values are
+    arbitrary here -- what makes a claim trustworthy is the check_authentication
+    round trip, which every test below controls explicitly."""
+    return {
+        "openid.mode": "id_res",
+        "openid.claimed_id": f"https://steamcommunity.com/openid/id/{steam_id}",
+        "openid.identity": f"https://steamcommunity.com/openid/id/{steam_id}",
+        "openid.sig": "not-checked-locally",
+        "openid.signed": "signed,op_endpoint,claimed_id,identity",
+    }
+
+
+def _mock_steam_verify(is_valid=True):
+    """Patch the outbound check_authentication POST."""
+    body = "ns:http://specs.openid.net/auth/2.0\nis_valid:%s\n" % ("true" if is_valid else "false")
+    response = mock.Mock(text=body)
+    response.raise_for_status = mock.Mock()
+    return mock.patch("the_gatehouse.services.steam_openid.requests.post",
+                      return_value=response)
+
+
+class SteamOpenIDVerifyTest(TestCase):
+    """verify_response is the security boundary: request.GET is attacker-supplied
+    until Steam confirms it."""
+
+    def test_valid_response_returns_steam_id(self):
+        with _mock_steam_verify(True):
+            self.assertEqual(verify_response(_steam_callback_params()), STEAM_ID)
+
+    def test_high_range_steam_id_is_accepted(self):
+        """Regression: a "7656119" prefix match would reject real accounts."""
+        with _mock_steam_verify(True):
+            self.assertEqual(
+                verify_response(_steam_callback_params(STEAM_ID_HIGH)), STEAM_ID_HIGH)
+
+    def test_forged_claim_is_rejected_when_steam_says_invalid(self):
+        with _mock_steam_verify(False):
+            self.assertIsNone(verify_response(_steam_callback_params()))
+
+    def test_lookalike_host_is_rejected(self):
+        params = _steam_callback_params()
+        params["openid.claimed_id"] = (
+            f"https://steamcommunity.com.evil.tld/openid/id/{STEAM_ID}")
+        with _mock_steam_verify(True):
+            self.assertIsNone(verify_response(params))
+
+    def test_network_error_returns_none(self):
+        with mock.patch("the_gatehouse.services.steam_openid.requests.post",
+                        side_effect=requests.RequestException("boom")):
+            self.assertIsNone(verify_response(_steam_callback_params()))
+
+    def test_junk_query_makes_no_outbound_request(self):
+        with mock.patch("the_gatehouse.services.steam_openid.requests.post") as post:
+            self.assertIsNone(verify_response({}))
+            self.assertIsNone(verify_response({"openid.mode": "cancel"}))
+            self.assertIsNone(verify_response({"openid.mode": "id_res"}))
+            self.assertFalse(post.called)
+
+
+class SteamLinkTokenTest(TestCase):
+    def test_round_trip(self):
+        self.assertEqual(read_link_token(make_link_token(7)), 7)
+
+    def test_tampered_token_is_rejected(self):
+        token = make_link_token(7)
+        self.assertIsNone(read_link_token(token[:-4] + "aaaa"))
+
+    def test_garbage_and_empty_are_rejected(self):
+        self.assertIsNone(read_link_token("nonsense"))
+        self.assertIsNone(read_link_token(None))
+        self.assertIsNone(read_link_token(""))
+
+    def test_expired_token_is_rejected(self):
+        token = make_link_token(7)
+        with mock.patch("the_gatehouse.services.steam_openid.STEAM_LINK_MAX_AGE", -1):
+            self.assertIsNone(read_link_token(token))
+
+
+class SteamLinkFlowTest(_NoLoginSignalMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username="steamer", password="pw")
+        self.profile = self.user.profile
+        self.profile.discord = "steamer"
+        self.profile.save()
+
+    def _start_session(self, profile=None):
+        """Put a profile pk in the session the way steam_link_start does."""
+        session = self.client.session
+        session[views.STEAM_LINK_SESSION_KEY] = (profile or self.profile).pk
+        session.save()
+
+    def _reload(self):
+        return Profile.objects.get(pk=self.profile.pk)
+
+    # -- start --------------------------------------------------------------
+
+    def test_start_redirects_logged_in_user_to_steam(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("steam-link-start"))
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith(
+            "https://steamcommunity.com/openid/login?"))
+        self.assertEqual(self.client.session[views.STEAM_LINK_SESSION_KEY],
+                         self.profile.pk)
+
+    def test_start_anonymous_without_token_goes_to_login(self):
+        response = self.client.get(reverse("steam-link-start"))
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("steamcommunity.com", response["Location"])
+
+    def test_start_with_valid_token_works_while_logged_out(self):
+        """The whole point of the bot hand-off: no site login required."""
+        token = make_link_token(self.profile.pk)
+        response = self.client.get(reverse("steam-link-start"), {"t": token})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith(
+            "https://steamcommunity.com/openid/login?"))
+        self.assertEqual(self.client.session[views.STEAM_LINK_SESSION_KEY],
+                         self.profile.pk)
+
+    def test_start_with_expired_token_does_not_reach_steam(self):
+        token = make_link_token(self.profile.pk)
+        with mock.patch("the_gatehouse.services.steam_openid.STEAM_LINK_MAX_AGE", -1):
+            response = self.client.get(reverse("steam-link-start"), {"t": token})
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("steamcommunity.com", response["Location"])
+        self.assertNotIn(views.STEAM_LINK_SESSION_KEY, self.client.session)
+
+    def test_start_uses_canonical_site_url_not_request_host(self):
+        """realm/return_to must not follow the Host header, or Steam re-prompts."""
+        self.client.force_login(self.user)
+        with override_settings(SITE_URL="https://www.therootdatabase.com"):
+            response = self.client.get(reverse("steam-link-start"),
+                                       HTTP_HOST="therootdatabase.com")
+        self.assertIn(quote("https://www.therootdatabase.com/", safe=""),
+                      response["Location"])
+
+    # -- callback -----------------------------------------------------------
+
+    def test_callback_stores_verified_steam_id(self):
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(True):
+            response = self.client.get(reverse("steam-link-callback"),
+                                       _steam_callback_params())
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self._reload().steam_id, STEAM_ID)
+
+    def test_callback_ignores_forged_claim(self):
+        """Someone hand-crafting the callback URL must not be able to claim an id."""
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(False):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertIsNone(self._reload().steam_id)
+
+    def test_callback_without_session_writes_nothing(self):
+        self.client.force_login(self.user)
+        with _mock_steam_verify(True):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertIsNone(self._reload().steam_id)
+
+    def test_callback_does_not_steal_an_id_linked_elsewhere(self):
+        other = Profile.objects.create(discord="other", steam_id=STEAM_ID)
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(True):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertIsNone(self._reload().steam_id)
+        self.assertEqual(Profile.objects.get(pk=other.pk).steam_id, STEAM_ID)
+
+    def test_callback_relinking_same_id_to_same_profile_is_fine(self):
+        self.profile.steam_id = STEAM_ID
+        self.profile.save(update_fields=["steam_id"])
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(True):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertEqual(self._reload().steam_id, STEAM_ID)
+
+    def test_anonymous_callback_lands_somewhere_public(self):
+        """A logged-out user finishing the bot flow must not be bounced to login."""
+        self._start_session()
+        with _mock_steam_verify(True):
+            response = self.client.get(reverse("steam-link-callback"),
+                                       _steam_callback_params())
+        self.assertEqual(self._reload().steam_id, STEAM_ID)
+        followed = self.client.get(response["Location"])
+        self.assertEqual(followed.status_code, 200)
+
+    def test_callback_does_not_clobber_display_name(self):
+        """save(update_fields=...) keeps Profile.save's display_name branch away."""
+        self.profile.display_name = "Keep Me"
+        self.profile.save()
+        self.client.force_login(self.user)
+        self._start_session()
+        with _mock_steam_verify(True):
+            self.client.get(reverse("steam-link-callback"), _steam_callback_params())
+        self.assertEqual(self._reload().display_name, "Keep Me")
+
+    # -- unlink -------------------------------------------------------------
+
+    def test_unlink_clears_on_post(self):
+        self.profile.steam_id = STEAM_ID
+        self.profile.save(update_fields=["steam_id"])
+        self.client.force_login(self.user)
+        self.client.post(reverse("steam-unlink"))
+        self.assertIsNone(self._reload().steam_id)
+
+    def test_unlink_rejects_get(self):
+        self.profile.steam_id = STEAM_ID
+        self.profile.save(update_fields=["steam_id"])
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("steam-unlink"))
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(self._reload().steam_id, STEAM_ID)
+
+    def test_unlink_requires_login(self):
+        response = self.client.post(reverse("steam-unlink"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("login", response["Location"])
+
+
+class AvailabilityConversionTests(TestCase):
+    """Local <-> UTC hour-of-week conversion.
+
+    These exercise the reasons the availability code uses ZoneInfo instead of a
+    stored numeric offset: DST, sub-hour zones, and week wraparound.
+    """
+
+    def test_local_hour_converts_to_utc(self):
+        # Monday 09:00 in New York (EST, UTC-5) is Monday 14:00 UTC.
+        self.assertEqual(local_to_utc_hours([9], 'America/New_York'), [14])
+
+    def test_round_trip_is_identity_for_whole_hour_zones(self):
+        for tz_name in ('America/New_York', 'Europe/Berlin', 'Asia/Tokyo', 'UTC'):
+            with self.subTest(tz=tz_name):
+                original = [9, 10, 11, 38, 39, 167]
+                utc = local_to_utc_hours(original, tz_name)
+                self.assertEqual(utc_to_local_hours(utc, tz_name), original)
+
+    def test_dst_zone_differs_between_january_and_july(self):
+        """The regression a fixed numeric offset cannot catch.
+
+        New York is UTC-5 in January and UTC-4 in July, so the same wall-clock hour
+        maps to different UTC hours. A stored offset would apply one of them all
+        year; ZoneInfo applies the one that actually holds at that moment.
+        """
+        january = datetime(2024, 1, 1, 9, tzinfo=ZoneInfo('America/New_York'))
+        july = datetime(2024, 7, 1, 9, tzinfo=ZoneInfo('America/New_York'))
+        self.assertNotEqual(
+            january.astimezone(dt_timezone.utc).hour,
+            july.astimezone(dt_timezone.utc).hour,
+        )
+
+    def test_wraps_forward_across_the_week_boundary(self):
+        # Sunday 23:00 in New York (UTC-5) is Monday 04:00 UTC -> hour 4, not 171.
+        sunday_23 = 6 * 24 + 23
+        self.assertEqual(local_to_utc_hours([sunday_23], 'America/New_York'), [4])
+
+    def test_wraps_backward_across_the_week_boundary(self):
+        # Monday 00:00 in Tokyo (UTC+9) is Sunday 15:00 UTC -> hour 159, not -9.
+        self.assertEqual(local_to_utc_hours([0], 'Asia/Tokyo'), [159])
+
+    def test_half_hour_zone_rounds_down_to_the_containing_hour(self):
+        # Kolkata is UTC+5:30, so Monday 09:00 local is 03:30 UTC -> hour 3.
+        self.assertEqual(local_to_utc_hours([9], 'Asia/Kolkata'), [3])
+
+    def test_unknown_timezone_falls_back_to_utc(self):
+        self.assertEqual(local_to_utc_hours([9], 'Not/AZone'), [9])
+        self.assertEqual(local_to_utc_hours([9], None), [9])
+
+    def test_out_of_range_and_junk_values_are_dropped(self):
+        self.assertEqual(local_to_utc_hours([999, -4, 'x', None, 5], 'UTC'), [5])
+
+    def test_bitmask_overlap_counts_shared_hours(self):
+        self.assertEqual(
+            overlap_count(hours_to_bitmask([1, 2, 3, 4]), hours_to_bitmask([3, 4, 5])),
+            2,
+        )
+
+    def test_bitmask_matches_set_intersection(self):
+        a, b = [0, 5, 23, 100, 167], [5, 23, 99, 167]
+        self.assertEqual(
+            overlap_count(hours_to_bitmask(a), hours_to_bitmask(b)),
+            len(set(a) & set(b)),
+        )
+
+    def test_twelve_hour_labels_handle_midnight_and_noon(self):
+        """The off-by-one trap: hour 0 is 12 AM and hour 12 is 12 PM, not 0."""
+        self.assertEqual(format_hour_12(0), '12:00 AM')
+        self.assertEqual(format_hour_12(12), '12:00 PM')
+        self.assertEqual(format_hour_12(11), '11:00 AM')
+        self.assertEqual(format_hour_12(13), '1:00 PM')
+        self.assertEqual(format_hour_12(23), '11:00 PM')
+
+    def test_compact_hour_labels_keep_am_pm(self):
+        self.assertEqual(format_hour_12(0, compact=True), '12am')
+        self.assertEqual(format_hour_12(9, compact=True), '9am')
+        self.assertEqual(format_hour_12(12, compact=True), '12pm')
+        self.assertEqual(format_hour_12(23, compact=True), '11pm')
+
+    def test_hour_labels_covers_the_whole_day(self):
+        labels = hour_labels()
+        self.assertEqual(len(labels), 24)
+        self.assertEqual(labels[0], (0, '12am', '12:00 AM'))
+        self.assertEqual(labels[12], (12, '12pm', '12:00 PM'))
+        self.assertEqual(labels[23], (23, '11pm', '11:00 PM'))
+
+
+class PlayerScheduleModelTests(TestCase):
+    """The schedule model, its accessors, and the NULL-uniqueness gap."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='scheduler', password='pw')
+        self.profile = self.user.profile
+
+    def test_general_schedule_accessor_is_idempotent(self):
+        """unique_together cannot enforce this -- NULL is distinct from NULL in a
+        unique index -- so the accessor is the only thing preventing duplicates."""
+        first = general_schedule_for(self.profile)
+        second = general_schedule_for(self.profile)
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(
+            PlayerSchedule.objects.filter(profile=self.profile, tournament=None).count(),
+            1,
+        )
+
+    def test_as_bitmask_sets_a_bit_per_hour(self):
+        schedule = general_schedule_for(self.profile)
+        schedule.available_hours = [0, 3, 167]
+        mask = schedule.as_bitmask()
+        self.assertTrue(mask & (1 << 0))
+        self.assertTrue(mask & (1 << 3))
+        self.assertTrue(mask & (1 << 167))
+        self.assertFalse(mask & (1 << 1))
+
+    def test_schedule_for_falls_back_to_the_general_schedule(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        self.assertEqual(schedule_for(self.profile).pk, general.pk)
+
+
+class AvailabilityViewTests(_NoLoginSignalMixin, TestCase):
+    """The /availability page: rendering, saving, and the Profile.save() trap."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='gridder', password='pw')
+        self.profile = self.user.profile
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+
+    def test_requires_login(self):
+        self.client.logout()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('login', response['Location'])
+
+    def test_renders_the_grid(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'the_gatehouse/availability.html')
+
+    def test_post_saves_utc_hours_and_updates_profile_timezone(self):
+        response = self.client.post(self.url, {
+            'timezone': 'America/New_York',
+            'available_hours': '9,10',
+            'action': 'save',
+        })
+        self.assertRedirects(response, self.url)
+
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        # 09:00 and 10:00 EST -> 14:00 and 15:00 UTC.
+        self.assertEqual(schedule.available_hours, [14, 15])
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/New_York')
+
+    def test_saved_hours_render_back_in_local_time(self):
+        schedule = general_schedule_for(self.profile)
+        schedule.available_hours = [14, 15]
+        schedule.save(update_fields=['available_hours'])
+        self.profile.timezone = 'America/New_York'
+        self.profile.save(update_fields=['timezone'])
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['selected_hours'], [9, 10])
+
+    def test_invalid_timezone_is_rejected(self):
+        response = self.client.post(self.url, {
+            'timezone': 'Not/AZone',
+            'available_hours': '9',
+            'action': 'save',
+        })
+        self.assertEqual(response.status_code, 200)  # redisplayed, not saved
+        self.profile.refresh_from_db()
+        self.assertIsNone(self.profile.timezone)
+        self.assertFalse(
+            PlayerSchedule.objects.filter(profile=self.profile)
+            .exclude(available_hours=[]).exists()
+        )
+
+    def test_empty_grid_clears_availability(self):
+        schedule = general_schedule_for(self.profile)
+        schedule.available_hours = [1, 2, 3]
+        schedule.save(update_fields=['available_hours'])
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'available_hours': '', 'action': 'save',
+        })
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.available_hours, [])
+
+    def test_saving_does_not_delete_the_profile_avatar(self):
+        """Profile.save() deletes the stored avatar unless update_fields excludes
+        'image'. Every writer of profile.timezone must pass update_fields; this
+        locks that in."""
+        self.profile.image = 'profile_pics/real_avatar.png'
+        self.profile.save(update_fields=['image'])
+
+        self.client.post(self.url, {
+            'timezone': 'Europe/Berlin', 'available_hours': '9', 'action': 'save',
+        })
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.image.name, 'profile_pics/real_avatar.png')
+
+    def test_timezone_change_keeps_unsaved_selection_and_does_not_save_hours(self):
+        """Re-rendering under a new zone must not silently discard painted cells,
+        and must not commit them either."""
+        response = self.client.post(self.url, {
+            'timezone': 'Asia/Tokyo',
+            'drawn_timezone': 'UTC',
+            'available_hours': '9,10',
+            'action': 'change_timezone',
+        })
+        self.assertEqual(response.status_code, 200)
+        # Same instants, relabelled: 09:00/10:00 UTC is 18:00/19:00 in Tokyo.
+        self.assertEqual(response.context['selected_hours'], [18, 19])
+
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        self.assertEqual(schedule.available_hours, [])
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Asia/Tokyo')
+
+    def test_changing_timezone_moves_the_selection_not_the_hours(self):
+        """Availability is ABSOLUTE. Viewing it in another zone relabels the same
+        instants, so the lit rows shift -- 12am in UTC-7 must not stay lit at 12am
+        once the grid is redrawn in UTC-8."""
+        response = self.client.post(self.url, {
+            'timezone': 'America/Anchorage',      # UTC-9 in January
+            'drawn_timezone': 'America/Los_Angeles',  # UTC-8 in January
+            'available_hours': '0',               # Monday 12am Pacific
+            'action': 'change_timezone',
+        })
+        self.assertEqual(response.status_code, 200)
+        # Monday 00:00 Pacific is 08:00 UTC, which is 23:00 Sunday in Anchorage.
+        self.assertNotIn(0, response.context['selected_hours'])
+        self.assertEqual(response.context['selected_hours'], [6 * 24 + 23])
+
+    def test_saving_interprets_hours_in_the_zone_they_were_drawn_in(self):
+        """The picker may differ from the zone the grid was rendered in; the hours
+        mean what they meant when painted."""
+        self.client.post(self.url, {
+            'timezone': 'Asia/Tokyo',
+            'drawn_timezone': 'America/New_York',
+            'available_hours': '9',
+            'action': 'save',
+        })
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        # 09:00 New York -> 14:00 UTC, NOT 09:00 Tokyo -> 00:00 UTC.
+        self.assertEqual(schedule.available_hours, [14])
+
+    def test_unknown_drawn_timezone_falls_back_to_the_submitted_one(self):
+        """A junk hidden field must not reject the form and lose the grid."""
+        response = self.client.post(self.url, {
+            'timezone': 'UTC',
+            'drawn_timezone': 'Not/AZone',
+            'available_hours': '5',
+            'action': 'save',
+        })
+        self.assertRedirects(response, self.url)
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        self.assertEqual(schedule.available_hours, [5])
+
+    def test_settings_page_shows_the_availability_card(self):
+        # The settings cards (API key, Steam, Availability) sit behind
+        # {% if user.profile.player %}, so the card only renders for a player.
+        self.profile.group = Profile.GroupChoices.PLAYER
+        schedule = general_schedule_for(self.profile)
+        schedule.available_hours = [1, 2, 3]
+        schedule.save(update_fields=['available_hours'])
+        self.profile.save(update_fields=['group'])
+
+        response = self.client.get(reverse('user-settings'))
+        self.assertEqual(response.context['availability_hours_count'], 3)
+        self.assertContains(response, reverse('availability'))
+
+
+class AvailabilityTournamentSelectorTests(_NoLoginSignalMixin, TestCase):
+    """/availability can edit tournament-specific schedules, not just the general one."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Tournament
+        self.user = User.objects.create_user(username='selector', password='pw')
+        self.profile = self.user.profile
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+        self.tournament = Tournament.objects.create(name='Selector Cup', is_active=True)
+
+    def _tournament_schedule(self, hours):
+        return PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, available_hours=hours
+        )
+
+    def test_no_selector_without_a_tournament_schedule(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context['tournament_schedules']), [])
+        self.assertIsNone(response.context['editing_tournament'])
+
+    def test_selector_lists_tournaments_the_player_has_a_schedule_for(self):
+        self._tournament_schedule([10, 11])
+        response = self.client.get(self.url)
+        self.assertEqual(len(response.context['tournament_schedules']), 1)
+        self.assertContains(response, 'Selector Cup')
+
+    def test_can_edit_a_tournament_schedule(self):
+        schedule = self._tournament_schedule([10])
+        self.profile.timezone = 'UTC'
+        self.profile.save(update_fields=['timezone'])
+
+        response = self.client.get(f'{self.url}?tournament={self.tournament.slug}')
+        self.assertEqual(response.context['editing_tournament'], self.tournament)
+        self.assertEqual(response.context['selected_hours'], [10])
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '20,21',
+            'schedule_target': self.tournament.slug,
+            'action': 'save',
+        })
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.available_hours, [20, 21])
+
+    def test_editing_a_tournament_leaves_the_general_schedule_alone(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2]
+        general.save(update_fields=['available_hours'])
+        self._tournament_schedule([10])
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '20',
+            'schedule_target': self.tournament.slug,
+            'action': 'save',
+        })
+        general.refresh_from_db()
+        self.assertEqual(general.available_hours, [1, 2])
+
+    def test_tournament_without_a_schedule_is_rejected(self):
+        """The guard against offering availability where it means nothing."""
+        from the_warroom.models import Tournament
+        other = Tournament.objects.create(name='Not Mine', is_active=True)
+        response = self.client.get(f'{self.url}?tournament={other.slug}')
+        self.assertEqual(response.status_code, 404)
+
+    def test_save_returns_to_the_same_schedule(self):
+        self._tournament_schedule([10])
+        response = self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '20',
+            'schedule_target': self.tournament.slug,
+            'action': 'save',
+        })
+        self.assertIn(f'tournament={self.tournament.slug}', response['Location'])
+
+
+class AvailabilityMatrixTests(TestCase):
+    """The comparison page's pure data functions."""
+
+    HOURS = {1: [10, 11, 12, 13], 2: [11, 12, 13, 14], 3: [12, 13]}
+
+    def test_matrix_maps_each_hour_to_who_is_free(self):
+        matrix = availability_matrix(self.HOURS)
+        self.assertEqual(sorted(matrix[12]), [1, 2, 3])
+        self.assertEqual(matrix[10], [1])
+        self.assertEqual(matrix[14], [2])
+
+    def test_matrix_omits_hours_nobody_has(self):
+        matrix = availability_matrix(self.HOURS)
+        self.assertNotIn(9, matrix)
+        self.assertNotIn(99, matrix)
+
+    def test_matrix_of_nothing_is_empty(self):
+        self.assertEqual(availability_matrix({}), {})
+        self.assertEqual(availability_matrix({1: []}), {})
+
+    def test_overlap_summary_on_a_known_fixture(self):
+        summary = overlap_summary(self.HOURS)
+        self.assertEqual(summary['overlap_hours'], [12, 13])
+        self.assertEqual(summary['total'], 2)
+        self.assertEqual(summary['best_block'], 2)
+        self.assertEqual(summary['days'], 1)
+
+    def test_overlap_summary_with_no_shared_hours(self):
+        summary = overlap_summary({1: [10], 2: [20]})
+        self.assertEqual(summary['overlap_hours'], [])
+        self.assertEqual(summary['total'], 0)
+
+    def test_overlap_summary_of_nothing(self):
+        self.assertEqual(overlap_summary({})['total'], 0)
+
+    def test_overlap_summary_wraps_the_week_boundary(self):
+        """Sunday 23:00 + Monday 00:00 is one 2-hour block, not two."""
+        sunday_23, monday_0 = 6 * 24 + 23, 0
+        summary = overlap_summary({1: [sunday_23, monday_0], 2: [sunday_23, monday_0]})
+        self.assertEqual(summary['best_block'], 2)
+
+    def test_heat_bucket_is_keyed_on_players_missing(self):
+        self.assertEqual(heat_bucket(4, 4), 'heat-0')   # everyone free
+        self.assertEqual(heat_bucket(3, 4), 'heat-1')
+        self.assertEqual(heat_bucket(2, 4), 'heat-2')
+        self.assertEqual(heat_bucket(1, 4), 'heat-3')
+
+    def test_heat_bucket_collapses_far_misses(self):
+        self.assertEqual(heat_bucket(1, 5), 'heat-far')
+        self.assertEqual(heat_bucket(2, 9), 'heat-far')
+
+    def test_hour_nobody_is_free_gets_no_bucket(self):
+        """An empty cell is not the same as a grey one."""
+        self.assertIsNone(heat_bucket(0, 4))
+
+    def test_reachable_buckets_truncate_for_small_groups(self):
+        """A group of 3 can never be missing 4, so the legend must not claim it."""
+        self.assertEqual(reachable_buckets(2), ['heat-0', 'heat-1'])
+        self.assertEqual(reachable_buckets(3), ['heat-0', 'heat-1', 'heat-2'])
+        self.assertEqual(reachable_buckets(4), ['heat-0', 'heat-1', 'heat-2', 'heat-3'])
+        self.assertEqual(
+            reachable_buckets(6),
+            ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-far'],
+        )
+        self.assertEqual(reachable_buckets(0), [])
+
+
+class AvailabilityCompareLFGTests(_NoLoginSignalMixin, TestCase):
+    """The compare page can compare an LFG thread's roster, and REFUSES by
+    rendering rather than 403-ing."""
+
+    def setUp(self):
+        super().setUp()
+        from the_databot.models import LFGThread
+        self.url = reverse('availability-compare')
+
+        self.members = []
+        for i in range(3):
+            user = User.objects.create_user(username=f'lfgp{i}', password='pw')
+            profile = user.profile
+            profile.timezone = 'UTC'
+            profile.save(update_fields=['timezone'])
+            PlayerSchedule.objects.create(
+                profile=profile, tournament=None, available_hours=[10, 11, 12])
+            self.members.append(profile)
+
+        self.thread = LFGThread.objects.create(thread_id='cmp-thread-1',
+                                               host=self.members[0])
+        self.thread.players.set(self.members)
+
+        outsider = User.objects.create_user(username='lfgout', password='pw')
+        self.outsider = outsider.profile
+
+    def _get(self, profile, **params):
+        self.client.force_login(profile.user)
+        return self.client.get(self.url, params)
+
+    def test_a_roster_member_sees_the_comparison(self):
+        response = self._get(self.members[1], lfg=self.thread.pk)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['can_view'])
+        self.assertEqual(response.context['player_count'], 3)
+
+    def test_the_host_sees_the_comparison(self):
+        response = self._get(self.members[0], lfg=self.thread.pk)
+        self.assertTrue(response.context['can_view'])
+
+    def test_an_outsider_gets_an_explanation_not_a_403(self):
+        response = self._get(self.outsider, lfg=self.thread.pk)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+
+    def test_a_refusal_leaks_no_availability(self):
+        """Rendering instead of raising must not become a way to read when people
+        are FREE. Names are a deliberate exception -- they go in the link preview
+        so a URL pasted into Discord unfurls as something useful -- but the hours
+        behind them stay gated."""
+        response = self._get(self.outsider, lfg=self.thread.pk)
+        self.assertEqual(response.context['player_count'], 0)
+        self.assertEqual(response.context['players'], [])
+        self.assertEqual(response.context['player_hours_json'], {})
+        self.assertFalse(response.context['has_any_availability'])
+
+    def test_a_refusal_still_names_the_players_for_the_link_preview(self):
+        """The cost of that exception, pinned so it stays a decision rather than
+        a drift: anyone holding the URL can read the roster."""
+        response = self._get(self.outsider, lfg=self.thread.pk)
+        description = response.context['meta_description']
+        for member in self.members:
+            self.assertIn(member.name, description)
+
+    def test_an_empty_roster_is_not_public(self):
+        """_thread_actor_error fails OPEN on an empty roster, which is right in
+        Discord and wrong on the web."""
+        from the_databot.models import LFGThread
+        empty = LFGThread.objects.create(thread_id='cmp-thread-empty')
+        response = self._get(self.outsider, lfg=empty.pk)
+        self.assertFalse(response.context['can_view'])
+
+    def test_a_non_numeric_lfg_id_is_a_404(self):
+        response = self._get(self.members[0], lfg='nope')
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_missing_thread_is_a_404(self):
+        response = self._get(self.members[0], lfg=999999)
+        self.assertEqual(response.status_code, 404)
+
+    # ── logged out ──────────────────────────────────────────────────────────
+
+    def test_a_logged_out_visitor_gets_the_page_not_a_redirect(self):
+        """The link is handed out in Discord, so bouncing an anonymous visitor
+        through OAuth tells them nothing about what they followed."""
+        response = self.client.get(self.url, {'lfg': self.thread.pk})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+
+    def test_a_logged_out_visitor_is_offered_a_login_back_to_this_page(self):
+        response = self.client.get(self.url, {'lfg': self.thread.pk})
+        body = response.content.decode()
+        self.assertIn('Log in with Discord', body)
+        # The return trip must survive the QUERY STRING: the ? and = are encoded
+        # so they stay part of `next` instead of terminating it. (Django's
+        # urlencode filter leaves / alone, which is harmless here.)
+        self.assertIn(f'next=/availability/compare/%3Flfg%3D{self.thread.pk}', body)
+
+    def test_a_logged_in_but_refused_viewer_is_not_told_to_log_in(self):
+        """They already are. Only the logged-out branch gets the button."""
+        response = self._get(self.outsider, lfg=self.thread.pk)
+        self.assertNotIn('Log in with Discord', response.content.decode())
+
+    def test_a_logged_out_visitor_sees_no_availability(self):
+        response = self.client.get(self.url, {'lfg': self.thread.pk})
+        self.assertEqual(response.context['player_count'], 0)
+        self.assertEqual(response.context['player_hours_json'], {})
+
+    def test_the_link_preview_names_the_players_anonymously(self):
+        """The unfurler has no session, so this is the ONLY case that matters
+        for a preview -- if it keyed on can_view every shared link would preview
+        as the refusal notice."""
+        response = self.client.get(self.url, {'lfg': self.thread.pk})
+        body = response.content.decode()
+        self.assertIn('og:description', body)
+        for member in self.members:
+            self.assertIn(member.name, response.context['meta_description'])
+
+    def test_a_players_link_previews_generically_when_logged_out(self):
+        """?players= scopes to tournaments the VIEWER shares, so it resolves
+        nobody without a session -- there is no roster to name."""
+        slugs = ','.join(p.slug for p in self.members)
+        response = self.client.get(self.url, {'players': slugs})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+        for member in self.members:
+            self.assertNotIn(member.name, response.context['meta_description'])
+
+
+class DismissNotificationTests(_NoLoginSignalMixin, TestCase):
+    """Dismissals were silently failing, leaving is_dismissed False so the
+    notification returned on the next page load.
+
+    Two independent causes, both covered here:
+      1. The base template never rendered {% csrf_token %}, so no csrftoken
+         cookie existed for the X button's fetch to read -> 403.
+      2. The View link fired a fetch from onclick and navigated immediately,
+         so the request raced the page teardown.
+    """
+
+    def setUp(self):
+        from the_gatehouse.models import UserNotification
+
+        super().setUp()
+        self.user = User.objects.create_user(username='notified', password='pw')
+        self.other = User.objects.create_user(username='stranger', password='pw')
+        self.notification = UserNotification.objects.create(
+            profile=self.user.profile,
+            message='Your match is scheduled.',
+            related_url='/battlefield/',
+        )
+        self.url = reverse('dismiss-notification', args=[self.notification.id])
+
+    def _refresh(self):
+        self.notification.refresh_from_db()
+        return self.notification
+
+    def test_posting_dismisses_the_notification(self):
+        """The X button's fetch path."""
+        self.client.force_login(self.user)
+        response = self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self._refresh().is_dismissed)
+        self.assertIsNotNone(self.notification.dismissed_at)
+
+    def test_the_base_template_sets_a_csrf_cookie(self):
+        """Regression test for bug 1. Without {% csrf_token %} in the base
+        template Django has no reason to set the cookie, getCookie() returns
+        null, and the dismissal 403s. This failed before the fix."""
+        self.client.force_login(self.user)
+        response = self.client.get('/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('csrftoken', response.cookies)
+
+    def test_a_missing_csrf_token_is_rejected(self):
+        """Pins that CSRF is genuinely enforced, so the fix above is doing real
+        work rather than papering over a disabled check."""
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        response = client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(self._refresh().is_dismissed)
+
+    def test_get_with_next_dismisses_and_redirects(self):
+        """The View link's path: no fetch, nothing to race."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.url, {'next': '/battlefield/'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], '/battlefield/')
+        self.assertTrue(self._refresh().is_dismissed)
+
+    def test_an_offsite_next_is_refused(self):
+        """related_url is stored on the model and may be absolute, so an
+        unvalidated next would be an open redirect."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.url, {'next': 'https://evil.example.com/'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn('evil.example.com', response['Location'])
+        self.assertTrue(self._refresh().is_dismissed)
+
+    def test_another_users_notification_is_404(self):
+        """Owner scoping must hold on the newly-allowed GET path too."""
+        self.client.force_login(self.other)
+        response = self.client.get(self.url, {'next': '/battlefield/'})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(self._refresh().is_dismissed)
+
+    def test_dismissing_twice_is_harmless(self):
+        """A double-click or a retry must not error."""
+        self.client.force_login(self.user)
+        self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        response = self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self._refresh().is_dismissed)
+
+    def test_a_dismissed_notification_stops_being_shown(self):
+        """The point of all of it: it actually stops appearing.
+
+        Asserts against the same is_dismissed=False filter active_user_data()
+        feeds the alert stack from, rather than rendering a page -- the context
+        processor wraps its whole body in `except Exception` and falls back to a
+        stub context, so a missing fixture there would mask this assertion
+        instead of failing it."""
+        from the_gatehouse.models import UserNotification
+
+        def shown():
+            return list(UserNotification.objects.filter(
+                profile=self.user.profile, is_dismissed=False))
+
+        self.assertIn(self.notification, shown())
+
+        self.client.force_login(self.user)
+        self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+        self.assertNotIn(self.notification, shown())

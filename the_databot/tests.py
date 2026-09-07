@@ -1,4 +1,5 @@
 import json
+import re
 from unittest import mock, skipUnless
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
@@ -24,9 +25,10 @@ from the_gatehouse.models import (
 )
 from the_databot.models import (
     GuildLFGRole, LFGThread, ScheduleProposal,
-    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat,
+    LFGRoll, LFGDraft, LFGDraftPick, LFGSeat, BoxScoreUploadToken,
 )
 from the_gatehouse import views
+from the_gatehouse.services.steam_openid import read_link_token
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_databot.services import discord_commands as dc
 from the_databot.services.lfg_game import (
@@ -37,6 +39,7 @@ from the_databot.services.lfg_game import (
 from the_databot.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
     notify_lfg_cancelled_task, notify_schedule_poll_task,
+    sweep_boxscore_upload_tokens,
 )
 from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -1351,15 +1354,30 @@ class ScheduleCommandShapeTests(TestCase):
     """The `timezone` option is the only route to a zone the picker doesn't
     curate — guard it against a well-meaning cleanup."""
 
-    def test_schedule_offers_time_and_timezone(self):
+    def test_schedule_offers_set_and_clear(self):
         names = [o["name"] for o in dc.SCHEDULE_COMMAND["options"]]
+        self.assertEqual(names, ["set", "clear"])
+        for option in dc.SCHEDULE_COMMAND["options"]:
+            self.assertEqual(option["type"], 1)   # SUB_COMMAND
+
+    def test_set_carries_time_and_timezone(self):
+        setsub = next(o for o in dc.SCHEDULE_COMMAND["options"]
+                      if o["name"] == "set")
+        names = [o["name"] for o in setsub["options"]]
         self.assertEqual(names, ["time", "timezone"])
+        # `time` is required now: "leave it blank to clear" is what `clear` replaced.
+        time_option = next(o for o in setsub["options"] if o["name"] == "time")
+        self.assertTrue(time_option["required"])
 
     def test_timezone_option_still_autocompletes(self):
-        option = next(o for o in dc.SCHEDULE_COMMAND["options"]
-                      if o["name"] == "timezone")
+        setsub = next(o for o in dc.SCHEDULE_COMMAND["options"]
+                      if o["name"] == "set")
+        option = next(o for o in setsub["options"] if o["name"] == "timezone")
         self.assertTrue(option["autocomplete"])
-        self.assertIn(("schedule", "timezone"), di.AUTOCOMPLETE_HANDLERS)
+        # The dispatcher keys autocomplete by "<parent> <sub>". Registering the
+        # bare "schedule" would return no choices at all, silently.
+        self.assertIn(("schedule set", "timezone"), di.AUTOCOMPLETE_HANDLERS)
+        self.assertNotIn(("schedule", "timezone"), di.AUTOCOMPLETE_HANDLERS)
 
     def test_timezone_components_are_registered(self):
         for action in ("schedule_tz_region", "schedule_tz_zone",
@@ -3712,10 +3730,76 @@ class LookupCommandShapeTests(TestCase):
         self.assertEqual(rows["card"], "card")
         self.assertNotIn("lookup", rows)
 
+    def test_the_databot_page_collapses_parents_to_one_row(self):
+        """The public page lists everything with no guild to filter against, so
+        nine near-identical /lookup rows are noise there."""
+        rows = {n: label for _g, rs in dc.grouped_commands(collapse_parents=True)
+                for n, label, _d in rs}
+        self.assertEqual(rows["lookup"], "lookup")
+        self.assertEqual(rows["link"], "link")
+        self.assertNotIn("faction", rows)      # subcommands are folded in
+        self.assertNotIn("steam", rows)
+        # Top-level commands are untouched.
+        self.assertEqual(rows["card"], "card")
+        self.assertEqual(rows["boxscore"], "boxscore")
+
+    def test_collapsing_keeps_the_group_ordering(self):
+        groups = dict((g, [l for _n, l, _d in rs])
+                      for g, rs in dc.grouped_commands(collapse_parents=True))
+        # /lookup sits where its subcommands did, between /law and /card. The
+        # rest of the group is asserted by position rather than as a frozen
+        # list, so regrouping a command in COMMAND_GROUPS does not break this
+        # -- what matters here is that collapsing preserves ordering.
+        self.assertEqual(groups["Lookups"][:3], ["law", "lookup", "card"])
+        self.assertEqual(groups["Account"], ["link"])
+        self.assertNotIn("Other", groups)      # nothing fell through
+
+    def test_collapsing_is_opt_in_so_help_is_unaffected(self):
+        """/help filters each row against the guild's whitelist, and lookups are
+        enabled individually -- a bare /lookup row could not say which ones a
+        server actually has."""
+        expanded = [label for _g, rs in dc.grouped_commands()
+                    for _n, label, _d in rs]
+        self.assertIn("lookup faction", expanded)
+        self.assertIn("link steam", expanded)
+        collapsed = [label for _g, rs in dc.grouped_commands(collapse_parents=True)
+                     for _n, label, _d in rs]
+        self.assertLess(len(collapsed), len(expanded))
+
     def test_whitelist_labels_show_the_subcommand_form(self):
         options = {n: label for n, label, _d in dc.whitelistable_commands()}
         self.assertEqual(options["faction"], "lookup faction")
         self.assertEqual(options["stats"], "stats")
+
+    def test_the_whitelist_covers_every_toggle_exactly_once(self):
+        """The guild settings page renders straight from this, so a name that
+        falls out here becomes impossible to switch on."""
+        names = [n for n, _l, _d in dc.whitelistable_commands()]
+
+        self.assertEqual(sorted(names), sorted(dc.WHITELISTABLE))
+        self.assertEqual(len(names), len(set(names)))
+        self.assertNotIn("help", names)          # always on, never a toggle
+
+    def test_the_whitelist_is_ordered_by_command_groups(self):
+        """Same order as /help, rather than the order definitions happen to sit
+        in COMMANDS -- which put `lookup faction` nowhere near the lookups."""
+        names = [n for n, _l, _d in dc.whitelistable_commands()]
+        expected = [n for _g, rows in dc.grouped_commands()
+                    for n, _l, _d in rows if n != "help"]
+
+        self.assertEqual(names, expected)
+        # Lookups arrive together, before the Games group.
+        self.assertLess(names.index("houserule"), names.index("lfg"))
+
+    def test_a_command_missing_from_the_groups_is_still_listed(self):
+        """grouped_commands' "Other" catch-all is what keeps a newly added
+        command toggleable before anyone files it into COMMAND_GROUPS."""
+        trimmed = [(group, [n for n in names if n != "boxscore"])
+                   for group, names in dc.COMMAND_GROUPS]
+        with mock.patch.object(dc, "COMMAND_GROUPS", trimmed):
+            names = [n for n, _l, _d in dc.whitelistable_commands()]
+
+        self.assertIn("boxscore", names)
 
 
 class LFGHelpContentTests(TestCase):
@@ -7228,10 +7312,18 @@ class LookupDispatchTests(TestCase):
                 self.assertNotIn((name, "name"), di.AUTOCOMPLETE_HANDLERS)
 
     def test_plain_command_autocompletes_are_untouched(self):
-        for key in (("schedule", "timezone"), ("card", "name"), ("law", "law"),
-                    ("stats", "player")):
+        # /schedule is deliberately absent: it took subcommands, so its key moved
+        # to the composite ("schedule set", "timezone") -- see
+        # ScheduleCommandShapeTests, which pins that.
+        for key in (("card", "name"), ("law", "law"), ("stats", "player"),
+                    ("upcoming", "series")):
             with self.subTest(key=key):
                 self.assertIn(key, di.AUTOCOMPLETE_HANDLERS)
+
+    def test_a_subcommand_autocomplete_uses_the_composite_key(self):
+        """The dispatcher builds "<parent> <sub>", so a parent that grows
+        subcommands must move its key or silently return no choices."""
+        self.assertIn(("schedule set", "timezone"), di.AUTOCOMPLETE_HANDLERS)
 
     def test_guarded_set_and_handlers_cover_the_same_subcommands(self):
         """The two are built from different sources (LOOKUP_QUERYSETS + "captain" vs
@@ -10167,6 +10259,36 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("<@91>", content)
         self.assertNotIn("None", content)
 
+    def test_an_unlinked_player_is_named_rather_than_dropped(self):
+        """They can't be pinged, but omitting them made the roster look short and
+        left them unsure whether they were even in the match."""
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.unlinked)
+        self.group.tournament_players.add(tp)
+        content = self._run().call_args.kwargs["content"]
+        self.assertIn("p2", content)
+        self.assertIn("<@91>", content)   # the linked player still pings
+
+    def test_an_unlinked_player_shows_display_name_and_discord(self):
+        """Same "Display Name (discord)" the record-game player dropdowns use."""
+        self.unlinked.display_name = "King Luigi"
+        self.unlinked.save()
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.unlinked)
+        self.group.tournament_players.add(tp)
+        content = self._run().call_args.kwargs["content"]
+        self.assertIn("King Luigi (p2)", content)
+
+    def test_a_display_name_matching_discord_is_not_doubled(self):
+        self.unlinked.display_name = "p2"
+        self.unlinked.save()
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=self.unlinked)
+        self.group.tournament_players.add(tp)
+        content = self._run().call_args.kwargs["content"]
+        self.assertIn("p2", content)
+        self.assertNotIn("p2 (p2)", content)
+
     def test_a_failed_creation_writes_no_url_and_reports_it(self):
         create = self._run(thread_id=None)
         create.assert_called_once()
@@ -10323,6 +10445,16 @@ class CreateForumThreadResultTests(TestCase):
         with self._post(json_body={"id": "77"}) as post:
             create_forum_thread_result(self.CHANNEL, "Group A", content="hi")
         self.assertNotIn("applied_tags", post.call_args.kwargs["json"])
+
+    def test_the_starter_message_only_resolves_user_mentions(self):
+        """It carries player NAMES for anyone unlinked, and a display name is
+        user-controlled -- an "@everyone" in one must not ping the server."""
+        from the_databot.services.discordservice import create_forum_thread_result
+        with self._post(json_body={"id": "77"}) as post:
+            create_forum_thread_result(self.CHANNEL, "Group A",
+                                       content="<@91> @everyone hi")
+        message = post.call_args.kwargs["json"]["message"]
+        self.assertEqual(message["allowed_mentions"], {"parse": ["users"]})
 
     def test_a_400_reports_its_status(self):
         from the_databot.services.discordservice import create_forum_thread_result
@@ -10510,7 +10642,86 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         with mock.patch.object(di.requests, "get", getter), \
                 mock.patch.object(di.record_lfg_components_task, "delay", delay):
             response = di._handle_boxscore_command(data)
-        return json.loads(response.content)["data"]["content"], getter, delay
+        self._last_data = json.loads(response.content)["data"]
+        return self._last_data.get("content", ""), getter, delay
+
+    def _run_data(self, doc=None, **kw):
+        """As _run, but hands back the whole response `data` (components included)."""
+        self._run(doc, **kw)
+        return self._last_data
+
+    def _press(self, action, key, author=None):
+        """Click one of /boxscore's confirmation buttons."""
+        payload = {
+            "data": {"custom_id": f"{action}:{key}:{author or self.AUTHOR}"},
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": author or self.AUTHOR}},
+        }
+        delay = mock.Mock()
+        with mock.patch.object(di.record_lfg_components_task, "delay", delay):
+            response = di.COMPONENT_HANDLERS[action](payload)
+        return json.loads(response.content)["data"]
+
+    def _pick(self, key, seat_index, value, author=None):
+        """Choose from one of Gate 0's dropdowns.
+
+        A select's custom_id carries the seat index BEFORE the owner, so this
+        cannot go through _press."""
+        payload = {
+            "data": {
+                "custom_id": (f"boxscore_g0_pick:{key}:{seat_index}:"
+                              f"{author or self.AUTHOR}"),
+                "values": [str(value)],
+            },
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": author or self.AUTHOR}},
+        }
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+            response = di.COMPONENT_HANDLERS["boxscore_g0_pick"](payload)
+        return json.loads(response.content)["data"]
+
+    def _selects(self, data):
+        """The string-select rows of a gate message."""
+        return [r["components"][0] for r in data.get("components", [])
+                if r["components"][0].get("type") == 3]
+
+    def _pending_key(self, content_data):
+        """The prompt reference from a gate message's buttons.
+
+        Refs are "<backing>:<key>" (c = cache, t = token row), so keep both parts;
+        the trailing element is the owner/PICK_OPEN marker.
+
+        Reads the BUTTON row rather than components[0]: Gate 0 leads with select
+        rows, and a select's custom_id carries an extra seat index before the
+        owner, so slicing a select would silently yield a malformed ref."""
+        rows = content_data["components"]
+        row = next((r["components"] for r in rows
+                    if r["components"][0].get("type") == 2), rows[0]["components"])
+        parts = row[0]["custom_id"].split(":")
+        return ":".join(parts[1:-1])
+
+    def _run_confirmed(self, doc=None, **kw):
+        """Run /boxscore and press through whatever gates it raises.
+
+        Returns the content of the final (applied) message."""
+        data = self._run_data(doc, **kw)
+        for _ in range(3):  # at most Gate 0, then Gate 1, then Gate 2
+            if not data.get("components"):
+                break
+            key = self._pending_key(data)
+            # Take the affirmative "proceed anyway" button. Gate 0 leads with
+            # Save & Continue and Gate 1 with Try Again, neither of which is what
+            # this helper wants -- it presses past every gate without answering.
+            rows = data["components"]
+            row = next((r["components"] for r in rows
+                        if r["components"][0].get("type") == 2),
+                       rows[0]["components"])
+            actions = [b["custom_id"].split(":")[0] for b in row]
+            action = next(a for a in actions
+                          if a in ("boxscore_g0_skip", "boxscore_link",
+                                   "boxscore_ok"))
+            data = self._press(action, key)
+        return data["content"]
 
     def _doc(self, **kw):
         doc = {"participants": [
@@ -10572,7 +10783,9 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     # ── never destroy what another command wrote ──
 
-    def test_an_existing_seating_is_left_alone(self):
+    def test_an_existing_seating_is_not_overwritten_without_confirmation(self):
+        """A file that disagrees with the seating now PROMPTS rather than either
+        silently ignoring the file or silently reseating the table."""
         seat = LFGSeat.objects.create(thread=self.thread, profile=self.alice,
                                       seat_number=1, faction=self.faction)
         self.thread.seating_set = True
@@ -10582,13 +10795,12 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.thread.refresh_from_db()
         seat.refresh_from_db()
 
-        # _persist_seating would have deleted this row and its faction with it.
+        # Nothing written yet: the row, its faction, and turns_data are untouched.
         self.assertEqual(self.thread.seats.count(), 1)
         self.assertEqual(seat.faction_id, self.faction.pk)
         self.assertEqual(seat.profile_id, self.alice.pk)
-        self.assertIn("left as it was", content)
-        # The box score still saves.
-        self.assertTrue(self.thread.turns_data)
+        self.assertFalse(self.thread.turns_data)
+        self.assertIn("From this box score", content)
 
     def test_seats_left_by_pick_also_block_a_reseat(self):
         # /pick can leave seat rows with filler numbers and seating_set False.
@@ -10600,18 +10812,25 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     # ── unresolvable players ──
 
-    def test_unmatched_players_still_get_a_seat_but_a_blank_one(self):
-        content, _, _ = self._run({"participants": [
+    def test_unmatched_players_are_named_then_seated_blank_on_continue(self):
+        doc = {"participants": [
             {"turn_order": 1, "player": self.alice.slug,
              "turns": [{"turn": 1, "score": 2}]},
             {"turn_order": 2, "player": "nobody-with-this-slug",
              "turns": [{"turn": 1, "score": 4}]},
-        ]})
+        ]}
+        # Gate 1 names them and writes nothing yet.
+        data = self._run_data(doc)
+        self.assertIn("nobody-with-this-slug", data["content"])
+        self.assertIn("/link steam", data["content"])
+        self.assertEqual(self.thread.seats.count(), 0)
+
+        # Continuing seats them, leaving the unresolved seat blank.
+        self._press("boxscore_link", self._pending_key(data))
         self.thread.refresh_from_db()
         self.assertEqual(
             [(s.seat_number, s.profile_id) for s in self.thread.seats.all()],
             [(1, self.alice.pk), (2, None)])
-        self.assertIn("nobody-with-this-slug", content)
 
     def test_a_file_with_no_players_still_sets_the_seat_count_and_order(self):
         self._run({"participants": [
@@ -10711,8 +10930,12 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     def test_a_second_run_replaces_turns_data_rather_than_appending(self):
         self._run(self._doc())
-        self._run({"participants": [
-            {"turn_order": 1, "turns": [{"turn": 1, "score": 99}]}]})
+        # The first run seated the table, so a DIFFERENT second file now needs
+        # confirming; drive it through the gate rather than asserting the old
+        # write-blindly behaviour.
+        self._run_confirmed({"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 99}]}]})
         self.thread.refresh_from_db()
         self.assertEqual(len(self.thread.turns_data), 1)
         self.assertEqual(self.thread.turns_data[0]["turns"][0]["score"], 99)
@@ -10729,10 +10952,358 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
     def test_the_file_option_is_an_attachment(self):
         definition = next(c for c in dc.all_command_definitions()
                           if c["name"] == "boxscore")
-        option = definition["options"][0]
+        # /boxscore took subcommands when the TTS uploader arrived; the file now
+        # hangs off `upload`.
+        upload = next(o for o in definition["options"] if o["name"] == "upload")
+        self.assertEqual(upload["type"], 1)    # SUB_COMMAND
+        option = upload["options"][0]
         self.assertEqual(option["name"], "file")
         self.assertEqual(option["type"], 11)   # ATTACHMENT
         self.assertTrue(option["required"])
+
+    # ── Try Again ───────────────────────────────────────────────────────────
+
+    def test_try_again_resolves_a_player_who_has_since_linked(self):
+        """The headline case: Gate 1 says to run /link steam, they do, and the
+        seat fills in -- with no re-upload and no new token."""
+        doc = {"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player_steam_id": "76561197960265728",
+             "turns": [{"turn": 1, "score": 4}]},
+        ]}
+        data = self._run_data(doc)
+        self.assertIn("/link steam", data["content"])
+
+        # They link their Steam account...
+        self.bob.steam_id = "76561197960265728"
+        self.bob.save(update_fields=["steam_id"])
+
+        applied = self._press("boxscore_retry", self._pending_key(data))
+        self.assertEqual(applied.get("components"), [])
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk, self.bob.pk])
+
+    def test_try_again_is_repeatable_while_they_are_still_unlinked(self):
+        doc = {"participants": [
+            {"turn_order": 1, "player": "still-nobody",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        again = self._press("boxscore_retry", self._pending_key(data))
+        self.assertIn("still-nobody", again["content"])
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)   # nothing written
+
+    def test_try_again_picks_up_a_player_added_to_the_roster(self):
+        """The roster is RE-READ, not taken from the stored payload."""
+        stranger = Profile.objects.create(discord="bslate", discord_id="907",
+                                          display_name="Latecomer")
+        doc = {"participants": [
+            {"turn_order": 1, "player": stranger.slug,
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        self.thread.players.add(stranger)
+        result = self._press("boxscore_retry", self._pending_key(data))
+        self.assertEqual(result.get("components"), [])
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [stranger.pk])
+
+    def test_try_again_on_a_resolved_upload_refuses(self):
+        doc = {"participants": [
+            {"turn_order": 1, "player": "nobody-at-all",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        key = self._pending_key(data)
+        self._press("boxscore_no", key)
+        again = self._press("boxscore_retry", key)
+        self.assertIn("no longer waiting", again["content"])
+
+    def test_a_retry_that_resolves_lands_on_gate_two_when_seated(self):
+        """A resolved seat CHANGES profile_pk, which is exactly what
+        _boxscore_seats_differ compares -- so a comparison here is progress, not
+        a spurious refusal."""
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                               seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        doc = {"participants": [
+            {"turn_order": 1, "player_steam_id": "76561197960265728",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        self.bob.steam_id = "76561197960265728"
+        self.bob.save(update_fields=["steam_id"])
+
+        after = self._press("boxscore_retry", self._pending_key(data))
+        self.assertIn("From this box score", after["content"])
+        # And confirming from there still works -- the fingerprint was re-stamped.
+        applied = self._press("boxscore_ok", self._pending_key(after))
+        self.assertEqual(applied.get("components"), [])
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.bob.pk])
+
+    def test_the_raw_identifiers_are_stored_for_the_retry(self):
+        doc = {"participants": [
+            {"turn_order": 1, "player": "someone-unknown",
+             "player_steam_id": "76561198000000000",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        ref = self._pending_key(data)
+        pending = di._boxscore_load(ref)
+        seat = pending["seats"][0]
+        self.assertEqual(seat["player_slug"], "someone-unknown")
+        self.assertEqual(seat["player_steam_id"], "76561198000000000")
+
+    def test_the_whitelist_key_is_still_boxscore(self):
+        """Splitting into subcommands must not orphan every guild's stored
+        enabled_commands, which holds "boxscore"."""
+        self.assertIn("boxscore", dc.WHITELISTABLE)
+        self.assertNotIn("upload", dc.WHITELISTABLE)
+        self.assertNotIn("token", dc.WHITELISTABLE)
+        registered = dc.commands_for_guild(["boxscore"])
+        boxscore = next(c for c in registered if c["name"] == "boxscore")
+        self.assertEqual(sorted(o["name"] for o in boxscore["options"]),
+                         ["token", "upload"])
+
+    # ── Steam id matching ───────────────────────────────────────────────────
+
+    def test_a_steam_id_matches_the_player(self):
+        self.alice.steam_id = "76561197960265728"
+        self.alice.save(update_fields=["steam_id"])
+        self._run({"participants": [
+            {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+             "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
+
+    def test_a_verified_steam_id_beats_a_slug_naming_someone_else(self):
+        """The Steam id was PROVEN through Steam's OpenID endpoint; the slug is
+        just a name the exporter wrote down."""
+        self.alice.steam_id = "76561197960265728"
+        self.alice.save(update_fields=["steam_id"])
+        self._run({"participants": [
+            {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+             "player": self.bob.slug, "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
+
+    def test_an_unknown_steam_id_falls_back_to_the_slug(self):
+        self._run({"participants": [
+            {"turn_order": 1, "player_steam_id": "76561190000000000",
+             "player": self.alice.slug, "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
+
+    def test_a_high_range_steam_id_is_matched(self):
+        """Regression: a "7656119" prefix match would reject real accounts."""
+        self.alice.steam_id = "76561200107749376"
+        self.alice.save(update_fields=["steam_id"])
+        self._run({"participants": [
+            {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+             "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
+
+    # ── the confirmation gates ──────────────────────────────────────────────
+
+    def test_a_matching_file_applies_with_no_prompt(self):
+        data = self._run_data(self._doc())
+        self.assertNotIn("components", data)
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+
+    def test_an_offroster_player_is_a_gate_two_not_a_link_prompt(self):
+        """They HAVE a profile, so telling them to run /link steam would be wrong
+        advice -- it's a roster disagreement."""
+        stranger = Profile.objects.create(discord="bsstranger", discord_id="909",
+                                          display_name="Stranger")
+        data = self._run_data({"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player": stranger.slug,
+             "turns": [{"turn": 1, "score": 4}]},
+        ]})
+        self.assertNotIn("/link steam", data["content"])
+        self.assertIn("From this box score", data["content"])
+        # Confirming seats them and ADDS them to the thread.
+        self._press("boxscore_ok", self._pending_key(data))
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk, stranger.pk])
+        self.assertIn(stranger, self.thread.players.all())
+
+    def test_gate_one_then_apply_when_nothing_else_differs(self):
+        """Gate 1 continuing does NOT imply Gate 2: an otherwise-agreeing file
+        applies straight away."""
+        data = self._run_data({"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player": "who-even-is-this",
+             "turns": [{"turn": 1, "score": 4}]},
+        ]})
+        self.assertIn("/link steam", data["content"])
+        applied = self._press("boxscore_link", self._pending_key(data))
+        self.assertEqual(applied["components"], [])
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+
+    def test_a_reorder_carries_each_players_faction_with_them(self):
+        other = Faction.objects.create(
+            title="BS Faction Two", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                               seat_number=1, faction=self.faction)
+        LFGSeat.objects.create(thread=self.thread, profile=self.bob,
+                               seat_number=2, faction=other)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        # The file swaps them, each keeping their own faction.
+        data = self._run_data({"participants": [
+            {"turn_order": 1, "player": self.bob.slug, "faction": other.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player": self.alice.slug, "faction": self.faction.slug,
+             "turns": [{"turn": 1, "score": 4}]},
+        ]})
+        self.assertIn("From this box score", data["content"])
+        self._press("boxscore_ok", self._pending_key(data))
+
+        self.thread.refresh_from_db()
+        self.assertEqual(
+            [(s.seat_number, s.profile_id, s.faction_id)
+             for s in self.thread.seats.all()],
+            [(1, self.bob.pk, other.pk), (2, self.alice.pk, self.faction.pk)])
+
+    def test_a_reorder_preserves_vagabond_and_captains_from_the_file(self):
+        """_persist_seating would have cascaded these away -- the reason /boxscore
+        needs its own reseat."""
+        vagabond = Vagabond.objects.create(
+            title="BS Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        data = self._run_data({"participants": [
+            {"turn_order": 1, "player": self.bob.slug, "faction": self.faction.slug,
+             "vagabond": vagabond.slug, "turns": [{"turn": 1, "score": 2}]}]})
+        self._press("boxscore_ok", self._pending_key(data))
+
+        self.thread.refresh_from_db()
+        seat = self.thread.seats.get()
+        self.assertEqual(seat.profile_id, self.bob.pk)
+        self.assertEqual(seat.vagabond_id, vagabond.pk)
+
+    def test_cancel_writes_nothing_and_drops_the_pending_entry(self):
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        data = self._run_data(self._doc())
+        key = self._pending_key(data)
+        cancelled = self._press("boxscore_no", key)
+        self.assertIn("discarded", cancelled["content"])
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)
+        # A second press finds nothing left to apply.
+        again = self._press("boxscore_ok", key)
+        self.assertIn("no longer waiting", again["content"])
+
+    def test_a_reseat_between_prompt_and_confirm_is_refused(self):
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        data = self._run_data(self._doc())
+
+        # Somebody runs /seating in the meantime.
+        di._persist_seating(self.thread, [self.bob, self.alice], shuffle=False)
+
+        refused = self._press("boxscore_ok", self._pending_key(data))
+        self.assertIn("changed", refused["content"])
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)
+
+    def test_a_pick_between_prompt_and_confirm_is_also_refused(self):
+        """Seat pks are UNCHANGED when /pick writes a faction onto an existing
+        row, so a pk-only fingerprint would miss this."""
+        seat = LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                                      seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        data = self._run_data(self._doc())
+
+        seat.faction = self.faction
+        seat.save(update_fields=["faction"])
+
+        refused = self._press("boxscore_ok", self._pending_key(data))
+        self.assertIn("changed", refused["content"])
+
+    def test_a_group_threads_roster_is_never_rewritten(self):
+        """A tournament group thread's roster lives in PlayerGroup.tournament_players
+        / MatchSeat, NOT thread.players -- so an upload must not touch it. Driven
+        through _boxscore_apply directly: standing up a full bracket here would
+        test Round/Stage/Series wiring rather than this rule."""
+        stranger = Profile.objects.create(discord="bsoutsider", discord_id="908")
+        before = set(self.thread.players.values_list("pk", flat=True))
+        pending = {
+            "entries": [], "items": [], "notes": [], "component_titles": [],
+            "filename": "game.json", "thread_pk": self.thread.pk,
+            "seats": [{"profile_pk": stranger.pk, "label": "Stranger",
+                       "faction_slug": None, "vagabond_slug": None,
+                       "captain_slugs": [], "discarded_slug": None}],
+        }
+
+        # An LFG thread ADDS the new player...
+        di._boxscore_apply(self.thread, pending, self.THREAD_ID)
+        self.assertIn(stranger, self.thread.players.all())
+
+        # ...but a series-linked thread leaves the roster completely alone.
+        self.thread.players.set(before)
+        self.thread.series_id = 1  # truthy: the branch only checks series_id
+        di._boxscore_apply(self.thread, pending, self.THREAD_ID)
+        self.assertEqual(set(self.thread.players.values_list("pk", flat=True)), before)
+
+    def test_the_uploader_is_the_only_one_who_can_confirm(self):
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        data = self._run_data(self._doc())
+        row = data["components"][0]["components"]
+        # The owner-lock is the dispatcher's, keyed on the trailing snowflake.
+        self.assertTrue(row[0]["custom_id"].endswith(f":{self.AUTHOR}"))
+
+    def test_strict_off_restores_the_old_behaviour(self):
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+        with mock.patch.object(di, "BOXSCORE_STRICT_PLAYERS", False):
+            data = self._run_data(self._doc())
+
+        self.assertNotIn("components", data)
+        self.thread.refresh_from_db()
+        # Seating left alone, box score still saved -- exactly as before.
+        self.assertEqual(self.thread.seats.count(), 1)
+        self.assertTrue(self.thread.turns_data)
+
+    def test_steam_matching_still_applies_with_strict_off(self):
+        """The flag gates the PROMPTS, not the resolution order."""
+        self.alice.steam_id = "76561197960265728"
+        self.alice.save(update_fields=["steam_id"])
+        with mock.patch.object(di, "BOXSCORE_STRICT_PLAYERS", False):
+            self._run({"participants": [
+                {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+                 "turns": [{"turn": 1, "score": 2}]}]})
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk])
 
     def test_a_guild_must_opt_in_before_it_registers(self):
         # enabled_commands defaults to empty, so shipping the command is not
@@ -10759,8 +11330,21 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         recorder.save()
         self.thread.players.add(recorder)
 
-        self._run(self._doc(board_map=self.map.slug, deck=self.deck.slug),
-                  run_capture=True)
+        # Adding the recorder makes the roster larger than the file, so this now
+        # goes through the confirmation gate; the capture still has to run.
+        data = self._run_data(self._doc(board_map=self.map.slug, deck=self.deck.slug),
+                              run_capture=True)
+        if data.get("components"):
+            with mock.patch.object(
+                    di.record_lfg_components_task, "delay",
+                    mock.Mock(side_effect=lambda *a, **k: record_lfg_components_task(*a, **k))):
+                payload = {
+                    "data": {"custom_id":
+                             f"boxscore_ok:{self._pending_key(data)}:{self.AUTHOR}"},
+                    "channel_id": self.THREAD_ID,
+                    "member": {"user": {"id": self.AUTHOR}},
+                }
+                di.COMPONENT_HANDLERS["boxscore_ok"](payload)
         self.thread.refresh_from_db()
 
         # The capture wrote BOTH the typed FK and the roll rows.
@@ -10782,3 +11366,969 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         # The box score reached the grid, and the seat fields were preselected.
         self.assertIn("grid-cell", html)
         self.assertIn("Fox", html)
+
+
+class BoxScoreGateZeroTests(BoxScoreCommandTests):
+    """Gate 0: identify players the file names but nobody can match, and REMEMBER
+    them, so the next upload seats them without asking again.
+
+    Inherits BoxScoreCommandTests for its fixtures and click helpers."""
+
+    STEAM_A = "76561198000000123"
+    STEAM_B = "76561198000000124"
+
+    def _doc_unknown(self, *names_and_ids):
+        """A file whose first seat is Alice and whose rest are strangers."""
+        participants = [{"turn_order": 1, "player": self.alice.slug,
+                         "turns": [{"turn": 1, "score": 2}]}]
+        for i, (name, steam_id) in enumerate(names_and_ids, start=2):
+            participants.append({"turn_order": i, "player": name,
+                                 "player_steam_id": steam_id,
+                                 "turns": [{"turn": 1, "score": 4}]})
+        return {"participants": participants}
+
+    # ── what it asks ────────────────────────────────────────────────────────
+
+    def test_it_offers_one_dropdown_per_unidentified_player(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        selects = self._selects(data)
+        self.assertEqual(len(selects), 1)
+        # Named by what the FILE said, not by the Steam id.
+        self.assertIn("MysteryGuest", data["content"])
+        self.assertNotIn(self.STEAM_A, data["content"])
+
+    def test_the_dropdown_lists_roster_players_by_display_name(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        labels = [o["label"] for o in self._selects(data)[0]["options"]]
+        self.assertIn("Bob", labels)          # display_name, not slug
+        self.assertIn("— skip —", labels)
+        # Alice already holds seat 1, and one person cannot hold two seats.
+        self.assertNotIn("Alice", labels)
+
+    def test_a_seat_with_no_steam_id_is_left_to_gate_one(self):
+        """Nothing to persist, so asking would collect a useless answer."""
+        doc = {"participants": [
+            {"turn_order": 1, "player": "nobody-at-all",
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        self.assertEqual(self._selects(data), [])
+        self.assertIn("/link steam", data["content"])
+
+    def test_a_seat_with_no_name_is_left_to_gate_one(self):
+        """The only label left would be the raw SteamID64 -- which asks the
+        reader to identify someone by the very id we want to attach a name to,
+        and would publish it to the channel on the TTS path."""
+        doc = {"participants": [
+            {"turn_order": 1, "player_steam_id": self.STEAM_A,
+             "turns": [{"turn": 1, "score": 2}]}]}
+        data = self._run_data(doc)
+        self.assertEqual(self._selects(data), [])
+        self.assertIn("/link steam", data["content"])
+
+    def test_a_malformed_steam_id_is_left_to_gate_one(self):
+        """Too long for the column: PostgreSQL would raise DataError on save."""
+        data = self._run_data(self._doc_unknown(("MysteryGuest", "7" * 40)))
+        self.assertEqual(self._selects(data), [])
+
+    def test_it_is_skipped_when_no_roster_player_is_free(self):
+        doc = self._doc_unknown(("MysteryGuest", self.STEAM_A))
+        self.bob.steam_id = "76561198000000999"
+        self.bob.save(update_fields=["steam_id"])
+        data = self._run_data(doc)
+        # Bob is verified, so there is nobody left to offer.
+        self.assertEqual(self._selects(data), [])
+
+    # ── answering it ────────────────────────────────────────────────────────
+
+    def test_picking_and_saving_remembers_the_player(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        key = self._pending_key(data)
+        self._pick(key, 1, self.bob.pk)
+        self._press("boxscore_g0_ok", key)
+
+        self.bob.refresh_from_db()
+        self.assertEqual(self.bob.assumed_steam_id, self.STEAM_A)
+        self.assertIsNone(self.bob.steam_id)      # NEVER the verified field
+        self.thread.refresh_from_db()
+        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
+                         [self.alice.pk, self.bob.pk])
+
+    def test_a_later_upload_matches_with_no_gate_zero(self):
+        """The whole point: identify once, and it sticks."""
+        doc = self._doc_unknown(("MysteryGuest", self.STEAM_A))
+        key = self._pending_key(self._run_data(doc))
+        self._pick(key, 1, self.bob.pk)
+        self._press("boxscore_g0_ok", key)
+
+        again = self._run_data(doc)
+        self.assertEqual(self._selects(again), [])
+        self.assertFalse(again.get("components"))
+        self.assertIn("Bob", again["content"])
+
+    def test_skipping_remembers_nothing_and_moves_on(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        after = self._press("boxscore_g0_skip", self._pending_key(data))
+
+        self.bob.refresh_from_db()
+        self.assertIsNone(self.bob.assumed_steam_id)
+        self.assertIn("/link steam", after["content"])   # Gate 1 took over
+
+    def test_the_skip_option_leaves_a_player_unmatched(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        key = self._pending_key(data)
+        self._pick(key, 1, self.bob.pk)
+        self._pick(key, 1, di._BOXSCORE_GATE_ZERO_SKIP)   # changed their mind
+        self._press("boxscore_g0_ok", key)
+
+        self.bob.refresh_from_db()
+        self.assertIsNone(self.bob.assumed_steam_id)
+
+    def test_gate_zero_does_not_fire_again_after_being_answered(self):
+        """Skip leaves the seats untouched, so without the done-flag this would
+        ask the same question forever."""
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        after = self._press("boxscore_g0_skip", self._pending_key(data))
+        self.assertEqual(self._selects(after), [])
+
+    def test_choosing_someone_releases_them_from_another_seat(self):
+        data = self._run_data(self._doc_unknown(("One", self.STEAM_A),
+                                                ("Two", self.STEAM_B)))
+        key = self._pending_key(data)
+        self._pick(key, 1, self.bob.pk)
+        self._pick(key, 2, self.bob.pk)       # same person, other seat
+        self._press("boxscore_g0_ok", key)
+
+        self.bob.refresh_from_db()
+        # Held once, for the seat chosen last -- never twice.
+        self.assertEqual(self.bob.assumed_steam_id, self.STEAM_B)
+
+    def test_a_pick_is_shown_as_the_current_answer(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        after = self._pick(self._pending_key(data), 1, self.bob.pk)
+        defaults = [o["label"] for o in self._selects(after)[0]["options"]
+                    if o.get("default")]
+        self.assertEqual(defaults, ["Bob"])
+
+    # ── shape ───────────────────────────────────────────────────────────────
+
+    def test_it_never_exceeds_discords_five_action_rows(self):
+        extras = [Profile.objects.create(discord=f"bsx{i}", discord_id=f"96{i}",
+                                         display_name=f"Extra{i}")
+                  for i in range(6)]
+        self.thread.players.add(*extras)
+        unknowns = [(f"Guest{i}", f"765611980000001{i:02d}") for i in range(6)]
+        data = self._run_data(self._doc_unknown(*unknowns))
+
+        self.assertLessEqual(len(data["components"]), 5)
+        self.assertEqual(len(self._selects(data)),
+                         di._BOXSCORE_GATE_ZERO_PER_PAGE)
+        actions = [b["custom_id"].split(":")[0]
+                   for b in data["components"][-1]["components"]]
+        self.assertIn("boxscore_g0_page", actions)      # a Next button exists
+
+    def test_a_pick_survives_turning_the_page(self):
+        """Why Gate 0 keeps state in the payload rather than in the message: a
+        pick made on page 1 is simply not present in page 2's components."""
+        extras = [Profile.objects.create(discord=f"bsy{i}", discord_id=f"97{i}",
+                                         display_name=f"Other{i}")
+                  for i in range(6)]
+        self.thread.players.add(*extras)
+        unknowns = [(f"Guest{i}", f"765611980000002{i:02d}") for i in range(6)]
+        data = self._run_data(self._doc_unknown(*unknowns))
+        key = self._pending_key(data)
+
+        self._pick(key, 1, self.bob.pk)
+        self._press("boxscore_g0_page", key + ":1")     # to page 2 and back
+        back = self._press("boxscore_g0_page", key + ":0")
+        defaults = [o["label"] for o in self._selects(back)[0]["options"]
+                    if o.get("default")]
+        self.assertEqual(defaults, ["Bob"])
+
+    def test_its_buttons_are_owner_locked_on_the_ephemeral_path(self):
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        for row in data["components"]:
+            for comp in row["components"]:
+                self.assertTrue(comp["custom_id"].endswith(f":{self.AUTHOR}"))
+
+
+class LinkSteamCommandTest(TestCase):
+    """/link steam hands back a private, expiring link and creates the profile if the
+    Discord user has never used the site."""
+
+    DISCORD_ID = "830000000000000042"
+    SITE = "https://www.therootdatabase.com"
+
+    def _invoke(self, discord_id=None, username="newplayer", sub="steam"):
+        data = {
+            "name": "link",
+            "options": [{"name": sub, "type": 1, "options": []}],
+            "_author_id": discord_id or self.DISCORD_ID,
+            "_author_username": username,
+            "_author": {"name": username},
+        }
+        with mock.patch.dict(di.config, {"SITE_URL": self.SITE}):
+            return di._handle_link_command(data)
+
+    def _content(self, response):
+        return json.loads(response.content)["data"]
+
+    def test_creates_a_profile_for_an_unknown_discord_user(self):
+        self.assertFalse(Profile.objects.filter(discord_id=self.DISCORD_ID).exists())
+        self._invoke()
+        self.assertTrue(Profile.objects.filter(discord_id=self.DISCORD_ID).exists())
+
+    def test_reply_is_ephemeral_and_carries_the_token_link(self):
+        data = self._content(self._invoke())
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertIn(f"{self.SITE}/settings/steam/link/?t=", data["content"])
+
+    def test_the_link_token_names_the_invoking_profile(self):
+        data = self._content(self._invoke())
+        token = data["content"].split("?t=")[1].split()[0]
+        profile = Profile.objects.get(discord_id=self.DISCORD_ID)
+        self.assertEqual(read_link_token(token), profile.pk)
+
+    def test_reuses_an_existing_profile(self):
+        existing = Profile.objects.create(discord="known", discord_id=self.DISCORD_ID)
+        self._invoke(username="known")
+        self.assertEqual(Profile.objects.filter(discord_id=self.DISCORD_ID).count(), 1)
+        data = self._content(self._invoke(username="known"))
+        token = data["content"].split("?t=")[1].split()[0]
+        self.assertEqual(read_link_token(token), existing.pk)
+
+    def test_already_linked_profile_is_told_so_without_a_token(self):
+        Profile.objects.create(discord="linked", discord_id=self.DISCORD_ID,
+                               steam_id="76561197960265728")
+        data = self._content(self._invoke(username="linked"))
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertNotIn("?t=", data["content"])
+        self.assertIn("already", data["content"].lower())
+
+    def test_missing_site_url_is_reported(self):
+        data = {
+            "name": "link",
+            "options": [{"name": "steam", "type": 1, "options": []}],
+            "_author_id": self.DISCORD_ID, "_author_username": "x",
+            "_author": {"name": "x"},
+        }
+        with mock.patch.dict(di.config, {"SITE_URL": ""}):
+            payload = self._content(di._handle_link_command(data))
+        self.assertNotIn("?t=", payload["content"])
+
+    def test_unknown_subcommand_does_not_raise(self):
+        payload = self._content(self._invoke(sub="myspace"))
+        self.assertIn("Unknown link target", payload["content"])
+
+
+class LinkCommandRegistrationTest(TestCase):
+    """/link is a parent command whose subcommands are the whitelist toggles, exactly
+    like /lookup -- and the shared PARENT_COMMANDS machinery must not have changed
+    /lookup's behaviour."""
+
+    def _names(self, cmds):
+        return sorted(c["name"] for c in cmds)
+
+    def test_link_is_not_itself_whitelistable(self):
+        self.assertNotIn("link", dc.WHITELISTABLE)
+        self.assertIn("steam", dc.WHITELISTABLE)
+
+    def test_no_link_command_when_steam_is_disabled(self):
+        self.assertNotIn("link", self._names(dc.commands_for_guild(["record", "faction"])))
+
+    def test_link_registered_when_steam_is_enabled(self):
+        cmds = dc.commands_for_guild(["steam"])
+        self.assertIn("link", self._names(cmds))
+        link = next(c for c in cmds if c["name"] == "link")
+        self.assertEqual([o["name"] for o in link["options"]], ["steam"])
+
+    def test_lookup_still_works_after_the_parent_refactor(self):
+        cmds = dc.commands_for_guild(["faction", "map", "steam"])
+        lookup = next(c for c in cmds if c["name"] == "lookup")
+        self.assertEqual(sorted(o["name"] for o in lookup["options"]), ["faction", "map"])
+        self.assertIsNone(dc.lookup_command_for_guild([]))
+
+    def test_subcommands_are_deep_copied(self):
+        """Building a per-guild variant must never mutate the module singletons."""
+        cmd = dc.parent_command_for_guild("link", ["steam"])
+        cmd["options"][0]["description"] = "mutated"
+        self.assertNotEqual(dc.LINK_SUBCOMMANDS[0]["description"], "mutated")
+
+    def test_steam_is_grouped_for_help(self):
+        labels = [label for _g, rows in dc.grouped_commands() for _n, label, _d in rows]
+        self.assertIn("link steam", labels)
+        self.assertNotIn("link", labels)
+
+
+class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
+    """/boxscore token: mint a one-time credential for the TTS uploader."""
+
+    THREAD_ID = "tokencmd-thread"
+    AUTHOR = "920000000000000001"
+
+    def setUp(self):
+        super().setUp()
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.player = Profile.objects.create(discord="tokplayer",
+                                             discord_id=self.AUTHOR)
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.thread.players.set([self.player])
+
+    def _run(self):
+        data = {
+            "name": "boxscore",
+            "options": [{"name": "token", "type": 1, "options": []}],
+            "_channel_id": self.THREAD_ID, "_channel_type": 11,
+            "_author_id": self.AUTHOR, "_author_username": "tokplayer",
+            "_author": {"name": "tokplayer"}, "_guild_id": None,
+        }
+        response = di._handle_boxscore_command(data)
+        return json.loads(response.content)["data"]
+
+    def test_it_mints_an_ephemeral_token(self):
+        data = self._run()
+        # The token is a capability: posting it in the thread would hand it to
+        # everyone who can read the channel.
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_only_the_hash_is_stored(self):
+        data = self._run()
+        token = BoxScoreUploadToken.objects.get()
+        raw = re.search(r"([A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4})",
+                        data["content"]).group(1)
+        self.assertEqual(token.token_hash, BoxScoreUploadToken.hash_token(raw))
+        self.assertNotIn(raw, token.token_hash)
+
+    def test_it_is_bound_to_this_thread(self):
+        self._run()
+        self.assertEqual(BoxScoreUploadToken.objects.get().thread_id,
+                         self.thread.pk)
+
+    def test_an_already_recorded_game_gets_no_token(self):
+        self.thread.game = Game.objects.create()
+        self.thread.save(update_fields=["game"])
+        data = self._run()
+        self.assertIn("already recorded", data["content"])
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 0)
+
+    def test_the_command_is_still_whitelisted_as_boxscore(self):
+        self.assertIn("boxscore", dc.WHITELISTABLE)
+        self.assertNotIn("token", dc.WHITELISTABLE)
+
+
+class BoxScoreUploadSweepTests(TestCase):
+    """sweep_boxscore_upload_tokens: remind, expire, prune.
+
+    The expiry pass matters as much as the ping -- without it a lapsed prompt
+    leaves a dead button in the thread inviting a click that can't work.
+    """
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.player = Profile.objects.create(discord="sweeper", discord_id="960")
+        self.thread = LFGThread.objects.create(thread_id="sweep-thread")
+        self.thread.players.set([self.player])
+
+    def _pending(self, prompt_in_minutes, **kw):
+        token, _raw = BoxScoreUploadToken.issue(self.thread, self.player)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING,
+            channel_id=self.thread.thread_id, message_id="msg-1",
+            payload={"seats": []},
+            prompt_expires_at=timezone.now() + timedelta(minutes=prompt_in_minutes),
+            **kw)
+        return BoxScoreUploadToken.objects.get(pk=token.pk)
+
+    def test_a_prompt_near_expiry_pings_the_roster_once(self):
+        token = self._pending(10)
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full",
+                        return_value=("ok", "m1")) as post:
+            sweep_boxscore_upload_tokens()
+            self.assertTrue(post.called)
+            # parse: ["users"] so it actually notifies -- the box-score summaries
+            # deliberately do the opposite.
+            self.assertEqual(post.call_args.kwargs["allowed_mentions"],
+                             {"parse": ["users"]})
+            self.assertIn(f"<@{self.player.discord_id}>",
+                          post.call_args.kwargs["content"])
+            post.reset_mock()
+            sweep_boxscore_upload_tokens()      # second run must not re-ping
+            self.assertFalse(post.called)
+        token.refresh_from_db()
+        self.assertIsNotNone(token.reminded_at)
+
+    def test_a_lapsed_prompt_is_expired_and_its_buttons_stripped(self):
+        token = self._pending(-5)
+        with mock.patch("the_databot.services.discordservice.edit_channel_message",
+                        return_value="ok") as edit:
+            sweep_boxscore_upload_tokens()
+        self.assertTrue(edit.called)
+        self.assertEqual(edit.call_args.kwargs["components"], [])
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.EXPIRED)
+        self.assertIsNone(token.payload)
+
+    def test_a_transient_discord_failure_leaves_it_for_the_next_sweep(self):
+        token = self._pending(-5)
+        with mock.patch("the_databot.services.discordservice.edit_channel_message",
+                        return_value="error"):
+            sweep_boxscore_upload_tokens()
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.PENDING)
+
+    def test_a_live_prompt_is_left_alone(self):
+        token = self._pending(300)
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full"), \
+                mock.patch("the_databot.services.discordservice.edit_channel_message"):
+            sweep_boxscore_upload_tokens()
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.PENDING)
+
+    def test_resolved_rows_are_pruned_but_live_ones_are_not(self):
+        old = self._pending(300)
+        BoxScoreUploadToken.objects.filter(pk=old.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED,
+            created_at=timezone.now() - timedelta(days=30))
+        live = self._pending(300)
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full"), \
+                mock.patch("the_databot.services.discordservice.edit_channel_message"):
+            sweep_boxscore_upload_tokens()
+        self.assertFalse(BoxScoreUploadToken.objects.filter(pk=old.pk).exists())
+        self.assertTrue(BoxScoreUploadToken.objects.filter(pk=live.pk).exists())
+
+
+class BoxScoreRosterGuardTests(TestCase):
+    """/boxscore's subcommands are gated by the thread's roster.
+
+    Regression tests for a guard that silently stopped firing: ROSTER_GUARDED_COMMANDS
+    lists "boxscore" bare, but once the command grew subcommands the dispatcher began
+    building the key "boxscore upload", which matched nothing. The token is a
+    credential and the upload overwrites a recorded game, so both must be refused for
+    someone who isn't on the roster.
+
+    These go through the real HTTP dispatcher on purpose. Calling
+    _handle_boxscore_command directly -- as the other /boxscore tests do -- skips the
+    guard entirely, which is exactly why the bug survived.
+    """
+
+    THREAD_ID = "guard-thread-1"
+    PLAYER_ID = "930000000000000001"
+    OUTSIDER_ID = "930000000000000002"
+    HOST_ID = "930000000000000003"
+
+    def setUp(self):
+        super().setUp()
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+
+        self.player = Profile.objects.create(discord="guardplayer",
+                                             discord_id=self.PLAYER_ID)
+        self.host = Profile.objects.create(discord="guardhost",
+                                           discord_id=self.HOST_ID)
+        self.outsider = Profile.objects.create(discord="guardoutsider",
+                                               discord_id=self.OUTSIDER_ID)
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID,
+                                               host=self.host)
+        self.thread.players.set([self.player])
+
+    def _post(self, sub, user_id, *, options=None, channel_id=None):
+        """Run /boxscore <sub> through the dispatcher as `user_id`."""
+        payload = {
+            "type": di.APPLICATION_COMMAND,
+            "data": {
+                "name": "boxscore",
+                "options": [{"name": sub, "type": 1,
+                             "options": options or []}],
+            },
+            "guild_id": None,
+            "channel_id": channel_id or self.THREAD_ID,
+            "channel": {"name": "a game thread", "type": 11},
+            "member": {"user": {"id": user_id, "username": f"user{user_id}"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True), \
+                mock.patch.object(di.record_bot_usage_task, "delay"):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content).get("data", {})
+
+    # ── refusals ────────────────────────────────────────────────────────────
+
+    def test_token_is_refused_for_someone_off_the_roster(self):
+        """The sharpest case: a token is a credential for writing to this game."""
+        data = self._post("token", self.OUTSIDER_ID)
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertNotIn("-", data.get("content", "").replace("game's", ""))
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 0)
+
+    def test_upload_is_refused_for_someone_off_the_roster(self):
+        data = self._post(
+            "upload", self.OUTSIDER_ID,
+            options=[{"name": "file", "type": 11, "value": "att-1"}])
+        # Turned away before the handler could ask for the attachment.
+        self.assertEqual(data.get("flags"), di.EPHEMERAL)
+        self.assertNotIn("Attach a JSON file", data.get("content", ""))
+
+    # ── who must still get through ──────────────────────────────────────────
+
+    def test_a_roster_player_still_gets_a_token(self):
+        self._post("token", self.PLAYER_ID)
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_the_thread_host_still_gets_a_token(self):
+        self._post("token", self.HOST_ID)
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_a_thread_with_no_roster_is_not_guarded(self):
+        """No roster, no restriction -- these commands are how a table gets set up."""
+        LFGThread.objects.create(thread_id="guard-thread-empty")
+        self._post("token", self.OUTSIDER_ID, channel_id="guard-thread-empty")
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    # ── the fix must not over-guard ─────────────────────────────────────────
+
+    def test_matching_the_parent_does_not_change_lookup(self):
+        """/lookup is guarded per-subcommand, and `lookup` is not a bare entry --
+        so checking the parent name must not alter its behaviour."""
+        guard = di.ROSTER_GUARDED_COMMANDS
+        self.assertNotIn("lookup", guard)
+        for sub in ("faction", "map", "captain"):
+            self.assertIn(f"lookup {sub}", guard)
+
+    def test_every_guard_entry_matches_a_real_command(self):
+        """A guard entry that matches no reachable key is dead -- which is the bug
+        this class exists for. Catches the next one at the source."""
+        reachable = set()
+        for cmd in dc.all_command_definitions():
+            name = cmd["name"]
+            subs = [o["name"] for o in cmd.get("options", []) if o.get("type") == 1]
+            reachable.update(f"{name} {s}" for s in subs)
+            reachable.add(name)
+        dead = di.ROSTER_GUARDED_COMMANDS - reachable
+        self.assertEqual(dead, set(), f"guard entries matching no command: {dead}")
+
+
+class ScheduleClearPickerTests(ScheduleFixtureMixin, TestCase):
+    """With several games scheduled, /schedule clear ASKS which one.
+
+    It used to guess -- `prefer="scheduled"` took the last scheduled match -- so a
+    best-of-N could lose the wrong game's time with nothing said about it.
+    """
+
+    def setUp(self):
+        self.build()
+        self.thread_id = "555000111"
+        self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
+
+    def _extra_match(self, number, scheduled=None):
+        match = Match.objects.create(
+            round=self.round, series=self.series, match_number=number)
+        if scheduled is not None:
+            match.scheduled_time = scheduled
+            match.save(update_fields=["scheduled_time"])
+        return match
+
+    def _data(self, author=None):
+        return {
+            "name": "schedule",
+            "options": [{"name": "clear", "type": 1, "options": []}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": self.thread_id,
+            "_channel_name": None,
+            "_author_id": author or self.player.discord_id,
+            "_author_username": "player",
+        }
+
+    def _body(self, response):
+        return json.loads(response.content)
+
+    def _run(self, author=None):
+        return self._body(di._handle_schedule_command(self._data(author)))["data"]
+
+    # ── one scheduled match: unchanged ──────────────────────────────────────
+
+    def test_a_single_scheduled_match_goes_straight_to_the_confirm(self):
+        """The common case must not gain a click -- most series have one game."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        data = self._run()
+        self.assertIn("Remove the scheduled time", data["content"])
+        row = data["components"][0]["components"]
+        self.assertEqual(row[0]["type"], 2)   # BUTTON, not a select
+
+    def test_nothing_scheduled_still_errors(self):
+        data = self._run()
+        self.assertIn("doesn't have a scheduled time", data["content"])
+        self.assertNotIn("components", data)
+
+    # ── several scheduled: the picker ───────────────────────────────────────
+
+    def test_two_scheduled_matches_offer_a_picker(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        self._extra_match(2, self.when + timedelta(days=1))
+
+        data = self._run()
+        self.assertIn("more than one scheduled game", data["content"])
+        select = data["components"][0]["components"][0]
+        self.assertEqual(select["type"], 3)   # STRING_SELECT
+        self.assertEqual(len(select["options"]), 2)
+
+    def test_the_picker_lists_only_scheduled_matches(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        scheduled = self._extra_match(2, self.when + timedelta(days=1))
+        unscheduled = self._extra_match(3)
+
+        select = self._run()["components"][0]["components"][0]
+        values = {o["value"] for o in select["options"]}
+        self.assertEqual(values, {str(self.match.id), str(scheduled.id)})
+        self.assertNotIn(str(unscheduled.id), values)
+
+    def test_option_labels_are_distinct(self):
+        """match_label() returns the player GROUP's name, identical for every match
+        in a series -- using it would render every row the same."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        self._extra_match(2, self.when + timedelta(days=1))
+
+        select = self._run()["components"][0]["components"][0]
+        labels = [o["label"] for o in select["options"]]
+        self.assertEqual(len(labels), len(set(labels)))
+
+    def test_picking_a_match_confirms_that_one_not_the_last(self):
+        """The bug this fixes: the old guess always took the LAST scheduled game."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        later = self._extra_match(2, self.when + timedelta(days=1))
+
+        payload = {
+            "data": {
+                "custom_id": di.encode_custom_id(
+                    "schedule_clear_pick", self.player.discord_id),
+                "values": [str(self.match.id)],   # the EARLIER game
+            },
+            "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": self.player.discord_id}},
+        }
+        data = self._body(di._handle_schedule_clear_pick(payload))["data"]
+        self.assertIn("Remove the scheduled time", data["content"])
+
+        # The confirm button carries the chosen match, not the later one.
+        confirm = data["components"][0]["components"][0]
+        _action, args = di.decode_custom_id(confirm["custom_id"])
+        self.assertEqual(args[0], str(self.match.id))
+        self.assertNotEqual(args[0], str(later.id))
+
+    def test_the_picker_writes_nothing(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        self._extra_match(2, self.when + timedelta(days=1))
+        self._run()
+        self.match.refresh_from_db()
+        self.assertIsNotNone(self.match.scheduled_time)
+
+    def test_the_picker_is_owner_locked(self):
+        """The owner rides LAST in the custom_id, which is what the dispatcher's
+        generic lock reads."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        self._extra_match(2, self.when + timedelta(days=1))
+        select = self._run()["components"][0]["components"][0]
+        _action, args = di.decode_custom_id(select["custom_id"])
+        self.assertEqual(args[-1], self.player.discord_id)
+
+    def test_the_component_is_registered(self):
+        self.assertIn("schedule_clear_pick", di.COMPONENT_HANDLERS)
+
+
+class ScheduleSetSubcommandTests(ScheduleFixtureMixin, TestCase):
+    """/schedule set, and the shim that keeps a stale bare /schedule working."""
+
+    def setUp(self):
+        self.build()
+        self.thread_id = "555000111"
+
+    def _data(self, options, sub="set"):
+        payload = {
+            "name": "schedule",
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": self.thread_id,
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        payload["options"] = ([{"name": sub, "type": 1, "options": options}]
+                              if sub else options)
+        return payload
+
+    def test_set_without_a_time_points_at_clear(self):
+        """`time` is required on the subcommand, so this is only reachable by a
+        malformed payload -- it must not silently mean "clear"."""
+        body = json.loads(di._handle_schedule_command(self._data([])).content)
+        self.assertIn("/schedule clear", body["data"]["content"])
+
+    def test_a_bare_schedule_still_works_via_the_shim(self):
+        """A client on the pre-subcommand registration sends no type-1 wrapper."""
+        data = self._data([{"name": "time", "type": 3, "value": "4pm"}], sub=None)
+        response = di._handle_schedule_command(data)
+        body = json.loads(response.content)
+        # Reaches the set path rather than "Unknown schedule command".
+        self.assertNotIn("Unknown schedule command", body["data"]["content"])
+
+    def test_an_unknown_subcommand_is_reported(self):
+        data = self._data([], sub="bogus")
+        body = json.loads(di._handle_schedule_command(data).content)
+        self.assertIn("Unknown schedule command", body["data"]["content"])
+
+
+class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
+    """/availability hands back a link to the comparison page."""
+
+    def setUp(self):
+        self.build()
+        self.thread_id = "555000111"
+
+    def _run(self, channel_id=None):
+        data = {
+            "name": "availability",
+            "options": [],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": channel_id or self.thread_id,
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        return json.loads(di._handle_availability_command(data).content)["data"]
+
+    def test_a_plain_lfg_thread_links_by_lfg_id(self):
+        thread = LFGThread.objects.create(thread_id=self.thread_id)
+        thread.players.add(self.player)
+        data = self._run()
+        self.assertIn(f"lfg={thread.pk}", data["content"])
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+
+    def test_a_series_thread_links_by_series_id(self):
+        """A tournament group thread's roster lives in the player group, so it uses
+        the series form and inherits that page's rules."""
+        thread = LFGThread.objects.create(thread_id=self.thread_id,
+                                          series=self.series)
+        data = self._run()
+        self.assertIn(f"series={self.series.id}", data["content"])
+        self.assertNotIn("lfg=", data["content"])
+
+    def test_outside_a_thread_says_where_to_run_it(self):
+        data = self._run(channel_id="not-a-thread")
+        self.assertIn("inside your game's thread", data["content"])
+
+    def test_the_command_is_registered_and_guarded(self):
+        names = [c["name"] for c in dc.all_command_definitions()]
+        self.assertIn("availability", names)
+        self.assertIn("availability", di.COMMAND_HANDLERS)
+        # It reveals when specific players are free.
+        self.assertIn("availability", di.ROSTER_GUARDED_COMMANDS)
+
+
+class UpcomingScopeTests(ScheduleFixtureMixin, TestCase):
+    """/upcoming with no options narrows to where it was run.
+
+    Searching every tournament in the database answered a question nobody asked:
+    a match from an unrelated server, inside a thread about a specific game.
+    """
+
+    THREAD_ID = "555000111"
+
+    def setUp(self):
+        self.build()
+        self.soon = timezone.now() + timedelta(hours=1)
+        self.later = timezone.now() + timedelta(hours=5)
+
+    def _decoy(self, when, guild=None, name="Decoy Tournament"):
+        """A scheduled match in ANOTHER tournament, optionally another guild.
+        Scheduled EARLIER than ours, so an unscoped search would return it."""
+        tournament = Tournament.objects.create(
+            name=name, guild=guild, designer=self.designer)
+        stage = Stage.objects.create(tournament=tournament, name="S", order=1)
+        rnd = Round.objects.create(stage=stage, round_number=1)
+        group = PlayerGroup.objects.create(round=rnd, group_number=1, name="Decoy Group")
+        series = MatchSeries.objects.create(
+            round=rnd, player_group=group, number_of_games=1)
+        return Match.objects.create(
+            round=rnd, series=series, scheduled_time=when)
+
+    def _run(self, channel_id=None, channel_name="a thread", channel_type=11,
+             guild_id=None, options=None):
+        payload = {
+            "type": 2,
+            "data": {"name": "upcoming", "options": options or []},
+            "guild_id": guild_id if guild_id is not None else self.guild.guild_id,
+            "channel_id": channel_id if channel_id is not None else self.THREAD_ID,
+            "channel": {"name": channel_name, "type": channel_type},
+            "member": {"user": {"id": "77", "username": "asker"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True), \
+             mock.patch.object(di.record_bot_usage_task, "delay", mock.Mock()):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content)["data"]
+
+    def _description(self, data):
+        return (data.get("embeds") or [{}])[0].get("description", "")
+
+    def _title(self, data):
+        return (data.get("embeds") or [{}])[0].get("title", "")
+
+    # ── in a thread ─────────────────────────────────────────────────────────
+
+    def test_a_group_thread_reports_its_own_series(self):
+        """The headline case. The decoy is scheduled EARLIER, so an unscoped
+        search would return it instead."""
+        self.match.scheduled_time = self.later
+        self.match.save(update_fields=["scheduled_time"])
+        self._decoy(self.soon)
+
+        data = self._run()
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for this thread")
+        # The decoy is sooner, so an unscoped search would have picked it.
+        self.assertNotIn("Decoy", self._title(data))
+        self.assertEqual(self._title(data), self.match.name)
+
+    def test_a_group_thread_with_nothing_scheduled_says_so(self):
+        self._decoy(self.soon)
+
+        data = self._run()
+
+        self.assertEqual(data["content"],
+                         "There are no scheduled matches for this thread.")
+        self.assertNotIn("embeds", data)
+
+    def test_a_plain_lfg_thread_has_no_schedule_to_report(self):
+        """A pick-up game has no Match behind it, so there is nothing to show --
+        and it must not fall back to a global result."""
+        lfg = LFGThread.objects.create(thread_id="999888777")
+        lfg.players.set([self.player])
+        self._decoy(self.soon)
+
+        data = self._run(channel_id="999888777")
+
+        self.assertEqual(data["content"],
+                         "There are no scheduled matches for this thread.")
+
+    def test_a_group_thread_without_a_series_is_not_mistaken_for_lfg(self):
+        """An LFGThread row with no series AND no players is a group thread that
+        /pick or /seating touched before its MatchSeries existed. Testing
+        `series_id` alone would answer "no scheduled matches for this thread"
+        inside a real tournament thread."""
+        LFGThread.objects.create(thread_id=self.THREAD_ID)   # no players, no series
+        self.match.scheduled_time = self.soon
+        self.match.save(update_fields=["scheduled_time"])
+
+        data = self._run()
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for this thread")
+
+    def test_an_unlinked_thread_resolves_by_title_and_links_it(self):
+        """Title fallback, matching /seating. The link is a deliberate side
+        effect: without it the command stays useless in unlinked threads."""
+        self.group.discord_thread = ""
+        self.group.save(update_fields=["discord_thread"])
+        self.match.scheduled_time = self.soon
+        self.match.save(update_fields=["scheduled_time"])
+
+        data = self._run(channel_id="4040404040", channel_name=self.group.name)
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for this thread")
+        self.group.refresh_from_db()
+        self.assertIn("4040404040", self.group.discord_thread)
+
+    # ── in a plain channel ──────────────────────────────────────────────────
+
+    def test_a_channel_reports_its_own_guild(self):
+        other_guild = DiscordGuild.objects.create(
+            guild_id="900200", name="Other Guild")
+        self.match.scheduled_time = self.later
+        self.match.save(update_fields=["scheduled_time"])
+        self._decoy(self.soon, guild=other_guild)
+
+        data = self._run(channel_id="123123123", channel_type=0)
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for Sched Guild")
+
+    def test_a_channel_with_nothing_scheduled_names_the_guild(self):
+        other_guild = DiscordGuild.objects.create(
+            guild_id="900200", name="Other Guild")
+        self._decoy(self.soon, guild=other_guild)
+
+        data = self._run(channel_id="123123123", channel_type=0)
+
+        self.assertEqual(data["content"],
+                         "There are no scheduled matches for Sched Guild.")
+
+    def test_the_guild_name_prefers_the_live_discord_name(self):
+        self.guild.actual_name = "My Root Guild"
+        self.guild.save(update_fields=["actual_name"])
+        self.match.scheduled_time = self.soon
+        self.match.save(update_fields=["scheduled_time"])
+
+        data = self._run(channel_id="123123123", channel_type=0)
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for My Root Guild")
+
+    def test_a_guild_with_no_tournaments_still_gets_a_global_answer(self):
+        """Narrow only when it narrows something -- otherwise a server that runs
+        no tournaments gets a dead end where it used to get an answer."""
+        bare = DiscordGuild.objects.create(guild_id="900300", name="Bare Guild")
+        self._decoy(self.soon, guild=self.guild)
+
+        data = self._run(channel_id="123123123", channel_type=0,
+                         guild_id=bare.guild_id)
+
+        self.assertEqual(self._description(data), "The next scheduled game")
+
+    def test_a_guild_with_no_site_record_gets_a_global_answer(self):
+        self._decoy(self.soon, guild=self.guild)
+
+        data = self._run(channel_id="123123123", channel_type=0,
+                         guild_id="900999")
+
+        self.assertEqual(self._description(data), "The next scheduled game")
+
+    # ── explicit options override the channel ───────────────────────────────
+
+    def test_an_explicit_series_overrides_the_thread(self):
+        other_guild = DiscordGuild.objects.create(
+            guild_id="900200", name="Other Guild")
+        decoy = self._decoy(self.soon, guild=other_guild)
+        self.match.scheduled_time = self.later
+        self.match.save(update_fields=["scheduled_time"])
+        wanted = decoy.round.stage.tournament
+
+        data = self._run(options=[{"name": "series", "type": 3,
+                                   "value": wanted.slug}])
+
+        # The builder's own filter wording, not the thread's.
+        self.assertEqual(self._description(data),
+                         f"The next scheduled {wanted.name} game")
+
+    def test_a_match_with_a_recorded_game_is_still_reported(self):
+        """_schedulable_matches drops those; /upcoming deliberately does not."""
+        from the_warroom.models import Game
+        self.match.scheduled_time = self.soon
+        self.match.game = Game.objects.create(recorder=self.player)
+        self.match.save(update_fields=["scheduled_time", "game"])
+
+        data = self._run()
+
+        self.assertEqual(self._description(data),
+                         "The next scheduled match for this thread")

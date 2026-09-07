@@ -1,0 +1,470 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{% trans 'Player Availability' %} | {% endblock %}
+
+{% comment %} The link is handed out in Discord, so it needs to unfurl as
+something better than a bare URL. noindex is for SEARCH crawlers only --
+Discord and Slack read the og: tags and ignore it, so the preview is unaffected.
+The page is permission-gated and its content varies per query string, so there
+is nothing worth indexing. {% endcomment %}
+{% block meta %}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.build_absolute_uri }}">
+<meta property="og:image" content="{% static 'images/RDBFrogLogo.png' %}">
+<meta property="og:site_name" content="Root Database">
+<meta property="og:title" content="{{ title }}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta name="description" content="{{ meta_description }}">
+<meta name="robots" content="noindex">
+{% endblock meta %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-11">
+
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          {% comment %} Back on the left, edit pushed right by ms-auto. The row
+          WRAPS because .avail-btn-compact is nowrap + flex-shrink:0 -- together
+          the two buttons need ~313px and a 375px phone only leaves ~311px inside
+          the card's padding, so without flex-wrap they would overflow it.
+          {% endcomment %}
+          {% if back_url or edit_url %}
+            <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+              {% if back_url %}
+                <a href="{{ back_url }}" class="databot-btn databot-btn-outline avail-btn-compact">
+                  <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to Matches' %}
+                </a>
+              {% endif %}
+              {% if edit_url %}
+                <a href="{{ edit_url }}" class="databot-btn databot-btn-primary avail-btn-compact ms-auto">
+                  <i class="bi bi-pencil me-1"></i>{% trans 'Edit Availability' %}
+                </a>
+              {% endif %}
+            </div>
+          {% endif %}
+          <h1 class="info-card-title mb-1">
+            <i class="bi bi-calendar-week me-2"></i>{{ title }}
+          </h1>
+          {% comment %} Only meaningful to someone who HAS a timezone -- a
+          logged-out visitor would be told UTC is "your timezone". {% endcomment %}
+          {% if user.is_authenticated %}
+            <p class="text-secondary mb-0">
+              {% blocktrans %}Times are shown in your timezone ({{ timezone_name }}).{% endblocktrans %}
+            </p>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if not can_view %}
+        <div class="info-card">
+          <div class="info-card-body">
+            <div class="alert alert-secondary mb-0">
+              <i class="bi bi-lock me-1"></i>
+              {{ denied_message }}
+            </div>
+            {% comment %} Only for the logged OUT -- telling someone who is
+            already signed in to sign in explains nothing. urlencode is required:
+            this page's URL carries a query string (?series=123), and an
+            unencoded & would truncate the return trip. {% endcomment %}
+            {% if not user.is_authenticated %}
+              {% comment %} .databot-btn is inline-flex, so it centres against a
+              text-center block rather than needing margin auto. {% endcomment %}
+              <div class="text-center mt-3">
+                <a href="{% url 'discord_login' %}?next={{ request.get_full_path|urlencode }}"
+                   class="databot-btn databot-btn-primary">
+                  <i class="bi bi-discord me-1"></i>{% trans 'Log in with Discord' %}
+                </a>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      {% elif not players %}
+        <div class="info-card">
+          <div class="info-card-body">
+            <div class="alert alert-secondary mb-0">
+              <i class="bi bi-info-circle me-1"></i>
+              {% trans 'There are no players to compare yet. Players are added to a match when its seating is set.' %}
+            </div>
+          </div>
+        </div>
+      {% elif not has_any_availability %}
+        <div class="info-card">
+          <div class="info-card-body">
+            <div class="alert alert-secondary">
+              <i class="bi bi-info-circle me-1"></i>
+              {% trans 'None of these players have set their availability yet.' %}
+            </div>
+            <ul class="list-unstyled mb-0">
+              {% for p in players %}
+                <li class="text-secondary">{{ p.profile.display_name }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      {% else %}
+
+      <div class="row g-3">
+        {# Player list: beside the grid when there's room, above it when there isn't. #}
+        <div class="col-lg-4">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <div class="d-flex justify-content-between align-items-center flex-wrap mb-2 gap-2">
+                <h2 class="info-card-title h6 mb-0">
+                  {% blocktrans count counter=player_count %}{{ counter }} Player{% plural %}{{ counter }} Players{% endblocktrans %}
+                </h2>
+                <div class="d-flex gap-1">
+                  <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" data-select="all">{% trans 'All' %}</button>
+                  <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" data-select="none">{% trans 'None' %}</button>
+                </div>
+              </div>
+
+              <ul class="list-unstyled mb-0" id="player-list">
+                {% for p in players %}
+                  <li class="d-flex align-items-center gap-2 py-1">
+                    <input class="form-check-input mt-0 player-toggle" type="checkbox"
+                           id="player-{{ p.profile.id }}" value="{{ p.profile.id }}"
+                           {% if p.hour_count %}checked{% else %}disabled{% endif %}>
+                    <label class="d-flex align-items-center gap-2 flex-grow-1 mb-0" for="player-{{ p.profile.id }}"
+                           style="min-width:0; cursor:{% if p.hour_count %}pointer{% else %}default{% endif %};">
+                      {% if p.profile.image %}
+                        <img src="{{ p.profile.image.url }}" alt="" class="rounded-circle" style="width:24px;height:24px;">
+                      {% else %}
+                        <i class="bi bi-person-circle"></i>
+                      {% endif %}
+                      <span class="text-truncate">{{ p.profile.display_name }}</span>
+                      {% if p.is_viewer %}<span class="badge text-bg-secondary">{% trans 'You' %}</span>{% endif %}
+                    </label>
+                    {% if p.hour_count %}
+                      <small class="text-muted">{{ p.hour_count }}h</small>
+                    {% else %}
+                      <small class="text-muted fst-italic">{% trans 'none' %}</small>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-8">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+
+              <div id="summary-line" class="mb-2"></div>
+
+              {# Legend is rebuilt on every toggle: a group of 3 can never be "missing 4", so the reachable bands change with the selection. #}
+              <div class="heat-legend mb-2" id="heat-legend"></div>
+
+              {% comment %} Tap/click detail. The cells carry a `title`, but that
+              is mouse-only -- a phone never shows it. This panel is the same
+              information in a form touch users can actually reach.
+              {% endcomment %}
+              <div class="cell-detail mb-3" id="cell-detail">
+                <span class="text-muted">{% trans 'Tap a time to see who is free.' %}</span>
+              </div>
+
+              <div class="availability-scroll">
+                <div class="availability-grid compare-grid" id="compare-grid">
+                  <div class="avail-corner"></div>
+                  {% for day in days %}
+                    <div class="avail-day-header">{{ day|slice:":3" }}</div>
+                  {% endfor %}
+
+                  {% for hour, short_label, long_label in hours %}
+                    <div class="avail-hour-label"><span class="hour-text">{{ short_label }}</span></div>
+                    {% for day in days %}
+                      {# Read-only: divs, not buttons -- nothing here is clickable. #}
+                      <div class="avail-cell compare-cell"
+                           data-day="{{ forloop.counter0 }}"
+                           data-hour="{{ hour }}"
+                           data-label="{{ day }} {{ long_label }}"></div>
+                    {% endfor %}
+                  {% endfor %}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block styles %}
+<style>
+  /* Read-only variant of the availability grid: the cells never change the
+     schedule, they only report who is free. They ARE tappable though -- that is
+     how a phone gets at the detail a `title` tooltip only shows on hover. */
+  .compare-grid .avail-cell {
+    cursor: pointer;
+    color: transparent;      /* the per-cell time label is noise here */
+    background: #f8f9fa;
+  }
+  .compare-grid .avail-cell:hover {
+    border-color: #495057;
+    color: transparent;
+  }
+
+  /* The tapped cell, so it is obvious which one the detail line describes. */
+  .compare-grid .avail-cell.is-focused {
+    outline: 2px solid #0d6efd;
+    outline-offset: -1px;
+    z-index: 1;
+  }
+
+  .cell-detail {
+    font-size: 0.85rem;
+    min-height: 1.5rem;      /* reserve the line so the grid doesn't jump */
+    line-height: 1.3;
+  }
+
+  /* Heat ramp, keyed on how many selected players are MISSING at that hour.
+     Bootstrap's semantic palette so it reads as part of the site.
+
+     Deliberately NOT scoped to .compare-cell: the legend swatches carry the same
+     heat-* classes, so scoping to the cell would leave the legend blank. */
+  .heat-0   { background: #198754; border-color: #146c43; }
+  .heat-1   { background: #ffc107; border-color: #cc9a06; }
+  .heat-2   { background: #fd7e14; border-color: #ca6510; }
+  .heat-3   { background: #dc3545; border-color: #b02a37; }
+  .heat-far { background: #adb5bd; border-color: #939ba2; }
+
+  /* The grid cell's own background rule is equally specific and comes first, so
+     the ramp needs to win on the cells explicitly. */
+  .compare-grid .avail-cell.heat-0   { background: #198754; }
+  .compare-grid .avail-cell.heat-1   { background: #ffc107; }
+  .compare-grid .avail-cell.heat-2   { background: #fd7e14; }
+  .compare-grid .avail-cell.heat-3   { background: #dc3545; }
+  .compare-grid .avail-cell.heat-far { background: #adb5bd; }
+
+  /* "Everyone is free" is the answer people come for, so it does not rely on hue
+     alone -- red/green colour blindness is common. */
+  .compare-cell.heat-0 {
+    border-width: 2px;
+    border-color: #0a3622;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+  }
+
+  .heat-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 0.75rem;
+    color: #6c757d;
+  }
+  .heat-legend-item { display: flex; align-items: center; gap: 4px; }
+  .heat-legend-swatch {
+    width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+    /* border-style/width only -- the `border` shorthand would reset the colour
+       the heat-* class just set, leaving every swatch looking identical. */
+    border-style: solid;
+    border-width: 1px;
+  }
+</style>
+{% endblock styles %}
+
+{% block scripts %}
+{{ player_hours_json|json_script:"player-hours" }}
+{{ player_names_json|json_script:"player-names" }}
+<script>
+(function () {
+  var grid = document.getElementById('compare-grid');
+  if (!grid) { return; }
+
+  // {profile_id: [local hour-of-week, ...]} -- already converted server-side, so
+  // no timezone maths happens in here.
+  var PLAYER_HOURS = JSON.parse(document.getElementById('player-hours').textContent);
+  var NAMES = JSON.parse(document.getElementById('player-names').textContent);
+  var HEAT_BUCKETS = 4;
+
+  var cells = Array.prototype.slice.call(grid.querySelectorAll('.compare-cell'));
+  cells.forEach(function (cell) {
+    cell.dataset.how = String(parseInt(cell.dataset.day, 10) * 24 + parseInt(cell.dataset.hour, 10));
+  });
+
+  var toggles = Array.prototype.slice.call(document.querySelectorAll('.player-toggle'));
+  var legend = document.getElementById('heat-legend');
+  var summary = document.getElementById('summary-line');
+  var detail = document.getElementById('cell-detail');
+  var focusedCell = null;
+
+  // hour-of-week -> every player free then, regardless of what is checked. Built
+  // once; showDetail() filters it against the current selection.
+  var PLAYER_HOURS_BY_HOUR = {};
+  Object.keys(PLAYER_HOURS).forEach(function (id) {
+    (PLAYER_HOURS[id] || []).forEach(function (h) {
+      (PLAYER_HOURS_BY_HOUR[h] = PLAYER_HOURS_BY_HOUR[h] || []).push(id);
+    });
+  });
+
+  var BUCKET_LABELS = {
+    'heat-0': '{% trans "All Selected" %}',
+    'heat-1': '{% trans "1 missing" %}',
+    'heat-2': '{% trans "2 missing" %}',
+    'heat-3': '{% trans "3 missing" %}',
+    'heat-far': '{% trans "4+ missing" %}'
+  };
+  var BUCKET_CLASSES = ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-far'];
+
+  function checkedIds() {
+    return toggles.filter(function (t) { return t.checked; })
+                  .map(function (t) { return t.value; });
+  }
+
+  function bucketFor(freeCount, total) {
+    if (!freeCount) { return null; }
+    var missing = total - freeCount;
+    return missing >= HEAT_BUCKETS ? 'heat-far' : 'heat-' + missing;
+  }
+
+  function render() {
+    var ids = checkedIds();
+    var total = ids.length;
+
+    // hour -> who is free then
+    var freeAt = {};
+    ids.forEach(function (id) {
+      (PLAYER_HOURS[id] || []).forEach(function (h) {
+        (freeAt[h] = freeAt[h] || []).push(id);
+      });
+    });
+
+    var overlapHours = [];
+    cells.forEach(function (cell) {
+      BUCKET_CLASSES.forEach(function (c) { cell.classList.remove(c); });
+
+      var who = freeAt[cell.dataset.how] || [];
+      var bucket = bucketFor(who.length, total);
+      if (bucket) { cell.classList.add(bucket); }
+      if (total && who.length === total) { overlapHours.push(parseInt(cell.dataset.how, 10)); }
+
+      cell.title = describeCell(cell, who, total);
+    });
+
+    renderLegend(total);
+    renderSummary(overlapHours, total);
+    // Keep the detail line in step when the selection changes under it.
+    if (focusedCell) { showDetail(focusedCell); }
+  }
+
+  function describeCell(cell, who, total) {
+    // The hover tooltip: "Monday 5:00 AM" on the first line, who is free on the
+    // second. Built as two lines directly -- an earlier version joined them with
+    // a dash and split it back out, which silently stopped working the moment the
+    // two dashes drifted apart. (Touch users get the same information from the
+    // detail panel instead; a `title` never appears on a phone.)
+    if (!total) { return cell.dataset.label; }
+    if (!who.length) {
+      return cell.dataset.label + '\n{% trans "nobody selected is free" %}';
+    }
+    var names = who.map(function (id) { return NAMES[id]; }).join(', ');
+    var count = who.length === total
+      ? '{% trans "all" %} ' + total
+      : who.length + ' {% trans "of" %} ' + total;
+    return cell.dataset.label + '\n' + count + ': ' + names;
+  }
+
+  function showDetail(cell) {
+    var ids = checkedIds();
+    var free = (PLAYER_HOURS_BY_HOUR[cell.dataset.how] || []).filter(function (id) {
+      return ids.indexOf(id) !== -1;
+    });
+
+    cells.forEach(function (c) { c.classList.remove('is-focused'); });
+    cell.classList.add('is-focused');
+    focusedCell = cell;
+
+    var everyone = ids.length && free.length === ids.length;
+    detail.innerHTML =
+      '<strong>' + cell.dataset.label + '</strong>'
+      + (everyone ? ' <span class="badge text-bg-success">{% trans "All selected" %}</span>' : '')
+      + '<br><span class="text-muted">'
+      + (ids.length === 0
+          ? '{% trans "No players selected." %}'
+          : (free.length
+              ? (everyone ? '' : free.length + ' {% trans "of" %} ' + ids.length + ': ')
+                + free.map(function (id) { return NAMES[id]; }).join(', ')
+              : '{% trans "Nobody selected is free then." %}'))
+      + '</span>';
+  }
+
+  function renderLegend(total) {
+    legend.innerHTML = '';
+    if (!total) { return; }
+    // Only the bands this many players can actually produce.
+    var names = [];
+    for (var missing = 0; missing < Math.min(total, HEAT_BUCKETS); missing++) {
+      names.push('heat-' + missing);
+    }
+    if (total > HEAT_BUCKETS) { names.push('heat-far'); }
+
+    names.forEach(function (name) {
+      var item = document.createElement('span');
+      item.className = 'heat-legend-item';
+      var swatch = document.createElement('span');
+      swatch.className = 'heat-legend-swatch ' + name;
+      item.appendChild(swatch);
+      item.appendChild(document.createTextNode(BUCKET_LABELS[name]));
+      legend.appendChild(item);
+    });
+  }
+
+  function longestRun(hours) {
+    if (!hours.length) { return 0; }
+    // Doubled to let a run wrap Sunday night into Monday morning.
+    var doubled = hours.slice().concat(hours.map(function (h) { return h + 168; }))
+                       .sort(function (a, b) { return a - b; });
+    var best = 1, run = 1;
+    for (var i = 1; i < doubled.length; i++) {
+      if (doubled[i] === doubled[i - 1] + 1) { run++; best = Math.max(best, run); }
+      else if (doubled[i] !== doubled[i - 1]) { run = 1; }
+    }
+    return Math.min(best, hours.length);
+  }
+
+  function renderSummary(overlapHours, total) {
+    if (!total) {
+      summary.innerHTML = '<span class="text-muted">{% trans "Select at least one player." %}</span>';
+      return;
+    }
+    if (!overlapHours.length) {
+      summary.innerHTML = '<span class="badge text-bg-secondary">'
+        + '{% trans "No overlapping hours" %}</span>';
+      return;
+    }
+    var days = {};
+    overlapHours.forEach(function (h) { days[Math.floor(h / 24)] = true; });
+    summary.innerHTML =
+      '<span class="badge text-bg-success me-1">' + overlapHours.length + ' {% trans "shared hours" %}</span>'
+      + '<span class="badge text-bg-secondary me-1">' + longestRun(overlapHours) + '{% trans "h best block" %}</span>'
+      + '<span class="badge text-bg-secondary">' + Object.keys(days).length + ' {% trans "days" %}</span>';
+  }
+
+  toggles.forEach(function (t) { t.addEventListener('change', render); });
+
+  document.querySelectorAll('[data-select]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var on = btn.dataset.select === 'all';
+      toggles.forEach(function (t) { if (!t.disabled) { t.checked = on; } });
+      render();
+    });
+  });
+
+  // One delegated listener rather than 168. Works for touch as well as mouse,
+  // which is the point -- the `title` tooltip never appears on a phone.
+  grid.addEventListener('click', function (e) {
+    var cell = e.target.closest('.compare-cell');
+    if (cell) { showDetail(cell); }
+  });
+
+  render();
+})();
+</script>
+{% endblock scripts %}

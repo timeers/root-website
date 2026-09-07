@@ -1,14 +1,50 @@
 # Changelog
 
-## [1.13.6] - 2026-9-4 API Investigation
+## [1.13.6] - 2026-9-6 Box Score API & Availability
+
+### New Features
+- added ability to link SteamID to profile for future boxscore matching
+- Tabletop Simulator objects can now upload a box score straight to the site
+- /boxscore token gives you a one-time code to paste into the TTS uploader (expires in 30 minutes, works once, for that game only)
+- a TTS upload that doesn't match the game posts Confirm/Cancel in the thread, so problems get sorted in Discord instead of in TTS
+- any player in the game, the host, or a moderator can answer that prompt — not just whoever uploaded
+- Try Again button re-checks players after someone links their Steam account, so a missing player can be fixed without re-uploading
+- set your weekly availability on your profile settings page
+- availability grid lets you click to mark the hours you are free, and click a day or hour label to toggle a whole column or row
+- times are shown in your own timezone, which you can change on the page and is saved to your profile
+- tournament grouping now uses the availability from your profile, so players added by hand can be grouped without taking a survey
+- answering an availability survey saves your availability for that tournament, and you can go back and change it any time
+- if you set availability for a specific tournament it is used for that tournament, otherwise your general availability is used
+- calendar button on a match opens a page showing every player's availability side by side, so you can find a time that works
+- new /availability command posts a link comparing when this game's players are free — works in an /lfg thread, no tournament needed
+- /schedule clear removes the scheduled time, and asks which game you mean when a series has more than one scheduled
+- a box score naming a new player now asks who they are, with a dropdown of the players in the game
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
+- /boxscore now warns if data will be overwritten or if players can't be found
+- /boxscore is now /boxscore upload (adding a file works the same, the command just moved under a subcommand)
+- Databot page lists /lookup, /link and /boxscore as single commands instead of one row per subcommand
+- an unanswered box score prompt pings the players before it expires, then closes itself instead of leaving a dead button in the thread
+- editing your availability now affects grouping right away instead of waiting for the survey to be synced again
+- /schedule is now /schedule set (setting a time works the same, the command just moved under a subcommand). Clearing a time is its own /schedule clear instead of running /schedule with the time left blank
+- opening a player availability link you can't view now explains who can see it, instead of showing a permission error page
+- box scores now match players by Steam account before falling back to their name, so a renamed Discord account no longer breaks matching — and two players with similar names can't be mixed up
+- linking your Steam account clears any earlier guess about that account, including one saved against someone else's profile
+- /upcoming now shows the next game for the thread or guild it's used in if no arguments are provided
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
 - fixed title on /schedule saying "Not Scheduled" when all players confirmed in LFG
 - Vagabond allowed to have coalition partner when importing boxscore json
+- Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
+- the group availability calendar button now shows up on the matches pages, where it never appeared before
+- submitting a survey response no longer overwrites other players' availability
+- tapping an hour on the availability page now reliably toggles it on phones instead of sometimes doing nothing
+- the availability calendar button no longer disappears from a match after you edit it
+- /boxscore upload and /boxscore token are again limited to the players in the game, its host and moderators — since /boxscore gained subcommands anyone in the thread could use them
+- move notification dismissal bug fixes (hopefully it's reliable now)
+- bug where availability questions were not converting correctly from survey response to player schedule 
 
 ## [1.13.5] - 2026-9-1 September Forever
 

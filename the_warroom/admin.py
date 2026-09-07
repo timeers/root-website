@@ -588,8 +588,7 @@ class TournamentPlayerInline(admin.TabularInline):
     model = TournamentPlayer
     extra = 0
     raw_id_fields = ('profile', 'survey_response')
-    fields = ('profile', 'status', 'availability_hours', 'waitlist_position')
-    readonly_fields = ('availability_hours',)
+    fields = ('profile', 'status', 'waitlist_position')
 
 
 class StageParticipantInline(admin.TabularInline):

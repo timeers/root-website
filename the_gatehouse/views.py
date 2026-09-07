@@ -12,7 +12,7 @@ from django.core.cache import cache
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models import Count, Q, Count, Avg, F
 from django.http import JsonResponse, Http404, HttpResponseBadRequest, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -30,8 +30,8 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
                                  effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm, PlayerScheduleForm
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for, schedules_for
 from the_databot.models import GuildLFGRole
 from the_databot.services.discordservice import (get_guild_roles, get_guild_forum_channels,
                                       get_forum_channel_info,
@@ -39,6 +39,7 @@ from the_databot.services.discordservice import (get_guild_roles, get_guild_foru
                                       refresh_guild_cache,
                                       bot_in_guild, user_can_manage_guild, _get_guild, register_guild_commands)
 from .services.discord_oauth import update_discord_avatar, get_discord_invite_info, get_user_guilds
+from .services.steam_openid import build_redirect_url, read_link_token, verify_response
 from .services.context_service import get_daily_user_summary
 from .utils import build_absolute_uri, plural
 from .tasks import send_rich_discord_message_task, send_discord_message_task
@@ -102,9 +103,18 @@ def user_settings(request):
         # u_form = UserUpdateForm(instance=request.user)
         p_form = ProfileUpdateForm(instance=request.user.profile)
 
+    # profile.schedules is a reverse MANAGER (a player can have tournament-scoped
+    # schedules too), so the template can't reach the general one on its own.
+    from the_databot.services.time_parsing import describe_timezone
+    general_schedule = PlayerSchedule.objects.filter(
+        profile=request.user.profile, tournament=None
+    ).first()
+
     context = {
         # 'u_form': u_form,
         'p_form': p_form,
+        'availability_hours_count': len(general_schedule.available_hours) if general_schedule else 0,
+        'availability_timezone': describe_timezone(request.user.profile.timezone),
         'has_api_key': bool(request.user.profile.api_key_hash),
         'api_key_created': request.user.profile.api_key_created,
         # Raw key is shown exactly once, right after generation; read-and-clear so a page
@@ -146,6 +156,352 @@ def discord_notification_settings(request):
 
 
 @login_required
+def availability_settings(request):
+    """The /availability weekly grid.
+
+    Availability is stored in UTC but drawn, and edited, in the player's own
+    timezone -- so every hour crosses this view twice through the conversion
+    service. Nothing here does offset arithmetic; see services/availability.py for
+    why that distinction matters.
+
+    Edits the player's GENERAL (tournament=None) schedule by default. `?tournament=`
+    switches to a tournament-specific one, but only for tournaments the player
+    already has a schedule for -- a row exists only because that tournament asked
+    for availability, so this never offers the option where it means nothing.
+    """
+    from .services.availability import (local_to_utc_hours, utc_to_local_hours,
+                                        DAY_LABELS, hour_labels)
+    from the_databot.services.time_parsing import describe_timezone, valid_timezone
+
+    profile = request.user.profile
+
+    # Tournament schedules the player actually has. Also the selector's options.
+    tournament_schedules = list(
+        PlayerSchedule.objects.filter(profile=profile)
+        .exclude(tournament=None)
+        .select_related('tournament')
+        .order_by('tournament__name')
+    )
+
+    # The target rides in the form as well as the query string: the "show times in
+    # this zone" round-trip is a POST, and must not silently switch which row is
+    # being edited.
+    requested = (request.POST.get('schedule_target')
+                 or request.GET.get('tournament') or '').strip()
+    schedule = None
+    if requested:
+        for candidate in tournament_schedules:
+            # Slug is unique but nullable, so fall back to the pk rather than
+            # locking a player out of their own data.
+            if requested in (candidate.tournament.slug, str(candidate.pk)):
+                schedule = candidate
+                break
+        if schedule is None:
+            # Not a tournament this player has availability for.
+            raise Http404("No availability for that tournament.")
+    if schedule is None:
+        schedule = general_schedule_for(profile)
+
+    schedule_target = (schedule.tournament.slug or str(schedule.pk)) if schedule.tournament_id else ''
+
+    # No profile timezone yet -> the grid renders in UTC and the template's JS
+    # pre-selects the browser's zone in the picker. The first save persists it.
+    tz_name = profile.timezone if valid_timezone(profile.timezone) else None
+    selected = None
+
+    if request.method == 'POST':
+        form = PlayerScheduleForm(request.POST)
+        if form.is_valid():
+            tz_name = form.cleaned_data['timezone']
+            local_hours = form.cleaned_data['available_hours']
+            # The zone the grid was DRAWN in, which is what those local hours mean.
+            # It differs from tz_name exactly when the user is switching zones.
+            drawn_tz = form.cleaned_data['drawn_timezone'] or tz_name
+            # "Update timezone" re-renders under a new timezone instead of
+            # saving: the local->UTC mapping needs ZoneInfo's DST rules, which the
+            # browser can't reproduce from a fixed offset.
+            only_changing_timezone = request.POST.get('action') == 'change_timezone'
+
+            # Interpret the painted cells in the zone they were painted in -- not
+            # the newly chosen one -- so the absolute moments are preserved.
+            utc_hours = local_to_utc_hours(local_hours, drawn_tz)
+
+            if not only_changing_timezone:
+                schedule.available_hours = utc_hours
+                schedule.save(update_fields=['available_hours', 'updated_at'])
+                messages.success(request, _('Availability updated!'))
+
+            if profile.timezone != tz_name:
+                profile.timezone = tz_name
+                # update_fields is required: a bare save() re-derives display_name
+                # and can delete the profile's existing avatar.
+                profile.save(update_fields=['timezone'])
+
+            if not only_changing_timezone:
+                # Stay on whichever schedule they were editing.
+                url = reverse('availability')
+                return redirect(f'{url}?tournament={schedule_target}'
+                                if schedule_target else url)
+
+            # Re-label the SAME instants in the new zone. Availability is absolute:
+            # switching what timezone you view it in must not change when you are
+            # free, so the lit cells shift rows instead of staying put.
+            messages.info(request, _('Times are now shown in your new timezone.'))
+            selected = utc_to_local_hours(utc_hours, tz_name)
+    else:
+        form = PlayerScheduleForm(initial={'timezone': tz_name or 'UTC'})
+
+    if selected is None:
+        # Draw the stored UTC hours back in the user's local time.
+        selected = utc_to_local_hours(schedule.available_hours, tz_name)
+
+    context = {
+        'form': form,
+        'schedule': schedule,
+        'selected_hours': selected,
+        'timezone_name': tz_name,
+        'timezone_display': describe_timezone(tz_name) if tz_name else '',
+        'days': DAY_LABELS,
+        # The selector: only rendered when the player has a tournament schedule.
+        'tournament_schedules': tournament_schedules,
+        'schedule_target': schedule_target,
+        'editing_tournament': schedule.tournament if schedule.tournament_id else None,
+        # (hour, '9a', '9:00 AM') per row -- see services.availability.hour_labels.
+        'hours': hour_labels(),
+    }
+    return render(request, 'the_gatehouse/availability.html', context)
+
+
+def _can_view_lfg_availability(profile, thread):
+    """Whether `profile` may see an LFG thread's availability.
+
+    The three tiers _thread_actor_error uses in Discord -- roster member, the
+    thread's host, or a guild moderator -- with one deliberate difference: it
+    FAILS OPEN on an empty roster ("no roster, nothing to protect", correct where
+    those commands are how a table gets set up). On a web page that would make an
+    empty thread's availability readable by anyone, so this fails closed and the
+    caller renders the "no players" state instead.
+
+    `guild` and `host` are both nullable (SET_NULL, and host is NULL on threads
+    predating the field), so each tier is guarded rather than assumed.
+    """
+    if thread.players.filter(pk=profile.pk).exists():
+        return True
+    if thread.host_id and thread.host_id == profile.pk:
+        return True
+    if thread.guild_id and can_moderate_guild(profile, thread.guild):
+        return True
+    return False
+
+
+def availability_compare(request):
+    """Compare several players' weekly availability on one grid.
+
+    Driven by a SET OF PROFILES rather than by a match, which is what makes it
+    reusable: `?players=<slug>,<slug>` is the general form and `?series=<id>` is a
+    convenience that resolves one match series' seats. A future "pick some
+    players" page is this same view with a different way of filling ?players=.
+
+    Keyed on the SERIES, not the match: seats hang off MatchSeries, and a series
+    can hold several matches that all share one roster.
+
+    Deliberately NOT @login_required: the link is handed out in Discord, so an
+    anonymous visitor is shown who may open the page and a login button back to
+    it, rather than being bounced through OAuth with no idea what they followed.
+    """
+    from .services.availability import (utc_to_local_hours, overlap_summary,
+                                        reachable_buckets, DAY_LABELS, hour_labels)
+    from the_databot.services.time_parsing import valid_timezone
+
+    # None for an anonymous visitor. Every permission test below treats that as
+    # "not permitted" rather than short-circuiting, because the branches also
+    # resolve the page title and roster that the link preview needs.
+    viewer = request.user.profile if request.user.is_authenticated else None
+    series = None
+    tournament = None
+    back_url = None
+    title = _('Player Availability')
+
+    series_id = (request.GET.get('series') or '').strip()
+    lfg_id = (request.GET.get('lfg') or '').strip()
+    player_slugs = [s for s in (request.GET.get('players') or '').split(',') if s.strip()]
+
+    # A refusal RENDERS rather than 403s, so someone following a link from Discord
+    # is told who may open it instead of hitting a wall.
+    #
+    # What a refused viewer may see is split deliberately:
+    #   * player NAMES resolve either way, so a link pasted into Discord unfurls
+    #     with who is being compared. The cost is that anyone holding the URL can
+    #     read the roster -- accepted, since an unfurler has no session and would
+    #     otherwise preview every link as this very refusal.
+    #   * AVAILABILITY HOURS never resolve when can_view is False. schedules_for
+    #     stays behind the gate below. When people are free is the sensitive part;
+    #     who is in a match is not.
+    can_view = True
+    denied_message = None
+    profiles = None          # None = no branch has resolved a roster yet
+
+    if lfg_id:
+        from the_databot.models import LFGThread
+        if not lfg_id.isdigit():
+            raise Http404("No such game thread.")
+        thread = get_object_or_404(
+            LFGThread.objects.select_related('guild', 'series'), pk=lfg_id)
+        # A series-linked thread is a tournament group thread: its roster lives in
+        # the player group, NOT in thread.players. Hand it to the series branch so
+        # the permission rules stay in one place.
+        if thread.series_id:
+            series_id = str(thread.series_id)
+        else:
+            title = thread.description or _('Game Thread')
+            profiles = list(thread.players.all())
+            if not (viewer and _can_view_lfg_availability(viewer, thread)):
+                can_view = False
+                denied_message = _(
+                    "Only the players in this game and its moderators can see "
+                    "this availability."
+                )
+
+    if series_id and profiles is None:
+        from the_warroom.models import MatchSeries, MatchSeat
+        # The id comes off the query string, so a non-numeric value must 404
+        # rather than blowing up in the ORM with a ValueError.
+        if not series_id.isdigit():
+            raise Http404("No such match series.")
+        series = get_object_or_404(
+            MatchSeries.objects.select_related('round__stage__tournament', 'player_group'),
+            pk=series_id,
+        )
+        tournament = series.round.stage.tournament
+
+        # Seated in this series, or able to manage the tournament. Same test the
+        # card's Discord-thread button uses. An anonymous visitor is neither.
+        seated = viewer is not None and MatchSeat.objects.filter(
+            series=series,
+            stage_participant__tournament_player__profile=viewer,
+        ).exists()
+        if not (seated or (viewer and tournament.has_permission(viewer))):
+            can_view = False
+            denied_message = _(
+                "Only the players in this match and its organizers can see "
+                "this availability."
+            )
+        profiles = list(
+            Profile.objects.filter(
+                tournament_participations__stage_participations__matchseat__series=series
+            ).distinct()
+        )
+        back_url = series.round.get_matches_url()
+        title = (series.player_group.name if series.player_group_id
+                 else _('Match')) or _('Match')
+    elif profiles is None:
+        # The general form. Restricted to players the viewer shares a tournament
+        # with -- the same circle the series form allows, generalised. This is the
+        # filter a future player picker will build its list from.
+        #
+        # Scoped to the VIEWER's tournaments, so it means nothing anonymously:
+        # there is no circle to draw from, and no roster to name in the preview.
+        if viewer is None:
+            can_view = False
+            denied_message = _("Log in to see this availability.")
+            profiles = []
+        else:
+            from the_warroom.models import TournamentPlayer
+            my_tournaments = TournamentPlayer.objects.filter(
+                profile=viewer
+            ).values_list('tournament_id', flat=True)
+            profiles = list(
+                Profile.objects.filter(
+                    slug__in=player_slugs,
+                    tournament_participations__tournament_id__in=my_tournaments,
+                ).distinct()
+            )
+
+    # Resolve availability, then draw it in the VIEWER's timezone so every player
+    # is on one comparable clock. An anonymous visitor has no timezone, so UTC.
+    tz_name = (viewer.timezone
+               if viewer and valid_timezone(viewer.timezone) else None)
+    # The gate: hours are fetched ONLY for a viewer allowed to see them. Names
+    # above are resolved either way (see the note where can_view is declared).
+    schedules = (schedules_for([p.id for p in profiles], tournament)
+                 if can_view else {})
+
+    # `players` drives the GRID, so it stays empty for a refused viewer even
+    # though `profiles` is populated for the preview description.
+    players = []
+    hours_by_profile = {}
+    for profile in (profiles if can_view else []):
+        local = utc_to_local_hours(schedules.get(profile.id, []), tz_name)
+        hours_by_profile[profile.id] = local
+        players.append({
+            'profile': profile,
+            'hours': local,
+            'hour_count': len(local),
+            'is_viewer': viewer is not None and profile.id == viewer.id,
+        })
+    # Players with availability first: the ones who can't contribute shouldn't
+    # push the useful rows down the list.
+    players.sort(key=lambda p: (-p['hour_count'], (p['profile'].display_name or '').lower()))
+
+    with_hours = {pid: hrs for pid, hrs in hours_by_profile.items() if hrs}
+
+    # Where the viewer goes to fix their own availability: their tournament
+    # schedule if this tournament asked them for one, else the general page.
+    edit_url = None
+    if any(p['is_viewer'] for p in players):
+        edit_url = reverse('availability')
+        if tournament and PlayerSchedule.objects.filter(
+            profile=viewer, tournament=tournament
+        ).exists():
+            edit_url = f'{edit_url}?tournament={tournament.slug}'
+
+    # Link-preview text. Built from `profiles` rather than `players` so it still
+    # names people on a refused page -- an unfurler has no session, so keying it
+    # on can_view would make every shared link preview as the refusal notice.
+    from the_keep.utils import clean_meta_description
+    names = [p.name for p in profiles]
+    if names:
+        if len(names) > 1:
+            joined = '%s and %s' % (', '.join(names[:-1]), names[-1])
+        else:
+            joined = names[0]
+        meta_description = clean_meta_description(
+            _('Comparing the weekly availability of %(players)s.')
+            % {'players': joined})
+    else:
+        meta_description = _('Compare when players are free to play.')
+
+    context = {
+        'players': players,
+        'player_count': len(players),
+        'has_any_availability': bool(with_hours),
+        # The grid recomputes client-side as players are toggled, so it gets the
+        # raw per-player hours rather than a pre-baked matrix. Keys are strings
+        # because that is what they become in JSON.
+        'player_hours_json': {str(pid): hrs for pid, hrs in hours_by_profile.items()},
+        'player_names_json': {
+            str(p['profile'].id): p['profile'].display_name or '' for p in players
+        },
+        'summary': overlap_summary(with_hours),
+        'legend_buckets': reachable_buckets(len(with_hours)),
+        'series': series,
+        'tournament': tournament,
+        'back_url': back_url,
+        'title': title,
+        'edit_url': edit_url,
+        # False renders an explanation instead of the grid. The player lists above
+        # are empty in that case, so nothing about them reaches the template.
+        'can_view': can_view,
+        'denied_message': denied_message,
+        'meta_description': meta_description,
+        'timezone_name': tz_name or 'UTC',
+        'days': DAY_LABELS,
+        'hours': hour_labels(),
+    }
+    return render(request, 'the_gatehouse/availability_compare.html', context)
+
+
+@login_required
 def generate_api_key(request):
     if request.method != 'POST':
         return redirect('user-settings')
@@ -163,6 +519,121 @@ def generate_api_key(request):
     # Non-JS fallback: stash the key for a one-time display, then redirect (PRG).
     request.session['new_api_key'] = raw_key
     messages.success(request, _('A new API key has been generated. Copy it now — it will not be shown again.'))
+    return redirect('user-settings')
+
+
+# ── Steam account linking ────────────────────────────────────────────────────
+# Attaches a verified SteamID64 to a Profile so Tabletop Simulator box scores can be
+# matched to site profiles by id rather than by display name. Entered either from the
+# settings page (logged in) or from the bot's /link steam (a signed token, possibly
+# logged out) -- see the_gatehouse.services.steam_openid.
+
+STEAM_LINK_SESSION_KEY = 'steam_link_profile_pk'
+
+
+def _steam_return_urls():
+    """(return_to, realm) for the OpenID handshake, from the ONE canonical host.
+
+    Deliberately not build_absolute_uri(): that reads request.get_host(), and
+    ALLOWED_HOSTS accepts both therootdatabase.com and www.therootdatabase.com. Steam
+    pins the user's saved approval to the realm and requires return_to to sit under it,
+    so a host-derived value would yield two different realms depending on which URL the
+    visitor typed. settings.SITE_URL exists precisely for links that must not depend on
+    the Host header, and the bot builds its /link steam URL from the same value.
+    """
+    site = (settings.SITE_URL or '').rstrip('/')
+    return f"{site}{reverse('steam-link-callback')}", f"{site}/"
+
+
+def steam_link_start(request):
+    """Begin the Steam handshake for the profile this visitor may link.
+
+    NOT @login_required, on purpose: the ?t= token path is what lets someone who ran
+    /link steam in Discord -- and may have no site login at all -- complete the flow.
+    """
+    profile = None
+
+    token = request.GET.get('t')
+    if token:
+        profile_pk = read_link_token(token)
+        if profile_pk is None:
+            messages.error(request, _('That Steam link has expired. Run /link steam again to get a new one.'))
+            return redirect('databot-info')
+        profile = Profile.objects.filter(pk=profile_pk).first()
+        if profile is None:
+            messages.error(request, _('That Steam link is no longer valid. Run /link steam again to get a new one.'))
+            return redirect('databot-info')
+    elif request.user.is_authenticated:
+        profile = request.user.profile
+    else:
+        return redirect(settings.LOGIN_URL)
+
+    # The session -- not a query parameter -- is what the callback trusts. Writing it
+    # also gives an anonymous visitor a session cookie, which survives Steam's
+    # top-level GET redirect back under SameSite=Lax.
+    request.session[STEAM_LINK_SESSION_KEY] = profile.pk
+
+    return_to, realm = _steam_return_urls()
+    return redirect(build_redirect_url(return_to, realm))
+
+
+def steam_link_callback(request):
+    """Where Steam sends the user back. Verifies the claim, then stores the id."""
+    profile_pk = request.session.pop(STEAM_LINK_SESSION_KEY, None)
+    landing = 'user-settings' if request.user.is_authenticated else 'databot-info'
+
+    if profile_pk is None:
+        messages.error(request, _('That Steam link expired before it could be completed. Please try again.'))
+        return redirect(landing)
+
+    profile = Profile.objects.filter(pk=profile_pk).first()
+    if profile is None:
+        messages.error(request, _('Could not find the profile to link. Please try again.'))
+        return redirect(landing)
+
+    # Everything in request.GET is attacker-supplied until Steam confirms it.
+    steam_id = verify_response(request.GET)
+    if not steam_id:
+        messages.error(request, _('Could not verify your Steam account. Please try again.'))
+        return redirect(landing)
+
+    # steam_id is unique: check before writing so a duplicate is a message rather than
+    # an IntegrityError. Mirrors the discord_id conflict branch in signals.py.
+    clash = Profile.objects.filter(steam_id=steam_id).exclude(pk=profile.pk).exists()
+    if clash:
+        logger.warning("Steam id already linked to another profile (attempted for profile %s)", profile.pk)
+        messages.error(request, _('That Steam account is already linked to another profile.'))
+        return redirect(landing)
+
+    # Verifying settles this id, so retire every guess about it: the one on this
+    # profile is now redundant, and one on ANY other profile is a wrong guess
+    # that resolution would never reach again (verified outranks assumed). Left
+    # behind it is invisible stale data that will mislead the next reader.
+    with transaction.atomic():
+        Profile.objects.filter(assumed_steam_id=steam_id).exclude(
+            pk=profile.pk).update(assumed_steam_id=None)
+
+        # update_fields is required, not an optimisation: a bare save() re-derives
+        # display_name and runs the avatar-deletion branch in Profile.save().
+        profile.steam_id = steam_id
+        if profile.assumed_steam_id == steam_id:
+            profile.assumed_steam_id = None
+            profile.save(update_fields=['steam_id', 'assumed_steam_id'])
+        else:
+            profile.save(update_fields=['steam_id'])
+
+    messages.success(request, _('Your Steam account is now linked!'))
+    return redirect(landing)
+
+
+@login_required
+@require_POST
+def steam_unlink(request):
+    profile = request.user.profile
+    if profile.steam_id:
+        profile.steam_id = None
+        profile.save(update_fields=['steam_id'])
+        messages.success(request, _('Your Steam account has been unlinked.'))
     return redirect('user-settings')
 
 
@@ -1653,7 +2124,10 @@ def databot_info(request):
 
     return render(request, 'the_gatehouse/databot_info.html', {
         'invite_url': invite_url,
-        'command_groups': list(grouped_commands()),  # [(group, [(name, desc), ...]), ...]
+        # collapse_parents: this page lists every command with no guild to filter
+        # against, so /lookup's nine near-identical subcommand rows are noise here.
+        # /help keeps them expanded -- there they say which lookups a server has.
+        'command_groups': list(grouped_commands(collapse_parents=True)),
         # Same copy /help category:LFG renders; bodies carry inline markup expanded by
         # the `lfg_body` filter.
         'lfg_intro': LFG_HELP_INTRO,
@@ -3056,9 +3530,16 @@ def dismiss_global_message(request):
 
 
 @login_required
-@require_POST
 def dismiss_notification(request, notification_id):
-    """Dismiss a user notification."""
+    """Dismiss a user notification.
+
+    POST is the fetch path used by the X button. GET is deliberately allowed so
+    the "View" link can dismiss server-side and redirect, instead of firing a
+    fetch and racing the navigation that tears it down -- that race is why
+    dismissals were intermittently lost. A GET that clears one of the
+    requester's own notifications is not a meaningful CSRF target, and
+    get_object_or_404 below scopes it to the owner regardless of method.
+    """
     from .models import UserNotification
 
     notification = get_object_or_404(UserNotification, id=notification_id, profile=request.user.profile)
@@ -3067,6 +3548,14 @@ def dismiss_notification(request, notification_id):
     # Return JSON for AJAX requests
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return JsonResponse({'success': True})
+
+    # ?next= carries the notification's related_url. It is stored on the model
+    # and may be absolute, so it must be validated or it becomes an open redirect.
+    next_url = request.GET.get('next') or request.POST.get('next')
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(next_url)
 
     # Redirect back for regular requests
     return redirect(request.META.get('HTTP_REFERER', '/'))

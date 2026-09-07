@@ -12,21 +12,27 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from the_gatehouse.models import DiscordGuild, Profile
+from the_gatehouse.models import (
+    DiscordGuild, Profile, PlayerSchedule, schedules_for,
+)
 from the_databot.models import (
     GuildLFGRole, LFGThread, LFGSeat, LFGDraft, LFGDraftPick,
+    BoxScoreUploadToken,
 )
 from the_databot.services.lfg_game import lfg_option_querysets
 from the_keep.models import (
     Deck, Faction, Hireling, Landmark, Map, StatusChoices, Tweak, Vagabond,
 )
 from the_warroom.services.box_score_import import (
-    BoxScoreImportError, normalize_turns, parse_box_score_json, resolve_import,
+    BoxScoreImportError, assign_assumed_steam_ids, is_plausible_steam_id,
+    normalize_turns, parse_box_score_json, resolve_import,
+    resolve_participant_player, resolve_participant_players,
     validate_participants,
 )
 from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
 from the_warroom.forms import GameCreateForm
 from the_databot.tasks import create_match_threads_task
+from the_warroom.services.grouping import GroupingService
 from the_warroom.models import (
     CompetitionStatus, Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup,
     Round, Stage, StageParticipant, Tournament, TournamentPlayer,
@@ -1917,6 +1923,61 @@ class BoxScoreImportResolveTests(TestCase):
                                players=Profile.objects.none())
         self.assertIn('not available for this game', result.skipped[0])
 
+    # ── Steam id matching ───────────────────────────────────────────────────
+
+    def test_a_steam_id_resolves_the_player(self):
+        self.player.steam_id = '76561197960265728'
+        self.player.save(update_fields=['steam_id'])
+        result = self._resolve(
+            [{'turn_order': 1, 'player_steam_id': self.player.steam_id}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+        self.assertEqual(result.skipped, [])
+
+    def test_a_verified_steam_id_beats_a_slug_naming_someone_else(self):
+        """The Steam id was proven through Steam's OpenID endpoint; the slug is
+        just a name the exporter wrote down."""
+        other = Profile.objects.create(discord='bsother', display_name='Other')
+        self.player.steam_id = '76561197960265728'
+        self.player.save(update_fields=['steam_id'])
+        result = self._resolve([{'turn_order': 1,
+                                 'player_steam_id': self.player.steam_id,
+                                 'player': other.slug}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+
+    def test_an_unknown_steam_id_falls_back_to_the_slug(self):
+        result = self._resolve([{'turn_order': 1,
+                                 'player_steam_id': '76561190000000000',
+                                 'player': self.player.slug}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+
+    def test_a_high_range_steam_id_is_matched(self):
+        """Regression: a "7656119" prefix match would reject real accounts."""
+        self.player.steam_id = '76561200107749376'
+        self.player.save(update_fields=['steam_id'])
+        result = self._resolve(
+            [{'turn_order': 1, 'player_steam_id': self.player.steam_id}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+
+    def test_a_steam_id_outside_the_roster_does_not_resolve(self):
+        self.player.steam_id = '76561197960265728'
+        self.player.save(update_fields=['steam_id'])
+        result = self._resolve(
+            [{'turn_order': 1, 'player_steam_id': self.player.steam_id}],
+            players=Profile.objects.none())
+        # A seat that resolved nothing yields no seat entry at all, so the skip
+        # message is the whole signal -- and it must say what actually failed.
+        self.assertIn('Steam account', result.skipped[0])
+        self.assertFalse(any('player' in s['fields'] for s in result.seats))
+
+    def test_the_old_format_still_resolves_exactly_as_before(self):
+        """No player_steam_id anywhere -- the regression guard for every export
+        written before the exporter learned to emit one."""
+        result = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
+                                 'player': self.player.slug}])
+        self.assertEqual(result.seats[0]['fields']['player'], self.player.pk)
+        self.assertEqual(result.seats[0]['fields']['faction'], self.marquise.pk)
+        self.assertEqual(result.skipped, [])
+
     def test_tournament_score_above_zero_marks_a_sub_30_win(self):
         # Without this a dominance/coalition/timed win would import with no
         # winner: the form only auto-checks Win at 30+.
@@ -2077,3 +2138,955 @@ class LFGThreadTurnsDataTests(TestCase):
         thread = LFGThread.objects.create(thread_id="t-empty")
         self.assertEqual(thread.turns_data, [])
         thread.clean()
+
+
+class BoxScoreUploadApiTests(TestCase):
+    """The Tabletop Simulator upload endpoint.
+
+    A TTS object cannot keep a secret, so it ships with no credential: a player
+    already authorized for the thread mints a one-time token and pastes it in.
+    These tests are mostly about what that token CANNOT do.
+    """
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.alice = Profile.objects.create(discord='ttsalice', discord_id='801',
+                                            display_name='Alice')
+        self.bob = Profile.objects.create(discord='ttsbob', discord_id='802',
+                                          display_name='Bob')
+        self.thread = LFGThread.objects.create(thread_id='tts-thread-1')
+        self.thread.players.set([self.alice, self.bob])
+
+    def _doc(self, **kw):
+        return {'participants': [
+            {'turn_order': 1, 'player': self.alice.slug,
+             'turns': [{'turn': 1, 'score': 3}]},
+            {'turn_order': 2, 'player': self.bob.slug,
+             'turns': [{'turn': 1, 'score': 5}]},
+        ], **kw}
+
+    def _post(self, doc, token_raw, raw_body=None):
+        body = raw_body if raw_body is not None else json.dumps(doc)
+        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            response = self.client.post(
+                reverse('api-boxscore-upload'), data=body,
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
+        return response, prompt
+
+    def _token(self):
+        return BoxScoreUploadToken.issue(self.thread, self.alice)
+
+    # ── the happy path ──
+
+    def test_a_clean_upload_applies_without_prompting(self):
+        _t, raw = self._token()
+        response, prompt = self._post(self._doc(), raw)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'applied')
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+        self.assertFalse(prompt.called)
+
+    def test_the_response_carries_a_printable_message_and_record_url(self):
+        _t, raw = self._token()
+        body = self._post(self._doc(), raw)[0].json()
+        self.assertTrue(body['message'])
+        self.assertIn('/record/game/?lfg=', body['record_url'])
+
+    def test_a_dashed_lowercase_token_is_accepted(self):
+        """Humans retype these; normalize() folds case and strips separators."""
+        _t, raw = self._token()
+        typed = BoxScoreUploadToken.group(raw).lower()
+        self.assertEqual(self._post(self._doc(), typed)[0].status_code, 200)
+
+    # ── what the token cannot do ──
+
+    def test_a_token_works_exactly_once(self):
+        _t, raw = self._token()
+        self._post(self._doc(), raw)
+        replay = self._post(self._doc(), raw)[0]
+        self.assertEqual(replay.status_code, 401)
+        self.assertEqual(replay.json()['error'], 'token_used')
+
+    def test_an_expired_token_is_refused(self):
+        from datetime import timedelta as td
+        from django.utils import timezone as dj_timezone
+        token, raw = self._token()
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            expires_at=dj_timezone.now() - td(minutes=1))
+        response = self._post(self._doc(), raw)[0]
+        self.assertEqual(response.json()['error'], 'token_expired')
+
+    def test_an_unknown_token_and_a_wrong_thread_are_indistinguishable(self):
+        """Otherwise the endpoint is an oracle for which threads and tokens
+        exist. Used/expired ARE distinguished -- those are states of a token the
+        holder legitimately had."""
+        other = LFGThread.objects.create(thread_id='tts-thread-2')
+        _t, other_raw = BoxScoreUploadToken.issue(other, self.alice)
+        unknown = self._post(self._doc(), 'AAAABBBBCCCC')[0]
+        self.assertEqual(unknown.json()['error'], 'invalid_token')
+        # A token for another thread resolves, but stages onto ITS thread -- it
+        # can never write to this one.
+        self._post(self._doc(), other_raw)
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)
+
+    def test_a_missing_header_is_refused(self):
+        response = self.client.post(
+            reverse('api-boxscore-upload'), data=json.dumps(self._doc()),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['error'], 'invalid_token')
+
+    def test_an_already_recorded_game_is_refused(self):
+        game = Game.objects.create()
+        self.thread.game = game
+        self.thread.save(update_fields=['game'])
+        _t, raw = self._token()
+        response = self._post(self._doc(), raw)[0]
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['error'], 'already_recorded')
+
+    # ── malformed input fails synchronously, so TTS can report it ──
+
+    def test_invalid_json_is_reported_to_the_client(self):
+        _t, raw = self._token()
+        response = self._post(None, raw, raw_body='not json at all')[0]
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_box_score')
+        self.assertTrue(response.json()['message'])
+
+    def test_a_file_with_no_participants_is_reported(self):
+        _t, raw = self._token()
+        response = self._post({'participants': []}, raw)[0]
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_absurd_participant_count_is_refused(self):
+        _t, raw = self._token()
+        doc = {'participants': [{'turn_order': i + 1} for i in range(40)]}
+        response = self._post(doc, raw)[0]
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_oversize_body_is_refused_before_parsing(self):
+        _t, raw = self._token()
+        response = self._post(None, raw, raw_body='x' * (300 * 1024))[0]
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json()['error'], 'too_large')
+
+    # ── a mismatch continues in Discord ──
+
+    def test_a_mismatch_parks_the_payload_and_prompts_in_the_thread(self):
+        stranger = Profile.objects.create(discord='ttsstranger', discord_id='803')
+        token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': stranger.slug,
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        response, prompt = self._post(doc, raw)
+
+        self.assertEqual(response.json()['status'], 'pending_confirmation')
+        self.thread.refresh_from_db()
+        self.assertFalse(self.thread.turns_data)   # nothing written yet
+        self.assertTrue(prompt.called)
+
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.PENDING)
+        self.assertTrue(token.payload)
+        self.assertTrue(token.prompt_expires_at)
+
+    def test_the_response_never_names_players(self):
+        """import_box_score warns that a careless response leaks a roster; the
+        same applies here, so details live in the thread instead."""
+        stranger = Profile.objects.create(discord='ttssecret', discord_id='804',
+                                          display_name='Secret Person')
+        _t, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': stranger.slug,
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        body = json.dumps(self._post(doc, raw)[0].json())
+        self.assertNotIn('Secret Person', body)
+        self.assertNotIn(stranger.slug, body)
+        self.assertNotIn('Alice', body)
+
+    def test_a_hostile_label_is_bounded_before_it_is_stored(self):
+        """The label is RENDERED into a Discord message and the file is supplied
+        by an unauthenticated client -- unbounded, it could blow past Discord's
+        2000-char content limit or smuggle markdown into the comparison."""
+        token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': 'x' * 5000 + '@everyone `**',
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        self._post(doc, raw)
+        token.refresh_from_db()
+        label = token.payload['seats'][0]['label']
+        self.assertLessEqual(len(label), 32)
+        for char in '`*@':
+            self.assertNotIn(char, label)
+
+    def test_the_raw_identifiers_are_kept_for_a_retry(self):
+        """Try Again re-resolves from these after someone links their account."""
+        token, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': 'nobody-here',
+             'player_steam_id': '76561197960265728',
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        self._post(doc, raw)
+        token.refresh_from_db()
+        seat = token.payload['seats'][0]
+        self.assertEqual(seat['player_slug'], 'nobody-here')
+        self.assertEqual(seat['player_steam_id'], '76561197960265728')
+
+    def test_a_match_threads_roster_is_never_touched(self):
+        """A series thread's roster lives in the bracket, not thread.players --
+        so an upload must not touch it. Driven through _boxscore_apply directly:
+        standing up a Round/Stage/Series here would test that wiring instead of
+        this rule."""
+        from the_databot import discord_interactions as di
+        stranger = Profile.objects.create(discord='ttsoutsider', discord_id='805')
+        before = set(self.thread.players.values_list('pk', flat=True))
+        pending = {
+            'entries': [], 'items': [], 'notes': [], 'component_titles': [],
+            'filename': 'tts', 'thread_pk': self.thread.pk,
+            'seats': [{'profile_pk': stranger.pk, 'label': 'Outsider',
+                       'faction_slug': None, 'vagabond_slug': None,
+                       'captain_slugs': [], 'discarded_slug': None}],
+        }
+        self.thread.series_id = 1     # truthy: the branch only checks series_id
+        with mock.patch.object(di, '_boxscore_reseat', return_value=[]):
+            di._boxscore_apply(self.thread, pending, self.thread.thread_id)
+        self.assertEqual(set(self.thread.players.values_list('pk', flat=True)),
+                         before)
+
+
+class _AvailabilityFixtureMixin:
+    """A tournament, stage, round, and a roster with hand-picked availability.
+
+    Hours are chosen so every overlap below is arithmetic you can check by eye:
+        A = {10, 11, 12, 13}
+        B = {11, 12, 13, 14}
+        C = {12, 13}
+        D = no schedule at all
+    -> intersection of A/B/C = {12, 13}; union = {10..14}
+    """
+
+    A_HOURS = [10, 11, 12, 13]
+    B_HOURS = [11, 12, 13, 14]
+    C_HOURS = [12, 13]
+
+    def setUp(self):
+        # force_login fires user_logged_in, whose handler builds absolute URIs and
+        # enqueues Discord work that a bare test request can't support.
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        super().setUp()
+        self.tournament = Tournament.objects.create(
+            name="Availability Tournament", is_active=True
+        )
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1, is_active=True,
+            grouping_type=Stage.GroupingTypeChoices.AVAILABILITY,
+        )
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1, is_active=True
+        )
+
+    def _player(self, name, hours=None, tournament_hours=None):
+        """A TournamentPlayer, optionally with a general and/or tournament schedule."""
+        user = User.objects.create_user(username=name, password="x")
+        profile = Profile.objects.filter(user=user).first() or Profile.objects.create(
+            user=user, discord=name, display_name=name
+        )
+        if hours is not None:
+            PlayerSchedule.objects.create(
+                profile=profile, tournament=None, available_hours=hours
+            )
+        if tournament_hours is not None:
+            PlayerSchedule.objects.create(
+                profile=profile, tournament=self.tournament,
+                available_hours=tournament_hours,
+            )
+        tp = TournamentPlayer.objects.create(
+            tournament=self.tournament, profile=profile,
+            status=TournamentPlayer.StatusChoices.REGISTERED,
+        )
+        StageParticipant.objects.create(
+            stage=self.stage, tournament_player=tp,
+            status=StageParticipant.ParticipantStatus.ACTIVE,
+        )
+        return tp
+
+    def _group_with(self, *tournament_players):
+        group = PlayerGroup.objects.create(round=self.round, group_number=1)
+        for tp in tournament_players:
+            group.tournament_players.add(tp)
+        return group
+
+
+class SchedulesForTests(_AvailabilityFixtureMixin, TestCase):
+    """The bulk resolver and its tournament -> general precedence."""
+
+    def test_prefers_tournament_schedule_over_general(self):
+        tp = self._player("pref", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        resolved = schedules_for([tp.profile_id], self.tournament)
+        self.assertEqual(resolved[tp.profile_id], self.C_HOURS)
+
+    def test_falls_back_to_general_schedule(self):
+        """The core of the request: a general schedule counts for a tournament."""
+        tp = self._player("gen", hours=self.A_HOURS)
+        resolved = schedules_for([tp.profile_id], self.tournament)
+        self.assertEqual(resolved[tp.profile_id], self.A_HOURS)
+
+    def test_empty_tournament_row_does_not_mask_general(self):
+        """Mirrors schedule_for()'s `and specific.available_hours` condition."""
+        tp = self._player("empty", hours=self.A_HOURS, tournament_hours=[])
+        resolved = schedules_for([tp.profile_id], self.tournament)
+        self.assertEqual(resolved[tp.profile_id], self.A_HOURS)
+
+    def test_omits_players_with_no_schedule(self):
+        tp = self._player("none")
+        resolved = schedules_for([tp.profile_id], self.tournament)
+        self.assertNotIn(tp.profile_id, resolved)
+
+    def test_empty_input_returns_empty_mapping(self):
+        self.assertEqual(schedules_for([], self.tournament), {})
+
+    def test_resolves_a_roster_in_two_queries(self):
+        """The whole reason this helper exists -- per-profile lookups were N+1."""
+        tps = [self._player(f"bulk{i}", hours=self.A_HOURS) for i in range(20)]
+        profile_ids = [tp.profile_id for tp in tps]
+        with CaptureQueriesContext(connection) as ctx:
+            resolved = schedules_for(profile_ids, self.tournament)
+        self.assertEqual(len(resolved), 20)
+        self.assertEqual(len(ctx.captured_queries), 2)
+
+
+class RecalculateOverlapTests(_AvailabilityFixtureMixin, TestCase):
+    """PlayerGroup overlap, now sourced from schedules."""
+
+    def test_computes_known_intersection(self):
+        group = self._group_with(
+            self._player("a", hours=self.A_HOURS),
+            self._player("b", hours=self.B_HOURS),
+            self._player("c", hours=self.C_HOURS),
+        )
+        group.recalculate_overlap()
+        group.refresh_from_db()
+
+        self.assertEqual(group.overlap_hours, [12, 13])
+        self.assertEqual(group.all_hours, [10, 11, 12, 13, 14])
+        self.assertEqual(group.total_overlap_hours, 2)
+        self.assertEqual(group.best_consecutive_block, 2)
+        self.assertEqual(group.days_with_overlap, [0])
+
+    def test_general_schedule_player_counts_toward_overlap(self):
+        """Previously a player without a survey contributed nothing at all."""
+        group = self._group_with(
+            self._player("g1", hours=self.A_HOURS),
+            self._player("g2", hours=self.B_HOURS),
+        )
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [11, 12, 13])
+
+    def test_tournament_schedule_overrides_general(self):
+        group = self._group_with(
+            self._player("o1", hours=self.A_HOURS),
+            # General says A, but this tournament says C -> C must win.
+            self._player("o2", hours=self.A_HOURS, tournament_hours=self.C_HOURS),
+        )
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, self.C_HOURS)
+
+    def test_group_without_schedules_clears_metrics(self):
+        group = self._group_with(self._player("n1"), self._player("n2"))
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [])
+        self.assertEqual(group.total_overlap_hours, 0)
+
+    def test_edited_schedule_takes_effect_without_resync(self):
+        """Schedules are read live, so the old staleness class is gone."""
+        p1 = self._player("e1", hours=self.A_HOURS)
+        group = self._group_with(p1, self._player("e2", hours=self.A_HOURS))
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, self.A_HOURS)
+
+        schedule = PlayerSchedule.objects.get(profile=p1.profile, tournament=None)
+        schedule.available_hours = self.C_HOURS
+        schedule.save(update_fields=['available_hours'])
+
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, self.C_HOURS)
+
+    def test_accepts_a_prefetched_mapping(self):
+        """Loop callers pass the roster mapping in rather than re-querying."""
+        p1 = self._player("pf1", hours=self.A_HOURS)
+        p2 = self._player("pf2", hours=self.B_HOURS)
+        group = self._group_with(p1, p2)
+        schedules = schedules_for([p1.profile_id, p2.profile_id], self.tournament)
+
+        with CaptureQueriesContext(connection) as ctx:
+            group.recalculate_overlap(schedules=schedules)
+        # The members query and the save, but no schedule lookup.
+        self.assertLessEqual(len(ctx.captured_queries), 4)
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [11, 12, 13])
+
+
+class GroupingFromSchedulesTests(_AvailabilityFixtureMixin, TestCase):
+    """The grouping service reads availability from schedules."""
+
+    def test_generates_groups_from_general_schedules(self):
+        """A roster that never answered a survey can now be grouped at all."""
+        # get_min_players() defaults to 4, so a smaller roster forms no group.
+        for i in range(4):
+            self._player(f"grp{i}", hours=self.A_HOURS)
+
+        GroupingService.generate_availability_groups(self.stage, self.round)
+
+        groups = list(self.round.player_groups.all())
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].tournament_players.count(), 4)
+        self.assertEqual(groups[0].overlap_hours, self.A_HOURS)
+
+    def test_players_without_availability_are_left_ungrouped(self):
+        for i in range(4):
+            self._player(f"has{i}", hours=self.A_HOURS)
+        no_hours = self._player("without")
+
+        GroupingService.generate_availability_groups(self.stage, self.round)
+
+        grouped_ids = set(
+            TournamentPlayer.objects.filter(player_groups__round=self.round)
+            .values_list('id', flat=True)
+        )
+        self.assertNotIn(no_hours.id, grouped_ids)
+
+    def test_manually_added_player_with_general_schedule_is_grouped(self):
+        """The headline behaviour change: no survey response required."""
+        for i in range(3):
+            self._player(f"seed{i}", hours=self.A_HOURS)
+
+        user = User.objects.create_user(username="manual", password="x")
+        profile = Profile.objects.filter(user=user).first() or Profile.objects.create(
+            user=user, discord="manual", display_name="manual"
+        )
+        PlayerSchedule.objects.create(
+            profile=profile, tournament=None, available_hours=self.A_HOURS
+        )
+        # add_player() returns None and fans the player out to active stages itself.
+        self.tournament.add_player(profile)
+        tp = TournamentPlayer.objects.get(tournament=self.tournament, profile=profile)
+
+        GroupingService.generate_availability_groups(self.stage, self.round)
+
+        grouped_ids = set(
+            TournamentPlayer.objects.filter(player_groups__round=self.round)
+            .values_list('id', flat=True)
+        )
+        self.assertIn(tp.id, grouped_ids)
+
+
+class SurveyAvailabilityWriteTests(_AvailabilityFixtureMixin, TestCase):
+    """Availability is written by the respondent's own submission.
+
+    It used to be written by the grouping sync, which runs over EVERY accepted
+    response on every call -- so one player submitting rewrote everyone else's
+    hours from their older responses. These pin the new, per-player behaviour.
+    """
+
+    def _response_stub(self, profile, hours):
+        """A stand-in for a SurveyResponse with availability answers."""
+        stub = mock.Mock()
+        stub.pk = 1
+        stub.profile_id = profile.id
+        stub.get_combined_availability_hours.return_value = set(hours)
+        return stub
+
+    def _survey_stub(self, series_id, has_availability=True):
+        survey = mock.Mock()
+        survey.series_id = series_id
+        # Explicit, not left to Mock's truthy default: this is the gate that
+        # decides whether a submission may write a PlayerSchedule at all.
+        survey.has_availability_questions.return_value = has_availability
+        return survey
+
+    def test_submission_creates_tournament_schedule(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("sub")
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(tp.profile, self.A_HOURS),
+        )
+        schedule = PlayerSchedule.objects.get(
+            profile=tp.profile, tournament=self.tournament
+        )
+        self.assertEqual(schedule.available_hours, self.A_HOURS)
+
+    def test_resubmitting_updates_the_same_row(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("resub")
+        survey = self._survey_stub(self.tournament.id)
+        _save_response_availability(survey, self._response_stub(tp.profile, self.A_HOURS))
+        _save_response_availability(survey, self._response_stub(tp.profile, self.C_HOURS))
+
+        rows = PlayerSchedule.objects.filter(
+            profile=tp.profile, tournament=self.tournament
+        )
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.first().available_hours, self.C_HOURS)
+
+    def test_submission_does_not_touch_another_players_schedule(self):
+        """The bug the move exists to prevent."""
+        from the_tavern.views import _save_response_availability
+
+        player_a = self._player("writer")
+        player_b = self._player("bystander", tournament_hours=self.C_HOURS)
+
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(player_a.profile, self.A_HOURS),
+        )
+
+        untouched = PlayerSchedule.objects.get(
+            profile=player_b.profile, tournament=self.tournament
+        )
+        self.assertEqual(untouched.available_hours, self.C_HOURS)
+
+    def test_survey_without_a_tournament_writes_nothing(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("standalone")
+        _save_response_availability(
+            self._survey_stub(None),
+            self._response_stub(tp.profile, self.A_HOURS),
+        )
+        self.assertFalse(PlayerSchedule.objects.filter(profile=tp.profile).exists())
+
+    def test_a_survey_that_never_asked_writes_nothing(self):
+        """The guard moved from "no hours" to "the survey has no availability
+        questions". It runs on EVERY submission for a series survey, so an
+        unrelated poll must not be able to clear what the player set on
+        /availability -- but a deliberately-empty availability answer must be
+        able to (see test_an_empty_answer_clears_the_schedule)."""
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("noanswers")
+        _save_response_availability(
+            self._survey_stub(self.tournament.id, has_availability=False),
+            self._response_stub(tp.profile, []),
+        )
+        self.assertFalse(PlayerSchedule.objects.filter(profile=tp.profile).exists())
+
+    def test_an_empty_answer_clears_the_schedule(self):
+        """"Free at no hour" is an answer, and has to be recordable."""
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("clearing")
+        PlayerSchedule.objects.create(
+            profile=tp.profile, tournament=self.tournament,
+            available_hours=list(self.A_HOURS))
+
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(tp.profile, []),
+        )
+        schedule = PlayerSchedule.objects.get(
+            profile=tp.profile, tournament=self.tournament)
+        self.assertEqual(schedule.available_hours, [])
+
+    def test_submission_never_writes_a_general_schedule(self):
+        from the_tavern.views import _save_response_availability
+
+        tp = self._player("nogeneral")
+        _save_response_availability(
+            self._survey_stub(self.tournament.id),
+            self._response_stub(tp.profile, self.A_HOURS),
+        )
+        self.assertFalse(
+            PlayerSchedule.objects.filter(profile=tp.profile, tournament=None).exists()
+        )
+
+    def test_grouping_sync_no_longer_writes_availability(self):
+        """sync_survey_responses_to_tournament still enrols, but writes no hours."""
+        tp = self._player("syncme", tournament_hours=self.C_HOURS)
+
+        survey = mock.Mock()
+        survey.responses.filter.return_value.select_related.return_value.order_by.return_value = []
+        survey.has_waitlist = False
+        survey.waitlist_threshold = None
+        survey.stage_id = None
+
+        GroupingService.sync_survey_responses_to_tournament(self.tournament, survey)
+
+        unchanged = PlayerSchedule.objects.get(
+            profile=tp.profile, tournament=self.tournament
+        )
+        self.assertEqual(unchanged.available_hours, self.C_HOURS)
+
+
+class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
+    """/availability/compare/ -- the per-match availability grid and its access rule."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('availability-compare')
+
+    def _series_with(self, *tournament_players):
+        """A MatchSeries seating these players, as the matches page would have."""
+        series = MatchSeries.objects.create(round=self.round)
+        for i, tp in enumerate(tournament_players, start=1):
+            participant = StageParticipant.objects.get(
+                stage=self.stage, tournament_player=tp
+            )
+            MatchSeat.objects.create(
+                series=series, stage_participant=participant, seat_number=i
+            )
+        return series
+
+    def _login(self, tp):
+        self.client.force_login(tp.profile.user)
+
+    def test_seated_player_can_view(self):
+        a = self._player("cmp_a", hours=self.A_HOURS)
+        b = self._player("cmp_b", hours=self.B_HOURS)
+        series = self._series_with(a, b)
+
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 2)
+
+    def test_tournament_moderator_can_view(self):
+        a = self._player("mod_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+
+        mod = self._player("the_mod", hours=self.B_HOURS)
+        self.tournament.moderators.add(mod.profile)
+
+        self._login(mod)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+
+    def test_unrelated_logged_in_user_is_told_who_may_view(self):
+        """Availability is only for the people it concerns -- but the page now
+        RENDERS the refusal instead of 403-ing, so someone following a link from
+        Discord is told who may open it. It must still resolve no HOURS."""
+        a = self._player("priv_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+
+        outsider = User.objects.create_user(username="outsider", password="x")
+        Profile.objects.filter(user=outsider).first() or Profile.objects.create(
+            user=outsider, discord="outsider", display_name="outsider"
+        )
+        self.client.force_login(outsider)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+        self.assertEqual(response.context['player_count'], 0)
+        # No AVAILABILITY. Names are a deliberate exception -- they go in the
+        # link preview so a URL pasted into Discord unfurls usefully.
+        self.assertEqual(response.context['player_hours_json'], {})
+
+    def test_anonymous_gets_the_page_and_a_way_back_to_it(self):
+        """Was a redirect. The link is handed out in Discord, so bouncing an
+        anonymous visitor through OAuth told them nothing about what they had
+        followed -- now they are shown who may open it, and a login that
+        returns them here."""
+        a = self._player("anon_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view'])
+        self.assertEqual(response.context['player_hours_json'], {})
+        body = response.content.decode()
+        self.assertIn('Log in with Discord', body)
+        self.assertIn(f'next=/availability/compare/%3Fseries%3D{series.id}', body)
+
+    def test_hours_are_shown_in_the_viewers_timezone(self):
+        a = self._player("tz_a", hours=[10, 11])
+        series = self._series_with(a)
+        a.profile.timezone = 'America/New_York'   # UTC-5 in January
+        a.profile.save(update_fields=['timezone'])
+
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        # 10:00/11:00 UTC -> 05:00/06:00 in New York.
+        self.assertEqual(response.context['players'][0]['hours'], [5, 6])
+
+    def test_tournament_schedule_wins_over_general(self):
+        a = self._player("ovr_a", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        series = self._series_with(a)
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.context['players'][0]['hours'], self.C_HOURS)
+
+    def test_series_with_no_seats_renders_a_message(self):
+        viewer = self._player("empty_mod", hours=self.A_HOURS)
+        self.tournament.moderators.add(viewer.profile)
+        series = MatchSeries.objects.create(round=self.round)
+
+        self._login(viewer)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 0)
+
+    def test_seated_players_without_availability_render_a_message(self):
+        a = self._player("noavail_a")
+        b = self._player("noavail_b")
+        series = self._series_with(a, b)
+
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 2)
+        self.assertFalse(response.context['has_any_availability'])
+
+    def test_edit_button_points_at_the_right_schedule(self):
+        # Only a general schedule -> the general page.
+        a = self._player("edit_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertEqual(response.context['edit_url'], reverse('availability'))
+
+        # A tournament schedule exists -> that tournament's page.
+        PlayerSchedule.objects.create(
+            profile=a.profile, tournament=self.tournament, available_hours=self.C_HOURS
+        )
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertIn(f'tournament={self.tournament.slug}', response.context['edit_url'])
+
+    def test_no_edit_button_for_a_viewer_who_is_not_playing(self):
+        a = self._player("noedit_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+        mod = self._player("noedit_mod", hours=self.B_HOURS)
+        self.tournament.moderators.add(mod.profile)
+
+        self._login(mod)
+        response = self.client.get(self.url, {'series': series.id})
+        self.assertIsNone(response.context['edit_url'])
+
+    def test_malformed_series_id_is_a_404_not_a_crash(self):
+        """The id comes off the query string, so it must not reach the ORM raw."""
+        viewer = self._player("bad_id", hours=self.A_HOURS)
+        self._login(viewer)
+        self.assertEqual(self.client.get(self.url, {'series': 'abc'}).status_code, 404)
+        self.assertEqual(self.client.get(self.url, {'series': '999999'}).status_code, 404)
+
+    def test_players_form_compares_arbitrary_players(self):
+        """The reusable path a future player picker will use."""
+        a = self._player("gen_a", hours=self.A_HOURS)
+        b = self._player("gen_b", hours=self.B_HOURS)
+        self._login(a)
+        response = self.client.get(
+            self.url, {'players': f'{a.profile.slug},{b.profile.slug}'}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 2)
+
+    def test_players_form_excludes_players_you_share_no_tournament_with(self):
+        a = self._player("share_a", hours=self.A_HOURS)
+        stranger_user = User.objects.create_user(username="stranger", password="x")
+        stranger = Profile.objects.filter(user=stranger_user).first() or Profile.objects.create(
+            user=stranger_user, discord="stranger", display_name="stranger"
+        )
+        PlayerSchedule.objects.create(
+            profile=stranger, tournament=None, available_hours=self.A_HOURS
+        )
+
+        self._login(a)
+        response = self.client.get(
+            self.url, {'players': f'{a.profile.slug},{stranger.slug}'}
+        )
+        names = [p['profile'].id for p in response.context['players']]
+        self.assertIn(a.profile_id, names)
+        self.assertNotIn(stranger.id, names)
+
+
+class MatchesPageAvailabilityButtonTests(_AvailabilityFixtureMixin, TestCase):
+    """The card button appears only where it leads somewhere useful."""
+
+    def _series_with(self, *tournament_players):
+        series = MatchSeries.objects.create(round=self.round)
+        for i, tp in enumerate(tournament_players, start=1):
+            participant = StageParticipant.objects.get(
+                stage=self.stage, tournament_player=tp
+            )
+            MatchSeat.objects.create(
+                series=series, stage_participant=participant, seat_number=i
+            )
+        return series
+
+    def test_flag_is_true_when_a_seated_player_has_availability(self):
+        series = self._series_with(
+            self._player("btn_a", hours=self.A_HOURS), self._player("btn_b")
+        )
+        from the_warroom.views import _attach_series_availability
+        _attach_series_availability([series], self.tournament)
+        self.assertTrue(series.has_availability)
+
+    def test_flag_is_false_when_nobody_has_availability(self):
+        series = self._series_with(self._player("btn_c"), self._player("btn_d"))
+        from the_warroom.views import _attach_series_availability
+        _attach_series_availability([series], self.tournament)
+        self.assertFalse(series.has_availability)
+
+    def test_flag_is_false_for_a_series_with_no_seats(self):
+        series = MatchSeries.objects.create(round=self.round)
+        from the_warroom.views import _attach_series_availability
+        _attach_series_availability([series], self.tournament)
+        self.assertFalse(series.has_availability)
+
+    def test_resolves_every_series_in_two_queries(self):
+        """One bulk lookup for the page, not one per series."""
+        all_series = [
+            self._series_with(self._player(f"bulk_{i}", hours=self.A_HOURS))
+            for i in range(5)
+        ]
+        from the_warroom.views import _attach_series_availability
+        with CaptureQueriesContext(connection) as ctx:
+            _attach_series_availability(all_series, self.tournament)
+        schedule_queries = [
+            q for q in ctx.captured_queries if 'playerschedule' in q['sql'].lower()
+        ]
+        self.assertEqual(len(schedule_queries), 2)
+
+
+class ParticipantResolutionTests(TestCase):
+    """Three tiers of identity, in descending order of trust: a VERIFIED steam
+    id, an ASSUMED one (a human's answer at Gate 0), then the slug -- which is
+    derived from the Discord name and so is a name match in an id's clothing."""
+
+    STEAM = "76561198000000201"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.alice = Profile.objects.create(discord="resalice", discord_id="801")
+        self.bob = Profile.objects.create(discord="resbob", discord_id="802")
+
+    def _both(self, participant, queryset=None):
+        """(single, batched) results -- the two resolvers must never disagree."""
+        qs = queryset if queryset is not None else Profile.objects.all()
+        return (resolve_participant_player(participant, qs),
+                resolve_participant_players([participant], qs)[0])
+
+    def test_an_assumed_id_matches_when_nothing_is_verified(self):
+        self.bob.assumed_steam_id = self.STEAM
+        self.bob.save(update_fields=["assumed_steam_id"])
+        single, batched = self._both({"player_steam_id": self.STEAM})
+        self.assertEqual(single, self.bob)
+        self.assertEqual(batched, self.bob)
+
+    def test_a_verified_id_beats_another_profiles_assumed_id(self):
+        """The invariant the whole design rests on. Because resolution exhausts
+        the verified tier first, an assumed id that duplicates a verified one is
+        unreachable rather than wrong -- which is why assign_assumed_steam_ids
+        needs no guard against writing one. Reorder the tiers and that stops
+        being true."""
+        self.alice.steam_id = self.STEAM
+        self.alice.save(update_fields=["steam_id"])
+        self.bob.assumed_steam_id = self.STEAM
+        self.bob.save(update_fields=["assumed_steam_id"])
+
+        single, batched = self._both({"player_steam_id": self.STEAM})
+        self.assertEqual(single, self.alice)
+        self.assertEqual(batched, self.alice)
+
+    def test_an_assumed_id_beats_a_slug(self):
+        """A deliberate answer about a Steam account outranks a name."""
+        self.bob.assumed_steam_id = self.STEAM
+        self.bob.save(update_fields=["assumed_steam_id"])
+        single, batched = self._both(
+            {"player": self.alice.slug, "player_steam_id": self.STEAM})
+        self.assertEqual(single, self.bob)
+        self.assertEqual(batched, self.bob)
+
+    def test_the_slug_still_matches_when_no_steam_id_does(self):
+        """Kept as a last resort: a hand-authored file may carry no id at all."""
+        single, batched = self._both({"player": self.alice.slug})
+        self.assertEqual(single, self.alice)
+        self.assertEqual(batched, self.alice)
+
+    def test_an_assumed_id_outside_the_queryset_is_not_pulled_in(self):
+        """Scoping still holds for the new tier: someone who isn't playing
+        cannot be seated by it."""
+        self.bob.assumed_steam_id = self.STEAM
+        self.bob.save(update_fields=["assumed_steam_id"])
+        only_alice = Profile.objects.filter(pk=self.alice.pk)
+        single, batched = self._both({"player_steam_id": self.STEAM},
+                                     queryset=only_alice)
+        self.assertIsNone(single)
+        self.assertIsNone(batched)
+
+
+class AssumedSteamIdWriteTests(TestCase):
+    """Persisting a Gate 0 answer. Writes assumed_steam_id, never steam_id."""
+
+    STEAM = "76561198000000301"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.alice = Profile.objects.create(discord="wralice", discord_id="811")
+        self.bob = Profile.objects.create(discord="wrbob", discord_id="812")
+
+    def test_it_writes_the_assumed_field_and_not_the_verified_one(self):
+        self.assertEqual(assign_assumed_steam_ids([(self.alice.pk, self.STEAM)]), 1)
+        self.alice.refresh_from_db()
+        self.assertEqual(self.alice.assumed_steam_id, self.STEAM)
+        self.assertIsNone(self.alice.steam_id)
+
+    def test_reassigning_an_id_releases_the_previous_holder(self):
+        """assumed_steam_id is unique=True, so without the release this raises
+        IntegrityError -- inside a Discord interaction, where an unhandled
+        exception is a 500 rather than a message."""
+        assign_assumed_steam_ids([(self.alice.pk, self.STEAM)])
+        assign_assumed_steam_ids([(self.bob.pk, self.STEAM)])
+
+        self.alice.refresh_from_db()
+        self.bob.refresh_from_db()
+        self.assertIsNone(self.alice.assumed_steam_id)
+        self.assertEqual(self.bob.assumed_steam_id, self.STEAM)
+
+    def test_an_over_long_id_is_refused(self):
+        """player_steam_id is cleaned to 100 chars but the column holds 17.
+        SQLite stores the overflow silently, so this asserts the REJECTION --
+        production is PostgreSQL, which would raise DataError instead."""
+        self.assertFalse(is_plausible_steam_id("7" * 40))
+        self.assertEqual(assign_assumed_steam_ids([(self.alice.pk, "7" * 40)]), 0)
+        self.alice.refresh_from_db()
+        self.assertIsNone(self.alice.assumed_steam_id)
+
+    def test_a_non_numeric_id_is_refused(self):
+        self.assertFalse(is_plausible_steam_id("abcdefghijklmnopq"))
+        self.assertEqual(
+            assign_assumed_steam_ids([(self.alice.pk, "abcdefghijklmnopq")]), 0)
+
+    def test_one_id_cannot_land_on_two_profiles(self):
+        """A mis-click, and a uniqueness breach if it went through."""
+        assign_assumed_steam_ids([(self.alice.pk, self.STEAM),
+                                  (self.bob.pk, self.STEAM)])
+        holders = Profile.objects.filter(assumed_steam_id=self.STEAM).count()
+        self.assertEqual(holders, 1)
+
+    def test_it_saves_with_update_fields(self):
+        """Not an optimisation: a bare save() re-derives display_name and runs
+        Profile.save()'s avatar-deletion branch."""
+        with mock.patch.object(Profile, "save", autospec=True) as saved:
+            assign_assumed_steam_ids([(self.alice.pk, self.STEAM)])
+        self.assertTrue(saved.called)
+        self.assertEqual(saved.call_args.kwargs.get("update_fields"),
+                         ["assumed_steam_id"])

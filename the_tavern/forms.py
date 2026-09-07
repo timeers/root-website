@@ -142,6 +142,24 @@ class SurveyResponseForm(forms.Form):
                     widget=forms.MultipleHiddenInput
                 )
 
+            # Weekly Availability (7x24 grid rendered in the template)
+            elif question.question_type == 'WA':
+                # A plain CharField, not a MultipleChoiceField: WA stores a JSON
+                # list of hour-of-week ints and has no Choice rows to validate
+                # against. The grid JS serializes the painted cells into this.
+                self.fields[field_name] = forms.CharField(
+                    label=question.text,
+                    required=False,  # validated manually in the view, like TA/DY
+                    help_text=question.help_text,
+                    widget=forms.HiddenInput
+                )
+                # The zone the grid was DRAWN in, which is what those local hours
+                # mean. Without it the view would have to guess, and a mismatch
+                # silently shifts a whole week's availability.
+                self.fields[f'{field_name}_timezone'] = forms.CharField(
+                    required=False, widget=forms.HiddenInput
+                )
+
             # Open Ended
             elif question.question_type == 'OE':
                 self.fields[field_name] = forms.CharField(
@@ -273,6 +291,16 @@ class SurveyResponseForm(forms.Form):
                     elif question.question_type == 'TA' or question.question_type == 'DY':
                         # Time/Day availability - multiple choices
                         self.initial[field_name] = list(answer.selected_choices.values_list('id', flat=True))
+
+                    elif question.question_type == 'WA':
+                        # Stored UTC, drawn locally: convert back so the grid
+                        # re-renders the cells the respondent actually painted.
+                        from the_gatehouse.services.availability import utc_to_local_hours
+                        tz_name = getattr(
+                            getattr(existing_response, 'profile', None), 'timezone', None)
+                        local = utc_to_local_hours(answer.availability_hours or [], tz_name)
+                        self.initial[field_name] = ','.join(str(h) for h in local)
+                        self.initial[f'{field_name}_timezone'] = tz_name or 'UTC'
 
                     elif question.question_type == 'OE':
                         # Open ended

@@ -221,6 +221,16 @@
                             </div>
                         </div>
 
+                    {% elif question.question_type == 'WA' %}
+                    {# Weekly Availability: the real grid, inert. Not marked editable, so it gets the layout without the hover, pointer cursor and selected colour -- nothing here is clickable. #}
+                        <div class="mt-3">
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-check2-square"></i>
+                                {% trans 'Respondents mark every hour they are free, in their own timezone.' %}
+                            </p>
+                            {% include 'partials/availability_grid.html' with grid_id=question.wa_grid_id %}
+                        </div>
+
                     {# Open Ended #}
                     {% elif question.question_type == 'OE' %}
                         <div class="mt-3">

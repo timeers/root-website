@@ -64,6 +64,23 @@
 
     {% if can_manage and is_bracket_finalized and edit_series_url %}
     {% include 'the_warroom/partials/series_edit_modal.html' %}
+    {% comment %} The series edit modal renders a per-match availability button, but
+    it only appears when both the calendar modal and _groupCalendarData exist. Without
+    these two the button's `typeof` guard fails closed and it silently never renders
+    here -- it used to work only on the round grouping page. {% endcomment %}
+    {% include 'the_warroom/partials/grouping_calendar_modal.html' %}
+    <script>
+    var _groupCalendarData = _groupCalendarData || {};
+    {% for series in match_series %}
+    {% if series.player_group %}{% if series.player_group.all_hours or series.player_group.overlap_hours %}
+    _groupCalendarData[{{ series.player_group.id }}] = {
+        name: "{{ series.player_group.name|escapejs }}",
+        all_hours: {{ series.player_group.all_hours|default:"[]"|safe }},
+        overlap_hours: {{ series.player_group.overlap_hours|default:"[]"|safe }}
+    };
+    {% endif %}{% endif %}
+    {% endfor %}
+    </script>
     {% comment %} Link/unlink modals. The endpoint is per-match, so the URL is declared
     once with a placeholder id that the modal's JS substitutes into. {% endcomment %}
     {% include 'the_warroom/modals/link_game_modal.html' %}

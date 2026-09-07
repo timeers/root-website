@@ -506,12 +506,19 @@ class Survey(models.Model):
         }
 
     def has_availability_questions(self):
-        """Check if survey has TIME_AVAILABILITY or DAY_AVAILABILITY questions"""
+        """Whether this survey asks about availability at all.
+
+        Also decides whether a submission may WRITE a PlayerSchedule -- see
+        _save_response_availability. A survey with none of these must never
+        touch a player's schedule, or an unrelated tournament survey would
+        clear availability the player set on /availability.
+        """
         from .models import Question
         return self.questions.filter(
             question_type__in=[
                 Question.QuestionType.TIME_AVAILABILITY,
-                Question.QuestionType.DAY_AVAILABILITY
+                Question.QuestionType.DAY_AVAILABILITY,
+                Question.QuestionType.WEEKLY_AVAILABILITY,
             ]
         ).exists()
 
@@ -623,6 +630,7 @@ class Question(models.Model):
         DATETIME = 'DT', 'Date & Time'
         TIME_AVAILABILITY = 'TA', 'Time Availability'
         DAY_AVAILABILITY = 'DY', 'Day Availability'
+        WEEKLY_AVAILABILITY = 'WA', 'Weekly Availability'
         NUMERIC = 'NU', 'Numeric'
 
     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
@@ -782,6 +790,25 @@ class Question(models.Model):
         """Get choices that should be shown to respondents"""
         return self.choices.filter(is_hidden=False)
 
+    # DOM ids for a WEEKLY_AVAILABILITY grid. Properties because a survey page can
+    # carry several WA questions and each grid needs its own ids -- and a Django
+    # template cannot concatenate a prefix with question.id.
+    @property
+    def wa_grid_id(self):
+        return f'wa_grid_{self.pk}'
+
+    @property
+    def wa_field_id(self):
+        return f'id_question_{self.pk}'
+
+    @property
+    def wa_count_id(self):
+        return f'wa_count_{self.pk}'
+
+    @property
+    def wa_clear_id(self):
+        return f'wa_clear_{self.pk}'
+
     def get_enabled_days_display(self):
         """Return comma-separated list of enabled day names for TIME_AVAILABILITY questions"""
         if self.question_type != self.QuestionType.TIME_AVAILABILITY:
@@ -931,6 +958,19 @@ class SurveyResponse(models.Model):
         help_text="UTC offset in hours at submission time (e.g., -5.0, 5.5, -3.5)"
     )
 
+    # The IANA zone the respondent was in, which is what availability answers are
+    # actually converted with. A fixed offset cannot do the job: it describes ONE
+    # instant, while a weekly schedule spans a week that may contain a DST
+    # transition -- storing a summer answer at -7 and reading it back against a
+    # winter reference week at -8 shifted every hour by one.
+    #
+    # timezone_offset_hours is kept for responses submitted before this field
+    # existed; resolve_timezone_name() falls back to it.
+    timezone_name = models.CharField(
+        max_length=64, null=True, blank=True,
+        help_text="IANA timezone at submission time (e.g. America/Los_Angeles)."
+    )
+
     response_position = models.IntegerField(default=0)
 
     score_correct = models.IntegerField(default=0)
@@ -1037,26 +1077,83 @@ class SurveyResponse(models.Model):
             'optional_score': optional_score,
         }
 
+    def resolve_timezone_name(self):
+        """The IANA zone this response's availability answers should convert with.
+
+        Order matters, and both things recorded AT SUBMISSION outrank the
+        profile: they describe where the respondent actually was when they
+        painted their hours, while the profile is a default they may have set
+        years earlier or never touched.
+
+          1. timezone_name  -- the zone the browser reported. DST-correct.
+          2. timezone_offset_hours -- returns None so the caller falls back to
+             offset arithmetic. A fixed offset cannot survive a DST boundary,
+             but it is still evidence about the respondent's actual location,
+             and preferring the profile over it would silently discard that.
+          3. the profile's zone -- for responses that recorded neither.
+        """
+        from the_databot.services.time_parsing import valid_timezone
+
+        if valid_timezone(self.timezone_name):
+            return self.timezone_name
+
+        if self.timezone_offset_hours is not None:
+            return None          # use the recorded offset, not the profile
+
+        profile_tz = getattr(self.profile, 'timezone', None)
+        return profile_tz if valid_timezone(profile_tz) else None
+
     def get_combined_availability_hours(self):
         """
         Compile all TIME_AVAILABILITY answers into a single set of hour-of-week integers,
         filtered by DAY_AVAILABILITY answers if present.
 
+        A WEEKLY_AVAILABILITY answer OVERRIDES that pair entirely: it already
+        describes all 168 hours in UTC, so combining it with the partial picture
+        TA+DY build would add hours the respondent did not choose. TA+DY remain
+        the path for surveys written before WA existed.
+
         Returns:
             set: Set of hour-of-week integers (0-167) representing when user is available
 
         Logic:
-        1. Collect all hours from all TA questions
-        2. If any DY questions exist, filter to only include days selected in DY answers
-        3. Return combined set
+        1. If any WA question was ANSWERED, return the union of its hours -- even
+           if that union is empty ("free at no hour" is an answer).
+        2. Otherwise collect all hours from all TA questions
+        3. If any DY questions exist, filter to only include days selected in DY
+           answers -- comparing in the RESPONDENT'S timezone, not in UTC. The DY
+           choices are local day names, and a local evening can be the next day
+           in UTC, so a naive `hour_of_week // 24` match drops or mis-selects
+           those hours.
+        4. Return combined set
 
-        Example:
-            TA Q1: User selects Mon 14:00, Tue 14:00 → hours [14, 38]
-            TA Q2: User selects Wed 10:00 → hours [58]
+        Example (a respondent in UTC):
+            TA Q1: User selects 14:00 -> fans to every enabled day
             DY Q1: User selects Monday, Wednesday
-            Result: {14, 58} (Tue filtered out)
+            Result: {14, 62} -- Monday and Wednesday at 14:00 UTC
         """
-        
+        # WA first, and gated on an answer EXISTING rather than on it being
+        # non-empty: an answered-but-empty grid must still suppress TA/DY, or
+        # "I'm free at no hour" silently falls back to whatever TA said. That is
+        # why Answer.availability_hours is nullable -- NULL is "never answered".
+        wa_answers = self.answers.filter(
+            question__question_type=Question.QuestionType.WEEKLY_AVAILABILITY,
+            availability_hours__isnull=False,
+        )
+        wa_hours = set()
+        answered_wa = False
+        for answer in wa_answers:
+            answered_wa = True
+            for value in answer.availability_hours or []:
+                if (isinstance(value, int) and not isinstance(value, bool)
+                        and 0 <= value < 168):
+                    wa_hours.add(value)
+        if answered_wa:
+            # Several WA questions union, matching how several TA questions
+            # already combine below. "Last wins" would depend on Answer ordering
+            # and so change silently when questions are reordered in the builder.
+            return wa_hours
+
         # Collect all hour-of-week values from TA questions
         all_ta_hours = set()
         ta_answers = self.answers.filter(question__question_type='TA')
@@ -1094,11 +1191,44 @@ class SurveyResponse(models.Model):
         if not selected_day_indices:
             return set()
 
-        # Filter TA hours to only include selected days
+        # Filter TA hours to only include selected days.
+        #
+        # The DY choices are day names the player picked in THEIR OWN timezone,
+        # while all_ta_hours is in UTC -- so the two cannot be compared directly.
+        # A UTC-7 player's Tuesday evening is Wednesday in UTC, and matching
+        # hour_of_week // 24 against the Tuesday they ticked would either drop
+        # that hour or keep the wrong one. Convert each UTC hour back to the
+        # local day it represents, and compare there.
+        #
+        # Converted with the SAME zone the hours were stored with, or the two
+        # ends disagree at a DST boundary and hours vanish an hour either side.
+        from the_gatehouse.services.availability import utc_to_local_hours
+
+        tz_name = self.resolve_timezone_name()
+        ordered = sorted(all_ta_hours)
+        if tz_name:
+            # One at a time: utc_to_local_hours returns a sorted SET, so zipping
+            # it against the input would mispair whenever the conversion reorders
+            # or collapses hours.
+            local_of = {}
+            for hour_of_week in ordered:
+                converted = utc_to_local_hours([hour_of_week], tz_name)
+                if converted:
+                    local_of[hour_of_week] = converted[0]
+        else:
+            offset = (float(self.timezone_offset_hours)
+                      if self.timezone_offset_hours else 0)
+            local_of = {}
+            for hour_of_week in ordered:
+                utc_day, utc_hour = divmod(hour_of_week, 24)
+                carry = int((utc_hour + offset) // 24)
+                local_of[hour_of_week] = (
+                    ((utc_day + carry) % 7) * 24 + int((utc_hour + offset) % 24))
+
         filtered_hours = set()
-        for hour_of_week in all_ta_hours:
-            day_index = hour_of_week // 24
-            if day_index in selected_day_indices:
+        for hour_of_week in ordered:
+            local_how = local_of.get(hour_of_week, hour_of_week)
+            if local_how // 24 in selected_day_indices:
                 filtered_hours.add(hour_of_week)
 
         return filtered_hours
@@ -1138,6 +1268,20 @@ class Answer(models.Model):
     # For "Other" free-text option on MC/MS questions
     other_text = models.TextField(blank=True, null=True, help_text="Free-text response when 'Other' is selected")
 
+    # For WEEKLY_AVAILABILITY. A JSON list rather than 168 Choice rows per
+    # question plus up to 168 M2M rows per respondent, and it is already the
+    # shape PlayerSchedule.available_hours wants.
+    #
+    # NULL vs [] is load-bearing: NULL means "not a WA question, or never
+    # answered", [] means "answered, free at no hour". get_combined_availability_hours
+    # keys the TA/DY override off that distinction, so do NOT give this a
+    # default of list.
+    availability_hours = models.JSONField(
+        null=True, blank=True,
+        help_text=("WEEKLY_AVAILABILITY: UTC hour-of-week integers (0-167), "
+                   "Monday 00:00 UTC = 0.")
+    )
+
     class Meta:
         ordering = ['response', 'question__order']
         verbose_name = 'Answer'
@@ -1172,6 +1316,35 @@ class Answer(models.Model):
             # Check will happen after save for M2M fields
             if self.selected_choice:
                 raise ValidationError("Use 'selected_choices' only for day availability.")
+
+        # WEEKLY AVAILABILITY - a JSON list of UTC hour-of-week ints, not choices
+        elif qtype == Question.QuestionType.WEEKLY_AVAILABILITY:
+            hours = self.availability_hours
+            if hours is None:
+                hours = []
+            if not isinstance(hours, list):
+                raise ValidationError(
+                    "Weekly availability must be a list of hour-of-week integers.")
+            for value in hours:
+                # bool is a subclass of int, so JSON `true` would otherwise pass
+                # as hour 1. Reachable from a crafted POST, not just in theory.
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise ValidationError(
+                        "Weekly availability hours must be integers.")
+                if not 0 <= value < 168:
+                    raise ValidationError(
+                        "Weekly availability hours must be between 0 and 167.")
+            if len(set(hours)) != len(hours):
+                raise ValidationError(
+                    "Weekly availability hours must not contain duplicates.")
+            if self.question.required and not hours:
+                raise ValidationError(
+                    "Weekly availability question requires at least one hour.")
+            # selected_choices is deliberately NOT checked: like the MS/TA/DY
+            # arms above, the M2M isn't populated yet at full_clean() time.
+            if self.selected_choice or self.text_answer:
+                raise ValidationError(
+                    "Only availability hours are allowed for weekly availability.")
 
         # OPEN ENDED
         elif qtype == Question.QuestionType.OPEN_ENDED:
@@ -1278,6 +1451,8 @@ class Answer(models.Model):
         elif qtype == Question.QuestionType.DAY_AVAILABILITY:
             choices = self.selected_choices.all().order_by('text')
             return ", ".join([c.text for c in choices]) if choices else "No answer"
+        elif qtype == Question.QuestionType.WEEKLY_AVAILABILITY:
+            return self.get_weekly_availability_display()
         elif qtype == Question.QuestionType.OPEN_ENDED:
             return self.text_answer or "No answer"
         elif qtype == Question.QuestionType.BOOLEAN:
@@ -1341,16 +1516,59 @@ class Answer(models.Model):
 
         return None
 
+    def get_weekly_availability_display(self):
+        """WEEKLY_AVAILABILITY hours as compact per-day ranges, e.g.
+        "Mon 18:00-22:00 UTC, Tue 18:00-22:00 UTC".
+
+        Consecutive hours are collapsed into runs on purpose: this feeds the CSV
+        export, and a full week would otherwise put 168 comma-separated integers
+        into a single cell.
+        """
+        hours = sorted(h for h in (self.availability_hours or [])
+                       if isinstance(h, int) and not isinstance(h, bool)
+                       and 0 <= h < 168)
+        if not hours:
+            return "No answer"
+
+        day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+        parts = []
+        for day in range(7):
+            in_day = sorted(h % 24 for h in hours if h // 24 == day)
+            if not in_day:
+                continue
+            runs, start, prev = [], in_day[0], in_day[0]
+            for hour in in_day[1:]:
+                if hour == prev + 1:
+                    prev = hour
+                    continue
+                runs.append((start, prev))
+                start = prev = hour
+            runs.append((start, prev))
+            spans = ", ".join(
+                f"{a:02d}:00" if a == b else f"{a:02d}:00-{b + 1:02d}:00"
+                for a, b in runs)
+            parts.append(f"{day_names[day]} {spans}")
+        return "; ".join(parts) + " UTC"
+
     def get_hour_of_week_list(self):
         """
         Convert TIME_AVAILABILITY answers to hour-of-week integers (0-167).
         Monday 00:00 UTC = 0, Sunday 23:00 UTC = 167
 
-        Takes into account the user's timezone offset at time of response submission.
+        THE CHOICE TEXT IS ALREADY UTC. create_utc_hour_choices() names the 24
+        choices '0'..'23' by UTC hour, and the take-survey grid only RELABELS
+        them for display -- the value posted back is still the UTC choice.
 
-        Example: User in EST (UTC-5) selects "14:00" on Tuesday
-        - They see 14:00 in their local time (which is actually 19:00 UTC)
-        - Hour of week = Tuesday(1) * 24 + 19 = 43
+        So the hour is read back to LOCAL, paired with the local days the player
+        picked, and converted as a whole through ZoneInfo. That round trip looks
+        redundant but is the point: it is what applies the DST rules in force
+        during the reference week, and what lets a local evening land on the next
+        UTC day without hand-rolled carry arithmetic.
+
+        Doing it with the submission's fixed numeric offset instead is what made
+        every summer answer read back an hour early -- stored at -7 (PDT) and
+        redisplayed against a January reference week at -8 (PST). The offset is
+        now only a fallback for responses recorded before timezone_name existed.
 
         Returns:
             list: Sorted list of hour-of-week integers (0-167)
@@ -1358,8 +1576,7 @@ class Answer(models.Model):
         if self.question.question_type != Question.QuestionType.TIME_AVAILABILITY:
             return []
 
-        hours_of_week = []
-        user_offset = float(self.response.timezone_offset_hours) if self.response.timezone_offset_hours else 0
+        from the_gatehouse.services.availability import local_to_utc_hours
 
         # Day code to index mapping
         day_map = {'mon': 0, 'tue': 1, 'wed': 2, 'thu': 3, 'fri': 4, 'sat': 5, 'sun': 6}
@@ -1367,28 +1584,30 @@ class Answer(models.Model):
         # Get the enabled days for this question
         enabled_days = self.question.ta_enabled_days if self.question.ta_enabled_days else TA_DAY_CODES
 
-        for choice in self.selected_choices.all():
-            local_hour = int(choice.text)  # Hour displayed to user (0-23)
+        tz_name = self.response.resolve_timezone_name()
+        offset = (float(self.response.timezone_offset_hours)
+                  if self.response.timezone_offset_hours else 0)
 
-            # Each selected hour applies to all enabled days
+        local_hours = []
+        for choice in self.selected_choices.all():
+            utc_hour = int(choice.text)          # the slot's UTC hour
+            local_hour = (utc_hour + offset) % 24  # what the grid displayed
             for day_code in enabled_days:
                 day_index = day_map.get(day_code, 0)
+                local_hours.append(day_index * 24 + int(local_hour))
 
-                # Convert local time to UTC
-                utc_hour = local_hour - user_offset
-                utc_day = day_index
+        if tz_name:
+            return sorted(set(local_to_utc_hours(local_hours, tz_name)))
 
-                # Handle day wraparound
-                if utc_hour < 0:
-                    utc_hour += 24
-                    utc_day = (utc_day - 1) % 7
-                elif utc_hour >= 24:
-                    utc_hour -= 24
-                    utc_day = (utc_day + 1) % 7
-
-                hour_of_week = utc_day * 24 + int(utc_hour)
-                hours_of_week.append(hour_of_week)
-
+        # No zone on record (a response predating timezone_name, on a profile
+        # with none either). Fall back to the offset, carrying the day the same
+        # way local_to_utc_hours would.
+        hours_of_week = []
+        for how in local_hours:
+            day_index, local_hour = divmod(how, 24)
+            utc_hour = local_hour - offset
+            carry = int(utc_hour // 24)
+            hours_of_week.append(((day_index + carry) % 7) * 24 + int(utc_hour % 24))
         return sorted(set(hours_of_week))
 
 

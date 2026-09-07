@@ -78,23 +78,70 @@ LOOKUP_COMMAND = {
 }
 
 
-def lookup_command_for_guild(enabled_names):
-    """The /lookup definition to register for a guild: one SUB_COMMAND per enabled
-    lookup. Returns None when the guild has none enabled, so /lookup isn't registered
-    there at all.
+def parent_command_for_guild(parent_name, enabled_names):
+    """The definition of a parent command to register for a guild: one SUB_COMMAND per
+    enabled subcommand. Returns None when the guild has none enabled, so the parent
+    isn't registered there at all.
 
-    Discord registers COMMANDS, not subcommands, so a guild's per-lookup whitelist can
-    only be honoured by varying this command's options -- the same trick
+    Discord registers COMMANDS, not subcommands, so a guild's per-subcommand whitelist
+    can only be honoured by varying the parent's options -- the same trick
     lfg_command_for_roles uses to bake per-guild tag choices. Deep-copies the shared
-    module dicts so the caller never mutates a singleton. Nine subcommands is well under
+    module dicts so the caller never mutates a singleton. Both parents are well under
     Discord's 25-option cap, so no truncation is needed."""
+    parent, subcommands = PARENT_COMMANDS[parent_name]
     enabled = set(enabled_names or ())
-    subs = [copy.deepcopy(s) for s in LOOKUP_SUBCOMMANDS if s["name"] in enabled]
+    subs = [copy.deepcopy(s) for s in subcommands if s["name"] in enabled]
     if not subs:
         return None
-    cmd = copy.deepcopy(LOOKUP_COMMAND)
+    cmd = copy.deepcopy(parent)
     cmd["options"] = subs
     return cmd
+
+
+def lookup_command_for_guild(enabled_names):
+    """The /lookup definition for a guild. Thin alias kept for existing callers."""
+    return parent_command_for_guild(LOOKUP_COMMAND_NAME, enabled_names)
+
+
+LINK_COMMAND_NAME = "link"
+
+# Account linking, built as a parent + subcommands like /lookup so future providers
+# (/link dwd, ...) cost a subcommand rather than another top-level slot.
+LINK_SUBCOMMANDS = [
+    {
+        "name": "steam",
+        "description": "Link your Steam account to your Root Database profile",
+        "type": 1,  # SUB_COMMAND
+    },
+]
+
+LINK_SUBCOMMAND_NAMES = [s["name"] for s in LINK_SUBCOMMANDS]
+
+LINK_COMMAND = {
+    "name": LINK_COMMAND_NAME,
+    "description": "Link an external account to your profile",
+    "options": LINK_SUBCOMMANDS,
+}
+
+
+# Every parent command whose SUBCOMMANDS -- not the parent itself -- are the whitelist
+# toggles. Registering this here means the five whitelist functions below stay generic:
+# adding a third parent is one entry, not five new branches.
+PARENT_COMMANDS = {
+    LOOKUP_COMMAND_NAME: (LOOKUP_COMMAND, LOOKUP_SUBCOMMANDS),
+    LINK_COMMAND_NAME: (LINK_COMMAND, LINK_SUBCOMMANDS),
+}
+
+# Flat list of every subcommand name across all parents -- these are the whitelist keys.
+PARENT_SUBCOMMAND_NAMES = [s["name"]
+                           for _parent, subs in PARENT_COMMANDS.values()
+                           for s in subs]
+
+# subcommand name -> its parent, so a display that collapses parents can map a
+# COMMAND_GROUPS entry ("faction") onto the row it should render ("lookup").
+_PARENT_OF = {s["name"]: parent_name
+              for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
+              for s in subs}
 
 
 CARD_COMMAND = {
@@ -144,7 +191,7 @@ STATS_COMMAND = {
 
 UPCOMING_COMMAND = {
     "name": "upcoming",
-    "description": "Show the next scheduled match for a player or event",
+    "description": "Show the next scheduled match for a player, thread or event",
     "options": [
         {"name": "series", "description": "Filter to a series / tournament", "type": 3, "required": False, "autocomplete": True},
         {"name": "player", "description": "Filter to a player", "type": 3, "required": False, "autocomplete": True},
@@ -152,22 +199,57 @@ UPCOMING_COMMAND = {
 }
 
 
+# /schedule took subcommands so that clearing a time is something you can FIND.
+# It used to be spelled "run /schedule with no time", which nothing advertised.
+# Discord does not let one command be both a plain command and a parent, so the
+# old bare `/schedule <time>` is now `/schedule set <time>` -- worth a changelog
+# line, since regulars have muscle memory for the old form.
+SCHEDULE_SUBCOMMANDS = [
+    {
+        "name": "set",
+        "description": "Set the scheduled time for this thread's match",
+        "type": 1,  # SUB_COMMAND
+        "options": [
+            # Required now. It was optional only to carry the "no time means
+            # clear" trick, which `clear` replaces.
+            {"name": "time",
+             "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste',
+             "type": 3, "required": True},
+            # Rarely needed: the handler asks for a timezone with a region/city
+            # picker when it doesn't have one. This option stays because that
+            # picker is a curated ~76 zones, and it's the only way to reach any
+            # of the others.
+            #
+            # NOTE its autocomplete is keyed ("schedule set", "timezone") -- the
+            # dispatcher builds that key as "<parent> <sub>", so the bare
+            # "schedule" key would silently return no choices.
+            {"name": "timezone",
+             "description": "Override your saved timezone (otherwise I'll just ask)",
+             "type": 3, "required": False, "autocomplete": True},
+        ],
+    },
+    {
+        "name": "clear",
+        "description": "Remove the scheduled time for this thread's match",
+        "type": 1,  # SUB_COMMAND
+    },
+]
+
+SCHEDULE_SUBCOMMAND_NAMES = [s["name"] for s in SCHEDULE_SUBCOMMANDS]
+
 SCHEDULE_COMMAND = {
     "name": "schedule",
-    "description": "Suggest or clear the scheduled time for this thread's match",
-    "options": [
-        # Optional so that omitting it means "clear the current time" (the handler
-        # asks for confirmation first, and errors when there's nothing to clear).
-        {"name": "time",
-         "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste — leave empty to clear',
-         "type": 3, "required": False},
-        # Rarely needed: the handler asks for a timezone with a region/city picker
-        # when it doesn't have one. This option stays because that picker is a
-        # curated ~76 zones, and it's the only way to reach any of the others.
-        {"name": "timezone",
-         "description": "Override your saved timezone (otherwise I'll just ask)",
-         "type": 3, "required": False, "autocomplete": True},
-    ],
+    "description": "Set or clear the scheduled time for this thread's match",
+    "options": SCHEDULE_SUBCOMMANDS,
+}
+
+
+# Read-only and match-free, unlike /schedule: it reports when the thread's PLAYERS
+# are free, which works just as well in a plain /lfg thread that has no Match at
+# all. That is why it is its own command rather than a /schedule subcommand.
+AVAILABILITY_COMMAND = {
+    "name": "availability",
+    "description": "Compare when this game's players are free",
 }
 
 
@@ -301,17 +383,40 @@ ADSET_COMMAND = {
 # Like /seating and /pick it has no thread option: the game comes from the thread
 # it's run in. The description names the file type because Discord's picker will
 # happily attach anything and the refusal would otherwise be the first hint.
+BOXSCORE_COMMAND_NAME = "boxscore"
+
+# /boxscore gained subcommands when the Tabletop Simulator uploader arrived: the
+# object needs a token, and Discord does not let one command be both a plain
+# command and a parent. So the old bare `/boxscore <file>` is now
+# `/boxscore upload <file>` -- worth a changelog line, since regulars have muscle
+# memory for the old form.
+BOXSCORE_SUBCOMMANDS = [
+    {
+        "name": "upload",
+        "description": "Add a box score to this game from a JSON file",
+        "type": 1,  # SUB_COMMAND
+        "options": [
+            {
+                "name": "file",
+                "description": "The game's box score, as a .json file",
+                "type": 11,
+                "required": True,
+            }
+        ],
+    },
+    {
+        "name": "token",
+        "description": "Get a one-time token so the TTS object can upload this game",
+        "type": 1,  # SUB_COMMAND
+    },
+]
+
+BOXSCORE_SUBCOMMAND_NAMES = [s["name"] for s in BOXSCORE_SUBCOMMANDS]
+
 BOXSCORE_COMMAND = {
-    "name": "boxscore",
-    "description": "Add a box score to this game from a JSON file",
-    "options": [
-        {
-            "name": "file",
-            "description": "The game's box score, as a .json file",
-            "type": 11,
-            "required": True,
-        }
-    ],
+    "name": BOXSCORE_COMMAND_NAME,
+    "description": "Add a box score to this game",
+    "options": BOXSCORE_SUBCOMMANDS,
 }
 
 # Free text, no autocomplete — the title is whatever the host wants to call the
@@ -502,6 +607,7 @@ COMMANDS = [
     STATS_COMMAND,
     UPCOMING_COMMAND,
     SCHEDULE_COMMAND,
+    AVAILABILITY_COMMAND,
     RECORD_COMMAND,
     LAW_COMMAND,
     DRAFT_COMMAND,
@@ -512,6 +618,7 @@ COMMANDS = [
     RENAME_COMMAND,
     RANDOM_COMMAND,
     LFG_COMMAND,
+    LINK_COMMAND,
 ]
 
 
@@ -521,10 +628,12 @@ COMMANDS = [
 COMMAND_GROUPS = [
     ("General", ["help"]),
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
-                 "captain", "landmark", "hireling", "houserule", "card"]),
-    ("Stats", ["stats", "upcoming"]),
-    ("Games", ["lfg", "adset", "seating", "pick", "schedule", "boxscore", "record", "rename"]),
-    ("Random", ["draft", "random"]),
+                 "captain", "landmark", "hireling", "houserule", "card", "stats"]),
+    ("Organization", ["availability", "schedule", "upcoming"]),
+    ("Games", ["lfg", "adset", "seating", "pick",
+               "boxscore", "record", "rename"]),
+    ("Randomize", ["draft", "random"]),
+    ("Account", ["steam"]),
 ]
 
 
@@ -533,15 +642,15 @@ def all_command_definitions():
     return list(COMMANDS)
 
 
-# Neither of these is a whitelist toggle: /help is always available everywhere, and
-# /lookup has no meaning of its own -- its NINE SUBCOMMANDS are the toggles, keyed by
-# the same names the old top-level lookup commands used.
-_NON_WHITELISTABLE = {"help", LOOKUP_COMMAND_NAME}
+# None of these is a whitelist toggle: /help is always available everywhere, and a
+# PARENT command (/lookup, /link) has no meaning of its own -- its SUBCOMMANDS are the
+# toggles, keyed for the lookups by the same names the old top-level commands used.
+_NON_WHITELISTABLE = {"help", *PARENT_COMMANDS}
 
 # Everything a guild moderator can switch on. Derived from COMMANDS (so a new command
-# becomes toggleable automatically) plus the lookup subcommands.
+# becomes toggleable automatically) plus every parent's subcommands.
 WHITELISTABLE = ([c["name"] for c in COMMANDS if c["name"] not in _NON_WHITELISTABLE]
-                 + LOOKUP_SUBCOMMAND_NAMES)
+                 + PARENT_SUBCOMMAND_NAMES)
 
 
 def whitelistable_commands():
@@ -549,29 +658,40 @@ def whitelistable_commands():
 
     `name` is the stored whitelist key -- unchanged for the lookups, which is what lets
     an existing enabled_commands list keep working. `label` is what to render after the
-    slash: identical to `name` for a top-level command, "lookup faction" for a lookup
-    subcommand, since that's what a user actually types."""
-    rows = [(c["name"], c["name"], c["description"]) for c in COMMANDS
-            if c["name"] not in _NON_WHITELISTABLE]
-    return rows + [(s["name"], f"{LOOKUP_COMMAND_NAME} {s['name']}", s["description"])
-                   for s in LOOKUP_SUBCOMMANDS]
+    slash: identical to `name` for a top-level command, "lookup faction" / "link steam"
+    for a subcommand, since that's what a user actually types.
+
+    Ordered by COMMAND_GROUPS, so the guild settings page lists commands the same way
+    /help does. It used to be declaration order in COMMANDS with every subcommand
+    appended after, which put /lookup faction nowhere near the other lookups and moved
+    rows around whenever a definition was inserted.
+
+    Flattened rather than grouped: the caller renders one checkbox list, and
+    grouped_commands() is already the single place the ordering lives -- including the
+    "Other" catch-all that keeps a command missing from COMMAND_GROUPS visible instead
+    of silently unlistable.
+    """
+    return [row for _group, rows in grouped_commands()
+            for row in rows
+            if row[0] not in _NON_WHITELISTABLE]
 
 
 def commands_for_guild(enabled_names):
     """Definitions to register for a guild: always /help, plus each enabled, whitelistable
-    command, plus a /lookup carrying only this guild's enabled subcommands. Ignores
-    unknown/removed names so a stale whitelist never breaks registration.
+    command, plus each PARENT command carrying only this guild's enabled subcommands.
+    Ignores unknown/removed names so a stale whitelist never breaks registration.
 
     Unlike the /help and /lfg per-guild variants (substituted in register_guild_commands),
-    /lookup is resolved HERE because it can be dropped entirely -- a guild with no lookups
-    enabled gets no /lookup at all, which substitute-in-place can't express."""
+    the parents are resolved HERE because they can be dropped entirely -- a guild with no
+    lookups enabled gets no /lookup at all, which substitute-in-place can't express."""
     allowed = set(enabled_names or ()) & set(WHITELISTABLE)
     out = [c for c in COMMANDS
            if c["name"] == "help"
-           or (c["name"] != LOOKUP_COMMAND_NAME and c["name"] in allowed)]
-    lookup = lookup_command_for_guild(allowed)
-    if lookup:
-        out.append(lookup)
+           or (c["name"] not in PARENT_COMMANDS and c["name"] in allowed)]
+    for parent_name in PARENT_COMMANDS:
+        parent = parent_command_for_guild(parent_name, allowed)
+        if parent:
+            out.append(parent)
     return out
 
 
@@ -606,25 +726,59 @@ def lfg_help_steps_for_guild(enabled_names=None):
     return kept
 
 
-def grouped_commands():
+def grouped_commands(collapse_parents=False):
     """Yield (group_name, [(name, label, description), ...]) in display order.
 
     `name` is the whitelist key -- what enabled_commands stores and what build_help_embed
     filters on. `label` is what to render after the slash: identical to `name` for a
-    top-level command, "lookup faction" for a lookup subcommand.
+    top-level command, "lookup faction" / "link steam" for a subcommand.
 
-    /lookup itself is skipped in favour of a row per subcommand: a bare `/lookup` row
-    would tell a reader nothing about which lookups their guild actually has. That is the
-    one deliberate exception to the "Other" catch-all below -- a new lookup SUBCOMMAND
-    missing from COMMAND_GROUPS still lands in "Other", so the safety net keeps working
-    for the case that matters.
+    By DEFAULT a parent command is skipped in favour of a row per subcommand, because
+    /help filters every row against the guild's whitelist: lookups are enabled
+    individually, so a bare `/lookup` row could not say which ones this server actually
+    has. That is the one deliberate exception to the "Other" catch-all below -- a new
+    SUBCOMMAND missing from COMMAND_GROUPS still lands in "Other", so the safety net
+    keeps working for the case that matters.
+
+    `collapse_parents=True` yields ONE row per parent instead ("/lookup", "/link"),
+    which is what the public Databot page wants: it lists every command with no guild
+    context to filter against, so nine near-identical lookup rows are just noise. Never
+    pass it for /help, which would then be unable to show a server what it has.
     """
+    if collapse_parents:
+        rows_by_name = {}
+        for c in all_command_definitions():
+            rows_by_name[c["name"]] = (c["name"], c["name"], c.get("description", ""))
+        # A parent's row is keyed by the parent name, which is NOT a whitelist key --
+        # fine here because this variant is never filtered, and it keeps the parent out
+        # of the "Other" catch-all below via COMMAND_GROUPS.
+        grouped_names = set()
+        for group_name, names in COMMAND_GROUPS:
+            rows, seen = [], set()
+            for name in names:
+                # Map a subcommand's group entry ("faction") onto its parent, so the
+                # existing COMMAND_GROUPS ordering needs no duplicate bookkeeping.
+                parent = _PARENT_OF.get(name, name)
+                if parent in seen or parent not in rows_by_name:
+                    continue
+                seen.add(parent)
+                rows.append(rows_by_name[parent])
+            grouped_names.update(r[0] for r in rows)
+            if rows:
+                yield group_name, rows
+        leftover = [row for name, row in rows_by_name.items()
+                    if name not in grouped_names]
+        if leftover:
+            yield "Other", leftover
+        return
+
     rows_by_name = {c["name"]: (c["name"], c["name"], c.get("description", ""))
                     for c in all_command_definitions()
-                    if c["name"] != LOOKUP_COMMAND_NAME}
+                    if c["name"] not in PARENT_COMMANDS}
     rows_by_name.update({
-        s["name"]: (s["name"], f"{LOOKUP_COMMAND_NAME} {s['name']}", s.get("description", ""))
-        for s in LOOKUP_SUBCOMMANDS
+        s["name"]: (s["name"], f"{parent_name} {s['name']}", s.get("description", ""))
+        for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
+        for s in subs
     })
 
     grouped_names = set()

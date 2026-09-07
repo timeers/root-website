@@ -223,6 +223,10 @@ def create_forum_thread_result(forum_channel_id, name, content=None, embeds=None
     message = {}
     if content:
         message["content"] = content
+        # Only real user mentions resolve. The starter message can carry player NAMES
+        # (an unlinked player is named rather than pinged), and a display name is user
+        # -controlled text -- without this an "@everyone" in one would ping the server.
+        message["allowed_mentions"] = {"parse": ["users"]}
     if embeds:
         message["embeds"] = embeds
     if not message:

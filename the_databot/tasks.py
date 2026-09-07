@@ -359,9 +359,13 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
 
         roster = group_roster(group, series_id=series.id)
         # discord_id is the snowflake; Profile.discord is a legacy username and must
-        # never be mentioned with. Players who never linked Discord are simply not
-        # pinged -- that shouldn't block the thread for everyone else.
-        pings = " ".join(f"<@{p.discord_id}>" for p in roster if p.discord_id)
+        # never be mentioned with. A player who never linked Discord can't be pinged,
+        # but must still be NAMED -- dropping them made the roster look short and left
+        # them wondering whether they were in the match. str(profile) is the same
+        # "Display Name (discord)" the record-game player dropdowns use, collapsing to
+        # one name when the two match.
+        mentions = [f"<@{p.discord_id}>" if p.discord_id else str(p) for p in roster]
+        pings = " ".join(mentions)
         title = group.name or f"Group {group.group_number}"
         content = (f"{pings} your match is ready!".strip() if pings
                    else "Your match is ready!")
@@ -958,3 +962,117 @@ def cleanup_stale_lfg_threads(recorded_after_days=30, stale_after_days=180,
                 "stale_after_days=%s limit=%s)",
                 deleted, recorded_after_days, stale_after_days, limit)
     return deleted
+
+
+# ── Box score uploads from Tabletop Simulator ───────────────────────────────
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 10},
+)
+def post_boxscore_prompt_task(token_pk, message_data):
+    """Post an upload's Confirm/Cancel prompt into its game thread, recording the
+    message id on the row.
+
+    The id is the whole point: without it the sweep task cannot later strip the
+    buttons off a prompt nobody answered, leaving a dead control in the thread.
+
+    Bails out when the upload stopped being PENDING while this sat queued -- a
+    fast roster can confirm from another prompt, and posting live buttons for a
+    resolved upload would hand someone a control that could overwrite it.
+    """
+    from the_databot.models import BoxScoreUploadToken
+    from the_databot.services.discordservice import (
+        post_channel_message_full, THREAD_OK, THREAD_ERROR,
+    )
+
+    token = BoxScoreUploadToken.objects.filter(pk=token_pk).first()
+    if not token or token.status != BoxScoreUploadToken.Status.PENDING:
+        return
+    if not token.channel_id:
+        return
+
+    result, message_id = post_channel_message_full(
+        token.channel_id, **(message_data or {}))
+    if result == THREAD_ERROR:
+        raise RuntimeError(f"transient failure posting boxscore prompt {token_pk}")
+    if result == THREAD_OK and message_id:
+        # .update() rather than .save(): never clobber a status another request
+        # changed while this task was in flight.
+        BoxScoreUploadToken.objects.filter(pk=token_pk).update(message_id=message_id)
+
+
+@shared_task
+def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=7):
+    """Remind, expire and prune box-score upload tokens.
+
+    Runs on a schedule created in Django admin (django_celery_beat) -- this
+    project uses DatabaseScheduler, so there is no beat_schedule in code to
+    register it. Every 10-15 minutes is about right.
+
+    Three passes:
+      1. REMIND a thread whose prompt is close to lapsing, once, pinging the
+         roster so it isn't missed.
+      2. EXPIRE a lapsed prompt AND strip its buttons, so no dead control is
+         left in the thread inviting a click that can't work.
+      3. PRUNE resolved rows, and tokens minted but never used.
+    """
+    from the_databot.models import BoxScoreUploadToken
+    from the_databot.services.discordservice import (
+        edit_channel_message, post_channel_message_full, THREAD_ERROR,
+    )
+
+    now = timezone.now()
+    reminded = expired = 0
+
+    # 1) Remind.
+    soon = now + timedelta(minutes=remind_within_minutes)
+    for token in BoxScoreUploadToken.objects.filter(
+            status=BoxScoreUploadToken.Status.PENDING,
+            reminded_at__isnull=True,
+            prompt_expires_at__lte=soon,
+            prompt_expires_at__gt=now).select_related("thread"):
+        mentions = [f"<@{p.discord_id}>"
+                    for p in token.thread.players.all() if p.discord_id]
+        who = " ".join(mentions) if mentions else "Players"
+        post_channel_message_full(
+            token.channel_id,
+            content=(f"{who} — a box score from Tabletop Simulator is still "
+                     "waiting to be confirmed above. It expires soon."),
+            # parse: ["users"] so this actually pings, unlike the box-score
+            # summaries, which deliberately name players without notifying them.
+            allowed_mentions={"parse": ["users"]},
+        )
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(reminded_at=now)
+        reminded += 1
+
+    # 2) Expire, and take the buttons with it.
+    for token in BoxScoreUploadToken.objects.filter(
+            status=BoxScoreUploadToken.Status.PENDING,
+            prompt_expires_at__lte=now):
+        if token.channel_id and token.message_id:
+            result = edit_channel_message(
+                token.channel_id, token.message_id,
+                content=("That box score expired before anyone confirmed it.\n"
+                         "-# Run `/boxscore token` for a new token to upload again."),
+                components=[])
+            if result == THREAD_ERROR:
+                continue          # transient: try again on the next sweep
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.EXPIRED, payload=None)
+        expired += 1
+
+    # 3) Prune.
+    cutoff = now - timedelta(days=prune_after_days)
+    done, _ = BoxScoreUploadToken.objects.filter(
+        status__in=[BoxScoreUploadToken.Status.APPLIED,
+                    BoxScoreUploadToken.Status.CANCELLED,
+                    BoxScoreUploadToken.Status.EXPIRED],
+        created_at__lt=cutoff).delete()
+    stale, _ = BoxScoreUploadToken.objects.filter(
+        status=BoxScoreUploadToken.Status.ISSUED,
+        expires_at__lt=cutoff).delete()
+
+    logger.info("sweep_boxscore_upload_tokens: reminded=%d expired=%d pruned=%d",
+                reminded, expired, done + stale)
+    return {"reminded": reminded, "expired": expired, "pruned": done + stale}

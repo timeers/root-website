@@ -533,6 +533,21 @@ class Profile(models.Model):
     stable_notify = models.JSONField(default=list, blank=True)
     new_notify = models.JSONField(default=list, blank=True)
     discord_id = models.CharField(max_length=32, blank=True, null=True, unique=True, help_text="User's Discord ID number.")
+    # Verified SteamID64, proven through Steam's OpenID endpoint -- never typed in by
+    # hand, so the only writer is steam_link_callback. unique=True because this is an
+    # IDENTITY: two profiles claiming one Steam account means a Tabletop Simulator box
+    # score can't say which player it was. The unique constraint also supplies the index
+    # the reverse lookup (steam_id -> Profile) needs.
+    #
+    # PRIVATE: shown only to its owner on the settings page. Unlike `dwd` this is
+    # deliberately NOT rendered on the public profile page or in any serializer -- a
+    # SteamID64 is a permanent handle to a real person's Steam account.
+    steam_id = models.CharField(
+        max_length=17, blank=True, null=True, unique=True,
+        help_text="User's verified SteamID64, used to match Tabletop Simulator players.")
+    assumed_steam_id = models.CharField(
+        max_length=17, blank=True, null=True, unique=True,
+        help_text="User's assumed SteamID64, added from confirmed boxscore uploads, used to match Tabletop Simulator players.")
     # Cached leaderboard inputs (coalition formula), maintained by
     # calculate_and_cache_winrate via Effort/Game signals. Let the default
     # /leaderboard/ board be a plain indexed query with no aggregation.
@@ -574,6 +589,15 @@ class Profile(models.Model):
         self.api_key_created = timezone.now()
         self.save(update_fields=['api_key_hash', 'api_key_created'])
         return raw_key
+
+    @property
+    def steam_profile_url(self):
+        """Public Steam community URL for a linked account, or None.
+
+        The /profiles/<id> form works for every account; the vanity /id/<name> form
+        only exists if the user set one, and we deliberately don't fetch it (that
+        needs a Steam Web API key)."""
+        return f"https://steamcommunity.com/profiles/{self.steam_id}" if self.steam_id else None
 
     @property
     def name(self):
@@ -1326,3 +1350,130 @@ class UserNotification(models.Model):
 def get_default_ta_days():
     """Returns default enabled days for TIME_AVAILABILITY questions (all 7 days)"""
     return ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+
+
+class PlayerSchedule(models.Model):
+    """A player's recurring weekly availability, stored in UTC.
+
+    `available_hours` holds hour-of-week integers 0-167 where Monday 00:00 UTC = 0
+    and Sunday 23:00 UTC = 167 -- the same encoding the survey answer path and the
+    grouping overlap math use, so schedules set-intersect directly with no
+    conversion step. This is the single source of truth for player availability.
+
+    `tournament` NULL means this is the player's GENERAL availability, the one the
+    /availability page edits. A row WITH a tournament is that player's availability
+    for that event specifically, and takes precedence over the general one (see
+    schedule_for). Keeping both in one table means every consumer reads availability
+    the same way whatever its scope.
+
+    UTC is the storage contract: two players in different zones are only comparable
+    if both sides normalize. The zone the user actually picked lives on
+    Profile.timezone, which is what lets us render the grid back in their local time
+    and keep it correct across a DST change -- a stored numeric offset cannot.
+    """
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='schedules')
+    # Lazy string reference: this module must never import the_warroom at module
+    # level. the_warroom.models imports Profile from here at import time, so a
+    # concrete import would close the loop and break startup.
+    tournament = models.ForeignKey(
+        'the_warroom.Tournament', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='player_schedules',
+        help_text="NULL = the player's general availability."
+    )
+    available_hours = models.JSONField(
+        default=list,
+        help_text="UTC hour-of-week integers (0-167), Monday 00:00 UTC = 0."
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # NOTE: this does NOT enforce one general schedule per profile -- SQLite and
+        # Postgres both treat NULLs as distinct in a unique index, so
+        # (profile, NULL) can be inserted twice. general_schedule_for() is the
+        # enforcement point; never create a tournament=None row any other way.
+        unique_together = ('profile', 'tournament')
+        ordering = ['profile', 'tournament']
+        verbose_name = 'Player Schedule'
+        verbose_name_plural = 'Player Schedules'
+
+    def __str__(self):
+        # tournament_id, not tournament: testing the FK object would fetch the row.
+        scope = self.tournament.name if self.tournament_id else 'General'
+        return f"{self.profile.name} - {scope} - {len(self.available_hours)} hours"
+
+    def as_bitmask(self):
+        """This schedule as a 168-bit int, for fast overlap math.
+
+        Bit N set means hour-of-week N is available. Overlap between two players is
+        then `mask_a & mask_b`, which matters because pairwise matching is O(n^2).
+        """
+        mask = 0
+        for hour in self.available_hours:
+            mask |= 1 << hour
+        return mask
+
+
+def general_schedule_for(profile):
+    """The player's general (non-tournament) schedule, created on first use.
+
+    The ONLY sanctioned way to make a tournament=None row -- unique_together cannot
+    enforce that uniqueness because the column is NULL (see PlayerSchedule.Meta).
+    """
+    schedule, _created = PlayerSchedule.objects.get_or_create(
+        profile=profile, tournament=None
+    )
+    return schedule
+
+
+def schedule_for(profile, tournament=None):
+    """That player's tournament-specific schedule if they set one, else their general one.
+
+    Returns None when the player has recorded no availability at all.
+    """
+    if tournament is not None:
+        specific = PlayerSchedule.objects.filter(
+            profile=profile, tournament=tournament
+        ).first()
+        if specific and specific.available_hours:
+            return specific
+    return PlayerSchedule.objects.filter(
+        profile=profile, tournament=None
+    ).first()
+
+
+def schedules_for(profile_ids, tournament=None):
+    """{profile_id: [utc hours]} for many players, in a fixed two queries.
+
+    Same precedence as schedule_for(): a tournament row WITH hours wins, otherwise
+    the general one. The bulk form exists because every consumer (grouping, overlap,
+    the roster JSON) loops over a whole roster, where per-profile lookups are N+1.
+
+    Profiles with no availability are ABSENT from the mapping rather than mapped to
+    []. Callers differ on what "no availability" means -- generate_availability_groups
+    feeds such players in as an empty set while create_groups_from_ungrouped drops
+    them -- so the distinction is left to them (see .get(pid, ...) at each call site).
+    """
+    profile_ids = list(profile_ids)
+    if not profile_ids:
+        return {}
+
+    # General rows first, then let the tournament-specific ones overwrite: a
+    # tournament row with hours is the more specific answer.
+    resolved = {
+        pid: hours
+        for pid, hours in PlayerSchedule.objects.filter(
+            profile_id__in=profile_ids, tournament=None
+        ).values_list('profile_id', 'available_hours')
+        if hours
+    }
+
+    if tournament is not None:
+        for pid, hours in PlayerSchedule.objects.filter(
+            profile_id__in=profile_ids, tournament=tournament
+        ).values_list('profile_id', 'available_hours'):
+            # `if hours` mirrors schedule_for()'s `and specific.available_hours`:
+            # an empty tournament row must not mask a real general one.
+            if hours:
+                resolved[pid] = hours
+
+    return resolved

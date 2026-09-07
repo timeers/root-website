@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import ScopedRateThrottle
 from django_filters.rest_framework import DjangoFilterBackend
 from the_warroom.models import ScoreCard, Game, Effort
 from the_keep.models import Faction, PostTranslation
@@ -341,3 +342,125 @@ class GameListView(generics.ListAPIView):
                 'round__stage__tournament__elo_system__seasons',
             )
         )
+
+# ── Box score upload (Tabletop Simulator) ───────────────────────────────────
+# The first WRITE endpoint in this package, so nothing is inherited implicitly:
+# it declares its own throttle and does its own authorization.
+
+class BoxScoreUploadThrottle(ScopedRateThrottle):
+    """Rate limit keyed on the CALLER, not the user.
+
+    Necessary rather than decorative: the project's REST_FRAMEWORK config
+    registers only a `user` scope, and UserRateThrottle returns None (no
+    throttling at all) for a request that isn't authenticated as a user. An
+    upload authorized by a one-time token is exactly that, so without this a
+    token guesser would get unlimited attempts.
+    """
+    scope = 'boxscore_upload'
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {'scope': self.scope,
+                                    'ident': self.get_ident(request)}
+
+
+# A maximal 6-seat, 12-turn game is ~10KB; this only ever catches a wrong file.
+BOXSCORE_UPLOAD_MAX_BYTES = 256 * 1024
+
+
+def _upload_error(code, message, http_status):
+    """One shape for every failure, with a printable message for TTS chat."""
+    return Response({'ok': False, 'error': code, 'message': message},
+                    status=http_status)
+
+
+class BoxScoreUploadView(APIView):
+    """Accept a box score from an external client holding a one-time token.
+
+    The client is a Tabletop Simulator object, which CANNOT keep a secret: its
+    Lua is plain text in the save file and runs client-side. So it ships with no
+    credential at all -- a player who is already authorized for the thread mints
+    a token with /boxscore token and pastes it in, and the token dies on use.
+
+    This stages onto the LFGThread exactly as /boxscore upload does; it never
+    creates a Game. Anything the file gets wrong is resolved by the same
+    Confirm/Cancel gates, posted into the Discord thread -- so TTS never has to
+    render an error or assume the file is clean.
+    """
+    authentication_classes = []          # the token is not a login; see below
+    permission_classes = []              # authorization IS the token
+    throttle_classes = [BoxScoreUploadThrottle]
+
+    def post(self, request):
+        from django.utils import timezone
+        from the_databot.models import BoxScoreUploadToken
+        from the_databot import discord_interactions as di
+        from the_warroom.services.box_score_import import BoxScoreImportError
+        from .authentication import extract_game_token
+
+        raw_token = extract_game_token(request)
+        if not raw_token:
+            return _upload_error(
+                'invalid_token',
+                'That upload token isn\'t valid. Run /boxscore token in your '
+                'game thread for a new one.', status.HTTP_401_UNAUTHORIZED)
+
+        token = BoxScoreUploadToken.objects.filter(
+            token_hash=BoxScoreUploadToken.hash_token(raw_token)
+        ).select_related('thread').first()
+
+        # A token that never existed and one belonging to another thread give the
+        # SAME answer, so the endpoint can't be probed for which tokens or threads
+        # exist. Used/expired are distinguished: those are states of a token the
+        # holder legitimately had, so saying so is help, not disclosure.
+        if token is None:
+            return _upload_error(
+                'invalid_token',
+                'That upload token isn\'t valid. Run /boxscore token in your '
+                'game thread for a new one.', status.HTTP_401_UNAUTHORIZED)
+        if token.status != BoxScoreUploadToken.Status.ISSUED:
+            return _upload_error(
+                'token_used',
+                'That upload token has already been used. Run /boxscore token '
+                'for a new one.', status.HTTP_401_UNAUTHORIZED)
+        if token.is_expired:
+            return _upload_error(
+                'token_expired',
+                'That upload token has expired. Run /boxscore token for a new '
+                'one.', status.HTTP_401_UNAUTHORIZED)
+
+        thread = token.thread
+        if thread.game_id:
+            return _upload_error(
+                'already_recorded',
+                "This game is already recorded, so it can't take a new box "
+                'score.', status.HTTP_409_CONFLICT)
+
+        body = request.body or b''
+        if len(body) > BOXSCORE_UPLOAD_MAX_BYTES:
+            return _upload_error('too_large', 'That box score is too large.',
+                                 status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
+        # Claim the token BEFORE doing the work: a conditional update on `status`
+        # means two simultaneous uploads can't both win. status is the single
+        # source of truth; used_at is a timestamp for humans reading the admin.
+        claimed = BoxScoreUploadToken.objects.filter(
+            pk=token.pk, status=BoxScoreUploadToken.Status.ISSUED,
+        ).update(status=BoxScoreUploadToken.Status.PENDING,
+                 used_at=timezone.now())
+        if not claimed:
+            return _upload_error(
+                'token_used',
+                'That upload token has already been used. Run /boxscore token '
+                'for a new one.', status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            result = di.boxscore_upload_from_api(thread, body, token)
+        except BoxScoreImportError as exc:
+            # Structural problems fail SYNCHRONOUSLY so the object can report them
+            # at the table rather than posting a confusing thread prompt.
+            BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+                status=BoxScoreUploadToken.Status.CANCELLED, payload=None)
+            return _upload_error('invalid_box_score', str(exc),
+                                 status.HTTP_400_BAD_REQUEST)
+
+        return Response(result)

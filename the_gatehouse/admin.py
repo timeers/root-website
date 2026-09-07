@@ -7,6 +7,7 @@ from .models import (Profile, PlayerBookmark,
                      Theme, BackgroundImage, ForegroundImage,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
                      Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification,
+                     PlayerSchedule,
                      )
 # GuildLFGRole lives in the_databot, but its inline is declared here because the
 # admin it hangs off (DiscordGuildAdmin) is a the_gatehouse concern.
@@ -70,6 +71,19 @@ class ForegroundImageAdmin(admin.ModelAdmin):
 class DailyUserVisitAdmin(admin.ModelAdmin):
     list_display = ['date', 'profile__discord']
     search_fields = ('date', 'profile__discord')
+
+
+class PlayerScheduleAdmin(admin.ModelAdmin):
+    list_display = ['profile', 'tournament', 'hour_count', 'updated_at']
+    list_filter = ('tournament',)
+    search_fields = ('profile__discord', 'profile__display_name')
+    # available_hours is a raw list of 0-167 UTC integers -- editable in principle,
+    # but the /availability grid is the sane way to change it.
+    readonly_fields = ('updated_at',)
+
+    @admin.display(description='Hours')
+    def hour_count(self, obj):
+        return len(obj.available_hours)
 
 
 class CsvImportForm(forms.Form):
@@ -544,5 +558,6 @@ admin.site.register(DailyUserVisit, DailyUserVisitAdmin)
 admin.site.register(DiscordGuild, DiscordGuildAdmin)
 admin.site.register(Changelog, ChangelogAdmin)
 admin.site.register(DiscordGuildJoinRequest, DiscordGuildJoinRequestAdmin)
+admin.site.register(PlayerSchedule, PlayerScheduleAdmin)
 
 

@@ -51,7 +51,7 @@ from .utils import get_single_round, get_single_stage, build_scorecard_grid, bui
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 from the_keep.views import paginate_or_404
 
-from the_gatehouse.models import Profile, Language
+from the_gatehouse.models import Profile, Language, schedules_for
 from the_databot.models import LFGThread
 from the_databot.services.lfg_game import (
     seated_profiles, lfg_option_querysets, picked_factions_by_profile,
@@ -6357,6 +6357,8 @@ def _stage_matches_context(request, tournament, stage):
         for series in match_series:
             _attach_series_effort_grid(series)
 
+        _attach_series_availability(match_series, tournament)
+
         recordable_match_ids, is_participant_series = _recordable_match_ids(
             round, request.user, tournament, view_as=get_view_as(request, tournament)
         )
@@ -6620,6 +6622,34 @@ def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
     return render(request, 'the_warroom/round_details.html', context)
 
 
+def _attach_series_availability(match_series, tournament):
+    """Flag each series whose seated players have any availability between them.
+
+    Drives the card's availability button: without this it would offer a link to
+    an empty grid. One bulk schedules_for() across every series on the page --
+    resolving per series would be N+1 across a whole bracket.
+
+    Relies on `matchseat_set__stage_participant__tournament_player__profile`
+    already being prefetched by the caller, so the seat walk costs no queries.
+    """
+    seats_by_series = {}
+    profile_ids = set()
+    for series in match_series:
+        ids = [
+            seat.stage_participant.tournament_player.profile_id
+            for seat in series.matchseat_set.all()
+        ]
+        seats_by_series[series.id] = ids
+        profile_ids.update(ids)
+
+    schedules = schedules_for(profile_ids, tournament) if profile_ids else {}
+
+    for series in match_series:
+        series.has_availability = any(
+            schedules.get(pid) for pid in seats_by_series.get(series.id, ())
+        )
+
+
 def _attach_series_effort_grid(series):
     """Attach per-player faction-icon data to a prefetched MatchSeries.
 
@@ -6703,6 +6733,8 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
 
     for series in match_series:
         _attach_series_effort_grid(series)
+
+    _attach_series_availability(match_series, tournament)
 
     recordable_match_ids, is_participant_series = _recordable_match_ids(
         round, request.user, tournament, view_as=get_view_as(request, tournament)
@@ -7271,8 +7303,11 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
             status=TournamentPlayer.StatusChoices.REGISTERED
         )
 
-    # Check for availability data on active players
-    has_availability = active_players_qs.exclude(availability_hours=[]).exists()
+    # Check for availability data on active players. Resolved through their
+    # schedules, so a player who set availability on their profile counts even if
+    # they never answered a survey.
+    _active_profile_ids = list(active_players_qs.values_list('profile_id', flat=True))
+    has_availability = bool(schedules_for(_active_profile_ids, tournament))
 
     # Calculate stats
     total_players = active_players_qs.count()
@@ -7410,7 +7445,21 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
                 player_groups__round=round
             ).values_list('id', flat=True)
         )
-        ungrouped_players = active_players_qs.exclude(id__in=grouped_ids).select_related('profile')
+        ungrouped_players = list(
+            active_players_qs.exclude(id__in=grouped_ids).select_related('profile')
+        )
+
+        # Annotate every player the page renders with their resolved hours, in one
+        # bulk lookup. The templates can't call schedule_for() themselves, and doing
+        # it per player would be N+1 across the whole roster.
+        _rendered = list(ungrouped_players)
+        for _group in groups:
+            _group.members = list(_group.tournament_players.select_related('profile').all())
+            _rendered.extend(_group.members)
+
+        _schedules = schedules_for([tp.profile_id for tp in _rendered], tournament)
+        for tp in _rendered:
+            tp.resolved_hours = _schedules.get(tp.profile_id, [])
 
     context = {
         'tournament': tournament,
@@ -7568,6 +7617,28 @@ def round_grouping_move_player(request, tournament_slug, stage_slug, round_slug,
         return JsonResponse(response)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+def _player_rows(tournament_players, tournament):
+    """Roster JSON for the grouping UI.
+
+    The `availability_hours` key is kept even though the model field is gone: the
+    grouping templates' JS reads it by that name, and the value now comes from the
+    player's schedule instead.
+    """
+    tournament_players = list(tournament_players)
+    schedules = schedules_for(
+        [tp.profile_id for tp in tournament_players], tournament
+    )
+    return [
+        {
+            'id': tp.id,
+            'display_name': tp.profile.display_name,
+            'image_url': tp.profile.image.url if tp.profile.image else '',
+            'availability_hours': schedules.get(tp.profile_id, []),
+        }
+        for tp in tournament_players
+    ]
 
 
 def _get_group_data(group, history):
@@ -7916,15 +7987,10 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
                     try:
                         ag = PlayerGroup.objects.get(id=ag_id)
                         ag_data = _get_group_data(ag, history)
-                        ag_data['members'] = [
-                            {
-                                'id': tp.id,
-                                'display_name': tp.profile.display_name,
-                                'image_url': tp.profile.image.url if tp.profile.image else '',
-                                'availability_hours': tp.availability_hours or [],
-                            }
-                            for tp in ag.tournament_players.select_related('profile').all()
-                        ]
+                        ag_data['members'] = _player_rows(
+                            ag.tournament_players.select_related('profile').all(),
+                            tournament,
+                        )
                         affected_groups.append(ag_data)
                     except PlayerGroup.DoesNotExist:
                         pass
@@ -7932,15 +7998,9 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
         # Build main group response
         group.refresh_from_db()
         group_data = _get_group_data(group, history)
-        group_data['members'] = [
-            {
-                'id': tp.id,
-                'display_name': tp.profile.display_name,
-                'image_url': tp.profile.image.url if tp.profile.image else '',
-                'availability_hours': tp.availability_hours or [],
-            }
-            for tp in group.tournament_players.select_related('profile').all()
-        ]
+        group_data['members'] = _player_rows(
+            group.tournament_players.select_related('profile').all(), tournament
+        )
 
         result = {
             'success': True,
@@ -7953,15 +8013,7 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
         if participants_changed:
             # Return full ungrouped players list for DOM rebuild
             ungrouped_qs = _get_ungrouped_players(stage, round)
-            result['ungrouped_players'] = [
-                {
-                    'id': tp.id,
-                    'display_name': tp.profile.display_name,
-                    'image_url': tp.profile.image.url if tp.profile.image else '',
-                    'availability_hours': tp.availability_hours or [],
-                }
-                for tp in ungrouped_qs
-            ]
+            result['ungrouped_players'] = _player_rows(ungrouped_qs, tournament)
             result['ungrouped_count'] = len(result['ungrouped_players'])
         else:
             result['ungrouped_count'] = _get_ungrouped_count(stage, round)
@@ -8246,6 +8298,9 @@ def _render_series_matches_card(request, series, round, tournament, series_index
         'matchseat_set__stage_participant__tournament_player__profile',
     ).get(pk=series.pk)
     _attach_series_effort_grid(series_fresh)
+    # Without this the availability button vanishes from the swapped-in card:
+    # has_availability would be undefined and the template's {% if %} fails closed.
+    _attach_series_availability([series_fresh], tournament)
 
     # view_as is passed so the swapped-in card agrees with what a full page load
     # would render for this viewer.

@@ -1,0 +1,225 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}{% trans 'Availability' %} | {% endblock %}
+
+{% block content %}
+<div class="container py-2">
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h1 class="info-card-title">
+            <i class="bi bi-calendar-week me-2"></i>{% trans 'Your Availability' %}
+          </h1>
+          <p class="text-secondary mb-0">
+            {% trans 'Mark the hours you are usually free to start a game (remember that TTS games can often take 4 hours to play). Click a cell to toggle it, or use the day and hour labels to toggle a whole column or row.' %}
+          </p>
+
+          {# Only shown when the player has tournament-specific availability, which only happens when a tournament asked them for it. #}
+          {% if tournament_schedules %}
+            <hr>
+            <h6 class="fw-bold">{% trans 'Which schedule' %}</h6>
+            <p class="text-secondary small">
+              {% trans 'Your general availability applies everywhere. A tournament with its own schedule uses that instead.' %}
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+              <a href="{% url 'availability' %}"
+                 class="databot-btn {% if not editing_tournament %}databot-btn-primary{% else %}databot-btn-outline{% endif %} avail-btn-compact">
+                {% trans 'General' %}
+              </a>
+              {% for ps in tournament_schedules %}
+                <a href="{% url 'availability' %}?tournament={{ ps.tournament.slug|default:ps.pk }}"
+                   class="databot-btn {% if editing_tournament and editing_tournament.pk == ps.tournament.pk %}databot-btn-primary{% else %}databot-btn-outline{% endif %} avail-btn-compact">
+                  {{ ps.tournament.name }}
+                </a>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if editing_tournament %}
+        <div class="alert alert-secondary">
+          <i class="bi bi-info-circle me-1"></i>
+          {% blocktrans with name=editing_tournament.name %}You are editing your availability for {{ name }}. It overrides your general availability for that tournament only.{% endblocktrans %}
+        </div>
+      {% endif %}
+
+      <form method="POST" id="availability-form">
+        {% csrf_token %}
+        {# The grid writes the selected LOCAL hour-of-week values here on submit. #}
+        <input type="hidden" name="available_hours" id="id_available_hours"
+               value="{% for h in selected_hours %}{{ h }}{% if not forloop.last %},{% endif %}{% endfor %}">
+        {# The zone those hours are expressed in. Switching the picker changes `timezone` but NOT this, which is how the server knows to re-label the same instants instead of moving them. #}
+        <input type="hidden" name="drawn_timezone" id="id_drawn_timezone"
+               value="{{ timezone_name|default_if_none:'' }}">
+        {# Which schedule this grid edits ('' = general). Rides through the timezone round-trip so the re-render can't switch rows underneath the user. #}
+        <input type="hidden" name="schedule_target" id="id_schedule_target"
+               value="{{ schedule_target }}">
+        <input type="hidden" name="action" id="id_action" value="save">
+
+        <div class="info-card mb-4">
+          <div class="info-card-body">
+            <h2 class="info-card-title h5">
+              <i class="bi bi-globe2 me-2"></i>{% trans 'Timezone' %}
+            </h2>
+
+            {% if form.timezone.errors %}
+              <div class="alert alert-danger">{{ form.timezone.errors }}</div>
+            {% endif %}
+
+            <div class="row g-2 align-items-center">
+              <div class="col-md-7">
+                <select name="timezone" id="id_timezone" class="form-select">
+                  {% for group_label, options in form.fields.timezone.choices %}
+                    <optgroup label="{{ group_label }}">
+                      {% for value, label in options %}
+                        <option value="{{ value }}"
+                          {% if value == timezone_name %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </optgroup>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-5">
+                <button type="button" id="apply-timezone"
+                        class="databot-btn databot-btn-outline btn-sm w-100">
+                  <i class="bi bi-arrow-repeat me-2"></i>{% trans 'Update timezone' %}
+                </button>
+              </div>
+            </div>
+
+            <p class="text-muted small mt-2 mb-0" id="timezone-hint">
+              {% if timezone_display %}
+                {% blocktrans %}Times below are shown in {{ timezone_display }}.{% endblocktrans %}
+              {% else %}
+                <span class="detected-note">{% trans 'Using the timezone detected from your browser.' %}</span>
+              {% endif %}
+              {% trans 'Saving also updates the timezone for your profile.' %}
+            </p>
+
+            {# A :30/:45 zone cannot line up with whole UTC hours; say so rather than letting the rounding skew someone's availability silently. #}
+            <p class="text-muted small mt-2 mb-0 d-none" id="halfhour-note">
+              <i class="bi bi-info-circle me-1"></i>
+              {% trans 'Your timezone is offset by a partial hour, so each selection is stored to the hour that contains it.' %}
+            </p>
+          </div>
+        </div>
+
+        <div class="info-card mb-4">
+          <div class="info-card-body">
+            <div class="d-flex justify-content-between align-items-start mb-3 gap-2">
+              <div>
+                <h2 class="info-card-title h5 mb-1">
+                  <i class="bi bi-clock me-2"></i>{% trans 'Weekly Availability' %}
+                </h2>
+                {% comment %} data-label carries the translated noun into the shared
+                grid JS, which is a static file and so cannot use {% trans %}. {% endcomment %}
+                <span class="badge text-bg-secondary" id="hour-count"
+                      data-label="{% trans 'hours selected' %}"></span>
+              </div>
+              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="clear-grid">
+                <i class="bi bi-x-circle me-1"></i><span class="d-sm-none">{% trans 'Clear' %}</span><span class="d-none d-sm-inline">{% trans 'Clear all' %}</span>
+              </button>
+            </div>
+
+            {% include 'partials/availability_grid.html' with grid_id='availability-grid' field_id='id_available_hours' count_id='hour-count' clear_id='clear-grid' editable=True %}
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 justify-content-center mb-3">
+          <a href="{% url 'user-settings' %}" class="databot-btn databot-btn-outline btn-sm">
+            {% trans 'Back to Settings' %}
+          </a>
+          <button type="submit" class="databot-btn databot-btn-primary btn-sm">
+            <i class="bi bi-check2 me-2"></i>{% trans 'Save Availability' %}
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% comment %} The grid's layout AND its editor affordances now both live in
+main.css -- the latter behind .availability-grid--editable, which the shared
+partial applies when passed editable=True. Nothing page-specific is left. {% endcomment %}
+
+{% block scripts %}
+{{ timezone_name|json_script:"saved-timezone" }}
+{% comment %} Paint/drag behaviour is shared with WEEKLY_AVAILABILITY survey
+questions and lives in availability_grid.js, which auto-initialises the grid.
+Only this page's own concerns stay here: the timezone picker and form submit.
+{% endcomment %}
+<script src="{% static 'the_keep/availability_grid.js' %}"></script>
+<script>
+(function () {
+  var grid = document.getElementById('availability-grid');
+  if (!grid) { return; }
+
+  var hiddenField = document.getElementById('id_available_hours');
+  var actionField = document.getElementById('id_action');
+  var tzSelect = document.getElementById('id_timezone');
+  var form = document.getElementById('availability-form');
+
+  // Mirror of the shared module's serializer. The grid writes the hidden field on
+  // every change, so this only has to force a final flush before a submit that
+  // the module cannot see coming.
+  function serialize() {
+    var hours = [];
+    grid.querySelectorAll('.avail-cell.is-selected').forEach(function (c) {
+      hours.push(c.dataset.how);
+    });
+    hiddenField.value = hours.join(',');
+  }
+
+  // ---- Timezone ------------------------------------------------------------
+  // With no saved profile timezone, fall back to whatever the browser reports.
+  // json_script escapes the value safely rather than interpolating it into JS.
+  var savedTz = JSON.parse(document.getElementById('saved-timezone').textContent);
+  var drawnField = document.getElementById('id_drawn_timezone');
+  if (!savedTz) {
+    try {
+      var browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (browserTz) {
+        var match = Array.prototype.find.call(tzSelect.options, function (o) {
+          return o.value === browserTz;
+        });
+        if (match) {
+          tzSelect.value = browserTz;
+          // The server rendered in UTC but the picker now says the browser zone,
+          // so that is the zone the user is actually painting in. Without this the
+          // first save would be interpreted as UTC and land an offset off.
+          drawnField.value = browserTz;
+        }
+      }
+    } catch (err) { /* Intl unavailable -- the server default stands. */ }
+  }
+
+  function flagPartialHourZone() {
+    var note = document.getElementById('halfhour-note');
+    if (!note) { return; }
+    try {
+      // getTimezoneOffset is in minutes; a non-multiple of 60 is a :30/:45 zone.
+      var offset = new Date().getTimezoneOffset();
+      note.classList.toggle('d-none', offset % 60 === 0);
+    } catch (err) { /* leave hidden */ }
+  }
+
+  // Changing the zone re-renders server-side: the local<->UTC mapping needs
+  // ZoneInfo's DST rules, which the browser cannot reproduce with a fixed offset.
+  // The pending selection rides along so unsaved painting is not lost.
+  document.getElementById('apply-timezone').addEventListener('click', function () {
+    serialize();
+    actionField.value = 'change_timezone';
+    form.submit();
+  });
+
+  form.addEventListener('submit', function () { serialize(); });
+
+  flagPartialHourZone();
+})();
+</script>
+{% endblock scripts %}

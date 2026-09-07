@@ -113,8 +113,10 @@
           <div class="databot-cmd-group">
             <h5 class="databot-cmd-group-title">{{ group_name }}</h5>
             <ul class="databot-cmd-list">
-              {% comment %} Rows are (name, label, desc) — render the label, which for a
-              /lookup subcommand is what you actually type ("lookup faction").
+              {% comment %} Rows are (name, label, desc) — render the label, which is what
+              you actually type. This page asks for collapse_parents, so a parent like
+              /lookup is ONE row rather than one per subcommand; /help expands them,
+              because there each row is filtered by what the server has enabled.
               {% endcomment %}
               {% for name, label, desc in rows %}
               <li>

@@ -59,6 +59,15 @@
         {% endif %}
     "
     >
+    {% comment %} LOAD-BEARING, not decoration: rendering the tag is what makes
+    Django set the csrftoken cookie, and dismissNotification() reads that cookie
+    to build its X-CSRFToken header. Without it a page whose view never touched
+    CSRF has no cookie, the header goes out as the string "null", and the
+    dismissal 403s -- silently, since a 403 resolves the fetch promise. That was
+    the "notification comes back on reload" bug. The universal search bar does
+    NOT cover this: it is an hx-get, and a GET needs no token. {% endcomment %}
+    {% csrf_token %}
+
     <!-- Header -->
     {% include 'includes/header.html' %}
 
@@ -248,7 +257,15 @@
                 'X-Requested-With': 'XMLHttpRequest',
                 'X-CSRFToken': getCookie('csrftoken')
             }
-        }).catch(error => console.error('Error dismissing global message:', error));
+        })
+        .then(response => {
+            // A 403/404 resolves the promise normally, so .catch() alone never
+            // sees it. Without this an unauthorized dismissal fails silently.
+            if (!response.ok) {
+                throw new Error('dismiss failed: HTTP ' + response.status);
+            }
+        })
+        .catch(error => console.error('Error dismissing global message:', error));
     }
 
     function dismissNotification(notificationId, dismissUrl) {
@@ -261,7 +278,15 @@
                 'X-Requested-With': 'XMLHttpRequest',
                 'X-CSRFToken': getCookie('csrftoken')
             }
-        }).catch(error => console.error('Error dismissing notification:', error));
+        })
+        .then(response => {
+            // A 403/404 resolves the promise normally, so .catch() alone never
+            // sees it. This silence is what hid the missing-CSRF-cookie bug.
+            if (!response.ok) {
+                throw new Error('dismiss failed: HTTP ' + response.status);
+            }
+        })
+        .catch(error => console.error('Error dismissing notification:', error));
     }
 
     function getCookie(name) {
