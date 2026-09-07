@@ -6770,12 +6770,16 @@ def _boxscore_seat_fingerprint(thread):
             for s in thread.seats.all().order_by("seat_number")]
 
 
-def _boxscore_seat_lines(seats, header, numbered=True):
+def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
     """Render one side of the comparison: "1. Name - <emoji> Faction".
 
     `numbered=False` for a list with no seat order -- the thread's roster, shown
     when no seating exists yet. Numbering it would assert an order that isn't
     real; the file side is always ordered and stays numbered.
+
+    `scores` is an optional {seat_number: score} used by the completion summary,
+    rendered as a trailing "(31)". Omitted by the comparison prompts, which are
+    asking about identity and seating rather than reporting a result.
 
     Deliberately NOT _pick_seat_lines: that reads saved LFGSeat rows (the file
     side has none), renders a profile-less seat as "(removed player)" (wrong for
@@ -6800,6 +6804,11 @@ def _boxscore_seat_lines(seats, header, numbered=True):
         who = seat["label"]
         slug = seat["faction_slug"]
         prefix = f"{index}. " if numbered else ""
+        # None, not "", when there is no score: a seat whose participant had no
+        # turns is dropped from `entries` entirely, so it has no total to show and
+        # must render without an empty "()".
+        score = (scores or {}).get(index)
+        suffix = f" ({score})" if score is not None else ""
         if slug:
             emoji = faction_emoji_for(slug)
             title = titles.get(slug, slug)
@@ -6807,9 +6816,9 @@ def _boxscore_seat_lines(seats, header, numbered=True):
             vagabond = seat["vagabond_slug"]
             if vagabond:
                 mark += f" ({vagabond_titles.get(vagabond, vagabond)})"
-            lines.append(f"{prefix}{who} - {mark}")
+            lines.append(f"{prefix}{who} - {mark}{suffix}")
         else:
-            lines.append(f"{prefix}{who}")
+            lines.append(f"{prefix}{who}{suffix}")
     return lines
 
 
@@ -6920,11 +6929,19 @@ def _boxscore_apply(thread, pending, channel_id):
         thread.save(update_fields=["turns_data"])
 
     if seats:
-        rows = _boxscore_reseat(thread, seats)
-        order = "  ".join(
-            f"{r.seat_number}. {r.profile.name if r.profile_id else '(blank)'}"
-            for r in rows)
-        lines.append(f"Seating: {order}")
+        _boxscore_reseat(thread, seats)
+        # Final score per seat, keyed by turn_order rather than list position:
+        # entries and seats are separate lists and a seat with no turns is absent
+        # from entries, so zipping them would slide every score up by one.
+        scores = {}
+        for entry in entries:
+            cells = entry.get("turns") or []
+            if cells:
+                scores[entry.get("turn_order")] = cells[-1].get("score")
+        # The same renderer the confirm prompt uses, so what you approved and what
+        # you are told was saved read identically. It was a bare "1. Name  2. Name"
+        # here, which dropped the factions the prompt had just shown.
+        lines.extend(_boxscore_seat_lines(seats, "Seating:", scores=scores))
 
     # AFTER the writes, never inside a transaction with them: this is a Celery
     # enqueue, and a worker picking the task up before a commit would read stale
@@ -6951,7 +6968,8 @@ def boxscore_upload_from_api(thread, raw, token):
     """
     from the_databot.models import BoxScoreUploadToken
     from the_warroom.services.box_score_import import (
-        BoxScoreImportError, parse_box_score_json, resolve_participant_players,
+        BoxScoreImportError, is_plausible_steam_id, parse_box_score_json,
+        resolve_participant_players,
     )
     from django.utils import timezone
 
@@ -6963,6 +6981,29 @@ def boxscore_upload_from_api(thread, raw, token):
         raise BoxScoreImportError(
             f"That file has {len(participants)} participants, which is more "
             "than a game can seat.")
+
+    # TTS ONLY. The object at the table identifies players by Steam account, and
+    # a seat with no id can't be resolved by Gate 0 either -- there would be
+    # nothing to persist from the answer. Deliberately NOT in
+    # parse_box_score_json: the site's own game export carries slugs and no Steam
+    # ids at all, and the record-form import modal exists to read that export, so
+    # a blanket rule there would reject our own JSON.
+    missing_ids = [i + 1 for i, p in enumerate(participants)
+                   if not is_plausible_steam_id(p.get("player_steam_id"))]
+    if missing_ids:
+        raise BoxScoreImportError(
+            f"Seat {missing_ids[0]} has no Steam ID. Every player in a Tabletop "
+            "Simulator upload needs one so they can be matched to a profile.")
+
+    # Seat order comes from turn_order, NOT the array order. parse_box_score_json
+    # has already guaranteed the values are exactly 1..N, so this is a permutation
+    # -- it reorders the seats without being able to change how many there are.
+    # Done BEFORE resolution because `participants` and `profiles` are zipped
+    # together below; reordering only one of them would attach every player to the
+    # wrong seat.
+    participants = sorted(
+        participants,
+        key=lambda p: int(p.get("turn_order", p.get("seat"))))
 
     entries, notes, items, component_titles = _boxscore_decompose(
         participants, payload)
@@ -7158,6 +7199,15 @@ def _handle_boxscore_upload_command(data):
     if not participants:
         return _ephemeral("That file has no participants.")
 
+    # Seat order comes from turn_order, NOT the array order. parse_box_score_json
+    # has already rejected anything but an exact 1..N set, so this is a
+    # permutation: it cannot invent or drop a seat, which is what the old
+    # seat-by-position rule was guarding against. Sorted BEFORE decompose so the
+    # turns_data entries and the seats agree on what seat 1 means.
+    participants = sorted(
+        participants,
+        key=lambda p: int(p.get("turn_order", p.get("seat"))))
+
     try:
         entries, notes, items, component_titles = _boxscore_decompose(
             participants, payload)
@@ -7166,13 +7216,6 @@ def _handle_boxscore_upload_command(data):
 
     if not entries and not items:
         return _ephemeral("There was nothing in that file I can use.")
-
-    # Seat by POSITION, not by raw turn_order: a stray "7" in a 2-player file
-    # would otherwise create seven seats.
-    raw_seats = [p.get("turn_order", p.get("seat")) for p in participants]
-    if [s for s in raw_seats if s is not None] != list(
-            range(1, len([s for s in raw_seats if s is not None]) + 1)):
-        notes.append("Seat numbers weren't 1-N, so I used the order they appear in.")
 
     # ── Players. Resolved unconditionally, NOT inside an "is it seated yet"
     # branch as this once was: an already-seated thread is exactly the case the

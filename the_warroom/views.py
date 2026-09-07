@@ -1149,9 +1149,23 @@ def manage_game(request, id=None):
         # the add/remove controls, so this is the final count.
         lfg_seats = seated_profiles(lfgthread)
 
+    # Resolved HERE rather than further down where the faction join uses it: the
+    # row count below needs its seat count, and a formset is sized once at
+    # construction. One FK lookup, reused by the count, the ordering and the
+    # faction prefill.
+    match_captured = _match_captured_thread(match) if match_mode else None
+    captured_seats = (list(match_captured.seats.select_related('profile')
+                           .order_by('seat_number'))
+                      if match_captured else [])
+
     if match_mode and not id:
         seat_count = MatchSeat.objects.filter(series=match.series).count()
-        extra_forms = max(0, seat_count - existing_count)
+        # A box score can seat MORE players than the bracket knows about -- five
+        # people at the table for a four-player match. Render a row for each so
+        # the extra seat's faction and score are visible instead of silently
+        # dropped; the player dropdown stays restricted to match participants, so
+        # completing that row means adding them to the match first.
+        extra_forms = max(0, max(seat_count, len(captured_seats)) - existing_count)
     elif lfg_mode and not id:
         extra_forms = max(0, len(lfg_seats) - existing_count)
     else:
@@ -1165,13 +1179,28 @@ def manage_game(request, id=None):
     # Pre-populate effort forms with match seat players (for new games in match mode)
     match_seats = []
     match_opts = None
-    match_captured = None
     if match_mode:
         match_seats = list(
             MatchSeat.objects.filter(series=match.series)
             .select_related('stage_participant__tournament_player__profile')
             .order_by('seat_number')
         )
+        # MatchSeat.seat_number is nullable and in practice just the order players
+        # were ADDED to the match -- not a seating anyone chose. When the group
+        # thread holds a real seating (/seating, /adset or a box score, all of
+        # which set seating_set), that is the order the game was actually played
+        # in, so it drives the rows instead.
+        #
+        # Sorted at the SOURCE, not in the two fill loops below: both iterate this
+        # list with enumerate, so reordering one and not the other would put
+        # factions on the wrong players. MatchSeat still decides WHO plays --
+        # only the order changes, and anyone the thread doesn't seat keeps their
+        # relative position at the end.
+        if match_captured and match_captured.seating_set and captured_seats:
+            order = {s.profile_id: i for i, s in enumerate(captured_seats)
+                     if s.profile_id}
+            match_seats.sort(key=lambda ms: order.get(
+                ms.stage_participant.tournament_player.profile_id, len(order)))
         # Restrict player dropdown to match participants only
         match_profiles = _get_match_profiles(match)
         for form in formset.forms:
@@ -1192,7 +1221,7 @@ def manage_game(request, id=None):
         # fields they do in LFG mode. The player queryset is deliberately NOT
         # touched -- the match roster stays authoritative, and clean() validates
         # against MatchSeat.
-        match_captured = _match_captured_thread(match)
+        # Already resolved above, where the row count needed its seat count.
         if match_captured:
             match_opts = lfg_option_querysets(
                 match_captured, match.round.get_tournament())

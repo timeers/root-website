@@ -597,7 +597,21 @@ class GameCreateForm(forms.ModelForm):
                     else:
                         faction = effort_form.cleaned_data.get('faction')
                         if faction:
-                            validation_errors_to_display.append(f'Select a player for each faction')
+                            # A box score can seat more players than the match
+                            # knows about. That row's player CANNOT be chosen --
+                            # the dropdown is restricted to match participants --
+                            # so "select a player" reads as a broken form. Say
+                            # what actually has to happen instead.
+                            offerable = effort_form.fields['player'].queryset
+                            if _match and not offerable.exclude(
+                                    pk__in=[p.pk for p in player_roster]).exists():
+                                validation_errors_to_display.append(
+                                    'This game has more players than the match. '
+                                    'Add the missing player from the Match page, '
+                                    'then record the game.')
+                            else:
+                                validation_errors_to_display.append(
+                                    'Select a player for each faction')
                 # Check the round's effective max and min player counts, but only
                 # when the tournament enforces a player count (otherwise there is
                 # no limit, matching get_*_players_display()).

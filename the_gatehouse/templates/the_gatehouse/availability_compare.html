@@ -23,7 +23,7 @@ is nothing worth indexing. {% endcomment %}
   <div class="row justify-content-center">
     <div class="col-lg-11">
 
-      <div class="info-card mb-4">
+      <div class="info-card mb-3">
         <div class="info-card-body">
           {% comment %} Back on the left, edit pushed right by ms-auto. The row
           WRAPS because .avail-btn-compact is nowrap + flex-shrink:0 -- together
@@ -39,7 +39,7 @@ is nothing worth indexing. {% endcomment %}
               {% endif %}
               {% if edit_url %}
                 <a href="{{ edit_url }}" class="databot-btn databot-btn-primary avail-btn-compact ms-auto">
-                  <i class="bi bi-pencil me-1"></i>{% trans 'Edit Availability' %}
+                  <i class="bi bi-pencil me-1"></i>{% trans 'My Availability' %}
                 </a>
               {% endif %}
             </div>
@@ -106,10 +106,39 @@ is nothing worth indexing. {% endcomment %}
       {% else %}
 
       <div class="row g-3">
+
+
+
+
+
         {# Player list: beside the grid when there's room, above it when there isn't. #}
         <div class="col-lg-4">
+
+
+
+
           <div class="info-card h-100">
             <div class="info-card-body">
+
+
+
+              <h2 class="info-card-title h6 mb-2">{% trans 'Legend' %}</h2>
+
+              <div id="summary-line" class="mb-2"></div>
+
+              {# Legend is rebuilt on every toggle: a group of 3 can never be "missing 4", so the reachable bands change with the selection. #}
+              <div class="heat-legend mb-2" id="heat-legend"></div>
+
+              {% comment %} Tap/click detail. The cells carry a `title`, but that
+              is mouse-only -- a phone never shows it. This panel is the same
+              information in a form touch users can actually reach.
+              {% endcomment %}
+              <div class="cell-detail" id="cell-detail">
+                <span class="text-muted">{% trans 'Tap a time to see who is free.' %}</span>
+              </div>
+
+              <hr class="card-section-divider">
+
               <div class="d-flex justify-content-between align-items-center flex-wrap mb-2 gap-2">
                 <h2 class="info-card-title h6 mb-0">
                   {% blocktrans count counter=player_count %}{{ counter }} Player{% plural %}{{ counter }} Players{% endblocktrans %}
@@ -149,6 +178,13 @@ is nothing worth indexing. {% endcomment %}
                   </li>
                 {% endfor %}
               </ul>
+
+
+
+
+
+
+
             </div>
           </div>
         </div>
@@ -157,18 +193,6 @@ is nothing worth indexing. {% endcomment %}
           <div class="info-card h-100">
             <div class="info-card-body">
 
-              <div id="summary-line" class="mb-2"></div>
-
-              {# Legend is rebuilt on every toggle: a group of 3 can never be "missing 4", so the reachable bands change with the selection. #}
-              <div class="heat-legend mb-2" id="heat-legend"></div>
-
-              {% comment %} Tap/click detail. The cells carry a `title`, but that
-              is mouse-only -- a phone never shows it. This panel is the same
-              information in a form touch users can actually reach.
-              {% endcomment %}
-              <div class="cell-detail mb-3" id="cell-detail">
-                <span class="text-muted">{% trans 'Tap a time to see who is free.' %}</span>
-              </div>
 
               <div class="availability-scroll">
                 <div class="availability-grid compare-grid" id="compare-grid">
@@ -281,6 +305,16 @@ is nothing worth indexing. {% endcomment %}
     gap: 10px;
     font-size: 0.75rem;
     color: #6c757d;
+  }
+  /* Divides the legend block from the player list inside the same card. Takes
+     the card's OWN border colour rather than Bootstrap's default hr (a black
+     rule at 25% opacity), which reads heavier than the card edge it sits
+     inside. */
+  .card-section-divider {
+    border: 0;
+    border-top: 1px solid #e3e5e8;
+    opacity: 1;
+    margin: 14px 0;
   }
   /* Who is free at the cell under the pointer (or the pinned one). The row is
      the whole answer -- checkbox, avatar, name and hours -- so the box wraps

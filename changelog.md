@@ -42,6 +42,12 @@
 - /schedule clear in a thread with no game now points at /schedule set, instead of an option that no longer exists
 - closing a schedule poll now says how many confirmed ("Closed by @Name — 3 of 5 confirmed") instead of claiming it closed before everyone responded, which wasn't true in a channel with no roster to answer
 - faction sheet backs with a very pale faction colour no longer render near-invisible attribute bars and piece shapes. The colour is deepened to BACK_INK_MIN_CONTRAST, just enough to show against the lightened background, and any faction that already reads clearly is untouched
+- box score seats now follow the turn order in the file instead of the order the players happen to be listed in, so the seating and the score grid can no longer disagree
+- a box score whose turn orders aren't 1 to N (a duplicate, a gap, or a player missing one) is now refused with a note saying what's wrong, instead of being seated by guesswork
+- a Tabletop Simulator upload now requires a Steam ID for every player, since that's how it identifies who was at the table
+- recording a game from a match thread now seats players in the order the game was actually played, taken from /seating, /adset or the box score, instead of the order players were added to the match
+- a box score with more players than the match seats now shows the extra player as their own row on the record form instead of quietly dropping them. Add the missing player from the Match page to fill it in
+- the message after a box score is added now lists each seat with its faction and score, matching the confirmation you just approved
 - Vagabond allowed to have coalition partner when importing boxscore json
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 - the group availability calendar button now shows up on the matches pages, where it never appeared before
