@@ -6668,6 +6668,41 @@ def _boxscore_clean(value, limit=_BOXSCORE_SLUG_MAX):
     return text[:limit] or None
 
 
+# Discord's cap on a select option's label. select_option truncates to this too;
+# the budgeting below exists so that truncation never lands on the profile name.
+_BOXSCORE_OPTION_LABEL_MAX = 100
+
+
+def _boxscore_option_label(seat_label, name, joiner=" is "):
+    """A Gate 0 option label: "MrDrouf1 is MrDrouf".
+
+    Naming BOTH sides is what keeps a dropdown identifiable after it is answered:
+    a select shows the chosen option's label, replacing the placeholder that named
+    the seat, so a bare profile name leaves the row anonymous.
+
+    Phrased as a sentence rather than "A -> B" because the two names are usually
+    near-identical -- a seat reaches Gate 0 precisely because its name almost
+    matched -- and "RDB Tester -> RDB Tester" reads as a rendering fault where
+    "RDB Tester is RDB Tester" reads as a statement.
+
+    THE NAME IS WHAT SURVIVES truncation: it is the thing being chosen, and a
+    32-char seat label with a 100-char display_name overflows the cap by a third.
+    The seat prefix is elided instead, and dropped entirely when there is no room
+    for it at all.
+    """
+    name = (name or "")[:_BOXSCORE_OPTION_LABEL_MAX]
+    if not seat_label:
+        return name
+    room = _BOXSCORE_OPTION_LABEL_MAX - len(joiner) - len(name)
+    if room >= len(seat_label):
+        return f"{seat_label}{joiner}{name}"
+    if room <= 1:
+        # Nothing meaningful would be left of the prefix; the name alone is
+        # better than one character and an ellipsis.
+        return name
+    return f"{seat_label[:room - 1]}…{joiner}{name}"
+
+
 def _boxscore_file_seats(participants, profiles):
     """Per-seat dicts describing what the FILE says, in file order.
 
@@ -7602,13 +7637,18 @@ def _boxscore_gate_zero_body(thread, pending, roster, owner, page=0, ref=None):
         chosen = str(picks.get(str(index)) or "")
         options = [select_option("— skip —", _BOXSCORE_GATE_ZERO_SKIP,
                                  default=not chosen)]
-        options += [select_option(p.name, str(p.pk), default=str(p.pk) == chosen)
+        # Each option names the SEAT as well as the player ("MrDrouf1 is
+        # MrDrouf"), because a select displays the chosen option's label -- so
+        # this is what the row still says once the placeholder is gone. Only the
+        # label carries the seat; `value` stays the bare pk the handler reads.
+        options += [select_option(_boxscore_option_label(seat["label"], p.name),
+                                  str(p.pk), default=str(p.pk) == chosen)
                     for p in candidates]
         # NUMBERED to match the numbered list in the content below. A dropdown
         # cannot carry a label of its own, and the placeholder naming the player
-        # DISAPPEARS as soon as something is selected -- so after the first pick
-        # the rows would be anonymous and the reader would be matching them to
-        # the list by position.
+        # DISAPPEARS as soon as something is selected -- the option labels above
+        # are what keep the row identifiable after that, and this numbering pairs
+        # it with the list while several are still unanswered.
         rows.append(action_row(string_select(
             encode_custom_id("boxscore_g0_pick", ref, index, owner),
             options, placeholder=f"{position}. Who is {seat['label']}?"[:100],

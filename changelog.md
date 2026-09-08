@@ -50,7 +50,8 @@
 - the message after a box score is added now lists each seat with its faction and score, matching the confirmation you just approved
 - answering a box score's "who is this player?" prompt no longer puts the same person in two seats. Choosing someone taught the site their Steam ID, which then matched a second seat as well
 - skipping one of those prompts now leaves that seat empty, instead of filling it in anyway from the name in the file
-- each dropdown in that prompt is now numbered and lists the player it belongs to, so you can tell which is which after making a pick. It also only lists the players on the page you're looking at
+- each dropdown in that prompt is now numbered and lists the player it belongs to, and only lists the players on the page you're looking at
+- the choices in that dropdown now read "MrMirz is MrMirz" rather than just "MrMirz", so once you've picked someone the dropdown still shows which player from the box score it was asking about
 - Vagabond allowed to have coalition partner when importing boxscore json
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 - the group availability calendar button now shows up on the matches pages, where it never appeared before

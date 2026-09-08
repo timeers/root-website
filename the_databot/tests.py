@@ -11540,10 +11540,15 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
     def test_the_dropdown_lists_roster_players_by_display_name(self):
         data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
         labels = [o["label"] for o in self._selects(data)[0]["options"]]
-        self.assertIn("Bob", labels)          # display_name, not slug
+        # "<seat> is <player>" -- the seat name rides along so the row stays
+        # identifiable once the placeholder is replaced by the pick.
+        self.assertIn("MysteryGuest is Bob", labels)   # display_name, not slug
         self.assertIn("— skip —", labels)
         # Alice already holds seat 1, and one person cannot hold two seats.
-        self.assertNotIn("Alice", labels)
+        # Checked as a SUBSTRING across every label: a bare assertNotIn("Alice",
+        # labels) would now pass even if she were offered as
+        # "MysteryGuest is Alice", since no label equals "Alice" any more.
+        self.assertNotIn("Alice", " | ".join(labels))
 
     def test_a_seat_with_no_steam_id_is_left_to_gate_one(self):
         """Nothing to persist, so asking would collect a useless answer."""
@@ -11798,12 +11803,37 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         # Held once, for the seat chosen last -- never twice.
         self.assertEqual(self.bob.assumed_steam_id, self.STEAM_B)
 
+    def test_the_answered_dropdown_still_names_its_seat(self):
+        """THE regression guard. A select displays the chosen option's label,
+        replacing the placeholder that named the seat -- so with a bare profile
+        name the row went anonymous after the first pick and the reader had to
+        match it back to the list by position."""
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        after = self._pick(self._pending_key(data), 1, self.bob.pk)
+        shown = [o["label"] for o in self._selects(after)[0]["options"]
+                 if o.get("default")]
+        self.assertEqual(len(shown), 1)
+        self.assertIn("MysteryGuest", shown[0])   # the seat, still named
+        self.assertIn("Bob", shown[0])            # and who it now is
+
+    def test_a_long_name_survives_the_option_label_cap(self):
+        """Discord truncates an option label at 100 chars, and display_name can
+        BE 100. The seat prefix is what gets elided -- truncating the other way
+        would cut the name, which is the thing being chosen."""
+        label = di._boxscore_option_label("S" * 32, "N" * 100)
+        self.assertLessEqual(len(label), 100)
+        self.assertTrue(label.endswith("N" * 100), label[:40])
+
+    def test_a_short_label_is_not_elided(self):
+        self.assertEqual(di._boxscore_option_label("MrDrouf1", "MrDrouf"),
+                         "MrDrouf1 is MrDrouf")
+
     def test_a_pick_is_shown_as_the_current_answer(self):
         data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
         after = self._pick(self._pending_key(data), 1, self.bob.pk)
         defaults = [o["label"] for o in self._selects(after)[0]["options"]
                     if o.get("default")]
-        self.assertEqual(defaults, ["Bob"])
+        self.assertEqual(defaults, ["MysteryGuest is Bob"])
 
     # ── shape ───────────────────────────────────────────────────────────────
 
