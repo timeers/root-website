@@ -6788,6 +6788,17 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
     """
     from the_keep.models import Faction, Vagabond
 
+    # Names come from the PROFILE whenever a seat has one, never from `label`.
+    # `label` is a cache written when the seat last resolved, and it is not
+    # cleared when a seat is un-resolved -- so a seat whose profile_pk went back
+    # to None kept displaying the last person who held it, which read as that
+    # player occupying two seats when the seating was in fact correct.
+    profile_pks = {s["profile_pk"] for s in seats if s.get("profile_pk")}
+    names = {}
+    if profile_pks:
+        names = {p.pk: p.name
+                 for p in Profile.objects.filter(pk__in=profile_pks)}
+
     faction_slugs = {s["faction_slug"] for s in seats if s["faction_slug"]}
     titles = {}
     if faction_slugs:
@@ -6801,7 +6812,18 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
 
     lines = [header]
     for index, seat in enumerate(seats, 1):
-        who = seat["label"]
+        pk = seat.get("profile_pk")
+        if pk:
+            # Resolved: the profile is the truth.
+            who = names.get(pk) or seat["label"]
+        elif seat.get("player_slug") or seat.get("player_steam_id"):
+            # Unresolved but the file named SOMEBODY -- echo what it said, which
+            # is all we know about them.
+            who = seat["label"]
+        else:
+            # Nobody is seated here and the file named nobody. Say so plainly
+            # rather than showing a stale name.
+            who = "—"
         slug = seat["faction_slug"]
         prefix = f"{index}. " if numbered else ""
         # None, not "", when there is no score: a seat whose participant had no
