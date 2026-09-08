@@ -11621,6 +11621,18 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
                           self.thread.seats.order_by("seat_number")],
                          [self.alice.pk, self.bob.pk])
 
+    def test_continuing_past_gate_one_seats_nobody_in_the_blank(self):
+        """Gate 1's Continue means "accept the blanks": the unmatched seat is
+        kept in the order but holds no player."""
+        doc = self._doc_unknown(("MysteryGuest", self.STEAM_A))
+        data = self._run_data(doc)
+        key = self._pending_key(data)
+        self._press("boxscore_link", key)
+
+        self.thread.refresh_from_db()
+        rows = list(self.thread.seats.order_by("seat_number"))
+        self.assertEqual([r.profile_id for r in rows], [self.alice.pk, None])
+
     def test_an_unresolved_seat_does_not_show_a_stale_name(self):
         """Reported twice from production as "why is this player listed twice?".
 

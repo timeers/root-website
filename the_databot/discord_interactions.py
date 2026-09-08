@@ -8023,6 +8023,10 @@ def _handle_boxscore_link(payload):
         if seat["profile_pk"] is None:
             seat["player_slug"] = None
             seat["player_steam_id"] = None
+            # The label goes WITH them. It is a cache of whoever the seat last
+            # resolved to, so leaving it behind made an accepted-blank seat still
+            # render that person's name -- which reads as them holding two seats.
+            seat["label"] = "(blank)"
     _boxscore_save(ref, thread, pending)
     return _boxscore_next_step(
         thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
