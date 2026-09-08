@@ -12342,8 +12342,11 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
                      "for a new token to upload again",
                      "new token if you want to upload again"):
             self.assertNotIn(dead, source)
-        # The apply-failure paths that DO keep a payload point at the command.
-        self.assertEqual(source.count('_boxscore_kept_note(ref, "to try again")'), 2)
+        # The apply-failure paths that DO keep a payload point at the command
+        # instead. Asserted as "at least one" rather than an exact count, so
+        # adding another such path doesn't fail this for the wrong reason.
+        self.assertGreaterEqual(
+            source.count('_boxscore_kept_note(ref, "to try again")'), 2)
 
     # ── restoring a discarded upload ────────────────────────────────────────
 
@@ -12367,7 +12370,7 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
             })
         return BoxScoreUploadToken.objects.get(pk=token.pk)
 
-    def _press_restore(self, token, author=None):
+    def _press_restore(self, token, author=None, capture=False):
         payload = {
             "data": {"custom_id":
                      f"boxscore_restore:{token.pk}:{author or self.AUTHOR}"},
@@ -12375,9 +12378,71 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
             "member": {"user": {"id": author or self.AUTHOR,
                                 "username": "tokplayer"}},
         }
-        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()), \
+                mock.patch.object(di.post_boxscore_prompt_task, "delay") as prompt, \
+                mock.patch.object(di.post_channel_message_task, "delay") as post:
             response = di.COMPONENT_HANDLERS["boxscore_restore"](payload)
-        return json.loads(response.content)["data"]
+        data = json.loads(response.content)["data"]
+        return (data, prompt, post) if capture else data
+
+    def test_restore_posts_the_prompt_into_the_thread(self):
+        """NOT as this interaction's response. The Restore button sits on the
+        ephemeral /boxscore token reply, so an interaction response would be
+        ephemeral too -- unanswerable by the host and moderators, who are
+        allowed to act on it, and with no durable message_id for the sweep to
+        strip buttons from when it lapses."""
+        token = self._discarded()
+        payload = dict(token.payload)
+        payload["seats"][0].update(profile_pk=None, label="nobody-at-all",
+                                   player_slug="nobody-at-all")
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(payload=payload)
+
+        data, prompt, _post = self._press_restore(token, capture=True)
+
+        # The gate went to the THREAD...
+        self.assertTrue(prompt.called)
+        body = prompt.call_args.args[1]
+        self.assertIn("Box score restored", body["content"])
+        self.assertTrue(body["components"])
+        # ...and the ephemeral reply is just an acknowledgement, carrying no
+        # buttons of its own for anyone to click.
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertFalse(data.get("components"))
+
+    def test_a_restored_prompt_pings_the_restorer(self):
+        """Ownership moved to whoever pressed Restore, so the ping follows it --
+        token.issued_by is stale in memory after the update()."""
+        original = Profile.objects.create(discord="original",
+                                          discord_id="920000000000000009")
+        self.thread.host = self.player
+        self.thread.save(update_fields=["host"])
+        token = self._discarded(issued_by=original)
+        payload = dict(token.payload)
+        payload["seats"][0].update(profile_pk=None, label="nobody-at-all",
+                                   player_slug="nobody-at-all")
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(payload=payload)
+
+        _data, prompt, _post = self._press_restore(token, capture=True)
+
+        body = prompt.call_args.args[1]
+        self.assertIn(f"<@{self.player.discord_id}>", body["content"])
+        self.assertNotIn(f"<@{original.discord_id}>", body["content"])
+        self.assertEqual(body["allowed_mentions"],
+                         {"users": [self.player.discord_id]})
+
+    def test_restoring_a_clean_upload_announces_it_in_the_thread(self):
+        """A restore that needs no gate still belongs in the thread: the game was
+        just written, and only the restorer would see an ephemeral summary."""
+        token = self._discarded()
+
+        data, _prompt, post = self._press_restore(token, capture=True)
+
+        self.assertTrue(post.called)
+        content = post.call_args.args[1]
+        self.assertIn(f"<@{self.player.discord_id}>", content)
+        self.assertEqual(post.call_args.kwargs["allowed_mentions"],
+                         {"users": [self.player.discord_id]})
+        self.assertEqual(data["flags"], di.EPHEMERAL)
 
     def test_it_offers_restore_alongside_a_fresh_token(self):
         """Both, never one instead of the other: a fresh upload of a DIFFERENT

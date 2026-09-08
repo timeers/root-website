@@ -76,6 +76,8 @@
 - box scores now match player names regardless of capitalisation, so a file naming "MrMirz" finds the same player as "mrmirz"
 - fixed a box score with more than four unmatched players silently skipping everyone past the first page
 - someone who isn't in the game can no longer answer a box score prompt on a thread whose players haven't been set yet
+- restoring a box score now posts the prompt in the thread instead of a private message only you could see, so the host and moderators can answer it too
+
 
 ## [1.13.5] - 2026-9-1 September Forever
 

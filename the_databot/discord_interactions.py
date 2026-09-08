@@ -8447,8 +8447,48 @@ def _handle_boxscore_restore(payload):
     # fingerprint, so the next Confirm compares against the CURRENT seating.
     _boxscore_reresolve(thread, pending, thread.thread_id)
     _boxscore_save(ref, thread, pending)
-    return _boxscore_next_step(thread, pending, thread.thread_id, PICK_OPEN,
-                               roster=roster, save=lambda: ref, ref=ref)
+
+    # POST INTO THE THREAD rather than returning the gate as this interaction's
+    # response. The Restore button sits on the ephemeral /boxscore token reply,
+    # so an interaction response inherits that ephemerality -- and a prompt only
+    # the restorer can see is unanswerable by the host and moderators, who are
+    # explicitly allowed to act on it. It would also have no durable message_id,
+    # so the sweep could never strip its buttons and a lapsed prompt would sit
+    # there with live controls. Same path the API upload takes, for the same
+    # reasons.
+    body = _boxscore_decide(thread, pending, roster, PICK_OPEN, lambda: ref)
+    if body is None:
+        # Nothing left to ask: the restore resolved everything, so apply it and
+        # announce the result in the thread.
+        lines, notes = _boxscore_apply(thread, pending, thread.thread_id)
+        _boxscore_discard(ref, status=(BoxScoreUploadToken.Status.APPLIED
+                                       if lines is not None
+                                       else BoxScoreUploadToken.Status.CANCELLED))
+        if lines is None:
+            return _ephemeral("That box score couldn't be saved."
+                              + _boxscore_kept_note(ref, "to try again"))
+        # The RESTORER, not token.issued_by: that attribute is stale here --
+        # ownership moved in the .update() above, which does not refresh the
+        # in-memory instance.
+        mention = f"<@{profile.discord_id}>" if profile.discord_id else ""
+        summary = [f"{mention} — your box score was saved." if mention
+                   else "Box score restored."]
+        summary.extend(lines)
+        summary.extend(notes)
+        post_channel_message_task.delay(
+            thread.thread_id, "\n".join(l for l in summary if l),
+            allowed_mentions=({"users": [profile.discord_id]} if mention else None))
+        return _ephemeral("Restored — the box score has been added to the thread.")
+
+    mention = f"<@{profile.discord_id}>" if profile.discord_id else ""
+    body["content"] = ("**Box score restored**\n"
+                       + (f"{mention} — confirm some details for your box "
+                          "score.\n" if mention else "")
+                       + body["content"])
+    body["allowed_mentions"] = (
+        {"users": [profile.discord_id]} if mention else {"parse": []})
+    post_boxscore_prompt_task.delay(token.pk, body)
+    return _ephemeral("Restored — check the thread to confirm it.")
 
 
 def _boxscore_reply(thread, pending, channel_id):
