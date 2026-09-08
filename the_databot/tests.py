@@ -11621,6 +11621,39 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
                           self.thread.seats.order_by("seat_number")],
                          [self.alice.pk, self.bob.pk])
 
+    def test_an_unresolved_seat_does_not_show_a_stale_name(self):
+        """Reported twice from production as "why is this player listed twice?".
+
+        `label` is a cache written when a seat last resolved, and nothing clears
+        it when the seat goes back to unresolved -- so a blank seat kept
+        displaying the last person who held it. The seating was correct; only the
+        message lied. Names now come from profile_pk."""
+        seats = [
+            {"profile_pk": self.bob.pk, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": None,
+             "vagabond_slug": None, "captain_slugs": [], "discarded_slug": None},
+            # Un-resolved, but still carrying Bob's name from an earlier pass.
+            {"profile_pk": None, "label": "Bob", "player_slug": None,
+             "player_steam_id": None, "faction_slug": None,
+             "vagabond_slug": None, "captain_slugs": [], "discarded_slug": None},
+        ]
+        lines = di._boxscore_seat_lines(seats, "From this box score")
+        self.assertEqual(lines[1], "1. Bob")
+        self.assertEqual(lines[2], "2. —")
+
+    def test_an_unresolved_seat_still_echoes_a_name_the_file_gave(self):
+        """The other side of it: a seat the file NAMED but we could not match is
+        not blank -- echoing what the file said is the only handle anyone has on
+        that player."""
+        seats = [
+            {"profile_pk": None, "label": "MysteryGuest",
+             "player_slug": "MysteryGuest", "player_steam_id": None,
+             "faction_slug": None, "vagabond_slug": None,
+             "captain_slugs": [], "discarded_slug": None},
+        ]
+        lines = di._boxscore_seat_lines(seats, "From this box score")
+        self.assertEqual(lines[1], "1. MysteryGuest")
+
     def test_skipping_a_seat_leaves_it_blank_after_the_other_is_picked(self):
         """Reported from production: two unknown seats, one answered and one
         skipped, produced the SAME player in both.
