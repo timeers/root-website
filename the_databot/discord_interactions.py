@@ -18,6 +18,7 @@ Currently handles:
                                           custom_id's leading action
   APPLICATION_COMMAND_AUTOCOMPLETE (4) -> live option suggestions (type 8)
 """
+import copy
 import json
 import logging
 import math
@@ -35,6 +36,7 @@ from django.db import transaction
 from django.db.models import Q, Exists, OuterRef
 from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
+from django.utils.timesince import timesince
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
@@ -6854,6 +6856,12 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
         if pk:
             # Resolved: the profile is the truth.
             who = names.get(pk) or seat["label"]
+        elif seat.get("accepted_blank"):
+            # Accepted as blank at Gate 1, but the file DID name someone. Say
+            # both: the name is the only handle anyone has on that player, and
+            # the marker stops it reading as though they were seated -- which is
+            # why the name used to be thrown away here.
+            who = f"{seat['label']} (not linked)" if seat.get("label") else ""
         elif seat.get("player_slug") or seat.get("player_steam_id"):
             # Unresolved but the file named SOMEBODY -- echo what it said, which
             # is all we know about them.
@@ -7105,11 +7113,17 @@ def boxscore_upload_from_api(thread, raw, token):
         if lines is None:
             raise BoxScoreImportError(
                 "That box score couldn't be saved — check the file and try again.")
-        summary = ["Box score uploaded from Tabletop Simulator."]
+        # The clean case pings too, with different wording: it confirms the paste
+        # worked, which is what someone sitting in TTS is waiting to know.
+        mention = _boxscore_issuer_mention(token)
+        summary = [f"{mention} — your box score was saved." if mention
+                   else "Box score uploaded from Tabletop Simulator."]
         summary.extend(lines)
         summary.extend(applied_notes)
         post_channel_message_task.delay(
-            thread.thread_id, "\n".join(l for l in summary if l))
+            thread.thread_id, "\n".join(l for l in summary if l),
+            allowed_mentions=({"users": [token.issued_by.discord_id]}
+                              if mention else None))
         turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
         return {
             "ok": True, "status": "applied",
@@ -7127,9 +7141,22 @@ def boxscore_upload_from_api(thread, raw, token):
         payload=pending, channel_id=thread.thread_id,
         prompt_expires_at=timezone.now() + BoxScoreUploadToken.PROMPT_TTL)
 
+    # Ping the issuer, and ONLY the issuer. The mention has to be in the content
+    # -- allowed_mentions is a filter over what the content already says, not a
+    # trigger -- and the id list is explicit rather than parse: ["users"] because
+    # a box score's labels are arbitrary text from the file, so a broad parse
+    # would let an uploaded name ping the channel.
+    #
+    # Set here rather than inside the _body functions: this assignment
+    # overwrites whatever they set (only gate 0 sets one at all), so a
+    # per-gate allowed_mentions would be silently discarded.
+    mention = _boxscore_issuer_mention(token)
     body["content"] = ("**Box score uploaded from Tabletop Simulator**\n"
+                       + (f"{mention} — confirm some details for your box "
+                          "score.\n" if mention else "")
                        + body["content"])
-    body["allowed_mentions"] = {"parse": []}
+    body["allowed_mentions"] = (
+        {"users": [token.issued_by.discord_id]} if mention else {"parse": []})
     post_boxscore_prompt_task.delay(token.pk, body)
 
     return {
@@ -7182,9 +7209,32 @@ def _handle_boxscore_token_command(data):
     ]
     # if site:
     #     lines.append(f"-# The object uploads to {site}/api/boxscore/upload/")
+
+    # Offer to restore a discarded upload ALONGSIDE the new token, never instead
+    # of it: a fresh upload of a different game to the same thread is legitimate,
+    # so silently restoring would override what was literally asked for.
+    components = []
+    restorable = _boxscore_restorable(thread, profile)
+    if restorable:
+        seats = len(restorable.payload.get("seats") or [])
+        turns = max((len(e.get("turns") or [])
+                     for e in (restorable.payload.get("entries") or [])), default=0)
+        lines.append(
+            f"-# There's also a box score from {timesince(restorable.created_at)} "
+            f"ago that wasn't finished — {seats} seats, {turns} turns.")
+        components = [action_row(
+            button("Restore that upload",
+                   encode_custom_id("boxscore_restore", str(restorable.pk),
+                                    data.get("_author_id") or PICK_OPEN),
+                   style=STYLE_PRIMARY))]
+
     # MUST stay ephemeral: the token is a capability, and posting it in the
     # thread would hand it to everyone who can read the channel.
-    return _ephemeral("\n".join(lines))
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"content": "\n".join(lines), "flags": EPHEMERAL,
+                 "components": components},
+    })
 
 
 BOXSCORE_SUBCOMMAND_HANDLERS = {"token": _handle_boxscore_token_command}
@@ -7362,6 +7412,7 @@ def _boxscore_gate_zero_needed(pending, roster):
 
     seats = [(i, s) for i, s in enumerate(pending["seats"])
              if s["profile_pk"] is None
+             and not s.get("accepted_blank")
              and is_plausible_steam_id(s.get("player_steam_id"))
              and s.get("player_slug")]
     if not seats:
@@ -7379,9 +7430,15 @@ def _boxscore_unlinkable(pending):
 
     A seat naming NOBODY is an anonymous seat, not a failed link -- the file just
     didn't say who sat there, so there is nothing to tell anyone to go and link.
+
+    accepted_blank seats are likewise settled: the user pressed Continue on Gate
+    1 to accept them as blank. Skipping them here is what stops Continue looping
+    -- _boxscore_decide re-runs this on the way back, and a seat that still
+    reported unlinkable would render Gate 1 again, identically, forever.
     """
     return [s["label"] for s in pending["seats"]
             if s["profile_pk"] is None
+            and not s.get("accepted_blank")
             and (s.get("player_slug") or s.get("player_steam_id"))]
 
 
@@ -7423,7 +7480,11 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     taken = {s["profile_pk"] for s in seats if s.get("profile_pk")}
 
     for position, (seat, on_roster, anywhere) in enumerate(zip(seats, found, wider)):
-        if position in skipped:
+        # Same reasoning as `skipped`, for the other way a seat gets settled:
+        # Gate 1's Continue accepted this one as blank, and the identifiers are
+        # kept now (so it can be restored), so without this it would silently
+        # re-fill on the next re-resolve and undo that decision.
+        if position in skipped or seat.get("accepted_blank"):
             continue
         profile = on_roster or anywhere
         if profile is None:
@@ -7564,7 +7625,8 @@ def _boxscore_apply_in_place(thread, pending, channel_id, ref):
     if lines is None:
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
         return _boxscore_resolved(
-            "That box score couldn't be saved — check the file and try again.")
+            "That box score couldn't be saved."
+            + _boxscore_kept_note(ref, "to try again"))
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
     entries = pending["entries"]
@@ -7835,7 +7897,14 @@ def _boxscore_pending_for_click(payload):
 
 
 def _boxscore_load(ref):
-    """The stored payload behind a prompt reference, or None."""
+    """The stored payload behind a prompt reference, or None.
+
+    The status=PENDING filter is LOAD-BEARING, not an optimisation. A resolved
+    token keeps its payload now (see _boxscore_discard) so it can be restored, so
+    this filter is the only thing stopping a stale button on an old message from
+    resurrecting a cancelled or already-applied upload. Relaxing it to
+    filter(pk=key) would be a live bug, not a harmless one.
+    """
     src, _, key = ref.partition(":")
     if src == "t":
         from the_databot.models import BoxScoreUploadToken
@@ -7866,25 +7935,108 @@ def _boxscore_save(ref, thread, pending):
 
 
 def _boxscore_discard(ref, status=None):
-    """Drop a prompt's stored payload once it is resolved."""
+    """Mark a prompt resolved, KEEPING the payload so it can be restored.
+
+    The payload is the only copy -- the raw upload is never stored and the token
+    was spent when it landed -- so nulling it here destroyed a box score whenever
+    anything went wrong, including the cases nobody chose: the seating changing
+    while the prompt waited, or an internal apply failure. `status` is what marks
+    the upload resolved (_boxscore_load filters on PENDING) and what the sweep's
+    prune keys on, so the row still goes away on schedule.
+
+    The cache branch still deletes: that is /boxscore upload, where the user
+    still holds the file and a cache entry has no prune to rely on.
+    """
     src, _, key = ref.partition(":")
     if src == "t":
         from the_databot.models import BoxScoreUploadToken
-        updates = {"payload": None}
         if status:
-            updates["status"] = status
-        BoxScoreUploadToken.objects.filter(pk=key).update(**updates)
+            BoxScoreUploadToken.objects.filter(pk=key).update(status=status)
         return
     cache.delete(f"boxscore:pending:{key or src}")
 
 
-def _boxscore_click_owner(payload, thread):
+def _boxscore_restorable(thread, profile, group=None):
+    """The most recent unfinished upload on `thread` that `profile` may restore.
+
+    Needs no new state: the token row already has thread, status, payload and
+    created_at. APPLIED rows are excluded by status -- their box score is saved.
+
+    payload__isnull=False is NOT decoration. A malformed upload is CANCELLED with
+    a null payload by the API's structural-error path, which raises before the
+    payload is ever staged, so this filter is what keeps those rows out.
+
+    Scoped to the issuer plus host/moderators, matching who may answer the prompt
+    it produces: /boxscore token is roster-guarded, so without this any teammate
+    would be shown -- and could resurrect -- data another person discarded.
+    """
+    from the_databot.models import BoxScoreUploadToken
+
+    if profile is None:
+        return None
+    token = BoxScoreUploadToken.objects.filter(
+        thread=thread,
+        status__in=[BoxScoreUploadToken.Status.CANCELLED,
+                    BoxScoreUploadToken.Status.EXPIRED],
+        payload__isnull=False,
+    ).order_by("-created_at").first()
+    if token is None:
+        return None
+    if token.issued_by_id == profile.pk or thread.host_id == profile.pk:
+        return token
+    if _thread_staff_override(profile, group, _thread_guild_id(thread)):
+        return token
+    return None
+
+
+def _boxscore_issuer_mention(token):
+    """"<@id>" for the token's issuer, or "" when there is nobody to ping.
+
+    issued_by is SET_NULL and discord_id is nullable AND blankable, so both can
+    be absent -- and an empty id would post a literal "<@>" and make Discord
+    reject the allowed_mentions as a 400. The mention is an improvement, never a
+    requirement: with no id the prompt posts exactly as it did before.
+    """
+    issuer = getattr(token, "issued_by", None)
+    discord_id = getattr(issuer, "discord_id", None) if issuer else None
+    return f"<@{discord_id}>" if discord_id else ""
+
+
+def _boxscore_kept_note(ref, what="to restore it"):
+    """The "-# Kept for N days" footnote, or "" for a cache-backed prompt.
+
+    Only a token row keeps its payload; a /boxscore upload entry is dropped from
+    the cache, and that user still holds the file. Every resolution message
+    carries this rather than only the first: they are reached independently, so
+    someone who only ever sees the expiry message should not have to guess
+    whether their data is still there.
+    """
+    if not (ref or "").startswith("t:"):
+        return ""
+    from the_databot.models import BoxScoreUploadToken
+    return (f"\n-# Kept for {BoxScoreUploadToken.PAYLOAD_RETENTION_DAYS} days — "
+            f"run `/boxscore token` {what}.")
+
+
+def _boxscore_click_owner(payload, thread, ref=None):
     """(profile, error) for whoever clicked a boxscore prompt.
 
     A prompt posted from a TTS upload has NO invoking Discord user, so its
     buttons end in PICK_OPEN and the dispatcher's owner-lock is off -- meaning
-    authorization happens HERE. Any roster player, the thread host, or a
-    moderator/admin may resolve it: the uploader may not even be at Discord.
+    authorization happens HERE.
+
+    A TOKEN-backed prompt is restricted to the profile that minted the token,
+    plus the thread host and moderators. The person who pasted the token owns the
+    decisions about that upload -- including Restore, which resurfaces data
+    someone chose to discard. This is only safe because a resolved payload is now
+    KEPT (see _boxscore_discard): if the minter is mid-game the prompt may lapse,
+    but lapsing now defers the box score rather than destroying it, and they can
+    restore it with /boxscore token.
+
+    `ref` names the backing store, and only "t:" refs have an issuer to check
+    against; a "c:" cache ref from /boxscore upload has none. Cache prompts are
+    owner-locked anyway and return just below, but the check is guarded on the
+    prefix regardless rather than relying on those two facts staying aligned.
 
     An OWNER-LOCKED prompt (an ephemeral /boxscore upload reply, whose custom_id
     ends in the invoker's snowflake) was already authorized by the dispatcher
@@ -7897,6 +8049,12 @@ def _boxscore_click_owner(payload, thread):
 
     roster, group = _thread_roster(thread, thread.thread_id)
 
+    issuer_pk = None
+    if ref and ref.startswith("t:"):
+        from the_databot.models import BoxScoreUploadToken
+        issuer_pk = BoxScoreUploadToken.objects.filter(
+            pk=ref.partition(":")[2]).values_list("issued_by_id", flat=True).first()
+
     # An empty roster used to return (None, None) -- "nothing to protect" --
     # which let ANY user in the channel confirm or cancel someone's box score.
     # It falls through to the host/staff check below instead, so the prompt stays
@@ -7906,18 +8064,26 @@ def _boxscore_click_owner(payload, thread):
     discord_id = _interaction_user_id(payload)
     me, status = _resolve_clicker(roster, discord_id, _clicker_username(payload))
     if status == CLICKER_MATCHED:
-        return me, None
-    if status == CLICKER_UNLINKED:
+        # On a token prompt, being on the roster is not enough: it has to be the
+        # person who minted it. Host and moderators still get through below.
+        if issuer_pk is None or me.pk == issuer_pk:
+            return me, None
+    elif status == CLICKER_UNLINKED:
         return None, _ephemeral(
             "You're in this game, but your Discord isn't linked to your site "
             f"account yet. Log in{_login_hint()} with Discord once, then try again.")
 
-    profile = Profile.objects.filter(discord_id=str(discord_id)).first()
+    profile = me if status == CLICKER_MATCHED else (
+        Profile.objects.filter(discord_id=str(discord_id)).first())
     if profile:
         if thread.host_id == profile.pk:
             return profile, None
         if _thread_staff_override(profile, group, _thread_guild_id(thread)):
             return profile, None
+    if issuer_pk is not None:
+        return None, _ephemeral(
+            "Only the person who started this upload — or the thread host or a "
+            "moderator — can answer this.")
     return None, _ephemeral(
         "Only the players in this game — or a moderator — can answer this.")
 
@@ -7943,7 +8109,7 @@ def _handle_boxscore_gate_zero_pick(payload):
     pending, thread, ref = _boxscore_pending_for_click(payload)
     if not pending:
         return _ephemeral("That box score is no longer waiting — upload it again.")
-    _who, error = _boxscore_click_owner(payload, thread)
+    _who, error = _boxscore_click_owner(payload, thread, ref)
     if error:
         return error
 
@@ -8000,14 +8166,19 @@ def _handle_boxscore_gate_zero_save(payload):
     pending, thread, ref = _boxscore_pending_for_click(payload)
     if not pending:
         return _ephemeral("That box score is no longer waiting — upload it again.")
-    _who, error = _boxscore_click_owner(payload, thread)
+    _who, error = _boxscore_click_owner(payload, thread, ref)
     if error:
         return error
 
     seats = pending["seats"]
+    # Skip a seat accepted as blank at Gate 1. Its Steam id survives now (so the
+    # upload can be restored) where the old code stripped it, so a stale pick
+    # from before that decision would otherwise write a DURABLE cross-game
+    # identity for a seat the user explicitly declined to link.
     pairs = [(pk, seats[int(i)].get("player_steam_id"))
              for i, pk in (pending.get("gate_zero") or {}).items()
-             if i.isdigit() and int(i) < len(seats)]
+             if i.isdigit() and int(i) < len(seats)
+             and not seats[int(i)].get("accepted_blank")]
     if pairs:
         assign_assumed_steam_ids(pairs)
 
@@ -8041,7 +8212,7 @@ def _handle_boxscore_retry(payload):
     pending, thread, ref = _boxscore_pending_for_click(payload)
     if not pending:
         return _ephemeral("That box score is no longer waiting — upload it again.")
-    _who, error = _boxscore_click_owner(payload, thread)
+    _who, error = _boxscore_click_owner(payload, thread, ref)
     if error:
         return error
 
@@ -8061,22 +8232,27 @@ def _handle_boxscore_link(payload):
     pending, thread, ref = _boxscore_pending_for_click(payload)
     if not pending:
         return _ephemeral("That box score is no longer waiting — upload it again.")
-    _who, error = _boxscore_click_owner(payload, thread)
+    _who, error = _boxscore_click_owner(payload, thread, ref)
     if error:
         return error
 
-    # Continue means "accept the blanks", so drop the labels that would send this
-    # straight back to Gate 1. This clears Gate 0's candidacy test too, which
-    # keys off the same player_steam_id -- so "accept the blanks" holds for both
-    # gates rather than bouncing between them.
+    # Continue means "accept the blanks". Record that as a DECISION on the seat
+    # rather than deleting the data the decision was about: the identifiers are
+    # the only copy of who the file said sat there, and stripping them left a
+    # permanent hole that no restore could fill.
+    #
+    # The flag is what the gates now test -- _boxscore_unlinkable (the loop this
+    # prevents), _boxscore_gate_zero_needed (which keyed off the same
+    # player_steam_id), _boxscore_reresolve and Gate 0's save -- so "accept the
+    # blanks" still holds for both gates rather than bouncing between them.
+    #
+    # The label stays too. It was cleared to stop an accepted seat rendering the
+    # name of whoever it last resolved to (which read as one person holding two
+    # seats); _boxscore_seat_lines now marks these "(not linked)" instead, which
+    # says the same thing without throwing the name away.
     for seat in pending["seats"]:
         if seat["profile_pk"] is None:
-            seat["player_slug"] = None
-            seat["player_steam_id"] = None
-            # The label goes WITH them. It is a cache of whoever the seat last
-            # resolved to, so leaving it behind made an accepted-blank seat still
-            # render that person's name -- which reads as them holding two seats.
-            seat["label"] = "(blank)"
+            seat["accepted_blank"] = True
     _boxscore_save(ref, thread, pending)
     return _boxscore_next_step(
         thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
@@ -8088,7 +8264,7 @@ def _handle_boxscore_confirm(payload):
     pending, thread, ref = _boxscore_pending_for_click(payload)
     if not pending:
         return _ephemeral("That box score is no longer waiting — upload it again.")
-    _who, error = _boxscore_click_owner(payload, thread)
+    _who, error = _boxscore_click_owner(payload, thread, ref)
     if error:
         return error
     return _boxscore_commit(payload, pending, thread, ref)
@@ -8112,16 +8288,20 @@ def _boxscore_commit(payload, pending, thread, ref):
     # the fingerprint carries (pk, profile, faction) per seat.
     if _boxscore_seat_fingerprint(thread) != pending.get("fingerprint"):
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
+        # This was the worst dead end: nothing was wrong with the upload, someone
+        # merely ran /seating while it waited, and the old text told them to
+        # re-export from TTS -- impossible once that game has moved on.
         return _boxscore_resolved(
-            "The seating changed while that was waiting — upload the box score "
-            "again to see the new comparison.")
+            "The seating changed while that was waiting."
+            + _boxscore_kept_note(ref, "to restore it against the new seating"))
 
     channel_id = payload.get("channel_id") or (payload.get("channel") or {}).get("id")
     lines, notes = _boxscore_apply(thread, pending, channel_id)
     if lines is None:
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
         return _boxscore_resolved(
-            "That box score couldn't be saved — check the file and try again.")
+            "That box score couldn't be saved."
+            + _boxscore_kept_note(ref, "to try again"))
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
     entries = pending["entries"]
@@ -8148,29 +8328,127 @@ def _boxscore_commit(payload, pending, thread, ref):
 
 
 def _handle_boxscore_cancel(payload):
-    """Discard a pending upload, dropping its stored payload rather than waiting
-    for the TTL."""
+    """Mark a pending upload cancelled rather than waiting for the TTL.
+
+    The payload is KEPT so it can be restored -- which is exactly why the
+    authorization below must not be conditional.
+    """
     from the_databot.models import BoxScoreUploadToken
 
     pending, thread, ref = _boxscore_pending_for_click(payload)
-    if thread is not None:
-        _who, error = _boxscore_click_owner(payload, thread)
-        if error:
-            return error
+    if thread is None:
+        # _boxscore_pending_for_click returns no thread when the payload won't
+        # load -- an already-resolved or lapsed token. This used to skip the
+        # owner check and discard anyway, which was harmless only while the
+        # payload was already gone. It isn't now: a stale button could flip an
+        # APPLIED token to CANCELLED and steer which payload restore offers.
+        return _ephemeral("That box score is no longer waiting.")
+    _who, error = _boxscore_click_owner(payload, thread, ref)
+    if error:
+        return error
     if ref:
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
 
-    lines = ["Box score discarded."]
-    if ref.startswith("t:"):
-        # The token was spent when the upload landed, so a cancel means a new one
-        # is needed -- say so rather than leaving someone wondering why their
-        # paste stopped working.
-        lines.append("-# Run `/boxscore token` for a new token if you want to "
-                     "upload again.")
+    lines = ["Box score discarded." + _boxscore_kept_note(ref)]
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": "\n".join(lines), "components": []},
     })
+
+
+def _boxscore_missing_assets(pending):
+    """Slugs in a stored payload that no longer name anything.
+
+    Re-resolution fixes IDENTITIES, not assets. A payload can be days old, and
+    _boxscore_reseat resolves these with dict.get(), which yields None on a miss
+    -- so a faction deleted or re-slugged since the upload would seat a player
+    with no faction, silently. the_keep content is user-authored with a status
+    workflow, so slugs do move.
+    """
+    from the_keep.models import Faction, Vagabond
+
+    seats = pending.get("seats") or []
+    faction_slugs = {s.get("faction_slug") for s in seats if s.get("faction_slug")}
+    vagabond_slugs = {s.get("vagabond_slug") for s in seats if s.get("vagabond_slug")}
+    vagabond_slugs |= {s.get("discarded_slug") for s in seats if s.get("discarded_slug")}
+    for seat in seats:
+        vagabond_slugs |= set(seat.get("captain_slugs") or [])
+
+    missing = faction_slugs - set(
+        Faction.objects.filter(slug__in=faction_slugs).values_list("slug", flat=True))
+    missing |= vagabond_slugs - set(
+        Vagabond.objects.filter(slug__in=vagabond_slugs).values_list("slug", flat=True))
+    return sorted(missing)
+
+
+def _handle_boxscore_restore(payload):
+    """Bring back an upload that was cancelled or left to lapse.
+
+    No new upload is needed: the payload is on the server, so a Discord
+    interaction alone recovers it and the token stays single-use.
+    """
+    from the_databot.models import BoxScoreUploadToken
+
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    token = BoxScoreUploadToken.objects.filter(pk=args[0]).first()
+    if token is None or not token.payload:
+        return _ephemeral("That upload isn't available any more.")
+
+    thread = token.thread
+    profile = ensure_profile_from_discord(
+        _interaction_user_id(payload), _clicker_username(payload), None)
+    roster, group = _thread_roster(thread, thread.thread_id)
+    # Re-authorize on the CLICK. Hiding the button is not authorization, and the
+    # offer and this handler are separate interactions.
+    if _boxscore_restorable(thread, profile, group) is None:
+        return _ephemeral(
+            "Only the person who started this upload — or the thread host or a "
+            "moderator — can restore it.")
+
+    # Re-check rather than trusting the offer: a game can be recorded between
+    # seeing the button and clicking it. Same two-part condition as the command.
+    if thread.game_id or thread.status == LFGThread.Status.RECORDED:
+        return _ephemeral(
+            "This game has been recorded since that upload. Edit the game on "
+            "the site instead.")
+
+    missing = _boxscore_missing_assets(token.payload)
+    if missing:
+        return _ephemeral(
+            "That box score names something that no longer exists: "
+            + ", ".join(f"`{s}`" for s in missing)
+            + ". Restoring it would seat those players with nothing.")
+
+    pending = copy.deepcopy(token.payload)
+    # Start the gates FRESH. Clearing these resets the QUESTIONS, not the
+    # answers: a Gate 0 answer was written to the profile as an assumed_steam_id,
+    # which is durable, so re-resolution matches that player automatically rather
+    # than asking twice. accepted_blank is the one gate answer with no durable
+    # backing -- leave it and the seat would be skipped by every condition, so
+    # Gate 1 would never render and the seat would stay blank forever.
+    for key in ("gate_zero", "gate_zero_skipped", "gate_zero_done"):
+        pending.pop(key, None)
+    for seat in pending.get("seats") or []:
+        seat.pop("accepted_blank", None)
+
+    ref = f"t:{token.pk}"
+    BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+        status=BoxScoreUploadToken.Status.PENDING,
+        payload=pending, channel_id=thread.thread_id,
+        # The restorer takes ownership: they chose to bring it back and are in
+        # Discord now, whereas the original issuer cancelled or let it lapse.
+        # This is the ONLY place issued_by changes after issue(), and the lock in
+        # _boxscore_click_owner depends on it doing so.
+        issued_by=profile,
+        prompt_expires_at=timezone.now() + BoxScoreUploadToken.PROMPT_TTL)
+
+    # Re-resolve rather than replaying the snapshot: someone may have linked an
+    # account or joined the roster since. _boxscore_save re-stamps the
+    # fingerprint, so the next Confirm compares against the CURRENT seating.
+    _boxscore_reresolve(thread, pending, thread.thread_id)
+    _boxscore_save(ref, thread, pending)
+    return _boxscore_next_step(thread, pending, thread.thread_id, PICK_OPEN,
+                               roster=roster, save=lambda: ref, ref=ref)
 
 
 def _boxscore_reply(thread, pending, channel_id):
@@ -9127,6 +9405,10 @@ COMPONENT_HANDLERS = {
     "boxscore_link": _handle_boxscore_link,
     "boxscore_ok": _handle_boxscore_confirm,
     "boxscore_no": _handle_boxscore_cancel,
+    # Ends in the invoker's snowflake (the offer is an ephemeral reply, so there
+    # IS one), which owner-locks it at the dispatcher. The handler re-authorizes
+    # anyway: the offer and the click are separate interactions.
+    "boxscore_restore": _handle_boxscore_restore,
     "draft_select": _handle_draft_select,
     "draft_build": _handle_draft_build,
     "draft_cancel": _handle_draft_cancel,

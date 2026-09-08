@@ -1,3 +1,4 @@
+import copy
 import json
 import re
 from unittest import mock, skipUnless
@@ -10952,6 +10953,90 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
             [(s.seat_number, s.profile_id) for s in self.thread.seats.all()],
             [(1, self.alice.pk), (2, None)])
 
+    def test_continue_records_the_decision_instead_of_erasing_the_evidence(self):
+        """Gate 1's Continue used to STRIP player_slug/player_steam_id, which was
+        the one thing no restore could undo -- the identifiers are the only copy
+        of who the file said sat there. It now sets accepted_blank instead."""
+        doc = {"participants": [
+            {"turn_order": 1, "player": self.alice.slug,
+             "turns": [{"turn": 1, "score": 2}]},
+            {"turn_order": 2, "player": "nobody-with-this-slug",
+             "turns": [{"turn": 1, "score": 4}]},
+        ]}
+        data = self._run_data(doc)
+        key = self._pending_key(data)
+
+        # Spy on the save: this file applies cleanly once the blank is accepted,
+        # and applying discards the pending payload, so it cannot be read back
+        # afterwards. The save is the moment the decision is written.
+        saved = {}
+        real_save = di._boxscore_save
+
+        def capture(ref, thread, pending):
+            saved.update(copy.deepcopy(pending))
+            return real_save(ref, thread, pending)
+
+        with mock.patch.object(di, "_boxscore_save", side_effect=capture):
+            self._press("boxscore_link", key)
+
+        seat = saved["seats"][1]
+        self.assertTrue(seat["accepted_blank"])
+        # The whole point: the identifiers SURVIVE.
+        self.assertEqual(seat["player_slug"], "nobody-with-this-slug")
+        self.assertEqual(seat["label"], "nobody-with-this-slug")
+
+    def test_an_accepted_blank_seat_renders_the_name_it_was_given(self):
+        """The strip blanked the label too, so an accepted seat rendered as
+        nothing. The file genuinely said somebody was there; a moderator fixing
+        it later needs to see who."""
+        seats = [
+            {"profile_pk": None, "label": "MysteryGuest", "accepted_blank": True,
+             "player_slug": "MysteryGuest", "player_steam_id": None,
+             "faction_slug": None, "vagabond_slug": None,
+             "captain_slugs": [], "discarded_slug": None},
+        ]
+        lines = di._boxscore_seat_lines(seats, "Seating", numbered=True)
+        self.assertIn("MysteryGuest (not linked)", "\n".join(lines))
+
+    def test_an_accepted_blank_seat_is_not_re_resolved(self):
+        """Re-resolution must not undo the decision. The identifiers are still
+        on the seat now, so without the guard the seat would silently re-fill
+        the moment that player linked their account."""
+        # That player now exists and is on the roster -- exactly what Try Again
+        # is for. The accepted seat must still NOT take them.
+        latecomer = Profile.objects.create(discord="late-linker", discord_id="8801")
+        latecomer.slug = "late-linker"
+        latecomer.save()
+        self.thread.players.add(latecomer)
+
+        pending = {"seats": [
+            {"profile_pk": None, "label": "late-linker", "accepted_blank": True,
+             "player_slug": "late-linker", "player_steam_id": None,
+             "faction_slug": None, "vagabond_slug": None,
+             "captain_slugs": [], "discarded_slug": None},
+        ]}
+        di._boxscore_reresolve(self.thread, pending, self.thread.thread_id)
+        self.assertIsNone(pending["seats"][0]["profile_pk"])
+
+        # Control: the SAME seat without the flag does re-resolve, so the
+        # assertion above is the flag's doing and not a broken fixture.
+        pending["seats"][0]["accepted_blank"] = False
+        di._boxscore_reresolve(self.thread, pending, self.thread.thread_id)
+        self.assertEqual(pending["seats"][0]["profile_pk"], latecomer.pk)
+
+    def test_gate_zero_does_not_re_offer_an_accepted_seat(self):
+        """Gate 0 keyed off the same player_steam_id the strip removed. With the
+        id kept, the flag is what stops the two gates bouncing at each other."""
+        seats = [
+            {"profile_pk": None, "label": "SteamGuy", "accepted_blank": True,
+             "player_slug": "SteamGuy", "player_steam_id": "76561198000000001",
+             "faction_slug": None, "vagabond_slug": None,
+             "captain_slugs": [], "discarded_slug": None},
+        ]
+        needed, _candidates = di._boxscore_gate_zero_needed(
+            {"seats": seats}, [self.alice])
+        self.assertEqual(needed, [])
+
     def test_a_file_with_no_players_still_sets_the_seat_count_and_order(self):
         self._run({"participants": [
             {"turn_order": 1, "turns": [{"turn": 1, "score": 2}]},
@@ -11953,7 +12038,10 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
 
         refused = self._press_open(ref, "999888777")
 
-        self.assertIn("Only the players in this game", refused["content"])
+        # A token prompt names the issuer rather than "the players": it is
+        # locked to whoever minted it, plus the host and moderators.
+        self.assertIn("Only the person who started this upload",
+                      refused["content"])
 
     def test_the_thread_host_can_answer_an_empty_thread_prompt(self):
         """Failing closed must not strand the upload: someone accountable can
@@ -11965,6 +12053,83 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         answered = self._press_open(ref, self.alice.discord_id)
 
         self.assertNotIn("Only the players in this game", answered["content"])
+
+    # ── the token prompt is locked to whoever minted it ─────────────────────
+
+    def _token_prompt(self, issuer, roster):
+        """A PENDING token prompt on a thread with a real roster.
+
+        _press_open, never _press: _press appends the clicker's snowflake, which
+        owner-LOCKS the custom_id and short-circuits _boxscore_click_owner before
+        the check under test ever runs.
+        """
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        pending = di._boxscore_load(self._pending_key(data))
+        self.thread.players.set(roster)
+        token, _raw = BoxScoreUploadToken.issue(self.thread, issuer)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING, payload=pending)
+        return f"t:{token.pk}"
+
+    def test_a_roster_player_who_did_not_mint_the_token_is_refused(self):
+        """The lock: being in the game is no longer enough. The person who pasted
+        the token owns the decisions about that upload."""
+        other = Profile.objects.create(discord="teammate", discord_id="777111")
+        ref = self._token_prompt(self.alice, [self.alice, other])
+
+        refused = self._press_open(ref, other.discord_id)
+
+        self.assertIn("Only the person who started this upload",
+                      refused["content"])
+
+    def test_the_minter_can_answer_their_own_token_prompt(self):
+        other = Profile.objects.create(discord="teammate", discord_id="777112")
+        ref = self._token_prompt(self.alice, [self.alice, other])
+
+        answered = self._press_open(ref, self.alice.discord_id)
+
+        self.assertNotIn("Only the person who started", answered["content"])
+
+    def test_the_host_can_still_answer_someone_elses_token_prompt(self):
+        """The escape hatch: a locked prompt must not strand if the minter is
+        mid-game or gone."""
+        other = Profile.objects.create(discord="teammate", discord_id="777113")
+        self.thread.host = other
+        self.thread.save(update_fields=["host"])
+        ref = self._token_prompt(self.alice, [self.alice, other])
+
+        answered = self._press_open(ref, other.discord_id)
+
+        self.assertNotIn("Only the person who started", answered["content"])
+
+    def test_a_cache_prompt_stays_open_to_the_roster(self):
+        """The lock is for TOKEN prompts. A "c:" ref has no issuer, so
+        /boxscore upload keeps its original any-roster-player rule."""
+        other = Profile.objects.create(discord="teammate", discord_id="777114")
+        self.thread.players.add(other)
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        ref = self._pending_key(data)
+        self.assertTrue(ref.startswith("c:"))
+
+        answered = self._press_open(ref, other.discord_id)
+
+        self.assertNotIn("Only the person who started", answered["content"])
+        self.assertNotIn("Only the players in this game", answered["content"])
+
+    def test_a_stale_cancel_cannot_flip_an_already_resolved_token(self):
+        """The payload survives a cancel now, so an unauthorized Cancel on a
+        resolved token could otherwise steer which payload restore offers."""
+        stranger = "999888777"
+        ref = self._token_prompt(self.alice, [self.alice])
+        pk = ref.partition(":")[2]
+        BoxScoreUploadToken.objects.filter(pk=pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED)
+
+        self._press_open(ref, stranger)
+
+        token = BoxScoreUploadToken.objects.get(pk=pk)
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.APPLIED)
+        self.assertIsNotNone(token.payload)
 
     # ── the prompt resolves itself ──────────────────────────────────────────
 
@@ -12167,6 +12332,212 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertNotIn("token", dc.WHITELISTABLE)
         self.assertNotIn("boxscore", dc.WHITELISTABLE)
 
+    def test_no_resolution_message_still_tells_anyone_to_re_upload(self):
+        """All four resolution paths used to say "upload it again", which after
+        §1 is both wrong (the data is kept) and the expensive path -- TTS may be
+        closed. Pins the wording so it cannot drift back."""
+        import inspect
+        source = inspect.getsource(di)
+        for dead in ("upload the box score again",
+                     "for a new token to upload again",
+                     "new token if you want to upload again"):
+            self.assertNotIn(dead, source)
+        # The apply-failure paths that DO keep a payload point at the command.
+        self.assertEqual(source.count('_boxscore_kept_note(ref, "to try again")'), 2)
+
+    # ── restoring a discarded upload ────────────────────────────────────────
+
+    _DEFAULT = object()
+
+    def _discarded(self, issued_by=None, status=None, payload=_DEFAULT):
+        """A cancelled upload whose payload survived -- what §1 now keeps."""
+        token, _raw = BoxScoreUploadToken.issue(self.thread,
+                                                issued_by or self.player)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=status or BoxScoreUploadToken.Status.CANCELLED,
+            payload=payload if payload is not self._DEFAULT else {
+                "seats": [{"profile_pk": self.player.pk, "label": "tokplayer",
+                           "player_slug": "tokplayer", "player_steam_id": None,
+                           "faction_slug": None, "vagabond_slug": None,
+                           "captain_slugs": [], "discarded_slug": None}],
+                "entries": [{"turn_order": 1, "turns": [{"turn": 1, "score": 3}]}],
+                "items": {}, "notes": [],
+                "thread_pk": self.thread.pk, "filename": "Tabletop Simulator",
+                "component_titles": {},
+            })
+        return BoxScoreUploadToken.objects.get(pk=token.pk)
+
+    def _press_restore(self, token, author=None):
+        payload = {
+            "data": {"custom_id":
+                     f"boxscore_restore:{token.pk}:{author or self.AUTHOR}"},
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": author or self.AUTHOR,
+                                "username": "tokplayer"}},
+        }
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+            response = di.COMPONENT_HANDLERS["boxscore_restore"](payload)
+        return json.loads(response.content)["data"]
+
+    def test_it_offers_restore_alongside_a_fresh_token(self):
+        """Both, never one instead of the other: a fresh upload of a DIFFERENT
+        game to the same thread is legitimate, so the offer must not suppress
+        the token someone actually asked for."""
+        self._discarded()
+        before = BoxScoreUploadToken.objects.count()
+
+        data = self._run()
+
+        self.assertIn("wasn't finished", data["content"])
+        self.assertEqual(data["components"][0]["components"][0]["custom_id"]
+                         .split(":")[0], "boxscore_restore")
+        self.assertEqual(BoxScoreUploadToken.objects.count(), before + 1)
+
+    def test_there_is_no_offer_when_nothing_was_discarded(self):
+        data = self._run()
+        self.assertNotIn("wasn't finished", data["content"])
+        self.assertFalse(data.get("components"))
+
+    def test_an_applied_upload_is_not_offered(self):
+        """Its box score is already saved -- there is nothing to restore."""
+        self._discarded(status=BoxScoreUploadToken.Status.APPLIED)
+        self.assertNotIn("wasn't finished", self._run()["content"])
+
+    def test_a_cancelled_row_with_no_payload_is_not_offered(self):
+        """The API's structural-error path cancels with a null payload, having
+        raised before anything was staged. payload__isnull=False is what keeps
+        those rows out of the offer."""
+        self._discarded(payload=None)
+        self.assertNotIn("wasn't finished", self._run()["content"])
+
+    def test_a_teammate_is_neither_offered_nor_allowed_to_restore(self):
+        """/boxscore token is roster-guarded, so without this scope any teammate
+        would be shown -- and could resurrect -- data someone else discarded."""
+        other = Profile.objects.create(discord="teammate", discord_id="920000000000000002")
+        self.thread.players.add(other)
+        token = self._discarded(issued_by=self.player)
+
+        data = di._handle_boxscore_command({
+            "name": "boxscore",
+            "options": [{"name": "token", "type": 1, "options": []}],
+            "_channel_id": self.THREAD_ID, "_channel_type": 11,
+            "_author_id": other.discord_id, "_author_username": "teammate",
+            "_author": {"name": "teammate"}, "_guild_id": None,
+        })
+        self.assertNotIn("wasn't finished", json.loads(data.content)["data"]["content"])
+
+        # Hiding the button is not authorization: the handler must refuse too.
+        refused = self._press_restore(token, author=other.discord_id)
+        self.assertIn("Only the person who started this upload",
+                      refused["content"])
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+
+    def test_restoring_a_clean_upload_applies_it_without_re_uploading(self):
+        """The whole point: the payload is on the server, so a Discord
+        interaction alone recovers it -- no re-export from TTS. This payload
+        needs no gate, so restore carries it straight through to applied."""
+        token = self._discarded()
+        self.assertFalse(self.thread.turns_data)
+
+        self._press_restore(token)
+
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.APPLIED)
+        self.assertEqual(token.issued_by_id, self.player.pk)
+
+    def test_restoring_a_gated_upload_reopens_the_prompt(self):
+        """A payload that still needs a decision goes back to PENDING with a
+        fresh prompt window, rather than applying."""
+        token = self._discarded()
+        payload = dict(token.payload)
+        # An unresolvable name is what Gate 1 fires on.
+        payload["seats"][0].update(profile_pk=None, label="nobody-at-all",
+                                   player_slug="nobody-at-all")
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(payload=payload)
+
+        self._press_restore(token)
+
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.PENDING)
+        self.assertTrue(token.payload)
+        self.assertEqual(token.issued_by_id, self.player.pk)
+        self.assertTrue(token.prompt_expires_at)
+
+    def test_the_restorer_becomes_the_issuer(self):
+        """Whoever owns the prompt is who gets pinged and who can answer it. The
+        original issuer already cancelled or let it lapse."""
+        original = Profile.objects.create(discord="original",
+                                          discord_id="920000000000000003")
+        self.thread.host = self.player
+        self.thread.save(update_fields=["host"])
+        token = self._discarded(issued_by=original)
+
+        self._press_restore(token)      # pressed by the HOST, not the issuer
+
+        token.refresh_from_db()
+        self.assertEqual(token.issued_by_id, self.player.pk)
+
+    def test_restore_clears_the_gate_answers(self):
+        """Fresh gates. accepted_blank especially: it is the one gate answer with
+        no durable backing, so leaving it would skip the seat in every condition
+        and the prompt would never be offered again."""
+        token = self._discarded()
+        payload = dict(token.payload)
+        payload["gate_zero_done"] = True
+        payload["gate_zero"] = {"0": self.player.pk}
+        payload["seats"][0]["accepted_blank"] = True
+        payload["seats"][0]["profile_pk"] = None
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(payload=payload)
+
+        self._press_restore(token)
+
+        token.refresh_from_db()
+        self.assertNotIn("gate_zero_done", token.payload)
+        self.assertNotIn("gate_zero", token.payload)
+        self.assertNotIn("accepted_blank", token.payload["seats"][0])
+
+    def test_restore_refuses_once_the_game_is_recorded(self):
+        """Checked on the CLICK, not just the offer: the two are separate
+        interactions, so a game can be recorded in between."""
+        token = self._discarded()
+        self.thread.game = Game.objects.create()
+        self.thread.save(update_fields=["game"])
+
+        refused = self._press_restore(token)
+
+        self.assertIn("has been recorded", refused["content"])
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+
+    def test_restore_refuses_when_an_asset_has_gone_missing(self):
+        """Re-resolution fixes identities, not assets. _boxscore_reseat resolves
+        slugs with .get(), which yields None on a miss -- so this would otherwise
+        seat a player with no faction, silently."""
+        token = self._discarded()
+        payload = dict(token.payload)
+        payload["seats"][0]["faction_slug"] = "a-faction-that-was-deleted"
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(payload=payload)
+
+        refused = self._press_restore(token)
+
+        self.assertIn("no longer exists", refused["content"])
+        self.assertIn("a-faction-that-was-deleted", refused["content"])
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+
+    def test_only_the_most_recent_discarded_upload_is_offered(self):
+        older = self._discarded()
+        newer = self._discarded()
+        BoxScoreUploadToken.objects.filter(pk=older.pk).update(
+            created_at=timezone.now() - timedelta(hours=3))
+
+        data = self._run()
+        custom_id = data["components"][0]["components"][0]["custom_id"]
+        self.assertEqual(custom_id.split(":")[1], str(newer.pk))
+
 
 class BoxScoreUploadSweepTests(TestCase):
     """sweep_boxscore_upload_tokens: remind, expire, prune.
@@ -12179,11 +12550,15 @@ class BoxScoreUploadSweepTests(TestCase):
         post_save.disconnect(handle_image_resize, sender=Profile)
         self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.player = Profile.objects.create(discord="sweeper", discord_id="960")
+        # A DISTINCT issuer, on the roster but not the only member: the reminder
+        # pings the issuer rather than the roster, and if one profile were both
+        # an issuer-vs-roster assertion would pass by coincidence.
+        self.issuer = Profile.objects.create(discord="minter", discord_id="961")
         self.thread = LFGThread.objects.create(thread_id="sweep-thread")
-        self.thread.players.set([self.player])
+        self.thread.players.set([self.player, self.issuer])
 
-    def _pending(self, prompt_in_minutes, **kw):
-        token, _raw = BoxScoreUploadToken.issue(self.thread, self.player)
+    def _pending(self, prompt_in_minutes, issued_by=None, **kw):
+        token, _raw = BoxScoreUploadToken.issue(self.thread, issued_by or self.issuer)
         BoxScoreUploadToken.objects.filter(pk=token.pk).update(
             status=BoxScoreUploadToken.Status.PENDING,
             channel_id=self.thread.thread_id, message_id="msg-1",
@@ -12229,7 +12604,9 @@ class BoxScoreUploadSweepTests(TestCase):
             with self.assertRaises(Exception):
                 tasks.post_boxscore_prompt_task(token.pk, {"content": "x"})
 
-    def test_a_prompt_near_expiry_pings_the_roster_once(self):
+    def test_a_prompt_near_expiry_pings_the_issuer_once(self):
+        """The ISSUER, not the roster: the prompt is locked to them plus
+        host/mods, so pinging everyone would notify people who'd be refused."""
         token = self._pending(10)
         with mock.patch("the_databot.services.discordservice.post_channel_message_full",
                         return_value=("ok", "m1")) as post:
@@ -12239,13 +12616,40 @@ class BoxScoreUploadSweepTests(TestCase):
             # deliberately do the opposite.
             self.assertEqual(post.call_args.kwargs["allowed_mentions"],
                              {"parse": ["users"]})
-            self.assertIn(f"<@{self.player.discord_id}>",
-                          post.call_args.kwargs["content"])
+            content = post.call_args.kwargs["content"]
+            self.assertIn(f"<@{self.issuer.discord_id}>", content)
+            # The other roster player is NOT pinged -- the assertion the old
+            # single-profile fixture could not make.
+            self.assertNotIn(f"<@{self.player.discord_id}>", content)
             post.reset_mock()
             sweep_boxscore_upload_tokens()      # second run must not re-ping
             self.assertFalse(post.called)
         token.refresh_from_db()
         self.assertIsNotNone(token.reminded_at)
+
+    def test_the_reminder_falls_back_to_the_roster_with_no_issuer(self):
+        """issued_by is SET_NULL and discord_id is nullable, so both can be
+        absent. A game with an untraceable uploader still needs finishing, so
+        chase the roster rather than sending an unaddressed reminder."""
+        token = self._pending(10)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(issued_by=None)
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full",
+                        return_value=("ok", "m1")) as post:
+            sweep_boxscore_upload_tokens()
+        content = post.call_args.kwargs["content"]
+        self.assertIn(f"<@{self.player.discord_id}>", content)
+        self.assertIn(f"<@{self.issuer.discord_id}>", content)
+
+    def test_an_issuer_with_no_discord_id_falls_back_too(self):
+        """blank=True as well as nullable, so "" must not become <@>."""
+        blank = Profile.objects.create(discord="ghost", discord_id="")
+        self._pending(10, issued_by=blank)
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full",
+                        return_value=("ok", "m1")) as post:
+            sweep_boxscore_upload_tokens()
+        content = post.call_args.kwargs["content"]
+        self.assertNotIn("<@>", content)
+        self.assertIn(f"<@{self.player.discord_id}>", content)
 
     def test_a_lapsed_prompt_is_expired_and_its_buttons_stripped(self):
         token = self._pending(-5)
@@ -12256,7 +12660,22 @@ class BoxScoreUploadSweepTests(TestCase):
         self.assertEqual(edit.call_args.kwargs["components"], [])
         token.refresh_from_db()
         self.assertEqual(token.status, BoxScoreUploadToken.Status.EXPIRED)
-        self.assertIsNone(token.payload)
+        # The payload SURVIVES a lapse. Nobody chose to discard here -- the
+        # prompt merely went unanswered -- so this is the case most worth
+        # restoring, and the message the sweep just wrote promises it is kept.
+        self.assertIsNotNone(token.payload)
+
+    def test_the_expiry_message_promises_the_retention_window(self):
+        """The message and the prune must not drift: both read the constant."""
+        self._pending(-5)
+        with mock.patch("the_databot.services.discordservice.edit_channel_message",
+                        return_value="ok") as edit:
+            sweep_boxscore_upload_tokens()
+        content = edit.call_args.kwargs["content"]
+        self.assertIn(f"Kept for {BoxScoreUploadToken.PAYLOAD_RETENTION_DAYS} days",
+                      content)
+        self.assertIn("/boxscore token", content)
+        self.assertNotIn("upload again", content)
 
     def test_a_transient_discord_failure_leaves_it_for_the_next_sweep(self):
         token = self._pending(-5)

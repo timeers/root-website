@@ -2482,6 +2482,68 @@ class BoxScoreUploadApiTests(TestCase):
         self.assertTrue(self.thread.turns_data)
         self.assertFalse(prompt.called)
 
+    # ── the issuer is notified ──
+
+    def _post_capturing_message(self, doc, token_raw):
+        """The clean-apply post, with its kwargs. Patched at the task boundary so
+        the retry wrapper stays in the picture -- calling the service function
+        directly from the request path would lose both the retry and the
+        off-request-path posting."""
+        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay') as post, \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            self.client.post(
+                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
+        return post
+
+    def test_a_clean_upload_pings_the_issuer(self):
+        """Someone sitting in TTS gets no signal otherwise -- the only ping used
+        to be the sweep's reminder, up to an hour later."""
+        _t, raw = self._token()
+        post = self._post_capturing_message(self._doc(), raw)
+
+        content = post.call_args.args[1]
+        self.assertIn(f'<@{self.alice.discord_id}>', content)
+        self.assertIn('your box score was saved', content)
+        # BOTH halves are required: allowed_mentions is a filter over what the
+        # content already says, not a trigger. A <@id> with no allowed_mentions
+        # renders as a mention and notifies nobody.
+        self.assertEqual(post.call_args.kwargs['allowed_mentions'],
+                         {'users': [self.alice.discord_id]})
+
+    def test_the_gated_prompt_pings_only_the_issuer(self):
+        """An explicit id list, not parse: ["users"]: a box score's labels are
+        arbitrary text from the file, so a broad parse would let an uploaded
+        name ping the channel."""
+        stranger = Profile.objects.create(discord='ttsgated', discord_id='804')
+        _t, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': stranger.slug,
+             'player_steam_id': self.ALICE_STEAM,
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        _response, prompt = self._post(doc, raw)
+
+        self.assertTrue(prompt.called)
+        body = prompt.call_args.args[1]
+        self.assertIn(f'<@{self.alice.discord_id}>', body['content'])
+        self.assertEqual(body['allowed_mentions'],
+                         {'users': [self.alice.discord_id]})
+
+    def test_an_issuer_with_no_discord_id_posts_exactly_as_before(self):
+        """issued_by is SET_NULL and discord_id is nullable AND blankable. The
+        mention is an improvement, never a requirement -- and "" must not become
+        a literal <@>, which Discord rejects as a 400."""
+        ghost = Profile.objects.create(discord='ghost', discord_id='')
+        _token, raw = BoxScoreUploadToken.issue(self.thread, ghost)
+        post = self._post_capturing_message(self._doc(), raw)
+
+        content = post.call_args.args[1]
+        self.assertNotIn('<@', content)
+        self.assertIn('Box score uploaded from Tabletop Simulator', content)
+        self.assertIsNone(post.call_args.kwargs['allowed_mentions'])
+
     def test_the_response_carries_a_printable_message_and_record_url(self):
         _t, raw = self._token()
         body = self._post(self._doc(), raw)[0].json()

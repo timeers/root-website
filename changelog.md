@@ -19,6 +19,8 @@
 - new /availability command posts a link comparing when this game's players are free — works in an /lfg thread, no tournament needed
 - /schedule clear removes the scheduled time, and asks which game you mean when a series has more than one scheduled
 - a box score naming a new player now asks who they are, with a dropdown of the players in the game
+- a box score upload is no longer lost when canceled, expired, or has a seating change. It is kept so you can restore it
+- /boxscore token now offers to restore an unfinished upload, so you don't have to re-export from Tabletop Simulator
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
@@ -34,6 +36,9 @@
 - /upcoming now shows the next game for the thread or guild it's used in if no arguments are provided
 - a box score confirmation now updates the message you're looking at as you answer it, instead of leaving the old buttons behind and posting a new prompt
 - box score prompts say who they're waiting on more clearly, and only suggest /link steam on servers where that command is turned on, otherwise they point at your settings page
+- a box score uploaded from Tabletop Simulator now pings whoever generated the token
+- a box score prompt from a token is now answered by the person who owns the token, plus the host and moderators, and the reminder pings them instead of everyone in the game
+- continuing past an unmatched player now keeps the name the file gave them and adds "(not linked)", instead of leaving the seat blank
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
