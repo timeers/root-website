@@ -11486,6 +11486,12 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
     STEAM_A = "76561198000000123"
     STEAM_B = "76561198000000124"
 
+    def _stashed(self, key):
+        """The parked payload for a Gate 0 prompt. `key` is the ref from
+        _pending_key, which carries a "c:" prefix for the cache backing."""
+        from django.core.cache import cache
+        return cache.get(f"boxscore:pending:{key.split(':', 1)[1]}")
+
     def _doc_unknown(self, *names_and_ids):
         """A file whose first seat is Alice and whose rest are strangers."""
         participants = [{"turn_order": 1, "player": self.alice.slug,
@@ -11497,6 +11503,31 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         return {"participants": participants}
 
     # ── what it asks ────────────────────────────────────────────────────────
+
+    def test_each_dropdown_is_numbered_to_match_the_list(self):
+        """A select carries no label of its own, and its placeholder vanishes as
+        soon as something is picked -- so without a number the rows go anonymous
+        after the first answer and the reader is matching them to the list by
+        position."""
+        data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
+        self.assertIn("**1.** `MysteryGuest`", data["content"])
+        self.assertEqual(self._selects(data)[0]["placeholder"],
+                         "1. Who is MysteryGuest?")
+
+    def test_the_list_shows_only_this_pages_seats(self):
+        """It used to list EVERY unmatched seat above however many dropdowns the
+        page had, so page 2 named eight players above four selects and the
+        numbering could not line up at all."""
+        many = [(f"Mystery{i}", f"7656119800000000{i}") for i in range(1, 7)]
+        data = self._run_data(self._doc_unknown(*many))
+        # Page 1 shows the first four and must not mention the rest.
+        for i in (1, 2, 3, 4):
+            self.assertIn(f"`Mystery{i}`", data["content"])
+        for i in (5, 6):
+            self.assertNotIn(f"`Mystery{i}`", data["content"])
+        # Numbering restarts per page, matching the dropdowns on it.
+        self.assertIn("**1.** `Mystery1`", data["content"])
+        self.assertEqual(len(self._selects(data)), 4)
 
     def test_it_offers_one_dropdown_per_unidentified_player(self):
         data = self._run_data(self._doc_unknown(("MysteryGuest", self.STEAM_A)))
@@ -11589,6 +11620,72 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         self.assertEqual([s.profile_id for s in
                           self.thread.seats.order_by("seat_number")],
                          [self.alice.pk, self.bob.pk])
+
+    def test_skipping_a_seat_leaves_it_blank_after_the_other_is_picked(self):
+        """Reported from production: two unknown seats, one answered and one
+        skipped, produced the SAME player in both.
+
+        Picking someone writes their assumed_steam_id, which makes the OTHER
+        seat's id start resolving to them -- and the re-resolve is per-seat and
+        blind to both the skip and its neighbours, so it seated one person
+        twice."""
+        doc = self._doc_unknown(("MysteryOne", self.STEAM_A),
+                                ("MysteryTwo", self.STEAM_B))
+        data = self._run_data(doc)
+        key = self._pending_key(data)
+        # Answer the first, deliberately skip the second.
+        self._pick(key, 1, self.bob.pk)
+        self._pick(key, 2, di._BOXSCORE_GATE_ZERO_SKIP)
+        self._press("boxscore_g0_ok", key + ":0")
+
+        pending = self._stashed(key)
+        pks = [s["profile_pk"] for s in pending["seats"]]
+        # Bob takes exactly one seat; the skipped seat stays empty.
+        self.assertEqual(pks.count(self.bob.pk), 1)
+        self.assertIn(None, pks)
+
+    def test_two_seats_never_resolve_to_the_same_profile(self):
+        """The guard itself, independent of Gate 0: if re-resolution would put
+        one person in two seats, the later seat is left blank rather than
+        silently duplicating them."""
+        doc = self._doc_unknown(("MysteryOne", self.STEAM_A),
+                                ("MysteryTwo", self.STEAM_B))
+        data = self._run_data(doc)
+        key = self._pending_key(data)
+        self._pick(key, 1, self.bob.pk)
+        self._pick(key, 2, self.bob.pk)      # same person for both seats
+        self._press("boxscore_g0_ok", key + ":0")
+
+        # Assert on the RESOLVED seats in the payload rather than the DB: a seat
+        # left unresolved means Gate 1 fires next, so nothing is written yet.
+        pending = self._stashed(key)
+        pks = [s["profile_pk"] for s in pending["seats"]]
+        self.assertEqual(pks.count(self.bob.pk), 1)
+
+    def test_an_assumed_id_write_does_not_seat_one_player_twice(self):
+        """The production failure, reproduced exactly.
+
+        Answering seat 1 writes that seat's Steam id onto the chosen profile as
+        assumed_steam_id. The re-resolve then runs over EVERY seat -- so if the
+        skipped seat's own id also belongs to that profile (here: it was already
+        their assumed id), both seats resolve to them. The seats are re-resolved
+        independently, so nothing notices."""
+        # Bob already claims STEAM_B, so seat 2 will resolve to him on re-resolve.
+        self.bob.assumed_steam_id = self.STEAM_B
+        self.bob.save(update_fields=["assumed_steam_id"])
+
+        doc = self._doc_unknown(("MysteryOne", self.STEAM_A),
+                                ("MysteryTwo", self.STEAM_B))
+        data = self._run_data(doc)
+        key = self._pending_key(data)
+        # Answer seat 1 with Bob; seat 2 is left alone entirely.
+        self._pick(key, 1, self.bob.pk)
+        self._press("boxscore_g0_ok", key + ":0")
+
+        pending = self._stashed(key)
+        pks = [s["profile_pk"] for s in pending["seats"]]
+        self.assertEqual(pks.count(self.bob.pk), 1,
+                         f"Bob seated twice: {pks}")
 
     def test_a_later_upload_matches_with_no_gate_zero(self):
         """The whole point: identify once, and it sticks."""

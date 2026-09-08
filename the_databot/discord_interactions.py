@@ -7105,13 +7105,14 @@ def _handle_boxscore_token_command(data):
 
     # site = (config.get("SITE_URL") or "").rstrip("/")
     _token, raw = BoxScoreUploadToken.issue(thread, profile)
-    minutes = int(BoxScoreUploadToken.TOKEN_TTL.total_seconds() // 60)
+    hours = int(BoxScoreUploadToken.TOKEN_TTL.total_seconds() // 3600)
 
     lines = [
         "Paste this into the Tabletop Simulator uploader:",
         f"```\n{BoxScoreUploadToken.group(raw)}\n```",
-        f"-# One upload, this game only, expires in {minutes} minutes. "
+        f"-# This token works for this game only and expires in {hours} hours. "
         "Anyone who sees it can upload the box score for this game, so don't post it.",
+        "If you need a new token you can rerun `/boxscore token` at any time.",
     ]
     # if site:
     #     lines.append(f"-# The object uploads to {site}/api/boxscore/upload/")
@@ -7341,12 +7342,31 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     found = resolve_participant_players(participants, roster_qs)
     wider = resolve_participant_players(participants, Profile.objects.all())
 
-    for seat, on_roster, anywhere in zip(seats, found, wider):
+    # A seat Gate 0 explicitly SKIPPED must stay unresolved. Without this the
+    # answers are ignored on the way back: the seat still carries the raw slug and
+    # Steam id the file gave it, so it re-matches anyway and "leave this one
+    # blank" does nothing.
+    skipped = {int(i) for i in (pending.get("gate_zero_skipped") or [])}
+
+    # One profile cannot hold two seats. Re-resolution is per-seat and blind to
+    # what its neighbours matched, so two seats can land on the same person --
+    # notably after Gate 0 writes an assumed_steam_id, which makes a previously
+    # unmatched id start resolving to whoever was picked. First seat wins; a
+    # later collision is left blank for a human to sort out rather than quietly
+    # seating one person twice.
+    taken = {s["profile_pk"] for s in seats if s.get("profile_pk")}
+
+    for position, (seat, on_roster, anywhere) in enumerate(zip(seats, found, wider)):
+        if position in skipped:
+            continue
         profile = on_roster or anywhere
         if profile is None:
             continue
+        if profile.pk in taken and seat.get("profile_pk") != profile.pk:
+            continue
         seat["profile_pk"] = profile.pk
         seat["label"] = profile.name
+        taken.add(profile.pk)
     return roster
 
 
@@ -7546,15 +7566,20 @@ def _boxscore_gate_zero_body(thread, pending, roster, owner, page=0, ref=None):
     shown = seats[start:start + _BOXSCORE_GATE_ZERO_PER_PAGE]
 
     rows = []
-    for index, seat in shown:
+    for position, (index, seat) in enumerate(shown, 1):
         chosen = str(picks.get(str(index)) or "")
         options = [select_option("— skip —", _BOXSCORE_GATE_ZERO_SKIP,
                                  default=not chosen)]
         options += [select_option(p.name, str(p.pk), default=str(p.pk) == chosen)
                     for p in candidates]
+        # NUMBERED to match the numbered list in the content below. A dropdown
+        # cannot carry a label of its own, and the placeholder naming the player
+        # DISAPPEARS as soon as something is selected -- so after the first pick
+        # the rows would be anonymous and the reader would be matching them to
+        # the list by position.
         rows.append(action_row(string_select(
             encode_custom_id("boxscore_g0_pick", ref, index, owner),
-            options, placeholder=f"Who is {seat['label']}?"[:100],
+            options, placeholder=f"{position}. Who is {seat['label']}?"[:100],
             min_values=1, max_values=1)))
 
     # ONE forward button, whose label says where it goes. Paging used to be a
@@ -7579,11 +7604,17 @@ def _boxscore_gate_zero_body(thread, pending, roster, owner, page=0, ref=None):
 
     plural = "players aren't" if len(seats) > 1 else "player isn't"
     lines = [
-        f"{len(seats)} {plural} linked to a profile yet:",
-        ", ".join(f"`{s['label']}`" for _i, s in seats),
+        f"{len(seats)} {plural} linked to a profile yet.",
         "",
         "Match players to their Steam name, or skip.",
+        "",
     ]
+    # Numbered, and listing only THIS PAGE's seats, so each line pairs with the
+    # dropdown carrying the same number. It used to be a comma-joined list of
+    # every seat regardless of page -- so on page 2 the header named eight
+    # players above four dropdowns and the reader had to guess which was which.
+    lines += [f"**{position}.** `{seat['label']}`"
+              for position, (_index, seat) in enumerate(shown, 1)]
     if pages > 1:
         lines.append(f"*Page {page + 1} of {pages}.*")
     if len(candidates) > 25:
@@ -7852,10 +7883,20 @@ def _handle_boxscore_gate_zero_pick(payload):
     # JSONField, which would coerce int keys anyway -- so the cache path and the
     # token path must agree on the string form from the start.
     picks = pending.setdefault("gate_zero", {})
+    # Tracked separately from `picks` because "no answer yet" and "deliberately
+    # skipped" are different: only the latter must survive re-resolution, which
+    # would otherwise re-match the seat from the raw ids the file gave it.
+    skipped = pending.setdefault("gate_zero_skipped", [])
     if index is not None:
         if chosen in (None, _BOXSCORE_GATE_ZERO_SKIP):
             picks.pop(index, None)
+            if index.isdigit() and int(index) not in skipped:
+                skipped.append(int(index))
         else:
+            # Choosing after skipping un-skips: the reader changed their mind, so
+            # the seat must be resolvable again.
+            if index.isdigit() and int(index) in skipped:
+                skipped.remove(int(index))
             # One person cannot hold two seats, so claiming someone releases
             # them from whichever seat had them before.
             for key, pk in list(picks.items()):
