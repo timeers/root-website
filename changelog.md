@@ -48,6 +48,9 @@
 - recording a game from a match thread now seats players in the order the game was actually played, taken from /seating, /adset or the box score, instead of the order players were added to the match
 - a box score with more players than the match seats now shows the extra player as their own row on the record form instead of quietly dropping them. Add the missing player from the Match page to fill it in
 - the message after a box score is added now lists each seat with its faction and score, matching the confirmation you just approved
+- answering a box score's "who is this player?" prompt no longer puts the same person in two seats. Choosing someone taught the site their Steam ID, which then matched a second seat as well
+- skipping one of those prompts now leaves that seat empty, instead of filling it in anyway from the name in the file
+- each dropdown in that prompt is now numbered and lists the player it belongs to, so you can tell which is which after making a pick. It also only lists the players on the page you're looking at
 - Vagabond allowed to have coalition partner when importing boxscore json
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 - the group availability calendar button now shows up on the matches pages, where it never appeared before
