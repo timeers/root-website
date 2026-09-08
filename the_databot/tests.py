@@ -33,7 +33,8 @@ from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_databot.services import discord_commands as dc
 from the_databot.services.lfg_game import (
     rolled_components, seated_profiles, player_group_for_channel,
-    picked_factions_by_profile, captains_by_seat, undrafted_pick,
+    picked_factions_by_profile, unclaimed_picked_seats,
+    captains_by_seat, undrafted_pick,
     lfg_option_querysets, FULL_CAPTAIN_COMPLEMENT,
 )
 from the_databot.tasks import (
@@ -7818,6 +7819,40 @@ class PickedFactionsByProfileTests(TestCase):
         picked = picked_factions_by_profile(self.thread)
         self.assertEqual(picked[a.pk].faction, self.factions[0])
         self.assertEqual(picked[b.pk].faction, self.factions[1])
+
+    def test_unclaimed_seats_are_the_complement(self):
+        """unclaimed_picked_seats holds exactly what picked_factions_by_profile
+        cannot: a faction played by someone nobody could identify."""
+        a = Profile.objects.create(discord="unclA", discord_id="741")
+        LFGSeat.objects.create(thread=self.thread, profile=a, seat_number=1,
+                               faction=self.factions[0])
+        LFGSeat.objects.create(thread=self.thread, profile=None, seat_number=2,
+                               faction=self.factions[1])
+
+        unclaimed = unclaimed_picked_seats(self.thread)
+        self.assertEqual(list(unclaimed), [2])
+        self.assertEqual(unclaimed[2].faction, self.factions[1])
+
+    def test_unclaimed_omits_a_seat_with_no_faction(self):
+        """Nothing to prefill, so nothing to offer."""
+        LFGSeat.objects.create(thread=self.thread, profile=None, seat_number=1,
+                               faction=None)
+        self.assertEqual(unclaimed_picked_seats(self.thread), {})
+
+    def test_the_two_maps_never_overlap(self):
+        """The disjointness the fallback's safety rests on: they partition the
+        seats on profile_id, so no seat can be in both."""
+        a = Profile.objects.create(discord="unclB", discord_id="742")
+        LFGSeat.objects.create(thread=self.thread, profile=a, seat_number=1,
+                               faction=self.factions[0])
+        LFGSeat.objects.create(thread=self.thread, profile=None, seat_number=2,
+                               faction=self.factions[1])
+
+        by_profile = picked_factions_by_profile(self.thread)
+        unclaimed = unclaimed_picked_seats(self.thread)
+        seats_a = {s.pk for s in by_profile.values()}
+        seats_b = {s.pk for s in unclaimed.values()}
+        self.assertEqual(seats_a & seats_b, set())
 
     def test_seat_numbers_do_not_decide_the_mapping(self):
         """The regression this key exists to prevent: /pick's seat numbers are a

@@ -366,6 +366,34 @@ def picked_factions_by_profile(thread):
             if s.profile_id}
 
 
+def unclaimed_picked_seats(thread):
+    """{seat_number: LFGSeat} for seats holding a faction but NO profile.
+
+    The complement of picked_factions_by_profile, and DISJOINT from it by
+    construction: that one keeps `if s.profile_id`, this one its negation. No
+    seat can appear in both, which is what lets a caller apply this as a fallback
+    with no risk of overwriting a profile-joined answer.
+
+    A SIBLING rather than a second element in that function's return, for the
+    reason captains_by_seat gives: the existing shape is unpacked by callers and
+    tests, and widening it would break every one.
+
+    These seats exist because a box score can record a faction for a player
+    nobody could identify -- the upload names them, Gate 0 could not match them,
+    and the recorder accepted the blank. The faction was played; it just has no
+    profile to hang off, so a profile join can never reach it.
+
+    Keyed by seat_number because that is all these seats have. A caller must map
+    it to a form row itself -- seat_number is NOT a row index (see the record
+    view, where match rows are ordered by MatchSeat).
+    """
+    return {s.seat_number: s
+            for s in thread.seats
+            .select_related("faction", "vagabond", "discarded_captain")
+            .prefetch_related("captains")
+            if not s.profile_id and s.faction_id}
+
+
 def lfg_option_querysets(thread, tournament):
     """Per-field choices for the LFG game form: the thread's rolled components,
     intersected with what the tournament allows.
