@@ -472,6 +472,13 @@ class BoxScoreUploadToken(models.Model):
     TOKEN_LENGTH = 12                      # ~59 bits; grouped 4-4-4 when shown
     TOKEN_TTL = timedelta(hours=6)      # how long a minted token may be pasted in
     PROMPT_TTL = timedelta(hours=6)        # how long a posted prompt stays live
+    # How long a resolved row (and so its restorable payload) survives before the
+    # sweep prunes it. The messages that promise "kept for N days" read this, so
+    # the stated window and the prune cannot drift apart. NOTE: the sweep runs
+    # from a DatabaseScheduler entry, so an operator CAN pass a different
+    # prune_after_days from the admin; this constant is the intended value, not
+    # an enforced one.
+    PAYLOAD_RETENTION_DAYS = 7
 
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     thread = models.ForeignKey(

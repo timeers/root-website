@@ -51,13 +51,25 @@ _THREAD_CREATE_MAX_BACKOFF = 30.0  # seconds; longest we honour a retry_after in
     retry_kwargs={'max_retries': 3, 'countdown': 30},
     retry_backoff=True,
 )
-def post_channel_message_task(channel_id, content):
+def post_channel_message_task(channel_id, content, allowed_mentions=None):
     """Post a message into a channel/thread off the request path (the underlying
     call blocks for up to 5s, which an interaction response can't afford).
-    post_channel_message never raises, so surface a transient failure as one to
-    trigger the retry."""
-    from the_databot.services.discordservice import post_channel_message, THREAD_ERROR
-    if post_channel_message(channel_id, content) == THREAD_ERROR:
+    Neither underlying call raises, so surface a transient failure as one to
+    trigger the retry.
+
+    allowed_mentions routes through post_channel_message_full, which accepts it;
+    calling that service function directly from the request path instead would
+    lose both this retry and the off-request-path posting.
+    """
+    from the_databot.services.discordservice import (
+        post_channel_message, post_channel_message_full, THREAD_ERROR,
+    )
+    if allowed_mentions is not None:
+        result, _message_id = post_channel_message_full(
+            channel_id, content=content, allowed_mentions=allowed_mentions)
+    else:
+        result = post_channel_message(channel_id, content)
+    if result == THREAD_ERROR:
         raise RuntimeError(f"Transient failure posting message in channel {channel_id}")
 
 
@@ -1008,7 +1020,7 @@ def post_boxscore_prompt_task(token_pk, message_data):
 
 
 @shared_task
-def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=7):
+def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=None):
     """Remind, expire and prune box-score upload tokens.
 
     Runs on a schedule created in Django admin (django_celery_beat) -- this
@@ -1016,16 +1028,24 @@ def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=7):
     register it. Every 10-15 minutes is about right.
 
     Three passes:
-      1. REMIND a thread whose prompt is close to lapsing, once, pinging the
-         roster so it isn't missed.
+      1. REMIND the person who minted the token, once, so the prompt isn't
+         missed. Only they (plus host/mods) can answer it.
       2. EXPIRE a lapsed prompt AND strip its buttons, so no dead control is
          left in the thread inviting a click that can't work.
       3. PRUNE resolved rows, and tokens minted but never used.
+
+    prune_after_days defaults to None rather than a literal so it can resolve
+    from BoxScoreUploadToken.PAYLOAD_RETENTION_DAYS below -- a default argument
+    would evaluate at import time, forcing a module-level models import this
+    file deliberately avoids.
     """
     from the_databot.models import BoxScoreUploadToken
     from the_databot.services.discordservice import (
         edit_channel_message, post_channel_message_full, THREAD_ERROR,
     )
+
+    if prune_after_days is None:
+        prune_after_days = BoxScoreUploadToken.PAYLOAD_RETENTION_DAYS
 
     now = timezone.now()
     reminded = expired = 0
@@ -1036,10 +1056,19 @@ def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=7):
             status=BoxScoreUploadToken.Status.PENDING,
             reminded_at__isnull=True,
             prompt_expires_at__lte=soon,
-            prompt_expires_at__gt=now).select_related("thread"):
-        mentions = [f"<@{p.discord_id}>"
-                    for p in token.thread.players.all() if p.discord_id]
-        who = " ".join(mentions) if mentions else "Players"
+            prompt_expires_at__gt=now).select_related("thread", "issued_by"):
+        # Ping the issuer, not the roster: the prompt is locked to them plus
+        # host/mods, so a roster ping would notify people who would be refused.
+        # issued_by is SET_NULL and discord_id is nullable AND blankable, so fall
+        # back to the roster rather than sending an unaddressed reminder -- a
+        # game with an untraceable uploader still needs finishing.
+        issuer_id = token.issued_by.discord_id if token.issued_by else None
+        if issuer_id:
+            who = f"<@{issuer_id}>"
+        else:
+            mentions = [f"<@{p.discord_id}>"
+                        for p in token.thread.players.all() if p.discord_id]
+            who = " ".join(mentions) if mentions else "Players"
         post_channel_message_full(
             token.channel_id,
             content=(f"{who} — a box score from Tabletop Simulator is still "
@@ -1059,12 +1088,15 @@ def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=7):
             result = edit_channel_message(
                 token.channel_id, token.message_id,
                 content=("That box score expired before anyone confirmed it.\n"
-                         "-# Run `/boxscore token` for a new token to upload again."),
+                         f"-# Kept for {BoxScoreUploadToken.PAYLOAD_RETENTION_DAYS} "
+                         "days — run `/boxscore token` to restore it."),
                 components=[])
             if result == THREAD_ERROR:
                 continue          # transient: try again on the next sweep
+        # Keep the payload: this is the path where NOBODY chose to discard, so
+        # it is the one most worth restoring. The message above promises it.
         BoxScoreUploadToken.objects.filter(pk=token.pk).update(
-            status=BoxScoreUploadToken.Status.EXPIRED, payload=None)
+            status=BoxScoreUploadToken.Status.EXPIRED)
         expired += 1
 
     # 3) Prune.

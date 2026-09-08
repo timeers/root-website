@@ -1364,13 +1364,20 @@ class MatchModeSeatOrderTests(ResultsChannelViewAnnounceTests):
     in, so it drives the form instead.
     """
 
-    def _thread_for(self, series, order, seating_set=True):
-        """A group thread seating `order` (a list of profiles) 1..N."""
+    def _thread_for(self, series, order, seating_set=True, factions=None,
+                    turns_data=None):
+        """A group thread seating `order` 1..N.
+
+        An entry may be a Profile or None -- None is a seat the box score
+        recorded but nobody could identify, which is the case the faction
+        fallback exists for. `factions` is a parallel list, same length."""
         thread = LFGThread.objects.create(
             thread_id=f"seatorder-{series.pk}", series=series,
-            seating_set=seating_set)
+            seating_set=seating_set, turns_data=turns_data or [])
         for i, profile in enumerate(order, 1):
-            LFGSeat.objects.create(thread=thread, profile=profile, seat_number=i)
+            LFGSeat.objects.create(
+                thread=thread, profile=profile, seat_number=i,
+                faction=(factions or [None] * len(order))[i - 1])
         return thread
 
     def _rows(self, match):
@@ -1378,12 +1385,159 @@ class MatchModeSeatOrderTests(ResultsChannelViewAnnounceTests):
         response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
         return [f.initial.get('player') for f in response.context['formset'].forms]
 
+    def _factions(self, match):
+        """The faction pk pre-filled into each row, in row order."""
+        response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
+        return [f.initial.get('faction') for f in response.context['formset'].forms]
+
+    def _grid(self, match):
+        """The prefilled score grid, keyed by form row index.
+
+        Read from grid_prefill_json -- the view serialises it there for the
+        client rather than exposing the dict itself. Keys come back as STRINGS
+        through JSON, so they are normalised to ints here."""
+        response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
+        payload = json.loads(response.context['grid_prefill_json'])
+        return {int(k): v for k, v in payload['rows'].items()}
+
+    def _faction(self, title):
+        from the_keep.models import Faction
+        return Faction.objects.create(title=title, type="M", reach=5,
+                                      animal="cat", designer=self.profile)
+
     def _match_with(self, seat_order):
         series = MatchSeries.objects.create(round=self.round)
         match = Match.objects.create(round=self.round, series=series)
         for i, profile in enumerate(seat_order, 1):
             self._seat(series, profile, i)
         return match, series
+
+    # ── faction fallback for seats nobody claimed ───────────────────────────
+
+    def test_an_unclaimed_seats_faction_reaches_its_row(self):
+        """The reported bug. A box score recorded Woodland Alliance for a player
+        nobody could identify; the seat has a faction and no profile, so the
+        profile join cannot reach it and the faction was simply lost."""
+        wa = self._faction("Woodland Alliance")
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent, None],
+                         factions=[None, None, wa])
+        factions = self._factions(match)
+        self.assertEqual(len(factions), 3)
+        self.assertEqual(factions[2], wa.pk)
+
+    def test_an_unclaimed_seat_never_displaces_a_players_faction(self):
+        """THE safety property. A profile-less seat is placed positionally, so
+        the guarantee that it cannot land on a real player's row has to hold
+        even when it comes FIRST in the thread's seating."""
+        a = self._faction("Alpha")
+        b = self._faction("Beta")
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [None, self.profile, self.opponent],
+                         factions=[a, b, None])
+        factions = self._factions(match)
+        # profile keeps Beta -- the unclaimed Alpha did not take its row.
+        rows = self._rows(match)
+        self.assertEqual(factions[rows.index(self.profile.pk)], b.pk)
+        self.assertNotIn(a.pk, factions[:2])
+
+    def test_two_unclaimed_seats_take_distinct_rows(self):
+        a = self._faction("Alpha")
+        b = self._faction("Beta")
+        match, series = self._match_with([self.profile])
+        self._thread_for(series, [self.profile, None, None],
+                         factions=[None, a, b])
+        factions = self._factions(match)
+        self.assertEqual(len(factions), 3)
+        self.assertEqual(sorted(f for f in factions[1:]), sorted([a.pk, b.pk]))
+
+    def test_the_profile_join_still_wins_where_it_applies(self):
+        """The fallback must not change how a SEATED player's faction is
+        joined -- that stays keyed on profile, not position."""
+        a = self._faction("Alpha")
+        match, series = self._match_with([self.profile, self.opponent])
+        # Thread seats them in the opposite order, so a positional join would
+        # put Alpha on the wrong player.
+        self._thread_for(series, [self.opponent, self.profile],
+                         factions=[a, None])
+        rows = self._rows(match)
+        factions = self._factions(match)
+        self.assertEqual(factions[rows.index(self.opponent.pk)], a.pk)
+
+    def test_an_unclaimed_seat_with_no_faction_is_ignored(self):
+        match, series = self._match_with([self.profile])
+        self._thread_for(series, [self.profile, None], factions=[None, None])
+        self.assertEqual(self._factions(match), [None, None])
+
+    # ── box score scores in match mode ──────────────────────────────────────
+
+    def _turns(self, seat_no, scores, dominance=None):
+        entry = {"turn_order": seat_no,
+                 "turns": [{"turn": i + 1, "score": v}
+                           for i, v in enumerate(scores)]}
+        if dominance:
+            entry["dominance"] = dominance
+        return entry
+
+    def test_match_mode_prefills_the_score_grid(self):
+        """Never implemented: the turns_data block lived inside `if lfg_mode`,
+        so a match recorded from a box score had every score retyped by hand."""
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         turns_data=[self._turns(1, [2, 5, 9]),
+                                     self._turns(2, [1, 4, 8])])
+        grid = self._grid(match)
+        self.assertIn(0, grid)
+        self.assertIn(1, grid)
+        self.assertTrue(grid[0]['cells'])
+
+    def test_scores_follow_the_player_not_the_position(self):
+        """turn_order 1 belongs to whoever the thread seated first, so when the
+        rows are reordered the score must travel with them."""
+        match, series = self._match_with([self.profile, self.opponent])
+        # Thread seats opponent FIRST, so turn_order 1 is theirs.
+        self._thread_for(series, [self.opponent, self.profile],
+                         turns_data=[self._turns(1, [9, 9, 9]),
+                                     self._turns(2, [1, 1, 1])])
+        rows = self._rows(match)
+        grid = self._grid(match)
+        opp_row = rows.index(self.opponent.pk)
+        self.assertEqual(grid[opp_row]['cells'][0]['value'], 9)
+
+    def test_the_suit_dominance_is_prefilled(self):
+        """Effort.dominance IS the suit (Fox / Mouse / Frog); there is no
+        separate field. A recorder would otherwise retype it."""
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         turns_data=[self._turns(1, [2], dominance="Fox")])
+        response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
+        forms = response.context['formset'].forms
+        self.assertEqual(forms[0].initial.get('dominance'), "Fox")
+
+    def test_scores_are_skipped_when_the_seating_is_not_real(self):
+        """seating_set False means the rows follow MatchSeat order, which bears
+        no relation to box-score seat numbers -- a score would land on the wrong
+        player. Absent beats wrong."""
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         seating_set=False,
+                         turns_data=[self._turns(1, [2, 5, 9])])
+        self.assertEqual(self._grid(match), {})
+
+    def test_a_malformed_turns_entry_drops_only_itself(self):
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         turns_data=[{"turn_order": 1, "turns": "not-a-list"},
+                                     self._turns(2, [1, 4, 8])])
+        grid = self._grid(match)
+        self.assertNotIn(0, grid)
+        self.assertIn(1, grid)
+
+    def test_an_entry_for_an_unknown_seat_is_ignored(self):
+        match, series = self._match_with([self.profile])
+        self._thread_for(series, [self.profile],
+                         turns_data=[self._turns(7, [2, 5, 9])])
+        self.assertEqual(self._grid(match), {})
 
     def test_the_thread_seating_drives_the_row_order(self):
         match, series = self._match_with([self.profile, self.opponent])
@@ -2327,6 +2481,68 @@ class BoxScoreUploadApiTests(TestCase):
         self.thread.refresh_from_db()
         self.assertTrue(self.thread.turns_data)
         self.assertFalse(prompt.called)
+
+    # ── the issuer is notified ──
+
+    def _post_capturing_message(self, doc, token_raw):
+        """The clean-apply post, with its kwargs. Patched at the task boundary so
+        the retry wrapper stays in the picture -- calling the service function
+        directly from the request path would lose both the retry and the
+        off-request-path posting."""
+        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay') as post, \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            self.client.post(
+                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
+        return post
+
+    def test_a_clean_upload_pings_the_issuer(self):
+        """Someone sitting in TTS gets no signal otherwise -- the only ping used
+        to be the sweep's reminder, up to an hour later."""
+        _t, raw = self._token()
+        post = self._post_capturing_message(self._doc(), raw)
+
+        content = post.call_args.args[1]
+        self.assertIn(f'<@{self.alice.discord_id}>', content)
+        self.assertIn('your box score was saved', content)
+        # BOTH halves are required: allowed_mentions is a filter over what the
+        # content already says, not a trigger. A <@id> with no allowed_mentions
+        # renders as a mention and notifies nobody.
+        self.assertEqual(post.call_args.kwargs['allowed_mentions'],
+                         {'users': [self.alice.discord_id]})
+
+    def test_the_gated_prompt_pings_only_the_issuer(self):
+        """An explicit id list, not parse: ["users"]: a box score's labels are
+        arbitrary text from the file, so a broad parse would let an uploaded
+        name ping the channel."""
+        stranger = Profile.objects.create(discord='ttsgated', discord_id='804')
+        _t, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': stranger.slug,
+             'player_steam_id': self.ALICE_STEAM,
+             'turns': [{'turn': 1, 'score': 3}]}]}
+        _response, prompt = self._post(doc, raw)
+
+        self.assertTrue(prompt.called)
+        body = prompt.call_args.args[1]
+        self.assertIn(f'<@{self.alice.discord_id}>', body['content'])
+        self.assertEqual(body['allowed_mentions'],
+                         {'users': [self.alice.discord_id]})
+
+    def test_an_issuer_with_no_discord_id_posts_exactly_as_before(self):
+        """issued_by is SET_NULL and discord_id is nullable AND blankable. The
+        mention is an improvement, never a requirement -- and "" must not become
+        a literal <@>, which Discord rejects as a 400."""
+        ghost = Profile.objects.create(discord='ghost', discord_id='')
+        _token, raw = BoxScoreUploadToken.issue(self.thread, ghost)
+        post = self._post_capturing_message(self._doc(), raw)
+
+        content = post.call_args.args[1]
+        self.assertNotIn('<@', content)
+        self.assertIn('Box score uploaded from Tabletop Simulator', content)
+        self.assertIsNone(post.call_args.kwargs['allowed_mentions'])
 
     def test_the_response_carries_a_printable_message_and_record_url(self):
         _t, raw = self._token()

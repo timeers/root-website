@@ -19,6 +19,8 @@
 - new /availability command posts a link comparing when this game's players are free — works in an /lfg thread, no tournament needed
 - /schedule clear removes the scheduled time, and asks which game you mean when a series has more than one scheduled
 - a box score naming a new player now asks who they are, with a dropdown of the players in the game
+- a box score upload is no longer lost when canceled, expired, or has a seating change. It is kept so you can restore it
+- /boxscore token now offers to restore an unfinished upload, so you don't have to re-export from Tabletop Simulator
 
 ### Improvements
 - lookup commands condensed into subcommands of /lookup
@@ -34,6 +36,9 @@
 - /upcoming now shows the next game for the thread or guild it's used in if no arguments are provided
 - a box score confirmation now updates the message you're looking at as you answer it, instead of leaving the old buttons behind and posting a new prompt
 - box score prompts say who they're waiting on more clearly, and only suggest /link steam on servers where that command is turned on, otherwise they point at your settings page
+- a box score uploaded from Tabletop Simulator now pings whoever generated the token
+- a box score prompt from a token is now answered by the person who owns the token, plus the host and moderators, and the reminder pings them instead of everyone in the game
+- continuing past an unmatched player now keeps the name the file gave them and adds "(not linked)", instead of leaving the seat blank
 
 ### Bug Fixes
 - fixed string bug on /record where base url returned no url
@@ -48,9 +53,12 @@
 - recording a game from a match thread now seats players in the order the game was actually played, taken from /seating, /adset or the box score, instead of the order players were added to the match
 - a box score with more players than the match seats now shows the extra player as their own row on the record form instead of quietly dropping them. Add the missing player from the Match page to fill it in
 - the message after a box score is added now lists each seat with its faction and score, matching the confirmation you just approved
+- recording a match game now fills in the scores from the box score
+- a box score seat whose player couldn't be identified now still fills in the faction it played when you record the match, instead of leaving that row blank
 - answering a box score's "who is this player?" prompt no longer puts the same person in two seats. Choosing someone taught the site their Steam ID, which then matched a second seat as well
 - skipping one of those prompts now leaves that seat empty, instead of filling it in anyway from the name in the file
-- each dropdown in that prompt is now numbered and lists the player it belongs to, so you can tell which is which after making a pick. It also only lists the players on the page you're looking at
+- each dropdown in that prompt is now numbered and lists the player it belongs to, and only lists the players on the page you're looking at
+- the choices in that dropdown now read "MrMirz is MrMirz" rather than just "MrMirz", so once you've picked someone the dropdown still shows which player from the box score it was asking about
 - Vagabond allowed to have coalition partner when importing boxscore json
 - Continue on a box score warning now re-checks the roster instead of only the seating, so an unexpected player is no longer missed
 - the group availability calendar button now shows up on the matches pages, where it never appeared before

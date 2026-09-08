@@ -55,7 +55,8 @@ from the_gatehouse.models import Profile, Language, schedules_for
 from the_databot.models import LFGThread
 from the_databot.services.lfg_game import (
     seated_profiles, lfg_option_querysets, picked_factions_by_profile,
-    captains_by_seat, undrafted_pick, FULL_CAPTAIN_COMPLEMENT)
+    unclaimed_picked_seats, captains_by_seat, undrafted_pick,
+    FULL_CAPTAIN_COMPLEMENT)
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
                                  player_onboard_required, admin_onboard_required)
@@ -845,6 +846,83 @@ def game_detail_hx_view(request, id=None):
 # Game Form — helpers (match mode, LFG mode and standalone)
 # ────────────────────────────────────────────────────────────────
 
+def _apply_picked_seat(form, lfg_seat, opts):
+    """Write an LFGSeat's picked components into one effort form's initial.
+
+    Shared by match mode's two fill passes -- the profile join and the fallback
+    for seats nobody claimed -- so the fallback cannot drift from the join it
+    supplements.
+
+    Every field is written only when the narrowing still OFFERS it: the
+    tournament's asset list can exclude something the thread rolled, and an
+    initial the queryset does not contain renders as no selection at all, which
+    silently looks like the prefill failed.
+
+    PKs throughout, never slugs. Match mode holds LFGSeat instances and its
+    querysets are filtered by pk; the LFG block works in slugs. Crossing the two
+    matches nothing.
+    """
+    if lfg_seat.faction_id and opts['factions'].filter(
+            pk=lfg_seat.faction_id).exists():
+        form.initial['faction'] = lfg_seat.faction_id
+    if lfg_seat.vagabond_id and opts['vagabonds'].filter(
+            pk=lfg_seat.vagabond_id).exists():
+        form.initial['vagabond'] = lfg_seat.vagabond_id
+    seat_captains = opts['captains'].filter(
+        pk__in=[c.pk for c in lfg_seat.captains.all()])
+    if seat_captains:
+        form.initial['captains'] = [v.pk for v in seat_captains]
+    if lfg_seat.discarded_captain_id and opts['captains'].filter(
+            pk=lfg_seat.discarded_captain_id).exists():
+        form.initial['discarded_captain'] = lfg_seat.discarded_captain_id
+
+
+def _apply_turns_prefill(turns_data, row_by_seat, formset, grid_rows):
+    """Fill dominance / brazen_demagogue initials and collect grid cells from a
+    thread's captured box score.
+
+    `row_by_seat` maps an entry's turn_order to a formset row index. It is a
+    PARAMETER because the two modes build it differently -- LFG from its own
+    seat list, match mode by inverting the MatchSeat row order -- and that is the
+    only part that differs between them.
+
+    Cells go into `grid_rows` in place rather than being returned: the caller
+    stashes them for a fold-in that happens further down, after the saved
+    ScoreCard rows are built.
+    """
+    for entry in (turns_data or []):
+        # turns_data is a free JSONField; a non-dict entry must not raise.
+        if not isinstance(entry, dict):
+            continue
+        seat_no = entry.get('turn_order', entry.get('seat'))
+        i = row_by_seat.get(seat_no)
+        # None means no row owns this seat; the bound check matters because a
+        # row map can outrun the formset when a match has more seats than rows.
+        if i is None or i >= len(formset.forms):
+            continue
+
+        # Effort.dominance IS the suit (Fox / Mouse / Frog ...), not the
+        # per-turn flag -- there is no separate field for it.
+        dominance = entry.get('dominance')
+        if dominance in {c.value for c in Effort.DominanceChoices}:
+            formset.forms[i].initial['dominance'] = dominance
+            # No deck gate: a thread's deck is often unset, and the save path
+            # clears brazen_demagogue unless the deck is Squires & Disciples, so
+            # an invalid value cannot be stored. Only set alongside a dominance,
+            # which is what the rule actually requires.
+            if entry.get('brazen_demagogue'):
+                formset.forms[i].initial['brazen_demagogue'] = True
+
+        try:
+            cells = grid_cells_from_turns(entry.get('turns'))
+        except BoxScoreImportError:
+            # Stored data shouldn't be malformed (clean() validates), but a bad
+            # row must not take the whole record form down.
+            continue
+        if cells:
+            grid_rows[i] = {'detailed': False, 'cells': cells}
+
+
 def _get_match_profiles(match):
     """Return Profile queryset of players seated in this match's series."""
     return Profile.objects.filter(
@@ -1025,10 +1103,11 @@ def manage_game(request, id=None):
     lfg_round = None
     lfg_seats = []
     lfg_opts = None
-    # Box score cells prefilled from LFGThread.turns_data, keyed by form index.
-    # Folded into grid_rows where that is built (further down), since it is
-    # constructed after this block runs.
-    lfg_grid_rows = {}
+    # Box score cells prefilled from a captured thread's turns_data, keyed by
+    # form index -- an LFG thread's own, or in match mode the group thread linked
+    # to the series. Folded into grid_rows where that is built (further down),
+    # since it is constructed after this block runs.
+    captured_grid_rows = {}
 
     # Determine mode
     match_id = request.GET.get('match') or request.POST.get('match_id')
@@ -1201,6 +1280,35 @@ def manage_game(request, id=None):
                      if s.profile_id}
             match_seats.sort(key=lambda ms: order.get(
                 ms.stage_participant.tournament_player.profile_id, len(order)))
+
+        # Which form row each captured seat owns. Built HERE, from the final
+        # match_seats order, and shared by the faction and score prefills below:
+        # deriving it twice is how a faction and its score end up on different
+        # rows.
+        #
+        # By INVERTING match_seats, never by seat_number arithmetic. The sort
+        # above keys on enumerate position, drops profile-less seats from `order`
+        # entirely, and gives every unseated MatchSeat the same key so they pile
+        # up at the end -- so it is not a bijection, and it does not run at all
+        # when seating_set is false. Inverting the actual row list is correct in
+        # every one of those cases.
+        row_by_captured_seat = {}
+        if captured_seats:
+            row_by_profile = {
+                ms.stage_participant.tournament_player.profile_id: i
+                for i, ms in enumerate(match_seats)}
+            claimed = set(row_by_profile.values())
+            # Rows no MatchSeat occupies -- i.e. only the trailing ones the
+            # max(seat_count, len(captured_seats)) count created. A profile-less
+            # seat can therefore NEVER land on a real player's row.
+            unclaimed = (i for i in range(len(formset.forms))
+                         if i not in claimed)
+            for seat in captured_seats:
+                row_by_captured_seat[seat.seat_number] = (
+                    row_by_profile[seat.profile_id]
+                    if seat.profile_id in row_by_profile
+                    else next(unclaimed, None))
+
         # Restrict player dropdown to match participants only
         match_profiles = _get_match_profiles(match)
         for form in formset.forms:
@@ -1245,26 +1353,37 @@ def manage_game(request, id=None):
                             seat.stage_participant.tournament_player.profile_id)
                         if not lfg_seat:
                             continue
-                        # Same "only if the narrowing still offers it" guard as
-                        # LFG mode below.
-                        if lfg_seat.faction_id and match_opts['factions'].filter(
-                                pk=lfg_seat.faction_id).exists():
-                            formset.forms[i].initial['faction'] = lfg_seat.faction_id
-                        if lfg_seat.vagabond_id and match_opts['vagabonds'].filter(
-                                pk=lfg_seat.vagabond_id).exists():
-                            formset.forms[i].initial['vagabond'] = lfg_seat.vagabond_id
-                        # Match mode works in PKs throughout (it holds LFGSeat
-                        # instances); the LFG block below works in slugs. Don't
-                        # cross the two.
-                        seat_captains = match_opts['captains'].filter(
-                            pk__in=[c.pk for c in lfg_seat.captains.all()])
-                        if seat_captains:
-                            formset.forms[i].initial['captains'] = [
-                                v.pk for v in seat_captains]
-                        if lfg_seat.discarded_captain_id and match_opts['captains'].filter(
-                                pk=lfg_seat.discarded_captain_id).exists():
-                            formset.forms[i].initial['discarded_captain'] = (
-                                lfg_seat.discarded_captain_id)
+                        _apply_picked_seat(formset.forms[i], lfg_seat, match_opts)
+
+                # Seats the box score recorded with a faction but NO player --
+                # nobody could identify them and the recorder accepted the blank.
+                # The profile join above cannot reach these: there is no profile
+                # to join on, so the faction that was actually played would
+                # simply be lost.
+                #
+                # Placed POSITIONALLY, which is safe here in a way it would not
+                # be generally: row_by_captured_seat only ever hands one of these
+                # a row NO MatchSeat occupies, so it cannot move a faction onto a
+                # real player. The `'faction' in initial` check makes that
+                # locally checkable rather than requiring the reader to trust it.
+                for seat_no, lfg_seat in unclaimed_picked_seats(
+                        match_captured).items():
+                    i = row_by_captured_seat.get(seat_no)
+                    if i is None or i >= len(formset.forms):
+                        continue
+                    if 'faction' in formset.forms[i].initial:
+                        continue
+                    _apply_picked_seat(formset.forms[i], lfg_seat, match_opts)
+
+                # Box score captured on the thread. Gated on seating_set: the row
+                # map is only meaningful when the thread's seating is real, and a
+                # score on the wrong player is worse than no score at all.
+                # _boxscore_reseat always sets the flag, so a genuine upload is
+                # never skipped by this.
+                if match_captured.seating_set:
+                    _apply_turns_prefill(
+                        match_captured.turns_data, row_by_captured_seat,
+                        formset, captured_grid_rows)
 
     if lfg_mode:
         # Restrict the player dropdown to the thread's players, and narrow every
@@ -1326,33 +1445,15 @@ def manage_game(request, id=None):
             # Stashed rather than written straight into grid_rows: that dict is
             # built further down (from saved ScoreCards), so writing here would
             # be overwritten. The construction below folds this in.
-            seat_row_by_number = {
-                seat_no: i for i, (seat_no, _p, _f, _v) in enumerate(lfg_seats)}
-            for entry in (lfgthread.turns_data or []):
-                if not isinstance(entry, dict):
-                    continue
-                seat_no = entry.get('turn_order', entry.get('seat'))
-                i = seat_row_by_number.get(seat_no)
-                if i is None or i >= len(formset.forms):
-                    continue
-
-                dominance = entry.get('dominance')
-                if dominance in {c.value for c in Effort.DominanceChoices}:
-                    formset.forms[i].initial['dominance'] = dominance
-                    # No deck gate: a thread's deck is often unset, and the save
-                    # path clears brazen_demagogue unless the deck is
-                    # Squires & Disciples, so an invalid value can't be stored.
-                    if entry.get('brazen_demagogue'):
-                        formset.forms[i].initial['brazen_demagogue'] = True
-
-                try:
-                    cells = grid_cells_from_turns(entry.get('turns'))
-                except BoxScoreImportError:
-                    # Stored data shouldn't be malformed (clean() validates), but
-                    # a bad row must not take the whole record form down.
-                    continue
-                if cells:
-                    lfg_grid_rows[i] = {'detailed': False, 'cells': cells}
+            # LFG rows come from lfg_seats, so this map is built differently
+            # from match mode's -- which is why _apply_turns_prefill takes it as
+            # an argument. seated_profiles can emit synthetic seat numbers when a
+            # thread has no seat rows, so the two must not be unified.
+            _apply_turns_prefill(
+                lfgthread.turns_data,
+                {seat_no: i
+                 for i, (seat_no, _p, _f, _v) in enumerate(lfg_seats)},
+                formset, captured_grid_rows)
 
         for notice in lfg_opts.get('notices', []):
             messages.warning(request, notice)
@@ -1488,7 +1589,7 @@ def manage_game(request, id=None):
     # Fold in the box score captured on an LFG thread (collected above, before
     # this dict existed). A saved ScoreCard always wins: it is the recorded
     # result, whereas turns_data is what the thread predicted.
-    for idx, row in lfg_grid_rows.items():
+    for idx, row in captured_grid_rows.items():
         grid_rows.setdefault(idx, row)
 
     # On a POST that fails validation the form re-renders, but the grid's cell
