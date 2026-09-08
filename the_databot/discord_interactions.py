@@ -6645,7 +6645,10 @@ def _boxscore_decompose(participants, payload):
         obj = model.objects.filter(slug=slug).first()
         if obj:
             items.append({"kind": kind, "slug": slug})
-            component_titles.append(obj.title)
+            # "Autumn Map", not a bare "Autumn": the summary lists these on one
+            # line, and a title alone doesn't say which is the map and which the
+            # deck -- several assets share a name across both kinds.
+            component_titles.append(f"{obj.title} {kind}")
         else:
             notes.append(f"I didn't recognise the {kind.lower()} `{slug}`.")
 
@@ -6821,9 +6824,11 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
             # is all we know about them.
             who = seat["label"]
         else:
-            # Nobody is seated here and the file named nobody. Say so plainly
-            # rather than showing a stale name.
-            who = "—"
+            # Nobody is seated here and the file named nobody. Empty, not a
+            # placeholder: the seat number already says the seat exists, so
+            # "3. Woodland Alliance" reads as an unclaimed faction without a
+            # dash pointing at nothing.
+            who = ""
         slug = seat["faction_slug"]
         prefix = f"{index}. " if numbered else ""
         # None, not "", when there is no score: a seat whose participant had no
@@ -6838,7 +6843,11 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
             vagabond = seat["vagabond_slug"]
             if vagabond:
                 mark += f" ({vagabond_titles.get(vagabond, vagabond)})"
-            lines.append(f"{prefix}{who} - {mark}{suffix}")
+            # The " - " only separates a NAME from a faction. With no name there
+            # is nothing to separate, so an unclaimed seat is "3. Marquise" and
+            # not "3.  - Marquise".
+            joiner = " - " if who else ""
+            lines.append(f"{prefix}{who}{joiner}{mark}{suffix}")
         else:
             lines.append(f"{prefix}{who}{suffix}")
     return lines
@@ -7532,7 +7541,8 @@ def _boxscore_apply_in_place(thread, pending, channel_id, ref):
     ]
     out.extend(lines)
     if pending["component_titles"]:
-        out.append("Map/Deck: " + " · ".join(pending["component_titles"]))
+        # No label: each title now carries its own kind ("Autumn Map").
+        out.append(" · ".join(pending["component_titles"]))
     out.extend(notes)
 
     return JsonResponse({
@@ -8083,7 +8093,8 @@ def _boxscore_commit(payload, pending, thread, ref):
     ]
     out.extend(lines)
     if pending["component_titles"]:
-        out.append("Map/Deck: " + " · ".join(pending["component_titles"]))
+        # No label: each title now carries its own kind ("Autumn Map").
+        out.append(" · ".join(pending["component_titles"]))
     out.extend(notes)
 
     return JsonResponse({
@@ -8138,7 +8149,8 @@ def _boxscore_reply(thread, pending, channel_id):
     ]
     out.extend(lines)
     if pending["component_titles"]:
-        out.append("Map/Deck: " + " · ".join(pending["component_titles"]))
+        # No label: each title now carries its own kind ("Autumn Map").
+        out.append(" · ".join(pending["component_titles"]))
     out.extend(notes)
 
     return JsonResponse({

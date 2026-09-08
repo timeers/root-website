@@ -11651,7 +11651,22 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         ]
         lines = di._boxscore_seat_lines(seats, "From this box score")
         self.assertEqual(lines[1], "1. Bob")
-        self.assertEqual(lines[2], "2. —")
+        # No name and no faction: just the seat number.
+        self.assertEqual(lines[2], "2. ")
+
+    def test_an_unclaimed_faction_renders_without_a_dangling_dash(self):
+        """The " - " separates a name from a faction. With nobody in the seat
+        there is nothing to separate, so it reads "3. Marquise de Cat" rather
+        than "3.  - Marquise de Cat"."""
+        seats = [
+            {"profile_pk": None, "label": "(blank)", "player_slug": None,
+             "player_steam_id": None, "faction_slug": "marquise-de-cat",
+             "vagabond_slug": None, "captain_slugs": [], "discarded_slug": None},
+        ]
+        line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertNotIn(" - ", line)
+        self.assertNotIn("—", line)
+        self.assertTrue(line.startswith("1. "), line)
 
     def test_an_unresolved_seat_still_echoes_a_name_the_file_gave(self):
         """The other side of it: a seat the file NAMED but we could not match is
