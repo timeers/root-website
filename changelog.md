@@ -7,6 +7,7 @@
 
 ### Improvements
 - better banner message for prefilled matches
+- better validation for Woodland Warriors urls
 
 ### Bug Fixes
 - js was breaking due to auto filling box score to game form
