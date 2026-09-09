@@ -340,7 +340,8 @@ _LFG_LOOKUP_KIND = {
 }
 
 
-def _capture_lfg_components(channel_id, items, source="", draft=None):
+def _capture_lfg_components(channel_id, items, source="", draft=None,
+                            undrafted=None):
     """Fire-and-forget: record components surfaced by a command into an LFG thread
     (no-op in the worker when the channel isn't a known LFG thread). `items` is a
     list of {"kind","slug","title"}. Safe to call with a falsy channel_id.
@@ -352,8 +353,9 @@ def _capture_lfg_components(channel_id, items, source="", draft=None):
     Deliberately fire-and-forget: a capture failure must never damage a draft or
     lookup that already succeeded.
     """
-    if channel_id and (items or draft):
-        record_lfg_components_task.delay(channel_id, items, source=source, draft=draft)
+    if channel_id and (items or draft or (undrafted and any(undrafted.values()))):
+        record_lfg_components_task.delay(channel_id, items, source=source,
+                                         draft=draft, undrafted=undrafted)
 
 
 def _lfg_item(kind, post):
@@ -6548,6 +6550,7 @@ _BOXSCORE_TIMEOUT = 2
 
 # Effort.DominanceChoices values, resolved once rather than per participant.
 _BOXSCORE_DOMINANCE_VALUES = frozenset(c.value for c in Effort.DominanceChoices)
+_BOXSCORE_LEADER_VALUES = frozenset(c.value for c in Effort.LeaderChoices)
 
 # Reconcile an uploaded box score against the thread's roster and seating, asking
 # the uploader to confirm before overwriting. Set False to restore the old
@@ -6615,6 +6618,35 @@ def _boxscore_decompose(participants, payload):
             else:
                 notes.append(f"{label}: Brazen Demagogue needs a dominance, so I left it off.")
 
+        # The RAW tournament_score, not a bool: 0 loss, 0.5 coalition win, 1 solo
+        # win. The record form's Win box is a bool, but collapsing it here would
+        # throw away the coalition distinction with nowhere to recover it. The
+        # view narrows.
+        #
+        # Without this the form only auto-checks Win at 30+, so a sub-30 victory
+        # -- dominance, coalition, a timed finish -- imported with no winner at
+        # all, which is exactly what a dominance game is.
+        tournament_score = participant.get("tournament_score")
+        if tournament_score is not None:
+            try:
+                entry["tournament_score"] = float(tournament_score)
+            except (TypeError, ValueError):
+                notes.append(f"{label}: ignored a non-numeric tournament score.")
+
+        # Stored raw and validated only for shape. Whether a leader or coalition
+        # actually APPLIES depends on the seat's faction, which is a title here
+        # and a slug in the payload -- the record form's clean() already enforces
+        # that rule, so re-deriving it would put it in a third place.
+        leader = participant.get("starting_leader")
+        if leader:
+            if leader in _BOXSCORE_LEADER_VALUES:
+                entry["starting_leader"] = leader
+            else:
+                notes.append(f"{label}: ignored an unknown starting leader “{leader}”.")
+        coalition = _boxscore_clean(participant.get("coalition"))
+        if coalition:
+            entry["coalition"] = coalition
+
         cells, turn_notes = normalize_turns(participant.get("turns"), label=label)
         if cells:
             entry["turns"] = [
@@ -6654,7 +6686,175 @@ def _boxscore_decompose(participants, payload):
         else:
             notes.append(f"I didn't recognise the {kind.lower()} `{slug}`.")
 
-    return entries, notes, items, component_titles
+    component_items, undrafted = _boxscore_component_items(participants, payload)
+    items += component_items
+
+    return entries, notes, items, component_titles, undrafted
+
+
+def _boxscore_match_roster(thread, channel_id):
+    """The match roster for a group thread, or None for a plain LFG thread.
+
+    None means "not a match, skip the balance check" -- distinct from an empty
+    roster, which means a match nobody has been added to yet.
+    """
+    if not thread.series_id:
+        return None
+    roster, _group = _thread_roster(thread, channel_id)
+    return roster or None
+
+
+def _boxscore_apply_error(notes, ref=None):
+    """The refusal text for a failed apply.
+
+    _boxscore_apply puts a specific reason in `notes` when it has one -- a roster
+    mismatch names who. Falling back to the generic line would drop exactly the
+    part the reader can act on.
+    """
+    specific = (notes or [None])[0]
+    if specific:
+        return specific
+    return ("That box score couldn't be saved."
+            + (_boxscore_kept_note(ref, "to try again") if ref
+               else " Check the file and try again."))
+
+
+def _boxscore_roster_mismatch(seats, match_roster):
+    """A user-facing refusal when `seats` can't be this match's game, or None.
+
+    A game linked to a match holds every match player and nobody else -- the
+    record form's clean() enforces that at save time, and this is the same rule
+    applied to the FILE, while the uploader is still present to fix it.
+
+    An UNIDENTIFIED seat cancels an unseated match player: the file simply didn't
+    say who sat there, and Gate 0 exists to let someone say. Refusing that would
+    block the flow that resolves it -- and some unidentified seats no gate can
+    reach at all (no Steam ID in the file, or a player whose verified id didn't
+    match), which would strand the upload with no way forward.
+
+    So the invariant is a balance, not an equality of names:
+
+        unseated match players == unidentified seats
+
+    plus: no seat may name someone outside the match, which no amount of
+    answering gates can reconcile.
+    """
+    if not match_roster or not seats:
+        return None
+
+    roster_by_pk = {p.pk: p for p in match_roster}
+    seated = {s["profile_pk"] for s in seats if s.get("profile_pk")}
+
+    intruders = sorted(seated - set(roster_by_pk))
+    if intruders:
+        names = ", ".join(
+            f"`{p.name}`" for p in Profile.objects.filter(pk__in=intruders))
+        return (f"This box score seats {names}, who {'is' if len(intruders) == 1 else 'are'} "
+                "not in this match. A moderator can add "
+                f"{'them' if len(intruders) > 1 else 'that player'} to the match, "
+                "or the file names the wrong player.")
+
+    unseated = [roster_by_pk[pk] for pk in roster_by_pk if pk not in seated]
+    unidentified = [s for s in seats if not s.get("profile_pk")]
+    if len(unseated) == len(unidentified):
+        return None
+
+    names = ", ".join(f"`{p.name}`" for p in unseated)
+    if len(unseated) > len(unidentified):
+        return (f"This box score has no seat for {names}. Every player in a match "
+                "has to be in the game — check the file, or ask a moderator to "
+                "edit the match roster.")
+    return ("This box score has more seats than this match has players. Check "
+            "the file, or ask a moderator to add the missing player to the match.")
+
+
+def _boxscore_component_items(participants, payload):
+    """Roll items for every component a box score names, beyond map/deck.
+
+    A component reaches the record form's dropdowns only if it is in the thread's
+    ROLLS -- lfg_option_querysets narrows each field to what the thread surfaced,
+    intersected with the tournament's allowed assets. Map and deck already worked
+    because they were the only kinds emitted here; everything else was dropped,
+    so a box score naming a faction nobody had rolled left that seat's faction
+    blank on the form even though the file said what was played.
+
+    Emitting them as items is the whole fix: record_lfg_components_task writes an
+    LFGRoll for any kind, so the narrowing then offers them and every prefill
+    downstream works with no special handling.
+
+    Kind strings must match ROLL_KIND_TO_BUCKET exactly -- an unknown kind stores
+    an LFGRoll that rolled_components silently skips. Deliberately NOT reusing
+    _LFG_LOOKUP_KIND: that maps DISCORD SUBCOMMAND names ("houserule"), not the
+    box score's payload keys ("tweaks").
+    """
+    from the_keep.models import Faction, Vagabond, Landmark, Hireling, Tweak
+
+    seen = set()
+    items = []
+
+    def add(kind, slug):
+        if not slug or (kind, slug) in seen:
+            return
+        seen.add((kind, slug))
+        items.append({"kind": kind, "slug": slug})
+
+    # Game level. These are LISTS in the file, unlike the map/deck scalars.
+    for key, kind in (("landmarks", "Landmark"), ("hirelings", "Hireling"),
+                      ("tweaks", "Tweak")):
+        values = payload.get(key)
+        if isinstance(values, list):
+            for slug in values:
+                add(kind, _boxscore_clean(slug))
+
+    # Per seat. A clockwork faction is emitted as "Faction": ROLL_KIND_TO_BUCKET
+    # maps both to the factions bucket, and the bucket is what the narrowing uses.
+    for participant in participants:
+        add("Faction", _boxscore_clean(participant.get("faction")))
+        add("Vagabond", _boxscore_clean(participant.get("vagabond")))
+        add("Captain", _boxscore_clean(participant.get("discarded_captain")))
+        for slug in (participant.get("captains") or []):
+            add("Captain", _boxscore_clean(slug))
+
+    # The undrafted assets are emitted as rolls TOO, so the form's undrafted_*
+    # fields offer them -- they narrow against the same factions/vagabonds/
+    # captains buckets as everything else. But which one is undrafted cannot be
+    # recovered from the roll log (an undrafted faction and a seated one are both
+    # "Faction"), so the slugs are also returned for the thread's own columns.
+    undrafted = {
+        "faction": _boxscore_clean(payload.get("undrafted_faction")),
+        "vagabond": _boxscore_clean(payload.get("undrafted_vagabond")),
+        "captains": [_boxscore_clean(c)
+                     for c in (payload.get("undrafted_captains") or [])
+                     if _boxscore_clean(c)],
+    }
+    add("Faction", undrafted["faction"])
+    add("Vagabond", undrafted["vagabond"])
+    for slug in undrafted["captains"]:
+        add("Captain", slug)
+
+    # Only slugs that name something real: an LFGRoll whose slug matches no Post
+    # narrows the form's choices to nothing for that bucket.
+    by_kind = {"Faction": Faction, "Vagabond": Vagabond, "Captain": Vagabond,
+               "Landmark": Landmark, "Hireling": Hireling, "Tweak": Tweak}
+    wanted = {}
+    for item in items:
+        wanted.setdefault(item["kind"], set()).add(item["slug"])
+    real = {}
+    for kind, slugs in wanted.items():
+        real[kind] = set(by_kind[kind].objects.filter(slug__in=slugs)
+                         .values_list("slug", flat=True))
+
+    # The same existence filter, so a typo'd undrafted slug is dropped rather
+    # than written to the thread as a dangling name.
+    if undrafted["faction"] not in real.get("Faction", ()):
+        undrafted["faction"] = None
+    if undrafted["vagabond"] not in real.get("Vagabond", ()):
+        undrafted["vagabond"] = None
+    undrafted["captains"] = [c for c in undrafted["captains"]
+                             if c in real.get("Captain", ())]
+
+    return ([i for i in items if i["slug"] in real.get(i["kind"], ())],
+            undrafted)
 
 
 def _boxscore_clean(value, limit=_BOXSCORE_SLUG_MAX):
@@ -6957,11 +7157,16 @@ def _boxscore_reseat(thread, seats):
     return created
 
 
-def _boxscore_apply(thread, pending, channel_id):
+def _boxscore_apply(thread, pending, channel_id, match_roster=None):
     """Write a (possibly confirmed) box score.
 
-    Returns (lines, notes) on success, or (None, None) when the built turns_data
-    fails validation -- the caller turns that into a user-facing refusal.
+    Returns (lines, notes) on success, or (None, notes) when the box score cannot
+    be honoured -- the caller turns that into a user-facing refusal. When the
+    refusal has something specific to say, `notes` carries it.
+
+    `match_roster` is supplied only for a match thread, and used ONLY to re-check
+    the roster balance after the gates. This function otherwise stays out of
+    tournament rosters on purpose -- see the comment below.
 
     Shared by the immediate path and the confirm button so the two can't drift
     about what an upload actually does.
@@ -6975,6 +7180,15 @@ def _boxscore_apply(thread, pending, channel_id):
     seats = pending["seats"]
     notes = list(pending["notes"])
     lines = []
+
+    # Re-check the match balance on the FINAL state. The upload-time check ran
+    # before any gate, and a Gate 0 answer moves a seat from unidentified to a
+    # named player -- which keeps the balance -- but a stale or unexpected answer
+    # could seat someone the file never accounted for.
+    if match_roster:
+        error = _boxscore_roster_mismatch(seats, match_roster)
+        if error:
+            return None, [error]
 
     # Roster: LFG threads only. A tournament group thread's roster lives in
     # PlayerGroup.tournament_players / MatchSeat, NOT thread.players -- writing
@@ -7021,8 +7235,14 @@ def _boxscore_apply(thread, pending, channel_id):
     # enqueue, and a worker picking the task up before a commit would read stale
     # rows. Fire-and-forget by design -- a capture failure must not undo a saved
     # box score.
-    if items:
-        _capture_lfg_components(channel_id, items, source="boxscore")
+    # `undrafted` rides along: it is not a roll (nothing distinguishes an
+    # undrafted faction from a seated one in the log) but it is written by the
+    # same task, onto the thread's own columns. Guarded on BOTH, so a file naming
+    # only an undrafted faction -- no map, deck or components -- still stores it.
+    undrafted = pending.get("undrafted")
+    if items or (undrafted and any(undrafted.values())):
+        _capture_lfg_components(channel_id, items, source="boxscore",
+                                undrafted=undrafted)
 
     return lines, notes
 
@@ -7079,7 +7299,7 @@ def boxscore_upload_from_api(thread, raw, token):
         participants,
         key=lambda p: int(p.get("turn_order", p.get("seat"))))
 
-    entries, notes, items, component_titles = _boxscore_decompose(
+    entries, notes, items, component_titles, undrafted = _boxscore_decompose(
         participants, payload)
 
     roster, _group = _thread_roster(thread, thread.thread_id)
@@ -7092,12 +7312,21 @@ def boxscore_upload_from_api(thread, raw, token):
         "entries": entries, "items": items, "notes": notes,
         "seats": _boxscore_file_seats(participants, profiles),
         "thread_pk": thread.pk, "filename": "Tabletop Simulator",
-        "component_titles": component_titles,
+        "component_titles": component_titles, "undrafted": undrafted,
     }
     pending["fingerprint"] = _boxscore_seat_fingerprint(thread)
 
     site = (config.get("SITE_URL") or "").rstrip("/")
     record_url = f"{site}/record/game/?lfg={thread.id}" if site else None
+
+    # A match game is exactly its match roster -- refused HERE rather than left to
+    # the apply, so the TTS uploader is told at the table instead of the file
+    # sitting in a thread prompt nobody can resolve. Raises rather than returns:
+    # this path reports failures to the object through BoxScoreImportError.
+    if thread.series_id:
+        mismatch = _boxscore_roster_mismatch(pending["seats"], roster)
+        if mismatch:
+            raise BoxScoreImportError(mismatch)
 
     # The same decision the interaction paths make -- asked once, here, rather
     # than restated as a boolean plus an if/elif chain that could disagree with
@@ -7107,12 +7336,13 @@ def boxscore_upload_from_api(thread, raw, token):
                             lambda: f"t:{token.pk}")
 
     if body is None:
-        lines, applied_notes = _boxscore_apply(thread, pending, thread.thread_id)
+        lines, applied_notes = _boxscore_apply(
+            thread, pending, thread.thread_id,
+            _boxscore_match_roster(thread, thread.thread_id))
         BoxScoreUploadToken.objects.filter(pk=token.pk).update(
             status=BoxScoreUploadToken.Status.APPLIED, payload=None)
         if lines is None:
-            raise BoxScoreImportError(
-                "That box score couldn't be saved — check the file and try again.")
+            raise BoxScoreImportError(_boxscore_apply_error(applied_notes))
         # The clean case pings too, with different wording: it confirms the paste
         # worked, which is what someone sitting in TTS is waiting to know.
         mention = _boxscore_issuer_mention(token)
@@ -7326,7 +7556,7 @@ def _handle_boxscore_upload_command(data):
         key=lambda p: int(p.get("turn_order", p.get("seat"))))
 
     try:
-        entries, notes, items, component_titles = _boxscore_decompose(
+        entries, notes, items, component_titles, undrafted = _boxscore_decompose(
             participants, payload)
     except BoxScoreImportError as exc:
         return _ephemeral(f"That box score couldn't be read: {exc}")
@@ -7372,7 +7602,7 @@ def _handle_boxscore_upload_command(data):
     pending = {
         "entries": entries, "items": items, "notes": notes, "seats": file_seats,
         "thread_pk": thread.pk, "filename": filename,
-        "component_titles": component_titles,
+        "component_titles": component_titles, "undrafted": undrafted,
     }
 
     if not strict:
@@ -7384,6 +7614,16 @@ def _handle_boxscore_upload_command(data):
                 "Couldn't match players: " + ", ".join(f"`{s}`" for s in unlinkable)
                 + " — pick them on the form.")
         return _boxscore_reply(thread, pending, channel_id)
+
+    # A match game is exactly its match roster. Checked HERE, before any gate
+    # renders, so the uploader learns while they can still fix the file -- by the
+    # time it reaches the record form they have gone, and the recorder is holding
+    # something they cannot reconcile. Re-checked at apply, since a gate answer
+    # can change both sides of the balance.
+    if thread.series_id:
+        error = _boxscore_roster_mismatch(file_seats, roster)
+        if error:
+            return _ephemeral(error)
 
     return _boxscore_next_step(thread, pending, channel_id, data.get("_author_id"))
 
@@ -7621,12 +7861,11 @@ def _boxscore_apply_in_place(thread, pending, channel_id, ref):
     """Apply a staged upload and REPLACE the prompt message with the result."""
     from the_databot.models import BoxScoreUploadToken
 
-    lines, notes = _boxscore_apply(thread, pending, channel_id)
+    lines, notes = _boxscore_apply(thread, pending, channel_id,
+                                   _boxscore_match_roster(thread, channel_id))
     if lines is None:
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
-        return _boxscore_resolved(
-            "That box score couldn't be saved."
-            + _boxscore_kept_note(ref, "to try again"))
+        return _boxscore_resolved(_boxscore_apply_error(notes, ref))
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
     entries = pending["entries"]
@@ -8296,12 +8535,11 @@ def _boxscore_commit(payload, pending, thread, ref):
             + _boxscore_kept_note(ref, "to restore it against the new seating"))
 
     channel_id = payload.get("channel_id") or (payload.get("channel") or {}).get("id")
-    lines, notes = _boxscore_apply(thread, pending, channel_id)
+    lines, notes = _boxscore_apply(thread, pending, channel_id,
+                                   _boxscore_match_roster(thread, channel_id))
     if lines is None:
         _boxscore_discard(ref, status=BoxScoreUploadToken.Status.CANCELLED)
-        return _boxscore_resolved(
-            "That box score couldn't be saved."
-            + _boxscore_kept_note(ref, "to try again"))
+        return _boxscore_resolved(_boxscore_apply_error(notes, ref))
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
     entries = pending["entries"]
@@ -8460,13 +8698,14 @@ def _handle_boxscore_restore(payload):
     if body is None:
         # Nothing left to ask: the restore resolved everything, so apply it and
         # announce the result in the thread.
-        lines, notes = _boxscore_apply(thread, pending, thread.thread_id)
+        lines, notes = _boxscore_apply(
+            thread, pending, thread.thread_id,
+            _boxscore_match_roster(thread, thread.thread_id))
         _boxscore_discard(ref, status=(BoxScoreUploadToken.Status.APPLIED
                                        if lines is not None
                                        else BoxScoreUploadToken.Status.CANCELLED))
         if lines is None:
-            return _ephemeral("That box score couldn't be saved."
-                              + _boxscore_kept_note(ref, "to try again"))
+            return _ephemeral(_boxscore_apply_error(notes, ref))
         # The RESTORER, not token.issued_by: that attribute is stale here --
         # ownership moved in the .update() above, which does not refresh the
         # in-memory instance.
@@ -8493,10 +8732,10 @@ def _handle_boxscore_restore(payload):
 
 def _boxscore_reply(thread, pending, channel_id):
     """Apply a pending box score and build the public summary."""
-    lines, notes = _boxscore_apply(thread, pending, channel_id)
+    lines, notes = _boxscore_apply(thread, pending, channel_id,
+                                   _boxscore_match_roster(thread, channel_id))
     if lines is None:
-        return _ephemeral(
-            "That box score couldn't be saved — check the file and try again.")
+        return _ephemeral(_boxscore_apply_error(notes))
 
     entries = pending["entries"]
     filename = pending["filename"]

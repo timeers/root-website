@@ -226,7 +226,7 @@ def group_series_id(group):
     return series.pk if series else None
 
 
-def rolled_components(thread):
+def rolled_components(thread, source=None):
     """`kind` -> [slug, ...] for everything surfaced in this thread.
 
     Deduped, first-seen order preserved. Rows with no resolvable slug are
@@ -236,9 +236,17 @@ def rolled_components(thread):
     when the Post is gone. Order matters: slugs are derived from the title, so a
     renamed Post would strand the snapshot and silently drop that component from
     the form's choices -- the exact dangling-reference bug the FK exists to fix.
+
+    `source` filters to one origin ("boxscore", "random", "lookup", "draft").
+    Narrowing the form's CHOICES must stay unfiltered -- every roll is a
+    legitimate option -- but PRESELECTING one must not be: a /random landmark
+    somebody rolled once is not a claim that it was played.
     """
+    rolls = thread.roll_log.select_related("post")
+    if source is not None:
+        rolls = rolls.filter(source=source)
     out = {}
-    for roll in thread.roll_log.select_related("post"):
+    for roll in rolls:
         slug = roll.post.slug if roll.post_id else roll.slug
         if not roll.kind or not slug:
             continue
@@ -246,6 +254,15 @@ def rolled_components(thread):
         if slug not in slugs:
             slugs.append(slug)
     return out
+
+
+def boxscore_components(thread):
+    """`kind` -> [slug, ...] for what a BOX SCORE put on this thread.
+
+    The prefill's source of truth: these are components a file asserted were in
+    the game, as opposed to anything anyone happened to roll in the channel.
+    """
+    return rolled_components(thread, source="boxscore")
 
 
 def seated_profiles(thread):

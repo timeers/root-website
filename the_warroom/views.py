@@ -877,14 +877,18 @@ def _apply_picked_seat(form, lfg_seat, opts):
         form.initial['discarded_captain'] = lfg_seat.discarded_captain_id
 
 
-def _apply_turns_prefill(turns_data, row_by_seat, formset, grid_rows):
-    """Fill dominance / brazen_demagogue initials and collect grid cells from a
-    thread's captured box score.
+def _apply_turns_prefill(turns_data, row_by_seat, formset, grid_rows, opts=None):
+    """Fill per-effort initials and collect grid cells from a thread's captured
+    box score.
 
     `row_by_seat` maps an entry's turn_order to a formset row index. It is a
     PARAMETER because the two modes build it differently -- LFG from its own
     seat list, match mode by inverting the MatchSeat row order -- and that is the
     only part that differs between them.
+
+    `opts` is the narrowed queryset dict, needed only to resolve a coalition slug
+    to a Faction the field actually offers. Optional so a caller with nothing to
+    narrow against still gets every other prefill.
 
     Cells go into `grid_rows` in place rather than being returned: the caller
     stashes them for a fold-in that happens further down, after the saved
@@ -912,6 +916,34 @@ def _apply_turns_prefill(turns_data, row_by_seat, formset, grid_rows):
             # which is what the rule actually requires.
             if entry.get('brazen_demagogue'):
                 formset.forms[i].initial['brazen_demagogue'] = True
+
+        # tournament_score is how a box score carries the win: 0 loss, 0.5
+        # coalition win, 1 solo win. Narrowed to the form's bool here rather than
+        # at capture, so the coalition/solo distinction survives in turns_data.
+        # Without this a sub-30 victory arrives with no winner marked, since the
+        # grid only auto-checks Win at 30+.
+        tournament_score = entry.get('tournament_score')
+        if tournament_score is not None:
+            try:
+                formset.forms[i].initial['win'] = float(tournament_score) > 0
+            except (TypeError, ValueError):
+                pass
+
+        # Both are stored raw and only apply to particular factions, which the
+        # form's clean() already enforces -- and the page's own faction handler
+        # hides and clears them when the row's faction doesn't match, so an
+        # inapplicable value is discarded before the user ever sees it.
+        starting_leader = entry.get('starting_leader')
+        if starting_leader in {c.value for c in Effort.LeaderChoices}:
+            formset.forms[i].initial['starting_leader'] = starting_leader
+
+        # A slug, resolved against what the field OFFERS: an initial the queryset
+        # doesn't contain renders as no selection at all.
+        coalition = entry.get('coalition')
+        if coalition and opts is not None:
+            partner = opts['factions'].filter(slug=coalition).first()
+            if partner:
+                formset.forms[i].initial['coalition_with'] = partner.pk
 
         try:
             cells = grid_cells_from_turns(entry.get('turns'))
@@ -955,32 +987,92 @@ def _match_captured_thread(match):
     return LFGThread.objects.filter(series_id=match.series_id).first()
 
 
-def _prefill_undrafted(form, thread, opts):
-    """Seed the game-level undrafted_* fields from the one drafted faction no
-    seat took. No-op without a draft, or while a pick is still in progress.
+def _prefill_boxscore_components(form, thread, opts, request=None):
+    """Preselect the game-level components a BOX SCORE named on this thread.
+
+    Only box-score rolls, never every roll: the thread's choices are narrowed to
+    everything anyone surfaced, but a /random landmark rolled once is not a claim
+    that it was played. boxscore_components is the filtered read.
+
+    Only values the field still OFFERS, matching the map/deck blocks: an initial
+    the queryset doesn't contain renders as no selection at all. In practice the
+    box score's own components are IN the rolls (they go through the same capture
+    task), so this guard now fires only for a real tournament restriction -- but
+    the capture is fire-and-forget, so a dropped task must degrade to "no
+    prefill", never to a broken field.
+    """
+    from the_databot.services.lfg_game import boxscore_components
+
+    named = boxscore_components(thread)
+
+    for kind, field, bucket in (("Landmark", "landmarks", "landmarks"),
+                                ("Hireling", "hirelings", "hirelings"),
+                                ("Tweak", "tweaks", "tweaks")):
+        slugs = named.get(kind)
+        if not slugs:
+            continue
+        offered = list(opts[bucket].filter(slug__in=slugs))
+        if offered:
+            form.initial[field] = [o.pk for o in offered]
+        missing = set(slugs) - {o.slug for o in offered}
+        if missing and request is not None:
+            messages.warning(
+                request,
+                f"The box score's {field} " + ", ".join(sorted(missing))
+                + " aren't playable here — check that field.")
+
+    # The undrafted assets come from the thread's own COLUMNS, not the roll log:
+    # an undrafted faction and a seated one are both kind "Faction" there.
+    #
+    # This runs after _prefill_undrafted and deliberately OVERWRITES it. The
+    # draft says what was dealt in Discord; the box score says what was actually
+    # played, and a /draft re-run or a re-seat can leave the draft stale. When
+    # there is no box score these stay None and the draft's values survive.
+    _set_undrafted_initial(
+        form, opts, thread.undrafted_faction_id, thread.undrafted_vagabond_id,
+        thread.undrafted_captains.values_list("pk", flat=True))
+
+
+def _set_undrafted_initial(form, opts, faction_id, vagabond_id, captain_ids):
+    """Write the three undrafted_* initials, whatever the source.
+
+    Two callers supply the values differently -- _prefill_undrafted from the
+    thread's /draft leftover, _prefill_boxscore_components from the columns a box
+    score filled -- but the rules for WRITING them are identical, so they live
+    here rather than in both.
 
     Only pre-selects a value the narrowing still offers: an initial the queryset
     doesn't contain renders as no selection at all.
 
     undrafted_captains is deliberately all-or-nothing. GameCreateForm.clean()
     CLEARS it unless undrafted_faction is Knaves of the Deepwood -- which is why
-    the faction is prefilled first -- and then requires exactly 4 or none. The
+    the faction is written first -- and then requires exactly 4 or none. The
     count is taken AFTER narrowing, since the tournament's asset list can drop
     some; seeding 3 would fail validation on submit.
+    """
+    if faction_id and opts['factions'].filter(pk=faction_id).exists():
+        form.initial['undrafted_faction'] = faction_id
+    if vagabond_id and opts['vagabonds'].filter(pk=vagabond_id).exists():
+        form.initial['undrafted_vagabond'] = vagabond_id
+
+    caps = list(opts['captains'].filter(pk__in=list(captain_ids)))
+    if len(caps) == FULL_CAPTAIN_COMPLEMENT:
+        form.initial['undrafted_captains'] = [v.pk for v in caps]
+
+
+def _prefill_undrafted(form, thread, opts):
+    """Seed the game-level undrafted_* fields from the one drafted faction no
+    seat took. No-op without a draft, or while a pick is still in progress.
+
+    A box score can supply the same three fields, and overwrites these when it
+    does -- see _prefill_boxscore_components, which runs after this.
     """
     pick = undrafted_pick(thread)
     if not pick:
         return
 
-    if opts['factions'].filter(pk=pick.faction_id).exists():
-        form.initial['undrafted_faction'] = pick.faction_id
-    if pick.vagabond_id and opts['vagabonds'].filter(pk=pick.vagabond_id).exists():
-        form.initial['undrafted_vagabond'] = pick.vagabond_id
-
-    caps = list(opts['captains'].filter(
-        pk__in=[c.pk for c in pick.captains.all()]))
-    if len(caps) == FULL_CAPTAIN_COMPLEMENT:
-        form.initial['undrafted_captains'] = [v.pk for v in caps]
+    _set_undrafted_initial(form, opts, pick.faction_id, pick.vagabond_id,
+                           [c.pk for c in pick.captains.all()])
 
 
 def _lfg_round_for(tournament):
@@ -1383,7 +1475,7 @@ def manage_game(request, id=None):
                 if match_captured.seating_set:
                     _apply_turns_prefill(
                         match_captured.turns_data, row_by_captured_seat,
-                        formset, captured_grid_rows)
+                        formset, captured_grid_rows, match_opts)
 
     if lfg_mode:
         # Restrict the player dropdown to the thread's players, and narrow every
@@ -1453,7 +1545,7 @@ def manage_game(request, id=None):
                 lfgthread.turns_data,
                 {seat_no: i
                  for i, (seat_no, _p, _f, _v) in enumerate(lfg_seats)},
-                formset, captured_grid_rows)
+                formset, captured_grid_rows, lfg_opts)
 
         for notice in lfg_opts.get('notices', []):
             messages.warning(request, notice)
@@ -1497,7 +1589,9 @@ def manage_game(request, id=None):
                     messages.warning(
                         request,
                         f"{match_captured.deck} isn't playable here — pick another deck.")
+            # ORDER MATTERS: the box score's undrafted_* overwrite the draft's.
             _prefill_undrafted(form, match_captured, match_opts)
+            _prefill_boxscore_components(form, match_captured, match_opts, request)
 
     if lfg_mode and not obj.pk:
         # Seed from what the thread already knows.
@@ -1520,7 +1614,9 @@ def manage_game(request, id=None):
             else:
                 messages.warning(
                     request, f"{lfgthread.deck} isn't playable here — pick another deck.")
+        # ORDER MATTERS: the box score's undrafted_* overwrite the draft's.
         _prefill_undrafted(form, lfgthread, lfg_opts)
+        _prefill_boxscore_components(form, lfgthread, lfg_opts, request)
 
     # Same game-level narrowing for a match whose thread captured components.
     if match_mode and match_opts:

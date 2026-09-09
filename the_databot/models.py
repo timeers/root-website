@@ -167,6 +167,20 @@ class LFGThread(models.Model):
         "the_keep.Map", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deck = models.ForeignKey(
         "the_keep.Deck", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # The faction dealt but never played, and its vagabond/captains. Columns
+    # rather than roll rows because the roll log is keyed by KIND -- an undrafted
+    # faction and a seated one are both "Faction" there, so nothing could tell
+    # them apart. A /draft supplies the same thing through undrafted_pick(); these
+    # are for a box score, which is the only source when no draft happened.
+    undrafted_faction = models.ForeignKey(
+        "the_keep.Faction", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
+    undrafted_vagabond = models.ForeignKey(
+        "the_keep.Vagabond", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+")
+    undrafted_captains = models.ManyToManyField(
+        "the_keep.Vagabond", blank=True, related_name="+")
+
     class Status(models.TextChoices):
         OPEN = "open", "Open"
         RECORDED = "recorded", "Recorded"
