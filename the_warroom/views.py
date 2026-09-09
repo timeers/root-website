@@ -64,7 +64,7 @@ from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from the_databot.tasks import post_channel_message_task, create_match_threads_task
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
-from the_warroom.services.channel_posts import post_to_tournament_channel
+from the_warroom.services.channel_posts import post_to_tournament_channel, match_thread_id
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 
 from the_tavern.forms import GameCommentCreateForm
@@ -1188,39 +1188,6 @@ def _can_record_match(profile, match):
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
 
 
-# Group thread URLs are https://discord.com/channels/<guild>/<thread>, optionally
-# with a trailing message id. DISCORD_URL_PATTERN (used on the series edit page)
-# only checks the host, so a moderator can paste an invite or a DM link -- anchor
-# the full shape and capture the guild too, so we can prove the thread belongs to
-# this tournament's server before posting into it.
-_DISCORD_THREAD_URL_RE = re.compile(
-    r'^https://(?:discord\.com|discordapp\.com)/channels/(\d+)/(\d+)(?:/\d+)?/?$')
-
-
-def _match_thread_id(match):
-    """The Discord thread id to announce this match's recorded game in, or None to
-    skip.
-
-    Skips unless the player group's thread URL is a real channel link AND its guild
-    is the tournament's guild -- a stale or mistyped URL would otherwise post a
-    tournament's game link into an unrelated server. A tournament with no guild
-    linked is never announced."""
-    group = getattr(match, 'player_group', None)
-    url = (getattr(group, 'discord_thread', '') or '').strip()
-    if not url:
-        return None
-    found = _DISCORD_THREAD_URL_RE.match(url)
-    if not found:
-        return None
-    url_guild, thread_id = found.group(1), found.group(2)
-
-    # round.get_tournament() resolves through the stage or the direct FK, the same
-    # two paths _schedulable_matches matches a guild on.
-    tournament = match.round.get_tournament() if match.round_id else None
-    guild_snowflake = getattr(getattr(tournament, 'guild', None), 'guild_id', None)
-    if not guild_snowflake or str(guild_snowflake) != url_guild:
-        return None
-    return thread_id
 
 
 @player_onboard_required
@@ -2338,11 +2305,11 @@ def manage_game(request, id=None):
 
                     # Same courtesy for a tournament match: announce into the player
                     # group's thread, but only when it demonstrably belongs to the
-                    # tournament's own guild (see _match_thread_id).
+                    # tournament's own guild (see match_thread_id).
                     elif (match_mode and match
                             and match_initial_status != CompetitionStatus.COMPLETED
                             and match.status == CompetitionStatus.COMPLETED):
-                        _thread_id = _match_thread_id(match)
+                        _thread_id = match_thread_id(match)
                         site = (settings.SITE_URL or '').rstrip('/')
                         if _thread_id and site:
                             _message = f'Game submitted! See the results [here]({site}{parent.get_absolute_url()})'

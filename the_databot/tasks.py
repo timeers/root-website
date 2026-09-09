@@ -416,7 +416,7 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
                 bad_request = True
             continue
         # Compare-and-swap on discord_thread="" -- never clobbers a link written
-        # concurrently, and builds the exact URL shape _match_thread_id parses back.
+        # concurrently, and builds the exact URL shape match_thread_id parses back.
         if link_group_thread(group, guild_snowflake, thread_id):
             created += 1
         else:
@@ -1140,3 +1140,165 @@ def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=None
     logger.info("sweep_boxscore_upload_tokens: reminded=%d expired=%d pruned=%d",
                 reminded, expired, done + stale)
     return {"reminded": reminded, "expired": expired, "pruned": done + stale}
+
+
+@shared_task
+def remind_upcoming_matches():
+    """Ping each upcoming match's players in their group's Discord thread, once,
+    `Tournament.match_reminder_minutes` before it starts.
+
+    Runs on a schedule created in Django admin (django_celery_beat) -- this project
+    uses DatabaseScheduler, so there is no beat_schedule in code to register it.
+    Every 5-10 minutes is about right; the sweep interval is also the worst-case
+    LATENESS of a reminder, which is why the message carries a <t:...> timestamp
+    rather than a hardcoded "in N minutes".
+
+    THE WINDOW IS PER-TOURNAMENT, so one `scheduled_time__lte` bound can't select
+    the rows. Rather than express `scheduled_time - interval(minutes)` in SQL --
+    which compiles differently on Postgres (prod) and SQLite (dev), the same
+    portability trap group_roster avoids for NULL ordering -- take the MAX
+    configured lead as a coarse outer bound in one cheap query, then apply each
+    match's own window in Python.
+    """
+    from django.db.models import Max, Prefetch
+    from the_warroom.models import (Match, Tournament, TournamentPlayer,
+                                    CompetitionStatus)
+    from the_warroom.services.channel_posts import match_reminder_thread_id
+    from the_databot.services.lfg_game import group_roster
+    from the_databot.services.time_parsing import format_discord_timestamp
+
+    now = timezone.now()
+
+    # Same gates as the match query below -- a tournament with a long lead but no
+    # bot in its guild must not widen the candidate window for everyone else.
+    # Deliberately NOT narrowed to tournaments that have stages: this only needs
+    # to be an upper bound, and a too-wide bound is merely wasteful, never wrong.
+    max_window = Tournament.objects.filter(
+        match_reminder_minutes__isnull=False,
+        guild__bot_member=True,
+    ).aggregate(longest=Max('match_reminder_minutes'))['longest']
+    if not max_window:
+        return {"sent": 0, "skipped": 0}
+
+    # Round.tournament is a LEGACY link and is deliberately not consulted: a
+    # match's tournament is round.stage.tournament. Older code (_schedulable_
+    # matches, /upcoming) ORs both paths; doing that here would be actively wrong,
+    # because the OR could select a row via one tournament while the lead time
+    # below is read from another.
+    candidates = (Match.objects
+                  .filter(round__stage__tournament__match_reminder_minutes__isnull=False,
+                          round__stage__tournament__guild__bot_member=True,
+                          reminder_sent_at__isnull=True,
+                          game__isnull=True,
+                          scheduled_time__gt=now,
+                          scheduled_time__lte=now + timedelta(minutes=max_window))
+                  .exclude(status=CompetitionStatus.COMPLETED)
+                  # A group with no thread can never be reminded, so drop those in
+                  # SQL rather than loading them to throw away. discord_thread is
+                  # blank=True WITHOUT null=True -- unlinked is "", so an __isnull
+                  # filter would match NOTHING. (No matching exclude() is needed
+                  # for a NULL player_group: filtering through the relation makes
+                  # it an INNER JOIN, which already drops those rows.)
+                  .exclude(series__player_group__discord_thread='')
+                  # Only the columns the loop actually reads. Without .only() this
+                  # drags every field of six tables per row -- including
+                  # Tournament.rules/description, Stage.config and PlayerGroup's
+                  # availability JSON, none of which this task touches.
+                  .select_related('series', 'series__player_group', 'round',
+                                  'round__stage', 'round__stage__tournament',
+                                  'round__stage__tournament__guild')
+                  .only('scheduled_time', 'reminder_sent_at', 'status',
+                        'match_number', 'series_id', 'round_id',
+                        'series__number_of_games', 'series__player_group_id',
+                        'series__player_group__discord_thread',
+                        'round__stage_id',
+                        'round__stage__tournament_id',
+                        'round__stage__tournament__match_reminder_minutes',
+                        'round__stage__tournament__guild_id',
+                        'round__stage__tournament__guild__guild_id',
+                        'round__stage__tournament__guild__bot_member')
+                  # Two N+1s to kill, both invisible in the generated SQL:
+                  #   series__matches -- series_position walks series.matches
+                  #   the roster      -- group_roster reads an M2M (which
+                  #                      select_related CANNOT cover) and falls
+                  #                      back to MatchSeat, so 1-2 queries PER
+                  #                      MATCH without these.
+                  #
+                  # The roster prefetch is an explicit Prefetch carrying
+                  # select_related('profile') so the CACHED TournamentPlayer rows
+                  # already have their profiles attached -- group_roster reads
+                  # tp.profile per row, which would otherwise be a query each.
+                  # group_roster cooperates by using .all() when a prefetch cache
+                  # is present (a .select_related() call there builds a new
+                  # queryset that ignores the cache entirely).
+                  .prefetch_related(
+                      'series__matches',
+                      Prefetch(
+                          'series__player_group__tournament_players',
+                          queryset=TournamentPlayer.objects.select_related('profile')),
+                      'series__matchseat_set__stage_participant'
+                      '__tournament_player__profile')
+                  .order_by('scheduled_time'))
+
+    sent = skipped = 0
+    for match in candidates:
+        # Read the tournament off the STAGE, matching the filter exactly. NOT
+        # get_tournament(): that falls back to the legacy Round.tournament FK, so
+        # on a round carrying both FKs it could hand back a different tournament
+        # than the one the query selected on -- and then the lead time, the guild
+        # and the bot_member check would all belong to the wrong series.
+        tournament = match.round.stage.tournament
+        lead = tournament.match_reminder_minutes
+        if not lead:
+            continue
+        # This match's OWN window -- max_window above is the loosest possible
+        # bound; this is the exact test.
+        if match.scheduled_time > now + timedelta(minutes=lead):
+            continue
+
+        thread_id = match_reminder_thread_id(match, tournament)
+        if not thread_id:
+            # An unparseable URL, a thread in ANOTHER guild, or the bot is no
+            # longer in this one. (Unlinked groups were already excluded in SQL.)
+            # Leave the row UNCLAIMED: fixing the link should still earn a
+            # reminder while there is still time.
+            skipped += 1
+            continue
+
+        # Claim BEFORE sending: at-most-once. A duplicate ping to a whole roster
+        # is worse than a missed one, and the site still shows the schedule.
+        # Compare-and-swap rather than select_for_update -- the same one-statement
+        # claim link_group_thread and the token sweep use, with no transaction.
+        claimed = Match.objects.filter(
+            pk=match.pk, reminder_sent_at__isnull=True).update(reminder_sent_at=now)
+        if not claimed:
+            continue                      # another worker got here first
+
+        # Hand the prefetched seats in: group_roster's fallback would otherwise
+        # query MatchSeat.objects directly, which cannot see a prefetch cache and
+        # costs a query per match on the seat-only path (a group whose M2M was
+        # never populated -- common enough that the fallback exists at all).
+        roster = group_roster(match.player_group, series_id=match.series_id,
+                              seats=match.series.matchseat_set.all())
+        # discord_id is the snowflake; Profile.discord is a legacy username and
+        # must never be mentioned with. A player who never linked Discord can't be
+        # pinged but must still be NAMED -- dropping them makes the roster look
+        # short. Same rule as create_match_threads_task.
+        mentions = [f"<@{p.discord_id}>" if p.discord_id else str(p) for p in roster]
+        pings = " ".join(mentions)
+
+        when = format_discord_timestamp(match.scheduled_time)
+        position = match.series_position
+        label = (f"game {position} of {match.series.number_of_games}"
+                 if position else "your match")
+        content = (f"{pings} {label} starts soon — {when}".strip() if pings
+                   else f"{label.capitalize()} starts soon — {when}")
+
+        # parse: ["users"] so this actually notifies. Without it the mentions
+        # render as blue text and ping nobody, which is the entire feature.
+        post_channel_message_task.delay(
+            thread_id, content, allowed_mentions={"parse": ["users"]})
+        sent += 1
+
+    logger.info("remind_upcoming_matches: sent=%d skipped=%d", sent, skipped)
+    return {"sent": sent, "skipped": skipped}

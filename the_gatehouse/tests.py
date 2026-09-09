@@ -1830,3 +1830,45 @@ class DismissNotificationTests(_NoLoginSignalMixin, TestCase):
         self.client.post(self.url, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
 
         self.assertNotIn(self.notification, shown())
+
+
+class TournamentGuildChannelsFormReminderTests(TestCase):
+    """match_reminder_minutes on the Edit Guild series-channels form.
+
+    The form's clean() walks an explicit list of CHANNEL fields, so it never
+    touches this one -- these tests pin down that a blank input stores NULL
+    (rather than 0 or ""), since NULL is what switches reminders off.
+    """
+
+    def setUp(self):
+        from the_warroom.models import Tournament
+        self.guild = DiscordGuild.objects.create(
+            guild_id="900400", name="Form Guild")
+        self.tournament = Tournament.objects.create(
+            name="Form Tournament", guild=self.guild)
+
+    def _form(self, value):
+        from the_gatehouse.forms import TournamentGuildChannelsForm
+        return TournamentGuildChannelsForm(
+            {"results_channel": "", "schedule_channel": "",
+             "game_threads_channel": "", "game_threads_tag": "",
+             "match_reminder_minutes": value},
+            instance=self.tournament, guild=self.guild)
+
+    def test_blank_stores_null_not_zero(self):
+        form = self._form("")
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.tournament.refresh_from_db()
+        self.assertIsNone(self.tournament.match_reminder_minutes)
+
+    def test_a_value_is_stored(self):
+        form = self._form("45")
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.match_reminder_minutes, 45)
+
+    def test_negative_is_rejected(self):
+        """PositiveIntegerField -- a negative lead time is meaningless."""
+        self.assertFalse(self._form("-5").is_valid())

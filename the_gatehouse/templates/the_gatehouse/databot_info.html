@@ -209,7 +209,7 @@
             <div class="databot-lfg-step">
               <span class="databot-lfg-num">3</span>
               <div>
-                <h5>Set the Channels</h5>
+                <h5>Set the Channels and Reminders</h5>
                 <p>{% if user_is_authenticated %}From the <a class="databot-link" href="{% url 'manage-guilds' %}">Manage your Guilds</a> page edit your guild.{% else %}From the Manage your Guilds page edit your guild.{% endif %}
                   Near the bottom you will see your League or Tournament listed, where you can set three channels:</p>
                 <ul class="databot-channel-list">
@@ -224,6 +224,13 @@
                   <li>
                     <code class="databot-inline-cmd">#threads</code>
                     <span>If you create matches ahead of time on the Series page you will see an option to create threads for each game. Choosing it creates a new thread here and pings each of the players.</span>
+                  </li>
+                </ul>
+                <p>Below those channels you can also enable reminders:</p>
+                <ul class="databot-channel-list">
+                  <li>
+                    <code class="databot-inline-cmd">Match Reminders</code>
+                    <span>Asks how many minutes before a scheduled game the reminder should be sent. The reminder posts in that match's thread, pings each player, and shows the start time in each player's timezone. No reminders will be sent if left blank.</span>
                   </li>
                 </ul>
               </div>

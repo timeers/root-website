@@ -70,9 +70,9 @@ def link_group_thread(group, guild_id, channel_id):
     and it skips PlayerGroup.save()'s derivation entirely.
 
     The URL shape mirrors LFGThread.thread_url() and must satisfy
-    the_warroom.views._DISCORD_THREAD_URL_RE, which parses this field back out to
-    decide where to announce a recorded game -- hence no trailing slash and no
-    message-id suffix.
+    the_warroom.services.channel_posts.DISCORD_THREAD_URL_RE, which parses this
+    field back out to decide where to announce a recorded game -- hence no
+    trailing slash and no message-id suffix.
 
     NOTE this makes the group unreachable by the title fallback from now on (both
     resolvers only consider groups with discord_thread=""). That's the point --
@@ -91,7 +91,7 @@ def link_group_thread(group, guild_id, channel_id):
         pk=group.pk, discord_thread="").update(discord_thread=url)
     if linked:
         # Keep the in-memory instance consistent with the row: callers go on to
-        # read group.discord_thread (and _match_thread_id parses it) in the same
+        # read group.discord_thread (and match_thread_id parses it) in the same
         # request that triggered the link.
         group.discord_thread = url
     return bool(linked)
@@ -165,7 +165,7 @@ def player_group_for_channel(channel_id, channel_name=None, guild_id=None):
     return group
 
 
-def group_roster(group, series_id=None):
+def group_roster(group, series_id=None, seats=None):
     """Every Profile in a player group, deduped, in a stable order.
 
     THE roster resolver for a tournament group -- used by the consensus flow
@@ -184,14 +184,29 @@ def group_roster(group, series_id=None):
     a group has any players at all.
 
     `series_id` enables the fallback; with none (a group not tied to a series)
-    only the M2M is consulted."""
+    only the M2M is consulted.
+
+    `seats` lets a BATCH caller hand in that series' MatchSeat rows it already
+    prefetched (with stage_participant__tournament_player__profile selected).
+    Without it the fallback queries MatchSeat.objects directly, which cannot see
+    a prefetch cache and so costs one query per group -- the N+1
+    remind_upcoming_matches exists to avoid."""
     from the_warroom.models import MatchSeat
 
     if not group:
         return []
 
     seen, roster = set(), []
-    for tp in group.tournament_players.select_related("profile"):
+    # Use a prefetched roster when the CALLER supplied one, and only fall back to
+    # select_related otherwise. `.select_related()` builds a NEW queryset, which
+    # never consults _prefetched_objects_cache -- so calling it unconditionally
+    # would re-query per group even for a caller that had prefetched, which is
+    # exactly the N+1 remind_upcoming_matches sweeps a whole batch to avoid.
+    if "tournament_players" in getattr(group, "_prefetched_objects_cache", {}):
+        tournament_players = group.tournament_players.all()
+    else:
+        tournament_players = group.tournament_players.select_related("profile")
+    for tp in tournament_players:
         profile = tp.profile
         if profile and profile.pk and profile.pk not in seen:
             seen.add(profile.pk)
@@ -199,11 +214,13 @@ def group_roster(group, series_id=None):
     if roster or not series_id:
         return roster
 
+    if seats is None:
+        seats = MatchSeat.objects.filter(series_id=series_id).select_related(
+            "stage_participant__tournament_player__profile")
+
     # seat_number is NULLABLE, and databases disagree on where NULLs sort
     # (Postgres first, SQLite last), so order in Python rather than with order_by
     # -- otherwise the roster's order would differ between dev and production.
-    seats = MatchSeat.objects.filter(series_id=series_id).select_related(
-        "stage_participant__tournament_player__profile")
     for seat in sorted(seats, key=lambda s: (s.seat_number is None,
                                              s.seat_number, s.pk)):
         participant = seat.stage_participant

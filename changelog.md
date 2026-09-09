@@ -1,6 +1,9 @@
 # Changelog
 
-## [1.13.7] - 2026-9-9 Box Score Bug Busting
+## [1.13.7] - 2026-9-9 Boxscore Bug Busting
+
+### New Features
+- a guild linked Tournament can now send reminder messages through discord. Setup under the manage guild page by guild moderators
 
 ### Improvements
 - better banner message for prefilled matches

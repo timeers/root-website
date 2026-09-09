@@ -11,6 +11,8 @@ from django.template.loader import render_to_string
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
+from datetime import timedelta
 
 from the_gatehouse.models import (
     DiscordGuild, Profile, PlayerSchedule, schedules_for,
@@ -1336,7 +1338,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_match_game_announces_in_both_the_group_thread_and_results_channel(self):
         """The pre-existing match behaviour must survive the lift: one results
         post AND the group-thread post, not one at the expense of the other."""
-        # _match_thread_id reads the URL off the series' PlayerGroup and only
+        # match_thread_id reads the URL off the series' PlayerGroup and only
         # accepts it when the guild in the URL is the tournament's own guild.
         group = PlayerGroup.objects.create(
             round=self.round,
@@ -3772,3 +3774,95 @@ class AssumedSteamIdWriteTests(TestCase):
         self.assertTrue(saved.called)
         self.assertEqual(saved.call_args.kwargs.get("update_fields"),
                          ["assumed_steam_id"])
+
+
+# ---------------------------------------------------------------------------
+# Match.save() re-arms reminder_sent_at when the scheduled time moves.
+#
+# Every real caller passes update_fields=["scheduled_time"], and update_fields
+# restricts which COLUMNS the UPDATE writes -- so a save() override that only
+# assigns the field is silently discarded on its way to the database. These
+# tests therefore go through the REAL call shape and assert against the stored
+# row, never the in-memory instance (which would pass even with that bug).
+# ---------------------------------------------------------------------------
+class MatchReminderResetTests(TestCase):
+
+    def setUp(self):
+        self.tournament = Tournament.objects.create(name="Reset Tournament")
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A")
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+        self.start = timezone.now() + timedelta(hours=2)
+        self.match = Match.objects.create(
+            round=self.round, series=self.series, scheduled_time=self.start)
+        self._mark_reminded()
+
+    def _mark_reminded(self):
+        """Claim the row the way the sweep does -- .update(), not save()."""
+        self.sent_at = timezone.now()
+        Match.objects.filter(pk=self.match.pk).update(reminder_sent_at=self.sent_at)
+        self.match.refresh_from_db()
+
+    def _stored(self):
+        return Match.objects.get(pk=self.match.pk).reminder_sent_at
+
+    def test_rescheduling_rearms_the_reminder(self):
+        self.match.scheduled_time = self.start + timedelta(hours=1)
+        self.match.save(update_fields=["scheduled_time"])
+        self.assertIsNone(self._stored())
+
+    def test_clearing_the_time_rearms_the_reminder(self):
+        """The /schedule clear path."""
+        self.match.scheduled_time = None
+        self.match.save(update_fields=["scheduled_time"])
+        self.assertIsNone(self._stored())
+
+    def test_saving_an_unchanged_time_keeps_the_claim(self):
+        """Otherwise any unrelated save would re-send a reminder already given."""
+        self.match.name = "Renamed"
+        self.match.save(update_fields=["name"])
+        self.assertEqual(self._stored(), self.sent_at)
+
+    def test_a_full_save_also_rearms(self):
+        """A bare save() passes no update_fields at all -- the widening branch
+        must not be the only thing that clears the flag."""
+        self.match.scheduled_time = self.start + timedelta(hours=3)
+        self.match.save()
+        self.assertIsNone(self._stored())
+
+    def test_no_extra_query_when_no_reminder_is_outstanding(self):
+        """The stored-row comparison is guarded on reminder_sent_at, so an
+        ordinary match pays nothing for this feature."""
+        Match.objects.filter(pk=self.match.pk).update(reminder_sent_at=None)
+        match = Match.objects.get(pk=self.match.pk)
+        match.scheduled_time = self.start + timedelta(hours=4)
+        with self.assertNumQueries(1):
+            match.save(update_fields=["scheduled_time"])
+
+    def test_a_rescheduled_match_is_reminded_again(self):
+        """End to end: the reset is only worth anything if the sweep then picks
+        the match back up and announces the NEW time."""
+        from the_databot import tasks
+        from the_gatehouse.models import DiscordGuild
+
+        guild = DiscordGuild.objects.create(
+            guild_id="900300", name="Reset Guild", bot_member=True)
+        self.tournament.guild = guild
+        self.tournament.match_reminder_minutes = 60
+        self.tournament.save(update_fields=["guild", "match_reminder_minutes"])
+        self.group.discord_thread = "https://discord.com/channels/900300/4242"
+        self.group.save(update_fields=["discord_thread"])
+
+        # Move it into the window; the setUp claim must not suppress this.
+        new_time = timezone.now() + timedelta(minutes=30)
+        self.match.scheduled_time = new_time
+        self.match.save(update_fields=["scheduled_time"])
+
+        with mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            tasks.remind_upcoming_matches()
+        self.assertEqual(delay.call_count, 1)
+        self.assertIn(f"<t:{int(new_time.timestamp())}:", delay.call_args.args[1])

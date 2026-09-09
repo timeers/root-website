@@ -612,8 +612,9 @@ class GuildLFGRoleForm(forms.ModelForm):
 
 
 class TournamentGuildChannelsForm(forms.ModelForm):
-    """The Discord channels a series posts into, edited from the Edit Guild page rather
-    than any tournament form (they're guild plumbing, not series settings).
+    """The Discord channels a series posts into -- plus its match-reminder lead time,
+    which is guild plumbing for the same reason: it only works with a guild the bot is
+    in. Edited from the Edit Guild page rather than any tournament form.
 
     All fields are rendered as live dropdowns by tournament_channels_form_fields.html and
     bind normally by name. results/schedule are TEXT channels; game_threads is a FORUM
@@ -626,7 +627,7 @@ class TournamentGuildChannelsForm(forms.ModelForm):
         # (GuildLFGRoleForm dodges the same problem with a function-local import).
         model = apps.get_model('the_warroom', 'Tournament')
         fields = ['results_channel', 'schedule_channel', 'game_threads_channel',
-                  'game_threads_tag']
+                  'game_threads_tag', 'match_reminder_minutes']
 
     def __init__(self, *args, guild=None, **kwargs):
         # `guild` is not a form field — it's the guild whose channels are valid choices,

@@ -647,6 +647,23 @@ class Tournament(models.Model):
             "directly. Only applies when players are allowed to record matches."
         ),
     )
+    # Minutes before a match's scheduled_time to ping its players in the group's
+    # Discord thread. NULL (the default) means this series sends no reminders --
+    # the "off" switch needs no extra flag, since 0 would ambiguously mean
+    # "remind at start time".
+    #
+    # Only meaningful with a guild linked AND the bot in it: the reminder posts
+    # into the player group's thread, and remind_upcoming_matches re-checks both
+    # at send time.
+    match_reminder_minutes = models.PositiveIntegerField(
+        null=True, blank=True,
+        verbose_name="Match Reminder Lead Time (minutes)",
+        help_text=(
+            "Ping players this many minutes before their game starts in the "
+            "Discord thread. Leave blank to send no reminders. Requires a linked "
+            "Discord server the bot is in, and a thread linked to the player group."
+        ),
+    )
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)
@@ -805,6 +822,14 @@ class Tournament(models.Model):
         MODERATORS-only access the roster still confirms, and the proposal then
         waits on a moderator to press Set Time rather than writing itself."""
         return self.require_participant_schedule_confirmation
+
+    def sends_match_reminders(self):
+        """True when this series pings players before a match. Requires reminders
+        configured AND a guild the bot can post in -- the thread post would 403
+        otherwise. Mirrors the gates in remind_upcoming_matches, which filters in
+        the queryset rather than calling this (one query beats one per row)."""
+        return bool(self.match_reminder_minutes
+                    and self.guild_id and self.guild.bot_member)
 
     def players_can_record_standalone(self):
         """Registered players may record standalone games for rounds (REGISTERED, GUILD)."""
@@ -2057,6 +2082,11 @@ class Match(models.Model):
         default=CompetitionStatus.PENDING
     )
     scheduled_time = models.DateTimeField(null=True, blank=True)
+    # When the pre-match reminder was posted, claiming this match so the sweep
+    # never pings twice. Cleared by save() whenever scheduled_time changes -- a
+    # reminder already sent describes a time that no longer applies.
+    # Not editable: only remind_upcoming_matches and save() ever write it.
+    reminder_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ['round', 'match_number']
@@ -2067,6 +2097,11 @@ class Match(models.Model):
             # trailing column is what makes the aggregate index-only.
             models.Index(fields=['series', 'scheduled_time'],
                          name='match_series_sched_idx'),
+            # Serves remind_upcoming_matches' candidate scan, which selects on a
+            # scheduled_time range plus reminder_sent_at IS NULL. The index above
+            # leads on series, so it can't serve a bare scheduled_time range.
+            models.Index(fields=['scheduled_time', 'reminder_sent_at'],
+                         name='match_sched_reminder_idx'),
         ]
 
     def save(self, *args, **kwargs):
@@ -2080,6 +2115,31 @@ class Match(models.Model):
                 self.name = f"{group_name} Game {series_position}"
             else:
                 self.name = group_name
+
+        # A reminder already sent describes a time that no longer applies, so a
+        # reschedule must re-arm the flag -- otherwise the new time is never
+        # announced. Done HERE rather than at each caller because every path that
+        # writes scheduled_time must do it, and this codebase has already
+        # forgotten that once for _cancel_open_proposals (see the "this one was
+        # missing" note in the series editor view).
+        #
+        # Compare against the stored row rather than tracking state on the
+        # instance: the writers use update_fields, and several load the row fresh.
+        # The read is guarded by reminder_sent_at, so it costs nothing on a
+        # creation or on the overwhelming majority of saves.
+        if self.pk and self.reminder_sent_at is not None:
+            previous = (Match.objects.filter(pk=self.pk)
+                        .values_list('scheduled_time', flat=True).first())
+            if previous != self.scheduled_time:
+                self.reminder_sent_at = None
+                # REQUIRED, not defensive: update_fields restricts which COLUMNS
+                # the UPDATE writes, so without widening it the reset above is
+                # silently dropped -- and every real caller passes
+                # update_fields=["scheduled_time"].
+                update_fields = kwargs.get('update_fields')
+                if update_fields is not None:
+                    kwargs['update_fields'] = set(update_fields) | {'reminder_sent_at'}
+
         super().save(*args, **kwargs)
 
     def clean(self):
