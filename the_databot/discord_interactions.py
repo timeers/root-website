@@ -9645,7 +9645,7 @@ def _handle_link_steam_command(data):
     # The token is a capability, so this reply MUST stay ephemeral.
     url = f"{site}/settings/steam/link/?t={make_link_token(profile.pk)}"
     return _ephemeral(
-        "Link your Steam account so your Tabletop Simulator games can be easily matched "
+        "Link your Steam ID so your Tabletop Simulator games can be easily matched "
         f"to your profile:\n{url}\n\n-# This link is just for you and expires in 15 minutes.")
 
 

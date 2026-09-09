@@ -130,7 +130,7 @@ LINK_COMMAND_NAME = "link"
 LINK_SUBCOMMANDS = [
     {
         "name": "steam",
-        "description": "Link your Steam account to your Root Database profile",
+        "description": "Link your Steam ID to your Root Database profile",
         "type": 1,  # SUB_COMMAND
     },
 ]

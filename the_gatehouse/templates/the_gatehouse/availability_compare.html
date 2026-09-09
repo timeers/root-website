@@ -299,6 +299,37 @@ is nothing worth indexing. {% endcomment %}
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
   }
 
+  /* The hovered player's hours -- the reverse of the row highlight above. The
+     cell's own border turns green for as long as the pointer is on that player's
+     row, and the rule simply stops applying on leave, so the heat colour's border
+     comes straight back. Nothing else is disturbed: the heat FILL is untouched,
+     so "how many are missing here" stays readable while scanning one player's
+     week.
+
+     border-COLOR only, never the `border` shorthand: heat-0 cells are 2px and the
+     rest 1px, and the shorthand would reset that width, shifting the grid by a
+     pixel as the pointer moves down the list. (Same trap as the legend swatches
+     further down.)
+
+     This out-specifies every other border-color here on its own (0,3,0 against
+     the heat-* rules' 0,1,0 and .compare-cell.heat-0's 0,2,0), so it shows on all
+     five bands. The ONE tie is .compare-grid .avail-cell:hover, also 0,3,0 --
+     which is why this must stay BELOW that rule, so a hovered player still marks
+     the cell the mouse itself happens to rest on.
+
+     .is-focused paints an outline rather than a border, so a pinned cell keeps
+     its blue ring and shows both states at once. */
+  .compare-grid .avail-cell.is-player-free {
+    border-color: #198754;
+    /* 2px so it still reads on heat-0, whose border is ALREADY a dark green --
+       colour alone was too subtle a shift there. Safe to widen because Bootstrap
+       sets box-sizing:border-box globally, so the extra pixel grows inward and
+       the cell's box stays the same size: no reflow, no grid shift as the pointer
+       moves down the list. Longhand for the same reason as border-color above --
+       the shorthand would clobber one of the two. */
+    border-width: 2px;
+  }
+
   .heat-legend {
     display: flex;
     flex-wrap: wrap;
@@ -362,8 +393,14 @@ is nothing worth indexing. {% endcomment %}
   var HEAT_BUCKETS = 4;
 
   var cells = Array.prototype.slice.call(grid.querySelectorAll('.compare-cell'));
+  // hour-of-week -> its one cell, so the player-hover highlight is a lookup
+  // rather than a scan of all 168. The grid is a full 7x24 and the server sends
+  // hour-of-week ints on the same Monday-based formula, so there are no gaps.
+  var CELLS_BY_HOUR = {};
   cells.forEach(function (cell) {
-    cell.dataset.how = String(parseInt(cell.dataset.day, 10) * 24 + parseInt(cell.dataset.hour, 10));
+    var how = String(parseInt(cell.dataset.day, 10) * 24 + parseInt(cell.dataset.hour, 10));
+    cell.dataset.how = how;
+    CELLS_BY_HOUR[how] = cell;
   });
 
   var toggles = Array.prototype.slice.call(document.querySelectorAll('.player-toggle'));
@@ -480,6 +517,24 @@ is nothing worth indexing. {% endcomment %}
     });
   }
 
+  function highlightHours(playerId) {
+    // The mirror of highlightPlayers: that one answers "who is free at this
+    // hour", this one "which hours is this player free at". `playerId` null
+    // clears, same contract as above.
+    //
+    // Reads PLAYER_HOURS directly rather than the checked set, so hovering an
+    // UNCHECKED player still shows their hours -- that is exactly how you decide
+    // whether adding them is worth it. Keys of a JSON object are strings and
+    // CELLS_BY_HOUR is keyed to match; the hours themselves are numbers, which
+    // property lookup coerces.
+    var free = playerId ? (PLAYER_HOURS[playerId] || []) : [];
+    cells.forEach(function (c) { c.classList.remove('is-player-free'); });
+    free.forEach(function (h) {
+      var cell = CELLS_BY_HOUR[h];
+      if (cell) { cell.classList.add('is-player-free'); }
+    });
+  }
+
   function showDetail(cell) {
     var ids = checkedIds();
     var free = freeAtCell(cell);
@@ -585,6 +640,20 @@ is nothing worth indexing. {% endcomment %}
     // Back to whatever the last click pinned, or nothing.
     highlightPlayers(focusedCell);
   });
+
+  // The reverse direction, with the same mouseover/mouseleave asymmetry and for
+  // the same reason: mouseover bubbles so one listener catches every row, while
+  // mouseleave fires once on leaving the list instead of on every row-to-row
+  // move. Purely additive -- it never touches the pinned cell or the row
+  // highlights, so a player preview and a pinned hour can be read at once.
+  var playerList = document.getElementById('player-list');
+  if (playerList) {
+    playerList.addEventListener('mouseover', function (e) {
+      var row = e.target.closest('.player-row');
+      if (row) { highlightHours(row.dataset.playerId); }
+    });
+    playerList.addEventListener('mouseleave', function () { highlightHours(null); });
+  }
 
   // ONE tooltip for the whole grid, delegated. Per-element instances would each
   // cache their text at construction, so every cell would go stale the moment a
