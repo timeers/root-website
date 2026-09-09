@@ -102,17 +102,22 @@
 
   <div class="card p-3 mb-3">
     <h5 class="root-title">Links</h5>
-    <p class="form-text mb-3">A Woodland Warriors thread link is required. You can also add aditional links.</p>
+    <p class="form-text mb-3">A Woodland Warriors thread link is required. Head to the fan-content section of Woodland Warriors to create your own thread. You can also add aditional links.</p>
 
     <div class="forge-link-row" data-link-key="ww">
       <label class="form-label fw-semibold">{{ form.ww_link.label }} *</label>
-      <div class="forge-link-input-group">
+      {% comment %} forge-field-invalid on a bound error matches what
+      setFieldError() applies client-side, so a link rejected by the server looks
+      the same as one caught before submitting. {% endcomment %}
+      <div class="forge-link-input-group{% if form.ww_link.errors %} forge-field-invalid{% endif %}">
         <span class="forge-link-icon">
           <img src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
         </span>
         {{ form.ww_link }}
       </div>
-      {{ form.ww_link.errors }}
+      {% if form.ww_link.errors %}
+        <div class="alert alert-danger py-2 px-3 mt-2 mb-0">{{ form.ww_link.errors|striptags }}</div>
+      {% endif %}
     </div>
 
     <div id="forge-more-links-toggle" class="mt-3" style="display: none;">
@@ -246,6 +251,18 @@
   .forge-link-input-group:focus-within {
     border-color: #86b7fe;
     box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.18);
+  }
+  /* Applied by setFieldError() and rendered server-side on a bound error, so an
+     invalid link is visible as a control and not only as a message. The focus
+     ring is overridden too -- otherwise clicking the bad field turns it blue
+     and hides the very thing being flagged. */
+  .forge-link-input-group.forge-field-invalid,
+  .forge-link-input-group.forge-field-invalid:focus-within {
+    border-color: var(--bs-danger, #dc3545);
+    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.2);
+  }
+  .forge-link-input-group.forge-field-invalid .forge-link-icon {
+    border-right-color: var(--bs-danger, #dc3545);
   }
   .forge-link-icon {
     display: flex;
@@ -532,13 +549,19 @@
     var guildId = "{{ ww_guild_id|escapejs }}";
     var wrGuildId = "{{ wr_guild_id|escapejs }}";
     var frGuildId = "{{ fr_guild_id|escapejs }}";
-    var requiredPrefix = "discord.com/channels/" + guildId;
+
+    // Mirrors the server rule in the_keep.forms.discord_thread_guild_error --
+    // anchor the whole URL and compare the CAPTURED guild id, rather than
+    // searching for the prefix anywhere in the string. Keeping the two in step
+    // matters: a looser check here would let the form submit and then fail
+    // server-side, which is a worse experience than being told inline.
+    var DISCORD_THREAD_RE =
+      /^https:\/\/(?:discord\.com|discordapp\.com)\/channels\/(\d+)\/(\d+)(?:\/\d+)?\/?$/;
 
     function isValidWwLink(value) {
-      if (!value) return false;
-      var v = value.trim();
-      if (!v) return false;
-      return guildId && v.indexOf(requiredPrefix) !== -1;
+      if (!value || !guildId) return false;
+      var found = DISCORD_THREAD_RE.exec(value.trim());
+      return !!found && found[1] === String(guildId);
     }
 
     function isWellFormedUrl(value) {
@@ -721,15 +744,19 @@
       if (!anchorEl) return;
       var existing = anchorEl.parentNode.querySelector('.forge-js-error');
       if (existing) existing.remove();
+      anchorEl.classList.remove('forge-field-invalid');
     }
 
     function setFieldError(anchorEl, message) {
       if (!anchorEl) return;
       clearFieldError(anchorEl);
       var msg = document.createElement('div');
-      msg.className = 'forge-js-error text-danger small mt-1';
+      msg.className = 'forge-js-error alert alert-danger py-2 px-3 mt-2 mb-0';
       msg.textContent = message;
       anchorEl.parentNode.insertBefore(msg, anchorEl.nextSibling);
+      // Outline the control itself too -- a message alone is easy to scroll
+      // past on a form this long.
+      anchorEl.classList.add('forge-field-invalid');
     }
 
     function getCheckedPictureSource() {
@@ -779,13 +806,24 @@
         }
       }
 
-      // ww_link — required, and must contain the WW guild prefix.
+      // ww_link — required, and must be a thread link in the WW guild. Two
+      // distinct messages, matching the server: "wrong shape" and "right shape,
+      // wrong server" need different fixes, so saying which is which saves a
+      // round of guessing.
       var wwGroup = wwInput ? wwInput.closest('.forge-link-input-group') : null;
       clearFieldError(wwGroup);
-      if (!wwInput || !wwInput.value.trim()) {
+      var wwValue = wwInput ? wwInput.value.trim() : '';
+      if (!wwValue) {
         errors.push({ anchor: wwGroup, msg: 'Please add a Woodland Warriors link.', focus: wwInput });
-      } else if (!isValidWwLink(wwInput.value)) {
-        errors.push({ anchor: wwGroup, msg: 'Link must point to the Woodland Warriors Discord server.', focus: wwInput });
+      } else if (!isValidWwLink(wwValue)) {
+        var parsed = DISCORD_THREAD_RE.exec(wwValue);
+        errors.push({
+          anchor: wwGroup,
+          msg: parsed
+            ? 'That thread is in a different Discord server. Please link a thread in Woodland Warriors.'
+            : 'That is not a Discord thread link. In Discord, right-click the thread and choose Copy Link.',
+          focus: wwInput,
+        });
       }
 
       // Optional links — only validated if the user filled them in.

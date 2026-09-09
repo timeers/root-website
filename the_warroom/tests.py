@@ -11,6 +11,8 @@ from django.template.loader import render_to_string
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
+from datetime import timedelta
 
 from the_gatehouse.models import (
     DiscordGuild, Profile, PlayerSchedule, schedules_for,
@@ -1336,7 +1338,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_match_game_announces_in_both_the_group_thread_and_results_channel(self):
         """The pre-existing match behaviour must survive the lift: one results
         post AND the group-thread post, not one at the expense of the other."""
-        # _match_thread_id reads the URL off the series' PlayerGroup and only
+        # match_thread_id reads the URL off the series' PlayerGroup and only
         # accepts it when the guild in the URL is the tournament's own guild.
         group = PlayerGroup.objects.create(
             round=self.round,
@@ -1468,6 +1470,144 @@ class MatchModeSeatOrderTests(ResultsChannelViewAnnounceTests):
         match, series = self._match_with([self.profile])
         self._thread_for(series, [self.profile, None], factions=[None, None])
         self.assertEqual(self._factions(match), [None, None])
+
+    # ── equal seat counts: no spare row for an unidentified seat ────────────
+    #
+    # Every test above seats FEWER players in the match than the box score
+    # captured, so max(seat_count, len(captured_seats)) creates a trailing row
+    # that no MatchSeat occupies and the profile-less seat lands there. The
+    # 3-vs-3 case has no such row: `unclaimed` comes up empty, the seat mapped
+    # to None, and its faction and scores were silently dropped while a real
+    # participant was auto-filled onto its row.
+
+    def _third(self):
+        return Profile.objects.create(discord="third")
+
+    def test_equal_counts_still_place_an_unidentified_seats_faction(self):
+        """The reported bug: 3 match seats, 3 captured seats, the last
+        unidentified. No spare row exists, so the seat has to take its own."""
+        wa = self._faction("Woodland Alliance")
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [self.profile, self.opponent, None],
+                         factions=[None, None, wa])
+        self.assertEqual(self._factions(match)[2], wa.pk)
+
+    def test_equal_counts_leave_an_unidentified_seats_player_blank(self):
+        """MatchSeat cannot express "nobody identified" -- the whole chain to
+        profile is non-nullable -- so the roster used to supply a real player
+        for a seat the box score explicitly could not resolve."""
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [self.profile, self.opponent, None])
+        rows = self._rows(match)
+        self.assertEqual(len(rows), 3)
+        self.assertIsNone(rows[2])
+        # The identified seats keep their own players.
+        self.assertEqual(rows[0], self.profile.pk)
+        self.assertEqual(rows[1], self.opponent.pk)
+
+    # ── tournament-blocked components are summarised on the banner ──────────
+    #
+    # Match mode narrows every component field to the tournament's asset list,
+    # so a thread can hold a value the form cannot offer. Those used to be a
+    # messages.warning per field -- and the per-seat faction/vagabond drops had
+    # no warning at all, since _apply_picked_seat has no request. They are now
+    # collected into one list the match banner renders.
+
+    def _blocked(self, match):
+        response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
+        return response.context['blocked_components']
+
+    def _official_only(self):
+        """Switch the tournament to OFFICIAL assets. The factions _faction()
+        builds are official=False by default, so this blocks them without
+        touching any asset list by hand."""
+        from the_warroom.models import AssetModeChoices
+        self.tournament.asset_mode = AssetModeChoices.OFFICIAL
+        self.tournament.save(update_fields=['asset_mode'])
+
+    def test_a_blocked_faction_is_named_on_the_banner_with_its_seat(self):
+        """This one had NO warning before: _apply_picked_seat drops a faction the
+        tournament forbids and has no request to message through, so the field
+        just came back empty with nothing said."""
+        blocked_faction = self._faction("Contraband Cats")
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         factions=[None, blocked_faction])
+        self._official_only()
+        blocked = self._blocked(match)
+        self.assertEqual(blocked, ["Contraband Cats (seat 2)"])
+        # ...and the field really is empty, which is what the banner explains.
+        self.assertIsNone(self._factions(match)[1])
+
+    def test_an_allowed_faction_leaves_the_banner_clean(self):
+        """The banner must stay on its normal message when nothing was dropped,
+        or every match game would look like it had a problem."""
+        allowed = self._faction("Legal Cats")
+        allowed.official = True
+        allowed.save(update_fields=['official'])
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         factions=[None, allowed])
+        self._official_only()
+        self.assertEqual(self._blocked(match), [])
+        self.assertEqual(self._factions(match)[1], allowed.pk)
+
+    def test_the_blocked_list_is_free_of_duplicates(self):
+        """Two seats on the same forbidden faction is one problem, not two."""
+        blocked_faction = self._faction("Contraband Cats")
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         factions=[blocked_faction, blocked_faction])
+        self._official_only()
+        # Distinct seats, so both are named -- but neither string repeats.
+        blocked = self._blocked(match)
+        self.assertEqual(len(blocked), len(set(blocked)))
+
+    def test_equal_counts_still_prefill_an_unidentified_seats_scores(self):
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [self.profile, self.opponent, None],
+                         turns_data=[self._turns(1, [2, 5, 9]),
+                                     self._turns(2, [1, 4, 8]),
+                                     self._turns(3, [3, 6, 7])])
+        grid = self._grid(match)
+        self.assertIn(2, grid)
+        self.assertTrue(grid[2]['cells'])
+
+    def test_where_the_unidentified_seat_sits_does_not_shift_the_others(self):
+        """Order-independence. A profile join is an exact answer and is settled
+        FIRST, so an unidentified seat early in the seating takes the leftover
+        row rather than grabbing one a later join needs -- which would shift
+        every row after it and put scores on the wrong players.
+
+        Note the blank row is NOT row 0: the identified seats keep the rows
+        their profiles map to, and the unidentified one gets what is left."""
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [None, self.profile, self.opponent])
+        rows = self._rows(match)
+        # Both identified players are present, each exactly once.
+        self.assertIn(self.profile.pk, rows)
+        self.assertIn(self.opponent.pk, rows)
+        # Exactly one row is left blank for the seat nobody could identify.
+        self.assertEqual(rows.count(None), 1)
+
+    def test_the_unidentified_row_is_the_one_carrying_its_box_score(self):
+        """The blank player and the prefilled scores must be the SAME row --
+        the failure mode being a score sitting under someone else's name."""
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [None, self.profile, self.opponent],
+                         turns_data=[self._turns(1, [7, 7, 7]),
+                                     self._turns(2, [2, 5, 9]),
+                                     self._turns(3, [1, 4, 8])])
+        rows = self._rows(match)
+        grid = self._grid(match)
+        blank = rows.index(None)
+        # Seat 1's scores (the unidentified one) landed on the blank row.
+        self.assertEqual([c['value'] for c in grid[blank]['cells']], [7, 7, 7])
 
     # ── box score scores in match mode ──────────────────────────────────────
 
@@ -3634,3 +3774,95 @@ class AssumedSteamIdWriteTests(TestCase):
         self.assertTrue(saved.called)
         self.assertEqual(saved.call_args.kwargs.get("update_fields"),
                          ["assumed_steam_id"])
+
+
+# ---------------------------------------------------------------------------
+# Match.save() re-arms reminder_sent_at when the scheduled time moves.
+#
+# Every real caller passes update_fields=["scheduled_time"], and update_fields
+# restricts which COLUMNS the UPDATE writes -- so a save() override that only
+# assigns the field is silently discarded on its way to the database. These
+# tests therefore go through the REAL call shape and assert against the stored
+# row, never the in-memory instance (which would pass even with that bug).
+# ---------------------------------------------------------------------------
+class MatchReminderResetTests(TestCase):
+
+    def setUp(self):
+        self.tournament = Tournament.objects.create(name="Reset Tournament")
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Stage 1", order=1)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A")
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=self.group, number_of_games=1)
+        self.start = timezone.now() + timedelta(hours=2)
+        self.match = Match.objects.create(
+            round=self.round, series=self.series, scheduled_time=self.start)
+        self._mark_reminded()
+
+    def _mark_reminded(self):
+        """Claim the row the way the sweep does -- .update(), not save()."""
+        self.sent_at = timezone.now()
+        Match.objects.filter(pk=self.match.pk).update(reminder_sent_at=self.sent_at)
+        self.match.refresh_from_db()
+
+    def _stored(self):
+        return Match.objects.get(pk=self.match.pk).reminder_sent_at
+
+    def test_rescheduling_rearms_the_reminder(self):
+        self.match.scheduled_time = self.start + timedelta(hours=1)
+        self.match.save(update_fields=["scheduled_time"])
+        self.assertIsNone(self._stored())
+
+    def test_clearing_the_time_rearms_the_reminder(self):
+        """The /schedule clear path."""
+        self.match.scheduled_time = None
+        self.match.save(update_fields=["scheduled_time"])
+        self.assertIsNone(self._stored())
+
+    def test_saving_an_unchanged_time_keeps_the_claim(self):
+        """Otherwise any unrelated save would re-send a reminder already given."""
+        self.match.name = "Renamed"
+        self.match.save(update_fields=["name"])
+        self.assertEqual(self._stored(), self.sent_at)
+
+    def test_a_full_save_also_rearms(self):
+        """A bare save() passes no update_fields at all -- the widening branch
+        must not be the only thing that clears the flag."""
+        self.match.scheduled_time = self.start + timedelta(hours=3)
+        self.match.save()
+        self.assertIsNone(self._stored())
+
+    def test_no_extra_query_when_no_reminder_is_outstanding(self):
+        """The stored-row comparison is guarded on reminder_sent_at, so an
+        ordinary match pays nothing for this feature."""
+        Match.objects.filter(pk=self.match.pk).update(reminder_sent_at=None)
+        match = Match.objects.get(pk=self.match.pk)
+        match.scheduled_time = self.start + timedelta(hours=4)
+        with self.assertNumQueries(1):
+            match.save(update_fields=["scheduled_time"])
+
+    def test_a_rescheduled_match_is_reminded_again(self):
+        """End to end: the reset is only worth anything if the sweep then picks
+        the match back up and announces the NEW time."""
+        from the_databot import tasks
+        from the_gatehouse.models import DiscordGuild
+
+        guild = DiscordGuild.objects.create(
+            guild_id="900300", name="Reset Guild", bot_member=True)
+        self.tournament.guild = guild
+        self.tournament.match_reminder_minutes = 60
+        self.tournament.save(update_fields=["guild", "match_reminder_minutes"])
+        self.group.discord_thread = "https://discord.com/channels/900300/4242"
+        self.group.save(update_fields=["discord_thread"])
+
+        # Move it into the window; the setUp claim must not suppress this.
+        new_time = timezone.now() + timedelta(minutes=30)
+        self.match.scheduled_time = new_time
+        self.match.save(update_fields=["scheduled_time"])
+
+        with mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            tasks.remind_upcoming_matches()
+        self.assertEqual(delay.call_count, 1)
+        self.assertIn(f"<t:{int(new_time.timestamp())}:", delay.call_args.args[1])

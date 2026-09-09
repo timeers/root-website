@@ -5,10 +5,72 @@ A tournament can name three channels in its linked guild (results_channel,
 schedule_channel, game_threads_channel), set by a guild moderator from the Edit Guild
 page. Every send goes through post_to_tournament_channel so the guild-ownership check
 lives in exactly one audited place.
+
+Also home to match_thread_id, which gives the same guarantee for a player group's
+Discord THREAD: it lives here rather than in views.py because both the record-game
+view and the reminder Celery task need it.
 """
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+# Group thread URLs are https://discord.com/channels/<guild>/<thread>, optionally
+# with a trailing message id. DISCORD_URL_PATTERN (used on the series edit page)
+# only checks the host, so a moderator can paste an invite or a DM link -- anchor
+# the full shape and capture the guild too, so we can prove the thread belongs to
+# this tournament's server before posting into it.
+DISCORD_THREAD_URL_RE = re.compile(
+    r'^https://(?:discord\.com|discordapp\.com)/channels/(\d+)/(\d+)(?:/\d+)?/?$')
+
+
+def match_thread_id(match, tournament=None):
+    """The Discord thread id to post into for this match, or None to skip.
+
+    Skips unless the player group's thread URL is a real channel link AND its guild
+    is the tournament's guild -- a stale or mistyped URL would otherwise post a
+    tournament's game link into an unrelated server. A tournament with no guild
+    linked is never announced.
+
+    `tournament` may be supplied by a caller that has already resolved it, which
+    also PINS which tournament the guild is checked against. It defaults to
+    match.round.get_tournament() -- note that consults the LEGACY Round.tournament
+    FK, so a caller that must not use the legacy path should pass it explicitly
+    (as remind_upcoming_matches does). Passing it also avoids touching
+    round.tournament_id, which matters when the caller deferred that column.
+    """
+    group = getattr(match, 'player_group', None)
+    url = (getattr(group, 'discord_thread', '') or '').strip()
+    if not url:
+        return None
+    found = DISCORD_THREAD_URL_RE.match(url)
+    if not found:
+        return None
+    url_guild, thread_id = found.group(1), found.group(2)
+
+    if tournament is None:
+        tournament = match.round.get_tournament() if match.round_id else None
+    guild_snowflake = getattr(getattr(tournament, 'guild', None), 'guild_id', None)
+    if not guild_snowflake or str(guild_snowflake) != url_guild:
+        return None
+    return thread_id
+
+
+def match_reminder_thread_id(match, tournament):
+    """The thread id to send this match's REMINDER into, or None to skip.
+
+    Both gates must hold at SEND time, not at schedule time:
+      1. the bot is still in the guild -- otherwise every post 403s,
+      2. the thread URL's guild IS this tournament's guild (match_thread_id).
+
+    `tournament` is REQUIRED here, not re-derived: the caller resolved it from
+    round.stage.tournament, and passing it through is what keeps the legacy
+    Round.tournament FK out of the reminder path entirely.
+    """
+    guild = getattr(tournament, 'guild', None)
+    if not guild or not guild.bot_member:
+        return None
+    return match_thread_id(match, tournament=tournament)
 
 # field name -> is it a forum channel? (game threads are forum posts; the other two are
 # ordinary text channels). Used to pick which channel list the id is verified against,

@@ -3182,11 +3182,30 @@ def forgedfaction_submit(request, pk):
             forged.icon_synced_name = forged.faction_icon.name if forged.faction_icon else ''
             forged.save(update_fields=['published_faction', 'icon_synced_name'])
 
-            fields = [{'name': 'Submitted by:', 'value': profile.name}]
-            send_rich_discord_message_task.delay(
-                f'[{faction.title}]({settings.SITE_URL}{faction.get_absolute_url()})',
-                category='report', title=f'Submitted {faction.component}', fields=fields,
-            )
+            # Mirrors the manual submit path in the_keep.views.PostCreateView:
+            # a PENDING post announces to the review queue (the `url` is what
+            # makes the embed title a link to it -- Discord hyperlinks a title
+            # only when both title and url are set), while an admin publishing
+            # straight through gets the plain "Posted" announcement instead.
+            faction_url = f'{settings.SITE_URL}{faction.get_absolute_url()}'
+            if faction.status == '9':
+                fields = [
+                    {'name': 'Submitted by:', 'value': profile.name},
+                    {'name': 'Designer:', 'value': faction.designer.name},
+                ]
+                pending_url = f'{settings.SITE_URL}{reverse("pending-posts")}'
+                send_rich_discord_message_task.delay(
+                    f'[{faction.title}]({faction_url})',
+                    category='report', title=f'Submitted {faction.component}',
+                    fields=fields, url=pending_url,
+                )
+            else:
+                fields = [{'name': 'Posted by:', 'value': profile.name}]
+                send_rich_discord_message_task.delay(
+                    f'[{faction.title}]({faction_url})',
+                    category='Post Created', title=f'Posted {faction.component}',
+                    fields=fields,
+                )
             messages.success(request, f"Submitted '{faction.title}' for review.")
             return redirect(faction.get_absolute_url())
     else:

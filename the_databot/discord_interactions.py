@@ -84,7 +84,7 @@ from the_databot.services.discord_components import (
 from the_databot.services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
     group_roster, group_series_id, undrafted_pick,
-    roster_name, name_list_value, FIELD_VALUE_MAX, match_label,
+    roster_name, name_list_value, FIELD_VALUE_MAX, match_label, seat_label,
     schedule_closed_embed, name_join,
     POLL_YES_FIELD, POLL_NO_FIELD, POLL_PENDING_FIELD, POLL_NOTIFY_FIELD,
     poll_count_label, poll_response_fields,
@@ -478,8 +478,7 @@ def _record_thread_detail_lines(thread):
     seats = list(thread.seats.select_related("profile"))
     if seats:
         order = ", ".join(
-            f"{s.seat_number}. "
-            f"{s.profile.name if s.profile_id else '(removed player)'}"
+            f"{s.seat_number}. {seat_label(s)}"
             for s in sorted(seats, key=lambda s: s.seat_number))
         lines.append(f"**Seating:** {order}")
     else:
@@ -4749,7 +4748,7 @@ def _pick_seat_lines(thread, seats, pool=None, header=None, force_row=False):
         if row:
             lines += [row, ""]
     for seat in sorted(seats, key=lambda s: s.seat_number):
-        who = seat.profile.name if seat.profile_id else "(removed player)"
+        who = seat_label(seat)
         prefix = f"{seat.seat_number}. " if ordered else "• "
         if seat.faction_id:
             emoji = faction_emoji_for(seat.faction.slug)
@@ -6028,8 +6027,7 @@ def _adset_ban_data(thread, seats, factions, banned_slugs, owner, has_draft=Fals
         for slug, title, _type in factions
     ]
     lines = [ADSET_TITLE, ""]
-    lines += [f"{s.seat_number}. "
-              f"{s.profile.name if s.profile_id else '(removed player)'}"
+    lines += [f"{s.seat_number}. {seat_label(s)}"
               for s in sorted(seats, key=lambda s: s.seat_number)]
     if preseated:
         lines.append("")
@@ -6987,9 +6985,9 @@ def _boxscore_file_seats(participants, profiles):
     the prompt and the confirm button, the same rule the Celery tasks follow.
 
     `label` is kept for every seat, not just unresolved ones, so the comparison
-    message can name a seat whose player resolved to nobody -- _pick_seat_lines
-    would otherwise render it "(removed player)", which is wrong for someone who
-    simply never linked an account.
+    message can name a seat whose player resolved to nobody using the name the
+    FILE gave -- more useful here than the generic "Player N" seat_label falls
+    back to, since the whole point of this message is to ask who that was.
     """
     from the_warroom.services.box_score_import import participant_label
 
@@ -7097,9 +7095,10 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
     asking about identity and seating rather than reporting a result.
 
     Deliberately NOT _pick_seat_lines: that reads saved LFGSeat rows (the file
-    side has none), renders a profile-less seat as "(removed player)" (wrong for
-    an unlinked player), and only numbers seats when thread.seating_set is true
-    (the file side is always an order). Same shape, so the two read alike.
+    side has none), and only numbers seats when thread.seating_set is true (the
+    file side is always an order). It also falls back to a generic "Player N" for
+    a profile-less seat, where this side still has the file's own name to show.
+    Same shape, so the two read alike.
     """
     from the_keep.models import Faction, Vagabond
 

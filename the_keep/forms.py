@@ -1,4 +1,5 @@
 import json
+import re
 
 from django import forms
 from django.core.exceptions import ValidationError
@@ -20,6 +21,38 @@ from .models import (
 
 with open('/etc/config.json') as config_file:
     config = json.load(config_file)
+
+
+def discord_thread_guild_error(url, guild_id, server_name):
+    """Error message for a Discord THREAD link that isn't in `guild_id`, or None
+    when the link is fine. Empty input is always fine -- required-ness is the
+    field's business, not this function's.
+
+    Anchors the whole URL rather than searching for the guild id as a substring.
+    A bare `f"discord.com/channels/{guild}" in url` test accepts far too much:
+    any host at all (https://evil.example/discord.com/channels/<guild>/1), a
+    channel link with no thread id despite the error saying "thread", and it
+    rejects the perfectly valid discordapp.com. Matching the shape and then
+    comparing the CAPTURED guild id closes all three.
+
+    Mirrors the_warroom.services.channel_posts.DISCORD_THREAD_URL_RE, which
+    parses the same URL shape for the bot -- kept as its own copy because
+    the_keep must not import from the_warroom.
+    """
+    if not url:
+        return None
+    found = re.match(
+        r'^https://(?:discord\.com|discordapp\.com)/channels/(\d+)/(\d+)(?:/\d+)?/?$',
+        url.strip())
+    if not found:
+        return (f"Link to {server_name} is not a valid thread. Copy the link "
+                "from Discord with Copy Message Link or Copy Channel Link.")
+    if found.group(1) != str(guild_id):
+        return (f"Link to {server_name} is not a valid thread. Please ensure "
+                "the link is to the correct Discord server.")
+    return None
+
+
 top_fields = ['designer', 'co_designers', 'co_designers_can_edit', 'moderators', 'official', 'in_root_digital', 'title', 'expansion', 'status', 'version']
 bottom_fields = ['lore', 'description', 'leder_games_link', 'bgg_link', 'tts_link', 'ww_link', 'wr_link', 'fr_link', 'pnp_link', 'stl_link', 'rootjam_link', 'artist', 'art_by_kyle_ferrin', 'ai_generated_art', 'language']
 
@@ -611,8 +644,9 @@ class PostCreateForm(forms.ModelForm):
                 )
 
 
-            if ww_link and not f"discord.com/channels/{config['WW_GUILD_ID']}" in ww_link:
-                self.add_error('ww_link', f"Link to Woodland Warriors is not a valid thread. Please ensure the link is to the correct Discord server.")
+            if (ww_error := discord_thread_guild_error(
+                    ww_link, config['WW_GUILD_ID'], 'Woodland Warriors')):
+                self.add_error('ww_link', ww_error)
             if wr_link and not f"discord.com/channels/{config['WR_GUILD_ID']}" in wr_link:
                 self.add_error('wr_link', f"Link to Weird Root is not a valid thread. Please ensure the link is to the correct Discord server.")
             if fr_link and not f"discord.com/channels/{config['FR_GUILD_ID']}" in fr_link:

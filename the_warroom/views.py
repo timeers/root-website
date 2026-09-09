@@ -30,7 +30,7 @@ from urllib.parse import quote
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
                      TournamentPlayer, PlayerGroup, Stage, StageParticipant, FormatChoices,
                      Match, MatchSeries, MatchSeat, CompetitionStatus, EditPermission,
-                     EloSystem, EloParticipant,
+                     EloSystem, EloParticipant, ASSET_TYPES,
                      effort_counts_for_round_q, effort_counts_for_stage_q,
                      effort_counts_for_tournament_q,
                      game_counts_for_round_q, game_counts_for_stage_q,
@@ -64,7 +64,7 @@ from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from the_databot.tasks import post_channel_message_task, create_match_threads_task
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
-from the_warroom.services.channel_posts import post_to_tournament_channel
+from the_warroom.services.channel_posts import post_to_tournament_channel, match_thread_id
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 
 from the_tavern.forms import GameCommentCreateForm
@@ -846,7 +846,41 @@ def game_detail_hx_view(request, id=None):
 # Game Form — helpers (match mode, LFG mode and standalone)
 # ────────────────────────────────────────────────────────────────
 
-def _apply_picked_seat(form, lfg_seat, opts):
+class BlockedComponents:
+    """What the thread recorded that the tournament will not allow.
+
+    Match mode narrows every component field to the tournament's asset list, so
+    a thread can hold a value the form cannot offer. Each such value is dropped
+    (an initial the queryset does not contain renders as NO selection), which
+    without this looks exactly like the prefill silently failing.
+
+    Collected into ONE object rather than a messages.warning per field: six
+    separate alerts for one restricted tournament buried the seating banner, and
+    the per-effort faction/vagabond drops had no warning at all -- _apply_picked_seat
+    has no request to message through. The banner renders `.items` as a single
+    summary line instead.
+
+    Order is insertion order, which is the order the prefill runs: seats first,
+    then the game-level components. Stable, so the banner does not reshuffle
+    between loads.
+    """
+
+    def __init__(self):
+        self.items = []
+
+    def add(self, label, seat_number=None):
+        """Record one blocked component. `seat_number` names the effort row it
+        came from, for the per-seat fields where "which player" is the first
+        thing the recorder needs to know."""
+        text = f"{label} (seat {seat_number})" if seat_number else str(label)
+        if text not in self.items:
+            self.items.append(text)
+
+    def __bool__(self):
+        return bool(self.items)
+
+
+def _apply_picked_seat(form, lfg_seat, opts, blocked=None, seat_number=None):
     """Write an LFGSeat's picked components into one effort form's initial.
 
     Shared by match mode's two fill passes -- the profile join and the fallback
@@ -856,18 +890,23 @@ def _apply_picked_seat(form, lfg_seat, opts):
     Every field is written only when the narrowing still OFFERS it: the
     tournament's asset list can exclude something the thread rolled, and an
     initial the queryset does not contain renders as no selection at all, which
-    silently looks like the prefill failed.
+    silently looks like the prefill failed. `blocked` collects what was dropped
+    so the banner can say so; omit it and the drop stays silent as before.
 
     PKs throughout, never slugs. Match mode holds LFGSeat instances and its
     querysets are filtered by pk; the LFG block works in slugs. Crossing the two
     matches nothing.
     """
-    if lfg_seat.faction_id and opts['factions'].filter(
-            pk=lfg_seat.faction_id).exists():
-        form.initial['faction'] = lfg_seat.faction_id
-    if lfg_seat.vagabond_id and opts['vagabonds'].filter(
-            pk=lfg_seat.vagabond_id).exists():
-        form.initial['vagabond'] = lfg_seat.vagabond_id
+    if lfg_seat.faction_id:
+        if opts['factions'].filter(pk=lfg_seat.faction_id).exists():
+            form.initial['faction'] = lfg_seat.faction_id
+        elif blocked is not None:
+            blocked.add(lfg_seat.faction, seat_number)
+    if lfg_seat.vagabond_id:
+        if opts['vagabonds'].filter(pk=lfg_seat.vagabond_id).exists():
+            form.initial['vagabond'] = lfg_seat.vagabond_id
+        elif blocked is not None:
+            blocked.add(lfg_seat.vagabond, seat_number)
     seat_captains = opts['captains'].filter(
         pk__in=[c.pk for c in lfg_seat.captains.all()])
     if seat_captains:
@@ -987,7 +1026,7 @@ def _match_captured_thread(match):
     return LFGThread.objects.filter(series_id=match.series_id).first()
 
 
-def _prefill_boxscore_components(form, thread, opts, request=None):
+def _prefill_boxscore_components(form, thread, opts, blocked=None):
     """Preselect the game-level components a BOX SCORE named on this thread.
 
     Only box-score rolls, never every roll: the thread's choices are narrowed to
@@ -1000,6 +1039,8 @@ def _prefill_boxscore_components(form, thread, opts, request=None):
     task), so this guard now fires only for a real tournament restriction -- but
     the capture is fire-and-forget, so a dropped task must degrade to "no
     prefill", never to a broken field.
+
+    `blocked` collects whatever the narrowing dropped, for the banner summary.
     """
     from the_databot.services.lfg_game import boxscore_components
 
@@ -1015,11 +1056,13 @@ def _prefill_boxscore_components(form, thread, opts, request=None):
         if offered:
             form.initial[field] = [o.pk for o in offered]
         missing = set(slugs) - {o.slug for o in offered}
-        if missing and request is not None:
-            messages.warning(
-                request,
-                f"The box score's {field} " + ", ".join(sorted(missing))
-                + " aren't playable here — check that field.")
+        if missing and blocked is not None:
+            # Titles, not slugs: the banner is read by a recorder looking at the
+            # dropdown, which shows titles. The model lookup is unfiltered on
+            # purpose -- opts is exactly what EXCLUDED these, so it cannot name
+            # them.
+            for obj in ASSET_TYPES[bucket].objects.filter(slug__in=missing):
+                blocked.add(obj)
 
     # The undrafted assets come from the thread's own COLUMNS, not the roll log:
     # an undrafted faction and a seated one are both kind "Faction" there.
@@ -1145,39 +1188,6 @@ def _can_record_match(profile, match):
     return _get_match_profiles(match).filter(pk=profile.pk).exists()
 
 
-# Group thread URLs are https://discord.com/channels/<guild>/<thread>, optionally
-# with a trailing message id. DISCORD_URL_PATTERN (used on the series edit page)
-# only checks the host, so a moderator can paste an invite or a DM link -- anchor
-# the full shape and capture the guild too, so we can prove the thread belongs to
-# this tournament's server before posting into it.
-_DISCORD_THREAD_URL_RE = re.compile(
-    r'^https://(?:discord\.com|discordapp\.com)/channels/(\d+)/(\d+)(?:/\d+)?/?$')
-
-
-def _match_thread_id(match):
-    """The Discord thread id to announce this match's recorded game in, or None to
-    skip.
-
-    Skips unless the player group's thread URL is a real channel link AND its guild
-    is the tournament's guild -- a stale or mistyped URL would otherwise post a
-    tournament's game link into an unrelated server. A tournament with no guild
-    linked is never announced."""
-    group = getattr(match, 'player_group', None)
-    url = (getattr(group, 'discord_thread', '') or '').strip()
-    if not url:
-        return None
-    found = _DISCORD_THREAD_URL_RE.match(url)
-    if not found:
-        return None
-    url_guild, thread_id = found.group(1), found.group(2)
-
-    # round.get_tournament() resolves through the stage or the direct FK, the same
-    # two paths _schedulable_matches matches a guild on.
-    tournament = match.round.get_tournament() if match.round_id else None
-    guild_snowflake = getattr(getattr(tournament, 'guild', None), 'guild_id', None)
-    if not guild_snowflake or str(guild_snowflake) != url_guild:
-        return None
-    return thread_id
 
 
 @player_onboard_required
@@ -1200,6 +1210,14 @@ def manage_game(request, id=None):
     # to the series. Folded into grid_rows where that is built (further down),
     # since it is constructed after this block runs.
     captured_grid_rows = {}
+    # Components the thread recorded that this match's tournament won't allow.
+    # Match mode only -- an LFG thread with no tournament narrows nothing, so it
+    # fills everything in and this stays empty. Rendered as one banner summary.
+    blocked_components = BlockedComponents()
+    # Whole buckets the narrowing emptied, as sentences from lfg_option_querysets.
+    # Separate from the per-item list because they say something it cannot: that
+    # a field has NO usable options rather than one missing value.
+    blocked_notices = []
 
     # Determine mode
     match_id = request.GET.get('match') or request.POST.get('match_id')
@@ -1228,6 +1246,19 @@ def manage_game(request, id=None):
                     match = existing_match
                     match_mode = True
             except Match.DoesNotExist:
+                pass
+        # Same for LFG mode. The GET record path REDIRECTS an already-recorded
+        # thread to game-update (below), which drops the ?lfg= param -- so
+        # without this an edit of an LFG-recorded game runs in neither mode and
+        # loses the thread's round lock and option narrowing. Mirrors the match
+        # branch above, including the guard: `lfg_thread` is a reverse OneToOne
+        # and raises rather than returning None when there is no thread.
+        if not match_mode and not lfg_mode:
+            try:
+                lfgthread = obj.lfg_thread
+                lfg_mode = True
+                lfg_initial_status = lfgthread.status
+            except LFGThread.DoesNotExist:
                 pass
     else:
         obj = Game()
@@ -1261,7 +1292,7 @@ def manage_game(request, id=None):
     if lfg_mode and not id:
         # Resolve the round FIRST: the permission gate needs its stage to check
         # participation on restricted-roster tournaments.
-        _lfg_tournament = getattr(lfgthread.lfg_role, 'tournament', None)
+        _lfg_tournament = _lfg_tournament_for(lfgthread)
         lfg_round = _lfg_round_for(_lfg_tournament)
         if _lfg_tournament and lfg_round is None:
             messages.error(
@@ -1278,6 +1309,13 @@ def manage_game(request, id=None):
                 return redirect('game-update', id=lfgthread.game_id)
             obj = lfgthread.game
             id = obj.id
+    elif lfg_mode:
+        # Editing an existing LFG game. The round still locks -- the game belongs
+        # to the thread's tournament however it was reached -- but deliberately
+        # WITHOUT the create path's no-open-round redirect above: a recorded game
+        # must stay editable after its round closes, which is exactly when an
+        # edit is most likely. Permission is left to obj.can_edit below.
+        lfg_round = _lfg_round_for(_lfg_tournament_for(lfgthread))
 
     if id:
         if not obj.can_edit(user.profile):
@@ -1378,28 +1416,61 @@ def manage_game(request, id=None):
         # deriving it twice is how a faction and its score end up on different
         # rows.
         #
-        # By INVERTING match_seats, never by seat_number arithmetic. The sort
-        # above keys on enumerate position, drops profile-less seats from `order`
-        # entirely, and gives every unseated MatchSeat the same key so they pile
-        # up at the end -- so it is not a bijection, and it does not run at all
-        # when seating_set is false. Inverting the actual row list is correct in
-        # every one of those cases.
+        # Primarily by INVERTING match_seats, never by seat_number arithmetic.
+        # The sort above keys on enumerate position, drops profile-less seats
+        # from `order` entirely, and gives every unseated MatchSeat the same key
+        # so they pile up at the end -- so it is not a bijection, and it does not
+        # run at all when seating_set is false. Inverting the actual row list is
+        # correct in every one of those cases.
+        #
+        # A captured seat with no profile cannot be inverted (it names nobody to
+        # look up), so it falls back to a spare row, then to its own position --
+        # see the branch below. Position is safe there because match_seats was
+        # sorted into captured_seats order; it is NOT seat_number arithmetic.
         row_by_captured_seat = {}
+        # Rows a profile-less captured seat owns. The player loop below SKIPS
+        # these: the box score says nobody was identified for that seat, and a
+        # MatchSeat's roster entry is not an answer to that question. Collected
+        # here rather than re-derived later, for the same reason the row map is:
+        # deriving it twice is how a player and a score end up on different rows.
+        unidentified_rows = set()
         if captured_seats:
             row_by_profile = {
                 ms.stage_participant.tournament_player.profile_id: i
                 for i, ms in enumerate(match_seats)}
-            claimed = set(row_by_profile.values())
-            # Rows no MatchSeat occupies -- i.e. only the trailing ones the
-            # max(seat_count, len(captured_seats)) count created. A profile-less
-            # seat can therefore NEVER land on a real player's row.
-            unclaimed = (i for i in range(len(formset.forms))
-                         if i not in claimed)
+            # TWO PASSES, and the order is load-bearing. A profile join is an
+            # exact answer, so every one of them is settled first; the seats
+            # nobody could identify then take whatever rows are left over. Doing
+            # it in one pass makes the result depend on WHERE the unidentified
+            # seat sits in the seating -- an early one would grab a row a later
+            # profile join needs, shifting every row after it.
+            taken = set()
             for seat in captured_seats:
-                row_by_captured_seat[seat.seat_number] = (
-                    row_by_profile[seat.profile_id]
-                    if seat.profile_id in row_by_profile
-                    else next(unclaimed, None))
+                if seat.profile_id in row_by_profile:
+                    row = row_by_profile[seat.profile_id]
+                    row_by_captured_seat[seat.seat_number] = row
+                    taken.add(row)
+
+            # What is left, in row order: the trailing rows that
+            # max(seat_count, len(captured_seats)) created when the box score
+            # seated MORE people than the bracket knows about, plus -- in the
+            # equal-count case, which is the common one -- the rows belonging to
+            # MatchSeats the box score never named.
+            #
+            # Handing out the latter is deliberate. The box score is
+            # authoritative about who sat where, so rather than leave the seat
+            # unplaced (which dropped its faction and scores entirely), it takes
+            # the row and is recorded as unidentified, and the player loop below
+            # leaves that row's player blank instead of guessing from the roster.
+            spare = (i for i in range(len(formset.forms)) if i not in taken)
+            for seat in captured_seats:
+                if seat.profile_id in row_by_profile:
+                    continue
+                row = next(spare, None)
+                if row is not None:
+                    taken.add(row)
+                    unidentified_rows.add(row)
+                row_by_captured_seat[seat.seat_number] = row
 
         # Restrict player dropdown to match participants only
         match_profiles = _get_match_profiles(match)
@@ -1409,11 +1480,20 @@ def manage_game(request, id=None):
         # Seat order drives row order: seat 1 is the top row (match_seats is
         # ordered by seat_number above). Mirrors the LFG seating block below.
         # The whole chain seat -> stage_participant -> tournament_player ->
-        # profile is non-nullable, so no guard is needed.
+        # profile is non-nullable, so no guard is needed for the profile itself.
+        #
+        # Rows the box score marked unidentified are SKIPPED, mirroring the LFG
+        # block's `if profile_obj:` -- the row keeps its position and its
+        # prefilled faction/score, but the player is left blank for the recorder
+        # to fill. MatchSeat cannot represent "nobody identified" (the whole
+        # chain is non-nullable), so without this a real participant is written
+        # onto a seat the box score explicitly says it could not resolve.
         if not id and not request.POST:
             for i, seat in enumerate(match_seats):
                 if i >= len(formset.forms):
                     break
+                if i in unidentified_rows:
+                    continue
                 profile_obj = seat.stage_participant.tournament_player.profile
                 formset.forms[i].initial['player'] = profile_obj.pk
 
@@ -1430,8 +1510,17 @@ def manage_game(request, id=None):
                 form.fields['vagabond'].queryset = match_opts['vagabonds']
                 form.fields['captains'].queryset = match_opts['captains']
                 form.fields['discarded_captain'].queryset = match_opts['captains']
-            for notice in match_opts.get('notices', []):
-                messages.warning(request, notice)
+            # The per-bucket narrowing notices ("None of the hirelings rolled in
+            # this thread are playable in X") are DROPPED: blocked_components
+            # already names the individual components, so these restated the same
+            # restriction a second time and made one problem look like several.
+            #
+            # Clockwork is the exception and is kept. Clockwork factions come
+            # from a /draft, not a box score, so they never reach
+            # blocked_components -- without this the faction list would come back
+            # unnarrowed with nothing said about why.
+            blocked_notices = [n for n in match_opts.get('notices', [])
+                               if 'Clockwork' in n]
 
             # Factions picked with /pick in the group thread, joined on PROFILE
             # (see picked_factions_by_profile for why not seat_number).
@@ -1445,7 +1534,11 @@ def manage_game(request, id=None):
                             seat.stage_participant.tournament_player.profile_id)
                         if not lfg_seat:
                             continue
-                        _apply_picked_seat(formset.forms[i], lfg_seat, match_opts)
+                        # i + 1, not lfg_seat.seat_number: the banner names the
+                        # row the recorder is looking at, and the rows were
+                        # reordered above to follow the thread's seating.
+                        _apply_picked_seat(formset.forms[i], lfg_seat, match_opts,
+                                           blocked_components, i + 1)
 
                 # Seats the box score recorded with a faction but NO player --
                 # nobody could identify them and the recorder accepted the blank.
@@ -1453,11 +1546,14 @@ def manage_game(request, id=None):
                 # to join on, so the faction that was actually played would
                 # simply be lost.
                 #
-                # Placed POSITIONALLY, which is safe here in a way it would not
-                # be generally: row_by_captured_seat only ever hands one of these
-                # a row NO MatchSeat occupies, so it cannot move a faction onto a
-                # real player. The `'faction' in initial` check makes that
-                # locally checkable rather than requiring the reader to trust it.
+                # Placed POSITIONALLY. row_by_captured_seat prefers a row no
+                # MatchSeat occupies, but in the equal-count case it falls back
+                # to the seat's own position, which a MatchSeat may also hold --
+                # so this CAN target a row the roster also names. That is the
+                # intended reading: the box score is authoritative about who sat
+                # where, and the player loop above has already left such a row's
+                # player blank. The `'faction' in initial` check keeps it from
+                # overwriting a faction the profile join already placed.
                 for seat_no, lfg_seat in unclaimed_picked_seats(
                         match_captured).items():
                     i = row_by_captured_seat.get(seat_no)
@@ -1465,7 +1561,8 @@ def manage_game(request, id=None):
                         continue
                     if 'faction' in formset.forms[i].initial:
                         continue
-                    _apply_picked_seat(formset.forms[i], lfg_seat, match_opts)
+                    _apply_picked_seat(formset.forms[i], lfg_seat, match_opts,
+                                       blocked_components, i + 1)
 
                 # Box score captured on the thread. Gated on seating_set: the row
                 # map is only meaningful when the thread's seating is real, and a
@@ -1579,19 +1676,16 @@ def manage_game(request, id=None):
                 if match_opts['maps'].filter(pk=match_captured.map_id).exists():
                     form.initial['map'] = match_captured.map_id
                 else:
-                    messages.warning(
-                        request,
-                        f"{match_captured.map} isn't playable here — pick another map.")
+                    blocked_components.add(match_captured.map)
             if match_captured.deck_id:
                 if match_opts['decks'].filter(pk=match_captured.deck_id).exists():
                     form.initial['deck'] = match_captured.deck_id
                 else:
-                    messages.warning(
-                        request,
-                        f"{match_captured.deck} isn't playable here — pick another deck.")
+                    blocked_components.add(match_captured.deck)
             # ORDER MATTERS: the box score's undrafted_* overwrite the draft's.
             _prefill_undrafted(form, match_captured, match_opts)
-            _prefill_boxscore_components(form, match_captured, match_opts, request)
+            _prefill_boxscore_components(form, match_captured, match_opts,
+                                         blocked_components)
 
     if lfg_mode and not obj.pk:
         # Seed from what the thread already knows.
@@ -1737,6 +1831,8 @@ def manage_game(request, id=None):
         'form_count': extra_forms + existing_count,
         'match': match,
         'match_mode': match_mode,
+        'blocked_components': blocked_components.items,
+        'blocked_notices': blocked_notices,
         'lfg_mode': lfg_mode,
         'lfgthread': lfgthread,
         'lfg_seats': lfg_seats,
@@ -2209,11 +2305,11 @@ def manage_game(request, id=None):
 
                     # Same courtesy for a tournament match: announce into the player
                     # group's thread, but only when it demonstrably belongs to the
-                    # tournament's own guild (see _match_thread_id).
+                    # tournament's own guild (see match_thread_id).
                     elif (match_mode and match
                             and match_initial_status != CompetitionStatus.COMPLETED
                             and match.status == CompetitionStatus.COMPLETED):
-                        _thread_id = _match_thread_id(match)
+                        _thread_id = match_thread_id(match)
                         site = (settings.SITE_URL or '').rstrip('/')
                         if _thread_id and site:
                             _message = f'Game submitted! See the results [here]({site}{parent.get_absolute_url()})'

@@ -279,12 +279,29 @@
 </div>
 {% endif %}
 {% if match_mode %}
-<div class="alert alert-info d-flex align-items-center gap-2">
-    <i class="bi bi-trophy"></i>
+{% comment %} A warning rather than the usual info blue when the tournament
+   blocked something: those fields are sitting empty and the recorder has to
+   fill them by hand, so the banner has to read as "needs attention". ONE line
+   naming what was dropped -- this replaced six stacked alerts that pushed the
+   seating out of view, and it covers the per-seat faction/vagabond drops that
+   had no alert at all. {% endcomment %}
+<div class="alert {% if blocked_components or blocked_notices %}alert-warning{% else %}alert-info{% endif %} d-flex align-items-center gap-2">
+    <i class="bi {% if blocked_components or blocked_notices %}bi-exclamation-triangle{% else %}bi-trophy{% endif %}"></i>
     <div>
         <strong>Match #{{ match.match_number }}</strong>
          {{match.round}}
+        {% if blocked_components %}
+        <br><small>{% blocktrans with items=blocked_components|join:", " %}Not allowed in this tournament and left blank: {{ items }}{% endblocktrans %}</small>
+        {% endif %}
+        {% comment %} Only the Clockwork notice survives the view's filter -- it
+           names a restriction no per-component line can, since Clockwork
+           factions come from a draft rather than a box score. {% endcomment %}
+        {% for notice in blocked_notices %}
+        <br><small>{{ notice }}</small>
+        {% endfor %}
+        {% if not blocked_components and not blocked_notices %}
         <br><small>{% trans 'Add each player in seat order and fill in game details.' %}</small>
+        {% endif %}
     </div>
 </div>
 {% endif %}

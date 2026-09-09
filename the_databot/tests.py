@@ -7,6 +7,7 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.test import TestCase, RequestFactory, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
@@ -53,6 +54,7 @@ from the_databot.services.time_parsing import (
 from the_databot.services.discordservice import (build_upcoming_embed,
                                                    build_lfg_help_embed, _LFG_LINK_RE)
 from the_databot.services import discordservice as ds
+from the_databot import tasks
 from the_databot import discord_interactions as di
 from the_gatehouse.templatetags.databot_filters import lfg_body
 
@@ -4957,15 +4959,15 @@ class SeatingCommandPlayerGroupTests(TestCase):
         self.assertEqual(player_group_for_channel(self.THREAD_ID), self.group)
 
     def test_linked_url_matches_the_shape_the_site_parses(self):
-        """the_warroom.views._DISCORD_THREAD_URL_RE parses this field back out to
+        """channel_posts.DISCORD_THREAD_URL_RE parses this field back out to
         decide where to announce a recorded game, so the value we write must
         satisfy it: no trailing slash, no message-id suffix."""
-        from the_warroom.views import _DISCORD_THREAD_URL_RE
+        from the_warroom.services.channel_posts import DISCORD_THREAD_URL_RE
         self._members(3)
         self._unlink()
         self._command_in_unlinked_thread("Group A")
         self.group.refresh_from_db()
-        found = _DISCORD_THREAD_URL_RE.match(self.group.discord_thread)
+        found = DISCORD_THREAD_URL_RE.match(self.group.discord_thread)
         self.assertIsNotNone(found)
         self.assertEqual(found.group(1), self.GUILD_ID)
         self.assertEqual(found.group(2), self.THREAD_ID)
@@ -13788,3 +13790,276 @@ class UpcomingScopeTests(ScheduleFixtureMixin, TestCase):
 
         self.assertEqual(self._description(data),
                          "The next scheduled match for this thread")
+
+
+# ---------------------------------------------------------------------------
+# remind_upcoming_matches -- the pre-match reminder sweep.
+#
+# The gates are the interesting part: a reminder posts into a Discord thread and
+# pings a whole roster, so every one of them is a test that asserts a SKIP.
+# ---------------------------------------------------------------------------
+class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
+
+    def setUp(self):
+        self.build(populate_group=True)
+        # ScheduleFixtureMixin creates the guild without bot_member, which
+        # defaults False -- and False is itself one of the gates below.
+        self.guild.bot_member = True
+        self.guild.save(update_fields=["bot_member"])
+        self.tournament.match_reminder_minutes = 60
+        self.tournament.save(update_fields=["match_reminder_minutes"])
+        self._schedule(self.match, minutes=30)
+
+    def _schedule(self, match, minutes):
+        match.scheduled_time = timezone.now() + timedelta(minutes=minutes)
+        match.save(update_fields=["scheduled_time"])
+
+    def _sweep(self):
+        """Run the task with the sender patched; return the mock."""
+        with mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
+            tasks.remind_upcoming_matches()
+        return delay
+
+    def _content(self, delay):
+        return delay.call_args.args[1]
+
+    # --- the happy path -------------------------------------------------
+    def test_sends_inside_the_window(self):
+        delay = self._sweep()
+        self.assertEqual(delay.call_count, 1)
+        self.assertEqual(delay.call_args.args[0], "555000111")
+        self.match.refresh_from_db()
+        self.assertIsNotNone(self.match.reminder_sent_at)
+
+    def test_pings_are_allowed_to_notify(self):
+        """Without allowed_mentions the <@id>s render as blue text and notify
+        nobody, which would silently defeat the entire feature."""
+        delay = self._sweep()
+        self.assertEqual(delay.call_args.kwargs["allowed_mentions"],
+                         {"parse": ["users"]})
+
+    def test_content_mentions_linked_players_and_names_unlinked_ones(self):
+        unlinked = Profile.objects.create(discord="ghost", discord_id=None)
+        tp = TournamentPlayer.objects.create(
+            tournament=self.tournament, profile=unlinked)
+        self.group.tournament_players.add(tp)
+        content = self._content(self._sweep())
+        self.assertIn(f"<@{self.player.discord_id}>", content)
+        self.assertIn(str(unlinked), content)
+        # An unlinked player must never produce a literal empty mention.
+        self.assertNotIn("<@>", content)
+
+    def test_content_uses_a_discord_timestamp_not_a_fixed_lead(self):
+        """The message must not hardcode "in 60 minutes" -- a late sweep would
+        make that a lie. <t:...> is resolved by each viewer's client instead."""
+        self.match.refresh_from_db()
+        content = self._content(self._sweep())
+        self.assertIn(f"<t:{int(self.match.scheduled_time.timestamp())}:", content)
+
+    def test_multi_game_series_is_labelled(self):
+        self.series.number_of_games = 3
+        self.series.save(update_fields=["number_of_games"])
+        Match.objects.create(round=self.round, series=self.series, match_number=2)
+        content = self._content(self._sweep())
+        self.assertIn("game 1 of 3", content)
+
+    # --- the gates ------------------------------------------------------
+    def test_no_reminder_when_unconfigured(self):
+        self.tournament.match_reminder_minutes = None
+        self.tournament.save(update_fields=["match_reminder_minutes"])
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_no_reminder_when_bot_not_in_guild(self):
+        self.guild.bot_member = False
+        self.guild.save(update_fields=["bot_member"])
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_no_reminder_for_a_thread_in_another_guild(self):
+        """THE security gate: a stale or mistyped URL must never let one
+        tournament's roster be pinged inside an unrelated server."""
+        self.group.discord_thread = "https://discord.com/channels/999999/555000111"
+        self.group.save(update_fields=["discord_thread"])
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_no_reminder_when_group_has_no_thread(self):
+        self.group.discord_thread = ""
+        self.group.save(update_fields=["discord_thread"])
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_unlinked_thread_leaves_the_row_unclaimed(self):
+        """Skipping must not claim: linking the thread later should still earn a
+        reminder while there is time."""
+        self.group.discord_thread = "https://discord.com/channels/999999/555000111"
+        self.group.save(update_fields=["discord_thread"])
+        self._sweep()
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.reminder_sent_at)
+
+    def test_no_reminder_without_a_scheduled_time(self):
+        Match.objects.filter(pk=self.match.pk).update(scheduled_time=None)
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_no_reminder_for_a_completed_match(self):
+        Match.objects.filter(pk=self.match.pk).update(
+            status=CompetitionStatus.COMPLETED)
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_no_reminder_once_a_game_is_recorded(self):
+        game = Game.objects.create(round=self.round)
+        Match.objects.filter(pk=self.match.pk).update(game=game)
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_legacy_round_tournament_fk_is_ignored(self):
+        """Round.tournament is legacy; a match reaches its tournament through the
+        stage. A round hanging off the legacy FK alone is never reminded."""
+        legacy_round = Round.objects.create(
+            tournament=self.tournament, round_number=9)
+        group = PlayerGroup.objects.create(
+            round=legacy_round, group_number=1, name="Legacy",
+            discord_thread=f"https://discord.com/channels/{self.guild.guild_id}/777")
+        series = MatchSeries.objects.create(
+            round=legacy_round, player_group=group, number_of_games=1)
+        match = Match.objects.create(round=legacy_round, series=series)
+        self._schedule(match, minutes=30)
+        # Only the stage-path match from setUp is reminded.
+        delay = self._sweep()
+        self.assertEqual(delay.call_count, 1)
+        self.assertEqual(delay.call_args.args[0], "555000111")
+
+    # --- the window -----------------------------------------------------
+    def test_outside_the_window_is_not_sent_and_stays_unclaimed(self):
+        self._schedule(self.match, minutes=90)
+        self.assertEqual(self._sweep().call_count, 0)
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.reminder_sent_at)
+
+    def test_a_match_already_started_is_never_reminded(self):
+        Match.objects.filter(pk=self.match.pk).update(
+            scheduled_time=timezone.now() - timedelta(minutes=10))
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_each_tournament_uses_its_own_window(self):
+        """The test that justifies the whole design: one sweep, two leads. A
+        single fixed cutoff cannot satisfy both."""
+        # This tournament: lead 120, match at +60 -> INSIDE its window.
+        self.tournament.match_reminder_minutes = 120
+        self.tournament.save(update_fields=["match_reminder_minutes"])
+        self._schedule(self.match, minutes=60)
+
+        # A second tournament: lead 30, match also at +60 -> OUTSIDE its window.
+        guild2 = DiscordGuild.objects.create(
+            guild_id="900200", name="Other Guild", bot_member=True)
+        t2 = Tournament.objects.create(
+            name="Other Tournament", guild=guild2, match_reminder_minutes=30)
+        stage2 = Stage.objects.create(tournament=t2, name="S", order=1)
+        round2 = Round.objects.create(stage=stage2, round_number=1)
+        group2 = PlayerGroup.objects.create(
+            round=round2, group_number=1, name="G",
+            discord_thread=f"https://discord.com/channels/{guild2.guild_id}/888")
+        series2 = MatchSeries.objects.create(
+            round=round2, player_group=group2, number_of_games=1)
+        match2 = Match.objects.create(round=round2, series=series2)
+        self._schedule(match2, minutes=60)
+
+        delay = self._sweep()
+        self.assertEqual(delay.call_count, 1)
+        self.assertEqual(delay.call_args.args[0], "555000111")
+
+    # --- idempotence ----------------------------------------------------
+    def test_a_second_sweep_does_not_ping_again(self):
+        self.assertEqual(self._sweep().call_count, 1)
+        self.assertEqual(self._sweep().call_count, 0)
+
+    def test_nothing_configured_anywhere_returns_immediately(self):
+        Tournament.objects.update(match_reminder_minutes=None)
+        with self.assertNumQueries(1):
+            result = tasks.remind_upcoming_matches()
+        self.assertEqual(result, {"sent": 0, "skipped": 0})
+
+    # --- efficiency -----------------------------------------------------
+    def test_reads_do_not_grow_with_the_number_of_matches(self):
+        """The load-bearing efficiency test.
+
+        Exactly ONE query per match is legitimate: the UPDATE that claims the row
+        (the compare-and-swap giving at-most-once delivery). Everything else --
+        every SELECT -- must be constant, so this counts reads and writes
+        separately rather than asserting a single magic total.
+
+        A regression here means a deferred field got read (Django silently issues
+        another query rather than failing) or a roster read dodged the prefetch.
+        Both are invisible in the generated SQL and neither breaks any other test.
+        """
+        def sweep_counts():
+            with mock.patch.object(tasks.post_channel_message_task, "delay"):
+                with CaptureQueriesContext(connection) as ctx:
+                    tasks.remind_upcoming_matches()
+            sql = [q["sql"] for q in ctx.captured_queries]
+            reads = [q for q in sql if q.lstrip().upper().startswith("SELECT")]
+            writes = [q for q in sql if not q.lstrip().upper().startswith("SELECT")]
+            return len(reads), len(writes)
+
+        reads_one, writes_one = sweep_counts()
+        self.assertEqual(writes_one, 1)
+
+        # Four more matches, each its own series/group/thread, all in-window.
+        for n in range(4):
+            group = PlayerGroup.objects.create(
+                round=self.round, group_number=10 + n, name=f"Extra {n}",
+                discord_thread=f"https://discord.com/channels/{self.guild.guild_id}/66{n}")
+            group.tournament_players.add(self.tournament_player)
+            series = MatchSeries.objects.create(
+                round=self.round, player_group=group, number_of_games=1)
+            match = Match.objects.create(round=self.round, series=series)
+            self._schedule(match, minutes=30)
+        Match.objects.update(reminder_sent_at=None)
+
+        reads_five, writes_five = sweep_counts()
+        self.assertEqual(
+            reads_one, reads_five,
+            f"SELECT count scales with match count ({reads_one} -> {reads_five}): "
+            "an N+1 crept in")
+        # One claim per match, and nothing else.
+        self.assertEqual(writes_five, 5)
+
+    def test_reads_do_not_grow_on_the_seat_only_path(self):
+        """The same guarantee for groups whose tournament_players M2M was never
+        populated, so group_roster takes its MatchSeat fallback.
+
+        A separate test because the M2M and the seat fallback are prefetched by
+        different mechanisms -- the fallback queries MatchSeat.objects directly
+        unless the caller hands the seats in, which no cache can rescue.
+        """
+        def sweep_reads():
+            with mock.patch.object(tasks.post_channel_message_task, "delay"):
+                with CaptureQueriesContext(connection) as ctx:
+                    tasks.remind_upcoming_matches()
+            return len([q for q in ctx.captured_queries
+                        if q["sql"].lstrip().upper().startswith("SELECT")])
+
+        # setUp's group has an M2M roster; strip it so this match is seat-only too.
+        self.group.tournament_players.clear()
+        one = sweep_reads()
+
+        for n in range(4):
+            group = PlayerGroup.objects.create(
+                round=self.round, group_number=20 + n, name=f"Seated {n}",
+                discord_thread=f"https://discord.com/channels/{self.guild.guild_id}/77{n}")
+            series = MatchSeries.objects.create(
+                round=self.round, player_group=group, number_of_games=1)
+            MatchSeat.objects.create(
+                series=series, stage_participant=self.participant, seat_number=1)
+            match = Match.objects.create(round=self.round, series=series)
+            self._schedule(match, minutes=30)
+        Match.objects.update(reminder_sent_at=None)
+
+        five = sweep_reads()
+        self.assertEqual(
+            one, five,
+            f"SELECT count scales on the seat-only path ({one} -> {five}): "
+            "group_roster's MatchSeat fallback is not using the prefetch")
+
+    def test_seat_only_group_is_still_pinged(self):
+        """The fallback must still produce a roster, not just be cheap."""
+        self.group.tournament_players.clear()
+        content = self._content(self._sweep())
+        self.assertIn(f"<@{self.player.discord_id}>", content)

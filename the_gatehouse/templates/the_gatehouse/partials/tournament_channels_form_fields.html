@@ -144,4 +144,23 @@ stale the moment a different series' form was opened. {% endcomment %}
         </div>
     </div>
 
+    {% comment %} ----- Match reminder -----
+    Not a channel: the lead time in minutes for the pre-match ping, posted into the
+    match's OWN thread (PlayerGroup.discord_thread) rather than any channel named
+    above. It lives here because it shares the same prerequisite as the fields above
+    -- a linked guild the bot is in. Blank/absent means no reminders.
+    {% endcomment %}
+    <div class="mb-3">
+        <label class="form-label" for="id_match_reminder_minutes">{% trans 'Match reminder' %}</label>
+        {% if form.match_reminder_minutes.errors %}
+            <div class="alert alert-danger py-2">{{ form.match_reminder_minutes.errors|striptags }}</div>
+        {% endif %}
+        <input type="number" min="1" name="match_reminder_minutes" id="id_match_reminder_minutes"
+               class="form-control" value="{{ form.match_reminder_minutes.value|default_if_none:'' }}"
+               placeholder="{% trans 'No reminders' %}">
+        <div class="form-text text-muted">
+            {% trans "Ping players X minutes before their game starts in the Discord thread. Blank sends none." %}
+        </div>
+    </div>
+
 </div>
