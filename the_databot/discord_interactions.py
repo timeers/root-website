@@ -461,6 +461,41 @@ def _handle_availability_command(data):
     })
 
 
+def _record_thread_detail_lines(thread):
+    """The seating / map / deck detail block for a /record reply, or [].
+
+    Shared by BOTH branches of /record. A tournament group thread gets an
+    LFGThread of its own (it captures rolls and seats exactly like a pick-up
+    game -- see LFGThread.series), so the same rows are there to render in match
+    mode; only the trailing series/match line differs, and that stays with the
+    caller. MatchSeat cannot stand in here: it holds a seat number and a
+    participant, with no map, deck or faction on it at all.
+
+    Falls back to `players` only when there are no seats, since a seating is the
+    strictly better read of the same table."""
+    lines = []
+    # Materialize once (select_related: this runs in the 3-second budget).
+    seats = list(thread.seats.select_related("profile"))
+    if seats:
+        order = ", ".join(
+            f"{s.seat_number}. "
+            f"{s.profile.name if s.profile_id else '(removed player)'}"
+            for s in sorted(seats, key=lambda s: s.seat_number))
+        lines.append(f"**Seating:** {order}")
+    else:
+        players = list(thread.players.all())
+        if players:
+            lines.append(f"**Players:** {', '.join(p.name for p in players)}")
+    # "Autumn Map", not a bare "Autumn": the titles alone don't say which is
+    # which, and a deck and a map can read identically.
+    bits = [f"{thread.map} Map"] if thread.map else []
+    if thread.deck:
+        bits.append(f"{thread.deck} Deck")
+    if bits:
+        lines.append(" · ".join(bits))
+    return lines
+
+
 def _handle_record_command(data):
     """/record: hand back a link to record this game's result, picking the form's
     mode from the channel the command was used in.
@@ -482,8 +517,8 @@ def _handle_record_command(data):
     thread = _lfg_thread_for_channel(channel_id)
     if thread and not thread.series_id:
         if thread.game_id:
-            url = _record_url(f"/game/{thread.game_id}/edit/")
-            lead = "This game is already recorded — edit it here:"
+            url = _record_url(f"/game/{thread.game_id}/")
+            lead = "This game is already recorded — view it here:"
         else:
             url = _record_url(f"/record/game/?lfg={thread.id}")
             lead = "Record this game:"
@@ -491,23 +526,10 @@ def _handle_record_command(data):
             return _ephemeral("The site URL isn't configured, so I can't build a link.")
 
         lines = [lead, url, ""]
-        players = list(thread.players.all())
-        # Materialize once (select_related: this runs in the 3-second budget).
-        seats = list(thread.seats.select_related("profile"))
-        if seats:
-            order = ", ".join(
-                f"{s.seat_number}. "
-                f"{s.profile.name if s.profile_id else '(removed player)'}"
-                for s in seats)
-            lines.append(f"**Seating:** {order}")
-        elif players:
-            lines.append(f"**Players:** {', '.join(p.name for p in players)}")
-        if thread.map or thread.deck:
-            bits = [str(x) for x in (thread.map, thread.deck) if x]
-            lines.append(f"**Map/Deck:** {' · '.join(bits)}")
+        lines += _record_thread_detail_lines(thread)
         tournament = getattr(thread.lfg_role, "tournament", None)
         if tournament:
-            lines.append(f"**Series:** {tournament}")
+            lines.append(f"{tournament}")
         return _ephemeral("\n".join(lines))
 
     # 2) Otherwise fall back to a scheduled match for this thread, the same way
@@ -515,18 +537,59 @@ def _handle_record_command(data):
     #    the first game of a series that still needs a result.
     match, _err = _match_for_thread(channel_id, guild_id, channel_name)
     if match:
-        if match.game_id:
-            url = _record_url(f"/game/{match.game_id}/edit/")
-            lead = "This match already has a game — edit it here:"
-        else:
-            url = _record_url(f"/record/game/?match={match.id}")
-            lead = "Record this game:"
+        # No `match.game_id` case here: _schedulable_matches filters
+        # game__isnull=True, so a match that HAS a game never reaches this
+        # branch. An already-recorded series is handled at (3) instead, which
+        # resolves the group directly and so can still see those games.
+        url = _record_url(f"/record/game/?match={match.id}")
         if not url:
             return _ephemeral("The site URL isn't configured, so I can't build a link.")
-        return _ephemeral(f"{lead}\n{url}\n\n**Match:** {match}\n**Round:** {match.round}")
 
-    # 3) Neither: hand over the standalone form rather than erroring — the user
-    #    can still record a game, just without any prefill.
+        lines = ["Record this game:", url, ""]
+        # `thread` is the group thread's own LFGThread when it has one -- the
+        # series-linked row branch (1) deliberately fell through. Reused rather
+        # than re-fetched: the lookup above already paid for it.
+        if thread is not None:
+            lines += _record_thread_detail_lines(thread)
+        # The match's own identity, in place of the LFG branch's series line:
+        # match name first, then the round it belongs to.
+        lines.append(f"{match} · {match.round}")
+        return _ephemeral("\n".join(lines))
+
+    # 3) No schedulable match. That is NOT the same as no match: _match_for_thread
+    #    only ever returns unrecorded ones (game__isnull=True), so a series whose
+    #    games are all in the books lands here looking identical to a plain
+    #    channel. Resolve the group directly -- player_group_for_channel is
+    #    deliberately not routed through _schedulable_matches -- and report what
+    #    was recorded instead of offering a blank form for a finished series.
+    group = player_group_for_channel(channel_id, channel_name, guild_id)
+    series_id = group_series_id(group) if group else None
+    if series_id:
+        recorded = list(Match.objects
+                        .filter(series_id=series_id, game__isnull=False)
+                        .select_related("round")
+                        .order_by("match_number"))
+        if recorded:
+            urls = [_record_url(f"/game/{m.game_id}/") for m in recorded]
+            if not all(urls):
+                return _ephemeral(
+                    "The site URL isn't configured, so I can't build a link.")
+            if len(recorded) == 1:
+                # Single game: the same shape as the LFG "already recorded" reply.
+                lines = ["This game is already recorded — view it here:", urls[0], ""]
+                if thread is not None:
+                    lines += _record_thread_detail_lines(thread)
+                lines.append(f"{recorded[0]} · {recorded[0].round}")
+            else:
+                # A best-of-N: one link per game, since each is its own Game.
+                # The thread's seating/map/deck is NOT repeated here -- it
+                # describes a single table, and these games may differ.
+                lines = ["These games have already been recorded:", ""]
+                lines += [f"{m} · {m.round}\n{u}" for m, u in zip(recorded, urls)]
+            return _ephemeral("\n".join(lines))
+
+    # 4) Nothing to go on: hand over the standalone form rather than erroring —
+    #    the user can still record a game, just without any prefill.
     url = _record_url("/record/game/")
     if not url:
         return _ephemeral("The site URL isn't configured, so I can't build a link.")
