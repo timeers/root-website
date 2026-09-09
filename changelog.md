@@ -2,8 +2,12 @@
 
 ## [1.13.7] - 2026-9-9 Box Score Bug Busting
 
+### Improvements
+- better banner message for prefilled matches
+
 ### Bug Fixes
 - js was breaking due to auto filling box score to game form
+- empty seats were filling incorrectly on prefilled game forms. players were filled when they shouldn't be and other data was not filled when it was available
 
 ## [1.13.6] - 2026-9-8 Box Score API & Availability
 

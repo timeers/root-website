@@ -1469,6 +1469,144 @@ class MatchModeSeatOrderTests(ResultsChannelViewAnnounceTests):
         self._thread_for(series, [self.profile, None], factions=[None, None])
         self.assertEqual(self._factions(match), [None, None])
 
+    # ── equal seat counts: no spare row for an unidentified seat ────────────
+    #
+    # Every test above seats FEWER players in the match than the box score
+    # captured, so max(seat_count, len(captured_seats)) creates a trailing row
+    # that no MatchSeat occupies and the profile-less seat lands there. The
+    # 3-vs-3 case has no such row: `unclaimed` comes up empty, the seat mapped
+    # to None, and its faction and scores were silently dropped while a real
+    # participant was auto-filled onto its row.
+
+    def _third(self):
+        return Profile.objects.create(discord="third")
+
+    def test_equal_counts_still_place_an_unidentified_seats_faction(self):
+        """The reported bug: 3 match seats, 3 captured seats, the last
+        unidentified. No spare row exists, so the seat has to take its own."""
+        wa = self._faction("Woodland Alliance")
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [self.profile, self.opponent, None],
+                         factions=[None, None, wa])
+        self.assertEqual(self._factions(match)[2], wa.pk)
+
+    def test_equal_counts_leave_an_unidentified_seats_player_blank(self):
+        """MatchSeat cannot express "nobody identified" -- the whole chain to
+        profile is non-nullable -- so the roster used to supply a real player
+        for a seat the box score explicitly could not resolve."""
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [self.profile, self.opponent, None])
+        rows = self._rows(match)
+        self.assertEqual(len(rows), 3)
+        self.assertIsNone(rows[2])
+        # The identified seats keep their own players.
+        self.assertEqual(rows[0], self.profile.pk)
+        self.assertEqual(rows[1], self.opponent.pk)
+
+    # ── tournament-blocked components are summarised on the banner ──────────
+    #
+    # Match mode narrows every component field to the tournament's asset list,
+    # so a thread can hold a value the form cannot offer. Those used to be a
+    # messages.warning per field -- and the per-seat faction/vagabond drops had
+    # no warning at all, since _apply_picked_seat has no request. They are now
+    # collected into one list the match banner renders.
+
+    def _blocked(self, match):
+        response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
+        return response.context['blocked_components']
+
+    def _official_only(self):
+        """Switch the tournament to OFFICIAL assets. The factions _faction()
+        builds are official=False by default, so this blocks them without
+        touching any asset list by hand."""
+        from the_warroom.models import AssetModeChoices
+        self.tournament.asset_mode = AssetModeChoices.OFFICIAL
+        self.tournament.save(update_fields=['asset_mode'])
+
+    def test_a_blocked_faction_is_named_on_the_banner_with_its_seat(self):
+        """This one had NO warning before: _apply_picked_seat drops a faction the
+        tournament forbids and has no request to message through, so the field
+        just came back empty with nothing said."""
+        blocked_faction = self._faction("Contraband Cats")
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         factions=[None, blocked_faction])
+        self._official_only()
+        blocked = self._blocked(match)
+        self.assertEqual(blocked, ["Contraband Cats (seat 2)"])
+        # ...and the field really is empty, which is what the banner explains.
+        self.assertIsNone(self._factions(match)[1])
+
+    def test_an_allowed_faction_leaves_the_banner_clean(self):
+        """The banner must stay on its normal message when nothing was dropped,
+        or every match game would look like it had a problem."""
+        allowed = self._faction("Legal Cats")
+        allowed.official = True
+        allowed.save(update_fields=['official'])
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         factions=[None, allowed])
+        self._official_only()
+        self.assertEqual(self._blocked(match), [])
+        self.assertEqual(self._factions(match)[1], allowed.pk)
+
+    def test_the_blocked_list_is_free_of_duplicates(self):
+        """Two seats on the same forbidden faction is one problem, not two."""
+        blocked_faction = self._faction("Contraband Cats")
+        match, series = self._match_with([self.profile, self.opponent])
+        self._thread_for(series, [self.profile, self.opponent],
+                         factions=[blocked_faction, blocked_faction])
+        self._official_only()
+        # Distinct seats, so both are named -- but neither string repeats.
+        blocked = self._blocked(match)
+        self.assertEqual(len(blocked), len(set(blocked)))
+
+    def test_equal_counts_still_prefill_an_unidentified_seats_scores(self):
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [self.profile, self.opponent, None],
+                         turns_data=[self._turns(1, [2, 5, 9]),
+                                     self._turns(2, [1, 4, 8]),
+                                     self._turns(3, [3, 6, 7])])
+        grid = self._grid(match)
+        self.assertIn(2, grid)
+        self.assertTrue(grid[2]['cells'])
+
+    def test_where_the_unidentified_seat_sits_does_not_shift_the_others(self):
+        """Order-independence. A profile join is an exact answer and is settled
+        FIRST, so an unidentified seat early in the seating takes the leftover
+        row rather than grabbing one a later join needs -- which would shift
+        every row after it and put scores on the wrong players.
+
+        Note the blank row is NOT row 0: the identified seats keep the rows
+        their profiles map to, and the unidentified one gets what is left."""
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [None, self.profile, self.opponent])
+        rows = self._rows(match)
+        # Both identified players are present, each exactly once.
+        self.assertIn(self.profile.pk, rows)
+        self.assertIn(self.opponent.pk, rows)
+        # Exactly one row is left blank for the seat nobody could identify.
+        self.assertEqual(rows.count(None), 1)
+
+    def test_the_unidentified_row_is_the_one_carrying_its_box_score(self):
+        """The blank player and the prefilled scores must be the SAME row --
+        the failure mode being a score sitting under someone else's name."""
+        match, series = self._match_with(
+            [self.profile, self.opponent, self._third()])
+        self._thread_for(series, [None, self.profile, self.opponent],
+                         turns_data=[self._turns(1, [7, 7, 7]),
+                                     self._turns(2, [2, 5, 9]),
+                                     self._turns(3, [1, 4, 8])])
+        rows = self._rows(match)
+        grid = self._grid(match)
+        blank = rows.index(None)
+        # Seat 1's scores (the unidentified one) landed on the blank row.
+        self.assertEqual([c['value'] for c in grid[blank]['cells']], [7, 7, 7])
+
     # ── box score scores in match mode ──────────────────────────────────────
 
     def _turns(self, seat_no, scores, dominance=None):

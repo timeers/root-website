@@ -293,6 +293,23 @@ def seated_profiles(thread):
             for s in seats]
 
 
+def seat_label(seat):
+    """How to name an LFGSeat's occupant in Discord output.
+
+    A profile-less seat is far more often someone the box score could not
+    IDENTIFY than someone who was deleted: _boxscore_reseat creates seats with
+    `profile=profiles.get(...)`, which is None whenever the uploaded file's
+    player never resolved to an account. "(removed player)" reads as a
+    deletion and is simply wrong for the common case, so the seat number --
+    the one thing such a seat always has -- names it instead.
+
+    Carries the number ITSELF rather than leaving it to the caller's prefix:
+    _pick_seat_lines prefixes "N. " only when the thread has a real seating and
+    a bare bullet otherwise, so a caller-supplied number cannot be relied on.
+    """
+    return seat.profile.name if seat.profile_id else f"Player {seat.seat_number}"
+
+
 def captains_by_seat(thread):
     """{seat_number: {"captains": [slug, ...], "discarded": slug|None}} for seats
     that took captains.
