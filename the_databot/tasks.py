@@ -643,7 +643,8 @@ _LFG_FK_KINDS = {"Map": "map", "Deck": "deck"}
 
 
 @shared_task
-def record_lfg_components_task(channel_id, items, source="", draft=None):
+def record_lfg_components_task(channel_id, items, source="", draft=None,
+                               undrafted=None):
     """Record components surfaced inside an LFG thread (from /random, /map, /deck,
     other lookups, /draft). No-op when the channel isn't a known LFG thread.
 
@@ -720,10 +721,36 @@ def record_lfg_components_task(channel_id, items, source="", draft=None):
                 if obj:
                     setattr(thread, field, obj)
                     touched.append(field)
+        # The undrafted assets get their own columns rather than riding
+        # _LFG_FK_KINDS: that maps kind -> field, and an undrafted faction shares
+        # kind "Faction" with every seated one, so nothing there could tell them
+        # apart. Slugs are pre-validated by the caller.
+        captain_slugs = None
+        if undrafted:
+            from the_keep.models import Faction, Vagabond
+            if undrafted.get("faction"):
+                obj = Faction.objects.filter(slug=undrafted["faction"]).first()
+                if obj:
+                    thread.undrafted_faction = obj
+                    touched.append("undrafted_faction")
+            if undrafted.get("vagabond"):
+                obj = Vagabond.objects.filter(slug=undrafted["vagabond"]).first()
+                if obj:
+                    thread.undrafted_vagabond = obj
+                    touched.append("undrafted_vagabond")
+            captain_slugs = undrafted.get("captains")
+
         # Saved even when nothing was touched: the rolls above are children, so
         # without this a /random faction roll would leave last_activity stale and
         # age an actively-used thread toward cleanup. save() supplies the field.
         thread.save(update_fields=sorted(set(touched)))
+
+        # AFTER the save, and never via update_fields: an M2M is not a column on
+        # this row, and cannot be assigned before it exists.
+        if captain_slugs:
+            from the_keep.models import Vagabond
+            thread.undrafted_captains.set(
+                Vagabond.objects.filter(slug__in=captain_slugs))
 
         if draft:
             _replace_lfg_draft(thread, draft)

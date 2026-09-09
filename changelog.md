@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.6] - 2026-9-7 Box Score API & Availability
+## [1.13.6] - 2026-9-8 Box Score API & Availability
 
 ### New Features
 - added ability to link SteamID to profile for future boxscore matching
@@ -41,6 +41,9 @@
 - continuing past an unmatched player now keeps the name the file gave them and adds "(not linked)", instead of leaving the seat blank
 
 ### Bug Fixes
+- recording a game from a box score now selects the winner, including a dominance or coalition win, the starting leader, coalition, undrafted faction, vagabond and captains
+- anything a box score names (faction, vagabond, captain, landmark, hireling, house rule) is now offered and preselected, even if nobody rolled it in the thread first
+- a box score uploaded to a match thread is now checked against the match roster, so a file with the wrong players is refused with an explanation instead of producing a game that can't be saved
 - fixed string bug on /record where base url returned no url
 - fixed title on /schedule saying "Not Scheduled" when all players confirmed in LFG
 - /schedule clear in a plain text channel now says the command needs a thread, instead of talking about a thread that isn't there
@@ -76,6 +79,8 @@
 - box scores now match player names regardless of capitalisation, so a file naming "MrMirz" finds the same player as "mrmirz"
 - fixed a box score with more than four unmatched players silently skipping everyone past the first page
 - someone who isn't in the game can no longer answer a box score prompt on a thread whose players haven't been set yet
+- restoring a box score now posts the prompt in the thread instead of a private message only you could see, so the host and moderators can answer it too
+
 
 ## [1.13.5] - 2026-9-1 September Forever
 

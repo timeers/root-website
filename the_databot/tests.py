@@ -33,7 +33,8 @@ from the_gatehouse.services.steam_openid import read_link_token
 from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
 from the_databot.services import discord_commands as dc
 from the_databot.services.lfg_game import (
-    rolled_components, seated_profiles, player_group_for_channel,
+    rolled_components, boxscore_components, seated_profiles,
+    player_group_for_channel,
     picked_factions_by_profile, unclaimed_picked_seats,
     captains_by_seat, undrafted_pick,
     lfg_option_querysets, FULL_CAPTAIN_COMPLEMENT,
@@ -11498,6 +11499,55 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         di._boxscore_apply(self.thread, pending, self.THREAD_ID)
         self.assertEqual(set(self.thread.players.values_list("pk", flat=True)), before)
 
+    def test_a_match_upload_missing_a_player_is_refused_at_apply(self):
+        """The apply-stage half of the match-roster rule, wired end to end. The
+        unit tests cover the invariant; this proves _boxscore_apply actually
+        consults it and surfaces the specific reason rather than the generic
+        'couldn't be saved'."""
+        pending = {
+            "entries": [], "items": [], "notes": [],
+            "seats": [{"profile_pk": self.alice.pk, "label": "Alice",
+                       "player_slug": None, "player_steam_id": None,
+                       "faction_slug": None, "vagabond_slug": None,
+                       "captain_slugs": [], "discarded_slug": None}],
+            "thread_pk": self.thread.pk, "filename": "f.json",
+            "component_titles": [],
+        }
+        self.thread.series_id = 1  # truthy: the branch only checks series_id
+
+        lines, notes = di._boxscore_apply(
+            self.thread, pending, self.THREAD_ID, [self.alice, self.bob])
+
+        self.assertIsNone(lines)
+        self.assertIn("Bob", notes[0])   # the display name, as the reader knows them
+        # And the caller turns that into the message the reader can act on.
+        self.assertEqual(di._boxscore_apply_error(notes), notes[0])
+
+    def test_a_match_upload_whose_counts_balance_still_applies(self):
+        """The guard must not block the normal case -- one unidentified seat
+        standing in for the one unseated player."""
+        pending = {
+            "entries": [], "items": [], "notes": [],
+            "seats": [
+                {"profile_pk": self.alice.pk, "label": "Alice",
+                 "player_slug": None, "player_steam_id": None,
+                 "faction_slug": None, "vagabond_slug": None,
+                 "captain_slugs": [], "discarded_slug": None},
+                {"profile_pk": None, "label": "MysteryGuest",
+                 "player_slug": "MysteryGuest", "player_steam_id": None,
+                 "faction_slug": None, "vagabond_slug": None,
+                 "captain_slugs": [], "discarded_slug": None},
+            ],
+            "thread_pk": self.thread.pk, "filename": "f.json",
+            "component_titles": [],
+        }
+        self.thread.series_id = 1
+
+        lines, _notes = di._boxscore_apply(
+            self.thread, pending, self.THREAD_ID, [self.alice, self.bob])
+
+        self.assertIsNotNone(lines)
+
     def test_the_uploader_is_the_only_one_who_can_confirm(self):
         LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
         self.thread.seating_set = True
@@ -11595,6 +11645,304 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         # The box score reached the grid, and the seat fields were preselected.
         self.assertIn("grid-cell", html)
         self.assertIn("Fox", html)
+
+    def test_the_win_and_its_dependents_survive_capture(self):
+        """tournament_score, starting_leader and coalition were dropped by
+        decompose, so the record form had nothing to prefill from. The win is
+        kept RAW (0 / 0.5 / 1) -- collapsing it to a bool here would lose the
+        coalition-vs-solo distinction with nowhere to recover it."""
+        doc = self._doc()
+        doc["participants"][0].update(tournament_score=1,
+                                      starting_leader="Despot")
+        doc["participants"][1].update(tournament_score=0.5,
+                                      coalition=self.faction.slug)
+
+        self._run(doc)
+
+        self.thread.refresh_from_db()
+        by_seat = {e["turn_order"]: e for e in self.thread.turns_data}
+        self.assertEqual(by_seat[1]["tournament_score"], 1)
+        self.assertEqual(by_seat[1]["starting_leader"], "Despot")
+        self.assertEqual(by_seat[2]["tournament_score"], 0.5)
+        self.assertEqual(by_seat[2]["coalition"], self.faction.slug)
+
+    def test_an_unknown_starting_leader_is_reported_not_stored(self):
+        doc = self._doc()
+        doc["participants"][0]["starting_leader"] = "Emperor"
+
+        content, _getter, _delay = self._run(doc)
+
+        self.thread.refresh_from_db()
+        self.assertNotIn("starting_leader", self.thread.turns_data[0])
+        self.assertIn("starting leader", content)
+
+    def test_a_non_numeric_tournament_score_is_reported_not_stored(self):
+        doc = self._doc()
+        doc["participants"][0]["tournament_score"] = "winner"
+
+        content, _getter, _delay = self._run(doc)
+
+        self.thread.refresh_from_db()
+        self.assertNotIn("tournament_score", self.thread.turns_data[0])
+        self.assertIn("tournament score", content)
+
+    def test_the_undrafted_faction_reaches_the_record_form(self):
+        """The gap this closes: with no /draft in the thread, undrafted_pick
+        returns None and these fields had no source at all."""
+        user = User.objects.create_user(username="bsundrafted", password="x")
+        recorder = user.profile
+        recorder.discord = "bsundrafted"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+
+        doc = self._doc()
+        doc["undrafted_faction"] = self.faction.slug
+        self._run(doc, run_capture=True)
+        self.assertIsNone(undrafted_pick(self.thread))   # no draft to fall back on
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        self.assertEqual(response.context["form"].initial["undrafted_faction"],
+                         self.faction.pk)
+
+    def test_the_box_score_overrides_the_drafts_undrafted_faction(self):
+        """Both sources exist and disagree. The draft says what was DEALT in
+        Discord; the box score says what was actually played, and a /draft re-run
+        or a re-seat can leave the draft stale. Pins the call ordering in the
+        view -- reversing the two prefills fails this."""
+        user = User.objects.create_user(username="bsboth", password="x")
+        recorder = user.profile
+        recorder.discord = "bsboth"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+
+        drafted = Faction.objects.create(
+            title="Drafted Leftover", animal="Bird", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        # A draft whose leftover is `drafted`: one pick seated, one not.
+        draft = LFGDraft.objects.create(thread=self.thread, players=1)
+        LFGDraftPick.objects.create(draft=draft, faction=self.faction, order=1)
+        LFGDraftPick.objects.create(draft=draft, faction=drafted, order=2)
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                               seat_number=1, faction=self.faction)
+        self.assertEqual(undrafted_pick(self.thread).faction_id, drafted.pk)
+
+        # ...and a box score naming a DIFFERENT one.
+        doc = self._doc()
+        doc["undrafted_faction"] = self.faction.slug
+        data = self._run_data(doc, run_capture=True)
+        # The seating above disagrees with the file, so this gates; the capture
+        # runs on apply, not on upload.
+        if data.get("components"):
+            with mock.patch.object(
+                    di.record_lfg_components_task, "delay",
+                    mock.Mock(side_effect=lambda *a, **k: record_lfg_components_task(*a, **k))):
+                di.COMPONENT_HANDLERS["boxscore_ok"]({
+                    "data": {"custom_id":
+                             f"boxscore_ok:{self._pending_key(data)}:{self.AUTHOR}"},
+                    "channel_id": self.THREAD_ID,
+                    "member": {"user": {"id": self.AUTHOR}},
+                })
+
+        # Applying a box score RESEATS the thread, which clears the seat factions
+        # -- so the draft's leftover has to be re-established here for the two
+        # sources to genuinely compete. Without this both picks are unseated,
+        # undrafted_pick returns None, and the ordering would never be exercised.
+        self.thread.refresh_from_db()
+        self.thread.seats.filter(seat_number=1).update(faction=self.faction)
+        # The two sources now genuinely DISAGREE: draft says `drafted`, the box
+        # score's column says self.faction.
+        self.assertEqual(undrafted_pick(self.thread).faction_id, drafted.pk)
+        self.assertEqual(self.thread.undrafted_faction_id, self.faction.pk)
+
+        # `drafted` must be OFFERED for _prefill_undrafted to set it -- otherwise
+        # its own narrowing guard skips it and the ordering is untestable.
+        record_lfg_components_task(
+            self.THREAD_ID, [{"kind": "Faction", "slug": drafted.slug}],
+            source="random")
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        self.assertEqual(response.context["form"].initial["undrafted_faction"],
+                         self.faction.pk)
+
+    def test_a_sub_thirty_win_reaches_the_record_form_checked(self):
+        """The end of the chain, asserted on the RENDERED html rather than on
+        form.initial: the grid's recalcRow re-derives Win from the score, so an
+        initial-only assertion passes while the browser shows it unchecked."""
+        user = User.objects.create_user(username="bswinner", password="x")
+        recorder = user.profile
+        recorder.discord = "bswinner"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        # _can_record_lfg gates on thread membership.
+        self.thread.players.add(recorder)
+
+        doc = self._doc()
+        # Seat 2 wins on dominance at 11 points -- nowhere near the 30 the form
+        # would otherwise infer a winner from.
+        doc["participants"][1]["tournament_score"] = 1
+        self._run(doc)
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            html = self.client.get(
+                f"/record/game/?lfg={self.thread.id}").content.decode()
+
+        # Django renders a checked BooleanField with the `checked` attribute.
+        win_row = re.search(r'id="id_form-1-win"[^>]*', html).group(0)
+        self.assertIn("checked", win_row)
+
+    def test_a_faction_the_thread_never_rolled_is_still_offered(self):
+        """A component reaches the form's dropdowns only if it is in the thread's
+        ROLLS. Map and deck worked because they were the only kinds emitted; a
+        faction the file named was dropped, so the seat rendered with no faction
+        even though the box score said what was played."""
+        doc = self._doc()
+        doc["participants"][0]["faction"] = self.faction.slug
+
+        self._run(doc, run_capture=True)
+
+        self.thread.refresh_from_db()
+        self.assertIn(("Faction", self.faction.slug),
+                      [(r.kind, r.slug) for r in self.thread.roll_log.all()])
+        # The narrowing now offers it, which is what makes the prefill possible.
+        options = lfg_option_querysets(self.thread, None)
+        self.assertTrue(options["factions"].filter(pk=self.faction.pk).exists())
+
+    def test_only_the_box_scores_landmark_is_preselected(self):
+        """The distinction the whole prefill rests on: the thread's CHOICES stay
+        wide (any roll is a legitimate option), but only what the FILE named is
+        preselected. A /random landmark rolled once is not a claim it was played."""
+        from the_keep.models import Landmark
+        rolled = Landmark.objects.create(title="Rolled Tower", designer=self.designer,
+                                         status=StatusChoices.STABLE, official=True)
+        played = Landmark.objects.create(title="Played Well", designer=self.designer,
+                                         status=StatusChoices.STABLE, official=True)
+        # Inline: _capture_lfg_components only ENQUEUES, and this assertion is
+        # about the roll actually being there.
+        record_lfg_components_task(
+            self.THREAD_ID, [{"kind": "Landmark", "slug": rolled.slug}],
+            source="random")
+
+        doc = self._doc()
+        doc["landmarks"] = [played.slug]
+        self._run(doc, run_capture=True)
+
+        self.thread.refresh_from_db()
+        named = boxscore_components(self.thread)
+        self.assertEqual(named.get("Landmark"), [played.slug])
+        # Both remain CHOOSABLE -- the recorder may still want the other.
+        options = lfg_option_querysets(self.thread, None)
+        self.assertTrue(options["landmarks"].filter(pk=rolled.pk).exists())
+        self.assertTrue(options["landmarks"].filter(pk=played.pk).exists())
+
+    def test_the_undrafted_assets_reach_the_thread_and_the_rolls(self):
+        """Both, and for different reasons: the COLUMNS say which faction was the
+        undrafted one (the roll log can't -- an undrafted faction and a seated one
+        are both kind "Faction"), and the ROLLS are what make the form's
+        undrafted_* fields offer it at all."""
+        from the_keep.models import Vagabond
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        vb = Vagabond.objects.create(title="Undrafted VB", animal="Fox",
+                                     designer=self.designer,
+                                     status=StatusChoices.STABLE, official=True)
+
+        doc = self._doc()
+        doc["undrafted_faction"] = self.faction.slug
+        doc["undrafted_vagabond"] = vb.slug
+        self._run(doc, run_capture=True)
+
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.undrafted_faction_id, self.faction.pk)
+        self.assertEqual(self.thread.undrafted_vagabond_id, vb.pk)
+        options = lfg_option_querysets(self.thread, None)
+        self.assertTrue(options["factions"].filter(pk=self.faction.pk).exists())
+        self.assertTrue(options["vagabonds"].filter(pk=vb.pk).exists())
+
+    def test_an_undrafted_only_file_is_still_captured(self):
+        """The guards that would have dropped it: both the call site and the
+        helper gate on `items`, so a file with no map, deck or components would
+        have stored nothing at all -- silently, since the capture is
+        fire-and-forget."""
+        doc = self._doc()          # no map, no deck, no landmarks, no factions
+        doc["undrafted_faction"] = self.faction.slug
+
+        self._run(doc, run_capture=True)
+
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.undrafted_faction_id, self.faction.pk)
+
+    def test_undrafted_captains_are_all_or_nothing(self):
+        """clean() requires exactly 4 undrafted captains or none, so seeding a
+        partial set would fail validation on submit and leave the recorder to
+        work out why."""
+        from the_keep.models import Vagabond
+        # Same reason setUp does it for Faction/Profile: the resize signal
+        # rewrites the shared default image on disk, dirtying the working tree.
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        caps = [Vagabond.objects.create(title=f"Cap {i}", animal="Fox",
+                                        designer=self.designer, captain=True,
+                                        status=StatusChoices.STABLE, official=True)
+                for i in range(4)]
+
+        # Three: not a full complement, so nothing is preselected.
+        doc = self._doc()
+        doc["undrafted_captains"] = [c.slug for c in caps[:3]]
+        self._run(doc, run_capture=True)
+        self.thread.refresh_from_db()
+        opts = lfg_option_querysets(self.thread, None)
+        form = mock.Mock(initial={})
+        from the_warroom.views import _prefill_boxscore_components
+        _prefill_boxscore_components(form, self.thread, opts)
+        self.assertNotIn("undrafted_captains", form.initial)
+
+        # Four: the full complement, so all of them are.
+        self.thread.undrafted_captains.set(caps)
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [{"kind": "Captain", "slug": c.slug} for c in caps],
+            source="boxscore")
+        self.thread.refresh_from_db()
+        opts = lfg_option_querysets(self.thread, None)
+        form = mock.Mock(initial={})
+        from the_warroom.views import _prefill_boxscore_components
+        _prefill_boxscore_components(form, self.thread, opts)
+        self.assertEqual(sorted(form.initial["undrafted_captains"]),
+                         sorted(c.pk for c in caps))
+
+    def test_an_unrecognised_undrafted_slug_is_dropped(self):
+        doc = self._doc()
+        doc["undrafted_faction"] = "no-such-faction-anywhere"
+
+        self._run(doc, run_capture=True)
+
+        self.thread.refresh_from_db()
+        self.assertIsNone(self.thread.undrafted_faction_id)
+
+    def test_an_unrecognised_component_slug_is_not_rolled(self):
+        """An LFGRoll whose slug matches no Post would narrow that bucket to
+        nothing, hiding every real option for the field."""
+        doc = self._doc()
+        doc["participants"][0]["faction"] = "no-such-faction-anywhere"
+
+        self._run(doc, run_capture=True)
+
+        self.thread.refresh_from_db()
+        self.assertNotIn("Faction",
+                         [r.kind for r in self.thread.roll_log.all()])
 
 
 class BoxScoreGateZeroTests(BoxScoreCommandTests):
@@ -12342,8 +12690,14 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
                      "for a new token to upload again",
                      "new token if you want to upload again"):
             self.assertNotIn(dead, source)
-        # The apply-failure paths that DO keep a payload point at the command.
-        self.assertEqual(source.count('_boxscore_kept_note(ref, "to try again")'), 2)
+        # The apply-failure paths that DO keep a payload point at the command
+        # instead. Asserted on the helper's OUTPUT rather than by counting call
+        # sites, which moved when the refusal text was centralised.
+        self.assertIn("/boxscore token", di._boxscore_apply_error([], "t:1"))
+        # A specific reason (a roster mismatch names who) must not be replaced by
+        # the generic line -- that is the part the reader can act on.
+        self.assertEqual(di._boxscore_apply_error(["mrdrouf is missing"], "t:1"),
+                         "mrdrouf is missing")
 
     # ── restoring a discarded upload ────────────────────────────────────────
 
@@ -12367,7 +12721,7 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
             })
         return BoxScoreUploadToken.objects.get(pk=token.pk)
 
-    def _press_restore(self, token, author=None):
+    def _press_restore(self, token, author=None, capture=False):
         payload = {
             "data": {"custom_id":
                      f"boxscore_restore:{token.pk}:{author or self.AUTHOR}"},
@@ -12375,9 +12729,71 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
             "member": {"user": {"id": author or self.AUTHOR,
                                 "username": "tokplayer"}},
         }
-        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()), \
+                mock.patch.object(di.post_boxscore_prompt_task, "delay") as prompt, \
+                mock.patch.object(di.post_channel_message_task, "delay") as post:
             response = di.COMPONENT_HANDLERS["boxscore_restore"](payload)
-        return json.loads(response.content)["data"]
+        data = json.loads(response.content)["data"]
+        return (data, prompt, post) if capture else data
+
+    def test_restore_posts_the_prompt_into_the_thread(self):
+        """NOT as this interaction's response. The Restore button sits on the
+        ephemeral /boxscore token reply, so an interaction response would be
+        ephemeral too -- unanswerable by the host and moderators, who are
+        allowed to act on it, and with no durable message_id for the sweep to
+        strip buttons from when it lapses."""
+        token = self._discarded()
+        payload = dict(token.payload)
+        payload["seats"][0].update(profile_pk=None, label="nobody-at-all",
+                                   player_slug="nobody-at-all")
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(payload=payload)
+
+        data, prompt, _post = self._press_restore(token, capture=True)
+
+        # The gate went to the THREAD...
+        self.assertTrue(prompt.called)
+        body = prompt.call_args.args[1]
+        self.assertIn("Box score restored", body["content"])
+        self.assertTrue(body["components"])
+        # ...and the ephemeral reply is just an acknowledgement, carrying no
+        # buttons of its own for anyone to click.
+        self.assertEqual(data["flags"], di.EPHEMERAL)
+        self.assertFalse(data.get("components"))
+
+    def test_a_restored_prompt_pings_the_restorer(self):
+        """Ownership moved to whoever pressed Restore, so the ping follows it --
+        token.issued_by is stale in memory after the update()."""
+        original = Profile.objects.create(discord="original",
+                                          discord_id="920000000000000009")
+        self.thread.host = self.player
+        self.thread.save(update_fields=["host"])
+        token = self._discarded(issued_by=original)
+        payload = dict(token.payload)
+        payload["seats"][0].update(profile_pk=None, label="nobody-at-all",
+                                   player_slug="nobody-at-all")
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(payload=payload)
+
+        _data, prompt, _post = self._press_restore(token, capture=True)
+
+        body = prompt.call_args.args[1]
+        self.assertIn(f"<@{self.player.discord_id}>", body["content"])
+        self.assertNotIn(f"<@{original.discord_id}>", body["content"])
+        self.assertEqual(body["allowed_mentions"],
+                         {"users": [self.player.discord_id]})
+
+    def test_restoring_a_clean_upload_announces_it_in_the_thread(self):
+        """A restore that needs no gate still belongs in the thread: the game was
+        just written, and only the restorer would see an ephemeral summary."""
+        token = self._discarded()
+
+        data, _prompt, post = self._press_restore(token, capture=True)
+
+        self.assertTrue(post.called)
+        content = post.call_args.args[1]
+        self.assertIn(f"<@{self.player.discord_id}>", content)
+        self.assertEqual(post.call_args.kwargs["allowed_mentions"],
+                         {"users": [self.player.discord_id]})
+        self.assertEqual(data["flags"], di.EPHEMERAL)
 
     def test_it_offers_restore_alongside_a_fresh_token(self):
         """Both, never one instead of the other: a fresh upload of a DIFFERENT
@@ -12706,6 +13122,80 @@ class BoxScoreUploadSweepTests(TestCase):
         self.assertTrue(BoxScoreUploadToken.objects.filter(pk=live.pk).exists())
 
 
+class BoxScoreMatchRosterTests(TestCase):
+    """A match game is exactly its match roster.
+
+    The record form's clean() enforces that at save time; this is the same rule
+    applied to the FILE, while the uploader is still there to fix it. The subtle
+    part is that an UNIDENTIFIED seat cancels an unseated player -- the file just
+    didn't say who sat there, and Gate 0 exists to let someone say. Refusing that
+    would block the flow that resolves it.
+    """
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.a = Profile.objects.create(discord="mra", discord_id="9001")
+        self.b = Profile.objects.create(discord="mrb", discord_id="9002")
+        self.c = Profile.objects.create(discord="mrc", discord_id="9003")
+        self.roster = [self.a, self.b, self.c]
+
+    def _seats(self, *profiles):
+        """One seat per argument; None means the file named nobody we could match."""
+        return [{"profile_pk": p.pk if p else None} for p in profiles]
+
+    def test_an_exact_match_is_accepted(self):
+        self.assertIsNone(di._boxscore_roster_mismatch(
+            self._seats(self.a, self.b, self.c), self.roster))
+
+    def test_an_unidentified_seat_cancels_an_unseated_player(self):
+        """THE case: 3 seats, 2 identified, 1 unknown, 3 participants. Gate 0 is
+        about to ask who that seat is -- refusing here would pre-empt it."""
+        self.assertIsNone(di._boxscore_roster_mismatch(
+            self._seats(self.a, self.b, None), self.roster))
+
+    def test_two_unknown_seats_cancel_two_unseated_players(self):
+        self.assertIsNone(di._boxscore_roster_mismatch(
+            self._seats(self.a, None, None), self.roster))
+
+    def test_a_missing_player_with_no_unknown_seat_is_refused(self):
+        error = di._boxscore_roster_mismatch(
+            self._seats(self.a, self.b), self.roster)
+        self.assertIsNotNone(error)
+        # Names WHO, so the uploader can act on it.
+        self.assertIn("mrc", error)
+
+    def test_a_player_outside_the_match_is_refused(self):
+        stranger = Profile.objects.create(discord="stranger", discord_id="9009")
+        error = di._boxscore_roster_mismatch(
+            self._seats(self.a, self.b, stranger), self.roster)
+        self.assertIsNotNone(error)
+        self.assertIn("stranger", error)
+        self.assertIn("not in this match", error)
+
+    def test_an_intruder_is_refused_even_when_the_counts_balance(self):
+        """The balance is necessary but not sufficient: swapping a match player
+        for an outsider keeps the numbers and is still wrong."""
+        stranger = Profile.objects.create(discord="stranger", discord_id="9010")
+        error = di._boxscore_roster_mismatch(
+            self._seats(self.a, self.b, stranger), self.roster)
+        self.assertIn("stranger", error)
+
+    def test_more_seats_than_players_is_refused(self):
+        error = di._boxscore_roster_mismatch(
+            self._seats(self.a, self.b, self.c, None), self.roster)
+        self.assertIsNotNone(error)
+        self.assertIn("more seats", error)
+
+    def test_a_thread_with_no_match_roster_is_never_refused(self):
+        """None means "not a match" -- a plain LFG thread has no fixed roster and
+        keeps its own seat-comparison flow."""
+        self.assertIsNone(di._boxscore_roster_mismatch(
+            self._seats(self.a), None))
+        self.assertIsNone(di._boxscore_roster_mismatch(
+            self._seats(self.a), []))
+
+
 class BoxScoreRosterGuardTests(TestCase):
     """/boxscore's subcommands are gated by the thread's roster.
 
@@ -13016,7 +13506,11 @@ class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
         thread.players.add(self.player)
         data = self._run()
         self.assertIn(f"lfg={thread.pk}", data["content"])
-        self.assertEqual(data["flags"], di.EPHEMERAL)
+        # PUBLIC, not ephemeral: the other players in the thread should be able
+        # to open the link without each running the command themselves. The page
+        # still gates on _can_view_lfg_availability, so nothing leaks.
+        self.assertNotIn("flags", data)
+        self.assertEqual(data["allowed_mentions"], {"parse": []})
 
     def test_a_series_thread_links_by_series_id(self):
         """A tournament group thread's roster lives in the player group, so it uses
@@ -13030,6 +13524,9 @@ class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
     def test_outside_a_thread_says_where_to_run_it(self):
         data = self._run(channel_id="not-a-thread")
         self.assertIn("inside your game's thread", data["content"])
+        # Still EPHEMERAL, unlike the link itself: an error concerns only the
+        # person who mistyped, and posting it would be noise in the channel.
+        self.assertEqual(data["flags"], di.EPHEMERAL)
 
     def test_the_command_is_registered_and_guarded(self):
         names = [c["name"] for c in dc.all_command_definitions()]

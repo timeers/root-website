@@ -1504,7 +1504,19 @@ window.autoCheckWinFromScore = function (scoreField) {
     const winField = document.getElementById(scoreField.id.replace(/-score$/, '-win'));
     if (!winField) return;
     const score = parseInt(String(scoreField.value).trim(), 10);
-    winField.checked = (!isNaN(score) && score >= WIN_SCORE_THRESHOLD);
+    const isWinningScore = (!isNaN(score) && score >= WIN_SCORE_THRESHOLD);
+    // ASYMMETRIC on purpose. Reaching 30 still checks Win -- 30 points wins
+    // regardless of anything else. But falling BELOW 30 must not uncheck a row
+    // that declared a dominance or a coalition: that win came from something the
+    // score cannot express, so the 30-point guess has nothing to say about it.
+    //
+    // The unconditional assignment this replaces is what silently destroyed an
+    // imported sub-30 dominance win -- the grid's recalcRow runs it on every
+    // prefilled row, undoing the Win the box score had just set.
+    const formIndex = scoreField.id.replace(/^id_form-/, '').replace(/-score$/, '');
+    if (isWinningScore || !effortHasDominance(formIndex)) {
+        winField.checked = isWinningScore;
+    }
 };
 
 document.addEventListener('DOMContentLoaded', function() {
