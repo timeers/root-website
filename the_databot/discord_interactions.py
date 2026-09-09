@@ -443,10 +443,22 @@ def _handle_availability_command(data):
     if not url:
         return _ephemeral("I can't build that link right now — try again later.")
 
-    return _ephemeral(
-        f"Compare when this game's players are free:\n{url}\n"
-        "-# Only the players in this game (and moderators) can open it."
-    )
+    # PUBLIC, unlike the two errors above: the whole point is that the other
+    # players in the thread can open it too, and an ephemeral reply would make
+    # everyone run the command for themselves. The link leaks nothing -- the page
+    # itself gates on _can_view_lfg_availability.
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {
+            "content": (f"Compare when this game's players are free:\n{url}\n"
+                        "-# Only the players in this game (and moderators) can "
+                        "view it."),
+            # The URL is ours and the text is not user-supplied, but a thread
+            # name could be -- keep the default parse off, as every other posted
+            # message here does.
+            "allowed_mentions": {"parse": []},
+        },
+    })
 
 
 def _handle_record_command(data):

@@ -13506,7 +13506,11 @@ class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
         thread.players.add(self.player)
         data = self._run()
         self.assertIn(f"lfg={thread.pk}", data["content"])
-        self.assertEqual(data["flags"], di.EPHEMERAL)
+        # PUBLIC, not ephemeral: the other players in the thread should be able
+        # to open the link without each running the command themselves. The page
+        # still gates on _can_view_lfg_availability, so nothing leaks.
+        self.assertNotIn("flags", data)
+        self.assertEqual(data["allowed_mentions"], {"parse": []})
 
     def test_a_series_thread_links_by_series_id(self):
         """A tournament group thread's roster lives in the player group, so it uses
@@ -13520,6 +13524,9 @@ class AvailabilityCommandTests(ScheduleFixtureMixin, TestCase):
     def test_outside_a_thread_says_where_to_run_it(self):
         data = self._run(channel_id="not-a-thread")
         self.assertIn("inside your game's thread", data["content"])
+        # Still EPHEMERAL, unlike the link itself: an error concerns only the
+        # person who mistyped, and posting it would be noise in the channel.
+        self.assertEqual(data["flags"], di.EPHEMERAL)
 
     def test_the_command_is_registered_and_guarded(self):
         names = [c["name"] for c in dc.all_command_definitions()]
