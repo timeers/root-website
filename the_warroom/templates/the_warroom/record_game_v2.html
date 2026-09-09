@@ -1366,6 +1366,8 @@ window.ScorecardGrid = (function () {
         reorder: reorder,
         refreshFactionLabel: refreshFactionLabel,
         validateAndSerialize: validateAndSerialize,
+        // Exported for autoCheckWinFromScore, which lives outside this IIFE.
+        effortHasDominance: effortHasDominance,
         serializeDraft: serializeDraft,
         applyDraft: applyDraft,
         onChange: onChange,
@@ -1513,8 +1515,15 @@ window.autoCheckWinFromScore = function (scoreField) {
     // The unconditional assignment this replaces is what silently destroyed an
     // imported sub-30 dominance win -- the grid's recalcRow runs it on every
     // prefilled row, undoing the Win the box score had just set.
+    //
+    // effortHasDominance lives inside the ScorecardGrid IIFE, so it is reached
+    // through the module -- guarded, since this is on window and the delegated
+    // input listener can fire before ScorecardGrid.init() has run. No grid means
+    // no dominance to protect, so fall through to the plain assignment.
     const formIndex = scoreField.id.replace(/^id_form-/, '').replace(/-score$/, '');
-    if (isWinningScore || !effortHasDominance(formIndex)) {
+    const hasDom = !!(window.ScorecardGrid && window.ScorecardGrid.effortHasDominance
+        && window.ScorecardGrid.effortHasDominance(formIndex));
+    if (isWinningScore || !hasDom) {
         winField.checked = isWinningScore;
     }
 };
