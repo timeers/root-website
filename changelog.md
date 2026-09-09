@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.7] - 2026-9-9 Box Score Bug Busting
+
+### Bug Fixes
+- js was breaking due to auto filling box score to game form
+
 ## [1.13.6] - 2026-9-8 Box Score API & Availability
 
 ### New Features
