@@ -25,7 +25,9 @@ from .services.discordservice import (send_discord_dm, sync_bot_guilds,
                                       register_guild_commands, DM_ERROR)
 # lfg_game imports no models at module level (it defers them inside functions for
 # the circular-import reason documented there), so this is safe at import time.
-from .services.lfg_game import schedule_closed_embed, PROPOSAL_RETIRED_TEXT
+from .services.lfg_game import (
+    schedule_closed_embed, PROPOSAL_RETIRED_TEXT, name_join,
+)
 
 import logging
 
@@ -267,10 +269,25 @@ def notify_lfg_cancelled_task(notify_ids, host_name, description, jump_url=None)
                                     "Use `/lfg` to start a new game."))
 
 
+# How many names a closed-poll DM lists before summarizing. A poll with no roster
+# has no upper bound on responders, and a DM naming thirty people is unreadable.
+_DM_NAME_MAX = 4
+
+
+def _summarize_names(names, limit=_DM_NAME_MAX):
+    """"A, B and C" — or "A, B, C, D + 3 more" once past the cap.
+
+    Bolded per name, matching the declined line these sit beside."""
+    names = [f"**{n}**" for n in names]
+    if len(names) <= limit:
+        return name_join(names)
+    return f"{', '.join(names[:limit])} + {len(names) - limit} more"
+
+
 @shared_task
 def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
                               yes_count=0, total=None, declined=None,
-                              scheduled=False, jump_url=None):
+                              scheduled=False, jump_url=None, confirmed=None):
     """DM the 🔔 subscribers of a /schedule poll.
 
     `event` is "yes" (someone just confirmed, with a running count) or "closed"
@@ -296,11 +313,21 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
     else:
         if scheduled:
             content = f"The poll for {when} closed — everyone confirmed. ✅{link}"
-        elif declined:
+        elif declined and total is not None:
+            # A poll with a roster: every player had to agree, so one decline
+            # means no time could be set. `total is not None` IS that test --
+            # the same tri-state the "yes" branch above reads.
             names = ", ".join(f"**{n}**" for n in declined)
             content = (f"The poll for {when} closed — {names} couldn't make it, so "
-                       f"no time was scheduled. Run `/schedule` to propose "
+                       f"no time was scheduled. Run `/schedule set` to propose "
                        f"another.{link}")
+        elif declined and confirmed:
+            # No roster, so nothing was ever going to be booked and a decline
+            # vetoes nothing. Who CAN make it is the actual result.
+            content = (f"The poll for {when} closed — "
+                       f"{_summarize_names(confirmed)} can make it.{link}")
+        elif declined:
+            content = f"The poll for {when} closed — nobody could make it.{link}"
         else:
             # The count replaces "before everyone responded" -- it says the same
             # thing precisely, and reads correctly whether or not a roster

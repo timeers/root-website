@@ -1514,13 +1514,15 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         self.assertIn(di.SCHEDULE_UNLINKED_NOTE, data["content"])
         self.assertIn("confirm", data["content"].lower())
 
-    def test_the_confirm_button_is_sched_free_not_schedule_confirm(self):
+    def test_no_schedule_confirm_button_without_a_match(self):
         """schedule_confirm looks the match up by id and would answer 'that match
-        can no longer be scheduled'."""
+        can no longer be scheduled'. The poll is what's offered instead -- Display
+        (sched_free) belongs to /timestamp now."""
         data = self._body(di._handle_schedule_command(self._data()))["data"]
         ids = [c["custom_id"] for r in data["components"] for c in r["components"]]
-        self.assertTrue(any(i.startswith("sched_free:") for i in ids))
         self.assertFalse(any(i.startswith("schedule_confirm:") for i in ids))
+        self.assertFalse(any(i.startswith("sched_free:") for i in ids))
+        self.assertTrue(any(i.startswith("sched_poll_open:") for i in ids))
 
     def test_nothing_is_written_by_the_preview(self):
         di._handle_schedule_command(self._data())
@@ -1970,9 +1972,11 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
         data = self._body(di._handle_schedule_tz_region(payload))["data"]
         self.assertIn("can't set the time", data["content"])
 
-    def test_the_picker_returns_a_sched_free_button_not_schedule_confirm(self):
-        """The break this test exists for: finishing the picker on an unlinked path
-        must not hand back a match-path button carrying the sentinel."""
+    def test_a_pre_deploy_custom_id_still_finishes_the_picker(self):
+        """This custom_id carries NO mode arg -- the shape used before /timestamp
+        existed. Those prompts are still sitting in channels, so they must fall
+        back to schedule mode rather than erroring, and must not hand back a
+        match-path button carrying the sentinel."""
         payload = {
             "guild_id": self.guild.guild_id, "channel_id": self.UNLINKED_CHANNEL,
             "member": {"user": {"id": self.player.discord_id}},
@@ -1985,8 +1989,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
         }
         data = self._body(di._handle_schedule_tz_zone(payload))["data"]
         ids = [c["custom_id"] for r in data["components"] for c in r["components"]]
-        self.assertTrue(any(i.startswith("sched_free:") for i in ids))
         self.assertFalse(any(i.startswith("schedule_confirm:") for i in ids))
+        self.assertTrue(any(i.startswith("sched_poll_open:") for i in ids))
 
     def test_the_timezone_is_saved_from_an_unlinked_thread(self):
         """The payoff of get-or-create: a zone set here is reused everywhere."""
@@ -3333,16 +3337,19 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
         proposal = self._proposal(self.when)
         content = self._capture(lambda: di._finalize_proposal(proposal))
         self.assertIsNotNone(content)
-        self.assertIn("is scheduled for", content)
+        self.assertIn("is scheduled", content)
         self.assertIn(self.group.name, content)
         self.assertIn(f"<t:{int(self.when.timestamp())}:F>", content)
+        # Three lines, the last a copy-pasteable code block.
+        self.assertIn(f"`<t:{int(self.when.timestamp())}:F>`", content)
+        self.assertEqual(len(content.split("\n")), 3)
 
     def test_a_changed_time_says_rescheduled(self):
         self.match.scheduled_time = self.when - timedelta(days=1)
         self.match.save(update_fields=["scheduled_time"])
         proposal = self._proposal(self.when)
         content = self._capture(lambda: di._finalize_proposal(proposal))
-        self.assertIn("is rescheduled for", content)
+        self.assertIn("is rescheduled", content)
 
     def test_confirming_the_same_time_announces_nothing(self):
         """Re-confirming a slot that didn't move isn't news."""
@@ -8101,8 +8108,9 @@ class RandomOptionsPanelTests(TestCase):
 # require_participant_schedule_confirmation (default True).
 
 class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
-    """The picker offers TWO buttons in every mode. Poll always leads; the second
-    depends on whether this time can actually be written."""
+    """/schedule set's picker. Suggest (the poll) always leads; Set Time joins it
+    only when a match resolved AND the tournament doesn't require confirmation.
+    Display never appears here -- that button belongs to /timestamp."""
 
     def setUp(self):
         self.build(populate_group=True)
@@ -8135,26 +8143,32 @@ class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("schedule_confirm", actions)
         self.assertNotIn("sched_free", actions)
 
-    def test_match_with_confirmation_on_offers_poll_and_suggest(self):
+    def test_match_with_confirmation_on_offers_suggest_only(self):
         """The flag decides whether the BYPASS exists — not whether you're asked.
         With it on, only a confirmed poll may write, so Set Time is not offered."""
         actions = self._actions()
         self.assertEqual(actions[0], "sched_poll_open")
-        self.assertIn("sched_free", actions)
         self.assertNotIn("schedule_confirm", actions)
 
-    def test_an_lfg_thread_offers_poll_and_suggest(self):
+    def test_an_lfg_thread_offers_suggest_only(self):
         thread = LFGThread.objects.create(thread_id="777000111")
         thread.players.set([self.player, self.teammate])
         actions = self._actions(thread_id="777000111")
         self.assertEqual(actions[0], "sched_poll_open")
-        self.assertIn("sched_free", actions)
         self.assertNotIn("schedule_confirm", actions)
 
-    def test_a_bare_channel_offers_poll_and_suggest(self):
+    def test_a_bare_channel_offers_the_poll(self):
+        """No match to write to, but the poll still works: a rosterless one that
+        closes when the host says so."""
         actions = self._actions(channel="999000111")
         self.assertEqual(actions[0], "sched_poll_open")
-        self.assertIn("sched_free", actions)
+        self.assertNotIn("schedule_confirm", actions)
+
+    def test_schedule_set_never_offers_display(self):
+        """Display belongs to /timestamp. Offering it here too would read as a
+        second way to 'post' a time from the scheduling command."""
+        for kwargs in ({}, {"channel": "999000111"}):
+            self.assertNotIn("sched_free", self._actions(**kwargs))
 
     def test_the_poll_id_carries_the_match_in_match_mode(self):
         """The open handler re-resolves the match at click time, so the id has to
@@ -8177,6 +8191,172 @@ class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
         for custom_id in self._ids():
             last = di.decode_custom_id(custom_id)[1][-1]
             self.assertEqual(last, str(self.player.discord_id))
+
+    def test_the_prompt_carries_a_copyable_timestamp(self):
+        """Discord renders <t:...> unselectably, so the raw markup is the only way
+        to get the time back out and paste it elsewhere."""
+        data = {
+            "name": "schedule",
+            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "_guild_id": self.guild.guild_id, "_channel_id": "555000111",
+            "_channel_name": None, "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        content = json.loads(
+            di._handle_schedule_command(data).content)["data"]["content"]
+        ts = re.search(r"<t:(\d+):F>", content).group(1)
+        self.assertIn(f"`<t:{ts}:F>`", content)
+
+
+class TimestampCommandTests(ScheduleFixtureMixin, TestCase):
+    """/timestamp: the same parser and picker as /schedule set, but it never
+    resolves a match and its only action is Display."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+
+    def _data(self, time_text="Sep 15 2026 8pm", channel="555000111", **extra):
+        options = [{"name": "time", "value": time_text}] if time_text else []
+        options += [{"name": k, "value": v} for k, v in extra.items()]
+        return {
+            "name": "timestamp", "options": options,
+            "_guild_id": self.guild.guild_id, "_channel_id": channel,
+            "_channel_name": None, "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+
+    def _body(self, **kwargs):
+        return json.loads(di._handle_timestamp_command(self._data(**kwargs)).content)
+
+    def _actions(self, **kwargs):
+        return [di.decode_custom_id(c["custom_id"])[0]
+                for r in self._body(**kwargs)["data"].get("components", [])
+                for c in r["components"]]
+
+    def test_it_offers_display_and_never_a_write(self):
+        actions = self._actions()
+        self.assertEqual(actions[0], "sched_free")
+        self.assertNotIn("schedule_confirm", actions)
+        self.assertNotIn("sched_poll_open", actions)
+
+    def test_it_behaves_the_same_in_a_match_thread_as_a_plain_channel(self):
+        """Match-free by design: the thread it runs in must not change anything."""
+        self.assertEqual(self._actions(channel="555000111"),
+                         self._actions(channel="999000111"))
+
+    def test_it_shows_both_the_rendered_and_copyable_forms(self):
+        content = self._body()["data"]["content"]
+        ts = re.search(r"<t:(\d+):F>", content).group(1)
+        self.assertIn(f"<t:{ts}:F> (<t:{ts}:R>)", content)
+        self.assertIn(f"`<t:{ts}:F>`", content)
+
+    def test_it_writes_nothing(self):
+        self._body()
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+    def test_it_omits_the_unlinked_disclaimer(self):
+        """There is no game here to be confused about -- the note would be noise."""
+        self.assertNotIn(di.SCHEDULE_UNLINKED_NOTE, self._body()["data"]["content"])
+
+    def test_an_unparseable_time_is_refused(self):
+        body = self._body(time_text="not a time at all")
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertNotIn("components", body["data"])
+
+    def test_it_asks_for_a_timezone_when_it_has_none(self):
+        self.player.timezone = ""
+        self.player.save(update_fields=["timezone"])
+        body = self._body()
+        select = body["data"]["components"][0]["components"][0]
+        self.assertTrue(select["custom_id"].startswith("schedule_tz_region:"))
+
+    def test_the_typed_text_survives_the_new_code_block(self):
+        """The prompt now contains a BACKTICKED line, and _SCHEDULE_INPUT_RE hunts
+        for backticks. It survives only because that pattern is line-anchored --
+        pin it, because the failure mode is a silent one."""
+        self.player.timezone = ""
+        self.player.save(update_fields=["timezone"])
+        content = self._body(time_text="Sep 15 2026 8pm")["data"]["content"]
+        recovered = di._schedule_input_text({"message": {"content": content}})
+        self.assertEqual(recovered, "Sep 15 2026 8pm")
+
+    def test_the_picker_carries_the_mode_back(self):
+        """A /timestamp run in an LFG thread is indistinguishable from a
+        /schedule set that found no match, so the mode cannot be re-derived from
+        the channel -- it has to ride in the custom_id."""
+        self.player.timezone = ""
+        self.player.save(update_fields=["timezone"])
+        select = self._body()["data"]["components"][0]["components"][0]
+        _action, args = di.decode_custom_id(select["custom_id"])
+        self.assertEqual(di._tz_mode(args), di.TIMESTAMP_MODE)
+        # Owner still last, or the dispatcher's owner-lock stops firing.
+        self.assertEqual(args[-1], str(self.player.discord_id))
+
+
+class RosterPingTests(TestCase):
+    """Who gets pinged above a public schedule post. The requirement is that an
+    empty result means NO content key at all -- never a blank mention line."""
+
+    class _P:
+        def __init__(self, discord_id):
+            self.discord_id = discord_id
+
+    def test_others_are_pinged_but_never_the_invoker(self):
+        roster = [self._P("111"), self._P("222"), self._P("333")]
+        self.assertEqual(di._roster_ping_others(roster, "111"), "<@222> <@333>")
+
+    def test_nothing_to_ping_returns_none(self):
+        for label, roster in (
+            ("empty roster", []),
+            ("only the invoker", [self._P("111")]),
+            ("all unlinked", [self._P(""), self._P(None)]),
+            ("invoker plus unlinked", [self._P("111"), self._P("")]),
+        ):
+            with self.subTest(label):
+                self.assertIsNone(di._roster_ping_others(roster, "111"))
+
+    def test_an_unlinked_profile_is_not_mistaken_for_the_invoker(self):
+        """Profile.discord_id is "" when unlinked; a falsy exclusion must not
+        match it and silently drop a real player."""
+        roster = [self._P(""), self._P("222")]
+        self.assertEqual(di._roster_ping_others(roster, None), "<@222>")
+
+    def test_the_kill_switch_silences_every_site(self):
+        roster = [self._P("111"), self._P("222")]
+        with mock.patch.object(di, "SCHEDULE_ROSTER_PINGS", False):
+            self.assertIsNone(di._roster_ping_others(roster, "111"))
+
+
+class PollEmbedTimestampParseTests(TestCase):
+    """The embed poll is STATELESS: every click re-reads its instant out of the
+    rendered description. The copy-paste code block put a SECOND <t:...> in that
+    description, so the parser's "first match wins" is now load-bearing."""
+
+    def test_the_instant_survives_a_second_timestamp_in_the_description(self):
+        when = (timezone.now() + timedelta(days=3)).replace(microsecond=0)
+        data = di._schedule_poll_data(
+            when, "111", yes=[], no=[], notify_ids=[], pending=None, kind="bare")
+        description = data["embeds"][0]["description"]
+        # Both forms are present -- that is the point of the change.
+        self.assertEqual(description.count("<t:"), 3)  # F, R, and the code block
+        parsed, _proposer, _label, _author = di._poll_embed_meta(
+            data["embeds"][0])
+        self.assertEqual(int(parsed.timestamp()), int(when.timestamp()))
+
+    def test_the_rendered_line_comes_before_the_code_block(self):
+        """Ordering is what keeps the parser correct; assert it directly rather
+        than relying on both lines happening to carry the same seconds."""
+        when = (timezone.now() + timedelta(days=3)).replace(microsecond=0)
+        data = di._schedule_poll_data(
+            when, "111", yes=[], no=[], notify_ids=[], pending=None, kind="bare")
+        description = data["embeds"][0]["description"]
+        ts = int(when.timestamp())
+        self.assertLess(description.index(f"<t:{ts}:F> (<t:{ts}:R>)"),
+                        description.index(f"`<t:{ts}:F>`"))
 
 
 class SchedulePollOpenTests(ScheduleFixtureMixin, TestCase):
@@ -8421,11 +8601,36 @@ class SchedulePollNotifyDMTests(TestCase):
         content = self._send(event="closed", when_ts=self.WHEN, scheduled=True)
         self.assertIn("everyone confirmed", content)
 
-    def test_a_declined_close_names_who_couldnt_make_it(self):
+    def test_a_declined_close_on_a_roster_poll_names_who_couldnt_make_it(self):
+        """With a roster every player had to agree, so one No really does mean
+        no time was set. `total` is what says a roster existed."""
         content = self._send(event="closed", when_ts=self.WHEN,
-                             declined=["Ben"])
+                             declined=["Ben"], total=5)
         self.assertIn("**Ben** couldn't make it", content)
         self.assertIn("no time was scheduled", content)
+        self.assertIn("/schedule set", content)
+
+    def test_a_declined_close_without_a_roster_reports_who_can_make_it(self):
+        """A poll with no roster books nothing, so a decline vetoes nothing --
+        "no time was scheduled" describes a failure that never applied."""
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"], confirmed=["Amy", "Cy"],
+                             total=None)
+        self.assertIn("**Amy** and **Cy** can make it", content)
+        self.assertNotIn("no time was scheduled", content)
+        self.assertNotIn("couldn't make it", content)
+
+    def test_a_rosterless_close_summarizes_a_long_confirmed_list(self):
+        content = self._send(
+            event="closed", when_ts=self.WHEN, declined=["Ben"],
+            confirmed=["A", "B", "C", "D", "E", "F"], total=None)
+        self.assertIn("+ 2 more", content)
+        self.assertNotIn("**F**", content)
+
+    def test_a_rosterless_close_with_nobody_confirmed(self):
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"], confirmed=[], total=None)
+        self.assertIn("nobody could make it", content.lower())
 
     def test_an_early_close_reports_the_count(self):
         """"before everyone responded" was wrong wherever no roster existed --
@@ -9472,37 +9677,42 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
 
-    def test_website_edit_cancels_open_proposals(self):
-        """The bracket editor writes scheduled_time directly. Without this sweep a
-        stale Confirm button in Discord could later overwrite the time set here."""
+    def _edit_series(self, body):
+        """POST the bracket editor as an organizer. Returns (response, strip mock,
+        announce mock) so callers can assert on what the save set in motion."""
         from django.urls import reverse
         from django.contrib.auth.models import User
 
         # create_user auto-creates the Profile, so use that one rather than
         # reassigning self.designer (Profile.user is unique).
-        user = User.objects.create_user(username="organizer", password="pw")
-        self.tournament.designer = user.profile
-        self.tournament.save(update_fields=["designer"])
-        self.client.force_login(user)
+        if not self.client.session.get("_auth_user_id"):
+            user = User.objects.create_user(username="organizer", password="pw")
+            self.tournament.designer = user.profile
+            self.tournament.save(update_fields=["designer"])
+            self.client.force_login(user)
 
         url = reverse("round-edit-series", kwargs={
             "tournament_slug": self.tournament.slug,
             "stage_slug": self.stage.slug,
             "round_slug": self.round.slug,
         })
-        new_time = (timezone.now() + timedelta(days=20)).replace(microsecond=0)
         with mock.patch.object(
-                di.strip_schedule_proposal_messages_task, "delay") as strip:
+                di.strip_schedule_proposal_messages_task, "delay") as strip, \
+                mock.patch("the_warroom.services.channel_posts."
+                           "post_to_tournament_channel") as announce:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
-                    url,
-                    data=json.dumps({
-                        "series_id": self.series.id,
-                        "matches": [{"id": self.match.id,
-                                     "scheduled_time": new_time.isoformat()}],
-                    }),
-                    content_type="application/json",
-                )
+                    url, data=json.dumps({"series_id": self.series.id, **body}),
+                    content_type="application/json")
+        return response, strip, announce
+
+    def test_website_edit_cancels_open_proposals(self):
+        """The bracket editor writes scheduled_time directly. Without this sweep a
+        stale Confirm button in Discord could later overwrite the time set here."""
+        new_time = (timezone.now() + timedelta(days=20)).replace(microsecond=0)
+        response, strip, _announce = self._edit_series({
+            "matches": [{"id": self.match.id,
+                         "scheduled_time": new_time.isoformat()}]})
         self.assertEqual(response.status_code, 200)
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
@@ -9510,6 +9720,72 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
         # proposal died -- "cancelled" is a vaguer catch-all.
         _ids, reason = strip.call_args.args
         self.assertEqual(reason, "website")
+
+    def test_an_unchanged_time_leaves_proposals_alone(self):
+        """The editor posts every match row on every save, so a save that only
+        renamed the series used to kill live polls. THE bug this guard exists for."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        response, strip, announce = self._edit_series({
+            "name": "Renamed Group",
+            "matches": [{"id": self.match.id,
+                         "scheduled_time": self.when.isoformat()}]})
+        self.assertEqual(response.status_code, 200)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+        strip.assert_not_called()
+        announce.assert_not_called()
+
+    def test_sub_second_drift_is_not_a_change(self):
+        """The browser sends millisecond-precision isoformat, so a round-tripped
+        value can differ from the stored one by microseconds alone."""
+        self.match.scheduled_time = self.when.replace(microsecond=123456)
+        self.match.save(update_fields=["scheduled_time"])
+        _response, strip, announce = self._edit_series({
+            "matches": [{"id": self.match.id,
+                         "scheduled_time": self.when.isoformat()}]})
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+        strip.assert_not_called()
+        announce.assert_not_called()
+
+    def test_a_website_edit_announces_to_the_schedule_channel(self):
+        """A time set on the website was invisible in Discord before this."""
+        new_time = (timezone.now() + timedelta(days=20)).replace(microsecond=0)
+        _response, _strip, announce = self._edit_series({
+            "matches": [{"id": self.match.id,
+                         "scheduled_time": new_time.isoformat()}]})
+        announce.assert_called_once()
+        _tournament, field, content = announce.call_args.args
+        self.assertEqual(field, "schedule_channel")
+        self.assertIn("is scheduled", content)
+        self.assertIn(f"<t:{int(new_time.timestamp())}:F>", content)
+
+    def test_a_moved_website_time_says_rescheduled(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        moved = (self.when + timedelta(days=1)).replace(microsecond=0)
+        _response, _strip, announce = self._edit_series({
+            "matches": [{"id": self.match.id,
+                         "scheduled_time": moved.isoformat()}]})
+        self.assertIn("is rescheduled", announce.call_args.args[2])
+
+    def test_clearing_a_time_on_the_website_announces_nothing(self):
+        """Matches the bot: there is no 'unscheduled' announcement anywhere."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        _response, _strip, announce = self._edit_series({
+            "matches": [{"id": self.match.id, "scheduled_time": None}]})
+        announce.assert_not_called()
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+
+    def test_a_new_match_with_a_time_announces_scheduled(self):
+        new_time = (timezone.now() + timedelta(days=25)).replace(microsecond=0)
+        _response, _strip, announce = self._edit_series({
+            "add_matches": [{"scheduled_time": new_time.isoformat()}]})
+        announce.assert_called_once()
+        self.assertIn("is scheduled", announce.call_args.args[2])
 
     def test_website_reason_has_its_own_message(self):
         from the_databot.tasks import _PROPOSAL_RETIRED_TEXT
@@ -9573,22 +9849,25 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         self.assertIn(f"<@{self.player.discord_id}>", yes)
         self.assertNotIn(f"<@{self.player.discord_id}>", pending)
 
-    def test_pings_are_off_so_nothing_notifies(self):
-        """SCHEDULE_PROPOSAL_PINGS is off: no content line and no open mentions,
-        even on the first post. The embed still names who is waiting."""
-        first = di._schedule_proposal_data(self.proposal, self.match, mention=True)
-        self.assertNotIn("content", first)
-        self.assertEqual(first["allowed_mentions"]["parse"], [])
-        edit = di._schedule_proposal_data(self.proposal, self.match)
-        self.assertNotIn("content", edit)
-        self.assertEqual(edit["allowed_mentions"]["parse"], [])
-
-    def test_enabling_pings_mentions_the_pending_players(self):
-        """The disabled path must keep working, so exercise it explicitly."""
-        with mock.patch.object(di, "SCHEDULE_PROPOSAL_PINGS", True):
+    def test_disabling_pings_notifies_nobody(self):
+        """The kill switch must be a clean revert: with SCHEDULE_ROSTER_PINGS off
+        there is no content line and no open mentions, even on the first post, so
+        the payload matches the pre-ping one. The embed still names who is
+        waiting."""
+        with mock.patch.object(di, "SCHEDULE_ROSTER_PINGS", False):
             first = di._schedule_proposal_data(
                 self.proposal, self.match, mention=True)
             edit = di._schedule_proposal_data(self.proposal, self.match)
+        self.assertNotIn("content", first)
+        self.assertEqual(first["allowed_mentions"]["parse"], [])
+        self.assertNotIn("content", edit)
+        self.assertEqual(edit["allowed_mentions"]["parse"], [])
+
+    def test_pings_mention_the_pending_players(self):
+        """Pings are ON by default, and only on the first post."""
+        first = di._schedule_proposal_data(
+            self.proposal, self.match, mention=True)
+        edit = di._schedule_proposal_data(self.proposal, self.match)
         pending = list(self.proposal.pending_profiles())
         self.assertTrue(pending, "fixture needs someone still to confirm")
         for profile in pending:
@@ -9601,9 +9880,8 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
     def test_an_unlinked_player_is_not_pinged_but_is_still_named(self):
         unlinked = Profile.objects.create(discord="nolink", display_name="No Link")
         self.proposal.roster.add(unlinked)
-        with mock.patch.object(di, "SCHEDULE_PROPOSAL_PINGS", True):
-            data = di._schedule_proposal_data(
-                self.proposal, self.match, mention=True)
+        data = di._schedule_proposal_data(
+            self.proposal, self.match, mention=True)
         self.assertNotIn("No Link", data.get("content", ""))
         pending = next(f for f in data["embeds"][0]["fields"]
                        if f["name"].startswith(di.POLL_PENDING_FIELD))

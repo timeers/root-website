@@ -244,6 +244,29 @@ SCHEDULE_COMMAND = {
 }
 
 
+# The other half of /schedule set: same time parser and timezone picker, but it
+# never touches a Match. Its own command rather than a subcommand because it is
+# useful anywhere -- a plain channel included -- and nothing about it is scheduling.
+TIMESTAMP_COMMAND = {
+    "name": "timestamp",
+    "description": "Turn a time into a Discord timestamp you can paste anywhere",
+    "options": [
+        {"name": "time",
+         "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste',
+         "type": 3, "required": True},
+        # Same rationale as /schedule set's: the handler asks with a region/city
+        # picker when it has no timezone, and this option is the only route to a
+        # zone that picker doesn't curate.
+        #
+        # NOTE its autocomplete is keyed ("timestamp", "timezone") -- a TOP-LEVEL
+        # command, so the bare name is the key, unlike /schedule set's composite.
+        {"name": "timezone",
+         "description": "Override your saved timezone (otherwise I'll just ask)",
+         "type": 3, "required": False, "autocomplete": True},
+    ],
+}
+
+
 # Read-only and match-free, unlike /schedule: it reports when the thread's PLAYERS
 # are free, which works just as well in a plain /lfg thread that has no Match at
 # all. That is why it is its own command rather than a /schedule subcommand.
@@ -637,6 +660,7 @@ COMMANDS = [
     STATS_COMMAND,
     UPCOMING_COMMAND,
     SCHEDULE_COMMAND,
+    TIMESTAMP_COMMAND,
     AVAILABILITY_COMMAND,
     RECORD_COMMAND,
     LAW_COMMAND,
@@ -659,7 +683,7 @@ COMMAND_GROUPS = [
     ("General", ["help"]),
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card", "stats"]),
-    ("Organization", ["availability", "schedule", "upcoming"]),
+    ("Organization", ["availability", "schedule", "timestamp", "upcoming"]),
     ("Games", ["lfg", "adset", "seating", "pick",
                "boxscore_upload", "boxscore_token", "record", "rename"]),
     ("Randomize", ["draft", "random"]),

@@ -280,6 +280,16 @@ def format_discord_timestamp(dt):
     return f"<t:{ts}:F> (<t:{ts}:R>)"
 
 
+def format_discord_timestamp_code(dt):
+    """The raw `<t:unix:F>` in a code block, so a user can copy it out and paste it
+    anywhere. Discord renders the markup above unselectably, so this is the only way
+    to hand back the source.
+
+    Only the absolute form: it is what people paste elsewhere, and a relative hint
+    is meaningless once it leaves the message it was written for."""
+    return f"`<t:{int(dt.timestamp())}:F>`"
+
+
 def _supplied_fields(text, tzinfo):
     """Which date/time fields the input actually contained.
 

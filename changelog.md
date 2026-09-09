@@ -3,16 +3,21 @@
 ## [1.13.7] - 2026-9-9 Boxscore Bug Busting
 
 ### New Features
-- a guild linked Tournament can now send reminder messages through discord. Setup under the manage guild page by guild moderators
+- A guild linked Tournament can now send reminder messages through discord. Setup under the manage guild page by guild moderators
+- /timestamp command split out from /schedule set. The timestamp command simply displays the time with the timestamp for easy copying
 
 ### Improvements
-- better banner message for prefilled matches
-- better validation for Woodland Warriors urls
+- Better banner message for prefilled matches
+- Better validation for Woodland Warriors urls
+- Clearer wording on /schedule set. "Poll" is reworded to "Suggest"
+- Suggesting a time pings the players
 
 ### Bug Fixes
 - js was breaking due to auto filling box score to game form
-- empty seats were filling incorrectly on prefilled game forms. players were filled when they shouldn't be and other data was not filled when it was available
-- alert for forge submitted factions didn't link to submission queue
+- Empty seats were filling incorrectly on prefilled game forms. players were filled when they shouldn't be and other data was not filled when it was available
+- Alert for forge submitted factions didn't link to submission queue
+- Closed polls no longer say the time was rejected if there was no roster to compare to
+- Editing a match no longer kills open schedule polls
 
 ## [1.13.6] - 2026-9-8 Box Score API & Availability
 
