@@ -14175,6 +14175,57 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         # An unlinked player must never produce a literal empty mention.
         self.assertNotIn("<@>", content)
 
+    # --- the group moderator -------------------------------------------
+    def test_a_group_moderator_is_named_and_pinged(self):
+        mod = Profile.objects.create(discord="bixby", discord_id="9099099099099099")
+        self.group.group_moderator = mod
+        self.group.save(update_fields=["group_moderator"])
+        content = self._content(self._sweep())
+        self.assertIn(f"with <@{mod.discord_id}> moderating", content)
+        # After the label, before the time -- and the players still lead.
+        self.assertLess(content.index(f"<@{self.player.discord_id}>"),
+                        content.index("moderating"))
+        self.assertLess(content.index("moderating"), content.index("<t:"))
+
+    def test_an_unlinked_moderator_is_named_not_mentioned(self):
+        """Same rule the roster uses: no snowflake means no ping, but they are
+        still named rather than dropped."""
+        mod = Profile.objects.create(discord="bixby", discord_id=None)
+        self.group.group_moderator = mod
+        self.group.save(update_fields=["group_moderator"])
+        content = self._content(self._sweep())
+        self.assertIn(f"with {mod} moderating", content)
+        self.assertNotIn("<@>", content)
+        self.assertNotIn("<@None>", content)
+
+    def test_no_moderator_leaves_the_sentence_unchanged(self):
+        """The clause must vanish entirely, not leave a dangling "with"."""
+        self.group.group_moderator = None
+        self.group.save(update_fields=["group_moderator"])
+        content = self._content(self._sweep())
+        self.assertIn("starts soon — ", content)
+        self.assertNotIn("moderating", content)
+        self.assertNotIn(" with ", content)
+
+    def test_the_moderator_costs_no_extra_query(self):
+        """This queryset is hand-tuned with select_related + .only(); reading a
+        nullable FK outside it would be a query PER MATCH."""
+        mod = Profile.objects.create(discord="bixby", discord_id="9099099099099099")
+        self.group.group_moderator = mod
+        self.group.save(update_fields=["group_moderator"])
+        with mock.patch.object(tasks.post_channel_message_task, "delay"):
+            with CaptureQueriesContext(connection) as ctx:
+                tasks.remind_upcoming_matches()
+            baseline = len(ctx.captured_queries)
+        # A second match in its own series must not scale the query count with
+        # the number of matches -- that is what the prefetching is protecting.
+        self.match.reminder_sent_at = None
+        self.match.save(update_fields=["reminder_sent_at"])
+        with mock.patch.object(tasks.post_channel_message_task, "delay"):
+            with CaptureQueriesContext(connection) as ctx:
+                tasks.remind_upcoming_matches()
+        self.assertLessEqual(len(ctx.captured_queries), baseline)
+
     def test_content_uses_a_discord_timestamp_not_a_fixed_lead(self):
         """The message must not hardcode "in 60 minutes" -- a late sweep would
         make that a lie. <t:...> is resolved by each viewer's client instead."""

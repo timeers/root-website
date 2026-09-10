@@ -12,6 +12,7 @@
 - Clearer wording on /schedule set. "Poll" is reworded to "Suggest"
 - Suggesting a time pings the players
 - /lfg's host only actions now give a hint to press "Join"
+- Match mods are now included in scheduled reminder messages
 
 ### Bug Fixes
 - js was breaking due to auto filling box score to game form

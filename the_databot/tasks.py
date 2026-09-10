@@ -1233,11 +1233,24 @@ def remind_upcoming_matches():
                   # availability JSON, none of which this task touches.
                   .select_related('series', 'series__player_group', 'round',
                                   'round__stage', 'round__stage__tournament',
-                                  'round__stage__tournament__guild')
+                                  'round__stage__tournament__guild',
+                                  # The group's moderator is named in the reminder
+                                  # when one is set. Joined here rather than read
+                                  # lazily: a nullable FK costs a query per match
+                                  # otherwise, which is the whole thing this
+                                  # queryset is built to avoid.
+                                  'series__player_group__group_moderator')
                   .only('scheduled_time', 'reminder_sent_at', 'status',
                         'match_number', 'series_id', 'round_id',
                         'series__number_of_games', 'series__player_group_id',
                         'series__player_group__discord_thread',
+                        'series__player_group__group_moderator_id',
+                        # Only what a mention needs: the snowflake, plus the two
+                        # fields Profile.__str__ reads (via .name) when the
+                        # moderator never linked Discord and can't be pinged.
+                        'series__player_group__group_moderator__discord_id',
+                        'series__player_group__group_moderator__display_name',
+                        'series__player_group__group_moderator__discord',
                         'round__stage_id',
                         'round__stage__tournament_id',
                         'round__stage__tournament__match_reminder_minutes',
@@ -1314,12 +1327,25 @@ def remind_upcoming_matches():
         mentions = [f"<@{p.discord_id}>" if p.discord_id else str(p) for p in roster]
         pings = " ".join(mentions)
 
+        # The group's moderator, when it has one, named after the label so the
+        # players read who is running their game. Mentioned by the SAME rule as a
+        # player -- snowflake when linked, plain name when not -- and folded into
+        # the same allowed_mentions, so a linked moderator is notified too.
+        #
+        # Deliberately NOT added to `mentions`: they are not on the roster, and
+        # leading with them would read as though they were playing.
+        moderator = match.player_group.group_moderator if match.player_group else None
+        moderating = ""
+        if moderator is not None:
+            who = f"<@{moderator.discord_id}>" if moderator.discord_id else str(moderator)
+            moderating = f" with {who} moderating"
+
         when = format_discord_timestamp(match.scheduled_time)
         position = match.series_position
         label = (f"game {position} of {match.series.number_of_games}"
                  if position else "your match")
-        content = (f"{pings} {label} starts soon — {when}".strip() if pings
-                   else f"{label.capitalize()} starts soon — {when}")
+        content = (f"{pings} {label} starts soon{moderating} — {when}".strip() if pings
+                   else f"{label.capitalize()} starts soon{moderating} — {when}")
 
         # parse: ["users"] so this actually notifies. Without it the mentions
         # render as blue text and ping nobody, which is the entire feature.
