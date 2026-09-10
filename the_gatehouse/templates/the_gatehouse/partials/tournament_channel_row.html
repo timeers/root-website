@@ -3,11 +3,15 @@
 than mutating the page inline, so nothing here is a form and unsaved guild-form input is
 never disturbed.
 
-`channels` is a list of (label, display value) pairs built by _tournament_row_ctx in
-views.py — already filtered to the ones that are set, and already resolved from stored
+`channels` is a list of (label, display value, tag) triples built by _tournament_row_ctx
+in views.py — already filtered to the ones that are set, and already resolved from stored
 snowflake to channel name (falling back to the raw id when Discord is unreachable or the
 channel is gone). Kept out of the template because the lookup needs a dict access plus a
 fallback per field.
+
+`tag` is the forum tag NAME for the game-threads row and None everywhere else. Unlike a
+channel it has no id fallback — an unresolvable tag is omitted rather than shown raw, so
+`{% if tag %}` is the whole of the display rule.
 
 oob=True is set when this row is re-rendered as an out-of-band swap after a save — the id
 already matches, so hx-swap-oob="true" replaces the row in place.
@@ -17,8 +21,10 @@ already matches, so hx-swap-oob="true" replaces the row in place.
         <strong>{{ tournament.name }}</strong>
         {% if channels %}
             <div class="text-muted small">
-                {% for label, value in channels %}
-                    <div>{{ label }}: <code>{{ value }}</code></div>
+                {% for label, value, tag in channels %}
+                    <div>{{ label }}: <code>{{ value }}</code>{% if tag %}
+                        <i class="bi bi-tag" aria-hidden="true"></i> <code>{{ tag }}</code>
+                    {% endif %}</div>
                 {% endfor %}
             </div>
         {% else %}

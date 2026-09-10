@@ -21,7 +21,7 @@ from django.utils.decorators import method_decorator
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
 from django.utils.translation import gettext_lazy as _
-from django.utils.translation import activate, get_language
+from django.utils.translation import activate, get_language, ngettext
 from django.urls import reverse
 from django.views.generic import ListView
 
@@ -2572,6 +2572,33 @@ def _tournament_channel_context(guild, form):
     }
 
 
+def _forum_tag_name(tournament):
+    """The display NAME of a series' game-threads forum tag, or None.
+
+    Stored as a snowflake, so showing it raw would be meaningless -- unlike a
+    channel, whose id at least resolves through channel_names. Resolved against the
+    forum's own tag list, which is where tag names live; get_forum_channel_info
+    caches per channel, so listing N series that share a forum costs one lookup.
+
+    None whenever the answer can't be trusted: no tag set, no forum to look it up
+    in, Discord unreachable, or a tag that no longer exists on that forum. Returning
+    the id instead would put a bare 19-digit number on the row, which reads as
+    noise; saying nothing is the honest answer, and the edit modal still shows the
+    stored value.
+    """
+    tag_id = tournament.game_threads_tag
+    channel_id = tournament.game_threads_channel
+    if not tag_id or not channel_id:
+        return None
+    from the_databot.services.discordservice import get_forum_channel_info
+    info = get_forum_channel_info(channel_id)
+    if not info:
+        return None
+    name = next((t['name'] for t in info.get('tags') or []
+                 if str(t['id']) == str(tag_id)), None)
+    return name or None
+
+
 def _tournament_row_ctx(tournament, guild, channel_names):
     """Context for one series row. Channel names are resolved HERE rather than in the
     template: the row shows three channels, and a template-side dict lookup per field
@@ -2587,14 +2614,30 @@ def _tournament_row_ctx(tournament, guild, channel_names):
         name = channel_names.get(channel_id)
         return f'{prefix}{name}' if name else channel_id
 
+    minutes = tournament.match_reminder_minutes
+    # (label, value, tag) -- `tag` is the forum tag NAME shown after the value with a
+    # tag icon, and is None on every row that has no tag concept.
     channels = [
-        (_('Results'), label(tournament.results_channel)),
-        (_('Schedule'), label(tournament.schedule_channel)),
-        # Forum channels aren't addressed with a # in Discord's UI.
-        (_('Game threads'), label(tournament.game_threads_channel, prefix='')),
+        (_('Results'), label(tournament.results_channel), None),
+        (_('Schedule'), label(tournament.schedule_channel), None),
+        # Forum channels aren't addressed with a # in Discord's UI. The forum's tag
+        # rides on this same line -- it is a property OF that forum, not a separate
+        # destination, so giving it its own row would overstate it.
+        (_('Game threads'), label(tournament.game_threads_channel, prefix=''),
+         _forum_tag_name(tournament)),
+        # Not a channel, but it lives on the same form for the same reason (it only
+        # works with a guild the bot is in), so it belongs in the same summary.
+        # Carries its unit: a bare "30" beside three channel names reads as an id.
+        # NULL means reminders are off and is dropped by the filter below -- 0 is a
+        # real value ("at start time"), which is why this tests `is not None`
+        # rather than truthiness.
+        (_('Match reminder'),
+         ngettext('%(count)d minute before', '%(count)d minutes before', minutes)
+         % {'count': minutes} if minutes is not None else None,
+         None),
     ]
     return {'tournament': tournament, 'guild': guild,
-            'channels': [(lbl, val) for lbl, val in channels if val]}
+            'channels': [(lbl, val, tag) for lbl, val, tag in channels if val]}
 
 
 @login_required
