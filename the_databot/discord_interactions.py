@@ -2799,8 +2799,9 @@ def _schedule_free_public_data(when, proposer_id, kind, author=None, roster=()):
             # line -- readers of this embed take the FIRST `<t:` they find.
             format_discord_timestamp_code(when),
             "",
-            f"Suggested by <@{proposer_id}>.",
-            SCHEDULE_UNLINKED_NOTE,
+            # REMOVED TO KEEP MESSAGE MINIMAL
+            # f"Suggested by <@{proposer_id}>.",
+            # SCHEDULE_UNLINKED_NOTE,
         ]),
     }
     if author:
