@@ -9449,6 +9449,29 @@ def _lfg_set_notify_ids(embed, ids):
         fields[idx]["value"] = value
 
 
+# Extra sentence appended to the dispatcher's owner-lock refusal, per component.
+#
+# That refusal is ONE string shared by ~46 owner-locked custom_ids, so it can only
+# say what is true of all of them. The join gates are where the generic answer is
+# unhelpful: /lfg's ✖ and ✔ and /adset's Start sit immediately beside Join, and a
+# player reaching for one of them almost always meant to join or leave. Naming the
+# button they want turns a dead end into a direction.
+#
+# Keyed by custom_id ACTION; anything absent just gets the bare refusal. Kept here
+# beside the row that builds the /lfg buttons so a label change finds this text.
+#
+# ⚠️ Only add an action whose EVERY build site has that button on screen. The
+# dispatcher sees the action, not the message, so it cannot tell one phase from
+# another. adset_cancel is the counterexample and is deliberately absent: it is
+# built in four places and only the join gate has a Join button, so hinting it
+# would misdirect the draft-board, redraft and takeover phases.
+OWNER_LOCK_HINTS = {
+    "lfg_cancel": ' If you are trying to join or leave this game press "Join".',
+    "lfg_start": ' If you are trying to join or leave this game press "Join".',
+    "adset_start": ' If you are trying to join or leave this game press "Join".',
+}
+
+
 def _lfg_message_data(author, owner, description, players_value,
                       content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
     """Build the full join-message payload (embed + button row). Used ONLY for the
@@ -10355,7 +10378,11 @@ def discord_interactions(request):
             owner_id = last if (last.isdigit() and len(last) >= 17) else None
             clicker_id = _interaction_user_id(payload)
             if owner_id and clicker_id and clicker_id != owner_id:
-                return _ephemeral("Only the host can use this button.")
+                # The refusal is shared by every owner-locked component, so it says
+                # only what is true of all of them. /lfg's ✖ and ✔ sit right beside
+                # the button a non-host actually wants, so they add the pointer.
+                return _ephemeral("Only the host can use this button."
+                                  + OWNER_LOCK_HINTS.get(action, ""))
             try:
                 return handler(payload)  # component handlers take the full payload
             except Exception:

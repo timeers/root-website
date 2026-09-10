@@ -2293,6 +2293,54 @@ class EditChannelMessageBodyTests(TestCase):
                 self.assertEqual(result, expected)
 
 
+class OwnerLockHintTests(TestCase):
+    """The owner-lock refusal is ONE string shared by every locked component, so
+    the per-component hint has to be additive and narrowly scoped."""
+
+    def _refusal(self, action, *args):
+        """What the dispatcher would answer a non-host clicking this custom_id."""
+        return ("Only the host can use this button."
+                + di.OWNER_LOCK_HINTS.get(action, ""))
+
+    def test_the_join_gate_buttons_point_at_join(self):
+        """/lfg's ✖ and ✔ and /adset's Start all sit beside a Join button, and a
+        non-host reaching for one almost always meant to join or leave."""
+        for action in ("lfg_cancel", "lfg_start", "adset_start"):
+            with self.subTest(action):
+                text = self._refusal(action)
+                self.assertIn("Only the host can use this button.", text)
+                self.assertIn('press "Join"', text)
+
+    def test_other_locked_components_get_the_bare_refusal(self):
+        """The hint names a Join button, so it only belongs where one is on
+        screen. A /schedule prompt or a /draft has none."""
+        for action in ("schedule_cancel", "draft_build", "random_roll",
+                       "pick_seat", "boxscore_ok"):
+            with self.subTest(action):
+                self.assertEqual(self._refusal(action),
+                                 "Only the host can use this button.")
+
+    def test_adset_cancel_is_deliberately_unhinted(self):
+        """adset_cancel is built in FOUR places and only the join gate has a Join
+        button; the later phases (draft board, redraft, takeover) do not. The
+        dispatcher keys on ACTION and cannot tell them apart, so hinting it would
+        misdirect three of the four. Don't "complete the set"."""
+        self.assertNotIn("adset_cancel", di.OWNER_LOCK_HINTS)
+
+    def test_every_hinted_action_is_actually_owner_locked(self):
+        """A hint on an unlocked component would be dead code -- those custom_ids
+        end in the "g" marker and never reach this branch."""
+        for action in di.OWNER_LOCK_HINTS:
+            with self.subTest(action):
+                self.assertIn(action, di.COMPONENT_HANDLERS)
+
+    def test_the_hint_starts_with_a_separator(self):
+        """It is concatenated onto the shared sentence, so it must not run the
+        two together."""
+        for hint in di.OWNER_LOCK_HINTS.values():
+            self.assertTrue(hint.startswith(" "), repr(hint))
+
+
 class LFGStartGuardTests(TestCase):
     """✔ Start must not create a thread for a game that hasn't got a table:
     no parsed players at all, or the host sitting alone."""
